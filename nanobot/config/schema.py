@@ -288,7 +288,10 @@ class GatewayConfig(Base):
 class WebSearchConfig(Base):
     """Web search tool configuration."""
 
-    api_key: str = ""  # Brave Search API key
+    provider: str = ""  # brave, tavily, searxng, duckduckgo (empty = brave)
+    api_key: str = ""  # API key for selected provider
+    base_url: str = ""  # Base URL (SearXNG)
+    fallback_to_duckduckgo: bool = True
     max_results: int = 5
 
 

@@ -1,13 +1,16 @@
 """Web tools: web_search and web_fetch."""
 
+import asyncio
 import html
 import json
 import os
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from ddgs import DDGS
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool
@@ -44,8 +47,22 @@ def _validate_url(url: str) -> tuple[bool, str]:
         return False, str(e)
 
 
+def _format_results(query: str, items: list[dict[str, Any]], n: int) -> str:
+    """Format provider results into a shared plaintext output."""
+    if not items:
+        return f"No results for: {query}"
+    lines = [f"Results for: {query}\n"]
+    for i, item in enumerate(items[:n], 1):
+        title = _normalize(_strip_tags(item.get('title', '')))
+        snippet = _normalize(_strip_tags(item.get('content', '')))
+        lines.append(f"{i}. {title}\n   {item.get('url', '')}")
+        if snippet:
+            lines.append(f"   {snippet}")
+    return "\n".join(lines)
+
+
 class WebSearchTool(Tool):
-    """Search the web using Brave Search API."""
+    """Search the web using configured provider."""
 
     name = "web_search"
     description = "Search the web. Returns titles, URLs, and snippets."
@@ -58,49 +75,133 @@ class WebSearchTool(Tool):
         "required": ["query"]
     }
 
-    def __init__(self, api_key: str | None = None, max_results: int = 5, proxy: str | None = None):
-        self._init_api_key = api_key
-        self.max_results = max_results
-        self.proxy = proxy
+    def __init__(
+        self,
+        config: "WebSearchConfig | None" = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+        ddgs_factory: Callable[[], DDGS] | None = None,
+        proxy: str | None = None,
+    ):
+        from nanobot.config.schema import WebSearchConfig
 
-    @property
-    def api_key(self) -> str:
-        """Resolve API key at call time so env/config changes are picked up."""
-        return self._init_api_key or os.environ.get("BRAVE_API_KEY", "")
+        self.config = config if config is not None else WebSearchConfig()
+        self._transport = transport
+        self._ddgs_factory = ddgs_factory or (lambda: DDGS(timeout=10))
+        self.proxy = proxy
+        self._provider_dispatch: dict[str, Callable[[str, int], Awaitable[str]]] = {
+            "duckduckgo": self._search_duckduckgo,
+            "tavily": self._search_tavily,
+            "searxng": self._search_searxng,
+            "brave": self._search_brave,
+        }
 
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
-        if not self.api_key:
-            return (
-                "Error: Brave Search API key not configured. Set it in "
-                "~/.nanobot/config.json under tools.web.search.apiKey "
-                "(or export BRAVE_API_KEY), then restart the gateway."
-            )
+        provider = (self.config.provider or "brave").strip().lower()
+        n = min(max(count or self.config.max_results, 1), 10)
+
+        search = self._provider_dispatch.get(provider)
+        if search is None:
+            return f"Error: unknown search provider '{provider}'"
+        return await search(query, n)
+
+    async def _fallback_to_duckduckgo(self, missing_key: str, query: str, n: int) -> str:
+        logger.warning("Falling back to DuckDuckGo: {} not configured", missing_key)
+        ddg = await self._search_duckduckgo(query=query, n=n)
+        if ddg.startswith('Error:'):
+            return ddg
+        return f'Using DuckDuckGo fallback ({missing_key} missing).\n\n{ddg}'
+
+    async def _search_brave(self, query: str, n: int) -> str:
+        api_key = self.config.api_key or os.environ.get("BRAVE_API_KEY", "")
+        if not api_key:
+            if self.config.fallback_to_duckduckgo:
+                return await self._fallback_to_duckduckgo('BRAVE_API_KEY', query, n)
+            return "Error: BRAVE_API_KEY not configured"
 
         try:
-            n = min(max(count or self.max_results, 1), 10)
-            logger.debug("WebSearch: {}", "proxy enabled" if self.proxy else "direct connection")
-            async with httpx.AsyncClient(proxy=self.proxy) as client:
+            async with httpx.AsyncClient(transport=self._transport, proxy=self.proxy) as client:
                 r = await client.get(
                     "https://api.search.brave.com/res/v1/web/search",
                     params={"q": query, "count": n},
-                    headers={"Accept": "application/json", "X-Subscription-Token": self.api_key},
-                    timeout=10.0
+                    headers={"Accept": "application/json", "X-Subscription-Token": api_key},
+                    timeout=10.0,
                 )
                 r.raise_for_status()
 
-            results = r.json().get("web", {}).get("results", [])[:n]
-            if not results:
+            items = [{"title": x.get("title", ""), "url": x.get("url", ""),
+                      "content": x.get("description", "")}
+                     for x in r.json().get("web", {}).get("results", [])]
+            return _format_results(query, items, n)
+        except Exception as e:
+            return f"Error: {e}"
+
+    async def _search_tavily(self, query: str, n: int) -> str:
+        api_key = self.config.api_key or os.environ.get("TAVILY_API_KEY", "")
+        if not api_key:
+            if self.config.fallback_to_duckduckgo:
+                return await self._fallback_to_duckduckgo('TAVILY_API_KEY', query, n)
+            return "Error: TAVILY_API_KEY not configured"
+
+        try:
+            async with httpx.AsyncClient(transport=self._transport, proxy=self.proxy) as client:
+                r = await client.post(
+                    "https://api.tavily.com/search",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={"query": query, "max_results": n},
+                    timeout=15.0,
+                )
+                r.raise_for_status()
+
+            results = r.json().get("results", [])
+            return _format_results(query, results, n)
+        except Exception as e:
+            return f"Error: {e}"
+
+    async def _search_duckduckgo(self, query: str, n: int) -> str:
+        try:
+            ddgs = self._ddgs_factory()
+            raw_results = await asyncio.to_thread(ddgs.text, query, max_results=n)
+
+            if not raw_results:
                 return f"No results for: {query}"
 
-            lines = [f"Results for: {query}\n"]
-            for i, item in enumerate(results, 1):
-                lines.append(f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
-                if desc := item.get("description"):
-                    lines.append(f"   {desc}")
-            return "\n".join(lines)
-        except httpx.ProxyError as e:
-            logger.error("WebSearch proxy error: {}", e)
-            return f"Proxy error: {e}"
+            items = [
+                {
+                    "title": result.get("title", ""),
+                    "url": result.get("href", ""),
+                    "content": result.get("body", ""),
+                }
+                for result in raw_results
+            ]
+            return _format_results(query, items, n)
+        except Exception as e:
+            logger.warning("DuckDuckGo search failed: {}", e)
+            return f"Error: DuckDuckGo search failed ({e})"
+
+    async def _search_searxng(self, query: str, n: int) -> str:
+        base_url = (self.config.base_url or os.environ.get("SEARXNG_BASE_URL", "")).strip()
+        if not base_url:
+            if self.config.fallback_to_duckduckgo:
+                return await self._fallback_to_duckduckgo('SEARXNG_BASE_URL', query, n)
+            return "Error: SEARXNG_BASE_URL not configured"
+
+        endpoint = f"{base_url.rstrip('/')}/search"
+        is_valid, error_msg = _validate_url(endpoint)
+        if not is_valid:
+            return f"Error: invalid SearXNG URL: {error_msg}"
+
+        try:
+            async with httpx.AsyncClient(transport=self._transport, proxy=self.proxy) as client:
+                r = await client.get(
+                    endpoint,
+                    params={"q": query, "format": "json"},
+                    headers={"User-Agent": USER_AGENT},
+                    timeout=10.0,
+                )
+                r.raise_for_status()
+
+            results = r.json().get("results", [])
+            return _format_results(query, results, n)
         except Exception as e:
             logger.error("WebSearch error: {}", e)
             return f"Error: {e}"
@@ -157,7 +258,8 @@ class WebFetchTool(Tool):
                 text, extractor = r.text, "raw"
 
             truncated = len(text) > max_chars
-            if truncated: text = text[:max_chars]
+            if truncated:
+                text = text[:max_chars]
 
             return json.dumps({"url": url, "finalUrl": str(r.url), "status": r.status_code,
                               "extractor": extractor, "truncated": truncated, "length": len(text), "text": text}, ensure_ascii=False)

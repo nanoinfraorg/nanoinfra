@@ -1,8 +1,10 @@
 from typing import Any
 
+from nanobot.agent.tools.web import WebSearchTool
 from nanobot.agent.tools.base import Tool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
+from nanobot.config.schema import WebSearchConfig
 
 
 class SampleTool(Tool):
@@ -337,3 +339,16 @@ def test_cast_params_single_value_not_auto_wrapped_to_array() -> None:
     assert result["items"] == 5  # Not wrapped to [5]
     result = tool.cast_params({"items": "text"})
     assert result["items"] == "text"  # Not wrapped to ["text"]
+
+
+async def test_web_search_no_fallback_returns_provider_error() -> None:
+    tool = WebSearchTool(
+        config=WebSearchConfig(
+            provider="brave",
+            api_key="",
+            fallback_to_duckduckgo=False,
+        )
+    )
+
+    result = await tool.execute(query="fallback", count=1)
+    assert result == "Error: BRAVE_API_KEY not configured"
