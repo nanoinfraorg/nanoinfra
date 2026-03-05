@@ -161,7 +161,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
 
     # VolcEngine Coding Plan (火山引擎 Coding Plan): same key as volcengine
     ProviderSpec(
-        name="volcengine_plan",
+        name="volcengine_coding_plan",
         keywords=("volcengine-plan",),
         env_key="OPENAI_API_KEY",
         display_name="VolcEngine Coding Plan",
@@ -197,7 +197,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
 
     # BytePlus Coding Plan: same key as byteplus
     ProviderSpec(
-        name="byteplus_plan",
+        name="byteplus_coding_plan",
         keywords=("byteplus-plan",),
         env_key="OPENAI_API_KEY",
         display_name="BytePlus Coding Plan",
