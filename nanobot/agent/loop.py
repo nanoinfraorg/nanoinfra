@@ -362,6 +362,7 @@ class AgentLoop:
         if len(chunk) < 2:
             return
 
+        before_msg_count = len(session.messages)
         logger.info(
             "Compression chunk {}: msgs {}-{} (count={}, est~{}, need~{})",
             session.key,
@@ -383,12 +384,13 @@ class AgentLoop:
         self._set_compressed_until(session, end_idx)
         self.sessions.save(session)
 
+        after_msg_count = len(session.messages)
         after_tokens, after_source = self._estimate_session_prompt_tokens(session)
         after_ratio = after_tokens / budget if budget else 0.0
         reduced = max(0, current_tokens - after_tokens)
         reduced_ratio = (reduced / current_tokens) if current_tokens > 0 else 0.0
         logger.info(
-            "Compression done {}: {}/{} ({:.1%}) via {}, reduced={} ({:.1%})",
+            "Compression done {}: {}/{} ({:.1%}) via {}, reduced={} ({:.1%}), history: {} -> {}",
             session.key,
             after_tokens,
             budget,
@@ -396,6 +398,8 @@ class AgentLoop:
             after_source,
             reduced,
             reduced_ratio,
+            before_msg_count,
+            after_msg_count,
         )
 
     def _schedule_background_compression(self, session_key: str) -> None:
