@@ -98,7 +98,7 @@ class MessageTool(Tool):
             media=media or [],
             metadata={
                 "message_id": message_id,
-            }
+            },
         )
 
         try:
