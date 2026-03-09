@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import os
+import sys
 import weakref
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -392,6 +394,15 @@ class AgentLoop:
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="🐈 nanobot commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands")
+        if cmd == "/restart":
+            await self.bus.publish_outbound(OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id, content="🔄 Restarting..."
+            ))
+            async def _r():
+                await asyncio.sleep(1)
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+            asyncio.create_task(_r())
+            return None
 
         unconsolidated = len(session.messages) - session.last_consolidated
         if (unconsolidated >= self.memory_window and session.key not in self._consolidating):
