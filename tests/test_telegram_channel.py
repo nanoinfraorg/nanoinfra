@@ -27,6 +27,7 @@ class _FakeUpdater:
 class _FakeBot:
     def __init__(self) -> None:
         self.sent_messages: list[dict] = []
+        self.file = None
 
     async def get_me(self):
         return SimpleNamespace(username="nanobot_test")
@@ -36,6 +37,9 @@ class _FakeBot:
 
     async def send_message(self, **kwargs) -> None:
         self.sent_messages.append(kwargs)
+
+    async def get_file(self, _file_id):
+        return self.file
 
 
 class _FakeApp:
@@ -182,3 +186,56 @@ async def test_send_reply_infers_topic_from_message_id_cache() -> None:
 
     assert channel._app.bot.sent_messages[0]["message_thread_id"] == 42
     assert channel._app.bot.sent_messages[0]["reply_parameters"].message_id == 10
+
+
+@pytest.mark.asyncio
+async def test_on_message_uses_file_unique_id_for_downloaded_media(monkeypatch, tmp_path) -> None:
+    config = TelegramConfig(enabled=True, token="123:abc", allow_from=["*"])
+    channel = TelegramChannel(config, MessageBus())
+    channel._app = _FakeApp(lambda: None)
+
+    downloaded: dict[str, str] = {}
+
+    class _FakeDownloadedFile:
+        async def download_to_drive(self, path: str) -> None:
+            downloaded["path"] = path
+
+    channel._app.bot.file = _FakeDownloadedFile()
+
+    captured: dict[str, object] = {}
+
+    async def _capture_message(**kwargs) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(channel, "_handle_message", _capture_message)
+    monkeypatch.setattr(channel, "_start_typing", lambda _chat_id: None)
+    monkeypatch.setattr("nanobot.channels.telegram.get_media_dir", lambda _name=None: tmp_path)
+
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=123, username="alice", first_name="Alice"),
+        message=SimpleNamespace(
+            message_id=1,
+            chat=SimpleNamespace(type="private", is_forum=False),
+            chat_id=456,
+            text=None,
+            caption=None,
+            photo=[
+                SimpleNamespace(
+                    file_id="file-id-that-should-not-be-used",
+                    file_unique_id="stable-unique-id",
+                    mime_type="image/jpeg",
+                    file_name=None,
+                )
+            ],
+            voice=None,
+            audio=None,
+            document=None,
+            media_group_id=None,
+            message_thread_id=None,
+        ),
+    )
+
+    await channel._on_message(update, None)
+
+    assert downloaded["path"].endswith("stable-unique-id.jpg")
+    assert captured["media"] == [str(tmp_path / "stable-unique-id.jpg")]
