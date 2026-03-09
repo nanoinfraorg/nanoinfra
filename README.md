@@ -482,7 +482,8 @@ Uses **WebSocket** long connection — no public IP required.
       "appSecret": "xxx",
       "encryptKey": "",
       "verificationToken": "",
-      "allowFrom": ["ou_YOUR_OPEN_ID"]
+      "allowFrom": ["ou_YOUR_OPEN_ID"],
+      "groupPolicy": "open"
     }
   }
 }
@@ -490,6 +491,18 @@ Uses **WebSocket** long connection — no public IP required.
 
 > `encryptKey` and `verificationToken` are optional for Long Connection mode.
 > `allowFrom`: Add your open_id (find it in nanobot logs when you message the bot). Use `["*"]` to allow all users.
+
+**Group Chat Policy** (optional):
+
+| Option | Values | Default | Description |
+|--------|--------|---------|-------------|
+| `groupPolicy` | `"open"` | `"open"` | Respond to all group messages (backward compatible) |
+| | `"mention"` | | Only respond when @mentioned |
+
+> [!NOTE]
+> - `"open"`: Respond to all messages in all groups
+> - `"mention"`: Only respond when @mentioned in any group
+> - Private chats are unaffected (always respond)
 
 **3. Run**
 
