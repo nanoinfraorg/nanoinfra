@@ -207,6 +207,7 @@ Connect nanobot to your favorite chat platform.
 | **Slack** | Bot token + App-Level token |
 | **Email** | IMAP/SMTP credentials |
 | **QQ** | App ID + App Secret |
+| **Wecom** | Bot ID + App Secret |
 
 <details>
 <summary><b>Telegram</b> (Recommended)</summary>
@@ -673,6 +674,44 @@ Give nanobot its own email account. It polls **IMAP** for incoming mail and repl
 ```bash
 nanobot gateway
 ```
+
+</details>
+
+<details>
+<summary><b>Wecom (企业微信)</b></summary>
+
+Uses **WebSocket** long connection — no public IP required.
+
+**1. Create a wecom bot**
+
+In the client's workspace, click on "Intelligent Robot" to create a robot and choose API mode for creation.
+Select to create in "long connection" mode, and obtain Bot ID and Secret.
+
+**2. Configure**
+
+```json
+{
+  "channels": {
+    "wecom": {
+      "enabled": true,
+      "botId": "your_bot_id",
+      "secret": "your_secret",
+      "allowFrom": [
+        "your_id"
+      ]
+    }
+  }
+}
+```
+
+**3. Run**
+
+```bash
+nanobot gateway
+```
+
+> [!TIP]
+> wecom uses WebSocket to receive messages — no webhook or public IP needed!
 
 </details>
 
