@@ -3,11 +3,11 @@
 Skill Packager - Creates a distributable .skill file of a skill folder
 
 Usage:
-    python utils/package_skill.py <path/to/skill-folder> [output-directory]
+    python package_skill.py <path/to/skill-folder> [output-directory]
 
 Example:
-    python utils/package_skill.py skills/public/my-skill
-    python utils/package_skill.py skills/public/my-skill ./dist
+    python package_skill.py skills/public/my-skill
+    python package_skill.py skills/public/my-skill ./dist
 """
 
 import sys
@@ -23,6 +23,14 @@ def _is_within(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _cleanup_partial_archive(skill_filename: Path) -> None:
+    try:
+        if skill_filename.exists():
+            skill_filename.unlink()
+    except OSError:
+        pass
 
 
 def package_skill(skill_path, output_dir=None):
@@ -74,49 +82,56 @@ def package_skill(skill_path, output_dir=None):
 
     EXCLUDED_DIRS = {".git", ".svn", ".hg", "__pycache__", "node_modules"}
 
+    files_to_package = []
+    resolved_archive = skill_filename.resolve()
+
+    for file_path in skill_path.rglob("*"):
+        # Fail closed on symlinks so the packaged contents are explicit and predictable.
+        if file_path.is_symlink():
+            print(f"[ERROR] Symlink not allowed in packaged skill: {file_path}")
+            _cleanup_partial_archive(skill_filename)
+            return None
+
+        rel_parts = file_path.relative_to(skill_path).parts
+        if any(part in EXCLUDED_DIRS for part in rel_parts):
+            continue
+
+        if file_path.is_file():
+            resolved_file = file_path.resolve()
+            if not _is_within(resolved_file, skill_path):
+                print(f"[ERROR] File escapes skill root: {file_path}")
+                _cleanup_partial_archive(skill_filename)
+                return None
+            # If output lives under skill_path, avoid writing archive into itself.
+            if resolved_file == resolved_archive:
+                print(f"[WARN] Skipping output archive: {file_path}")
+                continue
+            files_to_package.append(file_path)
+
     # Create the .skill file (zip format)
     try:
         with zipfile.ZipFile(skill_filename, "w", zipfile.ZIP_DEFLATED) as zipf:
-            # Walk through the skill directory
-            for file_path in skill_path.rglob("*"):
-                # Security: never follow or package symlinks.
-                if file_path.is_symlink():
-                    print(f"[WARN] Skipping symlink: {file_path}")
-                    continue
-
-                rel_parts = file_path.relative_to(skill_path).parts
-                if any(part in EXCLUDED_DIRS for part in rel_parts):
-                    continue
-
-                if file_path.is_file():
-                    resolved_file = file_path.resolve()
-                    if not _is_within(resolved_file, skill_path):
-                        print(f"[ERROR] File escapes skill root: {file_path}")
-                        return None
-                    # If output lives under skill_path, avoid writing archive into itself.
-                    if resolved_file == skill_filename.resolve():
-                        print(f"[WARN] Skipping output archive: {file_path}")
-                        continue
-
-                    # Calculate the relative path within the zip.
-                    arcname = Path(skill_name) / file_path.relative_to(skill_path)
-                    zipf.write(file_path, arcname)
-                    print(f"  Added: {arcname}")
+            for file_path in files_to_package:
+                # Calculate the relative path within the zip.
+                arcname = Path(skill_name) / file_path.relative_to(skill_path)
+                zipf.write(file_path, arcname)
+                print(f"  Added: {arcname}")
 
         print(f"\n[OK] Successfully packaged skill to: {skill_filename}")
         return skill_filename
 
     except Exception as e:
+        _cleanup_partial_archive(skill_filename)
         print(f"[ERROR] Error creating .skill file: {e}")
         return None
 
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python utils/package_skill.py <path/to/skill-folder> [output-directory]")
+        print("Usage: python package_skill.py <path/to/skill-folder> [output-directory]")
         print("\nExample:")
-        print("  python utils/package_skill.py skills/public/my-skill")
-        print("  python utils/package_skill.py skills/public/my-skill ./dist")
+        print("  python package_skill.py skills/public/my-skill")
+        print("  python package_skill.py skills/public/my-skill ./dist")
         sys.exit(1)
 
     skill_path = sys.argv[1]
