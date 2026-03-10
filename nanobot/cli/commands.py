@@ -310,9 +310,9 @@ def gateway(
         logging.basicConfig(level=logging.DEBUG)
 
     config = _load_runtime_config(config, workspace)
-    selected_port = port if port is not None else config.gateway.port
+    port = port if port is not None else config.gateway.port
 
-    console.print(f"{__logo__} Starting nanobot gateway on port {selected_port}...")
+    console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
     sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
     provider = _make_provider(config)
