@@ -71,6 +71,12 @@ class EmailChannel(BaseChannel):
             return
 
         self._running = True
+        if not self.config.verify_dkim and not self.config.verify_spf:
+            logger.warning(
+                "Email channel: DKIM and SPF verification are both DISABLED. "
+                "Emails with spoofed From headers will be accepted. "
+                "Set verify_dkim=true and verify_spf=true for anti-spoofing protection."
+            )
         logger.info("Starting Email channel (IMAP polling mode)...")
 
         poll_seconds = max(5, int(self.config.poll_interval_seconds))
@@ -270,6 +276,23 @@ class EmailChannel(BaseChannel):
                 if not sender:
                     continue
 
+                # --- Anti-spoofing: verify Authentication-Results ---
+                spf_pass, dkim_pass = self._check_authentication_results(parsed)
+                if self.config.verify_spf and not spf_pass:
+                    logger.warning(
+                        "Email from {} rejected: SPF verification failed "
+                        "(no 'spf=pass' in Authentication-Results header)",
+                        sender,
+                    )
+                    continue
+                if self.config.verify_dkim and not dkim_pass:
+                    logger.warning(
+                        "Email from {} rejected: DKIM verification failed "
+                        "(no 'dkim=pass' in Authentication-Results header)",
+                        sender,
+                    )
+                    continue
+
                 subject = self._decode_header_value(parsed.get("Subject", ""))
                 date_value = parsed.get("Date", "")
                 message_id = parsed.get("Message-ID", "").strip()
@@ -280,7 +303,7 @@ class EmailChannel(BaseChannel):
 
                 body = body[: self.config.max_body_chars]
                 content = (
-                    f"Email received.\n"
+                    f"[EMAIL-CONTEXT] Email received.\n"
                     f"From: {sender}\n"
                     f"Subject: {subject}\n"
                     f"Date: {date_value}\n\n"
@@ -392,6 +415,23 @@ class EmailChannel(BaseChannel):
         if msg.get_content_type() == "text/html":
             return cls._html_to_text(payload).strip()
         return payload.strip()
+
+    @staticmethod
+    def _check_authentication_results(parsed_msg: Any) -> tuple[bool, bool]:
+        """Parse Authentication-Results headers for SPF and DKIM verdicts.
+
+        Returns:
+            A tuple of (spf_pass, dkim_pass) booleans.
+        """
+        spf_pass = False
+        dkim_pass = False
+        for ar_header in parsed_msg.get_all("Authentication-Results") or []:
+            ar_lower = ar_header.lower()
+            if re.search(r"\bspf\s*=\s*pass\b", ar_lower):
+                spf_pass = True
+            if re.search(r"\bdkim\s*=\s*pass\b", ar_lower):
+                dkim_pass = True
+        return spf_pass, dkim_pass
 
     @staticmethod
     def _html_to_text(raw_html: str) -> str:
