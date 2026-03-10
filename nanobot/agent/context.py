@@ -10,12 +10,13 @@ from typing import Any
 
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
+from nanobot.utils.helpers import detect_image_mime
 
 
 class ContextBuilder:
     """Builds the context (system prompt + messages) for the agent."""
 
-    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
+    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md"]
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
 
     def __init__(self, workspace: Path):
@@ -58,6 +59,19 @@ Skills with available="false" need dependencies installed first - you can try in
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
 
+        platform_policy = ""
+        if system == "Windows":
+            platform_policy = """## Platform Policy (Windows)
+- You are running on Windows. Do not assume GNU tools like `grep`, `sed`, or `awk` exist.
+- Prefer Windows-native commands or file tools when they are more reliable.
+- If terminal output is garbled, retry with UTF-8 output enabled.
+"""
+        else:
+            platform_policy = """## Platform Policy (POSIX)
+- You are running on a POSIX system. Prefer UTF-8 and standard shell tools.
+- Use file tools when they are simpler or more reliable than shell commands.
+"""
+
         return f"""# nanobot 🐈
 
 You are nanobot, a helpful AI assistant.
@@ -70,6 +84,8 @@ Your workspace is at: {workspace_path}
 - Long-term memory: {workspace_path}/memory/MEMORY.md (write important facts here)
 - History log: {workspace_path}/memory/HISTORY.md (grep-searchable). Each entry starts with [YYYY-MM-DD HH:MM].
 - Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md
+
+{platform_policy}
 
 ## nanobot Guidelines
 - State intent before tool calls, but NEVER predict or claim results before receiving them.
@@ -112,11 +128,20 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         chat_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
+        runtime_ctx = self._build_runtime_context(channel, chat_id)
+        user_content = self._build_user_content(current_message, media)
+
+        # Merge runtime context and user content into a single user message
+        # to avoid consecutive same-role messages that some providers reject.
+        if isinstance(user_content, str):
+            merged = f"{runtime_ctx}\n\n{user_content}"
+        else:
+            merged = [{"type": "text", "text": runtime_ctx}] + user_content
+
         return [
             {"role": "system", "content": self.build_system_prompt(skill_names)},
             *history,
-            {"role": "user", "content": self._build_runtime_context(channel, chat_id)},
-            {"role": "user", "content": self._build_user_content(current_message, media)},
+            {"role": "user", "content": merged},
         ]
 
     def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
@@ -127,10 +152,14 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         images = []
         for path in media:
             p = Path(path)
-            mime, _ = mimetypes.guess_type(path)
-            if not p.is_file() or not mime or not mime.startswith("image/"):
+            if not p.is_file():
                 continue
-            b64 = base64.b64encode(p.read_bytes()).decode()
+            raw = p.read_bytes()
+            # Detect real MIME type from magic bytes; fallback to filename guess
+            mime = detect_image_mime(raw) or mimetypes.guess_type(path)[0]
+            if not mime or not mime.startswith("image/"):
+                continue
+            b64 = base64.b64encode(raw).decode()
             images.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
 
         if not images:

@@ -74,7 +74,8 @@ class ChannelManager:
             try:
                 from nanobot.channels.feishu import FeishuChannel
                 self.channels["feishu"] = FeishuChannel(
-                    self.config.channels.feishu, self.bus
+                    self.config.channels.feishu, self.bus,
+                    groq_api_key=self.config.providers.groq.api_key,
                 )
                 logger.info("Feishu channel enabled")
             except ImportError as e:
@@ -148,6 +149,16 @@ class ChannelManager:
                 logger.info("Matrix channel enabled")
             except ImportError as e:
                 logger.warning("Matrix channel not available: {}", e)
+
+        self._validate_allow_from()
+
+    def _validate_allow_from(self) -> None:
+        for name, ch in self.channels.items():
+            if getattr(ch.config, "allow_from", None) == []:
+                raise SystemExit(
+                    f'Error: "{name}" has empty allowFrom (denies all). '
+                    f'Set ["*"] to allow everyone, or add specific user IDs.'
+                )
 
     async def _start_channel(self, name: str, channel: BaseChannel) -> None:
         """Start a channel and log any exceptions."""
