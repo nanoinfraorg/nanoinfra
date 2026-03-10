@@ -587,7 +587,7 @@ class AgentLoop:
 
             tool_defs = self.tools.get_definitions()
 
-            response = await self.provider.chat(
+            response = await self.provider.chat_with_retry(
                 messages=messages,
                 tools=tool_defs,
                 model=self.model,
