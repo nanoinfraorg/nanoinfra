@@ -327,7 +327,6 @@ def test_gateway_workspace_option_overrides_config(monkeypatch, tmp_path: Path) 
     assert seen["workspace"] == override
     assert config.workspace_path == override
 
-
 def test_gateway_uses_config_directory_for_cron_store(monkeypatch, tmp_path: Path) -> None:
     config_file = tmp_path / "instance" / "config.json"
     config_file.parent.mkdir(parents=True)
