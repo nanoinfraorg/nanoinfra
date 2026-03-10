@@ -143,7 +143,8 @@ class ExecTool(Tool):
 
             for raw in self._extract_absolute_paths(cmd):
                 try:
-                    p = Path(raw.strip()).resolve()
+                    expanded = os.path.expandvars(raw.strip())
+                    p = Path(expanded).expanduser().resolve()
                 except Exception:
                     continue
                 if p.is_absolute() and cwd_path not in p.parents and p != cwd_path:
@@ -155,4 +156,5 @@ class ExecTool(Tool):
     def _extract_absolute_paths(command: str) -> list[str]:
         win_paths = re.findall(r"[A-Za-z]:\\[^\s\"'|><;]+", command)   # Windows: C:\...
         posix_paths = re.findall(r"(?:^|[\s|>])(/[^\s\"'>]+)", command) # POSIX: /absolute only
-        return win_paths + posix_paths
+        home_paths = re.findall(r"(?:^|[\s|>])(~[^\s\"'>;|<]*)", command) # POSIX/Windows home shortcut: ~
+        return win_paths + posix_paths + home_paths

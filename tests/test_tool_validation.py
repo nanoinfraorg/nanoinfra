@@ -108,6 +108,19 @@ def test_exec_extract_absolute_paths_captures_posix_absolute_paths() -> None:
     assert "/tmp/out.txt" in paths
 
 
+def test_exec_extract_absolute_paths_captures_home_paths() -> None:
+    cmd = "cat ~/.nanobot/config.json > ~/out.txt"
+    paths = ExecTool._extract_absolute_paths(cmd)
+    assert "~/.nanobot/config.json" in paths
+    assert "~/out.txt" in paths
+
+
+def test_exec_guard_blocks_home_path_outside_workspace(tmp_path) -> None:
+    tool = ExecTool(restrict_to_workspace=True)
+    error = tool._guard_command("cat ~/.nanobot/config.json", str(tmp_path))
+    assert error == "Error: Command blocked by safety guard (path outside working dir)"
+
+
 # --- cast_params tests ---
 
 
