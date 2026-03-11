@@ -78,6 +78,25 @@
   <img src="nanobot_arch.png" alt="nanobot architecture" width="800">
 </p>
 
+## Table of Contents
+
+- [News](#-news)
+- [Key Features](#key-features-of-nanobot)
+- [Architecture](#️-architecture)
+- [Features](#-features)
+- [Install](#-install)
+- [Quick Start](#-quick-start)
+- [Chat Apps](#-chat-apps)
+- [Agent Social Network](#-agent-social-network)
+- [Configuration](#️-configuration)
+- [Multiple Instances](#-multiple-instances)
+- [CLI Reference](#-cli-reference)
+- [Docker](#-docker)
+- [Linux Service](#-linux-service)
+- [Project Structure](#-project-structure)
+- [Contribute & Roadmap](#-contribute--roadmap)
+- [Star History](#-star-history)
+
 ## ✨ Features
 
 <table align="center">
@@ -208,6 +227,7 @@ Connect nanobot to your favorite chat platform.
 | **Slack** | Bot token + App-Level token |
 | **Email** | IMAP/SMTP credentials |
 | **QQ** | App ID + App Secret |
+| **Wecom** | Bot ID + Bot Secret |
 
 <details>
 <summary><b>Telegram</b> (Recommended)</summary>
@@ -670,6 +690,46 @@ Give nanobot its own email account. It polls **IMAP** for incoming mail and repl
 
 
 **3. Run**
+
+```bash
+nanobot gateway
+```
+
+</details>
+
+<details>
+<summary><b>Wecom (企业微信)</b></summary>
+
+> Here we use [wecom-aibot-sdk-python](https://github.com/chengyongru/wecom_aibot_sdk) (community Python version of the official [@wecom/aibot-node-sdk](https://www.npmjs.com/package/@wecom/aibot-node-sdk)).
+>
+> Uses **WebSocket** long connection — no public IP required.
+
+**1. Install the optional dependency**
+
+```bash
+pip install nanobot-ai[wecom]
+```
+
+**2. Create a WeCom AI Bot**
+
+Go to the WeCom admin console → Intelligent Robot → Create Robot → select **API mode** with **long connection**. Copy the Bot ID and Secret.
+
+**3. Configure**
+
+```json
+{
+  "channels": {
+    "wecom": {
+      "enabled": true,
+      "botId": "your_bot_id",
+      "secret": "your_bot_secret",
+      "allowFrom": ["your_id"]
+    }
+  }
+}
+```
+
+**4. Run**
 
 ```bash
 nanobot gateway

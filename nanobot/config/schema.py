@@ -200,6 +200,14 @@ class QQConfig(Base):
     )  # Allowed user openids (empty = public access)
 
 
+class WecomConfig(Base):
+    """WeCom (Enterprise WeChat) AI Bot channel configuration."""
+
+    enabled: bool = False
+    bot_id: str = ""  # Bot ID from WeCom AI Bot platform
+    secret: str = ""  # Bot Secret from WeCom AI Bot platform
+    allow_from: list[str] = Field(default_factory=list)  # Allowed user IDs
+    welcome_message: str = ""  # Welcome message for enter_chat event
 
 
 class ChannelsConfig(Base):
@@ -217,6 +225,7 @@ class ChannelsConfig(Base):
     slack: SlackConfig = Field(default_factory=SlackConfig)
     qq: QQConfig = Field(default_factory=QQConfig)
     matrix: MatrixConfig = Field(default_factory=MatrixConfig)
+    wecom: WecomConfig = Field(default_factory=WecomConfig)
 
 
 class AgentDefaults(Base):
