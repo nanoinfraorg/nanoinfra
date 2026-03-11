@@ -208,7 +208,7 @@ Connect nanobot to your favorite chat platform.
 | **Slack** | Bot token + App-Level token |
 | **Email** | IMAP/SMTP credentials |
 | **QQ** | App ID + App Secret |
-| **Wecom** | Bot ID + App Secret |
+| **Wecom** | Bot ID + Bot Secret |
 
 <details>
 <summary><b>Telegram</b> (Recommended)</summary>
@@ -683,12 +683,17 @@ nanobot gateway
 
 Uses **WebSocket** long connection — no public IP required.
 
-**1. Create a wecom bot**
+**1. Install the optional dependency**
 
-In the client's workspace, click on "Intelligent Robot" to create a robot and choose API mode for creation.
-Select to create in "long connection" mode, and obtain Bot ID and Secret.
+```bash
+pip install nanobot-ai[wecom]
+```
 
-**2. Configure**
+**2. Create a WeCom AI Bot**
+
+Go to the WeCom admin console → Intelligent Robot → Create Robot → select **API mode** with **long connection**. Copy the Bot ID and Secret.
+
+**3. Configure**
 
 ```json
 {
@@ -696,23 +701,21 @@ Select to create in "long connection" mode, and obtain Bot ID and Secret.
     "wecom": {
       "enabled": true,
       "botId": "your_bot_id",
-      "secret": "your_secret",
-      "allowFrom": [
-        "your_id"
-      ]
+      "secret": "your_bot_secret",
+      "allowFrom": ["your_id"]
     }
   }
 }
 ```
 
-**3. Run**
+**4. Run**
 
 ```bash
 nanobot gateway
 ```
 
 > [!TIP]
-> wecom uses WebSocket to receive messages — no webhook or public IP needed!
+> WeCom uses WebSocket to receive messages — no webhook or public IP needed!
 
 </details>
 

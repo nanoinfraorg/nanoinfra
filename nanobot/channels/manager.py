@@ -156,7 +156,6 @@ class ChannelManager:
                 self.channels["wecom"] = WecomChannel(
                     self.config.channels.wecom,
                     self.bus,
-                    groq_api_key=self.config.providers.groq.api_key,
                 )
                 logger.info("WeCom channel enabled")
             except ImportError as e:

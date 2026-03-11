@@ -208,7 +208,7 @@ class WecomConfig(Base):
     secret: str = ""  # Bot Secret from WeCom AI Bot platform
     allow_from: list[str] = Field(default_factory=list)  # Allowed user IDs
     welcome_message: str = ""  # Welcome message for enter_chat event
-    react_emoji: str = "eyes"  # Emoji for message reactions
+
 
 class ChannelsConfig(Base):
     """Configuration for chat channels."""

@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib.util
+import os
 from collections import OrderedDict
 from typing import Any
 
@@ -36,10 +37,9 @@ class WecomChannel(BaseChannel):
 
     name = "wecom"
 
-    def __init__(self, config: WecomConfig, bus: MessageBus, groq_api_key: str = ""):
+    def __init__(self, config: WecomConfig, bus: MessageBus):
         super().__init__(config, bus)
         self.config: WecomConfig = config
-        self.groq_api_key = groq_api_key
         self._client: Any = None
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -50,7 +50,7 @@ class WecomChannel(BaseChannel):
     async def start(self) -> None:
         """Start the WeCom bot with WebSocket long connection."""
         if not WECOM_AVAILABLE:
-            logger.error("WeCom SDK not installed. Run: pip install wecom-aibot-sdk-python")
+            logger.error("WeCom SDK not installed. Run: pip install nanobot-ai[wecom]")
             return
 
         if not self.config.bot_id or not self.config.secret:
@@ -213,7 +213,6 @@ class WecomChannel(BaseChannel):
                 if file_url and aes_key:
                     file_path = await self._download_and_save_media(file_url, aes_key, "image")
                     if file_path:
-                        import os
                         filename = os.path.basename(file_path)
                         content_parts.append(f"[image: {filename}]\n[Image: source: {file_path}]")
                     else:
@@ -308,6 +307,7 @@ class WecomChannel(BaseChannel):
             media_dir = get_media_dir("wecom")
             if not filename:
                 filename = fname or f"{media_type}_{hash(file_url) % 100000}"
+            filename = os.path.basename(filename)
 
             file_path = media_dir / filename
             file_path.write_bytes(data)
