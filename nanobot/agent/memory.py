@@ -99,6 +99,9 @@ class MemoryStore:
         messages: list[dict],
         provider: LLMProvider,
         model: str,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
     ) -> bool:
         """Consolidate the provided message chunk into MEMORY.md + HISTORY.md."""
         if not messages:
@@ -121,6 +124,9 @@ class MemoryStore:
                 ],
                 tools=_SAVE_MEMORY_TOOL,
                 model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                reasoning_effort=reasoning_effort,
             )
 
             if not response.has_tool_calls:
@@ -160,6 +166,9 @@ class MemoryConsolidator:
         context_window_tokens: int,
         build_messages: Callable[..., list[dict[str, Any]]],
         get_tool_definitions: Callable[[], list[dict[str, Any]]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
     ):
         self.store = MemoryStore(workspace)
         self.provider = provider
@@ -168,6 +177,9 @@ class MemoryConsolidator:
         self.context_window_tokens = context_window_tokens
         self._build_messages = build_messages
         self._get_tool_definitions = get_tool_definitions
+        self._temperature = temperature
+        self._max_tokens = max_tokens
+        self._reasoning_effort = reasoning_effort
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
 
     def get_lock(self, session_key: str) -> asyncio.Lock:
@@ -176,7 +188,14 @@ class MemoryConsolidator:
 
     async def consolidate_messages(self, messages: list[dict[str, object]]) -> bool:
         """Archive a selected message chunk into persistent memory."""
-        return await self.store.consolidate(messages, self.provider, self.model)
+        return await self.store.consolidate(
+            messages,
+            self.provider,
+            self.model,
+            temperature=self._temperature,
+            max_tokens=self._max_tokens,
+            reasoning_effort=self._reasoning_effort,
+        )
 
     def pick_consolidation_boundary(
         self,
