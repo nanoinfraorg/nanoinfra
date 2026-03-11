@@ -208,7 +208,7 @@ class AgentLoop:
                     await on_progress(self._tool_hint(response.tool_calls), tool_hint=True)
 
                 tool_call_dicts = [
-                    self._build_tool_call_message(tc)
+                    tc.to_openai_tool_call()
                     for tc in response.tool_calls
                 ]
                 messages = self.context.add_assistant_message(
@@ -248,22 +248,6 @@ class AgentLoop:
             )
 
         return final_content, tools_used, messages
-
-    @staticmethod
-    def _build_tool_call_message(tc: Any) -> dict[str, Any]:
-        tool_call = {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": json.dumps(tc.arguments, ensure_ascii=False)
-                        }
-                    }
-        if getattr(tc, "provider_specific_fields", None):
-            tool_call["provider_specific_fields"] = tc.provider_specific_fields
-        if getattr(tc, "function_provider_specific_fields", None):
-            tool_call["function"]["provider_specific_fields"] = tc.function_provider_specific_fields
-        return tool_call
 
     async def run(self) -> None:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""

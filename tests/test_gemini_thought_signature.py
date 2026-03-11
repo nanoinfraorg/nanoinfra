@@ -1,6 +1,5 @@
 from types import SimpleNamespace
 
-from nanobot.agent.loop import AgentLoop
 from nanobot.providers.base import ToolCallRequest
 from nanobot.providers.litellm_provider import LiteLLMProvider
 
@@ -38,7 +37,7 @@ def test_litellm_parse_response_preserves_tool_call_provider_fields() -> None:
     assert parsed.tool_calls[0].function_provider_specific_fields == {"inner": "value"}
 
 
-def test_agent_loop_replays_tool_call_provider_fields() -> None:
+def test_tool_call_request_serializes_provider_fields() -> None:
     tool_call = ToolCallRequest(
         id="abc123xyz",
         name="read_file",
@@ -47,7 +46,7 @@ def test_agent_loop_replays_tool_call_provider_fields() -> None:
         function_provider_specific_fields={"inner": "value"},
     )
 
-    message = AgentLoop._build_tool_call_message(tool_call)
+    message = tool_call.to_openai_tool_call()
 
     assert message["provider_specific_fields"] == {"thought_signature": "signed-token"}
     assert message["function"]["provider_specific_fields"] == {"inner": "value"}

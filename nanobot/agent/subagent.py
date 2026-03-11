@@ -135,7 +135,7 @@ class SubagentManager:
                 if response.has_tool_calls:
                     # Add assistant message with tool calls
                     tool_call_dicts = [
-                        self._build_tool_call_message(tc)
+                        tc.to_openai_tool_call()
                         for tc in response.tool_calls
                     ]
                     messages.append({
@@ -224,22 +224,6 @@ Stay focused on the assigned task. Your final response will be reported back to 
 
         return "\n\n".join(parts)
 
-    @staticmethod
-    def _build_tool_call_message(tc: Any) -> dict[str, Any]:
-        tool_call = {
-            "id": tc.id,
-            "type": "function",
-            "function": {
-                "name": tc.name,
-                "arguments": json.dumps(tc.arguments, ensure_ascii=False),
-            },
-        }
-        if getattr(tc, "provider_specific_fields", None):
-            tool_call["provider_specific_fields"] = tc.provider_specific_fields
-        if getattr(tc, "function_provider_specific_fields", None):
-            tool_call["function"]["provider_specific_fields"] = tc.function_provider_specific_fields
-        return tool_call
-    
     async def cancel_by_session(self, session_key: str) -> int:
         """Cancel all subagents for the given session. Returns count cancelled."""
         tasks = [self._running_tasks[tid] for tid in self._session_tasks.get(session_key, [])
