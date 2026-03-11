@@ -18,6 +18,25 @@
 
 📏 Real-time line count: run `bash core_agent_lines.sh` to verify anytime.
 
+## Table of Contents
+
+- [News](#-news)
+- [Key Features](#key-features-of-nanobot)
+- [Architecture](#️-architecture)
+- [Features](#-features)
+- [Install](#-install)
+- [Quick Start](#-quick-start)
+- [Chat Apps](#-chat-apps)
+- [Agent Social Network](#-agent-social-network)
+- [Configuration](#️-configuration)
+- [Multiple Instances](#-multiple-instances)
+- [CLI Reference](#-cli-reference)
+- [Docker](#-docker)
+- [Linux Service](#-linux-service)
+- [Project Structure](#-project-structure)
+- [Contribute & Roadmap](#-contribute--roadmap)
+- [Star History](#-star-history)
+
 ## 📢 News
 
 - **2026-03-08** 🚀 Released **v0.1.4.post4** — a reliability-packed release with safer defaults, better multi-instance support, sturdier MCP, and major channel and provider improvements. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post4) for details.
