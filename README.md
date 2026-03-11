@@ -681,7 +681,9 @@ nanobot gateway
 <details>
 <summary><b>Wecom (企业微信)</b></summary>
 
-Uses **WebSocket** long connection — no public IP required.
+> Here we use [wecom-aibot-sdk-python](https://github.com/chengyongru/wecom_aibot_sdk) (community Python version of the official [@wecom/aibot-node-sdk](https://www.npmjs.com/package/@wecom/aibot-node-sdk)).
+>
+> Uses **WebSocket** long connection — no public IP required.
 
 **1. Install the optional dependency**
 
@@ -713,9 +715,6 @@ Go to the WeCom admin console → Intelligent Robot → Create Robot → select 
 ```bash
 nanobot gateway
 ```
-
-> [!TIP]
-> WeCom uses WebSocket to receive messages — no webhook or public IP needed!
 
 </details>
 

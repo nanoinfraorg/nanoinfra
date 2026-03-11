@@ -98,7 +98,7 @@ class WecomChannel(BaseChannel):
         """Stop the WeCom bot."""
         self._running = False
         if self._client:
-            self._client.disconnect()
+            await self._client.disconnect()
         logger.info("WeCom bot stopped")
 
     async def _on_connected(self, frame: Any) -> None:
