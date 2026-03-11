@@ -149,6 +149,8 @@ class SubagentManager:
                         "role": "assistant",
                         "content": response.content or "",
                         "tool_calls": tool_call_dicts,
+                        "reasoning_content": response.reasoning_content,
+                        "thinking_blocks": response.thinking_blocks,
                     })
 
                     # Execute tools
