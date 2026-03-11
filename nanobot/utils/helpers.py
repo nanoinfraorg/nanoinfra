@@ -72,6 +72,23 @@ def split_message(content: str, max_len: int = 2000) -> list[str]:
     return chunks
 
 
+def build_assistant_message(
+    content: str | None,
+    tool_calls: list[dict[str, Any]] | None = None,
+    reasoning_content: str | None = None,
+    thinking_blocks: list[dict] | None = None,
+) -> dict[str, Any]:
+    """Build a provider-safe assistant message with optional reasoning fields."""
+    msg: dict[str, Any] = {"role": "assistant", "content": content}
+    if tool_calls:
+        msg["tool_calls"] = tool_calls
+    if reasoning_content is not None:
+        msg["reasoning_content"] = reasoning_content
+    if thinking_blocks:
+        msg["thinking_blocks"] = thinking_blocks
+    return msg
+
+
 def estimate_prompt_tokens(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None = None,
