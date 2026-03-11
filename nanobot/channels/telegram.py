@@ -20,6 +20,7 @@ from nanobot.config.schema import TelegramConfig
 from nanobot.utils.helpers import split_message
 
 TELEGRAM_MAX_MESSAGE_LEN = 4000  # Telegram message character limit
+TELEGRAM_REPLY_CONTEXT_MAX_LEN = TELEGRAM_MAX_MESSAGE_LEN  # Max length for reply context in user message
 
 
 def _strip_md(s: str) -> str:
@@ -451,6 +452,7 @@ class TelegramChannel(BaseChannel):
     @staticmethod
     def _build_message_metadata(message, user) -> dict:
         """Build common Telegram inbound metadata payload."""
+        reply_to = getattr(message, "reply_to_message", None)
         return {
             "message_id": message.message_id,
             "user_id": user.id,
@@ -459,7 +461,36 @@ class TelegramChannel(BaseChannel):
             "is_group": message.chat.type != "private",
             "message_thread_id": getattr(message, "message_thread_id", None),
             "is_forum": bool(getattr(message.chat, "is_forum", False)),
+            "reply_to_message_id": getattr(reply_to, "message_id", None) if reply_to else None,
         }
+
+    @staticmethod
+    def _extract_reply_context(message) -> str | None:
+        """Extract content from the message being replied to, if any. Truncated to TELEGRAM_REPLY_CONTEXT_MAX_LEN."""
+        reply = getattr(message, "reply_to_message", None)
+        if not reply:
+            return None
+        text = getattr(reply, "text", None) or getattr(reply, "caption", None)
+        if text:
+            truncated = (
+                text[:TELEGRAM_REPLY_CONTEXT_MAX_LEN]
+                + ("..." if len(text) > TELEGRAM_REPLY_CONTEXT_MAX_LEN else "")
+            )
+            return f"[Reply to: {truncated}]"
+        # Reply has no text/caption; use type placeholder when it has media
+        if getattr(reply, "photo", None):
+            return "[Reply to: (image)]"
+        if getattr(reply, "document", None):
+            return "[Reply to: (document)]"
+        if getattr(reply, "voice", None):
+            return "[Reply to: (voice)]"
+        if getattr(reply, "video_note", None) or getattr(reply, "video", None):
+            return "[Reply to: (video)]"
+        if getattr(reply, "audio", None):
+            return "[Reply to: (audio)]"
+        if getattr(reply, "animation", None):
+            return "[Reply to: (animation)]"
+        return "[Reply to: (no text)]"
 
     async def _ensure_bot_identity(self) -> tuple[int | None, str | None]:
         """Load bot identity once and reuse it for mention/reply checks."""
@@ -542,10 +573,14 @@ class TelegramChannel(BaseChannel):
         message = update.message
         user = update.effective_user
         self._remember_thread_context(message)
+        reply_ctx = self._extract_reply_context(message)
+        content = message.text or ""
+        if reply_ctx:
+            content = reply_ctx + "\n\n" + content
         await self._handle_message(
             sender_id=self._sender_id(user),
             chat_id=str(message.chat_id),
-            content=message.text,
+            content=content,
             metadata=self._build_message_metadata(message, user),
             session_key=self._derive_topic_session_key(message),
         )
@@ -625,6 +660,9 @@ class TelegramChannel(BaseChannel):
                 logger.error("Failed to download media: {}", e)
                 content_parts.append(f"[{media_type}: download failed]")
 
+        reply_ctx = self._extract_reply_context(message)
+        if reply_ctx is not None:
+            content_parts.insert(0, reply_ctx)
         content = "\n".join(content_parts) if content_parts else "[empty message]"
 
         logger.debug("Telegram message from {}: {}...", sender_id, content[:50])

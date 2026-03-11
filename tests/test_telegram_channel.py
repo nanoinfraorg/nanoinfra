@@ -1,10 +1,11 @@
+import asyncio
 from types import SimpleNamespace
 
 import pytest
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
-from nanobot.channels.telegram import TelegramChannel
+from nanobot.channels.telegram import TELEGRAM_REPLY_CONTEXT_MAX_LEN, TelegramChannel
 from nanobot.config.schema import TelegramConfig
 
 
@@ -336,3 +337,86 @@ async def test_group_policy_open_accepts_plain_group_message() -> None:
 
     assert len(handled) == 1
     assert channel._app.bot.get_me_calls == 0
+
+
+def test_extract_reply_context_no_reply() -> None:
+    """When there is no reply_to_message, _extract_reply_context returns None."""
+    message = SimpleNamespace(reply_to_message=None)
+    assert TelegramChannel._extract_reply_context(message) is None
+
+
+def test_extract_reply_context_with_text() -> None:
+    """When reply has text, return prefixed string."""
+    reply = SimpleNamespace(text="Hello world", caption=None)
+    message = SimpleNamespace(reply_to_message=reply)
+    assert TelegramChannel._extract_reply_context(message) == "[Reply to: Hello world]"
+
+
+def test_extract_reply_context_with_caption_only() -> None:
+    """When reply has only caption (no text), caption is used."""
+    reply = SimpleNamespace(text=None, caption="Photo caption")
+    message = SimpleNamespace(reply_to_message=reply)
+    assert TelegramChannel._extract_reply_context(message) == "[Reply to: Photo caption]"
+
+
+def test_extract_reply_context_truncation() -> None:
+    """Reply text is truncated at TELEGRAM_REPLY_CONTEXT_MAX_LEN."""
+    long_text = "x" * (TELEGRAM_REPLY_CONTEXT_MAX_LEN + 100)
+    reply = SimpleNamespace(text=long_text, caption=None)
+    message = SimpleNamespace(reply_to_message=reply)
+    result = TelegramChannel._extract_reply_context(message)
+    assert result is not None
+    assert result.startswith("[Reply to: ")
+    assert result.endswith("...]")
+    assert len(result) == len("[Reply to: ]") + TELEGRAM_REPLY_CONTEXT_MAX_LEN + len("...")
+
+
+def test_extract_reply_context_no_text_no_media() -> None:
+    """When reply has no text/caption and no media, return (no text) placeholder."""
+    reply = SimpleNamespace(
+        text=None,
+        caption=None,
+        photo=None,
+        document=None,
+        voice=None,
+        video_note=None,
+        video=None,
+        audio=None,
+        animation=None,
+    )
+    message = SimpleNamespace(reply_to_message=reply)
+    assert TelegramChannel._extract_reply_context(message) == "[Reply to: (no text)]"
+
+
+def test_extract_reply_context_reply_to_photo() -> None:
+    """When reply has photo but no text/caption, return (image) placeholder."""
+    reply = SimpleNamespace(
+        text=None,
+        caption=None,
+        photo=[SimpleNamespace(file_id="x")],
+    )
+    message = SimpleNamespace(reply_to_message=reply)
+    assert TelegramChannel._extract_reply_context(message) == "[Reply to: (image)]"
+
+
+@pytest.mark.asyncio
+async def test_on_message_includes_reply_context() -> None:
+    """When user replies to a message, content passed to bus starts with reply context."""
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="open"),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    handled = []
+    async def capture_handle(**kwargs) -> None:
+        handled.append(kwargs)
+    channel._handle_message = capture_handle
+    channel._start_typing = lambda _chat_id: None
+
+    reply = SimpleNamespace(text="Hello", message_id=2, from_user=SimpleNamespace(id=1))
+    update = _make_telegram_update(text="translate this", reply_to_message=reply)
+    await channel._on_message(update, None)
+
+    assert len(handled) == 1
+    assert handled[0]["content"].startswith("[Reply to: Hello]")
+    assert "translate this" in handled[0]["content"]
