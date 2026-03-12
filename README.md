@@ -64,7 +64,7 @@
 
 ## Key Features of nanobot:
 
-🪶 **Ultra-Lightweight**: Just ~4,000 lines of core agent code — 99% smaller than Clawdbot.
+🪶 **Ultra-Lightweight**: A super lightweight implementation of OpenClaw — 99% smaller, significantly faster.
 
 🔬 **Research-Ready**: Clean, readable code that's easy to understand, modify, and extend for research.
 
