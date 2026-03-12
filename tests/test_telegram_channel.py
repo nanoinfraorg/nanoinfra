@@ -379,32 +379,11 @@ def test_extract_reply_context_truncation() -> None:
     assert len(result) == len("[Reply to: ]") + TELEGRAM_REPLY_CONTEXT_MAX_LEN + len("...")
 
 
-def test_extract_reply_context_no_text_no_media() -> None:
-    """When reply has no text/caption and no media, return (no text) placeholder."""
-    reply = SimpleNamespace(
-        text=None,
-        caption=None,
-        photo=None,
-        document=None,
-        voice=None,
-        video_note=None,
-        video=None,
-        audio=None,
-        animation=None,
-    )
+def test_extract_reply_context_no_text_returns_none() -> None:
+    """When reply has no text/caption, _extract_reply_context returns None (media handled separately)."""
+    reply = SimpleNamespace(text=None, caption=None)
     message = SimpleNamespace(reply_to_message=reply)
-    assert TelegramChannel._extract_reply_context(message) == "[Reply to: (no text)]"
-
-
-def test_extract_reply_context_reply_to_photo() -> None:
-    """When reply has photo but no text/caption, return (image — not attached) placeholder."""
-    reply = SimpleNamespace(
-        text=None,
-        caption=None,
-        photo=[SimpleNamespace(file_id="x")],
-    )
-    message = SimpleNamespace(reply_to_message=reply)
-    assert TelegramChannel._extract_reply_context(message) == "[Reply to: (image — not attached)]"
+    assert TelegramChannel._extract_reply_context(message) is None
 
 
 @pytest.mark.asyncio
@@ -518,13 +497,12 @@ async def test_on_message_attaches_reply_to_media_when_available(monkeypatch, tm
 
 @pytest.mark.asyncio
 async def test_on_message_reply_to_media_fallback_when_download_fails() -> None:
-    """When reply has media but download fails, keep placeholder and do not attach."""
+    """When reply has media but download fails, no media attached and no reply tag."""
     channel = TelegramChannel(
         TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="open"),
         MessageBus(),
     )
     channel._app = _FakeApp(lambda: None)
-    # No get_file on bot -> download will fail
     channel._app.bot.get_file = None
     handled = []
     async def capture_handle(**kwargs) -> None:
@@ -547,6 +525,75 @@ async def test_on_message_reply_to_media_fallback_when_download_fails() -> None:
     await channel._on_message(update, None)
 
     assert len(handled) == 1
-    assert "[Reply to: (image — not attached)]" in handled[0]["content"]
     assert "what is this?" in handled[0]["content"]
     assert handled[0]["media"] == []
+
+
+@pytest.mark.asyncio
+async def test_on_message_reply_to_caption_and_media(monkeypatch, tmp_path) -> None:
+    """When replying to a message with caption + photo, both text context and media are included."""
+    media_dir = tmp_path / "media" / "telegram"
+    media_dir.mkdir(parents=True)
+    monkeypatch.setattr(
+        "nanobot.channels.telegram.get_media_dir",
+        lambda channel=None: media_dir if channel else tmp_path / "media",
+    )
+
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="open"),
+        MessageBus(),
+    )
+    app = _FakeApp(lambda: None)
+    app.bot.get_file = AsyncMock(
+        return_value=SimpleNamespace(download_to_drive=AsyncMock(return_value=None))
+    )
+    channel._app = app
+    handled = []
+    async def capture_handle(**kwargs) -> None:
+        handled.append(kwargs)
+    channel._handle_message = capture_handle
+    channel._start_typing = lambda _chat_id: None
+
+    reply_with_caption_and_photo = SimpleNamespace(
+        text=None,
+        caption="A cute cat",
+        photo=[SimpleNamespace(file_id="cat_fid", mime_type="image/jpeg")],
+        document=None,
+        voice=None,
+        audio=None,
+        video=None,
+        video_note=None,
+        animation=None,
+    )
+    update = _make_telegram_update(
+        text="what breed is this?",
+        reply_to_message=reply_with_caption_and_photo,
+    )
+    await channel._on_message(update, None)
+
+    assert len(handled) == 1
+    assert "[Reply to: A cute cat]" in handled[0]["content"]
+    assert "what breed is this?" in handled[0]["content"]
+    assert len(handled[0]["media"]) == 1
+    assert "cat_fid" in handled[0]["media"][0]
+
+
+@pytest.mark.asyncio
+async def test_forward_command_does_not_inject_reply_context() -> None:
+    """Slash commands forwarded via _forward_command must not include reply context."""
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="open"),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    handled = []
+    async def capture_handle(**kwargs) -> None:
+        handled.append(kwargs)
+    channel._handle_message = capture_handle
+
+    reply = SimpleNamespace(text="some old message", message_id=2, from_user=SimpleNamespace(id=1))
+    update = _make_telegram_update(text="/new", reply_to_message=reply)
+    await channel._forward_command(update, None)
+
+    assert len(handled) == 1
+    assert handled[0]["content"] == "/new"

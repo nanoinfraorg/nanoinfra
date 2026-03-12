@@ -468,32 +468,14 @@ class TelegramChannel(BaseChannel):
 
     @staticmethod
     def _extract_reply_context(message) -> str | None:
-        """Extract content from the message being replied to, if any. Truncated to TELEGRAM_REPLY_CONTEXT_MAX_LEN."""
+        """Extract text from the message being replied to, if any."""
         reply = getattr(message, "reply_to_message", None)
         if not reply:
             return None
-        text = getattr(reply, "text", None) or getattr(reply, "caption", None)
-        if text:
-            truncated = (
-                text[:TELEGRAM_REPLY_CONTEXT_MAX_LEN]
-                + ("..." if len(text) > TELEGRAM_REPLY_CONTEXT_MAX_LEN else "")
-            )
-            return f"[Reply to: {truncated}]"
-        # Reply has no text/caption; use type placeholder when it has media.
-        # Note: replied-to media is not attached to this message, so the agent won't receive it.
-        if getattr(reply, "photo", None):
-            return "[Reply to: (image — not attached)]"
-        if getattr(reply, "document", None):
-            return "[Reply to: (document — not attached)]"
-        if getattr(reply, "voice", None):
-            return "[Reply to: (voice — not attached)]"
-        if getattr(reply, "video_note", None) or getattr(reply, "video", None):
-            return "[Reply to: (video — not attached)]"
-        if getattr(reply, "audio", None):
-            return "[Reply to: (audio — not attached)]"
-        if getattr(reply, "animation", None):
-            return "[Reply to: (animation — not attached)]"
-        return "[Reply to: (no text)]"
+        text = getattr(reply, "text", None) or getattr(reply, "caption", None) or ""
+        if len(text) > TELEGRAM_REPLY_CONTEXT_MAX_LEN:
+            text = text[:TELEGRAM_REPLY_CONTEXT_MAX_LEN] + "..."
+        return f"[Reply to: {text}]" if text else None
 
     async def _download_message_media(
         self, msg, *, add_failure_content: bool = False
@@ -629,14 +611,10 @@ class TelegramChannel(BaseChannel):
         message = update.message
         user = update.effective_user
         self._remember_thread_context(message)
-        reply_ctx = self._extract_reply_context(message)
-        content = message.text or ""
-        if reply_ctx:
-            content = reply_ctx + "\n\n" + content
         await self._handle_message(
             sender_id=self._sender_id(user),
             chat_id=str(message.chat_id),
-            content=content,
+            content=message.text or "",
             metadata=self._build_message_metadata(message, user),
             session_key=self._derive_topic_session_key(message),
         )
@@ -677,17 +655,17 @@ class TelegramChannel(BaseChannel):
         if current_media_paths:
             logger.debug("Downloaded message media to {}", current_media_paths[0])
 
-        # Reply context: include replied-to content; if reply has media, try to attach it
+        # Reply context: text and/or media from the replied-to message
         reply = getattr(message, "reply_to_message", None)
-        reply_ctx = self._extract_reply_context(message)
-        if reply_ctx is not None and reply is not None:
-            if "not attached)]" in reply_ctx:
-                reply_media_paths, reply_media_parts = await self._download_message_media(reply)
-                if reply_media_paths and reply_media_parts:
-                    reply_ctx = f"[Reply to: {reply_media_parts[0]}]"
-                    media_paths = reply_media_paths + media_paths
-                    logger.debug("Attached replied-to media: {}", reply_media_paths[0])
-            content_parts.insert(0, reply_ctx)
+        if reply is not None:
+            reply_ctx = self._extract_reply_context(message)
+            reply_media, reply_media_parts = await self._download_message_media(reply)
+            if reply_media:
+                media_paths = reply_media + media_paths
+                logger.debug("Attached replied-to media: {}", reply_media[0])
+            tag = reply_ctx or (f"[Reply to: {reply_media_parts[0]}]" if reply_media_parts else None)
+            if tag:
+                content_parts.insert(0, tag)
         content = "\n".join(content_parts) if content_parts else "[empty message]"
 
         logger.debug("Telegram message from {}: {}...", sender_id, content[:50])
