@@ -657,8 +657,7 @@ def agent(
                             elif ch and not is_tool_hint and not ch.send_progress:
                                 pass
                             else:
-                                #await _print_interactive_line(f"  ↳ {msg.content}")
-                                await _print_interactive_line(f"  [dim]↳ {msg.content}[/dim]")
+                                await _print_interactive_line(msg.content)
 
                         elif not turn_done.is_set():
                             if msg.content:
