@@ -57,7 +57,6 @@ def _normalize_save_memory_args(args: Any) -> dict[str, Any] | None:
         return args[0] if args and isinstance(args[0], dict) else None
     return args if isinstance(args, dict) else None
 
-
 class MemoryStore:
     """Two-layer memory: MEMORY.md (long-term facts) + HISTORY.md (grep-searchable log)."""
 
@@ -121,6 +120,7 @@ class MemoryStore:
                 ],
                 tools=_SAVE_MEMORY_TOOL,
                 model=model,
+                tool_choice="required",
             )
 
             if not response.has_tool_calls:
