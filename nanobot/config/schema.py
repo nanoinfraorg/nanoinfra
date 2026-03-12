@@ -48,8 +48,7 @@ class FeishuConfig(Base):
     react_emoji: str = (
         "THUMBSUP"  # Emoji type for message reactions (e.g. THUMBSUP, OK, DONE, SMILE)
     )
-    # Group chat settings
-    group_policy: Literal["open", "mention"] = "open"  # Group response policy (default: open for backward compatibility)
+    group_policy: Literal["open", "mention"] = "mention"  # "mention" responds when @mentioned, "open" responds to all
 
 
 class DingTalkConfig(Base):

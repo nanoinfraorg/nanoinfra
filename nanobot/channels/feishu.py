@@ -352,73 +352,26 @@ class FeishuChannel(BaseChannel):
         self._running = False
         logger.info("Feishu bot stopped")
 
-    def _get_bot_open_id_sync(self) -> str | None:
-        """Get bot's own open_id for mention detection.
-        
-        飞书 SDK 没有直接的 bot info API，从配置或缓存获取。
-        """
-        # 尝试从配置获取 open_id（用户可以在配置中指定）
-        if hasattr(self.config, 'open_id') and self.config.open_id:
-            return self.config.open_id
-        
-        return None
-
-    def _is_bot_mentioned(self, message: Any, bot_open_id: str | None) -> bool:
-        """Check if bot is mentioned in the message.
-        
-        飞书 mentions 数组包含被@的对象。匹配策略：
-        1. 如果配置了 bot_open_id，则匹配 open_id
-        2. 否则，检查 mentions 中是否有空的 user_id（bot 的特征）
-        
-        Handles:
-        - Direct mentions in message.mentions
-        - @all mentions
-        """
-        # Check @all
+    def _is_bot_mentioned(self, message: Any) -> bool:
+        """Check if the bot is @mentioned in the message."""
         raw_content = message.content or ""
         if "@_all" in raw_content:
-            logger.debug("Feishu: @_all mention detected")
             return True
-        
-        # Check mentions array
-        mentions = message.mentions if hasattr(message, 'mentions') and message.mentions else []
-        if mentions:
-            if bot_open_id:
-                # 策略 1: 匹配配置的 open_id
-                for mention in mentions:
-                    if mention.id:
-                        open_id = getattr(mention.id, 'open_id', None)
-                        if open_id == bot_open_id:
-                            logger.debug("Feishu: bot mention matched")
-                            return True
-            else:
-                # 策略 2: 检查 bot 特征 - user_id 为空且 open_id 存在
-                for mention in mentions:
-                    if mention.id:
-                        user_id = getattr(mention.id, 'user_id', None)
-                        open_id = getattr(mention.id, 'open_id', None)
-                        # Bot 的特征：user_id 为空字符串，open_id 存在
-                        if user_id == '' and open_id and open_id.startswith('ou_'):
-                            logger.debug("Feishu: bot mention matched")
-                            return True
-        
+
+        for mention in getattr(message, "mentions", None) or []:
+            mid = getattr(mention, "id", None)
+            if not mid:
+                continue
+            # Bot mentions have an empty user_id with a valid open_id
+            if getattr(mid, "user_id", None) == "" and (getattr(mid, "open_id", None) or "").startswith("ou_"):
+                return True
         return False
 
-    def _should_respond_in_group(
-        self, 
-        chat_id: str, 
-        mentioned: bool
-    ) -> tuple[bool, str]:
-        """Determine if bot should respond in a group chat.
-        
-        Returns:
-            (should_respond, reason)
-        """
-        # Check mention requirement
-        if self.config.group_policy == "mention" and not mentioned:
-            return False, "not mentioned in group"
-        
-        return True, ""
+    def _is_group_message_for_bot(self, message: Any) -> bool:
+        """Allow group messages when policy is open or bot is @mentioned."""
+        if self.config.group_policy == "open":
+            return True
+        return self._is_bot_mentioned(message)
 
     def _add_reaction_sync(self, message_id: str, emoji_type: str) -> None:
         """Sync helper for adding reaction (runs in thread pool)."""
@@ -961,16 +914,10 @@ class FeishuChannel(BaseChannel):
             chat_type = message.chat_type
             msg_type = message.message_type
 
-            # Check group policy and mention requirement
-            if chat_type == "group":
-                bot_open_id = self._get_bot_open_id_sync()
-                mentioned = self._is_bot_mentioned(message, bot_open_id)
-                should_respond, reason = self._should_respond_in_group(chat_id, mentioned)
-                
-                if not should_respond:
-                    logger.debug("Feishu: ignoring group message - {}", reason)
-                    return
-            
+            if chat_type == "group" and not self._is_group_message_for_bot(message):
+                logger.debug("Feishu: skipping group message (not mentioned)")
+                return
+
             # Add reaction
             await self._add_reaction(message_id, self.config.react_emoji)
 
