@@ -250,6 +250,10 @@ class LiteLLMProvider(LLMProvider):
         # Apply model-specific overrides (e.g. kimi-k2.5 temperature)
         self._apply_model_overrides(model, kwargs)
 
+        # Use langsmith to view the conversation
+        if os.getenv("LANGSMITH_API_KEY"):
+            kwargs["callbacks"] = ["langsmith"]
+        
         # Pass api_key directly — more reliable than env vars alone
         if self.api_key:
             kwargs["api_key"] = self.api_key
