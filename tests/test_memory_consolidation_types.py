@@ -431,3 +431,48 @@ class TestMemoryConsolidationTypeHandling:
 
         assert result is False
         assert not store.history_file.exists()
+
+    @pytest.mark.asyncio
+    async def test_raw_archive_after_consecutive_failures(self, tmp_path: Path) -> None:
+        """After 3 consecutive failures, raw-archive messages and return True."""
+        store = MemoryStore(tmp_path)
+        no_tool = LLMResponse(content="No tool call.", finish_reason="stop", tool_calls=[])
+        provider = AsyncMock()
+        provider.chat_with_retry = AsyncMock(return_value=no_tool)
+        messages = _make_messages(message_count=10)
+
+        assert await store.consolidate(messages, provider, "m") is False
+        assert await store.consolidate(messages, provider, "m") is False
+        assert await store.consolidate(messages, provider, "m") is True
+
+        assert store.history_file.exists()
+        content = store.history_file.read_text()
+        assert "[RAW]" in content
+        assert "10 messages" in content
+        assert "msg0" in content
+        assert not store.memory_file.exists()
+
+    @pytest.mark.asyncio
+    async def test_raw_archive_counter_resets_on_success(self, tmp_path: Path) -> None:
+        """A successful consolidation resets the failure counter."""
+        store = MemoryStore(tmp_path)
+        no_tool = LLMResponse(content="Nope.", finish_reason="stop", tool_calls=[])
+        ok_resp = _make_tool_response(
+            history_entry="[2026-01-01] OK.",
+            memory_update="# Memory\nOK.",
+        )
+        messages = _make_messages(message_count=10)
+
+        provider = AsyncMock()
+        provider.chat_with_retry = AsyncMock(return_value=no_tool)
+        assert await store.consolidate(messages, provider, "m") is False
+        assert await store.consolidate(messages, provider, "m") is False
+        assert store._consecutive_failures == 2
+
+        provider.chat_with_retry = AsyncMock(return_value=ok_resp)
+        assert await store.consolidate(messages, provider, "m") is True
+        assert store._consecutive_failures == 0
+
+        provider.chat_with_retry = AsyncMock(return_value=no_tool)
+        assert await store.consolidate(messages, provider, "m") is False
+        assert store._consecutive_failures == 1
