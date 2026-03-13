@@ -51,8 +51,8 @@ def test_tool_hint_sends_code_message(mock_feishu_channel):
         assert card["config"]["wide_screen_mode"] is True
         assert len(card["elements"]) == 1
         assert card["elements"][0]["tag"] == "markdown"
-        # Check that code block is properly formatted
-        expected_md = "**Tool Call**\n\n```\nweb_search(\"test query\")\n```"
+        # Check that code block is properly formatted with language hint
+        expected_md = "**Tool Calls**\n\n```text\nweb_search(\"test query\")\n```"
         assert card["elements"][0]["content"] == expected_md
 
 
@@ -95,7 +95,7 @@ def test_tool_hint_without_metadata_sends_as_normal(mock_feishu_channel):
 
 
 def test_tool_hint_multiple_tools_in_one_message(mock_feishu_channel):
-    """Multiple tool calls should be in a single code block."""
+    """Multiple tool calls should be displayed each on its own line in a code block."""
     msg = OutboundMessage(
         channel="feishu",
         chat_id="oc_123456",
@@ -111,4 +111,6 @@ def test_tool_hint_multiple_tools_in_one_message(mock_feishu_channel):
         msg_type = call_args[2]
         content = json.loads(call_args[3])
         assert msg_type == "interactive"
-        assert "web_search(\"query\"), read_file(\"/path/to/file\")" in content["elements"][0]["content"]
+        # Each tool call should be on its own line
+        expected_md = "**Tool Calls**\n\n```text\nweb_search(\"query\"),\nread_file(\"/path/to/file\")\n```"
+        assert content["elements"][0]["content"] == expected_md

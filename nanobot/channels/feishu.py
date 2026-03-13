@@ -827,12 +827,18 @@ class FeishuChannel(BaseChannel):
                 if msg.content and msg.content.strip():
                     # Create a simple card with a code block
                     code_text = msg.content.strip()
+                    # Format tool calls: put each tool on its own line for better readability
+                    # _tool_hint uses ", " to join multiple tool calls
+                    if ", " in code_text:
+                        formatted_code = code_text.replace(", ", ",\n")
+                    else:
+                        formatted_code = code_text
                     card = {
                         "config": {"wide_screen_mode": True},
                         "elements": [
                             {
                                 "tag": "markdown",
-                                "content": f"**Tool Call**\n\n```\n{code_text}\n```"
+                                "content": f"**Tool Calls**\n\n```text\n{formatted_code}\n```"
                             }
                         ]
                     }
