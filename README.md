@@ -964,6 +964,12 @@ That's it! Environment variables, model prefixing, config matching, and `nanobot
 
 ### Web Search
 
+> [!TIP]
+> Use `proxy` in `tools.web` to route all web requests (search + fetch) through a proxy:
+> ```json
+> { "tools": { "web": { "proxy": "http://127.0.0.1:7890" } } }
+> ```
+
 nanobot supports multiple web search providers. Configure in `~/.nanobot/config.json` under `tools.web.search`.
 
 | Provider | Config fields | Env var fallback | Free |
@@ -1051,12 +1057,6 @@ When credentials are missing, nanobot automatically falls back to DuckDuckGo.
 | `apiKey` | string | `""` | API key for Brave or Tavily |
 | `baseUrl` | string | `""` | Base URL for SearXNG |
 | `maxResults` | integer | `5` | Results per search (1–10) |
-
-> [!TIP]
-> Use `proxy` in `tools.web` to route all web requests (search + fetch) through a proxy:
-> ```json
-> { "tools": { "web": { "proxy": "http://127.0.0.1:7890" } } }
-> ```
 
 ### MCP (Model Context Protocol)
 
