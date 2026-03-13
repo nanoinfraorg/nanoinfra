@@ -49,6 +49,7 @@ class FeishuConfig(Base):
         "THUMBSUP"  # Emoji type for message reactions (e.g. THUMBSUP, OK, DONE, SMILE)
     )
     group_policy: Literal["open", "mention"] = "mention"  # "mention" responds when @mentioned, "open" responds to all
+    reply_to_message: bool = False  # If True, bot replies quote the user's original message
 
 
 class DingTalkConfig(Base):
