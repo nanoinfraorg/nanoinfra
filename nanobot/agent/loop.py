@@ -163,7 +163,13 @@ class AgentLoop:
         """Remove <think>…</think> blocks that some models embed in content."""
         if not text:
             return None
-        return re.sub(r"<think>[\s\S]*?</think>", "", text).strip() or None
+        # Remove complete think blocks (non-greedy)
+        cleaned = re.sub(r"<think>[\s\S]*?</think>", "", text)
+        # Remove any stray closing tags left without opening
+        cleaned = re.sub(r"</think>", "", cleaned)
+        # Remove any stray opening tag and everything after it (incomplete block)
+        cleaned = re.sub(r"<think>[\s\S]*$", "", cleaned)
+        return cleaned.strip() or None
 
     @staticmethod
     def _tool_hint(tool_calls: list) -> str:
@@ -203,7 +209,9 @@ class AgentLoop:
                     thought = self._strip_think(response.content)
                     if thought:
                         await on_progress(thought)
-                    await on_progress(self._tool_hint(response.tool_calls), tool_hint=True)
+                    tool_hint = self._tool_hint(response.tool_calls)
+                    tool_hint = self._strip_think(tool_hint)
+                    await on_progress(tool_hint, tool_hint=True)
 
                 tool_call_dicts = [
                     tc.to_openai_tool_call()
