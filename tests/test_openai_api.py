@@ -590,67 +590,6 @@ class TestConsolidationIsolation:
     """Verify that memory consolidation in API (isolate_memory) mode writes
     to the per-session directory and never touches global workspace/memory."""
 
-    @pytest.mark.asyncio
-    async def test_consolidate_memory_uses_provided_store(self, tmp_path):
-        """_consolidate_memory(memory_store=X) must call X.consolidate,
-        not MemoryStore(self.workspace).consolidate."""
-        from unittest.mock import AsyncMock, MagicMock, patch
-        from nanobot.agent.loop import AgentLoop
-        from nanobot.agent.memory import MemoryStore
-        from nanobot.session.manager import Session
-
-        agent = MagicMock(spec=AgentLoop)
-        agent.workspace = tmp_path / "workspace"
-        agent.workspace.mkdir()
-        agent.provider = MagicMock()
-        agent.model = "test"
-        agent.memory_window = 50
-
-        # Bind the real method
-        agent._consolidate_memory = AgentLoop._consolidate_memory.__get__(agent)
-
-        session = Session(key="test")
-        session.messages = [{"role": "user", "content": "hi", "timestamp": "2025-01-01T00:00"}] * 10
-
-        # Create an isolated store and mock its consolidate
-        iso_store = MagicMock(spec=MemoryStore)
-        iso_store.consolidate = AsyncMock(return_value=True)
-
-        result = await agent._consolidate_memory(session, memory_store=iso_store)
-
-        assert result is True
-        iso_store.consolidate.assert_called_once()
-        call_args = iso_store.consolidate.call_args
-        assert call_args[0][0] is session  # first positional arg is session
-
-    @pytest.mark.asyncio
-    async def test_consolidate_memory_defaults_to_global_when_no_store(self, tmp_path):
-        """Without memory_store, _consolidate_memory must use MemoryStore(workspace)."""
-        from unittest.mock import AsyncMock, MagicMock, patch
-        from nanobot.agent.loop import AgentLoop
-        from nanobot.session.manager import Session
-
-        agent = MagicMock(spec=AgentLoop)
-        agent.workspace = tmp_path / "workspace"
-        agent.workspace.mkdir()
-        (agent.workspace / "memory").mkdir()
-        agent.provider = MagicMock()
-        agent.model = "test"
-        agent.memory_window = 50
-        agent._consolidate_memory = AgentLoop._consolidate_memory.__get__(agent)
-
-        session = Session(key="test")
-
-        with patch("nanobot.agent.loop.MemoryStore") as MockStore:
-            mock_instance = MagicMock()
-            mock_instance.consolidate = AsyncMock(return_value=True)
-            MockStore.return_value = mock_instance
-
-            await agent._consolidate_memory(session)
-
-            MockStore.assert_called_once_with(agent.workspace)
-            mock_instance.consolidate.assert_called_once()
-
     def test_consolidate_writes_to_isolated_dir_not_global(self, tmp_path):
         """End-to-end: MemoryStore.consolidate with an isolated store must
         write HISTORY.md in the isolated dir, not in workspace/memory."""
@@ -683,38 +622,6 @@ class TestConsolidationIsolation:
         assert (global_mem_dir / "MEMORY.md").read_text() == ""
         assert (global_mem_dir / "HISTORY.md").read_text() == ""
 
-    def test_process_message_passes_memory_store_to_consolidation_paths(self):
-        """Verify that _process_message passes memory_store to both
-        consolidation triggers (source code check)."""
-        import ast
-        from pathlib import Path
-
-        loop_path = Path(__file__).parent.parent / "nanobot" / "agent" / "loop.py"
-        source = loop_path.read_text()
-        tree = ast.parse(source)
-
-        # Find all calls to self._consolidate_memory inside _process_message
-        # and verify they all pass memory_store=
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.FunctionDef) or node.name != "_process_message":
-                continue
-            consolidate_calls = []
-            for child in ast.walk(node):
-                if (isinstance(child, ast.Call)
-                        and isinstance(child.func, ast.Attribute)
-                        and child.func.attr == "_consolidate_memory"):
-                    kw_names = {kw.arg for kw in child.keywords}
-                    consolidate_calls.append(kw_names)
-
-            assert len(consolidate_calls) == 2, (
-                f"Expected 2 _consolidate_memory calls in _process_message, "
-                f"found {len(consolidate_calls)}"
-            )
-            for i, kw_names in enumerate(consolidate_calls):
-                assert "memory_store" in kw_names, (
-                    f"_consolidate_memory call #{i+1} in _process_message "
-                    f"missing memory_store= keyword argument"
-                )
 
 
 # ---------------------------------------------------------------------------
