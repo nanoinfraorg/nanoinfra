@@ -4,6 +4,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pytest import mark
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.channels.feishu import FeishuChannel
@@ -23,7 +24,8 @@ def mock_feishu_channel():
     return channel
 
 
-def test_tool_hint_sends_code_message(mock_feishu_channel):
+@mark.asyncio
+async def test_tool_hint_sends_code_message(mock_feishu_channel):
     """Tool hint messages should be sent as interactive cards with code blocks."""
     msg = OutboundMessage(
         channel="feishu",
@@ -33,9 +35,7 @@ def test_tool_hint_sends_code_message(mock_feishu_channel):
     )
 
     with patch.object(mock_feishu_channel, '_send_message_sync') as mock_send:
-        # Run send in async context
-        import asyncio
-        asyncio.run(mock_feishu_channel.send(msg))
+        await mock_feishu_channel.send(msg)
 
         # Verify interactive message with card was sent
         assert mock_send.call_count == 1
@@ -56,7 +56,8 @@ def test_tool_hint_sends_code_message(mock_feishu_channel):
         assert card["elements"][0]["content"] == expected_md
 
 
-def test_tool_hint_empty_content_does_not_send(mock_feishu_channel):
+@mark.asyncio
+async def test_tool_hint_empty_content_does_not_send(mock_feishu_channel):
     """Empty tool hint messages should not be sent."""
     msg = OutboundMessage(
         channel="feishu",
@@ -66,14 +67,14 @@ def test_tool_hint_empty_content_does_not_send(mock_feishu_channel):
     )
 
     with patch.object(mock_feishu_channel, '_send_message_sync') as mock_send:
-        import asyncio
-        asyncio.run(mock_feishu_channel.send(msg))
+        await mock_feishu_channel.send(msg)
 
         # Should not send any message
         mock_send.assert_not_called()
 
 
-def test_tool_hint_without_metadata_sends_as_normal(mock_feishu_channel):
+@mark.asyncio
+async def test_tool_hint_without_metadata_sends_as_normal(mock_feishu_channel):
     """Regular messages without _tool_hint should use normal formatting."""
     msg = OutboundMessage(
         channel="feishu",
@@ -83,8 +84,7 @@ def test_tool_hint_without_metadata_sends_as_normal(mock_feishu_channel):
     )
 
     with patch.object(mock_feishu_channel, '_send_message_sync') as mock_send:
-        import asyncio
-        asyncio.run(mock_feishu_channel.send(msg))
+        await mock_feishu_channel.send(msg)
 
         # Should send as text message (detected format)
         assert mock_send.call_count == 1
@@ -94,7 +94,8 @@ def test_tool_hint_without_metadata_sends_as_normal(mock_feishu_channel):
         assert json.loads(content) == {"text": "Hello, world!"}
 
 
-def test_tool_hint_multiple_tools_in_one_message(mock_feishu_channel):
+@mark.asyncio
+async def test_tool_hint_multiple_tools_in_one_message(mock_feishu_channel):
     """Multiple tool calls should be displayed each on its own line in a code block."""
     msg = OutboundMessage(
         channel="feishu",
@@ -104,8 +105,7 @@ def test_tool_hint_multiple_tools_in_one_message(mock_feishu_channel):
     )
 
     with patch.object(mock_feishu_channel, '_send_message_sync') as mock_send:
-        import asyncio
-        asyncio.run(mock_feishu_channel.send(msg))
+        await mock_feishu_channel.send(msg)
 
         call_args = mock_send.call_args[0]
         msg_type = call_args[2]

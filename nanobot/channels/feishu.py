@@ -825,28 +825,7 @@ class FeishuChannel(BaseChannel):
             # Handle tool hint messages as code blocks in interactive cards
             if msg.metadata.get("_tool_hint"):
                 if msg.content and msg.content.strip():
-                    # Create a simple card with a code block
-                    code_text = msg.content.strip()
-                    # Format tool calls: put each tool on its own line for better readability
-                    # _tool_hint uses ", " to join multiple tool calls
-                    if ", " in code_text:
-                        formatted_code = code_text.replace(", ", ",\n")
-                    else:
-                        formatted_code = code_text
-                    card = {
-                        "config": {"wide_screen_mode": True},
-                        "elements": [
-                            {
-                                "tag": "markdown",
-                                "content": f"**Tool Calls**\n\n```text\n{formatted_code}\n```"
-                            }
-                        ]
-                    }
-                    await loop.run_in_executor(
-                        None, self._send_message_sync,
-                        receive_id_type, msg.chat_id, "interactive",
-                        json.dumps(card, ensure_ascii=False),
-                    )
+                    await self._send_tool_hint_card(receive_id_type, msg.chat_id, msg.content.strip())
                 return
 
             for file_path in msg.media:
@@ -1030,3 +1009,33 @@ class FeishuChannel(BaseChannel):
         """Ignore p2p-enter events when a user opens a bot chat."""
         logger.debug("Bot entered p2p chat (user opened chat window)")
         pass
+
+    async def _send_tool_hint_card(self, receive_id_type: str, receive_id: str, tool_hint: str) -> None:
+        """Send tool hint as an interactive card with formatted code block.
+
+        Args:
+            receive_id_type: "chat_id" or "open_id"
+            receive_id: The target chat or user ID
+            tool_hint: Formatted tool hint string (e.g., 'web_search("q"), read_file("path")')
+        """
+        loop = asyncio.get_running_loop()
+
+        # Format: put each tool call on its own line for readability
+        # _tool_hint joins multiple calls with ", "
+        formatted_code = tool_hint.replace(", ", ",\n") if ", " in tool_hint else tool_hint
+
+        card = {
+            "config": {"wide_screen_mode": True},
+            "elements": [
+                {
+                    "tag": "markdown",
+                    "content": f"**Tool Calls**\n\n```text\n{formatted_code}\n```"
+                }
+            ]
+        }
+
+        await loop.run_in_executor(
+            None, self._send_message_sync,
+            receive_id_type, receive_id, "interactive",
+            json.dumps(card, ensure_ascii=False),
+        )
