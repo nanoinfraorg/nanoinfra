@@ -292,7 +292,9 @@ class AgentLoop:
 
         async def _do_restart():
             await asyncio.sleep(1)
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            # Use -m nanobot instead of sys.argv[0] for Windows compatibility
+            # (sys.argv[0] may be just "nanobot" without full path on Windows)
+            os.execv(sys.executable, [sys.executable, "-m", "nanobot"] + sys.argv[1:])
 
         asyncio.create_task(_do_restart())
 
