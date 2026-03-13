@@ -822,6 +822,21 @@ class FeishuChannel(BaseChannel):
             receive_id_type = "chat_id" if msg.chat_id.startswith("oc_") else "open_id"
             loop = asyncio.get_running_loop()
 
+            # Handle tool hint messages as code blocks
+            if msg.metadata.get("_tool_hint"):
+                if msg.content and msg.content.strip():
+                    code_content = {
+                        "title": "Tool Call",
+                        "code": msg.content.strip(),
+                        "language": "text"
+                    }
+                    await loop.run_in_executor(
+                        None, self._send_message_sync,
+                        receive_id_type, msg.chat_id, "code",
+                        json.dumps(code_content, ensure_ascii=False),
+                    )
+                return
+
             for file_path in msg.media:
                 if not os.path.isfile(file_path):
                     logger.warning("Media file not found: {}", file_path)
