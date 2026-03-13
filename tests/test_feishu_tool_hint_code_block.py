@@ -24,7 +24,7 @@ def mock_feishu_channel():
 
 
 def test_tool_hint_sends_code_message(mock_feishu_channel):
-    """Tool hint messages should be sent as code blocks."""
+    """Tool hint messages should be sent as interactive cards with code blocks."""
     msg = OutboundMessage(
         channel="feishu",
         chat_id="oc_123456",
@@ -37,20 +37,23 @@ def test_tool_hint_sends_code_message(mock_feishu_channel):
         import asyncio
         asyncio.run(mock_feishu_channel.send(msg))
 
-        # Verify code message was sent
+        # Verify interactive message with card was sent
         assert mock_send.call_count == 1
         call_args = mock_send.call_args[0]
         receive_id_type, receive_id, msg_type, content = call_args
 
         assert receive_id_type == "chat_id"
         assert receive_id == "oc_123456"
-        assert msg_type == "code"
+        assert msg_type == "interactive"
 
-        # Parse content to verify structure
-        content_dict = json.loads(content)
-        assert content_dict["title"] == "Tool Call"
-        assert content_dict["code"] == 'web_search("test query")'
-        assert content_dict["language"] == "text"
+        # Parse content to verify card structure
+        card = json.loads(content)
+        assert card["config"]["wide_screen_mode"] is True
+        assert len(card["elements"]) == 1
+        assert card["elements"][0]["tag"] == "markdown"
+        # Check that code block is properly formatted
+        expected_md = "**Tool Call**\n\n```\nweb_search(\"test query\")\n```"
+        assert card["elements"][0]["content"] == expected_md
 
 
 def test_tool_hint_empty_content_does_not_send(mock_feishu_channel):
@@ -105,6 +108,7 @@ def test_tool_hint_multiple_tools_in_one_message(mock_feishu_channel):
         asyncio.run(mock_feishu_channel.send(msg))
 
         call_args = mock_send.call_args[0]
+        msg_type = call_args[2]
         content = json.loads(call_args[3])
-        assert content["code"] == 'web_search("query"), read_file("/path/to/file")'
-        assert "\n" not in content["code"]  # Single line as intended
+        assert msg_type == "interactive"
+        assert "web_search(\"query\"), read_file(\"/path/to/file\")" in content["elements"][0]["content"]

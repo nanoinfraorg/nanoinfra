@@ -822,18 +822,24 @@ class FeishuChannel(BaseChannel):
             receive_id_type = "chat_id" if msg.chat_id.startswith("oc_") else "open_id"
             loop = asyncio.get_running_loop()
 
-            # Handle tool hint messages as code blocks
+            # Handle tool hint messages as code blocks in interactive cards
             if msg.metadata.get("_tool_hint"):
                 if msg.content and msg.content.strip():
-                    code_content = {
-                        "title": "Tool Call",
-                        "code": msg.content.strip(),
-                        "language": "text"
+                    # Create a simple card with a code block
+                    code_text = msg.content.strip()
+                    card = {
+                        "config": {"wide_screen_mode": True},
+                        "elements": [
+                            {
+                                "tag": "markdown",
+                                "content": f"**Tool Call**\n\n```\n{code_text}\n```"
+                            }
+                        ]
                     }
                     await loop.run_in_executor(
                         None, self._send_message_sync,
-                        receive_id_type, msg.chat_id, "code",
-                        json.dumps(code_content, ensure_ascii=False),
+                        receive_id_type, msg.chat_id, "interactive",
+                        json.dumps(card, ensure_ascii=False),
                     )
                 return
 
