@@ -139,7 +139,7 @@ class AgentLoop:
             await self._mcp_stack.__aenter__()
             await connect_mcp_servers(self._mcp_servers, self.tools, self._mcp_stack)
             self._mcp_connected = True
-        except Exception as e:
+        except BaseException as e:
             logger.error("Failed to connect MCP servers (will retry next message): {}", e)
             if self._mcp_stack:
                 try:
@@ -292,7 +292,9 @@ class AgentLoop:
 
         async def _do_restart():
             await asyncio.sleep(1)
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            # Use -m nanobot instead of sys.argv[0] for Windows compatibility
+            # (sys.argv[0] may be just "nanobot" without full path on Windows)
+            os.execv(sys.executable, [sys.executable, "-m", "nanobot"] + sys.argv[1:])
 
         asyncio.create_task(_do_restart())
 
