@@ -622,6 +622,53 @@ class TestConsolidationIsolation:
         assert (global_mem_dir / "MEMORY.md").read_text() == ""
         assert (global_mem_dir / "HISTORY.md").read_text() == ""
 
+    @pytest.mark.asyncio
+    async def test_new_command_uses_isolated_store(self, tmp_path):
+        """process_direct(isolate_memory=True) + /new must archive to the isolated store."""
+        from unittest.mock import AsyncMock, MagicMock
+        from nanobot.agent.loop import AgentLoop
+        from nanobot.agent.memory import MemoryStore
+        from nanobot.bus.queue import MessageBus
+        from nanobot.providers.base import LLMResponse
+
+        bus = MessageBus()
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        provider.estimate_prompt_tokens.return_value = (10_000, "test")
+        agent = AgentLoop(
+            bus=bus, provider=provider, workspace=tmp_path,
+            model="test-model", context_window_tokens=1,
+        )
+        agent._mcp_connected = True  # skip MCP connect
+        agent.tools.get_definitions = MagicMock(return_value=[])
+
+        # Pre-populate session so /new has something to archive
+        session = agent.sessions.get_or_create("api:alice")
+        for i in range(3):
+            session.add_message("user", f"msg{i}")
+            session.add_message("assistant", f"resp{i}")
+        agent.sessions.save(session)
+
+        used_store = None
+
+        async def _tracking_consolidate(messages, store=None) -> bool:
+            nonlocal used_store
+            used_store = store
+            return True
+
+        agent.memory_consolidator.consolidate_messages = _tracking_consolidate  # type: ignore[method-assign]
+
+        result = await agent.process_direct(
+            "/new", session_key="api:alice", isolate_memory=True,
+        )
+
+        assert "new session started" in result.lower()
+        assert used_store is not None, "consolidation must receive a store"
+        assert isinstance(used_store, MemoryStore)
+        assert "sessions" in str(used_store.memory_dir), (
+            "store must point to per-session dir, not global workspace"
+        )
+
 
 
 # ---------------------------------------------------------------------------

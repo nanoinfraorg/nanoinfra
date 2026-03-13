@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 from loguru import logger
 
 from nanobot.agent.context import ContextBuilder
-from nanobot.agent.memory import MemoryConsolidator
+from nanobot.agent.memory import MemoryConsolidator, MemoryStore
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
@@ -362,7 +362,7 @@ class AgentLoop:
             logger.info("Processing system message from {}", msg.sender_id)
             key = f"{channel}:{chat_id}"
             session = self.sessions.get_or_create(key)
-            await self.memory_consolidator.maybe_consolidate_by_tokens(session)
+            await self.memory_consolidator.maybe_consolidate_by_tokens(session, store=memory_store)
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
             history = session.get_history(max_messages=0)
             messages = self.context.build_messages(
@@ -375,7 +375,7 @@ class AgentLoop:
             )
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
-            await self.memory_consolidator.maybe_consolidate_by_tokens(session)
+            await self.memory_consolidator.maybe_consolidate_by_tokens(session, store=memory_store)
             return OutboundMessage(channel=channel, chat_id=chat_id,
                                   content=final_content or "Background task completed.")
 
@@ -389,7 +389,9 @@ class AgentLoop:
         cmd = msg.content.strip().lower()
         if cmd == "/new":
             try:
-                if not await self.memory_consolidator.archive_unconsolidated(session):
+                if not await self.memory_consolidator.archive_unconsolidated(
+                    session, store=memory_store,
+                ):
                     return OutboundMessage(
                         channel=msg.channel,
                         chat_id=msg.chat_id,
@@ -419,7 +421,7 @@ class AgentLoop:
             return OutboundMessage(
                 channel=msg.channel, chat_id=msg.chat_id, content="\n".join(lines),
             )
-        await self.memory_consolidator.maybe_consolidate_by_tokens(session)
+        await self.memory_consolidator.maybe_consolidate_by_tokens(session, store=memory_store)
 
         self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
         if message_tool := self.tools.get("message"):
@@ -453,7 +455,7 @@ class AgentLoop:
 
         self._save_turn(session, all_msgs, 1 + len(history))
         self.sessions.save(session)
-        await self.memory_consolidator.maybe_consolidate_by_tokens(session)
+        await self.memory_consolidator.maybe_consolidate_by_tokens(session, store=memory_store)
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             return None
