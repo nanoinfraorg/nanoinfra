@@ -236,10 +236,10 @@ def test_agent_help_shows_workspace_and_config_options():
 
     assert result.exit_code == 0
     stripped_output = _strip_ansi(result.stdout)
-    assert re.search(r'-{1,2}workspace', stripped_output)
-    assert re.search(r'-w', stripped_output)
-    assert re.search(r'-{1,2}config', stripped_output)
-    assert re.search(r'-c', stripped_output)
+    assert "--workspace" in stripped_output
+    assert "-w" in stripped_output
+    assert "--config" in stripped_output
+    assert "-c" in stripped_output
 
 
 def test_agent_uses_default_config_when_no_workspace_or_config_flags(mock_agent_runtime):
