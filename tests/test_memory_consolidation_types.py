@@ -288,3 +288,60 @@ class TestMemoryConsolidationTypeHandling:
         assert "temperature" not in kwargs
         assert "max_tokens" not in kwargs
         assert "reasoning_effort" not in kwargs
+
+    @pytest.mark.asyncio
+    async def test_tool_choice_fallback_on_unsupported_error(self, tmp_path: Path) -> None:
+        """Forced tool_choice rejected by provider -> retry with auto and succeed."""
+        store = MemoryStore(tmp_path)
+        error_resp = LLMResponse(
+            content="Error calling LLM: litellm.BadRequestError: "
+            "The tool_choice parameter does not support being set to required or object",
+            finish_reason="error",
+            tool_calls=[],
+        )
+        ok_resp = _make_tool_response(
+            history_entry="[2026-01-01] Fallback worked.",
+            memory_update="# Memory\nFallback OK.",
+        )
+
+        call_log: list[dict] = []
+
+        async def _tracking_chat(**kwargs):
+            call_log.append(kwargs)
+            return error_resp if len(call_log) == 1 else ok_resp
+
+        provider = AsyncMock()
+        provider.chat_with_retry = AsyncMock(side_effect=_tracking_chat)
+        messages = _make_messages(message_count=60)
+
+        result = await store.consolidate(messages, provider, "test-model")
+
+        assert result is True
+        assert len(call_log) == 2
+        assert isinstance(call_log[0]["tool_choice"], dict)
+        assert call_log[1]["tool_choice"] == "auto"
+        assert "Fallback worked." in store.history_file.read_text()
+
+    @pytest.mark.asyncio
+    async def test_tool_choice_fallback_auto_no_tool_call(self, tmp_path: Path) -> None:
+        """Forced rejected, auto retry also produces no tool call -> return False."""
+        store = MemoryStore(tmp_path)
+        error_resp = LLMResponse(
+            content="Error: tool_choice must be none or auto",
+            finish_reason="error",
+            tool_calls=[],
+        )
+        no_tool_resp = LLMResponse(
+            content="Here is a summary.",
+            finish_reason="stop",
+            tool_calls=[],
+        )
+
+        provider = AsyncMock()
+        provider.chat_with_retry = AsyncMock(side_effect=[error_resp, no_tool_resp])
+        messages = _make_messages(message_count=60)
+
+        result = await store.consolidate(messages, provider, "test-model")
+
+        assert result is False
+        assert not store.history_file.exists()

@@ -57,6 +57,20 @@ def _normalize_save_memory_args(args: Any) -> dict[str, Any] | None:
         return args[0] if args and isinstance(args[0], dict) else None
     return args if isinstance(args, dict) else None
 
+_TOOL_CHOICE_ERROR_MARKERS = (
+    "tool_choice",
+    "toolchoice",
+    "does not support",
+    'should be ["none", "auto"]',
+)
+
+
+def _is_tool_choice_unsupported(content: str | None) -> bool:
+    """Detect provider errors caused by forced tool_choice being unsupported."""
+    text = (content or "").lower()
+    return any(m in text for m in _TOOL_CHOICE_ERROR_MARKERS)
+
+
 class MemoryStore:
     """Two-layer memory: MEMORY.md (long-term facts) + HISTORY.md (grep-searchable log)."""
 
@@ -118,15 +132,33 @@ class MemoryStore:
         ]
 
         try:
+            forced = {"type": "function", "function": {"name": "save_memory"}}
             response = await provider.chat_with_retry(
                 messages=chat_messages,
                 tools=_SAVE_MEMORY_TOOL,
                 model=model,
-                tool_choice={"type": "function", "function": {"name": "save_memory"}},
+                tool_choice=forced,
             )
 
+            if response.finish_reason == "error" and _is_tool_choice_unsupported(
+                response.content
+            ):
+                logger.warning("Forced tool_choice unsupported, retrying with auto")
+                response = await provider.chat_with_retry(
+                    messages=chat_messages,
+                    tools=_SAVE_MEMORY_TOOL,
+                    model=model,
+                    tool_choice="auto",
+                )
+
             if not response.has_tool_calls:
-                logger.warning("Memory consolidation: LLM did not call save_memory, skipping")
+                logger.warning(
+                    "Memory consolidation: LLM did not call save_memory "
+                    "(finish_reason={}, content_len={}, content_preview={})",
+                    response.finish_reason,
+                    len(response.content or ""),
+                    (response.content or "")[:200],
+                )
                 return False
 
             args = _normalize_save_memory_args(response.tool_calls[0].arguments)
