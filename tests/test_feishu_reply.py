@@ -8,8 +8,7 @@ import pytest
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
-from nanobot.channels.feishu import FeishuChannel
-from nanobot.config.schema import FeishuConfig
+from nanobot.channels.feishu import FeishuChannel, FeishuConfig
 
 
 # ---------------------------------------------------------------------------
