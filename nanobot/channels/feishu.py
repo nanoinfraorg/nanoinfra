@@ -914,6 +914,15 @@ class FeishuChannel(BaseChannel):
             receive_id_type = "chat_id" if msg.chat_id.startswith("oc_") else "open_id"
             loop = asyncio.get_running_loop()
 
+            # Handle tool hint messages as code blocks in interactive cards.
+            # These are progress-only messages and should bypass normal reply routing.
+            if msg.metadata.get("_tool_hint"):
+                if msg.content and msg.content.strip():
+                    await self._send_tool_hint_card(
+                        receive_id_type, msg.chat_id, msg.content.strip()
+                    )
+                return
+
             # Determine whether the first message should quote the user's message.
             # Only the very first send (media or text) in this call uses reply; subsequent
             # chunks/media fall back to plain create to avoid redundant quote bubbles.
@@ -1127,3 +1136,78 @@ class FeishuChannel(BaseChannel):
         """Ignore p2p-enter events when a user opens a bot chat."""
         logger.debug("Bot entered p2p chat (user opened chat window)")
         pass
+
+    @staticmethod
+    def _format_tool_hint_lines(tool_hint: str) -> str:
+        """Split tool hints across lines on top-level call separators only."""
+        parts: list[str] = []
+        buf: list[str] = []
+        depth = 0
+        in_string = False
+        quote_char = ""
+        escaped = False
+
+        for i, ch in enumerate(tool_hint):
+            buf.append(ch)
+
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == quote_char:
+                    in_string = False
+                continue
+
+            if ch in {'"', "'"}:
+                in_string = True
+                quote_char = ch
+                continue
+
+            if ch == "(":
+                depth += 1
+                continue
+
+            if ch == ")" and depth > 0:
+                depth -= 1
+                continue
+
+            if ch == "," and depth == 0:
+                next_char = tool_hint[i + 1] if i + 1 < len(tool_hint) else ""
+                if next_char == " ":
+                    parts.append("".join(buf).rstrip())
+                    buf = []
+
+        if buf:
+            parts.append("".join(buf).strip())
+
+        return "\n".join(part for part in parts if part)
+
+    async def _send_tool_hint_card(self, receive_id_type: str, receive_id: str, tool_hint: str) -> None:
+        """Send tool hint as an interactive card with formatted code block.
+
+        Args:
+            receive_id_type: "chat_id" or "open_id"
+            receive_id: The target chat or user ID
+            tool_hint: Formatted tool hint string (e.g., 'web_search("q"), read_file("path")')
+        """
+        loop = asyncio.get_running_loop()
+
+        # Put each top-level tool call on its own line without altering commas inside arguments.
+        formatted_code = self._format_tool_hint_lines(tool_hint)
+
+        card = {
+            "config": {"wide_screen_mode": True},
+            "elements": [
+                {
+                    "tag": "markdown",
+                    "content": f"**Tool Calls**\n\n```text\n{formatted_code}\n```"
+                }
+            ]
+        }
+
+        await loop.run_in_executor(
+            None, self._send_message_sync,
+            receive_id_type, receive_id, "interactive",
+            json.dumps(card, ensure_ascii=False),
+        )
