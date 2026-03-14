@@ -8,7 +8,7 @@ import pytest
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.telegram import TELEGRAM_REPLY_CONTEXT_MAX_LEN, TelegramChannel
-from nanobot.config.schema import TelegramConfig
+from nanobot.channels.telegram import TelegramConfig
 
 
 class _FakeHTTPXRequest:
@@ -597,3 +597,19 @@ async def test_forward_command_does_not_inject_reply_context() -> None:
 
     assert len(handled) == 1
     assert handled[0]["content"] == "/new"
+
+
+@pytest.mark.asyncio
+async def test_on_help_includes_restart_command() -> None:
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="open"),
+        MessageBus(),
+    )
+    update = _make_telegram_update(text="/help", chat_type="private")
+    update.message.reply_text = AsyncMock()
+
+    await channel._on_help(update, None)
+
+    update.message.reply_text.assert_awaited_once()
+    help_text = update.message.reply_text.await_args.args[0]
+    assert "/restart" in help_text
