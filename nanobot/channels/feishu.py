@@ -1137,6 +1137,52 @@ class FeishuChannel(BaseChannel):
         logger.debug("Bot entered p2p chat (user opened chat window)")
         pass
 
+    @staticmethod
+    def _format_tool_hint_lines(tool_hint: str) -> str:
+        """Split tool hints across lines on top-level call separators only."""
+        parts: list[str] = []
+        buf: list[str] = []
+        depth = 0
+        in_string = False
+        quote_char = ""
+        escaped = False
+
+        for i, ch in enumerate(tool_hint):
+            buf.append(ch)
+
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == quote_char:
+                    in_string = False
+                continue
+
+            if ch in {'"', "'"}:
+                in_string = True
+                quote_char = ch
+                continue
+
+            if ch == "(":
+                depth += 1
+                continue
+
+            if ch == ")" and depth > 0:
+                depth -= 1
+                continue
+
+            if ch == "," and depth == 0:
+                next_char = tool_hint[i + 1] if i + 1 < len(tool_hint) else ""
+                if next_char == " ":
+                    parts.append("".join(buf).rstrip())
+                    buf = []
+
+        if buf:
+            parts.append("".join(buf).strip())
+
+        return "\n".join(part for part in parts if part)
+
     async def _send_tool_hint_card(self, receive_id_type: str, receive_id: str, tool_hint: str) -> None:
         """Send tool hint as an interactive card with formatted code block.
 
@@ -1147,9 +1193,8 @@ class FeishuChannel(BaseChannel):
         """
         loop = asyncio.get_running_loop()
 
-        # Format: put each tool call on its own line for readability
-        # _tool_hint joins multiple calls with ", "
-        formatted_code = tool_hint.replace(", ", ",\n") if ", " in tool_hint else tool_hint
+        # Put each top-level tool call on its own line without altering commas inside arguments.
+        formatted_code = self._format_tool_hint_lines(tool_hint)
 
         card = {
             "config": {"wide_screen_mode": True},

@@ -163,13 +163,7 @@ class AgentLoop:
         """Remove <think>…</think> blocks that some models embed in content."""
         if not text:
             return None
-        # Remove complete think blocks (non-greedy)
-        cleaned = re.sub(r"<think>[\s\S]*?</think>", "", text)
-        # Remove any stray closing tags left without opening
-        cleaned = re.sub(r"</think>", "", cleaned)
-        # Remove any stray opening tag and everything after it (incomplete block)
-        cleaned = re.sub(r"<think>[\s\S]*$", "", cleaned)
-        return cleaned.strip() or None
+        return re.sub(r"<think>[\s\S]*?</think>", "", text).strip() or None
 
     @staticmethod
     def _tool_hint(tool_calls: list) -> str:
