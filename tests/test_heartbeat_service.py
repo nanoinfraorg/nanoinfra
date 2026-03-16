@@ -253,8 +253,8 @@ async def test_decide_retries_transient_error_then_succeeds(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_decide_prompt_includes_current_datetime(tmp_path) -> None:
-    """Phase 1 prompt must contain the current date/time so the LLM can judge task urgency."""
+async def test_decide_prompt_includes_current_time(tmp_path) -> None:
+    """Phase 1 user prompt must contain current time so the LLM can judge task urgency."""
 
     captured_messages: list[dict] = []
 
@@ -283,14 +283,7 @@ async def test_decide_prompt_includes_current_datetime(tmp_path) -> None:
 
     await service._decide("- [ ] check servers at 10:00 UTC")
 
-    # System prompt should mention date/time awareness
-    system_msg = captured_messages[0]
-    assert system_msg["role"] == "system"
-    assert "date/time" in system_msg["content"].lower()
-
-    # User prompt should contain a UTC timestamp
     user_msg = captured_messages[1]
     assert user_msg["role"] == "user"
-    assert "Current date/time:" in user_msg["content"]
-    assert "UTC" in user_msg["content"]
+    assert "Current Time:" in user_msg["content"]
 
