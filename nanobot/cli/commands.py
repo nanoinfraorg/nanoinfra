@@ -308,9 +308,8 @@ def onboard(
         from nanobot.cli.onboard_wizard import run_onboard
 
         try:
-            config = run_onboard()
-            # Re-apply workspace override after wizard
-            config = _apply_workspace_override(config)
+            # Pass the config with workspace override applied as initial config
+            config = run_onboard(initial_config=config)
             save_config(config, config_path)
             console.print(f"[green]✓[/green] Config saved at {config_path}")
         except Exception as e:
