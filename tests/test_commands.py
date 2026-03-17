@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from nanobot.cli.commands import app
+from nanobot.cli.commands import _make_provider, app
 from nanobot.config.schema import Config
 from nanobot.providers.litellm_provider import LiteLLMProvider
 from nanobot.providers.openai_codex_provider import _strip_model_prefix
@@ -197,6 +197,33 @@ def test_litellm_provider_canonicalizes_github_copilot_hyphen_prefix():
 def test_openai_codex_strip_prefix_supports_hyphen_and_underscore():
     assert _strip_model_prefix("openai-codex/gpt-5.1-codex") == "gpt-5.1-codex"
     assert _strip_model_prefix("openai_codex/gpt-5.1-codex") == "gpt-5.1-codex"
+
+
+def test_make_provider_passes_extra_headers_to_custom_provider():
+    config = Config.model_validate(
+        {
+            "agents": {"defaults": {"provider": "custom", "model": "gpt-4o-mini"}},
+            "providers": {
+                "custom": {
+                    "apiKey": "test-key",
+                    "apiBase": "https://example.com/v1",
+                    "extraHeaders": {
+                        "APP-Code": "demo-app",
+                        "x-session-affinity": "sticky-session",
+                    },
+                }
+            },
+        }
+    )
+
+    with patch("nanobot.providers.custom_provider.AsyncOpenAI") as mock_async_openai:
+        _make_provider(config)
+
+    kwargs = mock_async_openai.call_args.kwargs
+    assert kwargs["api_key"] == "test-key"
+    assert kwargs["base_url"] == "https://example.com/v1"
+    assert kwargs["default_headers"]["APP-Code"] == "demo-app"
+    assert kwargs["default_headers"]["x-session-affinity"] == "sticky-session"
 
 
 @pytest.fixture
