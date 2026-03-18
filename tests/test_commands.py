@@ -523,6 +523,47 @@ def test_gateway_uses_config_directory_for_cron_store(monkeypatch, tmp_path: Pat
     assert seen["cron_store"] == config.workspace_path / "cron" / "jobs.json"
 
 
+def test_migrate_cron_store_moves_legacy_file(tmp_path: Path) -> None:
+    """Legacy global jobs.json is moved into the workspace on first run."""
+    from nanobot.cli.commands import _migrate_cron_store
+
+    legacy_dir = tmp_path / "global" / "cron"
+    legacy_dir.mkdir(parents=True)
+    legacy_file = legacy_dir / "jobs.json"
+    legacy_file.write_text('{"jobs": []}')
+
+    config = Config()
+    config.agents.defaults.workspace = str(tmp_path / "workspace")
+    workspace_cron = config.workspace_path / "cron" / "jobs.json"
+
+    with patch("nanobot.config.paths.get_cron_dir", return_value=legacy_dir):
+        _migrate_cron_store(config)
+
+    assert workspace_cron.exists()
+    assert workspace_cron.read_text() == '{"jobs": []}'
+    assert not legacy_file.exists()
+
+
+def test_migrate_cron_store_skips_when_workspace_file_exists(tmp_path: Path) -> None:
+    """Migration does not overwrite an existing workspace cron store."""
+    from nanobot.cli.commands import _migrate_cron_store
+
+    legacy_dir = tmp_path / "global" / "cron"
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "jobs.json").write_text('{"old": true}')
+
+    config = Config()
+    config.agents.defaults.workspace = str(tmp_path / "workspace")
+    workspace_cron = config.workspace_path / "cron" / "jobs.json"
+    workspace_cron.parent.mkdir(parents=True)
+    workspace_cron.write_text('{"new": true}')
+
+    with patch("nanobot.config.paths.get_cron_dir", return_value=legacy_dir):
+        _migrate_cron_store(config)
+
+    assert workspace_cron.read_text() == '{"new": true}'
+
+
 def test_gateway_uses_configured_port_when_cli_flag_is_missing(monkeypatch, tmp_path: Path) -> None:
     config_file = tmp_path / "instance" / "config.json"
     config_file.parent.mkdir(parents=True)

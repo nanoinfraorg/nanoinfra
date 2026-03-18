@@ -449,6 +449,18 @@ def _print_deprecated_memory_window_notice(config: Config) -> None:
         )
 
 
+def _migrate_cron_store(config: "Config") -> None:
+    """One-time migration: move legacy global cron store into the workspace."""
+    from nanobot.config.paths import get_cron_dir
+
+    legacy_path = get_cron_dir() / "jobs.json"
+    new_path = config.workspace_path / "cron" / "jobs.json"
+    if legacy_path.is_file() and not new_path.exists():
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        import shutil
+        shutil.move(str(legacy_path), str(new_path))
+
+
 # ============================================================================
 # Gateway / Server
 # ============================================================================
@@ -483,6 +495,9 @@ def gateway(
     bus = MessageBus()
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
+
+    # Migrate legacy global cron store into workspace (one-time)
+    _migrate_cron_store(config)
 
     # Create cron service with workspace-scoped store
     cron_store_path = config.workspace_path / "cron" / "jobs.json"
@@ -670,6 +685,9 @@ def agent(
 
     bus = MessageBus()
     provider = _make_provider(config)
+
+    # Migrate legacy global cron store into workspace (one-time)
+    _migrate_cron_store(config)
 
     # Create cron service with workspace-scoped store
     cron_store_path = config.workspace_path / "cron" / "jobs.json"
