@@ -275,10 +275,8 @@ def mock_agent_runtime(tmp_path):
     """Mock agent command dependencies for focused CLI tests."""
     config = Config()
     config.agents.defaults.workspace = str(tmp_path / "default-workspace")
-    cron_dir = tmp_path / "data" / "cron"
 
     with patch("nanobot.config.loader.load_config", return_value=config) as mock_load_config, \
-         patch("nanobot.config.paths.get_cron_dir", return_value=cron_dir), \
          patch("nanobot.cli.commands.sync_workspace_templates") as mock_sync_templates, \
          patch("nanobot.cli.commands._make_provider", return_value=object()), \
          patch("nanobot.cli.commands._print_agent_response") as mock_print_response, \
@@ -351,7 +349,6 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
         lambda path: seen.__setitem__("config_path", path),
     )
     monkeypatch.setattr("nanobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("nanobot.config.paths.get_cron_dir", lambda: config_file.parent / "cron")
     monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr("nanobot.cli.commands._make_provider", lambda _config: object())
     monkeypatch.setattr("nanobot.bus.queue.MessageBus", lambda: object())
@@ -508,7 +505,6 @@ def test_gateway_uses_config_directory_for_cron_store(monkeypatch, tmp_path: Pat
 
     monkeypatch.setattr("nanobot.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("nanobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("nanobot.config.paths.get_cron_dir", lambda: config_file.parent / "cron")
     monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr("nanobot.cli.commands._make_provider", lambda _config: object())
     monkeypatch.setattr("nanobot.bus.queue.MessageBus", lambda: object())
@@ -524,7 +520,7 @@ def test_gateway_uses_config_directory_for_cron_store(monkeypatch, tmp_path: Pat
     result = runner.invoke(app, ["gateway", "--config", str(config_file)])
 
     assert isinstance(result.exception, _StopGateway)
-    assert seen["cron_store"] == config_file.parent / "cron" / "jobs.json"
+    assert seen["cron_store"] == config.workspace_path / "cron" / "jobs.json"
 
 
 def test_gateway_uses_configured_port_when_cli_flag_is_missing(monkeypatch, tmp_path: Path) -> None:
