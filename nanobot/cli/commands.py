@@ -300,16 +300,22 @@ def onboard(
                 console.print(f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)")
     else:
         config = _apply_workspace_override(Config())
-        save_config(config, config_path)
-        console.print(f"[green]✓[/green] Created config at {config_path}")
+        # In interactive mode, don't save yet - the wizard will handle saving if should_save=True
+        if not interactive:
+            save_config(config, config_path)
+            console.print(f"[green]✓[/green] Created config at {config_path}")
 
     # Run interactive wizard if enabled
     if interactive:
         from nanobot.cli.onboard_wizard import run_onboard
 
         try:
-            # Pass the config with workspace override applied as initial config
-            config = run_onboard(initial_config=config)
+            result = run_onboard(initial_config=config)
+            if not result.should_save:
+                console.print("[yellow]Configuration discarded. No changes were saved.[/yellow]")
+                return
+
+            config = result.config
             save_config(config, config_path)
             console.print(f"[green]✓[/green] Config saved at {config_path}")
         except Exception as e:
