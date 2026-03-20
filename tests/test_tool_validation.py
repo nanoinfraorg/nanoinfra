@@ -134,12 +134,6 @@ def test_exec_guard_blocks_quoted_home_path_outside_workspace(tmp_path) -> None:
     assert error == "Error: Command blocked by safety guard (path outside working dir)"
 
 
-def test_exec_empty_deny_patterns_override_defaults() -> None:
-    tool = ExecTool(deny_patterns=[])
-    error = tool._guard_command("rm -rf /tmp/demo", "/tmp")
-    assert error is None
-
-
 # --- cast_params tests ---
 
 

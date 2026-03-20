@@ -97,16 +97,6 @@ class TestDispatch:
 
         assert loop.tools.get("exec") is None
 
-    def test_exec_tool_receives_custom_deny_patterns(self):
-        from nanobot.agent.tools.shell import ExecTool
-        from nanobot.config.schema import ExecToolConfig
-
-        loop, _bus = _make_loop(exec_config=ExecToolConfig(deny_patterns=[r"\becho\b"]))
-        tool = loop.tools.get("exec")
-
-        assert isinstance(tool, ExecTool)
-        assert tool.deny_patterns == [r"\becho\b"]
-
     @pytest.mark.asyncio
     async def test_dispatch_processes_and_publishes(self):
         from nanobot.bus.events import InboundMessage, OutboundMessage
