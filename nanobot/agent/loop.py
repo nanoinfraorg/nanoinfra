@@ -7,12 +7,14 @@ import json
 import os
 import re
 import sys
+import time
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from loguru import logger
 
+from nanobot import __version__
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.memory import MemoryConsolidator
 from nanobot.agent.subagent import SubagentManager
@@ -79,6 +81,8 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self._start_time = time.time()
+        self._last_usage: dict[str, int] = {}
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
@@ -181,6 +185,51 @@ class AgentLoop:
             return f'{tc.name}("{val[:40]}…")' if len(val) > 40 else f'{tc.name}("{val}")'
         return ", ".join(_fmt(tc) for tc in tool_calls)
 
+    def _build_status_content(self, session: Session) -> str:
+        """Build a human-readable runtime status snapshot."""
+        history = session.get_history(max_messages=0)
+        msg_count = len(history)
+
+        uptime_s = int(time.time() - self._start_time)
+        uptime = (
+            f"{uptime_s // 3600}h {(uptime_s % 3600) // 60}m"
+            if uptime_s >= 3600
+            else f"{uptime_s // 60}m {uptime_s % 60}s"
+        )
+
+        last_in = self._last_usage.get("prompt_tokens", 0)
+        last_out = self._last_usage.get("completion_tokens", 0)
+
+        ctx_used = 0
+        try:
+            ctx_used, _ = self.memory_consolidator.estimate_session_prompt_tokens(session)
+        except Exception:
+            ctx_used = 0
+        if ctx_used <= 0:
+            ctx_used = last_in
+        ctx_total_tokens = max(self.context_window_tokens, 0)
+        ctx_pct = int((ctx_used / ctx_total_tokens) * 100) if ctx_total_tokens > 0 else 0
+        ctx_used_str = f"{ctx_used // 1000}k" if ctx_used >= 1000 else str(ctx_used)
+        ctx_total_str = f"{ctx_total_tokens // 1024}k" if ctx_total_tokens > 0 else "n/a"
+
+        return "\n".join([
+            f"🐈 nanobot v{__version__}",
+            f"🧠 Model: {self.model}",
+            f"📊 Tokens: {last_in} in / {last_out} out",
+            f"📚 Context: {ctx_used_str}/{ctx_total_str} ({ctx_pct}%)",
+            f"💬 Session: {msg_count} messages",
+            f"⏱ Uptime: {uptime}",
+        ])
+
+    def _status_response(self, msg: InboundMessage, session: Session) -> OutboundMessage:
+        """Build an outbound status message for a session."""
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=self._build_status_content(session),
+            metadata={"render_as": "text"},
+        )
+
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
@@ -202,6 +251,11 @@ class AgentLoop:
                 tools=tool_defs,
                 model=self.model,
             )
+            usage = response.usage or {}
+            self._last_usage = {
+                "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
+                "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
+            }
 
             if response.has_tool_calls:
                 if on_progress:
@@ -280,6 +334,9 @@ class AgentLoop:
                 await self._handle_stop(msg)
             elif cmd == "/restart":
                 await self._handle_restart(msg)
+            elif cmd == "/status":
+                session = self.sessions.get_or_create(msg.session_key)
+                await self.bus.publish_outbound(self._status_response(msg, session))
             else:
                 task = asyncio.create_task(self._dispatch(msg))
                 self._active_tasks.setdefault(msg.session_key, []).append(task)
@@ -410,16 +467,22 @@ class AgentLoop:
 
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="New session started.")
+        if cmd == "/status":
+            return self._status_response(msg, session)
         if cmd == "/help":
             lines = [
                 "🐈 nanobot commands:",
                 "/new — Start a new conversation",
                 "/stop — Stop the current task",
                 "/restart — Restart the bot",
+                "/status — Show bot status",
                 "/help — Show available commands",
             ]
             return OutboundMessage(
-                channel=msg.channel, chat_id=msg.chat_id, content="\n".join(lines),
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="\n".join(lines),
+                metadata={"render_as": "text"},
             )
         await self.memory_consolidator.maybe_consolidate_by_tokens(session)
 
@@ -544,6 +607,19 @@ class AgentLoop:
             session.messages.append(entry)
         session.updated_at = datetime.now()
 
+    async def process_direct_outbound(
+        self,
+        content: str,
+        session_key: str = "cli:direct",
+        channel: str = "cli",
+        chat_id: str = "direct",
+        on_progress: Callable[[str], Awaitable[None]] | None = None,
+    ) -> OutboundMessage | None:
+        """Process a message directly and return the outbound payload."""
+        await self._connect_mcp()
+        msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
+        return await self._process_message(msg, session_key=session_key, on_progress=on_progress)
+
     async def process_direct(
         self,
         content: str,
@@ -553,7 +629,11 @@ class AgentLoop:
         on_progress: Callable[[str], Awaitable[None]] | None = None,
     ) -> str:
         """Process a message directly (for CLI or cron usage)."""
-        await self._connect_mcp()
-        msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
-        response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
+        response = await self.process_direct_outbound(
+            content,
+            session_key=session_key,
+            channel=channel,
+            chat_id=chat_id,
+            on_progress=on_progress,
+        )
         return response.content if response else ""
