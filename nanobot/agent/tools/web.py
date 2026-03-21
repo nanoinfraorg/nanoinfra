@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import html
 import json
-import mimetypes
 import os
 import re
 from typing import TYPE_CHECKING, Any
@@ -16,6 +14,7 @@ import httpx
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool
+from nanobot.utils.helpers import build_image_content_blocks
 
 if TYPE_CHECKING:
     from nanobot.config.schema import WebSearchConfig
@@ -245,15 +244,17 @@ class WebFetchTool(Tool):
         try:
             async with httpx.AsyncClient(proxy=self.proxy, follow_redirects=True, max_redirects=MAX_REDIRECTS, timeout=15.0) as client:
                 async with client.stream("GET", url, headers={"User-Agent": USER_AGENT}) as r:
+                    from nanobot.security.network import validate_resolved_url
+
+                    redir_ok, redir_err = validate_resolved_url(str(r.url))
+                    if not redir_ok:
+                        return json.dumps({"error": f"Redirect blocked: {redir_err}", "url": url}, ensure_ascii=False)
+
                     ctype = r.headers.get("content-type", "")
                     if ctype.startswith("image/"):
-                        await r.aread()
                         r.raise_for_status()
-                        b64 = base64.b64encode(r.content).decode()
-                        return [
-                            {"type": "image_url", "image_url": {"url": f"data:{ctype};base64,{b64}"}, "_meta": {"path": url}},
-                            {"type": "text", "text": f"(Image fetched from: {url})"}
-                        ]
+                        raw = await r.aread()
+                        return build_image_content_blocks(raw, ctype, url, f"(Image fetched from: {url})")
         except Exception as e:
             logger.debug("Pre-fetch image detection failed for {}: {}", url, e)
 
@@ -319,11 +320,7 @@ class WebFetchTool(Tool):
 
             ctype = r.headers.get("content-type", "")
             if ctype.startswith("image/"):
-                b64 = base64.b64encode(r.content).decode()
-                return [
-                    {"type": "image_url", "image_url": {"url": f"data:{ctype};base64,{b64}"}, "_meta": {"path": url}},
-                    {"type": "text", "text": f"(Image fetched from: {url})"}
-                ]
+                return build_image_content_blocks(r.content, ctype, url, f"(Image fetched from: {url})")
 
             if "application/json" in ctype:
                 text, extractor = json.dumps(r.json(), indent=2, ensure_ascii=False), "json"

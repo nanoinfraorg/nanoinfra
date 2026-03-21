@@ -1,13 +1,12 @@
 """File system tools: read, write, edit, list."""
 
-import base64
 import difflib
 import mimetypes
 from pathlib import Path
 from typing import Any
 
 from nanobot.agent.tools.base import Tool
-from nanobot.utils.helpers import detect_image_mime
+from nanobot.utils.helpers import build_image_content_blocks, detect_image_mime
 
 
 def _resolve_path(
@@ -108,11 +107,7 @@ class ReadFileTool(_FsTool):
 
             mime = detect_image_mime(raw) or mimetypes.guess_type(path)[0]
             if mime and mime.startswith("image/"):
-                b64 = base64.b64encode(raw).decode()
-                return [
-                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}, "_meta": {"path": str(fp)}},
-                    {"type": "text", "text": f"(Image file: {path})"}
-                ]
+                return build_image_content_blocks(raw, mime, str(fp), f"(Image file: {path})")
 
             try:
                 text_content = raw.decode("utf-8")
