@@ -2,6 +2,7 @@
 
 import asyncio
 from contextlib import contextmanager, nullcontext
+import inspect
 import os
 import select
 import signal
@@ -767,17 +768,27 @@ def agent(
             nonlocal _thinking
             _thinking = _ThinkingSpinner(enabled=not logs)
             with _thinking:
-                response = await agent_loop.process_direct_outbound(
-                    message,
-                    session_id,
-                    on_progress=_cli_progress,
-                )
+                direct_outbound = getattr(agent_loop, "process_direct_outbound", None)
+                if inspect.iscoroutinefunction(direct_outbound):
+                    response = await agent_loop.process_direct_outbound(
+                        message,
+                        session_id,
+                        on_progress=_cli_progress,
+                    )
+                    response_content = response.content if response else ""
+                    response_meta = response.metadata if response else None
+                else:
+                    response_content = await agent_loop.process_direct(
+                        message,
+                        session_id,
+                        on_progress=_cli_progress,
+                    )
+                    response_meta = None
             _thinking = None
-            _print_agent_response(
-                response.content if response else "",
-                render_markdown=markdown,
-                metadata=response.metadata if response else None,
-            )
+            kwargs = {"render_markdown": markdown}
+            if response_meta is not None:
+                kwargs["metadata"] = response_meta
+            _print_agent_response(response_content, **kwargs)
             await agent_loop.close_mcp()
 
         asyncio.run(run_once())
