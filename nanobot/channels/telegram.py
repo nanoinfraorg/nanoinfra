@@ -419,8 +419,11 @@ class TelegramChannel(BaseChannel):
             is_progress = msg.metadata.get("_progress", False)
 
             for chunk in split_message(msg.content, TELEGRAM_MAX_MESSAGE_LEN):
-                # Use plain send for final responses too; draft streaming can create duplicates.
-                await self._send_text(chat_id, chunk, reply_params, thread_kwargs)
+                # Final response: simulate streaming via draft, then persist.
+                if not is_progress:
+                    await self._send_with_streaming(chat_id, chunk, reply_params, thread_kwargs)
+                else:
+                    await self._send_text(chat_id, chunk, reply_params, thread_kwargs)
 
     async def _call_with_retry(self, fn, *args, **kwargs):
         """Call an async Telegram API function with retry on pool/network timeout."""
