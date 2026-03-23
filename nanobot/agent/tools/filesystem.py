@@ -179,7 +179,7 @@ class WriteFileTool(_FsTool):
     async def execute(self, path: str | None = None, content: str | None = None, **kwargs: Any) -> str:
         try:
             if not path:
-                raise ValueError(f"Unknown path")
+                raise ValueError("Unknown path")
             if content is None:
                 raise ValueError("Unknown content")
             fp = self._resolve(path)
@@ -260,11 +260,11 @@ class EditFileTool(_FsTool):
     ) -> str:
         try:
             if not path:
-                raise ValueError(f"Unknown path")
+                raise ValueError("Unknown path")
             if old_text is None:
-                raise ValueError(f"Unknown old_text")
+                raise ValueError("Unknown old_text")
             if new_text is None:
-                raise ValueError(f"Unknown next_text")
+                raise ValueError("Unknown next_text")
 
             fp = self._resolve(path)
             if not fp.exists():
@@ -369,7 +369,7 @@ class ListDirTool(_FsTool):
     ) -> str:
         try:
             if path is None:
-                raise ValueError(f"Unknown path")
+                raise ValueError("Unknown path")
             dp = self._resolve(path)
             if not dp.exists():
                 return f"Error: Directory not found: {path}"
