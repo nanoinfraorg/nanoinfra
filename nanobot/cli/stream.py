@@ -119,3 +119,10 @@ class StreamRenderer:
             self._start_spinner()
         else:
             _make_console().print()
+
+    async def close(self) -> None:
+        """Stop spinner/live without rendering a final streamed round."""
+        if self._live:
+            self._live.stop()
+            self._live = None
+        self._stop_spinner()

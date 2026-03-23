@@ -752,6 +752,7 @@ def agent(
                 on_stream_end=renderer.on_end,
             )
             if not renderer.streamed:
+                await renderer.close()
                 _print_agent_response(
                     response.content if response else "",
                     render_markdown=markdown,
@@ -873,9 +874,13 @@ def agent(
                         if turn_response:
                             content, meta = turn_response[0]
                             if content and not meta.get("_streamed"):
+                                if renderer:
+                                    await renderer.close()
                                 _print_agent_response(
                                     content, render_markdown=markdown, metadata=meta,
                                 )
+                        elif renderer and not renderer.streamed:
+                            await renderer.close()
                     except KeyboardInterrupt:
                         _restore_terminal()
                         console.print("\nGoodbye!")
