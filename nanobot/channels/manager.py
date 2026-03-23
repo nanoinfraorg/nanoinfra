@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -37,6 +38,12 @@ _BOOL_CAMEL_ALIASES: dict[str, str] = {
 }
 
 
+@dataclass
+class _RecentOutbound:
+    fingerprint: str
+    ts: float
+
+
 class ChannelManager:
     """
     Manages chat channels and coordinates message routing.
@@ -59,6 +66,7 @@ class ChannelManager:
         self._session_manager = session_manager
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
+        self._recent_outbound: dict[tuple[str, str], _RecentOutbound] = {}
 
         self._init_channels()
 
@@ -233,6 +241,25 @@ class ChannelManager:
             except Exception as e:
                 logger.error("Error stopping {}: {}", name, e)
 
+    @staticmethod
+    def _fingerprint_content(content: str) -> str:
+        normalized = " ".join(content.split())
+        return hashlib.sha1(normalized.encode("utf-8")).hexdigest() if normalized else ""
+
+    def _should_suppress_outbound(self, msg: OutboundMessage) -> bool:
+        if msg.metadata.get("_progress"):
+            return False
+        fingerprint = self._fingerprint_content(msg.content)
+        if not fingerprint:
+            return False
+        key = (msg.channel, msg.chat_id)
+        recent = self._recent_outbound.get(key)
+        now = asyncio.get_running_loop().time()
+        if recent and recent.fingerprint == fingerprint and now - recent.ts <= 8.0:
+            return True
+        self._recent_outbound[key] = _RecentOutbound(fingerprint=fingerprint, ts=now)
+        return False
+
     async def _dispatch_outbound(self) -> None:
         """Dispatch outbound messages to the appropriate channel."""
         logger.info("Outbound dispatcher started")
@@ -273,6 +300,11 @@ class ChannelManager:
 
                 channel = self.channels.get(msg.channel)
                 if channel:
+                    # Duplicate suppression (non-streaming only)
+                    if not msg.metadata.get("_stream_delta") and not msg.metadata.get("_stream_end") and not msg.metadata.get("_streamed"):
+                        if self._should_suppress_outbound(msg):
+                            logger.info("Suppressing duplicate outbound message to {}:{}", msg.channel, msg.chat_id)
+                            continue
                     await self._send_with_retry(channel, msg)
                 else:
                     logger.warning("Unknown channel: {}", msg.channel)

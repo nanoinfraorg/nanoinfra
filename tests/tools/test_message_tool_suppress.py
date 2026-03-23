@@ -2,7 +2,7 @@
 
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -166,3 +166,35 @@ class TestMessageToolTurnTracking:
         tool._sent_in_turn = True
         tool.start_turn()
         assert not tool._sent_in_turn
+
+
+class TestSystemReplySuppression:
+    @pytest.mark.asyncio
+    async def test_subagent_system_reply_suppressed_when_duplicate(self, tmp_path: Path) -> None:
+        with patch("nanobot.agent.loop.ContextBuilder"), \
+             patch("nanobot.agent.loop.SessionManager") as MockSessionManager, \
+             patch("nanobot.agent.loop.SubagentManager"):
+            session = MagicMock()
+            session.get_history.return_value = []
+            MockSessionManager.return_value.get_or_create.return_value = session
+
+            bus = MessageBus()
+            provider = MagicMock()
+            provider.get_default_model.return_value = "test-model"
+            loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model", memory_window=10)
+
+        loop._remember_visible_reply("feishu:chat123", "Done")
+        loop._run_agent_loop = AsyncMock(return_value=("Done", [], []))
+        loop._save_turn = MagicMock()
+        loop.sessions.save = MagicMock()
+
+        msg = InboundMessage(
+            channel="system",
+            sender_id="subagent",
+            chat_id="feishu:chat123",
+            content="background result",
+            metadata={"source": "subagent"},
+        )
+
+        result = await loop._process_message(msg)
+        assert result is None
