@@ -11,6 +11,7 @@ from nanobot.channels.weixin import (
     ITEM_IMAGE,
     ITEM_TEXT,
     MESSAGE_TYPE_BOT,
+    WEIXIN_CHANNEL_VERSION,
     WeixinChannel,
     WeixinConfig,
 )
@@ -41,6 +42,10 @@ def test_make_headers_includes_route_tag_when_configured() -> None:
 
     assert headers["Authorization"] == "Bearer token"
     assert headers["SKRouteTag"] == "123"
+
+
+def test_channel_version_matches_reference_plugin_version() -> None:
+    assert WEIXIN_CHANNEL_VERSION == "1.0.3"
 
 
 def test_save_and_load_state_persists_context_tokens(tmp_path) -> None:

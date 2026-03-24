@@ -53,7 +53,8 @@ MESSAGE_TYPE_BOT = 2
 MESSAGE_STATE_FINISH = 2
 
 WEIXIN_MAX_MESSAGE_LEN = 4000
-BASE_INFO: dict[str, str] = {"channel_version": "1.0.2"}
+WEIXIN_CHANNEL_VERSION = "1.0.3"
+BASE_INFO: dict[str, str] = {"channel_version": WEIXIN_CHANNEL_VERSION}
 
 # Session-expired error code
 ERRCODE_SESSION_EXPIRED = -14
