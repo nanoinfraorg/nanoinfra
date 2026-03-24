@@ -43,8 +43,10 @@ _SYSTEM_PROMPT = (
     "Call the evaluate_notification tool to decide whether the user "
     "should be notified.\n\n"
     "Notify when the response contains actionable information, errors, "
-    "completed deliverables, or anything the user explicitly asked to "
-    "be reminded about.\n\n"
+    "completed deliverables, scheduled reminder/timer completions, or "
+    "anything the user explicitly asked to be reminded about.\n\n"
+    "A user-scheduled reminder should usually notify even when the "
+    "response is brief or mostly repeats the original reminder.\n\n"
     "Suppress when the response is a routine status check with nothing "
     "new, a confirmation that everything is normal, or essentially empty."
 )
