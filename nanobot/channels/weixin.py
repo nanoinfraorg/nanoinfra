@@ -83,6 +83,7 @@ class WeixinConfig(Base):
     allow_from: list[str] = Field(default_factory=list)
     base_url: str = "https://ilinkai.weixin.qq.com"
     cdn_base_url: str = "https://novac2c.cdn.weixin.qq.com/c2c"
+    route_tag: str | int | None = None
     token: str = ""  # Manually set token, or obtained via QR login
     state_dir: str = ""  # Default: ~/.nanobot/weixin/
     poll_timeout: int = DEFAULT_LONG_POLL_TIMEOUT_S  # seconds for long-poll
@@ -187,6 +188,8 @@ class WeixinChannel(BaseChannel):
         }
         if auth and self._token:
             headers["Authorization"] = f"Bearer {self._token}"
+        if self.config.route_tag is not None and str(self.config.route_tag).strip():
+            headers["SKRouteTag"] = str(self.config.route_tag).strip()
         return headers
 
     async def _api_get(

@@ -22,6 +22,20 @@ def _make_channel() -> tuple[WeixinChannel, MessageBus]:
     return channel, bus
 
 
+def test_make_headers_includes_route_tag_when_configured() -> None:
+    bus = MessageBus()
+    channel = WeixinChannel(
+        WeixinConfig(enabled=True, allow_from=["*"], route_tag=123),
+        bus,
+    )
+    channel._token = "token"
+
+    headers = channel._make_headers()
+
+    assert headers["Authorization"] == "Bearer token"
+    assert headers["SKRouteTag"] == "123"
+
+
 @pytest.mark.asyncio
 async def test_process_message_deduplicates_inbound_ids() -> None:
     channel, bus = _make_channel()
