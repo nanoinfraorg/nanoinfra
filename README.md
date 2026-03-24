@@ -724,10 +724,14 @@ nanobot gateway
 
 Uses **HTTP long-poll** with QR-code login via the ilinkai personal WeChat API. No local WeChat desktop client is required.
 
-**1. Install the optional dependency**
+> Weixin support is available from source checkout, but is not included in the current PyPI release yet.
+
+**1. Install from source**
 
 ```bash
-pip install nanobot-ai[weixin]
+git clone https://github.com/HKUDS/nanobot.git
+cd nanobot
+pip install -e ".[weixin]"
 ```
 
 **2. Configure**
