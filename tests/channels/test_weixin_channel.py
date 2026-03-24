@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -121,6 +122,34 @@ async def test_send_without_context_token_does_not_send_text() -> None:
     )
 
     channel._send_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_send_does_not_send_when_session_is_paused() -> None:
+    channel, _bus = _make_channel()
+    channel._client = object()
+    channel._token = "token"
+    channel._context_tokens["wx-user"] = "ctx-2"
+    channel._pause_session(60)
+    channel._send_text = AsyncMock()
+
+    await channel.send(
+        type("Msg", (), {"chat_id": "wx-user", "content": "pong", "media": [], "metadata": {}})()
+    )
+
+    channel._send_text.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_poll_once_pauses_session_on_expired_errcode() -> None:
+    channel, _bus = _make_channel()
+    channel._client = SimpleNamespace(timeout=None)
+    channel._token = "token"
+    channel._api_post = AsyncMock(return_value={"ret": 0, "errcode": -14, "errmsg": "expired"})
+
+    await channel._poll_once()
+
+    assert channel._session_pause_remaining_s() > 0
 
 
 @pytest.mark.asyncio
