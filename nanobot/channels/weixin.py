@@ -4,7 +4,7 @@ Uses the ilinkai.weixin.qq.com API for personal WeChat messaging.
 No WebSocket, no local WeChat client needed — just HTTP requests with a
 bot token obtained via QR code login.
 
-Protocol reverse-engineered from ``@tencent-weixin/openclaw-weixin`` v1.0.2.
+Protocol reverse-engineered from ``@tencent-weixin/openclaw-weixin`` v1.0.3.
 """
 
 from __future__ import annotations
@@ -799,7 +799,7 @@ class WeixinChannel(BaseChannel):
     ) -> None:
         """Upload a local file to WeChat CDN and send it as a media message.
 
-        Follows the exact protocol from ``@tencent-weixin/openclaw-weixin`` v1.0.2:
+        Follows the exact protocol from ``@tencent-weixin/openclaw-weixin`` v1.0.3:
         1. Generate a random 16-byte AES key (client-side).
         2. Call ``getuploadurl`` with file metadata + hex-encoded AES key.
         3. AES-128-ECB encrypt the file and POST to CDN (``{cdnBaseUrl}/upload``).

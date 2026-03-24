@@ -757,6 +757,7 @@ pip install -e ".[weixin]"
 
 > - `allowFrom`: Add the sender ID you see in nanobot logs for your WeChat account. Use `["*"]` to allow all users.
 > - `token`: Optional. If omitted, log in interactively and nanobot will save the token for you.
+> - `routeTag`: Optional. When your upstream Weixin deployment requires request routing, nanobot will send it as the `SKRouteTag` header.
 > - `stateDir`: Optional. Defaults to nanobot's runtime directory for Weixin state.
 > - `pollTimeout`: Optional long-poll timeout in seconds.
 
