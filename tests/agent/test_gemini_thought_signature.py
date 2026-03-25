@@ -14,6 +14,6 @@ def test_tool_call_request_serializes_provider_fields() -> None:
 
     message = tool_call.to_openai_tool_call()
 
-    assert message["provider_specific_fields"] == {"thought_signature": "signed-token"}
+    assert message["extra_content"] == {"google": {"thought_signature": "signed-token"}}
     assert message["function"]["provider_specific_fields"] == {"inner": "value"}
     assert message["function"]["arguments"] == '{"path": "todo.md"}'

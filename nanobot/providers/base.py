@@ -30,7 +30,21 @@ class ToolCallRequest:
             },
         }
         if self.provider_specific_fields:
-            tool_call["provider_specific_fields"] = self.provider_specific_fields
+            # Gemini OpenAI compatibility expects thought signatures in extra_content.google.
+            if "thought_signature" in self.provider_specific_fields:
+                tool_call["extra_content"] = {
+                    "google": {
+                        "thought_signature": self.provider_specific_fields["thought_signature"],
+                    }
+                }
+                other_fields = {
+                    k: v for k, v in self.provider_specific_fields.items()
+                    if k != "thought_signature"
+                }
+                if other_fields:
+                    tool_call["provider_specific_fields"] = other_fields
+            else:
+                tool_call["provider_specific_fields"] = self.provider_specific_fields
         if self.function_provider_specific_fields:
             tool_call["function"]["provider_specific_fields"] = self.function_provider_specific_fields
         return tool_call

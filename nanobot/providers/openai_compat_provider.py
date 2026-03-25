@@ -43,6 +43,13 @@ def _coerce_dict(value: Any) -> dict[str, Any] | None:
 def _extract_tool_call_fields(tc: Any) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Extract provider-specific metadata from a tool call object."""
     provider_specific_fields = _coerce_dict(_get_attr_or_item(tc, "provider_specific_fields"))
+    extra_content = _coerce_dict(_get_attr_or_item(tc, "extra_content"))
+    google_content = _coerce_dict(_get_attr_or_item(extra_content, "google")) if extra_content else None
+    if google_content:
+        provider_specific_fields = {
+            **(provider_specific_fields or {}),
+            **google_content,
+        }
     function = _get_attr_or_item(tc, "function")
     function_provider_specific_fields = _coerce_dict(
         _get_attr_or_item(function, "provider_specific_fields")

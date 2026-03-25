@@ -40,7 +40,7 @@ def _fake_tool_call_response() -> SimpleNamespace:
         id="call_123",
         index=0,
         function=function,
-        provider_specific_fields={"thought_signature": "signed-token"},
+        extra_content={"google": {"thought_signature": "signed-token"}},
     )
     message = SimpleNamespace(
         content=None,
@@ -160,7 +160,7 @@ async def test_openai_compat_preserves_provider_specific_fields_on_tool_calls() 
     assert tool_call.function_provider_specific_fields == {"inner": "value"}
 
     serialized = tool_call.to_openai_tool_call()
-    assert serialized["provider_specific_fields"] == {"thought_signature": "signed-token"}
+    assert serialized["extra_content"] == {"google": {"thought_signature": "signed-token"}}
     assert serialized["function"]["provider_specific_fields"] == {"inner": "value"}
 
 
