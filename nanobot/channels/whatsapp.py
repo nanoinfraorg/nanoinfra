@@ -26,6 +26,8 @@ class WhatsAppConfig(Base):
     bridge_url: str = "ws://localhost:3001"
     bridge_token: str = ""
     allow_from: list[str] = Field(default_factory=list)
+    transcription_provider: str = "openai"  # openai or groq
+    transcription_api_key: str = ""
     group_policy: Literal["open", "mention"] = "open"  # "open" responds to all, "mention" only when @mentioned
 
 
@@ -51,6 +53,8 @@ class WhatsAppChannel(BaseChannel):
         self._ws = None
         self._connected = False
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
+        self.transcription_api_key = config.transcription_api_key
+        self.transcription_provider = config.transcription_provider
 
     async def login(self, force: bool = False) -> bool:
         """
@@ -203,11 +207,16 @@ class WhatsAppChannel(BaseChannel):
 
             # Handle voice transcription if it's a voice message
             if content == "[Voice Message]":
-                logger.info(
-                    "Voice message received from {}, but direct download from bridge is not yet supported.",
-                    sender_id,
-                )
-                content = "[Voice Message: Transcription not available for WhatsApp yet]"
+                if media_paths:
+                    logger.info("Transcribing voice message from {}...", sender_id)
+                    transcription = await self.transcribe_audio(media_paths[0])
+                    if transcription:
+                        content = transcription
+                        logger.info("Transcribed voice from {}: {}...", sender_id, transcription[:50])
+                    else:
+                        content = "[Voice Message: Transcription failed]"
+                else:
+                    content = "[Voice Message: Audio not available]"
 
             # Extract media paths (images/documents/videos downloaded by the bridge)
             media_paths = data.get("media") or []
