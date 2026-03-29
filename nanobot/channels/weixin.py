@@ -116,6 +116,12 @@ _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".ico"
 _VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv"}
 
 
+def _has_downloadable_media_locator(media: dict[str, Any] | None) -> bool:
+    if not isinstance(media, dict):
+        return False
+    return bool(str(media.get("encrypt_query_param", "") or "") or str(media.get("full_url", "") or "").strip())
+
+
 class WeixinConfig(Base):
     """Personal WeChat channel configuration."""
 
@@ -611,6 +617,7 @@ class WeixinChannel(BaseChannel):
         item_list: list[dict] = msg.get("item_list") or []
         content_parts: list[str] = []
         media_paths: list[str] = []
+        has_top_level_downloadable_media = False
 
         for item in item_list:
             item_type = item.get("type", 0)
@@ -647,6 +654,8 @@ class WeixinChannel(BaseChannel):
 
             elif item_type == ITEM_IMAGE:
                 image_item = item.get("image_item") or {}
+                if _has_downloadable_media_locator(image_item.get("media")):
+                    has_top_level_downloadable_media = True
                 file_path = await self._download_media_item(image_item, "image")
                 if file_path:
                     content_parts.append(f"[image]\n[Image: source: {file_path}]")
@@ -661,6 +670,8 @@ class WeixinChannel(BaseChannel):
                 if voice_text:
                     content_parts.append(f"[voice] {voice_text}")
                 else:
+                    if _has_downloadable_media_locator(voice_item.get("media")):
+                        has_top_level_downloadable_media = True
                     file_path = await self._download_media_item(voice_item, "voice")
                     if file_path:
                         transcription = await self.transcribe_audio(file_path)
@@ -674,6 +685,8 @@ class WeixinChannel(BaseChannel):
 
             elif item_type == ITEM_FILE:
                 file_item = item.get("file_item") or {}
+                if _has_downloadable_media_locator(file_item.get("media")):
+                    has_top_level_downloadable_media = True
                 file_name = file_item.get("file_name", "unknown")
                 file_path = await self._download_media_item(
                     file_item,
@@ -688,6 +701,8 @@ class WeixinChannel(BaseChannel):
 
             elif item_type == ITEM_VIDEO:
                 video_item = item.get("video_item") or {}
+                if _has_downloadable_media_locator(video_item.get("media")):
+                    has_top_level_downloadable_media = True
                 file_path = await self._download_media_item(video_item, "video")
                 if file_path:
                     content_parts.append(f"[video]\n[Video: source: {file_path}]")
@@ -698,7 +713,7 @@ class WeixinChannel(BaseChannel):
         # Fallback: when no top-level media was downloaded, try quoted/referenced media.
         # This aligns with the reference plugin behavior that checks ref_msg.message_item
         # when main item_list has no downloadable media.
-        if not media_paths:
+        if not media_paths and not has_top_level_downloadable_media:
             ref_media_item: dict[str, Any] | None = None
             for item in item_list:
                 if item.get("type", 0) != ITEM_TEXT:
@@ -792,6 +807,12 @@ class WeixinChannel(BaseChannel):
                 aes_key_b64 = base64.b64encode(bytes.fromhex(raw_aeskey_hex)).decode()
             elif media_aes_key_b64:
                 aes_key_b64 = media_aes_key_b64
+
+            # Reference protocol behavior: VOICE/FILE/VIDEO require aes_key;
+            # only IMAGE may be downloaded as plain bytes when key is missing.
+            if media_type != "image" and not aes_key_b64:
+                logger.debug("Missing AES key for {} item, skip media download", media_type)
+                return None
 
             # Prefer server-provided full_url, fallback to encrypted_query_param URL construction.
             if full_url:
