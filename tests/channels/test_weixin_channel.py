@@ -251,6 +251,46 @@ async def test_process_message_does_not_use_referenced_fallback_when_top_level_m
 
 
 @pytest.mark.asyncio
+async def test_process_message_does_not_fallback_when_top_level_media_exists_but_download_fails() -> None:
+    channel, bus = _make_channel()
+    # Top-level image download fails (None), referenced image would succeed if fallback were triggered.
+    channel._download_media_item = AsyncMock(side_effect=[None, "/tmp/ref.jpg"])
+
+    await channel._process_message(
+        {
+            "message_type": 1,
+            "message_id": "m3-ref-no-fallback-on-failure",
+            "from_user_id": "wx-user",
+            "context_token": "ctx-3-ref-no-fallback-on-failure",
+            "item_list": [
+                {"type": ITEM_IMAGE, "image_item": {"media": {"encrypt_query_param": "top-enc"}}},
+                {
+                    "type": ITEM_TEXT,
+                    "text_item": {"text": "quoted has media"},
+                    "ref_msg": {
+                        "message_item": {
+                            "type": ITEM_IMAGE,
+                            "image_item": {"media": {"encrypt_query_param": "ref-enc"}},
+                        },
+                    },
+                },
+            ],
+        }
+    )
+
+    inbound = await asyncio.wait_for(bus.consume_inbound(), timeout=1.0)
+
+    # Should only attempt top-level media item; reference fallback must not activate.
+    channel._download_media_item.assert_awaited_once_with(
+        {"media": {"encrypt_query_param": "top-enc"}},
+        "image",
+    )
+    assert inbound.media == []
+    assert "[image]" in inbound.content
+    assert "/tmp/ref.jpg" not in inbound.content
+
+
+@pytest.mark.asyncio
 async def test_send_without_context_token_does_not_send_text() -> None:
     channel, _bus = _make_channel()
     channel._client = object()
@@ -613,3 +653,24 @@ async def test_download_media_item_falls_back_to_encrypt_query_param(tmp_path) -
     assert Path(saved_path).read_bytes() == b"fallback-bytes"
     called_url = channel._client.get.await_args_list[0].args[0]
     assert called_url.startswith(f"{channel.config.cdn_base_url}/download?encrypted_query_param=enc-fallback")
+
+
+@pytest.mark.asyncio
+async def test_download_media_item_non_image_requires_aes_key_even_with_full_url(tmp_path) -> None:
+    channel, _bus = _make_channel()
+    weixin_mod.get_media_dir = lambda _name: tmp_path
+
+    full_url = "https://cdn.example.test/download/voice"
+    channel._client = SimpleNamespace(
+        get=AsyncMock(return_value=_DummyDownloadResponse(content=b"ciphertext-or-unknown"))
+    )
+
+    item = {
+        "media": {
+            "full_url": full_url,
+        },
+    }
+    saved_path = await channel._download_media_item(item, "voice")
+
+    assert saved_path is None
+    channel._client.get.assert_not_awaited()
