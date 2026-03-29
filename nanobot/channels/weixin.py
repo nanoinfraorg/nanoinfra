@@ -15,6 +15,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import random
 import re
 import time
 import uuid
@@ -102,18 +103,23 @@ MAX_QR_REFRESH_COUNT = 3
 TYPING_STATUS_TYPING = 1
 TYPING_STATUS_CANCEL = 2
 TYPING_TICKET_TTL_S = 24 * 60 * 60
+TYPING_KEEPALIVE_INTERVAL_S = 5
+CONFIG_CACHE_INITIAL_RETRY_S = 2
+CONFIG_CACHE_MAX_RETRY_S = 60 * 60
 
 # Default long-poll timeout; overridden by server via longpolling_timeout_ms.
 DEFAULT_LONG_POLL_TIMEOUT_S = 35
 
-# Media-type codes for getuploadurl  (1=image, 2=video, 3=file)
+# Media-type codes for getuploadurl  (1=image, 2=video, 3=file, 4=voice)
 UPLOAD_MEDIA_IMAGE = 1
 UPLOAD_MEDIA_VIDEO = 2
 UPLOAD_MEDIA_FILE = 3
+UPLOAD_MEDIA_VOICE = 4
 
 # File extensions considered as images / videos for outbound media
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".ico", ".svg"}
 _VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv"}
+_VOICE_EXTS = {".mp3", ".wav", ".amr", ".silk", ".ogg", ".m4a", ".aac", ".flac"}
 
 
 def _has_downloadable_media_locator(media: dict[str, Any] | None) -> bool:
@@ -167,7 +173,7 @@ class WeixinChannel(BaseChannel):
         self._poll_task: asyncio.Task | None = None
         self._next_poll_timeout_s: int = DEFAULT_LONG_POLL_TIMEOUT_S
         self._session_pause_until: float = 0.0
-        self._typing_tickets: dict[str, tuple[str, float]] = {}
+        self._typing_tickets: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # State persistence
@@ -339,7 +345,16 @@ class WeixinChannel(BaseChannel):
                         params={"qrcode": qrcode_id},
                         auth=False,
                     )
-                except httpx.TimeoutException:
+                except Exception as e:
+                    if self._is_retryable_qr_poll_error(e):
+                        logger.warning("QR polling temporary error, will retry: {}", e)
+                        await asyncio.sleep(1)
+                        continue
+                    raise
+
+                if not isinstance(status_data, dict):
+                    logger.warning("QR polling got non-object response, continue waiting")
+                    await asyncio.sleep(1)
                     continue
 
                 status = status_data.get("status", "")
@@ -406,6 +421,16 @@ class WeixinChannel(BaseChannel):
         except Exception as e:
             logger.error("WeChat QR login failed: {}", e)
 
+        return False
+
+    @staticmethod
+    def _is_retryable_qr_poll_error(err: Exception) -> bool:
+        if isinstance(err, httpx.TimeoutException | httpx.TransportError):
+            return True
+        if isinstance(err, httpx.HTTPStatusError):
+            status_code = err.response.status_code if err.response is not None else 0
+            if status_code >= 500:
+                return True
         return False
 
     @staticmethod
@@ -858,13 +883,11 @@ class WeixinChannel(BaseChannel):
     # ------------------------------------------------------------------
 
     async def _get_typing_ticket(self, user_id: str, context_token: str = "") -> str:
-        """Get typing ticket for a user with simple per-user TTL cache."""
+        """Get typing ticket with per-user refresh + failure backoff cache."""
         now = time.time()
-        cached = self._typing_tickets.get(user_id)
-        if cached:
-            ticket, expires_at = cached
-            if ticket and now < expires_at:
-                return ticket
+        entry = self._typing_tickets.get(user_id)
+        if entry and now < float(entry.get("next_fetch_at", 0)):
+            return str(entry.get("ticket", "") or "")
 
         body: dict[str, Any] = {
             "ilink_user_id": user_id,
@@ -874,9 +897,27 @@ class WeixinChannel(BaseChannel):
         data = await self._api_post("ilink/bot/getconfig", body)
         if data.get("ret", 0) == 0:
             ticket = str(data.get("typing_ticket", "") or "")
-            if ticket:
-                self._typing_tickets[user_id] = (ticket, now + TYPING_TICKET_TTL_S)
-                return ticket
+            self._typing_tickets[user_id] = {
+                "ticket": ticket,
+                "ever_succeeded": True,
+                "next_fetch_at": now + (random.random() * TYPING_TICKET_TTL_S),
+                "retry_delay_s": CONFIG_CACHE_INITIAL_RETRY_S,
+            }
+            return ticket
+
+        prev_delay = float(entry.get("retry_delay_s", CONFIG_CACHE_INITIAL_RETRY_S)) if entry else CONFIG_CACHE_INITIAL_RETRY_S
+        next_delay = min(prev_delay * 2, CONFIG_CACHE_MAX_RETRY_S)
+        if entry:
+            entry["next_fetch_at"] = now + next_delay
+            entry["retry_delay_s"] = next_delay
+            return str(entry.get("ticket", "") or "")
+
+        self._typing_tickets[user_id] = {
+            "ticket": "",
+            "ever_succeeded": False,
+            "next_fetch_at": now + CONFIG_CACHE_INITIAL_RETRY_S,
+            "retry_delay_s": CONFIG_CACHE_INITIAL_RETRY_S,
+        }
         return ""
 
     async def _send_typing(self, user_id: str, typing_ticket: str, status: int) -> None:
@@ -890,6 +931,16 @@ class WeixinChannel(BaseChannel):
             "base_info": BASE_INFO,
         }
         await self._api_post("ilink/bot/sendtyping", body)
+
+    async def _typing_keepalive_loop(self, user_id: str, typing_ticket: str, stop_event: asyncio.Event) -> None:
+        while not stop_event.is_set():
+            await asyncio.sleep(TYPING_KEEPALIVE_INTERVAL_S)
+            if stop_event.is_set():
+                break
+            try:
+                await self._send_typing(user_id, typing_ticket, TYPING_STATUS_TYPING)
+            except Exception as e:
+                logger.debug("WeChat sendtyping(keepalive) failed for {}: {}", user_id, e)
 
     async def send(self, msg: OutboundMessage) -> None:
         if not self._client or not self._token:
@@ -923,6 +974,13 @@ class WeixinChannel(BaseChannel):
             except Exception as e:
                 logger.debug("WeChat sendtyping(start) failed for {}: {}", msg.chat_id, e)
 
+        typing_keepalive_stop = asyncio.Event()
+        typing_keepalive_task: asyncio.Task | None = None
+        if typing_ticket:
+            typing_keepalive_task = asyncio.create_task(
+                self._typing_keepalive_loop(msg.chat_id, typing_ticket, typing_keepalive_stop)
+            )
+
         try:
             # --- Send media files first (following Telegram channel pattern) ---
             for media_path in (msg.media or []):
@@ -947,6 +1005,14 @@ class WeixinChannel(BaseChannel):
             logger.error("Error sending WeChat message: {}", e)
             raise
         finally:
+            if typing_keepalive_task:
+                typing_keepalive_stop.set()
+                typing_keepalive_task.cancel()
+                try:
+                    await typing_keepalive_task
+                except asyncio.CancelledError:
+                    pass
+
             if typing_ticket:
                 try:
                     await self._send_typing(msg.chat_id, typing_ticket, TYPING_STATUS_CANCEL)
@@ -1025,6 +1091,10 @@ class WeixinChannel(BaseChannel):
             upload_type = UPLOAD_MEDIA_VIDEO
             item_type = ITEM_VIDEO
             item_key = "video_item"
+        elif ext in _VOICE_EXTS:
+            upload_type = UPLOAD_MEDIA_VOICE
+            item_type = ITEM_VOICE
+            item_key = "voice_item"
         else:
             upload_type = UPLOAD_MEDIA_FILE
             item_type = ITEM_FILE

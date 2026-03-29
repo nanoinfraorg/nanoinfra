@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import httpx
 
 import nanobot.channels.weixin as weixin_mod
 from nanobot.bus.queue import MessageBus
@@ -593,6 +594,158 @@ async def test_send_media_falls_back_to_upload_param_url(tmp_path) -> None:
     cdn_url = cdn_post.await_args_list[0].args[0]
     assert cdn_url.startswith(f"{channel.config.cdn_base_url}/upload?encrypted_query_param=enc-need-fallback")
     assert "&filekey=" in cdn_url
+
+
+@pytest.mark.asyncio
+async def test_send_media_voice_file_uses_voice_item_and_voice_upload_type(tmp_path) -> None:
+    channel, _bus = _make_channel()
+
+    media_file = tmp_path / "voice.mp3"
+    media_file.write_bytes(b"voice-bytes")
+
+    cdn_post = AsyncMock(return_value=_DummyHttpResponse(headers={"x-encrypted-param": "voice-dl-param"}))
+    channel._client = SimpleNamespace(post=cdn_post)
+    channel._api_post = AsyncMock(
+        side_effect=[
+            {"upload_full_url": "https://upload-full.example.test/voice?foo=bar"},
+            {"ret": 0},
+        ]
+    )
+
+    await channel._send_media_file("wx-user", str(media_file), "ctx-voice")
+
+    getupload_body = channel._api_post.await_args_list[0].args[1]
+    assert getupload_body["media_type"] == 4
+
+    sendmessage_body = channel._api_post.await_args_list[1].args[1]
+    item = sendmessage_body["msg"]["item_list"][0]
+    assert item["type"] == 3
+    assert "voice_item" in item
+    assert "file_item" not in item
+    assert item["voice_item"]["media"]["encrypt_query_param"] == "voice-dl-param"
+
+
+@pytest.mark.asyncio
+async def test_send_typing_uses_keepalive_until_send_finishes() -> None:
+    channel, _bus = _make_channel()
+    channel._client = object()
+    channel._token = "token"
+    channel._context_tokens["wx-user"] = "ctx-typing-loop"
+    async def _api_post_side_effect(endpoint: str, _body: dict | None = None, *, auth: bool = True):
+        if endpoint == "ilink/bot/getconfig":
+            return {"ret": 0, "typing_ticket": "ticket-keepalive"}
+        return {"ret": 0}
+
+    channel._api_post = AsyncMock(side_effect=_api_post_side_effect)
+
+    async def _slow_send_text(*_args, **_kwargs) -> None:
+        await asyncio.sleep(0.03)
+
+    channel._send_text = AsyncMock(side_effect=_slow_send_text)
+
+    old_interval = weixin_mod.TYPING_KEEPALIVE_INTERVAL_S
+    weixin_mod.TYPING_KEEPALIVE_INTERVAL_S = 0.01
+    try:
+        await channel.send(
+            type("Msg", (), {"chat_id": "wx-user", "content": "pong", "media": [], "metadata": {}})()
+        )
+    finally:
+        weixin_mod.TYPING_KEEPALIVE_INTERVAL_S = old_interval
+
+    status_calls = [
+        c.args[1]["status"]
+        for c in channel._api_post.await_args_list
+        if c.args and c.args[0] == "ilink/bot/sendtyping"
+    ]
+    assert status_calls.count(1) >= 2
+    assert status_calls[-1] == 2
+
+
+@pytest.mark.asyncio
+async def test_get_typing_ticket_failure_uses_backoff_and_cached_ticket(monkeypatch) -> None:
+    channel, _bus = _make_channel()
+    channel._client = object()
+    channel._token = "token"
+
+    now = {"value": 1000.0}
+    monkeypatch.setattr(weixin_mod.time, "time", lambda: now["value"])
+    monkeypatch.setattr(weixin_mod.random, "random", lambda: 0.5)
+
+    channel._api_post = AsyncMock(return_value={"ret": 0, "typing_ticket": "ticket-ok"})
+    first = await channel._get_typing_ticket("wx-user", "ctx-1")
+    assert first == "ticket-ok"
+
+    # force refresh window reached
+    now["value"] = now["value"] + (12 * 60 * 60) + 1
+    channel._api_post = AsyncMock(return_value={"ret": 1, "errmsg": "temporary failure"})
+
+    # On refresh failure, should still return cached ticket and apply backoff.
+    second = await channel._get_typing_ticket("wx-user", "ctx-2")
+    assert second == "ticket-ok"
+    assert channel._api_post.await_count == 1
+
+    # Before backoff expiry, no extra fetch should happen.
+    now["value"] += 1
+    third = await channel._get_typing_ticket("wx-user", "ctx-3")
+    assert third == "ticket-ok"
+    assert channel._api_post.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_qr_login_treats_temporary_connect_error_as_wait_and_recovers() -> None:
+    channel, _bus = _make_channel()
+    channel._running = True
+    channel._save_state = lambda: None
+    channel._print_qr_code = lambda url: None
+    channel._fetch_qr_code = AsyncMock(return_value=("qr-1", "url-1"))
+
+    request = httpx.Request("GET", "https://ilinkai.weixin.qq.com/ilink/bot/get_qrcode_status")
+    channel._api_get_with_base = AsyncMock(
+        side_effect=[
+            httpx.ConnectError("temporary network", request=request),
+            {
+                "status": "confirmed",
+                "bot_token": "token-net-ok",
+                "ilink_bot_id": "bot-id",
+                "baseurl": "https://example.test",
+                "ilink_user_id": "wx-user",
+            },
+        ]
+    )
+
+    ok = await channel._qr_login()
+
+    assert ok is True
+    assert channel._token == "token-net-ok"
+
+
+@pytest.mark.asyncio
+async def test_qr_login_treats_5xx_gateway_response_error_as_wait_and_recovers() -> None:
+    channel, _bus = _make_channel()
+    channel._running = True
+    channel._save_state = lambda: None
+    channel._print_qr_code = lambda url: None
+    channel._fetch_qr_code = AsyncMock(return_value=("qr-1", "url-1"))
+
+    request = httpx.Request("GET", "https://ilinkai.weixin.qq.com/ilink/bot/get_qrcode_status")
+    response = httpx.Response(status_code=524, request=request)
+    channel._api_get_with_base = AsyncMock(
+        side_effect=[
+            httpx.HTTPStatusError("gateway timeout", request=request, response=response),
+            {
+                "status": "confirmed",
+                "bot_token": "token-5xx-ok",
+                "ilink_bot_id": "bot-id",
+                "baseurl": "https://example.test",
+                "ilink_user_id": "wx-user",
+            },
+        ]
+    )
+
+    ok = await channel._qr_login()
+
+    assert ok is True
+    assert channel._token == "token-5xx-ok"
 
 
 def test_decrypt_aes_ecb_strips_valid_pkcs7_padding() -> None:
