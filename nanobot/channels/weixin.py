@@ -691,6 +691,52 @@ class WeixinChannel(BaseChannel):
                 else:
                     content_parts.append("[video]")
 
+        # Fallback: when no top-level media was downloaded, try quoted/referenced media.
+        # This aligns with the reference plugin behavior that checks ref_msg.message_item
+        # when main item_list has no downloadable media.
+        if not media_paths:
+            ref_media_item: dict[str, Any] | None = None
+            for item in item_list:
+                if item.get("type", 0) != ITEM_TEXT:
+                    continue
+                ref = item.get("ref_msg") or {}
+                candidate = ref.get("message_item") or {}
+                if candidate.get("type", 0) in (ITEM_IMAGE, ITEM_VOICE, ITEM_FILE, ITEM_VIDEO):
+                    ref_media_item = candidate
+                    break
+
+            if ref_media_item:
+                ref_type = ref_media_item.get("type", 0)
+                if ref_type == ITEM_IMAGE:
+                    image_item = ref_media_item.get("image_item") or {}
+                    file_path = await self._download_media_item(image_item, "image")
+                    if file_path:
+                        content_parts.append(f"[image]\n[Image: source: {file_path}]")
+                        media_paths.append(file_path)
+                elif ref_type == ITEM_VOICE:
+                    voice_item = ref_media_item.get("voice_item") or {}
+                    file_path = await self._download_media_item(voice_item, "voice")
+                    if file_path:
+                        transcription = await self.transcribe_audio(file_path)
+                        if transcription:
+                            content_parts.append(f"[voice] {transcription}")
+                        else:
+                            content_parts.append(f"[voice]\n[Audio: source: {file_path}]")
+                        media_paths.append(file_path)
+                elif ref_type == ITEM_FILE:
+                    file_item = ref_media_item.get("file_item") or {}
+                    file_name = file_item.get("file_name", "unknown")
+                    file_path = await self._download_media_item(file_item, "file", file_name)
+                    if file_path:
+                        content_parts.append(f"[file: {file_name}]\n[File: source: {file_path}]")
+                        media_paths.append(file_path)
+                elif ref_type == ITEM_VIDEO:
+                    video_item = ref_media_item.get("video_item") or {}
+                    file_path = await self._download_media_item(video_item, "video")
+                    if file_path:
+                        content_parts.append(f"[video]\n[Video: source: {file_path}]")
+                        media_paths.append(file_path)
+
         content = "\n".join(content_parts)
         if not content:
             return
