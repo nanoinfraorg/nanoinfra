@@ -177,6 +177,80 @@ async def test_process_message_extracts_media_and_preserves_paths() -> None:
 
 
 @pytest.mark.asyncio
+async def test_process_message_falls_back_to_referenced_media_when_no_top_level_media() -> None:
+    channel, bus = _make_channel()
+    channel._download_media_item = AsyncMock(return_value="/tmp/ref.jpg")
+
+    await channel._process_message(
+        {
+            "message_type": 1,
+            "message_id": "m3-ref-fallback",
+            "from_user_id": "wx-user",
+            "context_token": "ctx-3-ref-fallback",
+            "item_list": [
+                {
+                    "type": ITEM_TEXT,
+                    "text_item": {"text": "reply to image"},
+                    "ref_msg": {
+                        "message_item": {
+                            "type": ITEM_IMAGE,
+                            "image_item": {"media": {"encrypt_query_param": "ref-enc"}},
+                        },
+                    },
+                },
+            ],
+        }
+    )
+
+    inbound = await asyncio.wait_for(bus.consume_inbound(), timeout=1.0)
+
+    channel._download_media_item.assert_awaited_once_with(
+        {"media": {"encrypt_query_param": "ref-enc"}},
+        "image",
+    )
+    assert inbound.media == ["/tmp/ref.jpg"]
+    assert "reply to image" in inbound.content
+    assert "[image]" in inbound.content
+
+
+@pytest.mark.asyncio
+async def test_process_message_does_not_use_referenced_fallback_when_top_level_media_exists() -> None:
+    channel, bus = _make_channel()
+    channel._download_media_item = AsyncMock(side_effect=["/tmp/top.jpg", "/tmp/ref.jpg"])
+
+    await channel._process_message(
+        {
+            "message_type": 1,
+            "message_id": "m3-ref-no-fallback",
+            "from_user_id": "wx-user",
+            "context_token": "ctx-3-ref-no-fallback",
+            "item_list": [
+                {"type": ITEM_IMAGE, "image_item": {"media": {"encrypt_query_param": "top-enc"}}},
+                {
+                    "type": ITEM_TEXT,
+                    "text_item": {"text": "has top-level media"},
+                    "ref_msg": {
+                        "message_item": {
+                            "type": ITEM_IMAGE,
+                            "image_item": {"media": {"encrypt_query_param": "ref-enc"}},
+                        },
+                    },
+                },
+            ],
+        }
+    )
+
+    inbound = await asyncio.wait_for(bus.consume_inbound(), timeout=1.0)
+
+    channel._download_media_item.assert_awaited_once_with(
+        {"media": {"encrypt_query_param": "top-enc"}},
+        "image",
+    )
+    assert inbound.media == ["/tmp/top.jpg"]
+    assert "/tmp/ref.jpg" not in inbound.content
+
+
+@pytest.mark.asyncio
 async def test_send_without_context_token_does_not_send_text() -> None:
     channel, _bus = _make_channel()
     channel._client = object()
