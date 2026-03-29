@@ -53,7 +53,41 @@ MESSAGE_TYPE_BOT = 2
 MESSAGE_STATE_FINISH = 2
 
 WEIXIN_MAX_MESSAGE_LEN = 4000
-WEIXIN_CHANNEL_VERSION = "1.0.3"
+
+
+def _read_reference_package_meta() -> dict[str, str]:
+    """Best-effort read of reference `package/package.json` metadata."""
+    try:
+        pkg_path = Path(__file__).resolve().parents[2] / "package" / "package.json"
+        data = json.loads(pkg_path.read_text(encoding="utf-8"))
+        return {
+            "version": str(data.get("version", "") or ""),
+            "ilink_appid": str(data.get("ilink_appid", "") or ""),
+        }
+    except Exception:
+        return {"version": "", "ilink_appid": ""}
+
+
+def _build_client_version(version: str) -> int:
+    """Encode semantic version as 0x00MMNNPP (major/minor/patch in one uint32)."""
+    parts = version.split(".")
+
+    def _as_int(idx: int) -> int:
+        try:
+            return int(parts[idx])
+        except Exception:
+            return 0
+
+    major = _as_int(0)
+    minor = _as_int(1)
+    patch = _as_int(2)
+    return ((major & 0xFF) << 16) | ((minor & 0xFF) << 8) | (patch & 0xFF)
+
+
+_PKG_META = _read_reference_package_meta()
+WEIXIN_CHANNEL_VERSION = _PKG_META["version"] or "unknown"
+ILINK_APP_ID = _PKG_META["ilink_appid"]
+ILINK_APP_CLIENT_VERSION = _build_client_version(_PKG_META["version"] or "0.0.0")
 BASE_INFO: dict[str, str] = {"channel_version": WEIXIN_CHANNEL_VERSION}
 
 # Session-expired error code
@@ -199,6 +233,8 @@ class WeixinChannel(BaseChannel):
             "X-WECHAT-UIN": self._random_wechat_uin(),
             "Content-Type": "application/json",
             "AuthorizationType": "ilink_bot_token",
+            "iLink-App-Id": ILINK_APP_ID,
+            "iLink-App-ClientVersion": str(ILINK_APP_CLIENT_VERSION),
         }
         if auth and self._token:
             headers["Authorization"] = f"Bearer {self._token}"
@@ -267,13 +303,10 @@ class WeixinChannel(BaseChannel):
             logger.info("Waiting for QR code scan...")
             while self._running:
                 try:
-                    # Reference plugin sends iLink-App-ClientVersion header for
-                    # QR status polling (login-qr.ts:81).
                     status_data = await self._api_get(
                         "ilink/bot/get_qrcode_status",
                         params={"qrcode": qrcode_id},
                         auth=False,
-                        extra_headers={"iLink-App-ClientVersion": "1"},
                     )
                 except httpx.TimeoutException:
                     continue
@@ -838,7 +871,7 @@ class WeixinChannel(BaseChannel):
         # Matches aesEcbPaddedSize: Math.ceil((size + 1) / 16) * 16
         padded_size = ((raw_size + 1 + 15) // 16) * 16
 
-        # Step 1: Get upload URL (upload_param) from server
+        # Step 1: Get upload URL from server (prefer upload_full_url, fallback to upload_param)
         file_key = os.urandom(16).hex()
         upload_body: dict[str, Any] = {
             "filekey": file_key,
@@ -855,19 +888,26 @@ class WeixinChannel(BaseChannel):
         upload_resp = await self._api_post("ilink/bot/getuploadurl", upload_body)
         logger.debug("WeChat getuploadurl response: {}", upload_resp)
 
-        upload_param = upload_resp.get("upload_param", "")
-        if not upload_param:
-            raise RuntimeError(f"getuploadurl returned no upload_param: {upload_resp}")
+        upload_full_url = str(upload_resp.get("upload_full_url", "") or "").strip()
+        upload_param = str(upload_resp.get("upload_param", "") or "")
+        if not upload_full_url and not upload_param:
+            raise RuntimeError(
+                "getuploadurl returned no upload URL "
+                f"(need upload_full_url or upload_param): {upload_resp}"
+            )
 
         # Step 2: AES-128-ECB encrypt and POST to CDN
         aes_key_b64 = base64.b64encode(aes_key_raw).decode()
         encrypted_data = _encrypt_aes_ecb(raw_data, aes_key_b64)
 
-        cdn_upload_url = (
-            f"{self.config.cdn_base_url}/upload"
-            f"?encrypted_query_param={quote(upload_param)}"
-            f"&filekey={quote(file_key)}"
-        )
+        if upload_full_url:
+            cdn_upload_url = upload_full_url
+        else:
+            cdn_upload_url = (
+                f"{self.config.cdn_base_url}/upload"
+                f"?encrypted_query_param={quote(upload_param)}"
+                f"&filekey={quote(file_key)}"
+            )
         logger.debug("WeChat CDN POST url={} ciphertextSize={}", cdn_upload_url[:80], len(encrypted_data))
 
         cdn_resp = await self._client.post(

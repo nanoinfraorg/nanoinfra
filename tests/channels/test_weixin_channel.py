@@ -1,6 +1,7 @@
 import asyncio
 import json
 import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -42,10 +43,13 @@ def test_make_headers_includes_route_tag_when_configured() -> None:
 
     assert headers["Authorization"] == "Bearer token"
     assert headers["SKRouteTag"] == "123"
+    assert headers["iLink-App-Id"] == "bot"
+    assert headers["iLink-App-ClientVersion"] == str((2 << 16) | (1 << 8) | 1)
 
 
 def test_channel_version_matches_reference_plugin_version() -> None:
-    assert WEIXIN_CHANNEL_VERSION == "1.0.3"
+    pkg = json.loads(Path("package/package.json").read_text())
+    assert WEIXIN_CHANNEL_VERSION == pkg["version"]
 
 
 def test_save_and_load_state_persists_context_tokens(tmp_path) -> None:
@@ -278,3 +282,61 @@ async def test_process_message_skips_bot_messages() -> None:
     )
 
     assert bus.inbound_size == 0
+
+
+class _DummyHttpResponse:
+    def __init__(self, *, headers: dict[str, str] | None = None, status_code: int = 200) -> None:
+        self.headers = headers or {}
+        self.status_code = status_code
+
+    def raise_for_status(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_send_media_uses_upload_full_url_when_present(tmp_path) -> None:
+    channel, _bus = _make_channel()
+
+    media_file = tmp_path / "photo.jpg"
+    media_file.write_bytes(b"hello-weixin")
+
+    cdn_post = AsyncMock(return_value=_DummyHttpResponse(headers={"x-encrypted-param": "dl-param"}))
+    channel._client = SimpleNamespace(post=cdn_post)
+    channel._api_post = AsyncMock(
+        side_effect=[
+            {
+                "upload_full_url": "https://upload-full.example.test/path?foo=bar",
+                "upload_param": "should-not-be-used",
+            },
+            {"ret": 0},
+        ]
+    )
+
+    await channel._send_media_file("wx-user", str(media_file), "ctx-1")
+
+    # first POST call is CDN upload
+    cdn_url = cdn_post.await_args_list[0].args[0]
+    assert cdn_url == "https://upload-full.example.test/path?foo=bar"
+
+
+@pytest.mark.asyncio
+async def test_send_media_falls_back_to_upload_param_url(tmp_path) -> None:
+    channel, _bus = _make_channel()
+
+    media_file = tmp_path / "photo.jpg"
+    media_file.write_bytes(b"hello-weixin")
+
+    cdn_post = AsyncMock(return_value=_DummyHttpResponse(headers={"x-encrypted-param": "dl-param"}))
+    channel._client = SimpleNamespace(post=cdn_post)
+    channel._api_post = AsyncMock(
+        side_effect=[
+            {"upload_param": "enc-need-fallback"},
+            {"ret": 0},
+        ]
+    )
+
+    await channel._send_media_file("wx-user", str(media_file), "ctx-1")
+
+    cdn_url = cdn_post.await_args_list[0].args[0]
+    assert cdn_url.startswith(f"{channel.config.cdn_base_url}/upload?encrypted_query_param=enc-need-fallback")
+    assert "&filekey=" in cdn_url
