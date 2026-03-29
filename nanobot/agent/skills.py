@@ -1,7 +1,5 @@
 """Skills loader for agent capabilities."""
 
-from __future__ import annotations
-
 import json
 import os
 import re
