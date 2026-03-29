@@ -7,12 +7,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+import nanobot.channels.weixin as weixin_mod
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.weixin import (
     ITEM_IMAGE,
     ITEM_TEXT,
     MESSAGE_TYPE_BOT,
     WEIXIN_CHANNEL_VERSION,
+    _decrypt_aes_ecb,
+    _encrypt_aes_ecb,
     WeixinChannel,
     WeixinConfig,
 )
@@ -340,3 +343,63 @@ async def test_send_media_falls_back_to_upload_param_url(tmp_path) -> None:
     cdn_url = cdn_post.await_args_list[0].args[0]
     assert cdn_url.startswith(f"{channel.config.cdn_base_url}/upload?encrypted_query_param=enc-need-fallback")
     assert "&filekey=" in cdn_url
+
+
+def test_decrypt_aes_ecb_strips_valid_pkcs7_padding() -> None:
+    key_b64 = "MDEyMzQ1Njc4OWFiY2RlZg=="  # base64("0123456789abcdef")
+    plaintext = b"hello-weixin-padding"
+
+    ciphertext = _encrypt_aes_ecb(plaintext, key_b64)
+    decrypted = _decrypt_aes_ecb(ciphertext, key_b64)
+
+    assert decrypted == plaintext
+
+
+class _DummyDownloadResponse:
+    def __init__(self, content: bytes, status_code: int = 200) -> None:
+        self.content = content
+        self.status_code = status_code
+
+    def raise_for_status(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_download_media_item_uses_full_url_when_present(tmp_path) -> None:
+    channel, _bus = _make_channel()
+    weixin_mod.get_media_dir = lambda _name: tmp_path
+
+    full_url = "https://cdn.example.test/download/full"
+    channel._client = SimpleNamespace(
+        get=AsyncMock(return_value=_DummyDownloadResponse(content=b"raw-image-bytes"))
+    )
+
+    item = {
+        "media": {
+            "full_url": full_url,
+            "encrypt_query_param": "enc-fallback-should-not-be-used",
+        },
+    }
+    saved_path = await channel._download_media_item(item, "image")
+
+    assert saved_path is not None
+    assert Path(saved_path).read_bytes() == b"raw-image-bytes"
+    channel._client.get.assert_awaited_once_with(full_url)
+
+
+@pytest.mark.asyncio
+async def test_download_media_item_falls_back_to_encrypt_query_param(tmp_path) -> None:
+    channel, _bus = _make_channel()
+    weixin_mod.get_media_dir = lambda _name: tmp_path
+
+    channel._client = SimpleNamespace(
+        get=AsyncMock(return_value=_DummyDownloadResponse(content=b"fallback-bytes"))
+    )
+
+    item = {"media": {"encrypt_query_param": "enc-fallback"}}
+    saved_path = await channel._download_media_item(item, "image")
+
+    assert saved_path is not None
+    assert Path(saved_path).read_bytes() == b"fallback-bytes"
+    called_url = channel._client.get.await_args_list[0].args[0]
+    assert called_url.startswith(f"{channel.config.cdn_base_url}/download?encrypted_query_param=enc-fallback")
