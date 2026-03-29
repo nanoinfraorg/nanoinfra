@@ -259,6 +259,25 @@ class WeixinChannel(BaseChannel):
         resp.raise_for_status()
         return resp.json()
 
+    async def _api_get_with_base(
+        self,
+        *,
+        base_url: str,
+        endpoint: str,
+        params: dict | None = None,
+        auth: bool = True,
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict:
+        """GET helper that allows overriding base_url for QR redirect polling."""
+        assert self._client is not None
+        url = f"{base_url.rstrip('/')}/{endpoint}"
+        hdrs = self._make_headers(auth=auth)
+        if extra_headers:
+            hdrs.update(extra_headers)
+        resp = await self._client.get(url, params=params, headers=hdrs)
+        resp.raise_for_status()
+        return resp.json()
+
     async def _api_post(
         self,
         endpoint: str,
@@ -299,12 +318,14 @@ class WeixinChannel(BaseChannel):
             refresh_count = 0
             qrcode_id, scan_url = await self._fetch_qr_code()
             self._print_qr_code(scan_url)
+            current_poll_base_url = self.config.base_url
 
             logger.info("Waiting for QR code scan...")
             while self._running:
                 try:
-                    status_data = await self._api_get(
-                        "ilink/bot/get_qrcode_status",
+                    status_data = await self._api_get_with_base(
+                        base_url=current_poll_base_url,
+                        endpoint="ilink/bot/get_qrcode_status",
                         params={"qrcode": qrcode_id},
                         auth=False,
                     )
@@ -333,6 +354,23 @@ class WeixinChannel(BaseChannel):
                         return False
                 elif status == "scaned":
                     logger.info("QR code scanned, waiting for confirmation...")
+                elif status == "scaned_but_redirect":
+                    redirect_host = str(status_data.get("redirect_host", "") or "").strip()
+                    if redirect_host:
+                        if redirect_host.startswith("http://") or redirect_host.startswith("https://"):
+                            redirected_base = redirect_host
+                        else:
+                            redirected_base = f"https://{redirect_host}"
+                        if redirected_base != current_poll_base_url:
+                            logger.info(
+                                "QR status redirect: switching polling host to {}",
+                                redirected_base,
+                            )
+                            current_poll_base_url = redirected_base
+                    else:
+                        logger.warning(
+                            "QR status returned scaned_but_redirect but redirect_host is missing",
+                        )
                 elif status == "expired":
                     refresh_count += 1
                     if refresh_count > MAX_QR_REFRESH_COUNT:

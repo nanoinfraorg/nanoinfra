@@ -227,8 +227,12 @@ async def test_qr_login_refreshes_expired_qr_and_then_succeeds() -> None:
     channel._api_get = AsyncMock(
         side_effect=[
             {"qrcode": "qr-1", "qrcode_img_content": "url-1"},
-            {"status": "expired"},
             {"qrcode": "qr-2", "qrcode_img_content": "url-2"},
+        ]
+    )
+    channel._api_get_with_base = AsyncMock(
+        side_effect=[
+            {"status": "expired"},
             {
                 "status": "confirmed",
                 "bot_token": "token-2",
@@ -254,12 +258,16 @@ async def test_qr_login_returns_false_after_too_many_expired_qr_codes() -> None:
     channel._api_get = AsyncMock(
         side_effect=[
             {"qrcode": "qr-1", "qrcode_img_content": "url-1"},
-            {"status": "expired"},
             {"qrcode": "qr-2", "qrcode_img_content": "url-2"},
-            {"status": "expired"},
             {"qrcode": "qr-3", "qrcode_img_content": "url-3"},
-            {"status": "expired"},
             {"qrcode": "qr-4", "qrcode_img_content": "url-4"},
+        ]
+    )
+    channel._api_get_with_base = AsyncMock(
+        side_effect=[
+            {"status": "expired"},
+            {"status": "expired"},
+            {"status": "expired"},
             {"status": "expired"},
         ]
     )
@@ -267,6 +275,70 @@ async def test_qr_login_returns_false_after_too_many_expired_qr_codes() -> None:
     ok = await channel._qr_login()
 
     assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_qr_login_switches_polling_base_url_on_redirect_status() -> None:
+    channel, _bus = _make_channel()
+    channel._running = True
+    channel._save_state = lambda: None
+    channel._print_qr_code = lambda url: None
+    channel._fetch_qr_code = AsyncMock(return_value=("qr-1", "url-1"))
+
+    status_side_effect = [
+        {"status": "scaned_but_redirect", "redirect_host": "idc.redirect.test"},
+        {
+            "status": "confirmed",
+            "bot_token": "token-3",
+            "ilink_bot_id": "bot-3",
+            "baseurl": "https://example.test",
+            "ilink_user_id": "wx-user",
+        },
+    ]
+    channel._api_get = AsyncMock(side_effect=list(status_side_effect))
+    channel._api_get_with_base = AsyncMock(side_effect=list(status_side_effect))
+
+    ok = await channel._qr_login()
+
+    assert ok is True
+    assert channel._token == "token-3"
+    assert channel._api_get_with_base.await_count == 2
+    first_call = channel._api_get_with_base.await_args_list[0]
+    second_call = channel._api_get_with_base.await_args_list[1]
+    assert first_call.kwargs["base_url"] == "https://ilinkai.weixin.qq.com"
+    assert second_call.kwargs["base_url"] == "https://idc.redirect.test"
+
+
+@pytest.mark.asyncio
+async def test_qr_login_redirect_without_host_keeps_current_polling_base_url() -> None:
+    channel, _bus = _make_channel()
+    channel._running = True
+    channel._save_state = lambda: None
+    channel._print_qr_code = lambda url: None
+    channel._fetch_qr_code = AsyncMock(return_value=("qr-1", "url-1"))
+
+    status_side_effect = [
+        {"status": "scaned_but_redirect"},
+        {
+            "status": "confirmed",
+            "bot_token": "token-4",
+            "ilink_bot_id": "bot-4",
+            "baseurl": "https://example.test",
+            "ilink_user_id": "wx-user",
+        },
+    ]
+    channel._api_get = AsyncMock(side_effect=list(status_side_effect))
+    channel._api_get_with_base = AsyncMock(side_effect=list(status_side_effect))
+
+    ok = await channel._qr_login()
+
+    assert ok is True
+    assert channel._token == "token-4"
+    assert channel._api_get_with_base.await_count == 2
+    first_call = channel._api_get_with_base.await_args_list[0]
+    second_call = channel._api_get_with_base.await_args_list[1]
+    assert first_call.kwargs["base_url"] == "https://ilinkai.weixin.qq.com"
+    assert second_call.kwargs["base_url"] == "https://ilinkai.weixin.qq.com"
 
 
 @pytest.mark.asyncio
