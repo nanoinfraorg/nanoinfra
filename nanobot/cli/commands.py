@@ -498,9 +498,9 @@ def _migrate_cron_store(config: "Config") -> None:
 
 @app.command()
 def serve(
-    port: int = typer.Option(8900, "--port", "-p", help="API server port"),
-    host: str = typer.Option("0.0.0.0", "--host", "-H", help="Bind address"),
-    timeout: float = typer.Option(120.0, "--timeout", "-t", help="Per-request timeout (seconds)"),
+    port: int | None = typer.Option(None, "--port", "-p", help="API server port"),
+    host: str | None = typer.Option(None, "--host", "-H", help="Bind address"),
+    timeout: float | None = typer.Option(None, "--timeout", "-t", help="Per-request timeout (seconds)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show nanobot runtime logs"),
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
@@ -524,6 +524,10 @@ def serve(
         logger.disable("nanobot")
 
     runtime_config = _load_runtime_config(config, workspace)
+    api_cfg = runtime_config.api
+    host = host if host is not None else api_cfg.host
+    port = port if port is not None else api_cfg.port
+    timeout = timeout if timeout is not None else api_cfg.timeout
     sync_workspace_templates(runtime_config.workspace_path)
     bus = MessageBus()
     provider = _make_provider(runtime_config)
@@ -551,6 +555,11 @@ def serve(
     console.print(f"  [cyan]Model[/cyan]    : {model_name}")
     console.print("  [cyan]Session[/cyan]  : api:default")
     console.print(f"  [cyan]Timeout[/cyan]  : {timeout}s")
+    if host in {"0.0.0.0", "::"}:
+        console.print(
+            "[yellow]Warning:[/yellow] API is bound to all interfaces. "
+            "Only do this behind a trusted network boundary, firewall, or reverse proxy."
+        )
     console.print()
 
     api_app = create_app(agent_loop, model_name=model_name, request_timeout=timeout)

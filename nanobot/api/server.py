@@ -192,7 +192,7 @@ def create_app(agent_loop, model_name: str = "nanobot", request_timeout: float =
     return app
 
 
-def run_server(agent_loop, host: str = "0.0.0.0", port: int = 8900,
+def run_server(agent_loop, host: str = "127.0.0.1", port: int = 8900,
                model_name: str = "nanobot", request_timeout: float = 120.0) -> None:
     """Create and run the server (blocking)."""
     app = create_app(agent_loop, model_name=model_name, request_timeout=request_timeout)
