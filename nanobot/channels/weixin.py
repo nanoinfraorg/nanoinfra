@@ -54,19 +54,8 @@ MESSAGE_TYPE_BOT = 2
 MESSAGE_STATE_FINISH = 2
 
 WEIXIN_MAX_MESSAGE_LEN = 4000
-
-
-def _read_reference_package_meta() -> dict[str, str]:
-    """Best-effort read of reference `package/package.json` metadata."""
-    try:
-        pkg_path = Path(__file__).resolve().parents[2] / "package" / "package.json"
-        data = json.loads(pkg_path.read_text(encoding="utf-8"))
-        return {
-            "version": str(data.get("version", "") or ""),
-            "ilink_appid": str(data.get("ilink_appid", "") or ""),
-        }
-    except Exception:
-        return {"version": "", "ilink_appid": ""}
+WEIXIN_CHANNEL_VERSION = "2.1.1"
+ILINK_APP_ID = "bot"
 
 
 def _build_client_version(version: str) -> int:
@@ -84,11 +73,7 @@ def _build_client_version(version: str) -> int:
     patch = _as_int(2)
     return ((major & 0xFF) << 16) | ((minor & 0xFF) << 8) | (patch & 0xFF)
 
-
-_PKG_META = _read_reference_package_meta()
-WEIXIN_CHANNEL_VERSION = _PKG_META["version"] or "unknown"
-ILINK_APP_ID = _PKG_META["ilink_appid"]
-ILINK_APP_CLIENT_VERSION = _build_client_version(_PKG_META["version"] or "0.0.0")
+ILINK_APP_CLIENT_VERSION = _build_client_version(WEIXIN_CHANNEL_VERSION)
 BASE_INFO: dict[str, str] = {"channel_version": WEIXIN_CHANNEL_VERSION}
 
 # Session-expired error code
