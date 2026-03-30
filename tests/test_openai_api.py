@@ -14,6 +14,7 @@ from nanobot.api.server import (
     _chat_completion_response,
     _error_json,
     create_app,
+    handle_chat_completions,
 )
 
 try:
@@ -91,6 +92,73 @@ async def test_stream_true_returns_400(aiohttp_client, app) -> None:
     assert resp.status == 400
     body = await resp.json()
     assert "stream" in body["error"]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_model_mismatch_returns_400() -> None:
+    request = MagicMock()
+    request.json = AsyncMock(
+        return_value={
+            "model": "other-model",
+            "messages": [{"role": "user", "content": "hello"}],
+        }
+    )
+    request.app = {
+        "agent_loop": _make_mock_agent(),
+        "model_name": "test-model",
+        "request_timeout": 10.0,
+        "session_lock": asyncio.Lock(),
+    }
+
+    resp = await handle_chat_completions(request)
+    assert resp.status == 400
+    body = json.loads(resp.body)
+    assert "test-model" in body["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_single_user_message_required() -> None:
+    request = MagicMock()
+    request.json = AsyncMock(
+        return_value={
+            "messages": [
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "previous reply"},
+            ],
+        }
+    )
+    request.app = {
+        "agent_loop": _make_mock_agent(),
+        "model_name": "test-model",
+        "request_timeout": 10.0,
+        "session_lock": asyncio.Lock(),
+    }
+
+    resp = await handle_chat_completions(request)
+    assert resp.status == 400
+    body = json.loads(resp.body)
+    assert "single user message" in body["error"]["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_single_user_message_must_have_user_role() -> None:
+    request = MagicMock()
+    request.json = AsyncMock(
+        return_value={
+            "messages": [{"role": "system", "content": "you are a bot"}],
+        }
+    )
+    request.app = {
+        "agent_loop": _make_mock_agent(),
+        "model_name": "test-model",
+        "request_timeout": 10.0,
+        "session_lock": asyncio.Lock(),
+    }
+
+    resp = await handle_chat_completions(request)
+    assert resp.status == 400
+    body = json.loads(resp.body)
+    assert "single user message" in body["error"]["message"].lower()
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")

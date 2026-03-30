@@ -69,21 +69,17 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         return _error_json(400, "Invalid JSON body")
 
     messages = body.get("messages")
-    if not messages or not isinstance(messages, list):
-        return _error_json(400, "messages field is required and must be a non-empty array")
+    if not isinstance(messages, list) or len(messages) != 1:
+        return _error_json(400, "Only a single user message is supported")
 
     # Stream not yet supported
     if body.get("stream", False):
         return _error_json(400, "stream=true is not supported yet. Set stream=false or omit it.")
 
-    # Extract last user message — nanobot manages its own multi-turn history
-    user_content = None
-    for msg in reversed(messages):
-        if msg.get("role") == "user":
-            user_content = msg.get("content", "")
-            break
-    if user_content is None:
-        return _error_json(400, "messages must contain at least one user message")
+    message = messages[0]
+    if not isinstance(message, dict) or message.get("role") != "user":
+        return _error_json(400, "Only a single user message is supported")
+    user_content = message.get("content", "")
     if isinstance(user_content, list):
         # Multi-modal content array — extract text parts
         user_content = " ".join(
@@ -92,7 +88,9 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
 
     agent_loop = request.app["agent_loop"]
     timeout_s: float = request.app.get("request_timeout", 120.0)
-    model_name: str = body.get("model") or request.app.get("model_name", "nanobot")
+    model_name: str = request.app.get("model_name", "nanobot")
+    if (requested_model := body.get("model")) and requested_model != model_name:
+        return _error_json(400, f"Only configured model '{model_name}' is available")
     session_lock: asyncio.Lock = request.app["session_lock"]
 
     logger.info("API request session_key={} content={}", API_SESSION_KEY, user_content[:80])
@@ -190,10 +188,3 @@ def create_app(agent_loop, model_name: str = "nanobot", request_timeout: float =
     app.router.add_get("/v1/models", handle_models)
     app.router.add_get("/health", handle_health)
     return app
-
-
-def run_server(agent_loop, host: str = "127.0.0.1", port: int = 8900,
-               model_name: str = "nanobot", request_timeout: float = 120.0) -> None:
-    """Create and run the server (blocking)."""
-    app = create_app(agent_loop, model_name=model_name, request_timeout=request_timeout)
-    web.run_app(app, host=host, port=port, print=lambda msg: logger.info(msg))
