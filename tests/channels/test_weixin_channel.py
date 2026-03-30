@@ -278,3 +278,77 @@ async def test_process_message_skips_bot_messages() -> None:
     )
 
     assert bus.inbound_size == 0
+
+
+@pytest.mark.asyncio
+async def test_process_message_fetches_typing_ticket_and_starts_typing() -> None:
+    channel, _bus = _make_channel()
+    channel._running = True
+    channel._client = object()
+    channel._token = "token"
+    channel._api_post = AsyncMock(return_value={"typing_ticket": "ticket-1"})
+
+    await channel._process_message(
+        {
+            "message_type": 1,
+            "message_id": "m-typing",
+            "from_user_id": "wx-user",
+            "context_token": "ctx-typing",
+            "item_list": [
+                {"type": ITEM_TEXT, "text_item": {"text": "hello"}},
+            ],
+        }
+    )
+
+    assert channel._typing_tickets["wx-user"] == "ticket-1"
+    assert "wx-user" in channel._typing_tasks
+    await channel._stop_typing("wx-user", clear_remote=False)
+
+
+@pytest.mark.asyncio
+async def test_send_final_message_clears_typing_indicator() -> None:
+    channel, _bus = _make_channel()
+    channel._client = object()
+    channel._token = "token"
+    channel._context_tokens["wx-user"] = "ctx-2"
+    channel._typing_tickets["wx-user"] = "ticket-2"
+    channel._send_text = AsyncMock()
+    channel._api_post = AsyncMock(return_value={})
+
+    await channel.send(
+        type("Msg", (), {"chat_id": "wx-user", "content": "pong", "media": [], "metadata": {}})()
+    )
+
+    channel._send_text.assert_awaited_once_with("wx-user", "pong", "ctx-2")
+    channel._api_post.assert_awaited_once()
+    endpoint, body = channel._api_post.await_args.args
+    assert endpoint == "ilink/bot/sendtyping"
+    assert body["status"] == 2
+    assert body["typing_ticket"] == "ticket-2"
+
+
+@pytest.mark.asyncio
+async def test_send_progress_message_keeps_typing_indicator() -> None:
+    channel, _bus = _make_channel()
+    channel._client = object()
+    channel._token = "token"
+    channel._context_tokens["wx-user"] = "ctx-2"
+    channel._typing_tickets["wx-user"] = "ticket-2"
+    channel._send_text = AsyncMock()
+    channel._api_post = AsyncMock(return_value={})
+
+    await channel.send(
+        type(
+            "Msg",
+            (),
+            {
+                "chat_id": "wx-user",
+                "content": "thinking",
+                "media": [],
+                "metadata": {"_progress": True},
+            },
+        )()
+    )
+
+    channel._send_text.assert_awaited_once_with("wx-user", "thinking", "ctx-2")
+    channel._api_post.assert_not_awaited()
