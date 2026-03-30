@@ -94,9 +94,11 @@ class AzureOpenAIProvider(LLMProvider):
     ) -> dict[str, Any]:
         """Prepare the request payload with Azure OpenAI 2024-10-21 compliance."""
         payload: dict[str, Any] = {
-            "messages": self._sanitize_request_messages(
-                self._sanitize_empty_content(messages),
-                _AZURE_MSG_KEYS,
+            "messages": self._enforce_role_alternation(
+                self._sanitize_request_messages(
+                    self._sanitize_empty_content(messages),
+                    _AZURE_MSG_KEYS,
+                )
             ),
             "max_completion_tokens": max(1, max_tokens),  # Azure API 2024-10-21 uses max_completion_tokens
         }
