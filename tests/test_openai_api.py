@@ -7,6 +7,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import pytest_asyncio
 
 from nanobot.api.server import (
     API_CHAT_ID,
@@ -18,7 +19,7 @@ from nanobot.api.server import (
 )
 
 try:
-    import aiohttp  # noqa: F401
+    from aiohttp.test_utils import TestClient, TestServer
 
     HAS_AIOHTTP = True
 except ImportError:
@@ -43,6 +44,23 @@ def mock_agent():
 @pytest.fixture
 def app(mock_agent):
     return create_app(mock_agent, model_name="test-model", request_timeout=10.0)
+
+
+@pytest_asyncio.fixture
+async def aiohttp_client():
+    clients: list[TestClient] = []
+
+    async def _make_client(app):
+        client = TestClient(TestServer(app))
+        await client.start_server()
+        clients.append(client)
+        return client
+
+    try:
+        yield _make_client
+    finally:
+        for client in clients:
+            await client.close()
 
 
 def test_error_json() -> None:
