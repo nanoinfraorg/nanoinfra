@@ -520,6 +520,41 @@ async def test_qr_login_redirect_without_host_keeps_current_polling_base_url() -
 
 
 @pytest.mark.asyncio
+async def test_qr_login_resets_redirect_base_url_after_qr_refresh() -> None:
+    channel, _bus = _make_channel()
+    channel._running = True
+    channel._save_state = lambda: None
+    channel._print_qr_code = lambda url: None
+    channel._fetch_qr_code = AsyncMock(side_effect=[("qr-1", "url-1"), ("qr-2", "url-2")])
+
+    channel._api_get_with_base = AsyncMock(
+        side_effect=[
+            {"status": "scaned_but_redirect", "redirect_host": "idc.redirect.test"},
+            {"status": "expired"},
+            {
+                "status": "confirmed",
+                "bot_token": "token-5",
+                "ilink_bot_id": "bot-5",
+                "baseurl": "https://example.test",
+                "ilink_user_id": "wx-user",
+            },
+        ]
+    )
+
+    ok = await channel._qr_login()
+
+    assert ok is True
+    assert channel._token == "token-5"
+    assert channel._api_get_with_base.await_count == 3
+    first_call = channel._api_get_with_base.await_args_list[0]
+    second_call = channel._api_get_with_base.await_args_list[1]
+    third_call = channel._api_get_with_base.await_args_list[2]
+    assert first_call.kwargs["base_url"] == "https://ilinkai.weixin.qq.com"
+    assert second_call.kwargs["base_url"] == "https://idc.redirect.test"
+    assert third_call.kwargs["base_url"] == "https://ilinkai.weixin.qq.com"
+
+
+@pytest.mark.asyncio
 async def test_process_message_skips_bot_messages() -> None:
     channel, bus = _make_channel()
 
