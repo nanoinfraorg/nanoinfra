@@ -28,6 +28,15 @@ class ChannelsConfig(Base):
     send_max_retries: int = Field(default=3, ge=0, le=10)  # Max delivery attempts (initial send included)
 
 
+class DreamConfig(Base):
+    """Dream memory consolidation configuration."""
+
+    cron: str = "0 */2 * * *"  # Every 2 hours
+    model: str | None = None  # Override model for Dream
+    max_batch_size: int = Field(default=20, ge=1)  # Max history entries per run
+    max_iterations: int = Field(default=10, ge=1)  # Max tool calls per Phase 2
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -45,6 +54,7 @@ class AgentDefaults(Base):
     provider_retry_mode: Literal["standard", "persistent"] = "standard"
     reasoning_effort: str | None = None  # low / medium / high - enables LLM thinking mode
     timezone: str = "UTC"  # IANA timezone, e.g. "Asia/Shanghai", "America/New_York"
+    dream: DreamConfig = Field(default_factory=DreamConfig)
 
 
 class AgentsConfig(Base):
