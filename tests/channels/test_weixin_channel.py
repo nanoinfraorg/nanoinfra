@@ -766,6 +766,21 @@ class _DummyDownloadResponse:
         return None
 
 
+class _DummyErrorDownloadResponse(_DummyDownloadResponse):
+    def __init__(self, url: str, status_code: int) -> None:
+        super().__init__(content=b"", status_code=status_code)
+        self._url = url
+
+    def raise_for_status(self) -> None:
+        request = httpx.Request("GET", self._url)
+        response = httpx.Response(self.status_code, request=request)
+        raise httpx.HTTPStatusError(
+            f"download failed with status {self.status_code}",
+            request=request,
+            response=response,
+        )
+
+
 @pytest.mark.asyncio
 async def test_download_media_item_uses_full_url_when_present(tmp_path) -> None:
     channel, _bus = _make_channel()
@@ -790,6 +805,37 @@ async def test_download_media_item_uses_full_url_when_present(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_download_media_item_falls_back_when_full_url_returns_retryable_error(tmp_path) -> None:
+    channel, _bus = _make_channel()
+    weixin_mod.get_media_dir = lambda _name: tmp_path
+
+    full_url = "https://cdn.example.test/download/full?taskid=123"
+    channel._client = SimpleNamespace(
+        get=AsyncMock(
+            side_effect=[
+                _DummyErrorDownloadResponse(full_url, 500),
+                _DummyDownloadResponse(content=b"fallback-bytes"),
+            ]
+        )
+    )
+
+    item = {
+        "media": {
+            "full_url": full_url,
+            "encrypt_query_param": "enc-fallback",
+        },
+    }
+    saved_path = await channel._download_media_item(item, "image")
+
+    assert saved_path is not None
+    assert Path(saved_path).read_bytes() == b"fallback-bytes"
+    assert channel._client.get.await_count == 2
+    assert channel._client.get.await_args_list[0].args[0] == full_url
+    fallback_url = channel._client.get.await_args_list[1].args[0]
+    assert fallback_url.startswith(f"{channel.config.cdn_base_url}/download?encrypted_query_param=enc-fallback")
+
+
+@pytest.mark.asyncio
 async def test_download_media_item_falls_back_to_encrypt_query_param(tmp_path) -> None:
     channel, _bus = _make_channel()
     weixin_mod.get_media_dir = lambda _name: tmp_path
@@ -805,6 +851,23 @@ async def test_download_media_item_falls_back_to_encrypt_query_param(tmp_path) -
     assert Path(saved_path).read_bytes() == b"fallback-bytes"
     called_url = channel._client.get.await_args_list[0].args[0]
     assert called_url.startswith(f"{channel.config.cdn_base_url}/download?encrypted_query_param=enc-fallback")
+
+
+@pytest.mark.asyncio
+async def test_download_media_item_does_not_retry_when_full_url_fails_without_fallback(tmp_path) -> None:
+    channel, _bus = _make_channel()
+    weixin_mod.get_media_dir = lambda _name: tmp_path
+
+    full_url = "https://cdn.example.test/download/full"
+    channel._client = SimpleNamespace(
+        get=AsyncMock(return_value=_DummyErrorDownloadResponse(full_url, 500))
+    )
+
+    item = {"media": {"full_url": full_url}}
+    saved_path = await channel._download_media_item(item, "image")
+
+    assert saved_path is None
+    channel._client.get.assert_awaited_once_with(full_url)
 
 
 @pytest.mark.asyncio
