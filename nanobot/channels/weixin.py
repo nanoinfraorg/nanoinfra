@@ -385,6 +385,7 @@ class WeixinChannel(BaseChannel):
                         )
                         return False
                     qrcode_id, scan_url = await self._fetch_qr_code()
+                    current_poll_base_url = self.config.base_url
                     self._print_qr_code(scan_url)
                     continue
                 # status == "wait" — keep polling
