@@ -307,11 +307,13 @@ class Consolidator:
                             "Only output items matching these categories, skip everything else:\n"
                             "- User facts: personal info, preferences, stated opinions, habits\n"
                             "- Decisions: choices made, conclusions reached\n"
+                            "- Solutions: working approaches discovered through trial and error, "
+                            "especially non-obvious methods that succeeded after failed attempts\n"
                             "- Events: plans, deadlines, notable occurrences\n"
                             "- Preferences: communication style, tool preferences\n\n"
-                            "Priority: user corrections and preferences > decisions > events > environment facts. "
+                            "Priority: user corrections and preferences > solutions > decisions > events > environment facts. "
                             "The most valuable memory prevents the user from having to repeat themselves.\n\n"
-                            "Skip: code patterns derivable from source, git history, debug steps already in code, "
+                            "Skip: code patterns derivable from source, git history, "
                             "or anything already captured in existing memory.\n\n"
                             "Output as concise bullet points, one fact per line. "
                             "No preamble, no commentary.\n"
@@ -443,12 +445,14 @@ class Dream:
         model: str,
         max_batch_size: int = 20,
         max_iterations: int = 10,
+        max_tool_result_chars: int = 16_000,
     ):
         self.store = store
         self.provider = provider
         self.model = model
         self.max_batch_size = max_batch_size
         self.max_iterations = max_iterations
+        self.max_tool_result_chars = max_tool_result_chars
         self._runner = AgentRunner(provider)
         self._tools = self._build_tools()
 
@@ -530,6 +534,7 @@ class Dream:
                 tools=tools,
                 model=self.model,
                 max_iterations=self.max_iterations,
+                max_tool_result_chars=self.max_tool_result_chars,
                 fail_on_tool_error=True,
             ))
             logger.debug(
