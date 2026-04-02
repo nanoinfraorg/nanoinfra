@@ -51,6 +51,11 @@ class LLMResponse:
     usage: dict[str, int] = field(default_factory=dict)
     reasoning_content: str | None = None  # Kimi, DeepSeek-R1 etc.
     thinking_blocks: list[dict] | None = None  # Anthropic extended thinking
+    # Structured error metadata used by retry policy when finish_reason == "error".
+    error_status_code: int | None = None
+    error_kind: str | None = None  # e.g. "timeout", "connection"
+    error_retry_after_s: float | None = None
+    error_should_retry: bool | None = None
     
     @property
     def has_tool_calls(self) -> bool:
@@ -88,6 +93,8 @@ class LLMProvider(ABC):
         "server error",
         "temporarily unavailable",
     )
+    _RETRYABLE_STATUS_CODES = frozenset({408, 409, 429})
+    _TRANSIENT_ERROR_KINDS = frozenset({"timeout", "connection"})
 
     _SENTINEL = object()
 
@@ -190,6 +197,23 @@ class LLMProvider(ABC):
     def _is_transient_error(cls, content: str | None) -> bool:
         err = (content or "").lower()
         return any(marker in err for marker in cls._TRANSIENT_ERROR_MARKERS)
+
+    @classmethod
+    def _is_transient_response(cls, response: LLMResponse) -> bool:
+        """Prefer structured error metadata, fallback to text markers for legacy providers."""
+        if response.error_should_retry is not None:
+            return bool(response.error_should_retry)
+
+        if response.error_status_code is not None:
+            status = int(response.error_status_code)
+            if status in cls._RETRYABLE_STATUS_CODES or status >= 500:
+                return True
+
+        kind = (response.error_kind or "").strip().lower()
+        if kind in cls._TRANSIENT_ERROR_KINDS:
+            return True
+
+        return cls._is_transient_error(response.content)
 
     @staticmethod
     def _strip_image_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
@@ -345,6 +369,12 @@ class LLMProvider(ABC):
             return value * 60.0
         return value
 
+    @classmethod
+    def _extract_retry_after_from_response(cls, response: LLMResponse) -> float | None:
+        if response.error_retry_after_s is not None and response.error_retry_after_s > 0:
+            return response.error_retry_after_s
+        return cls._extract_retry_after(response.content)
+
     async def _sleep_with_heartbeat(
         self,
         delay: float,
@@ -393,7 +423,7 @@ class LLMProvider(ABC):
                 last_error_key = error_key
                 identical_error_count = 1 if error_key else 0
 
-            if not self._is_transient_error(response.content):
+            if not self._is_transient_response(response):
                 stripped = self._strip_image_content(original_messages)
                 if stripped is not None and stripped != kw["messages"]:
                     logger.warning(
@@ -416,7 +446,7 @@ class LLMProvider(ABC):
                 break
 
             base_delay = delays[min(attempt - 1, len(delays) - 1)]
-            delay = self._extract_retry_after(response.content) or base_delay
+            delay = self._extract_retry_after_from_response(response) or base_delay
             if persistent:
                 delay = min(delay, self._PERSISTENT_MAX_DELAY)
 

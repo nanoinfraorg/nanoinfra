@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import email.utils
 import os
 import re
 import secrets
 import string
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -50,6 +52,73 @@ class AnthropicProvider(LLMProvider):
         if extra_headers:
             client_kw["default_headers"] = extra_headers
         self._client = AsyncAnthropic(**client_kw)
+
+    @staticmethod
+    def _parse_retry_after_headers(headers: Any) -> float | None:
+        if headers is None:
+            return None
+
+        try:
+            retry_ms = headers.get("retry-after-ms")
+            if retry_ms is not None:
+                value = float(retry_ms) / 1000.0
+                if value > 0:
+                    return value
+        except (TypeError, ValueError):
+            pass
+
+        retry_after = headers.get("retry-after")
+        try:
+            if retry_after is not None:
+                value = float(retry_after)
+                if value > 0:
+                    return value
+        except (TypeError, ValueError):
+            pass
+
+        if retry_after is None:
+            return None
+        retry_date_tuple = email.utils.parsedate_tz(retry_after)
+        if retry_date_tuple is None:
+            return None
+        retry_date = email.utils.mktime_tz(retry_date_tuple)
+        value = float(retry_date - time.time())
+        return value if value > 0 else None
+
+    @classmethod
+    def _error_response(cls, e: Exception) -> LLMResponse:
+        response = getattr(e, "response", None)
+        headers = getattr(response, "headers", None)
+
+        status_code = getattr(e, "status_code", None)
+        if status_code is None and response is not None:
+            status_code = getattr(response, "status_code", None)
+
+        should_retry: bool | None = None
+        if headers is not None:
+            raw = headers.get("x-should-retry")
+            if isinstance(raw, str):
+                lowered = raw.strip().lower()
+                if lowered == "true":
+                    should_retry = True
+                elif lowered == "false":
+                    should_retry = False
+
+        error_kind: str | None = None
+        error_name = e.__class__.__name__.lower()
+        if "timeout" in error_name:
+            error_kind = "timeout"
+        elif "connection" in error_name:
+            error_kind = "connection"
+
+        return LLMResponse(
+            content=f"Error calling LLM: {e}",
+            finish_reason="error",
+            error_status_code=int(status_code) if status_code is not None else None,
+            error_kind=error_kind,
+            error_retry_after_s=cls._parse_retry_after_headers(headers),
+            error_should_retry=should_retry,
+        )
 
     @staticmethod
     def _strip_prefix(model: str) -> str:
@@ -419,7 +488,7 @@ class AnthropicProvider(LLMProvider):
             response = await self._client.messages.create(**kwargs)
             return self._parse_response(response)
         except Exception as e:
-            return LLMResponse(content=f"Error calling LLM: {e}", finish_reason="error")
+            return self._error_response(e)
 
     async def chat_stream(
         self,
@@ -462,9 +531,10 @@ class AnthropicProvider(LLMProvider):
                     f"{idle_timeout_s} seconds"
                 ),
                 finish_reason="error",
+                error_kind="timeout",
             )
         except Exception as e:
-            return LLMResponse(content=f"Error calling LLM: {e}", finish_reason="error")
+            return self._error_response(e)
 
     def get_default_model(self) -> str:
         return self.default_model
