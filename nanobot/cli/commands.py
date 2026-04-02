@@ -206,6 +206,57 @@ def _is_exit_command(command: str) -> bool:
     return command.lower() in EXIT_COMMANDS
 
 
+def _parse_cli_session(session_id: str) -> tuple[str, str]:
+    """Split session id into (channel, chat_id)."""
+    if ":" in session_id:
+        return session_id.split(":", 1)
+    return "cli", session_id
+
+
+def _should_show_cli_restart_notice(
+    restart_notify_channel: str,
+    restart_notify_chat_id: str,
+    session_id: str,
+) -> bool:
+    """Return True when CLI should display restart-complete notice."""
+    _, cli_chat_id = _parse_cli_session(session_id)
+    return restart_notify_channel == "cli" and (
+        not restart_notify_chat_id or restart_notify_chat_id == cli_chat_id
+    )
+
+
+async def _notify_restart_done_when_channel_ready(
+    *,
+    bus,
+    channels,
+    channel: str,
+    chat_id: str,
+    timeout_s: float = 30.0,
+    poll_s: float = 0.25,
+) -> bool:
+    """Wait for target channel readiness, then publish restart completion."""
+    from nanobot.bus.events import OutboundMessage
+
+    if not channel or not chat_id:
+        return False
+    if channel not in channels.enabled_channels:
+        return False
+
+    waited = 0.0
+    while waited <= timeout_s:
+        target = channels.get_channel(channel)
+        if target and target.is_running:
+            await bus.publish_outbound(OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content="Restart completed.",
+            ))
+            return True
+        await asyncio.sleep(poll_s)
+        waited += poll_s
+    return False
+
+
 async def _read_interactive_input_async() -> str:
     """Read user input using prompt_toolkit (handles paste, history, display).
 
@@ -598,6 +649,7 @@ def gateway(
     from nanobot.agent.loop import AgentLoop
     from nanobot.bus.queue import MessageBus
     from nanobot.channels.manager import ChannelManager
+    from nanobot.config.runtime_keys import RESTART_NOTIFY_CHANNEL_ENV, RESTART_NOTIFY_CHAT_ID_ENV
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
@@ -696,6 +748,8 @@ def gateway(
 
     # Create channel manager
     channels = ChannelManager(config, bus)
+    restart_notify_channel = os.environ.pop(RESTART_NOTIFY_CHANNEL_ENV, "").strip()
+    restart_notify_chat_id = os.environ.pop(RESTART_NOTIFY_CHAT_ID_ENV, "").strip()
 
     def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""
@@ -772,6 +826,13 @@ def gateway(
         try:
             await cron.start()
             await heartbeat.start()
+            if restart_notify_channel and restart_notify_chat_id:
+                asyncio.create_task(_notify_restart_done_when_channel_ready(
+                    bus=bus,
+                    channels=channels,
+                    channel=restart_notify_channel,
+                    chat_id=restart_notify_chat_id,
+                ))
             await asyncio.gather(
                 agent.run(),
                 channels.start_all(),
@@ -813,6 +874,7 @@ def agent(
 
     from nanobot.agent.loop import AgentLoop
     from nanobot.bus.queue import MessageBus
+    from nanobot.config.runtime_keys import RESTART_NOTIFY_CHANNEL_ENV, RESTART_NOTIFY_CHAT_ID_ENV
     from nanobot.cron.service import CronService
 
     config = _load_runtime_config(config, workspace)
@@ -853,6 +915,13 @@ def agent(
         channels_config=config.channels,
         timezone=config.agents.defaults.timezone,
     )
+    restart_notify_channel = os.environ.pop(RESTART_NOTIFY_CHANNEL_ENV, "").strip()
+    restart_notify_chat_id = os.environ.pop(RESTART_NOTIFY_CHAT_ID_ENV, "").strip()
+
+    cli_channel, cli_chat_id = _parse_cli_session(session_id)
+
+    if _should_show_cli_restart_notice(restart_notify_channel, restart_notify_chat_id, session_id):
+        _print_agent_response("Restart completed.", render_markdown=False)
 
     # Shared reference for progress callbacks
     _thinking: ThinkingSpinner | None = None
@@ -890,11 +959,6 @@ def agent(
         from nanobot.bus.events import InboundMessage
         _init_prompt_session()
         console.print(f"{__logo__} Interactive mode (type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit)\n")
-
-        if ":" in session_id:
-            cli_channel, cli_chat_id = session_id.split(":", 1)
-        else:
-            cli_channel, cli_chat_id = "cli", session_id
 
         def _handle_signal(signum, frame):
             sig_name = signal.Signals(signum).name
