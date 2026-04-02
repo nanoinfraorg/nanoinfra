@@ -252,7 +252,7 @@ def split_message(content: str, max_len: int = 2000) -> list[str]:
     while content:
         if len(content) <= max_len:
             chunks.append(content)
-            breakmsg: dict[str, Any] = {"role": "assistant", "content": content}
+            break
         cut = content[:max_len]
         # Try to break at newline first, then space, then hard break
         pos = cut.rfind('\n')
