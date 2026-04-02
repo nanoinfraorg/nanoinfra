@@ -240,3 +240,27 @@ async def test_chat_with_retry_uses_retry_after_and_emits_wait_progress(monkeypa
     assert progress and "7s" in progress[0]
 
 
+@pytest.mark.asyncio
+async def test_persistent_retry_aborts_after_ten_identical_transient_errors(monkeypatch) -> None:
+    provider = ScriptedProvider([
+        *[LLMResponse(content="429 rate limit", finish_reason="error") for _ in range(10)],
+        LLMResponse(content="ok"),
+    ])
+    delays: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("nanobot.providers.base.asyncio.sleep", _fake_sleep)
+
+    response = await provider.chat_with_retry(
+        messages=[{"role": "user", "content": "hello"}],
+        retry_mode="persistent",
+    )
+
+    assert response.finish_reason == "error"
+    assert response.content == "429 rate limit"
+    assert provider.calls == 10
+    assert delays == [1, 2, 4, 4, 4, 4, 4, 4, 4]
+
+

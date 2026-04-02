@@ -359,6 +359,32 @@ def test_persist_tool_result_leaves_no_temp_files(tmp_path):
     assert list((root / "current_session").glob("*.tmp")) == []
 
 
+def test_persist_tool_result_logs_cleanup_failures(monkeypatch, tmp_path):
+    from nanobot.utils.helpers import maybe_persist_tool_result
+
+    warnings: list[str] = []
+
+    monkeypatch.setattr(
+        "nanobot.utils.helpers._cleanup_tool_result_buckets",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("busy")),
+    )
+    monkeypatch.setattr(
+        "nanobot.utils.helpers.logger.warning",
+        lambda message, *args: warnings.append(message.format(*args)),
+    )
+
+    persisted = maybe_persist_tool_result(
+        tmp_path,
+        "current:session",
+        "call_big",
+        "x" * 5000,
+        max_chars=64,
+    )
+
+    assert "[tool output persisted]" in persisted
+    assert warnings and "Failed to clean stale tool result buckets" in warnings[0]
+
+
 @pytest.mark.asyncio
 async def test_runner_uses_raw_messages_when_context_governance_fails():
     from nanobot.agent.runner import AgentRunSpec, AgentRunner
@@ -390,6 +416,55 @@ async def test_runner_uses_raw_messages_when_context_governance_fails():
 
     assert result.final_content == "done"
     assert captured_messages == initial_messages
+
+
+def test_snip_history_drops_orphaned_tool_results_from_trimmed_slice(monkeypatch):
+    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+
+    provider = MagicMock()
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+    runner = AgentRunner(provider)
+    messages = [
+        {"role": "system", "content": "system"},
+        {"role": "user", "content": "old user"},
+        {
+            "role": "assistant",
+            "content": "tool call",
+            "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "ls", "arguments": "{}"}}],
+        },
+        {"role": "tool", "tool_call_id": "call_1", "content": "tool output"},
+        {"role": "assistant", "content": "after tool"},
+    ]
+    spec = AgentRunSpec(
+        initial_messages=messages,
+        tools=tools,
+        model="test-model",
+        max_iterations=1,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        context_window_tokens=2000,
+        context_block_limit=100,
+    )
+
+    monkeypatch.setattr("nanobot.agent.runner.estimate_prompt_tokens_chain", lambda *_args, **_kwargs: (500, None))
+    token_sizes = {
+        "old user": 120,
+        "tool call": 120,
+        "tool output": 40,
+        "after tool": 40,
+        "system": 0,
+    }
+    monkeypatch.setattr(
+        "nanobot.agent.runner.estimate_message_tokens",
+        lambda msg: token_sizes.get(str(msg.get("content")), 40),
+    )
+
+    trimmed = runner._snip_history(spec, messages)
+
+    assert trimmed == [
+        {"role": "system", "content": "system"},
+        {"role": "assistant", "content": "after tool"},
+    ]
 
 
 @pytest.mark.asyncio
@@ -614,6 +689,7 @@ async def test_runner_accumulates_usage_and_preserves_cached_tokens():
         tools=tools,
         model="test-model",
         max_iterations=3,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
     ))
 
     # Usage should be accumulated across iterations
@@ -652,6 +728,7 @@ async def test_runner_passes_cached_tokens_to_hook_context():
         tools=tools,
         model="test-model",
         max_iterations=1,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
         hook=UsageHook(),
     ))
 

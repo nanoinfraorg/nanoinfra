@@ -72,6 +72,7 @@ class LLMProvider(ABC):
 
     _CHAT_RETRY_DELAYS = (1, 2, 4)
     _PERSISTENT_MAX_DELAY = 60
+    _PERSISTENT_IDENTICAL_ERROR_LIMIT = 10
     _RETRY_HEARTBEAT_CHUNK = 30
     _TRANSIENT_ERROR_MARKERS = (
         "429",
@@ -377,12 +378,20 @@ class LLMProvider(ABC):
         delays = list(self._CHAT_RETRY_DELAYS)
         persistent = retry_mode == "persistent"
         last_response: LLMResponse | None = None
+        last_error_key: str | None = None
+        identical_error_count = 0
         while True:
             attempt += 1
             response = await call(**kw)
             if response.finish_reason != "error":
                 return response
             last_response = response
+            error_key = ((response.content or "").strip().lower() or None)
+            if error_key and error_key == last_error_key:
+                identical_error_count += 1
+            else:
+                last_error_key = error_key
+                identical_error_count = 1 if error_key else 0
 
             if not self._is_transient_error(response.content):
                 stripped = self._strip_image_content(original_messages)
@@ -393,6 +402,14 @@ class LLMProvider(ABC):
                     retry_kw = dict(kw)
                     retry_kw["messages"] = stripped
                     return await call(**retry_kw)
+                return response
+
+            if persistent and identical_error_count >= self._PERSISTENT_IDENTICAL_ERROR_LIMIT:
+                logger.warning(
+                    "Stopping persistent retry after {} identical transient errors: {}",
+                    identical_error_count,
+                    (response.content or "")[:120].lower(),
+                )
                 return response
 
             if not persistent and attempt > len(delays):
