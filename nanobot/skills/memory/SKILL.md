@@ -16,14 +16,22 @@ always: true
 Choose the search method based on file size:
 
 - Small `memory/HISTORY.md`: use `read_file`, then search in-memory
-- Large or long-lived `memory/HISTORY.md`: use the `exec` tool for targeted search
+- Large or long-lived `memory/HISTORY.md`: use the built-in `grep` tool first
+- For broad searches, start with `grep(..., output_mode="count")` or accept the default `files_with_matches` output to scope the result set before asking for full matching lines
+- Use `head_limit` / `offset` when browsing long histories in chunks
+- Use `exec` only as a last-resort fallback when you truly need shell-specific behavior
 
 Examples:
-- **Linux/macOS:** `grep -i "keyword" memory/HISTORY.md`
-- **Windows:** `findstr /i "keyword" memory\HISTORY.md`
-- **Cross-platform Python:** `python -c "from pathlib import Path; text = Path('memory/HISTORY.md').read_text(encoding='utf-8'); print('\n'.join([l for l in text.splitlines() if 'keyword' in l.lower()][-20:]))"`
+- `grep(pattern="keyword", path="memory/HISTORY.md", case_insensitive=true)`
+- `grep(pattern="[2026-04-02 10:00]", path="memory/HISTORY.md", fixed_strings=true)`
+- `grep(pattern="keyword", path="memory/HISTORY.md", output_mode="count", case_insensitive=true)`
+- `grep(pattern="token", path="memory", glob="*.md", output_mode="files_with_matches", case_insensitive=true)`
+- `grep(pattern="oauth|token", path="memory", glob="*.md", case_insensitive=true)`
+- Fallback shell examples:
+  - **Linux/macOS:** `grep -i "keyword" memory/HISTORY.md`
+  - **Windows:** `findstr /i "keyword" memory\HISTORY.md`
 
-Prefer targeted command-line search for large history files.
+Prefer the built-in `grep` tool for large history files; only drop to shell when the built-in search cannot express what you need.
 
 ## When to Update MEMORY.md
 

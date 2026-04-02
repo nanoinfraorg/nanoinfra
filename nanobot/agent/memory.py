@@ -73,7 +73,7 @@ def _is_tool_choice_unsupported(content: str | None) -> bool:
 
 
 class MemoryStore:
-    """Two-layer memory: MEMORY.md (long-term facts) + HISTORY.md (grep-searchable log)."""
+    """Two-layer memory: MEMORY.md (long-term facts) + HISTORY.md (best searched with grep)."""
 
     _MAX_FAILURES_BEFORE_RAW_ARCHIVE = 3
 
