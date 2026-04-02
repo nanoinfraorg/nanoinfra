@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -37,8 +36,12 @@ class TestRestartCommand:
     @pytest.mark.asyncio
     async def test_restart_sends_message_and_calls_execv(self):
         from nanobot.command.builtin import cmd_restart
-        from nanobot.config.runtime_keys import RESTART_NOTIFY_CHANNEL_ENV, RESTART_NOTIFY_CHAT_ID_ENV
         from nanobot.command.router import CommandContext
+        from nanobot.utils.restart import (
+            RESTART_NOTIFY_CHANNEL_ENV,
+            RESTART_NOTIFY_CHAT_ID_ENV,
+            RESTART_STARTED_AT_ENV,
+        )
 
         loop, bus = _make_loop()
         msg = InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="/restart")
@@ -50,6 +53,7 @@ class TestRestartCommand:
             assert "Restarting" in out.content
             assert os.environ.get(RESTART_NOTIFY_CHANNEL_ENV) == "cli"
             assert os.environ.get(RESTART_NOTIFY_CHAT_ID_ENV) == "direct"
+            assert os.environ.get(RESTART_STARTED_AT_ENV)
 
             await asyncio.sleep(1.5)
             mock_execv.assert_called_once()
@@ -196,76 +200,3 @@ class TestRestartCommand:
 
         assert response is not None
         assert response.metadata == {"render_as": "text"}
-
-
-@pytest.mark.asyncio
-async def test_notify_restart_done_waits_until_channel_running() -> None:
-    from nanobot.bus.queue import MessageBus
-    from nanobot.cli.commands import _notify_restart_done_when_channel_ready
-
-    bus = MessageBus()
-    channel = SimpleNamespace(is_running=False)
-
-    class DummyChannels:
-        enabled_channels = ["feishu"]
-
-        @staticmethod
-        def get_channel(name: str):
-            return channel if name == "feishu" else None
-
-    async def _mark_running() -> None:
-        await asyncio.sleep(0.02)
-        channel.is_running = True
-
-    marker = asyncio.create_task(_mark_running())
-    sent = await _notify_restart_done_when_channel_ready(
-        bus=bus,
-        channels=DummyChannels(),
-        channel="feishu",
-        chat_id="oc_123",
-        timeout_s=0.2,
-        poll_s=0.01,
-    )
-    await marker
-
-    assert sent is True
-    out = await asyncio.wait_for(bus.consume_outbound(), timeout=0.1)
-    assert out.channel == "feishu"
-    assert out.chat_id == "oc_123"
-    assert out.content == "Restart completed."
-
-
-@pytest.mark.asyncio
-async def test_notify_restart_done_times_out_when_channel_not_running() -> None:
-    from nanobot.bus.queue import MessageBus
-    from nanobot.cli.commands import _notify_restart_done_when_channel_ready
-
-    bus = MessageBus()
-    channel = SimpleNamespace(is_running=False)
-
-    class DummyChannels:
-        enabled_channels = ["feishu"]
-
-        @staticmethod
-        def get_channel(name: str):
-            return channel if name == "feishu" else None
-
-    sent = await _notify_restart_done_when_channel_ready(
-        bus=bus,
-        channels=DummyChannels(),
-        channel="feishu",
-        chat_id="oc_123",
-        timeout_s=0.05,
-        poll_s=0.01,
-    )
-    assert sent is False
-    assert bus.outbound_size == 0
-
-
-def test_should_show_cli_restart_notice() -> None:
-    from nanobot.cli.commands import _should_show_cli_restart_notice
-
-    assert _should_show_cli_restart_notice("cli", "direct", "cli:direct") is True
-    assert _should_show_cli_restart_notice("cli", "", "cli:direct") is True
-    assert _should_show_cli_restart_notice("cli", "other", "cli:direct") is False
-    assert _should_show_cli_restart_notice("feishu", "oc_123", "cli:direct") is False
