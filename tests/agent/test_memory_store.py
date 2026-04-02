@@ -105,23 +105,6 @@ class TestDreamCursor:
         assert store2.get_last_dream_cursor() == 3
 
 
-class TestDreamLog:
-    def test_read_dream_log_returns_empty_when_missing(self, store):
-        assert store.read_dream_log() == ""
-
-    def test_append_dream_log(self, store):
-        store.append_dream_log("## 2026-03-30\nProcessed entries #1-#5")
-        log = store.read_dream_log()
-        assert "Processed entries #1-#5" in log
-
-    def test_append_dream_log_is_additive(self, store):
-        store.append_dream_log("first run")
-        store.append_dream_log("second run")
-        log = store.read_dream_log()
-        assert "first run" in log
-        assert "second run" in log
-
-
 class TestLegacyHistoryMigration:
     def test_read_unprocessed_history_handles_entries_without_cursor(self, store):
         """JSONL entries with cursor=1 are correctly parsed and returned."""

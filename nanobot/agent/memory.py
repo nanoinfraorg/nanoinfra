@@ -15,6 +15,7 @@ from nanobot.utils.helpers import ensure_dir, estimate_message_tokens, estimate_
 
 from nanobot.agent.runner import AgentRunSpec, AgentRunner
 from nanobot.agent.tools.registry import ToolRegistry
+from nanobot.agent.git_store import GitStore
 
 if TYPE_CHECKING:
     from nanobot.providers.base import LLMProvider
@@ -38,9 +39,15 @@ class MemoryStore:
         self.history_file = self.memory_dir / "history.jsonl"
         self.soul_file = workspace / "SOUL.md"
         self.user_file = workspace / "USER.md"
-        self._dream_log_file = self.memory_dir / ".dream-log.md"
         self._cursor_file = self.memory_dir / ".cursor"
         self._dream_cursor_file = self.memory_dir / ".dream_cursor"
+        self._git = GitStore(workspace, tracked_files=[
+            "SOUL.md", "USER.md", "memory/MEMORY.md",
+        ])
+
+    @property
+    def git(self) -> GitStore:
+        return self._git
 
     # -- generic helpers -----------------------------------------------------
 
@@ -174,15 +181,6 @@ class MemoryStore:
 
     def set_last_dream_cursor(self, cursor: int) -> None:
         self._dream_cursor_file.write_text(str(cursor), encoding="utf-8")
-
-    # -- dream log -----------------------------------------------------------
-
-    def read_dream_log(self) -> str:
-        return self.read_file(self._dream_log_file)
-
-    def append_dream_log(self, entry: str) -> None:
-        with open(self._dream_log_file, "a", encoding="utf-8") as f:
-            f.write(f"{entry.rstrip()}\n\n")
 
     # -- message formatting utility ------------------------------------------
 
@@ -569,14 +567,10 @@ class Dream:
                 reason, new_cursor,
             )
 
-        # Write dream log
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-        if changelog:
-            log_entry = f"## {ts}\n"
-            for change in changelog:
-                log_entry += f"- {change}\n"
-            self.store.append_dream_log(log_entry)
-        else:
-            self.store.append_dream_log(f"## {ts}\nNo changes.\n")
+        # Git auto-commit (only when there are actual changes)
+        if changelog and self.store.git.is_initialized():
+            sha = self.store.git.auto_commit(f"dream: {ts}, {len(changelog)} change(s)")
+            if sha:
+                logger.info("Dream commit: {}", sha)
 
         return True

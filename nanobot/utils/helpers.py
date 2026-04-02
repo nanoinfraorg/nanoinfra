@@ -454,4 +454,15 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
         from rich.console import Console
         for name in added:
             Console().print(f"  [dim]Created {name}[/dim]")
+
+    # Initialize git for memory version control
+    try:
+        from nanobot.agent.git_store import GitStore
+        gs = GitStore(workspace, tracked_files=[
+            "SOUL.md", "USER.md", "memory/MEMORY.md",
+        ])
+        gs.init()
+    except Exception:
+        logger.warning("Failed to initialize git store for {}", workspace)
+
     return added

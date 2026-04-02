@@ -12,7 +12,6 @@ always: true
 - `USER.md` — User profile and preferences. **Managed by Dream.** Do NOT edit.
 - `memory/MEMORY.md` — Long-term facts (project context, important events). **Managed by Dream.** Do NOT edit.
 - `memory/history.jsonl` — append-only JSONL, not loaded into context. search with `jq`-style tools.
-- `memory/.dream-log.md` — Changelog of what Dream changed. View with `/dream-log`.
 
 ## Search Past Events
 
