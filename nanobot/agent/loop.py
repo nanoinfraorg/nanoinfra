@@ -33,6 +33,7 @@ from nanobot.config.schema import AgentDefaults
 from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.helpers import image_placeholder_text, truncate_text
+from nanobot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
 if TYPE_CHECKING:
     from nanobot.config.schema import ChannelsConfig, ExecToolConfig, WebSearchConfig
@@ -588,8 +589,8 @@ class AgentLoop:
             message_id=msg.metadata.get("message_id"),
         )
 
-        if final_content is None:
-            final_content = "I've completed processing but have no response to give."
+        if final_content is None or not final_content.strip():
+            final_content = EMPTY_FINAL_RESPONSE_MESSAGE
 
         self._save_turn(session, all_msgs, 1 + len(history))
         self._clear_runtime_checkpoint(session)

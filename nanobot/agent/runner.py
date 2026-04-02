@@ -20,6 +20,13 @@ from nanobot.utils.helpers import (
     maybe_persist_tool_result,
     truncate_text,
 )
+from nanobot.utils.runtime import (
+    EMPTY_FINAL_RESPONSE_MESSAGE,
+    build_finalization_retry_message,
+    ensure_nonempty_tool_result,
+    is_blank_text,
+    repeated_external_lookup_error,
+)
 
 _DEFAULT_MAX_ITERATIONS_MESSAGE = (
     "I reached the maximum number of tool call iterations ({max_iterations}) "
@@ -77,10 +84,11 @@ class AgentRunner:
         messages = list(spec.initial_messages)
         final_content: str | None = None
         tools_used: list[str] = []
-        usage: dict[str, int] = {}
+        usage: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
         error: str | None = None
         stop_reason = "completed"
         tool_events: list[dict[str, str]] = []
+        external_lookup_counts: dict[str, int] = {}
 
         for iteration in range(spec.max_iterations):
             try:
@@ -96,41 +104,12 @@ class AgentRunner:
                 messages_for_model = messages
             context = AgentHookContext(iteration=iteration, messages=messages)
             await hook.before_iteration(context)
-            kwargs: dict[str, Any] = {
-                "messages": messages_for_model,
-                "tools": spec.tools.get_definitions(),
-                "model": spec.model,
-                "retry_mode": spec.provider_retry_mode,
-                "on_retry_wait": spec.progress_callback,
-            }
-            if spec.temperature is not None:
-                kwargs["temperature"] = spec.temperature
-            if spec.max_tokens is not None:
-                kwargs["max_tokens"] = spec.max_tokens
-            if spec.reasoning_effort is not None:
-                kwargs["reasoning_effort"] = spec.reasoning_effort
-
-            if hook.wants_streaming():
-                async def _stream(delta: str) -> None:
-                    await hook.on_stream(context, delta)
-
-                response = await self.provider.chat_stream_with_retry(
-                    **kwargs,
-                    on_content_delta=_stream,
-                )
-            else:
-                response = await self.provider.chat_with_retry(**kwargs)
-
-            raw_usage = response.usage or {}
+            response = await self._request_model(spec, messages_for_model, hook, context)
+            raw_usage = self._usage_dict(response.usage)
             context.response = response
-            context.usage = raw_usage
+            context.usage = dict(raw_usage)
             context.tool_calls = list(response.tool_calls)
-            # Accumulate standard fields into result usage.
-            usage["prompt_tokens"] = usage.get("prompt_tokens", 0) + int(raw_usage.get("prompt_tokens", 0) or 0)
-            usage["completion_tokens"] = usage.get("completion_tokens", 0) + int(raw_usage.get("completion_tokens", 0) or 0)
-            cached = raw_usage.get("cached_tokens")
-            if cached:
-                usage["cached_tokens"] = usage.get("cached_tokens", 0) + int(cached)
+            self._accumulate_usage(usage, raw_usage)
 
             if response.has_tool_calls:
                 if hook.wants_streaming():
@@ -158,13 +137,20 @@ class AgentRunner:
 
                 await hook.before_execute_tools(context)
 
-                results, new_events, fatal_error = await self._execute_tools(spec, response.tool_calls)
+                results, new_events, fatal_error = await self._execute_tools(
+                    spec,
+                    response.tool_calls,
+                    external_lookup_counts,
+                )
                 tool_events.extend(new_events)
                 context.tool_results = list(results)
                 context.tool_events = list(new_events)
                 if fatal_error is not None:
                     error = f"Error: {type(fatal_error).__name__}: {fatal_error}"
+                    final_content = error
                     stop_reason = "tool_error"
+                    self._append_final_message(messages, final_content)
+                    context.final_content = final_content
                     context.error = error
                     context.stop_reason = stop_reason
                     await hook.after_iteration(context)
@@ -178,6 +164,7 @@ class AgentRunner:
                         "content": self._normalize_tool_result(
                             spec,
                             tool_call.id,
+                            tool_call.name,
                             result,
                         ),
                     }
@@ -197,13 +184,40 @@ class AgentRunner:
                 await hook.after_iteration(context)
                 continue
 
+            clean = hook.finalize_content(context, response.content)
+            if response.finish_reason != "error" and is_blank_text(clean):
+                logger.warning(
+                    "Empty final response on turn {} for {}; retrying with explicit finalization prompt",
+                    iteration,
+                    spec.session_key or "default",
+                )
+                if hook.wants_streaming():
+                    await hook.on_stream_end(context, resuming=False)
+                response = await self._request_finalization_retry(spec, messages_for_model)
+                retry_usage = self._usage_dict(response.usage)
+                self._accumulate_usage(usage, retry_usage)
+                raw_usage = self._merge_usage(raw_usage, retry_usage)
+                context.response = response
+                context.usage = dict(raw_usage)
+                context.tool_calls = list(response.tool_calls)
+                clean = hook.finalize_content(context, response.content)
+
             if hook.wants_streaming():
                 await hook.on_stream_end(context, resuming=False)
 
-            clean = hook.finalize_content(context, response.content)
             if response.finish_reason == "error":
                 final_content = clean or spec.error_message or _DEFAULT_ERROR_MESSAGE
                 stop_reason = "error"
+                error = final_content
+                self._append_final_message(messages, final_content)
+                context.final_content = final_content
+                context.error = error
+                context.stop_reason = stop_reason
+                await hook.after_iteration(context)
+                break
+            if is_blank_text(clean):
+                final_content = EMPTY_FINAL_RESPONSE_MESSAGE
+                stop_reason = "empty_final_response"
                 error = final_content
                 self._append_final_message(messages, final_content)
                 context.final_content = final_content
@@ -249,22 +263,101 @@ class AgentRunner:
             tool_events=tool_events,
         )
 
+    def _build_request_kwargs(
+        self,
+        spec: AgentRunSpec,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "messages": messages,
+            "tools": tools,
+            "model": spec.model,
+            "retry_mode": spec.provider_retry_mode,
+            "on_retry_wait": spec.progress_callback,
+        }
+        if spec.temperature is not None:
+            kwargs["temperature"] = spec.temperature
+        if spec.max_tokens is not None:
+            kwargs["max_tokens"] = spec.max_tokens
+        if spec.reasoning_effort is not None:
+            kwargs["reasoning_effort"] = spec.reasoning_effort
+        return kwargs
+
+    async def _request_model(
+        self,
+        spec: AgentRunSpec,
+        messages: list[dict[str, Any]],
+        hook: AgentHook,
+        context: AgentHookContext,
+    ):
+        kwargs = self._build_request_kwargs(
+            spec,
+            messages,
+            tools=spec.tools.get_definitions(),
+        )
+        if hook.wants_streaming():
+            async def _stream(delta: str) -> None:
+                await hook.on_stream(context, delta)
+
+            return await self.provider.chat_stream_with_retry(
+                **kwargs,
+                on_content_delta=_stream,
+            )
+        return await self.provider.chat_with_retry(**kwargs)
+
+    async def _request_finalization_retry(
+        self,
+        spec: AgentRunSpec,
+        messages: list[dict[str, Any]],
+    ):
+        retry_messages = list(messages)
+        retry_messages.append(build_finalization_retry_message())
+        kwargs = self._build_request_kwargs(spec, retry_messages, tools=None)
+        return await self.provider.chat_with_retry(**kwargs)
+
+    @staticmethod
+    def _usage_dict(usage: dict[str, Any] | None) -> dict[str, int]:
+        if not usage:
+            return {}
+        result: dict[str, int] = {}
+        for key, value in usage.items():
+            try:
+                result[key] = int(value or 0)
+            except (TypeError, ValueError):
+                continue
+        return result
+
+    @staticmethod
+    def _accumulate_usage(target: dict[str, int], addition: dict[str, int]) -> None:
+        for key, value in addition.items():
+            target[key] = target.get(key, 0) + value
+
+    @staticmethod
+    def _merge_usage(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
+        merged = dict(left)
+        for key, value in right.items():
+            merged[key] = merged.get(key, 0) + value
+        return merged
+
     async def _execute_tools(
         self,
         spec: AgentRunSpec,
         tool_calls: list[ToolCallRequest],
+        external_lookup_counts: dict[str, int],
     ) -> tuple[list[Any], list[dict[str, str]], BaseException | None]:
         batches = self._partition_tool_batches(spec, tool_calls)
         tool_results: list[tuple[Any, dict[str, str], BaseException | None]] = []
         for batch in batches:
             if spec.concurrent_tools and len(batch) > 1:
                 tool_results.extend(await asyncio.gather(*(
-                    self._run_tool(spec, tool_call)
+                    self._run_tool(spec, tool_call, external_lookup_counts)
                     for tool_call in batch
                 )))
             else:
                 for tool_call in batch:
-                    tool_results.append(await self._run_tool(spec, tool_call))
+                    tool_results.append(await self._run_tool(spec, tool_call, external_lookup_counts))
 
         results: list[Any] = []
         events: list[dict[str, str]] = []
@@ -280,8 +373,23 @@ class AgentRunner:
         self,
         spec: AgentRunSpec,
         tool_call: ToolCallRequest,
+        external_lookup_counts: dict[str, int],
     ) -> tuple[Any, dict[str, str], BaseException | None]:
         _HINT = "\n\n[Analyze the error above and try a different approach.]"
+        lookup_error = repeated_external_lookup_error(
+            tool_call.name,
+            tool_call.arguments,
+            external_lookup_counts,
+        )
+        if lookup_error:
+            event = {
+                "name": tool_call.name,
+                "status": "error",
+                "detail": "repeated external lookup blocked",
+            }
+            if spec.fail_on_tool_error:
+                return lookup_error + _HINT, event, RuntimeError(lookup_error)
+            return lookup_error + _HINT, event, None
         prepare_call = getattr(spec.tools, "prepare_call", None)
         tool, params, prep_error = None, tool_call.arguments, None
         if callable(prepare_call):
@@ -361,8 +469,10 @@ class AgentRunner:
         self,
         spec: AgentRunSpec,
         tool_call_id: str,
+        tool_name: str,
         result: Any,
     ) -> Any:
+        result = ensure_nonempty_tool_result(tool_name, result)
         try:
             content = maybe_persist_tool_result(
                 spec.workspace,
@@ -395,6 +505,7 @@ class AgentRunner:
             normalized = self._normalize_tool_result(
                 spec,
                 str(message.get("tool_call_id") or f"tool_{idx}"),
+                str(message.get("name") or "tool"),
                 message.get("content"),
             )
             if normalized != message.get("content"):

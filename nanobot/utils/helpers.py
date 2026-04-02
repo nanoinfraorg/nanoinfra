@@ -120,7 +120,7 @@ def find_legal_message_start(messages: list[dict[str, Any]]) -> int:
     return start
 
 
-def _stringify_text_blocks(content: list[dict[str, Any]]) -> str | None:
+def stringify_text_blocks(content: list[dict[str, Any]]) -> str | None:
     parts: list[str] = []
     for block in content:
         if not isinstance(block, dict):
@@ -201,7 +201,7 @@ def maybe_persist_tool_result(
     if isinstance(content, str):
         text_payload = content
     elif isinstance(content, list):
-        text_payload = _stringify_text_blocks(content)
+        text_payload = stringify_text_blocks(content)
         if text_payload is None:
             return content
         suffix = "json"
