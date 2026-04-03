@@ -1196,16 +1196,23 @@ Global settings that apply to all channels. Configure under the `channels` secti
 
 #### Retry Behavior
 
-When a channel send operation raises an error, nanobot retries with exponential backoff:
+Retry is intentionally simple.
 
-- **Attempt 1**: Initial send
-- **Attempts 2-4**: Retry delays are 1s, 2s, 4s
-- **Attempts 5+**: Retry delay caps at 4s
-- **Transient failures** (network hiccups, temporary API limits): Retry usually succeeds
-- **Permanent failures** (invalid token, channel banned): All retries fail
+When a channel `send()` raises, nanobot retries at the channel-manager layer. By default, `channels.sendMaxRetries` is `3`, and that count includes the initial send.
+
+- **Attempt 1**: Send immediately
+- **Attempt 2**: Retry after `1s`
+- **Attempt 3**: Retry after `2s`
+- **Higher retry budgets**: Backoff continues as `1s`, `2s`, `4s`, then stays capped at `4s`
+- **Transient failures**: Network hiccups and temporary API limits often recover on the next attempt
+- **Permanent failures**: Invalid tokens, revoked access, or banned channels will exhaust the retry budget and fail cleanly
 
 > [!NOTE]
-> When a channel is completely unavailable, there's no way to notify the user since we cannot reach them through that channel. Monitor logs for "Failed to send to {channel} after N attempts" to detect persistent delivery failures.
+> This design is deliberate: channel implementations should raise on delivery failure, and the channel manager owns the shared retry policy.
+>
+> Some channels may still apply small API-specific retries internally. For example, Telegram separately retries timeout and flood-control errors before surfacing a final failure to the manager.
+>
+> If a channel is completely unreachable, nanobot cannot notify the user through that same channel. Watch logs for `Failed to send to {channel} after N attempts` to spot persistent delivery failures.
 
 ### Web Search
 
