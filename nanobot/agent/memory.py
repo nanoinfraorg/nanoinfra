@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from loguru import logger
 
+from nanobot.utils.prompt_templates import render_template
 from nanobot.utils.helpers import ensure_dir, estimate_message_tokens, estimate_prompt_tokens_chain
 
 if TYPE_CHECKING:
@@ -122,16 +123,15 @@ class MemoryStore:
             return True
 
         current_memory = self.read_long_term()
-        prompt = f"""Process this conversation and call the save_memory tool with your consolidation.
-
-## Current Long-term Memory
-{current_memory or "(empty)"}
-
-## Conversation to Process
-{self._format_messages(messages)}"""
+        prompt = render_template(
+            "agent/memory_consolidate.md",
+            part="user",
+            current_memory=current_memory or "(empty)",
+            conversation=self._format_messages(messages),
+        )
 
         chat_messages = [
-            {"role": "system", "content": "You are a memory consolidation agent. Call the save_memory tool with your consolidation of the conversation."},
+            {"role": "system", "content": render_template("agent/memory_consolidate.md", part="system")},
             {"role": "user", "content": prompt},
         ]
 
