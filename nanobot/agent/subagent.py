@@ -21,6 +21,21 @@ from nanobot.config.schema import ExecToolConfig, WebToolsConfig
 from nanobot.providers.base import LLMProvider
 
 
+class _SubagentHook(AgentHook):
+    """Logging-only hook for subagent execution."""
+
+    def __init__(self, task_id: str) -> None:
+        self._task_id = task_id
+
+    async def before_execute_tools(self, context: AgentHookContext) -> None:
+        for tool_call in context.tool_calls:
+            args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
+            logger.debug(
+                "Subagent [{}] executing: {} with arguments: {}",
+                self._task_id, tool_call.name, args_str,
+            )
+
+
 class SubagentManager:
     """Manages background subagent execution."""
 
@@ -29,18 +44,20 @@ class SubagentManager:
         provider: LLMProvider,
         workspace: Path,
         bus: MessageBus,
+        max_tool_result_chars: int,
         model: str | None = None,
         web_config: "WebToolsConfig | None" = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
     ):
-        from nanobot.config.schema import ExecToolConfig, WebSearchConfig
+        from nanobot.config.schema import ExecToolConfig
 
         self.provider = provider
         self.workspace = workspace
         self.bus = bus
         self.model = model or provider.get_default_model()
         self.web_config = web_config or WebToolsConfig()
+        self.max_tool_result_chars = max_tool_result_chars
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
         self.runner = AgentRunner(provider)
@@ -108,25 +125,19 @@ class SubagentManager:
             if self.web_config.enable:
                 tools.register(WebSearchTool(config=self.web_config.search, proxy=self.web_config.proxy))
                 tools.register(WebFetchTool(proxy=self.web_config.proxy))
-            
             system_prompt = self._build_subagent_prompt()
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": task},
             ]
 
-            class _SubagentHook(AgentHook):
-                async def before_execute_tools(self, context: AgentHookContext) -> None:
-                    for tool_call in context.tool_calls:
-                        args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-                        logger.debug("Subagent [{}] executing: {} with arguments: {}", task_id, tool_call.name, args_str)
-
             result = await self.runner.run(AgentRunSpec(
                 initial_messages=messages,
                 tools=tools,
                 model=self.model,
                 max_iterations=15,
-                hook=_SubagentHook(),
+                max_tool_result_chars=self.max_tool_result_chars,
+                hook=_SubagentHook(task_id),
                 max_iterations_message="Task completed but no final response was generated.",
                 error_message=None,
                 fail_on_tool_error=True,
@@ -213,7 +224,7 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
             lines.append("Failure:")
             lines.append(f"- {result.error}")
         return "\n".join(lines) or (result.error or "Error: subagent execution failed.")
-    
+
     def _build_subagent_prompt(self) -> str:
         """Build a focused system prompt for the subagent."""
         from nanobot.agent.context import ContextBuilder

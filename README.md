@@ -20,13 +20,20 @@
 
 ## 📢 News
 
-> [!IMPORTANT]
-> **Security note:** Due to `litellm` supply chain poisoning, **please check your Python environment ASAP** and refer to this [advisory](https://github.com/HKUDS/nanobot/discussions/2445) for details. We have fully removed the `litellm` since **v0.1.4.post6**.
-
+- **2026-04-02** 🧱 **Long-running tasks** run more reliably — core runtime hardening.
+- **2026-04-01** 🔑 GitHub Copilot auth restored; stricter workspace paths; OpenRouter Claude caching fix.
+- **2026-03-31** 🛰️ WeChat multimodal alignment, Discord/Matrix polish, Python SDK facade, MCP and tool fixes.
+- **2026-03-30** 🧩 OpenAI-compatible API tightened; composable agent lifecycle hooks.
+- **2026-03-29** 💬 WeChat voice, typing, QR/media resilience; fixed-session OpenAI-compatible API.
+- **2026-03-28** 📚 Provider docs refresh; skill template wording fix.
 - **2026-03-27** 🚀 Released **v0.1.4.post6** — architecture decoupling, litellm removal, end-to-end streaming, WeChat channel, and a security fix. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post6) for details.
 - **2026-03-26** 🏗️ Agent runner extracted and lifecycle hooks unified; stream delta coalescing at boundaries.
 - **2026-03-25** 🌏 StepFun provider, configurable timezone, Gemini thought signatures.
 - **2026-03-24** 🔧 WeChat compatibility, Feishu CardKit streaming, test suite restructured.
+
+<details>
+<summary>Earlier news</summary>
+
 - **2026-03-23** 🔧 Command routing refactored for plugins, WhatsApp/WeChat media, unified channel login CLI.
 - **2026-03-22** ⚡ End-to-end streaming, WeChat channel, Anthropic cache optimization, `/status` command.
 - **2026-03-21** 🔒 Replace `litellm` with native `openai` + `anthropic` SDKs. Please see [commit](https://github.com/HKUDS/nanobot/commit/3dfdab7).
@@ -34,10 +41,6 @@
 - **2026-03-19** 💬 Telegram gets more resilient under load; Feishu now renders code blocks properly.
 - **2026-03-18** 📷 Telegram can now send media via URL. Cron schedules show human-readable details.
 - **2026-03-17** ✨ Feishu formatting glow-up, Slack reacts when done, custom endpoints support extra headers, and image handling is more reliable.
-
-<details>
-<summary>Earlier news</summary>
-
 - **2026-03-16** 🚀 Released **v0.1.4.post5** — a refinement-focused release with stronger reliability and channel support, and a more dependable day-to-day experience. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post5) for details.
 - **2026-03-15** 🧩 DingTalk rich media, smarter built-in skills, and cleaner model compatibility.
 - **2026-03-14** 💬 Channel plugins, Feishu replies, and steadier MCP, QQ, and media handling.
@@ -115,6 +118,8 @@
 - [Configuration](#️-configuration)
 - [Multiple Instances](#-multiple-instances)
 - [CLI Reference](#-cli-reference)
+- [Python SDK](#-python-sdk)
+- [OpenAI-Compatible API](#-openai-compatible-api)
 - [Docker](#-docker)
 - [Linux Service](#-linux-service)
 - [Project Structure](#-project-structure)
@@ -873,6 +878,7 @@ Config file: `~/.nanobot/config.json`
 | `dashscope` | LLM (Qwen) | [dashscope.console.aliyun.com](https://dashscope.console.aliyun.com) |
 | `moonshot` | LLM (Moonshot/Kimi) | [platform.moonshot.cn](https://platform.moonshot.cn) |
 | `zhipu` | LLM (Zhipu GLM) | [open.bigmodel.cn](https://open.bigmodel.cn) |
+| `mimo` | LLM (MiMo) | [platform.xiaomimimo.com](https://platform.xiaomimimo.com) |
 | `ollama` | LLM (local, Ollama) | — |
 | `mistral` | LLM | [docs.mistral.ai](https://docs.mistral.ai/) |
 | `stepfun` | LLM (Step Fun/阶跃星辰) | [platform.stepfun.com](https://platform.stepfun.com) |
@@ -1541,6 +1547,7 @@ nanobot gateway --config ~/.nanobot-telegram/config.json --workspace /tmp/nanobo
 | `nanobot agent` | Interactive chat mode |
 | `nanobot agent --no-markdown` | Show plain-text replies |
 | `nanobot agent --logs` | Show runtime logs during chat |
+| `nanobot serve` | Start the OpenAI-compatible API |
 | `nanobot gateway` | Start the gateway |
 | `nanobot status` | Show status |
 | `nanobot provider login openai-codex` | OAuth login for providers |
@@ -1568,6 +1575,110 @@ The agent can also manage this file itself — ask it to "add a periodic task" a
 > **Note:** The gateway must be running (`nanobot gateway`) and you must have chatted with the bot at least once so it knows which channel to deliver to.
 
 </details>
+
+## 🐍 Python SDK
+
+Use nanobot as a library — no CLI, no gateway, just Python:
+
+```python
+from nanobot import Nanobot
+
+bot = Nanobot.from_config()
+result = await bot.run("Summarize the README")
+print(result.content)
+```
+
+Each call carries a `session_key` for conversation isolation — different keys get independent history:
+
+```python
+await bot.run("hi", session_key="user-alice")
+await bot.run("hi", session_key="task-42")
+```
+
+Add lifecycle hooks to observe or customize the agent:
+
+```python
+from nanobot.agent import AgentHook, AgentHookContext
+
+class AuditHook(AgentHook):
+    async def before_execute_tools(self, ctx: AgentHookContext) -> None:
+        for tc in ctx.tool_calls:
+            print(f"[tool] {tc.name}")
+
+result = await bot.run("Hello", hooks=[AuditHook()])
+```
+
+See [docs/PYTHON_SDK.md](docs/PYTHON_SDK.md) for the full SDK reference.
+
+## 🔌 OpenAI-Compatible API
+
+nanobot can expose a minimal OpenAI-compatible endpoint for local integrations:
+
+```bash
+pip install "nanobot-ai[api]"
+nanobot serve
+```
+
+By default, the API binds to `127.0.0.1:8900`. You can change this in `config.json`.
+
+### Behavior
+
+- Session isolation: pass `"session_id"` in the request body to isolate conversations; omit for a shared default session (`api:default`)
+- Single-message input: each request must contain exactly one `user` message
+- Fixed model: omit `model`, or pass the same model shown by `/v1/models`
+- No streaming: `stream=true` is not supported
+
+### Endpoints
+
+- `GET /health`
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+
+### curl
+
+```bash
+curl http://127.0.0.1:8900/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [{"role": "user", "content": "hi"}],
+    "session_id": "my-session"
+  }'
+```
+
+### Python (`requests`)
+
+```python
+import requests
+
+resp = requests.post(
+    "http://127.0.0.1:8900/v1/chat/completions",
+    json={
+        "messages": [{"role": "user", "content": "hi"}],
+        "session_id": "my-session",  # optional: isolate conversation
+    },
+    timeout=120,
+)
+resp.raise_for_status()
+print(resp.json()["choices"][0]["message"]["content"])
+```
+
+### Python (`openai`)
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8900/v1",
+    api_key="dummy",
+)
+
+resp = client.chat.completions.create(
+    model="MiniMax-M2.7",
+    messages=[{"role": "user", "content": "hi"}],
+    extra_body={"session_id": "my-session"},  # optional: isolate conversation
+)
+print(resp.choices[0].message.content)
+```
 
 ## 🐳 Docker
 
