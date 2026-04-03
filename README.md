@@ -1217,17 +1217,30 @@ When a channel send operation raises an error, nanobot retries with exponential 
 
 nanobot supports multiple web search providers. Configure in `~/.nanobot/config.json` under `tools.web.search`.
 
+By default, web tools are enabled and web search uses `duckduckgo`, so search works out of the box without an API key.
+
+If you want to disable all built-in web tools entirely, set `tools.web.enable` to `false`. This removes both `web_search` and `web_fetch` from the tool list sent to the LLM.
+
 | Provider | Config fields | Env var fallback | Free |
 |----------|--------------|------------------|------|
-| `brave` (default) | `apiKey` | `BRAVE_API_KEY` | No |
+| `brave` | `apiKey` | `BRAVE_API_KEY` | No |
 | `tavily` | `apiKey` | `TAVILY_API_KEY` | No |
 | `jina` | `apiKey` | `JINA_API_KEY` | Free tier (10M tokens) |
 | `searxng` | `baseUrl` | `SEARXNG_BASE_URL` | Yes (self-hosted) |
-| `duckduckgo` | — | — | Yes |
+| `duckduckgo` (default) | — | — | Yes |
 
-When credentials are missing, nanobot automatically falls back to DuckDuckGo.
+**Disable all built-in web tools:**
+```json
+{
+  "tools": {
+    "web": {
+      "enable": false
+    }
+  }
+}
+```
 
-**Brave** (default):
+**Brave:**
 ```json
 {
   "tools": {
@@ -1298,7 +1311,14 @@ When credentials are missing, nanobot automatically falls back to DuckDuckGo.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `provider` | string | `"brave"` | Search backend: `brave`, `tavily`, `jina`, `searxng`, `duckduckgo` |
+| `enable` | boolean | `true` | Enable or disable all built-in web tools (`web_search` + `web_fetch`) |
+| `proxy` | string or null | `null` | Proxy for all web requests, for example `http://127.0.0.1:7890` |
+
+#### `tools.web.search`
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `provider` | string | `"duckduckgo"` | Search backend: `brave`, `tavily`, `jina`, `searxng`, `duckduckgo` |
 | `apiKey` | string | `""` | API key for Brave or Tavily |
 | `baseUrl` | string | `""` | Base URL for SearXNG |
 | `maxResults` | integer | `5` | Results per search (1–10) |
