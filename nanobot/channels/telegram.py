@@ -12,7 +12,7 @@ from typing import Any, Literal
 from loguru import logger
 from pydantic import Field
 from telegram import BotCommand, ReactionTypeEmoji, ReplyParameters, Update
-from telegram.error import BadRequest, TimedOut
+from telegram.error import BadRequest, NetworkError, TimedOut
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
@@ -325,7 +325,8 @@ class TelegramChannel(BaseChannel):
         # Start polling (this runs until stopped)
         await self._app.updater.start_polling(
             allowed_updates=["message"],
-            drop_pending_updates=False  # Process pending messages on startup
+            drop_pending_updates=False,  # Process pending messages on startup
+            error_callback=self._on_polling_error,
         )
 
         # Keep running until stopped
@@ -974,14 +975,36 @@ class TelegramChannel(BaseChannel):
         except Exception as e:
             logger.debug("Typing indicator stopped for {}: {}", chat_id, e)
 
+    @staticmethod
+    def _format_telegram_error(exc: Exception) -> str:
+        """Return a short, readable error summary for logs."""
+        text = str(exc).strip()
+        if text:
+            return text
+        if exc.__cause__ is not None:
+            cause = exc.__cause__
+            cause_text = str(cause).strip()
+            if cause_text:
+                return f"{exc.__class__.__name__} ({cause_text})"
+            return f"{exc.__class__.__name__} ({cause.__class__.__name__})"
+        return exc.__class__.__name__
+
+    def _on_polling_error(self, exc: Exception) -> None:
+        """Keep long-polling network failures to a single readable line."""
+        summary = self._format_telegram_error(exc)
+        if isinstance(exc, (NetworkError, TimedOut)):
+            logger.warning("Telegram polling network issue: {}", summary)
+        else:
+            logger.error("Telegram polling error: {}", summary)
+
     async def _on_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Log polling / handler errors instead of silently swallowing them."""
-        from telegram.error import NetworkError, TimedOut
-        
+        summary = self._format_telegram_error(context.error)
+
         if isinstance(context.error, (NetworkError, TimedOut)):
-            logger.warning("Telegram network issue: {}", str(context.error))
+            logger.warning("Telegram network issue: {}", summary)
         else:
-            logger.error("Telegram error: {}", context.error)
+            logger.error("Telegram error: {}", summary)
 
     def _get_extension(
         self,
