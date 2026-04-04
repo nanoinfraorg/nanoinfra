@@ -9,9 +9,27 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.base import Tool, tool_parameters
+from nanobot.agent.tools.schema import IntegerSchema, StringSchema, tool_parameters_schema
+from nanobot.config.paths import get_media_dir
 
 
+@tool_parameters(
+    tool_parameters_schema(
+        command=StringSchema("The shell command to execute"),
+        working_dir=StringSchema("Optional working directory for the command"),
+        timeout=IntegerSchema(
+            60,
+            description=(
+                "Timeout in seconds. Increase for long-running commands "
+                "like compilation or installation (default 60, max 600)."
+            ),
+            minimum=1,
+            maximum=600,
+        ),
+        required=["command"],
+    )
+)
 class ExecTool(Tool):
     """Tool to execute shell commands."""
 
@@ -55,32 +73,6 @@ class ExecTool(Tool):
     @property
     def exclusive(self) -> bool:
         return True
-
-    @property
-    def parameters(self) -> dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "The shell command to execute",
-                },
-                "working_dir": {
-                    "type": "string",
-                    "description": "Optional working directory for the command",
-                },
-                "timeout": {
-                    "type": "integer",
-                    "description": (
-                        "Timeout in seconds. Increase for long-running commands "
-                        "like compilation or installation (default 60, max 600)."
-                    ),
-                    "minimum": 1,
-                    "maximum": 600,
-                },
-            },
-            "required": ["command"],
-        }
 
     async def execute(
         self, command: str, working_dir: str | None = None,
@@ -183,7 +175,14 @@ class ExecTool(Tool):
                     p = Path(expanded).expanduser().resolve()
                 except Exception:
                     continue
-                if p.is_absolute() and cwd_path not in p.parents and p != cwd_path:
+
+                media_path = get_media_dir().resolve()
+                if (p.is_absolute() 
+                    and cwd_path not in p.parents 
+                    and p != cwd_path
+                    and media_path not in p.parents
+                    and p != media_path
+                ):
                     return "Error: Command blocked by safety guard (path outside working dir)"
 
         return None
