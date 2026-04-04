@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from loguru import logger
 
+from nanobot.utils.prompt_templates import render_template
 from nanobot.utils.helpers import ensure_dir, estimate_message_tokens, estimate_prompt_tokens_chain, strip_think
 
 from nanobot.agent.runner import AgentRunSpec, AgentRunner
@@ -326,7 +327,7 @@ class MemoryStore:
         return "\n".join(lines)
 
     def raw_archive(self, messages: list[dict]) -> None:
-        """Fallback: dump raw messages to HISTORY.md without LLM summarization."""
+        """Fallback: dump raw messages to history.jsonl without LLM summarization."""
         self.append_history(
             f"[RAW] {len(messages)} messages\n"
             f"{self._format_messages(messages)}"
@@ -343,7 +344,7 @@ class MemoryStore:
 
 
 class Consolidator:
-    """Lightweight consolidation: summarizes evicted messages, appends to HISTORY.md."""
+    """Lightweight consolidation: summarizes evicted messages into history.jsonl."""
 
     _MAX_CONSOLIDATION_ROUNDS = 5
 
@@ -416,7 +417,7 @@ class Consolidator:
         )
 
     async def archive(self, messages: list[dict]) -> bool:
-        """Summarize messages via LLM and append to HISTORY.md.
+        """Summarize messages via LLM and append to history.jsonl.
 
         Returns True on success (or degraded success), False if nothing to do.
         """
@@ -429,22 +430,9 @@ class Consolidator:
                 messages=[
                     {
                         "role": "system",
-                        "content": (
-                            "Extract key facts from this conversation. "
-                            "Only output items matching these categories, skip everything else:\n"
-                            "- User facts: personal info, preferences, stated opinions, habits\n"
-                            "- Decisions: choices made, conclusions reached\n"
-                            "- Solutions: working approaches discovered through trial and error, "
-                            "especially non-obvious methods that succeeded after failed attempts\n"
-                            "- Events: plans, deadlines, notable occurrences\n"
-                            "- Preferences: communication style, tool preferences\n\n"
-                            "Priority: user corrections and preferences > solutions > decisions > events > environment facts. "
-                            "The most valuable memory prevents the user from having to repeat themselves.\n\n"
-                            "Skip: code patterns derivable from source, git history, "
-                            "or anything already captured in existing memory.\n\n"
-                            "Output as concise bullet points, one fact per line. "
-                            "No preamble, no commentary.\n"
-                            "If nothing noteworthy happened, output: (nothing)"
+                        "content": render_template(
+                            "agent/consolidator_archive.md",
+                            strip=True,
                         ),
                     },
                     {"role": "user", "content": formatted},
@@ -529,41 +517,12 @@ class Consolidator:
 
 
 class Dream:
-    """Two-phase memory processor: analyze HISTORY.md, then edit files via AgentRunner.
+    """Two-phase memory processor: analyze history.jsonl, then edit files via AgentRunner.
 
     Phase 1 produces an analysis summary (plain LLM call).
     Phase 2 delegates to AgentRunner with read_file / edit_file tools so the
     LLM can make targeted, incremental edits instead of replacing entire files.
     """
-
-    _PHASE1_SYSTEM = (
-        "Compare conversation history against current memory files. "
-        "Output one line per finding:\n"
-        "[FILE] atomic fact or change description\n\n"
-        "Files: USER (identity, preferences, habits), "
-        "SOUL (bot behavior, tone), "
-        "MEMORY (knowledge, project context, tool patterns)\n\n"
-        "Rules:\n"
-        "- Only new or conflicting information — skip duplicates and ephemera\n"
-        "- Prefer atomic facts: \"has a cat named Luna\" not \"discussed pet care\"\n"
-        "- Corrections: [USER] location is Tokyo, not Osaka\n"
-        "- Also capture confirmed approaches: if the user validated a non-obvious choice, note it\n\n"
-        "If nothing needs updating: [SKIP] no new information"
-    )
-
-    _PHASE2_SYSTEM = (
-        "Update memory files based on the analysis below.\n\n"
-        "## Quality standards\n"
-        "- Every line must carry standalone value — no filler\n"
-        "- Concise bullet points under clear headers\n"
-        "- Remove outdated or contradicted information\n\n"
-        "## Editing\n"
-        "- File contents provided below — edit directly, no read_file needed\n"
-        "- Batch changes to the same file into one edit_file call\n"
-        "- Surgical edits only — never rewrite entire files\n"
-        "- Do NOT overwrite correct entries — only add, update, or remove\n"
-        "- If nothing to update, stop without calling tools"
-    )
 
     def __init__(
         self,
@@ -634,7 +593,10 @@ class Dream:
             phase1_response = await self.provider.chat_with_retry(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": self._PHASE1_SYSTEM},
+                    {
+                        "role": "system",
+                        "content": render_template("agent/dream_phase1.md", strip=True),
+                    },
                     {"role": "user", "content": phase1_prompt},
                 ],
                 tools=None,
@@ -651,7 +613,10 @@ class Dream:
 
         tools = self._tools
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self._PHASE2_SYSTEM},
+            {
+                "role": "system",
+                "content": render_template("agent/dream_phase2.md", strip=True),
+            },
             {"role": "user", "content": phase2_prompt},
         ]
 
