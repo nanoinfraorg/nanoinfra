@@ -153,8 +153,9 @@ class OpenAICompatProvider(LLMProvider):
             resolved = env_val.replace("{api_key}", api_key).replace("{api_base}", effective_base)
             os.environ.setdefault(env_name, resolved)
 
-    @staticmethod
+    @classmethod
     def _apply_cache_control(
+        cls,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
@@ -182,7 +183,8 @@ class OpenAICompatProvider(LLMProvider):
         new_tools = tools
         if tools:
             new_tools = list(tools)
-            new_tools[-1] = {**new_tools[-1], "cache_control": cache_marker}
+            for idx in cls._tool_cache_marker_indices(new_tools):
+                new_tools[idx] = {**new_tools[idx], "cache_control": cache_marker}
         return new_messages, new_tools
 
     @staticmethod
