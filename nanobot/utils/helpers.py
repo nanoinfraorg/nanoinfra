@@ -457,7 +457,7 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
 
     # Initialize git for memory version control
     try:
-        from nanobot.agent.git_store import GitStore
+        from nanobot.utils.git_store import GitStore
         gs = GitStore(workspace, tracked_files=[
             "SOUL.md", "USER.md", "memory/MEMORY.md",
         ])

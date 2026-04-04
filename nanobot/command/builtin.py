@@ -136,7 +136,8 @@ async def cmd_dream_log(ctx: CommandContext) -> OutboundMessage:
             content = commit.format(diff)
     else:
         # Default: show the latest commit's diff
-        result = git.show_commit_diff(git.log(max_entries=1)[0].sha) if git.log(max_entries=1) else None
+        commits = git.log(max_entries=1)
+        result = git.show_commit_diff(commits[0].sha) if commits else None
         if result:
             commit, diff = result
             content = commit.format(diff)

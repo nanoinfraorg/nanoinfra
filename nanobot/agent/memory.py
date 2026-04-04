@@ -15,7 +15,7 @@ from nanobot.utils.helpers import ensure_dir, estimate_message_tokens, estimate_
 
 from nanobot.agent.runner import AgentRunSpec, AgentRunner
 from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.git_store import GitStore
+from nanobot.utils.git_store import GitStore
 
 if TYPE_CHECKING:
     from nanobot.providers.base import LLMProvider
@@ -569,6 +569,7 @@ class Dream:
 
         # Git auto-commit (only when there are actual changes)
         if changelog and self.store.git.is_initialized():
+            ts = batch[-1]["timestamp"]
             sha = self.store.git.auto_commit(f"dream: {ts}, {len(changelog)} change(s)")
             if sha:
                 logger.info("Dream commit: {}", sha)
