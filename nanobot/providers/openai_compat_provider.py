@@ -621,6 +621,19 @@ class OpenAICompatProvider(LLMProvider):
     def _extract_error_metadata(cls, e: Exception) -> dict[str, Any]:
         response = getattr(e, "response", None)
         headers = getattr(response, "headers", None)
+        payload = (
+            getattr(e, "body", None)
+            or getattr(e, "doc", None)
+            or getattr(response, "text", None)
+        )
+        if payload is None and response is not None:
+            response_json = getattr(response, "json", None)
+            if callable(response_json):
+                try:
+                    payload = response_json()
+                except Exception:
+                    payload = None
+        error_type, error_code = LLMProvider._extract_error_type_code(payload)
 
         status_code = getattr(e, "status_code", None)
         if status_code is None and response is not None:
@@ -646,6 +659,8 @@ class OpenAICompatProvider(LLMProvider):
         return {
             "error_status_code": int(status_code) if status_code is not None else None,
             "error_kind": error_kind,
+            "error_type": error_type,
+            "error_code": error_code,
             "error_retry_after_s": cls._parse_retry_after_headers(headers),
             "error_should_retry": should_retry,
         }

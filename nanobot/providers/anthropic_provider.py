@@ -102,7 +102,20 @@ class AnthropicProvider(LLMProvider):
     def _error_response(cls, e: Exception) -> LLMResponse:
         response = getattr(e, "response", None)
         headers = getattr(response, "headers", None)
-        msg = f"Error calling LLM: {e}"
+        payload = (
+            getattr(e, "body", None)
+            or getattr(e, "doc", None)
+            or getattr(response, "text", None)
+        )
+        if payload is None and response is not None:
+            response_json = getattr(response, "json", None)
+            if callable(response_json):
+                try:
+                    payload = response_json()
+                except Exception:
+                    payload = None
+        payload_text = payload if isinstance(payload, str) else str(payload) if payload is not None else ""
+        msg = f"Error: {payload_text.strip()[:500]}" if payload_text.strip() else f"Error calling LLM: {e}"
         retry_after = cls._parse_retry_after_headers(headers)
         if retry_after is None:
             retry_after = LLMProvider._extract_retry_after(msg)
@@ -127,6 +140,7 @@ class AnthropicProvider(LLMProvider):
             error_kind = "timeout"
         elif "connection" in error_name:
             error_kind = "connection"
+        error_type, error_code = LLMProvider._extract_error_type_code(payload)
 
         return LLMResponse(
             content=msg,
@@ -134,6 +148,8 @@ class AnthropicProvider(LLMProvider):
             retry_after=retry_after,
             error_status_code=int(status_code) if status_code is not None else None,
             error_kind=error_kind,
+            error_type=error_type,
+            error_code=error_code,
             error_retry_after_s=retry_after,
             error_should_retry=should_retry,
         )

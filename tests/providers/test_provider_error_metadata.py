@@ -26,14 +26,16 @@ def test_openai_handle_error_extracts_structured_metadata() -> None:
     err.response = _fake_response(
         status_code=409,
         headers={"retry-after-ms": "250", "x-should-retry": "false"},
-        text='{"error":"conflict"}',
+        text='{"error":{"type":"rate_limit_exceeded","code":"rate_limit_exceeded"}}',
     )
-    err.body = {"error": "conflict"}
+    err.body = {"error": {"type": "rate_limit_exceeded", "code": "rate_limit_exceeded"}}
 
     response = OpenAICompatProvider._handle_error(err)
 
     assert response.finish_reason == "error"
     assert response.error_status_code == 409
+    assert response.error_type == "rate_limit_exceeded"
+    assert response.error_code == "rate_limit_exceeded"
     assert response.error_retry_after_s == 0.25
     assert response.error_should_retry is False
 
@@ -58,11 +60,13 @@ def test_anthropic_error_response_extracts_structured_metadata() -> None:
         status_code=408,
         headers={"retry-after": "1.5", "x-should-retry": "true"},
     )
+    err.body = {"type": "error", "error": {"type": "rate_limit_error"}}
 
     response = AnthropicProvider._error_response(err)
 
     assert response.finish_reason == "error"
     assert response.error_status_code == 408
+    assert response.error_type == "rate_limit_error"
     assert response.error_retry_after_s == 1.5
     assert response.error_should_retry is True
 

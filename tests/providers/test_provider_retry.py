@@ -298,6 +298,59 @@ async def test_chat_with_retry_retries_structured_status_code_without_keyword(mo
 
 
 @pytest.mark.asyncio
+async def test_chat_with_retry_stops_on_429_quota_exhausted(monkeypatch) -> None:
+    provider = ScriptedProvider([
+        LLMResponse(
+            content='{"error":{"type":"insufficient_quota","code":"insufficient_quota"}}',
+            finish_reason="error",
+            error_status_code=429,
+            error_type="insufficient_quota",
+            error_code="insufficient_quota",
+        ),
+        LLMResponse(content="ok"),
+    ])
+    delays: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("nanobot.providers.base.asyncio.sleep", _fake_sleep)
+
+    response = await provider.chat_with_retry(messages=[{"role": "user", "content": "hello"}])
+
+    assert response.finish_reason == "error"
+    assert provider.calls == 1
+    assert delays == []
+
+
+@pytest.mark.asyncio
+async def test_chat_with_retry_retries_429_transient_rate_limit(monkeypatch) -> None:
+    provider = ScriptedProvider([
+        LLMResponse(
+            content='{"error":{"type":"rate_limit_exceeded","code":"rate_limit_exceeded"}}',
+            finish_reason="error",
+            error_status_code=429,
+            error_type="rate_limit_exceeded",
+            error_code="rate_limit_exceeded",
+            error_retry_after_s=0.2,
+        ),
+        LLMResponse(content="ok"),
+    ])
+    delays: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("nanobot.providers.base.asyncio.sleep", _fake_sleep)
+
+    response = await provider.chat_with_retry(messages=[{"role": "user", "content": "hello"}])
+
+    assert response.content == "ok"
+    assert provider.calls == 2
+    assert delays == [0.2]
+
+
+@pytest.mark.asyncio
 async def test_chat_with_retry_retries_structured_timeout_kind(monkeypatch) -> None:
     provider = ScriptedProvider([
         LLMResponse(
@@ -389,4 +442,3 @@ async def test_persistent_retry_aborts_after_ten_identical_transient_errors(monk
     assert response.content == "429 rate limit"
     assert provider.calls == 10
     assert delays == [1, 2, 4, 4, 4, 4, 4, 4, 4]
-

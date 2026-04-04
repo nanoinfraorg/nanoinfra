@@ -57,6 +57,8 @@ class LLMResponse:
     # Structured error metadata used by retry policy when finish_reason == "error".
     error_status_code: int | None = None
     error_kind: str | None = None  # e.g. "timeout", "connection"
+    error_type: str | None = None  # Provider/type semantic, e.g. insufficient_quota.
+    error_code: str | None = None  # Provider/code semantic, e.g. rate_limit_exceeded.
     error_retry_after_s: float | None = None
     error_should_retry: bool | None = None
     
@@ -98,6 +100,50 @@ class LLMProvider(ABC):
     )
     _RETRYABLE_STATUS_CODES = frozenset({408, 409, 429})
     _TRANSIENT_ERROR_KINDS = frozenset({"timeout", "connection"})
+    _NON_RETRYABLE_429_ERROR_TOKENS = frozenset({
+        "insufficient_quota",
+        "quota_exceeded",
+        "quota_exhausted",
+        "billing_hard_limit_reached",
+        "insufficient_balance",
+        "credit_balance_too_low",
+        "billing_not_active",
+        "payment_required",
+    })
+    _RETRYABLE_429_ERROR_TOKENS = frozenset({
+        "rate_limit_exceeded",
+        "rate_limit_error",
+        "too_many_requests",
+        "request_limit_exceeded",
+        "requests_limit_exceeded",
+        "overloaded_error",
+    })
+    _NON_RETRYABLE_429_TEXT_MARKERS = (
+        "insufficient_quota",
+        "insufficient quota",
+        "quota exceeded",
+        "quota exhausted",
+        "billing hard limit",
+        "billing_hard_limit_reached",
+        "billing not active",
+        "insufficient balance",
+        "insufficient_balance",
+        "credit balance too low",
+        "payment required",
+        "out of credits",
+        "out of quota",
+        "exceeded your current quota",
+    )
+    _RETRYABLE_429_TEXT_MARKERS = (
+        "rate limit",
+        "rate_limit",
+        "too many requests",
+        "retry after",
+        "try again in",
+        "temporarily unavailable",
+        "overloaded",
+        "concurrency limit",
+    )
 
     _SENTINEL = object()
 
@@ -209,6 +255,8 @@ class LLMProvider(ABC):
 
         if response.error_status_code is not None:
             status = int(response.error_status_code)
+            if status == 429:
+                return cls._is_retryable_429_response(response)
             if status in cls._RETRYABLE_STATUS_CODES or status >= 500:
                 return True
 
@@ -217,6 +265,61 @@ class LLMProvider(ABC):
             return True
 
         return cls._is_transient_error(response.content)
+
+    @staticmethod
+    def _normalize_error_token(value: Any) -> str | None:
+        if value is None:
+            return None
+        token = str(value).strip().lower()
+        return token or None
+
+    @classmethod
+    def _extract_error_type_code(cls, payload: Any) -> tuple[str | None, str | None]:
+        data: dict[str, Any] | None = None
+        if isinstance(payload, dict):
+            data = payload
+        elif isinstance(payload, str):
+            text = payload.strip()
+            if text:
+                try:
+                    parsed = json.loads(text)
+                except Exception:
+                    parsed = None
+                if isinstance(parsed, dict):
+                    data = parsed
+        if not isinstance(data, dict):
+            return None, None
+
+        error_obj = data.get("error")
+        type_value = data.get("type")
+        code_value = data.get("code")
+        if isinstance(error_obj, dict):
+            type_value = error_obj.get("type") or type_value
+            code_value = error_obj.get("code") or code_value
+
+        return cls._normalize_error_token(type_value), cls._normalize_error_token(code_value)
+
+    @classmethod
+    def _is_retryable_429_response(cls, response: LLMResponse) -> bool:
+        type_token = cls._normalize_error_token(response.error_type)
+        code_token = cls._normalize_error_token(response.error_code)
+        semantic_tokens = {
+            token for token in (type_token, code_token)
+            if token is not None
+        }
+        if any(token in cls._NON_RETRYABLE_429_ERROR_TOKENS for token in semantic_tokens):
+            return False
+
+        content = (response.content or "").lower()
+        if any(marker in content for marker in cls._NON_RETRYABLE_429_TEXT_MARKERS):
+            return False
+
+        if any(token in cls._RETRYABLE_429_ERROR_TOKENS for token in semantic_tokens):
+            return True
+        if any(marker in content for marker in cls._RETRYABLE_429_TEXT_MARKERS):
+            return True
+        # Unknown 429 defaults to WAIT+retry.
+        return True
 
     @staticmethod
     def _strip_image_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
