@@ -16,7 +16,7 @@ from nanobot.utils.helpers import ensure_dir, estimate_message_tokens, estimate_
 
 from nanobot.agent.runner import AgentRunSpec, AgentRunner
 from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.utils.git_store import GitStore
+from nanobot.utils.gitstore import GitStore
 
 if TYPE_CHECKING:
     from nanobot.providers.base import LLMProvider

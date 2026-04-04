@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from nanobot.utils.git_store import GitStore, CommitInfo
+from nanobot.utils.gitstore import GitStore, CommitInfo
 
 
 TRACKED = ["SOUL.md", "USER.md", "memory/MEMORY.md"]
@@ -181,7 +181,7 @@ class TestShowCommitDiff:
 
 class TestCommitInfoFormat:
     def test_format_with_diff(self):
-        from nanobot.utils.git_store import CommitInfo
+        from nanobot.utils.gitstore import CommitInfo
         c = CommitInfo(sha="abcd1234", message="test commit\nsecond line", timestamp="2026-04-02 12:00")
         result = c.format(diff="some diff")
         assert "test commit" in result
@@ -189,7 +189,7 @@ class TestCommitInfoFormat:
         assert "some diff" in result
 
     def test_format_without_diff(self):
-        from nanobot.utils.git_store import CommitInfo
+        from nanobot.utils.gitstore import CommitInfo
         c = CommitInfo(sha="abcd1234", message="test", timestamp="2026-04-02 12:00")
         result = c.format()
         assert "(no file changes)" in result
