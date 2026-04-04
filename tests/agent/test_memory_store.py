@@ -232,6 +232,24 @@ class TestLegacyHistoryMigration:
         assert legacy_file.exists()
         assert not (memory_dir / "HISTORY.md.bak").exists()
 
+    def test_empty_history_jsonl_still_allows_legacy_migration(self, tmp_path):
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir()
+        history_file = memory_dir / "history.jsonl"
+        history_file.write_text("", encoding="utf-8")
+        legacy_file = memory_dir / "HISTORY.md"
+        legacy_file.write_text("[2026-04-01 10:00] legacy\n\n", encoding="utf-8")
+
+        store = MemoryStore(tmp_path)
+
+        entries = store.read_unprocessed_history(since_cursor=0)
+        assert len(entries) == 1
+        assert entries[0]["cursor"] == 1
+        assert entries[0]["timestamp"] == "2026-04-01 10:00"
+        assert entries[0]["content"] == "legacy"
+        assert not legacy_file.exists()
+        assert (memory_dir / "HISTORY.md.bak").exists()
+
     def test_migrates_legacy_history_with_invalid_utf8_bytes(self, tmp_path):
         memory_dir = tmp_path / "memory"
         memory_dir.mkdir()

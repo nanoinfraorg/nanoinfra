@@ -72,7 +72,9 @@ class MemoryStore:
         The migration is best-effort and prioritizes preserving as much content
         as possible over perfect parsing.
         """
-        if self.history_file.exists() or not self.legacy_history_file.exists():
+        if not self.legacy_history_file.exists():
+            return
+        if self.history_file.exists() and self.history_file.stat().st_size > 0:
             return
 
         try:
