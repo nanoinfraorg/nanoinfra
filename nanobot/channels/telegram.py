@@ -200,8 +200,8 @@ class TelegramChannel(BaseChannel):
         BotCommand("restart", "Restart the bot"),
         BotCommand("status", "Show bot status"),
         BotCommand("dream", "Run Dream memory consolidation now"),
-        BotCommand("dream-log", "Show the latest Dream memory change"),
-        BotCommand("dream-restore", "Restore Dream memory to an earlier version"),
+        BotCommand("dream_log", "Show the latest Dream memory change"),
+        BotCommand("dream_restore", "Restore Dream memory to an earlier version"),
         BotCommand("help", "Show available commands"),
     ]
 
@@ -244,6 +244,17 @@ class TelegramChannel(BaseChannel):
             return False
 
         return sid in allow_list or username in allow_list
+
+    @staticmethod
+    def _normalize_telegram_command(content: str) -> str:
+        """Map Telegram-safe command aliases back to canonical nanobot commands."""
+        if not content.startswith("/"):
+            return content
+        if content == "/dream_log" or content.startswith("/dream_log "):
+            return content.replace("/dream_log", "/dream-log", 1)
+        if content == "/dream_restore" or content.startswith("/dream_restore "):
+            return content.replace("/dream_restore", "/dream-restore", 1)
+        return content
 
     async def start(self) -> None:
         """Start the Telegram bot with long polling."""
@@ -289,7 +300,7 @@ class TelegramChannel(BaseChannel):
         )
         self._app.add_handler(
             MessageHandler(
-                filters.Regex(r"^/(dream-log|dream-restore)(?:@\w+)?(?:\s+.*)?$"),
+                filters.Regex(r"^/(dream-log|dream_log|dream-restore|dream_restore)(?:@\w+)?(?:\s+.*)?$"),
                 self._forward_command,
             )
         )
@@ -812,6 +823,7 @@ class TelegramChannel(BaseChannel):
             cmd_part, *rest = content.split(" ", 1)
             cmd_part = cmd_part.split("@")[0]
             content = f"{cmd_part} {rest[0]}" if rest else cmd_part
+        content = self._normalize_telegram_command(content)
             
         await self._handle_message(
             sender_id=self._sender_id(user),

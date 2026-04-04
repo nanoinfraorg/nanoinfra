@@ -189,8 +189,8 @@ async def test_start_creates_separate_pools_with_proxy(monkeypatch) -> None:
     assert callable(app.updater.start_polling_kwargs["error_callback"])
     assert any(cmd.command == "status" for cmd in app.bot.commands)
     assert any(cmd.command == "dream" for cmd in app.bot.commands)
-    assert any(cmd.command == "dream-log" for cmd in app.bot.commands)
-    assert any(cmd.command == "dream-restore" for cmd in app.bot.commands)
+    assert any(cmd.command == "dream_log" for cmd in app.bot.commands)
+    assert any(cmd.command == "dream_restore" for cmd in app.bot.commands)
 
 
 @pytest.mark.asyncio
@@ -1007,6 +1007,27 @@ async def test_forward_command_preserves_dream_log_args_and_strips_bot_suffix() 
 
     assert len(handled) == 1
     assert handled[0]["content"] == "/dream-log deadbeef"
+
+
+@pytest.mark.asyncio
+async def test_forward_command_normalizes_telegram_safe_dream_aliases() -> None:
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"], group_policy="open"),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    handled = []
+
+    async def capture_handle(**kwargs) -> None:
+        handled.append(kwargs)
+
+    channel._handle_message = capture_handle
+    update = _make_telegram_update(text="/dream_restore@nanobot_test deadbeef", reply_to_message=None)
+
+    await channel._forward_command(update, None)
+
+    assert len(handled) == 1
+    assert handled[0]["content"] == "/dream-restore deadbeef"
 
 
 @pytest.mark.asyncio
