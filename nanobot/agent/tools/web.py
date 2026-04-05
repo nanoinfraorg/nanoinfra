@@ -207,7 +207,10 @@ class WebSearchTool(Tool):
             from ddgs import DDGS
 
             ddgs = DDGS(timeout=10)
-            raw = await asyncio.to_thread(ddgs.text, query, max_results=n)
+            raw = await asyncio.wait_for(
+                asyncio.to_thread(ddgs.text, query, max_results=n),
+                timeout=self.config.timeout,
+            )
             if not raw:
                 return f"No results for: {query}"
             items = [
