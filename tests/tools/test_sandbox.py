@@ -92,6 +92,22 @@ class TestBwrapBackend:
         assert "/bin" in try_targets
         assert "/etc/ssl/certs" in try_targets
 
+    def test_media_dir_ro_bind(self, tmp_path, monkeypatch):
+        """Media directory should be read-only mounted inside the sandbox."""
+        fake_media = tmp_path / "media"
+        fake_media.mkdir()
+        monkeypatch.setattr(
+            "nanobot.agent.tools.sandbox.get_media_dir",
+            lambda: fake_media,
+        )
+        ws = str(tmp_path / "project")
+        result = wrap_command("bwrap", "ls", ws, ws)
+        tokens = _parse(result)
+
+        try_indices = [i for i, t in enumerate(tokens) if t == "--ro-bind-try"]
+        try_pairs = {(tokens[i + 1], tokens[i + 2]) for i in try_indices}
+        assert (str(fake_media), str(fake_media)) in try_pairs
+
 
 class TestUnknownBackend:
     def test_raises_value_error(self, tmp_path):
