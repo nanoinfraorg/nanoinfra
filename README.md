@@ -861,6 +861,41 @@ Config file: `~/.nanobot/config.json`
 > run `nanobot onboard`, then answer `N` when asked whether to overwrite the config.
 > nanobot will merge in missing default fields and keep your current settings.
 
+### Environment Variables for Secrets
+
+Instead of storing secrets directly in `config.json`, you can use `${VAR_NAME}` references that are resolved from environment variables at startup:
+
+```json
+{
+  "channels": {
+    "telegram": { "token": "${TELEGRAM_TOKEN}" },
+    "email": {
+      "imapPassword": "${IMAP_PASSWORD}",
+      "smtpPassword": "${SMTP_PASSWORD}"
+    }
+  },
+  "providers": {
+    "groq": { "apiKey": "${GROQ_API_KEY}" }
+  }
+}
+```
+
+For **systemd** deployments, use `EnvironmentFile=` in the service unit to load variables from a file that only the deploying user can read:
+
+```ini
+# /etc/systemd/system/nanobot.service (excerpt)
+[Service]
+EnvironmentFile=/home/youruser/nanobot_secrets.env
+User=nanobot
+ExecStart=...
+```
+
+```bash
+# /home/youruser/nanobot_secrets.env (mode 600, owned by youruser)
+TELEGRAM_TOKEN=your-token-here
+IMAP_PASSWORD=your-password-here
+```
+
 ### Providers
 
 > [!TIP]
