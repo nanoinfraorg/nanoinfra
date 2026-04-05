@@ -91,7 +91,7 @@
 
 ## Key Features of nanobot:
 
-🪶 **Ultra-Lightweight**: A lightweight implementation built for stable, long-running AI agents — minimal footprint, significantly faster.
+🪶 **Ultra-Lightweight**: A lightweight implementation built for stable, long-running AI agents.
 
 🔬 **Research-Ready**: Clean, readable code that's easy to understand, modify, and extend for research.
 
