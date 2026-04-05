@@ -1,6 +1,6 @@
 <div align="center">
   <img src="nanobot_logo.png" alt="nanobot" width="500">
-  <h1>nanobot: Ultra-Lightweight Personal AI Assistant</h1>
+  <h1>nanobot: Ultra-Lightweight Personal AI Agent</h1>
   <p>
     <a href="https://pypi.org/project/nanobot-ai/"><img src="https://img.shields.io/pypi/v/nanobot-ai" alt="PyPI"></a>
     <a href="https://pepy.tech/project/nanobot-ai"><img src="https://static.pepy.tech/badge/nanobot-ai" alt="Downloads"></a>
@@ -14,7 +14,7 @@
 
 🐈 **nanobot** is an **ultra-lightweight** personal AI assistant inspired by [OpenClaw](https://github.com/openclaw/openclaw).
 
-⚡️ Delivers core agent functionality with **99% fewer lines of code** than OpenClaw.
+⚡️ Delivers core agent functionality with **99% fewer lines of code**.
 
 📏 Real-time line count: run `bash core_agent_lines.sh` to verify anytime.
 
@@ -91,7 +91,7 @@
 
 ## Key Features of nanobot:
 
-🪶 **Ultra-Lightweight**: A super lightweight implementation of OpenClaw — 99% smaller, significantly faster.
+🪶 **Ultra-Lightweight**: A lightweight implementation built for stable, long-running AI agents — minimal footprint, significantly faster.
 
 🔬 **Research-Ready**: Clean, readable code that's easy to understand, modify, and extend for research.
 
