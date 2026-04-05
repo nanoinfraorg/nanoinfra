@@ -3,8 +3,10 @@
 import json
 from pathlib import Path
 
-from nanobot.config.schema import Config
+import pydantic
+from loguru import logger
 
+from nanobot.config.schema import Config
 
 # Global variable to store current config path (for multi-instance support)
 _current_config_path: Path | None = None
@@ -35,17 +37,26 @@ def load_config(config_path: Path | None = None) -> Config:
     """
     path = config_path or get_config_path()
 
+    config = Config()
     if path.exists():
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             data = _migrate_config(data)
-            return Config.model_validate(data)
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"Warning: Failed to load config from {path}: {e}")
-            print("Using default configuration.")
+            config = Config.model_validate(data)
+        except (json.JSONDecodeError, ValueError, pydantic.ValidationError) as e:
+            logger.warning(f"Failed to load config from {path}: {e}")
+            logger.warning("Using default configuration.")
 
-    return Config()
+    _apply_ssrf_whitelist(config)
+    return config
+
+
+def _apply_ssrf_whitelist(config: Config) -> None:
+    """Apply SSRF whitelist from config to the network security module."""
+    from nanobot.security.network import configure_ssrf_whitelist
+
+    configure_ssrf_whitelist(config.tools.ssrf_whitelist)
 
 
 def save_config(config: Config, config_path: Path | None = None) -> None:
@@ -59,7 +70,7 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
     path = config_path or get_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    data = config.model_dump(by_alias=True)
+    data = config.model_dump(mode="json", by_alias=True)
 
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
