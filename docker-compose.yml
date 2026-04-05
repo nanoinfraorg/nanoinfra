@@ -4,9 +4,13 @@ x-common-config: &common-config
     dockerfile: Dockerfile
   volumes:
     - ~/.nanobot:/home/nanobot/.nanobot
+  cap_drop:
+    - ALL
+  cap_add:
+    - SYS_ADMIN
   security_opt:
     - apparmor=unconfined
-    - seccomp=./podman-seccomp.json
+    - seccomp=unconfined
 
 services:
   nanobot-gateway:

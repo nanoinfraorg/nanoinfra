@@ -25,7 +25,7 @@ def _bwrap(command: str, workspace: str, cwd: str) -> str:
     optional  = ["/bin", "/lib", "/lib64", "/etc/alternatives",
                  "/etc/ssl/certs", "/etc/resolv.conf", "/etc/ld.so.cache"]
 
-    args = ["bwrap"]
+    args = ["bwrap", "--new-session", "--die-with-parent"]
     for p in required: args += ["--ro-bind",     p, p]
     for p in optional: args += ["--ro-bind-try", p, p]
     args += [
