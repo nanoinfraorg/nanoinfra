@@ -98,7 +98,7 @@ class AnthropicProvider(LLMProvider):
         return value if value > 0 else None
 
     @classmethod
-    def _error_response(cls, e: Exception) -> LLMResponse:
+    def _handle_error(cls, e: Exception) -> LLMResponse:
         response = getattr(e, "response", None)
         headers = getattr(response, "headers", None)
         payload = (
@@ -505,10 +505,6 @@ class AnthropicProvider(LLMProvider):
     # Public API
     # ------------------------------------------------------------------
 
-    @classmethod
-    def _handle_error(cls, e: Exception) -> LLMResponse:
-        return cls._error_response(e)
-
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -527,7 +523,7 @@ class AnthropicProvider(LLMProvider):
             response = await self._client.messages.create(**kwargs)
             return self._parse_response(response)
         except Exception as e:
-            return self._error_response(e)
+            return self._handle_error(e)
 
     async def chat_stream(
         self,
@@ -573,7 +569,7 @@ class AnthropicProvider(LLMProvider):
                 error_kind="timeout",
             )
         except Exception as e:
-            return self._error_response(e)
+            return self._handle_error(e)
 
     def get_default_model(self) -> str:
         return self.default_model

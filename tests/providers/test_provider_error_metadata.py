@@ -50,7 +50,7 @@ def test_openai_handle_error_marks_timeout_kind() -> None:
     assert response.error_kind == "timeout"
 
 
-def test_anthropic_error_response_extracts_structured_metadata() -> None:
+def test_anthropic_handle_error_extracts_structured_metadata() -> None:
     class FakeStatusError(Exception):
         pass
 
@@ -62,7 +62,7 @@ def test_anthropic_error_response_extracts_structured_metadata() -> None:
     )
     err.body = {"type": "error", "error": {"type": "rate_limit_error"}}
 
-    response = AnthropicProvider._error_response(err)
+    response = AnthropicProvider._handle_error(err)
 
     assert response.finish_reason == "error"
     assert response.error_status_code == 408
@@ -71,11 +71,11 @@ def test_anthropic_error_response_extracts_structured_metadata() -> None:
     assert response.error_should_retry is True
 
 
-def test_anthropic_error_response_marks_connection_kind() -> None:
+def test_anthropic_handle_error_marks_connection_kind() -> None:
     class FakeConnectionError(Exception):
         pass
 
-    response = AnthropicProvider._error_response(FakeConnectionError("connection"))
+    response = AnthropicProvider._handle_error(FakeConnectionError("connection"))
 
     assert response.finish_reason == "error"
     assert response.error_kind == "connection"
