@@ -166,10 +166,9 @@ async def test_group_policy_mention_accepts_mentioned_group_message():
 @pytest.mark.asyncio
 async def test_voice_message_transcription_uses_media_path():
     """Voice messages are transcribed when media path is available."""
-    ch = WhatsAppChannel(
-        {"enabled": True, "transcriptionProvider": "openai", "transcriptionApiKey": "sk-test"},
-        MagicMock(),
-    )
+    ch = WhatsAppChannel({"enabled": True}, MagicMock())
+    ch.transcription_provider = "openai"
+    ch.transcription_api_key = "sk-test"
     ch._handle_message = AsyncMock()
     ch.transcribe_audio = AsyncMock(return_value="Hello world")
 

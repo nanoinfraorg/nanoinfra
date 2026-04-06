@@ -22,6 +22,7 @@ class BaseChannel(ABC):
 
     name: str = "base"
     display_name: str = "Base"
+    transcription_provider: str = "groq"
     transcription_api_key: str = ""
 
     def __init__(self, config: Any, bus: MessageBus):
@@ -41,8 +42,7 @@ class BaseChannel(ABC):
         if not self.transcription_api_key:
             return ""
         try:
-            provider_name = getattr(self, "transcription_provider", "groq")
-            if provider_name == "openai":
+            if self.transcription_provider == "openai":
                 from nanobot.providers.transcription import OpenAITranscriptionProvider
                 provider = OpenAITranscriptionProvider(api_key=self.transcription_api_key)
             else:

@@ -27,8 +27,6 @@ class WhatsAppConfig(Base):
     bridge_url: str = "ws://localhost:3001"
     bridge_token: str = ""
     allow_from: list[str] = Field(default_factory=list)
-    transcription_provider: str = "openai"  # openai or groq
-    transcription_api_key: str = ""
     group_policy: Literal["open", "mention"] = "open"  # "open" responds to all, "mention" only when @mentioned
 
 
@@ -77,8 +75,6 @@ class WhatsAppChannel(BaseChannel):
         self._ws = None
         self._connected = False
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
-        self.transcription_api_key = config.transcription_api_key
-        self.transcription_provider = config.transcription_provider
         self._bridge_token: str | None = None
 
     def _effective_bridge_token(self) -> str:
