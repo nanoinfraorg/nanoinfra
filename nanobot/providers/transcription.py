@@ -3,6 +3,9 @@
 import os
 from pathlib import Path
 
+import httpx
+from loguru import logger
+
 
 class OpenAITranscriptionProvider:
     """Voice transcription provider using OpenAI's Whisper API."""
@@ -13,12 +16,13 @@ class OpenAITranscriptionProvider:
 
     async def transcribe(self, file_path: str | Path) -> str:
         if not self.api_key:
+            logger.warning("OpenAI API key not configured for transcription")
             return ""
         path = Path(file_path)
         if not path.exists():
+            logger.error("Audio file not found: {}", file_path)
             return ""
         try:
-            import httpx
             async with httpx.AsyncClient() as client:
                 with open(path, "rb") as f:
                     files = {"file": (path.name, f), "model": (None, "whisper-1")}
@@ -28,11 +32,9 @@ class OpenAITranscriptionProvider:
                     )
                     response.raise_for_status()
                     return response.json().get("text", "")
-        except Exception:
+        except Exception as e:
+            logger.error("OpenAI transcription error: {}", e)
             return ""
-
-import httpx
-from loguru import logger
 
 
 class GroqTranscriptionProvider:

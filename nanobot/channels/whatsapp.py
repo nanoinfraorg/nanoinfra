@@ -236,6 +236,9 @@ class WhatsAppChannel(BaseChannel):
             sender_id = user_id.split("@")[0] if "@" in user_id else user_id
             logger.info("Sender {}", sender)
 
+            # Extract media paths (images/documents/videos downloaded by the bridge)
+            media_paths = data.get("media") or []
+
             # Handle voice transcription if it's a voice message
             if content == "[Voice Message]":
                 if media_paths:
@@ -248,9 +251,6 @@ class WhatsAppChannel(BaseChannel):
                         content = "[Voice Message: Transcription failed]"
                 else:
                     content = "[Voice Message: Audio not available]"
-
-            # Extract media paths (images/documents/videos downloaded by the bridge)
-            media_paths = data.get("media") or []
 
             # Build content tags matching Telegram's pattern: [image: /path] or [file: /path]
             if media_paths:
