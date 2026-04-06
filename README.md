@@ -20,9 +20,10 @@
 
 ## 📢 News
 
-- **2026-04-04** 🚀 Jinja2 response templates, Dream memory hardened, smarter retry handling.
+- **2026-04-06** 🚀 Released **v0.1.5** — sturdier long-running tasks, Dream two-stage memory, production-ready sandboxing and programming Agent SDK. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.5) for details.
+- **2026-04-04** 🚀 GPT-5 model family support, Jinja2 response templates, Dream memory hardened, smarter retry handling.
 - **2026-04-03** 🧠 Xiaomi MiMo provider, chain-of-thought reasoning visible, Telegram UX polish.
-- **2026-04-02** 🧱 **Long-running tasks** run more reliably — core runtime hardening.
+- **2026-04-02** 🧱 Long-running tasks run more reliably — core runtime hardening.
 - **2026-04-01** 🔑 GitHub Copilot auth restored; stricter workspace paths; OpenRouter Claude caching fix.
 - **2026-03-31** 🛰️ WeChat multimodal alignment, Discord/Matrix polish, Python SDK facade, MCP and tool fixes.
 - **2026-03-30** 🧩 OpenAI-compatible API tightened; composable agent lifecycle hooks.
