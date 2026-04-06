@@ -20,7 +20,7 @@
 
 ## 📢 News
 
-- **2026-04-06** 🚀 Released **v0.1.5** — sturdier long-running tasks, Dream two-stage memory, production-ready sandboxing and programming Agent SDK. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.5) for details.
+- **2026-04-05** 🚀 Released **v0.1.5** — sturdier long-running tasks, Dream two-stage memory, production-ready sandboxing and programming Agent SDK. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.5) for details.
 - **2026-04-04** 🚀 Jinja2 response templates, Dream memory hardened, smarter retry handling.
 - **2026-04-03** 🧠 Xiaomi MiMo provider, chain-of-thought reasoning visible, Telegram UX polish.
 - **2026-04-02** 🧱 Long-running tasks run more reliably — core runtime hardening.
@@ -30,13 +30,14 @@
 - **2026-03-29** 💬 WeChat voice, typing, QR/media resilience; fixed-session OpenAI-compatible API.
 - **2026-03-28** 📚 Provider docs refresh; skill template wording fix.
 - **2026-03-27** 🚀 Released **v0.1.4.post6** — architecture decoupling, litellm removal, end-to-end streaming, WeChat channel, and a security fix. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post6) for details.
-- **2026-03-26** 🏗️ Agent runner extracted and lifecycle hooks unified; stream delta coalescing at boundaries.
-- **2026-03-25** 🌏 StepFun provider, configurable timezone, Gemini thought signatures.
-- **2026-03-24** 🔧 WeChat compatibility, Feishu CardKit streaming, test suite restructured.
+
 
 <details>
 <summary>Earlier news</summary>
 
+- **2026-03-26** 🏗️ Agent runner extracted and lifecycle hooks unified; stream delta coalescing at boundaries.
+- **2026-03-25** 🌏 StepFun provider, configurable timezone, Gemini thought signatures.
+- **2026-03-24** 🔧 WeChat compatibility, Feishu CardKit streaming, test suite restructured.
 - **2026-03-23** 🔧 Command routing refactored for plugins, WhatsApp/WeChat media, unified channel login CLI.
 - **2026-03-22** ⚡ End-to-end streaming, WeChat channel, Anthropic cache optimization, `/status` command.
 - **2026-03-21** 🔒 Replace `litellm` with native `openai` + `anthropic` SDKs. Please see [commit](https://github.com/HKUDS/nanobot/commit/3dfdab7).
