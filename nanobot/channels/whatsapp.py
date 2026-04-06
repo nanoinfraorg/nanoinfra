@@ -4,6 +4,7 @@ import asyncio
 import json
 import mimetypes
 import os
+import secrets
 import shutil
 import subprocess
 from collections import OrderedDict
@@ -29,6 +30,29 @@ class WhatsAppConfig(Base):
     group_policy: Literal["open", "mention"] = "open"  # "open" responds to all, "mention" only when @mentioned
 
 
+def _bridge_token_path() -> Path:
+    from nanobot.config.paths import get_runtime_subdir
+
+    return get_runtime_subdir("whatsapp-auth") / "bridge-token"
+
+
+def _load_or_create_bridge_token(path: Path) -> str:
+    """Load a persisted bridge token or create one on first use."""
+    if path.exists():
+        token = path.read_text(encoding="utf-8").strip()
+        if token:
+            return token
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    token = secrets.token_urlsafe(32)
+    path.write_text(token, encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+    return token
+
+
 class WhatsAppChannel(BaseChannel):
     """
     WhatsApp channel that connects to a Node.js bridge.
@@ -52,6 +76,18 @@ class WhatsAppChannel(BaseChannel):
         self._connected = False
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
         self._lid_to_phone: dict[str, str] = {}
+        self._bridge_token: str | None = None
+
+    def _effective_bridge_token(self) -> str:
+        """Resolve the bridge token, generating a local secret when needed."""
+        if self._bridge_token is not None:
+            return self._bridge_token
+        configured = self.config.bridge_token.strip()
+        if configured:
+            self._bridge_token = configured
+        else:
+            self._bridge_token = _load_or_create_bridge_token(_bridge_token_path())
+        return self._bridge_token
 
     async def login(self, force: bool = False) -> bool:
         """
@@ -61,8 +97,6 @@ class WhatsAppChannel(BaseChannel):
         authentication flow. The process blocks until the user scans the QR code
         or interrupts with Ctrl+C.
         """
-        from nanobot.config.paths import get_runtime_subdir
-
         try:
             bridge_dir = _ensure_bridge_setup()
         except RuntimeError as e:
@@ -70,9 +104,8 @@ class WhatsAppChannel(BaseChannel):
             return False
 
         env = {**os.environ}
-        if self.config.bridge_token:
-            env["BRIDGE_TOKEN"] = self.config.bridge_token
-        env["AUTH_DIR"] = str(get_runtime_subdir("whatsapp-auth"))
+        env["BRIDGE_TOKEN"] = self._effective_bridge_token()
+        env["AUTH_DIR"] = str(_bridge_token_path().parent)
 
         logger.info("Starting WhatsApp bridge for QR login...")
         try:
@@ -98,11 +131,9 @@ class WhatsAppChannel(BaseChannel):
             try:
                 async with websockets.connect(bridge_url) as ws:
                     self._ws = ws
-                    # Send auth token if configured
-                    if self.config.bridge_token:
-                        await ws.send(
-                            json.dumps({"type": "auth", "token": self.config.bridge_token})
-                        )
+                    await ws.send(
+                        json.dumps({"type": "auth", "token": self._effective_bridge_token()})
+                    )
                     self._connected = True
                     logger.info("Connected to WhatsApp bridge")
 
@@ -221,16 +252,21 @@ class WhatsAppChannel(BaseChannel):
 
             logger.info("Sender phone={} lid={} → sender_id={}", phone_id or "(empty)", lid_id or "(empty)", sender_id)
 
-            # Handle voice transcription if it's a voice message
-            if content == "[Voice Message]":
-                logger.info(
-                    "Voice message received from {}, but direct download from bridge is not yet supported.",
-                    sender_id,
-                )
-                content = "[Voice Message: Transcription not available for WhatsApp yet]"
-
             # Extract media paths (images/documents/videos downloaded by the bridge)
             media_paths = data.get("media") or []
+
+            # Handle voice transcription if it's a voice message
+            if content == "[Voice Message]":
+                if media_paths:
+                    logger.info("Transcribing voice message from {}...", sender_id)
+                    transcription = await self.transcribe_audio(media_paths[0])
+                    if transcription:
+                        content = transcription
+                        logger.info("Transcribed voice from {}: {}...", sender_id, transcription[:50])
+                    else:
+                        content = "[Voice Message: Transcription failed]"
+                else:
+                    content = "[Voice Message: Audio not available]"
 
             # Build content tags matching Telegram's pattern: [image: /path] or [file: /path]
             if media_paths:
