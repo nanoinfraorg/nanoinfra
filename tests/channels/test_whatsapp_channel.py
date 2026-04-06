@@ -164,6 +164,60 @@ async def test_group_policy_mention_accepts_mentioned_group_message():
 
 
 @pytest.mark.asyncio
+async def test_sender_id_prefers_phone_jid_over_lid():
+    """sender_id should resolve to phone number when @s.whatsapp.net JID is present."""
+    ch = WhatsAppChannel({"enabled": True}, MagicMock())
+    ch._handle_message = AsyncMock()
+
+    await ch._handle_bridge_message(
+        json.dumps({
+            "type": "message",
+            "id": "lid1",
+            "sender": "ABC123@lid.whatsapp.net",
+            "pn": "5551234@s.whatsapp.net",
+            "content": "hi",
+            "timestamp": 1,
+        })
+    )
+
+    kwargs = ch._handle_message.await_args.kwargs
+    assert kwargs["sender_id"] == "5551234"
+
+
+@pytest.mark.asyncio
+async def test_lid_to_phone_cache_resolves_lid_only_messages():
+    """When only LID is present, a cached LID→phone mapping should be used."""
+    ch = WhatsAppChannel({"enabled": True}, MagicMock())
+    ch._handle_message = AsyncMock()
+
+    # First message: both phone and LID → builds cache
+    await ch._handle_bridge_message(
+        json.dumps({
+            "type": "message",
+            "id": "c1",
+            "sender": "LID99@lid.whatsapp.net",
+            "pn": "5559999@s.whatsapp.net",
+            "content": "first",
+            "timestamp": 1,
+        })
+    )
+    # Second message: only LID, no phone
+    await ch._handle_bridge_message(
+        json.dumps({
+            "type": "message",
+            "id": "c2",
+            "sender": "LID99@lid.whatsapp.net",
+            "pn": "",
+            "content": "second",
+            "timestamp": 2,
+        })
+    )
+
+    second_kwargs = ch._handle_message.await_args_list[1].kwargs
+    assert second_kwargs["sender_id"] == "5559999"
+
+
+@pytest.mark.asyncio
 async def test_voice_message_transcription_uses_media_path():
     """Voice messages are transcribed when media path is available."""
     ch = WhatsAppChannel({"enabled": True}, MagicMock())
