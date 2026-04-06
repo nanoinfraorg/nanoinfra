@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from nanobot.utils.prompt_templates import render_template
+
 if TYPE_CHECKING:
     from nanobot.providers.base import LLMProvider
 
@@ -37,21 +39,6 @@ _EVALUATE_TOOL = [
     }
 ]
 
-_SYSTEM_PROMPT = (
-    "You are a notification gate for a background agent. "
-    "You will be given the original task and the agent's response. "
-    "Call the evaluate_notification tool to decide whether the user "
-    "should be notified.\n\n"
-    "Notify when the response contains actionable information, errors, "
-    "completed deliverables, scheduled reminder/timer completions, or "
-    "anything the user explicitly asked to be reminded about.\n\n"
-    "A user-scheduled reminder should usually notify even when the "
-    "response is brief or mostly repeats the original reminder.\n\n"
-    "Suppress when the response is a routine status check with nothing "
-    "new, a confirmation that everything is normal, or essentially empty."
-)
-
-
 async def evaluate_response(
     response: str,
     task_context: str,
@@ -67,10 +54,12 @@ async def evaluate_response(
     try:
         llm_response = await provider.chat_with_retry(
             messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": (
-                    f"## Original task\n{task_context}\n\n"
-                    f"## Agent response\n{response}"
+                {"role": "system", "content": render_template("agent/evaluator.md", part="system")},
+                {"role": "user", "content": render_template(
+                    "agent/evaluator.md",
+                    part="user",
+                    task_context=task_context,
+                    response=response,
                 )},
             ],
             tools=_EVALUATE_TOOL,

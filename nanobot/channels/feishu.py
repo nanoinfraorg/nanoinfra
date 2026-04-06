@@ -5,7 +5,10 @@ import json
 import os
 import re
 import threading
+import time
+import uuid
 from collections import OrderedDict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -248,6 +251,19 @@ class FeishuConfig(Base):
     react_emoji: str = "THUMBSUP"
     group_policy: Literal["open", "mention"] = "mention"
     reply_to_message: bool = False  # If True, bot replies quote the user's original message
+    streaming: bool = True
+
+
+_STREAM_ELEMENT_ID = "streaming_md"
+
+
+@dataclass
+class _FeishuStreamBuf:
+    """Per-chat streaming accumulator using CardKit streaming API."""
+    text: str = ""
+    card_id: str | None = None
+    sequence: int = 0
+    last_edit: float = 0.0
 
 
 class FeishuChannel(BaseChannel):
@@ -265,6 +281,8 @@ class FeishuChannel(BaseChannel):
     name = "feishu"
     display_name = "Feishu"
 
+    _STREAM_EDIT_INTERVAL = 0.5  # throttle between CardKit streaming updates
+
     @classmethod
     def default_config(cls) -> dict[str, Any]:
         return FeishuConfig().model_dump(by_alias=True)
@@ -279,6 +297,8 @@ class FeishuChannel(BaseChannel):
         self._ws_thread: threading.Thread | None = None
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()  # Ordered dedup cache
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._stream_bufs: dict[str, _FeishuStreamBuf] = {}
+        self._bot_open_id: str | None = None
 
     @staticmethod
     def _register_optional_event(builder: Any, method_name: str, handler: Any) -> Any:
@@ -359,6 +379,15 @@ class FeishuChannel(BaseChannel):
         self._ws_thread = threading.Thread(target=run_ws, daemon=True)
         self._ws_thread.start()
 
+        # Fetch bot's own open_id for accurate @mention matching
+        self._bot_open_id = await asyncio.get_running_loop().run_in_executor(
+            None, self._fetch_bot_open_id
+        )
+        if self._bot_open_id:
+            logger.info("Feishu bot open_id: {}", self._bot_open_id)
+        else:
+            logger.warning("Could not fetch bot open_id; @mention matching may be inaccurate")
+
         logger.info("Feishu bot started with WebSocket long connection")
         logger.info("No public IP required - using WebSocket to receive events")
 
@@ -377,6 +406,20 @@ class FeishuChannel(BaseChannel):
         self._running = False
         logger.info("Feishu bot stopped")
 
+    def _fetch_bot_open_id(self) -> str | None:
+        """Fetch the bot's own open_id via GET /open-apis/bot/v3/info."""
+        from lark_oapi.api.bot.v3 import GetBotInfoRequest
+        try:
+            request = GetBotInfoRequest.builder().build()
+            response = self._client.bot.v3.bot_info.get(request)
+            if response.success() and response.data and response.data.bot:
+                return getattr(response.data.bot, "open_id", None)
+            logger.warning("Failed to get bot info: code={}, msg={}", response.code, response.msg)
+            return None
+        except Exception as e:
+            logger.warning("Error fetching bot info: {}", e)
+            return None
+
     def _is_bot_mentioned(self, message: Any) -> bool:
         """Check if the bot is @mentioned in the message."""
         raw_content = message.content or ""
@@ -387,9 +430,14 @@ class FeishuChannel(BaseChannel):
             mid = getattr(mention, "id", None)
             if not mid:
                 continue
-            # Bot mentions have no user_id (None or "") but a valid open_id
-            if not getattr(mid, "user_id", None) and (getattr(mid, "open_id", None) or "").startswith("ou_"):
-                return True
+            mention_open_id = getattr(mid, "open_id", None) or ""
+            if self._bot_open_id:
+                if mention_open_id == self._bot_open_id:
+                    return True
+            else:
+                # Fallback heuristic when bot open_id is unavailable
+                if not getattr(mid, "user_id", None) and mention_open_id.startswith("ou_"):
+                    return True
         return False
 
     def _is_group_message_for_bot(self, message: Any) -> bool:
@@ -398,7 +446,7 @@ class FeishuChannel(BaseChannel):
             return True
         return self._is_bot_mentioned(message)
 
-    def _add_reaction_sync(self, message_id: str, emoji_type: str) -> None:
+    def _add_reaction_sync(self, message_id: str, emoji_type: str) -> str | None:
         """Sync helper for adding reaction (runs in thread pool)."""
         from lark_oapi.api.im.v1 import CreateMessageReactionRequest, CreateMessageReactionRequestBody, Emoji
         try:
@@ -414,22 +462,54 @@ class FeishuChannel(BaseChannel):
 
             if not response.success():
                 logger.warning("Failed to add reaction: code={}, msg={}", response.code, response.msg)
+                return None
             else:
                 logger.debug("Added {} reaction to message {}", emoji_type, message_id)
+                return response.data.reaction_id if response.data else None
         except Exception as e:
             logger.warning("Error adding reaction: {}", e)
+            return None
 
-    async def _add_reaction(self, message_id: str, emoji_type: str = "THUMBSUP") -> None:
+    async def _add_reaction(self, message_id: str, emoji_type: str = "THUMBSUP") -> str | None:
         """
         Add a reaction emoji to a message (non-blocking).
 
         Common emoji types: THUMBSUP, OK, EYES, DONE, OnIt, HEART
         """
         if not self._client:
+            return None
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._add_reaction_sync, message_id, emoji_type)
+
+    def _remove_reaction_sync(self, message_id: str, reaction_id: str) -> None:
+        """Sync helper for removing reaction (runs in thread pool)."""
+        from lark_oapi.api.im.v1 import DeleteMessageReactionRequest
+        try:
+            request = DeleteMessageReactionRequest.builder() \
+                .message_id(message_id) \
+                .reaction_id(reaction_id) \
+                .build()
+
+            response = self._client.im.v1.message_reaction.delete(request)
+            if response.success():
+                logger.debug("Removed reaction {} from message {}", reaction_id, message_id)
+            else:
+                logger.debug("Failed to remove reaction: code={}, msg={}", response.code, response.msg)
+        except Exception as e:
+            logger.debug("Error removing reaction: {}", e)
+
+    async def _remove_reaction(self, message_id: str, reaction_id: str) -> None:
+        """
+        Remove a reaction emoji from a message (non-blocking).
+
+        Used to clear the "processing" indicator after bot replies.
+        """
+        if not self._client or not reaction_id:
             return
 
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._add_reaction_sync, message_id, emoji_type)
+        await loop.run_in_executor(None, self._remove_reaction_sync, message_id, reaction_id)
 
     # Regex to match markdown tables (header + separator + data rows)
     _TABLE_RE = re.compile(
@@ -764,9 +844,9 @@ class FeishuChannel(BaseChannel):
         """Download a file/audio/media from a Feishu message by message_id and file_key."""
         from lark_oapi.api.im.v1 import GetMessageResourceRequest
 
-        # Feishu API only accepts 'image' or 'file' as type parameter
-        # Convert 'audio' to 'file' for API compatibility
-        if resource_type == "audio":
+        # Feishu resource download API only accepts 'image' or 'file' as type.
+        # Both 'audio' and 'media' (video) messages use type='file' for download.
+        if resource_type in ("audio", "media"):
             resource_type = "file"
 
         try:
@@ -906,8 +986,8 @@ class FeishuChannel(BaseChannel):
             logger.error("Error replying to Feishu message {}: {}", parent_message_id, e)
             return False
 
-    def _send_message_sync(self, receive_id_type: str, receive_id: str, msg_type: str, content: str) -> bool:
-        """Send a single message (text/image/file/interactive) synchronously."""
+    def _send_message_sync(self, receive_id_type: str, receive_id: str, msg_type: str, content: str) -> str | None:
+        """Send a single message and return the message_id on success."""
         from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
         try:
             request = CreateMessageRequest.builder() \
@@ -925,12 +1005,151 @@ class FeishuChannel(BaseChannel):
                     "Failed to send Feishu {} message: code={}, msg={}, log_id={}",
                     msg_type, response.code, response.msg, response.get_log_id()
                 )
-                return False
-            logger.debug("Feishu {} message sent to {}", msg_type, receive_id)
-            return True
+                return None
+            msg_id = getattr(response.data, "message_id", None)
+            logger.debug("Feishu {} message sent to {}: {}", msg_type, receive_id, msg_id)
+            return msg_id
         except Exception as e:
             logger.error("Error sending Feishu {} message: {}", msg_type, e)
+            return None
+
+    def _create_streaming_card_sync(self, receive_id_type: str, chat_id: str) -> str | None:
+        """Create a CardKit streaming card, send it to chat, return card_id."""
+        from lark_oapi.api.cardkit.v1 import CreateCardRequest, CreateCardRequestBody
+        card_json = {
+            "schema": "2.0",
+            "config": {"wide_screen_mode": True, "update_multi": True, "streaming_mode": True},
+            "body": {"elements": [{"tag": "markdown", "content": "", "element_id": _STREAM_ELEMENT_ID}]},
+        }
+        try:
+            request = CreateCardRequest.builder().request_body(
+                CreateCardRequestBody.builder()
+                .type("card_json")
+                .data(json.dumps(card_json, ensure_ascii=False))
+                .build()
+            ).build()
+            response = self._client.cardkit.v1.card.create(request)
+            if not response.success():
+                logger.warning("Failed to create streaming card: code={}, msg={}", response.code, response.msg)
+                return None
+            card_id = getattr(response.data, "card_id", None)
+            if card_id:
+                message_id = self._send_message_sync(
+                    receive_id_type, chat_id, "interactive",
+                    json.dumps({"type": "card", "data": {"card_id": card_id}}),
+                )
+                if message_id:
+                    return card_id
+                logger.warning("Created streaming card {} but failed to send it to {}", card_id, chat_id)
+            return None
+        except Exception as e:
+            logger.warning("Error creating streaming card: {}", e)
+            return None
+
+    def _stream_update_text_sync(self, card_id: str, content: str, sequence: int) -> bool:
+        """Stream-update the markdown element on a CardKit card (typewriter effect)."""
+        from lark_oapi.api.cardkit.v1 import ContentCardElementRequest, ContentCardElementRequestBody
+        try:
+            request = ContentCardElementRequest.builder() \
+                .card_id(card_id) \
+                .element_id(_STREAM_ELEMENT_ID) \
+                .request_body(
+                    ContentCardElementRequestBody.builder()
+                    .content(content).sequence(sequence).build()
+                ).build()
+            response = self._client.cardkit.v1.card_element.content(request)
+            if not response.success():
+                logger.warning("Failed to stream-update card {}: code={}, msg={}", card_id, response.code, response.msg)
+                return False
+            return True
+        except Exception as e:
+            logger.warning("Error stream-updating card {}: {}", card_id, e)
             return False
+
+    def _close_streaming_mode_sync(self, card_id: str, sequence: int) -> bool:
+        """Turn off CardKit streaming_mode so the chat list preview exits the streaming placeholder.
+
+        Per Feishu docs, streaming cards keep a generating-style summary in the session list until
+        streaming_mode is set to false via card settings (after final content update).
+        Sequence must strictly exceed the previous card OpenAPI operation on this entity.
+        """
+        from lark_oapi.api.cardkit.v1 import SettingsCardRequest, SettingsCardRequestBody
+        settings_payload = json.dumps({"config": {"streaming_mode": False}}, ensure_ascii=False)
+        try:
+            request = SettingsCardRequest.builder() \
+                .card_id(card_id) \
+                .request_body(
+                    SettingsCardRequestBody.builder()
+                    .settings(settings_payload)
+                    .sequence(sequence)
+                    .uuid(str(uuid.uuid4()))
+                    .build()
+                ).build()
+            response = self._client.cardkit.v1.card.settings(request)
+            if not response.success():
+                logger.warning(
+                    "Failed to close streaming on card {}: code={}, msg={}",
+                    card_id, response.code, response.msg,
+                )
+                return False
+            return True
+        except Exception as e:
+            logger.warning("Error closing streaming on card {}: {}", card_id, e)
+            return False
+
+    async def send_delta(self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None) -> None:
+        """Progressive streaming via CardKit: create card on first delta, stream-update on subsequent."""
+        if not self._client:
+            return
+        meta = metadata or {}
+        loop = asyncio.get_running_loop()
+        rid_type = "chat_id" if chat_id.startswith("oc_") else "open_id"
+
+        # --- stream end: final update or fallback ---
+        if meta.get("_stream_end"):
+            if (message_id := meta.get("message_id")) and (reaction_id := meta.get("reaction_id")):
+                await self._remove_reaction(message_id, reaction_id)
+
+            buf = self._stream_bufs.pop(chat_id, None)
+            if not buf or not buf.text:
+                return
+            if buf.card_id:
+                buf.sequence += 1
+                await loop.run_in_executor(
+                    None, self._stream_update_text_sync, buf.card_id, buf.text, buf.sequence,
+                )
+                # Required so the chat list preview exits the streaming placeholder (Feishu streaming card docs).
+                buf.sequence += 1
+                await loop.run_in_executor(
+                    None, self._close_streaming_mode_sync, buf.card_id, buf.sequence,
+                )
+            else:
+                for chunk in self._split_elements_by_table_limit(self._build_card_elements(buf.text)):
+                    card = json.dumps({"config": {"wide_screen_mode": True}, "elements": chunk}, ensure_ascii=False)
+                    await loop.run_in_executor(None, self._send_message_sync, rid_type, chat_id, "interactive", card)
+            return
+
+        # --- accumulate delta ---
+        buf = self._stream_bufs.get(chat_id)
+        if buf is None:
+            buf = _FeishuStreamBuf()
+            self._stream_bufs[chat_id] = buf
+        buf.text += delta
+        if not buf.text.strip():
+            return
+
+        now = time.monotonic()
+        if buf.card_id is None:
+            card_id = await loop.run_in_executor(None, self._create_streaming_card_sync, rid_type, chat_id)
+            if card_id:
+                buf.card_id = card_id
+                buf.sequence = 1
+                await loop.run_in_executor(None, self._stream_update_text_sync, card_id, buf.text, 1)
+                buf.last_edit = now
+        elif (now - buf.last_edit) >= self._STREAM_EDIT_INTERVAL:
+            buf.sequence += 1
+            await loop.run_in_executor(None, self._stream_update_text_sync, buf.card_id, buf.text, buf.sequence)
+            buf.last_edit = now
 
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through Feishu, including media (images/files) if present."""
@@ -1031,6 +1250,7 @@ class FeishuChannel(BaseChannel):
 
         except Exception as e:
             logger.error("Error sending Feishu message: {}", e)
+            raise
 
     def _on_message_sync(self, data: Any) -> None:
         """
@@ -1071,7 +1291,7 @@ class FeishuChannel(BaseChannel):
                 return
 
             # Add reaction
-            await self._add_reaction(message_id, self.config.react_emoji)
+            reaction_id = await self._add_reaction(message_id, self.config.react_emoji)
 
             # Parse content
             content_parts = []
@@ -1149,6 +1369,7 @@ class FeishuChannel(BaseChannel):
                 media=media_paths,
                 metadata={
                     "message_id": message_id,
+                    "reaction_id": reaction_id,
                     "chat_type": chat_type,
                     "msg_type": msg_type,
                     "parent_id": parent_id,
