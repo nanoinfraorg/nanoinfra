@@ -75,6 +75,7 @@ class WhatsAppChannel(BaseChannel):
         self._ws = None
         self._connected = False
         self._processed_message_ids: OrderedDict[str, None] = OrderedDict()
+        self._lid_to_phone: dict[str, str] = {}
         self._bridge_token: str | None = None
 
     def _effective_bridge_token(self) -> str:
@@ -228,9 +229,28 @@ class WhatsAppChannel(BaseChannel):
                 if not was_mentioned:
                     return
 
-            user_id = pn if pn else sender
-            sender_id = user_id.split("@")[0] if "@" in user_id else user_id
-            logger.info("Sender {}", sender)
+            # Classify by JID suffix: @s.whatsapp.net = phone, @lid.whatsapp.net = LID
+            # The bridge's pn/sender fields don't consistently map to phone/LID across versions.
+            raw_a = pn or ""
+            raw_b = sender or ""
+            id_a = raw_a.split("@")[0] if "@" in raw_a else raw_a
+            id_b = raw_b.split("@")[0] if "@" in raw_b else raw_b
+
+            phone_id = ""
+            lid_id = ""
+            for raw, extracted in [(raw_a, id_a), (raw_b, id_b)]:
+                if "@s.whatsapp.net" in raw:
+                    phone_id = extracted
+                elif "@lid.whatsapp.net" in raw:
+                    lid_id = extracted
+                elif extracted and not phone_id:
+                    phone_id = extracted  # best guess for bare values
+
+            if phone_id and lid_id:
+                self._lid_to_phone[lid_id] = phone_id
+            sender_id = phone_id or self._lid_to_phone.get(lid_id, "") or lid_id or id_a or id_b
+
+            logger.info("Sender phone={} lid={} → sender_id={}", phone_id or "(empty)", lid_id or "(empty)", sender_id)
 
             # Extract media paths (images/documents/videos downloaded by the bridge)
             media_paths = data.get("media") or []
