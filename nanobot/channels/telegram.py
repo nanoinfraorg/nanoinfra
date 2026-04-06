@@ -558,8 +558,10 @@ class TelegramChannel(BaseChannel):
                     await self._remove_reaction(chat_id, int(reply_to_message_id))
                 except ValueError:
                     pass
+            chunks = split_message(buf.text, TELEGRAM_MAX_MESSAGE_LEN)
+            primary_text = chunks[0] if chunks else buf.text
             try:
-                html = _markdown_to_telegram_html(buf.text)
+                html = _markdown_to_telegram_html(primary_text)
                 await self._call_with_retry(
                     self._app.bot.edit_message_text,
                     chat_id=int_chat_id, message_id=buf.message_id,
@@ -575,15 +577,18 @@ class TelegramChannel(BaseChannel):
                     await self._call_with_retry(
                         self._app.bot.edit_message_text,
                         chat_id=int_chat_id, message_id=buf.message_id,
-                        text=buf.text,
+                        text=primary_text,
                     )
                 except Exception as e2:
                     if self._is_not_modified_error(e2):
                         logger.debug("Final stream plain edit already applied for {}", chat_id)
-                        self._stream_bufs.pop(chat_id, None)
-                        return
-                    logger.warning("Final stream edit failed: {}", e2)
-                    raise  # Let ChannelManager handle retry
+                    else:
+                        logger.warning("Final stream edit failed: {}", e2)
+                        raise  # Let ChannelManager handle retry
+            # If final content exceeds Telegram limit, keep the first chunk in
+            # the edited stream message and send the rest as follow-up messages.
+            for extra_chunk in chunks[1:]:
+                await self._send_text(int_chat_id, extra_chunk)
             self._stream_bufs.pop(chat_id, None)
             return
 
