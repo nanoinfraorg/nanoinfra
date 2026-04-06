@@ -24,7 +24,6 @@ class BaseChannel(ABC):
     display_name: str = "Base"
     transcription_provider: str = "groq"
     transcription_api_key: str = ""
-    _transcription_fallback_key: str = ""
 
     def __init__(self, config: Any, bus: MessageBus):
         """
@@ -39,30 +38,19 @@ class BaseChannel(ABC):
         self._running = False
 
     async def transcribe_audio(self, file_path: str | Path) -> str:
-        """Transcribe an audio file via Whisper. Falls back to the other provider on failure."""
+        """Transcribe an audio file via Whisper (OpenAI or Groq). Returns empty string on failure."""
         if not self.transcription_api_key:
             return ""
-        result = await self._try_transcribe(self.transcription_provider, self.transcription_api_key, file_path)
-        if result:
-            return result
-        fallback = "groq" if self.transcription_provider == "openai" else "openai"
-        if self._transcription_fallback_key:
-            logger.info("{}: trying {} fallback for transcription", self.name, fallback)
-            return await self._try_transcribe(fallback, self._transcription_fallback_key, file_path)
-        return ""
-
-    async def _try_transcribe(self, provider: str, api_key: str, file_path: str | Path) -> str:
-        """Attempt transcription with a single provider. Returns empty string on failure."""
         try:
-            if provider == "openai":
+            if self.transcription_provider == "openai":
                 from nanobot.providers.transcription import OpenAITranscriptionProvider
-                p = OpenAITranscriptionProvider(api_key=api_key)
+                provider = OpenAITranscriptionProvider(api_key=self.transcription_api_key)
             else:
                 from nanobot.providers.transcription import GroqTranscriptionProvider
-                p = GroqTranscriptionProvider(api_key=api_key)
-            return await p.transcribe(file_path)
+                provider = GroqTranscriptionProvider(api_key=self.transcription_api_key)
+            return await provider.transcribe(file_path)
         except Exception as e:
-            logger.warning("{}: {} transcription failed: {}", self.name, provider, e)
+            logger.warning("{}: audio transcription failed: {}", self.name, e)
             return ""
 
     async def login(self, force: bool = False) -> bool:
