@@ -15,7 +15,7 @@ from loguru import logger
 
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.hook import AgentHook, AgentHookContext, CompositeHook
-from nanobot.agent.memory import MemoryConsolidator
+from nanobot.agent.memory import Consolidator, Dream
 from nanobot.agent.runner import AgentRunSpec, AgentRunner
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
@@ -23,6 +23,7 @@ from nanobot.agent.skills import BUILTIN_SKILLS_DIR
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
+from nanobot.agent.tools.search import GlobTool, GrepTool
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
@@ -240,8 +241,8 @@ class AgentLoop:
         self._concurrency_gate: asyncio.Semaphore | None = (
             asyncio.Semaphore(_max) if _max > 0 else None
         )
-        self.memory_consolidator = MemoryConsolidator(
-            workspace=workspace,
+        self.consolidator = Consolidator(
+            store=self.context.memory,
             provider=provider,
             model=self.model,
             sessions=self.sessions,
@@ -250,22 +251,30 @@ class AgentLoop:
             get_tool_definitions=self.tools.get_definitions,
             max_completion_tokens=provider.generation.max_tokens,
         )
+        self.dream = Dream(
+            store=self.context.memory,
+            provider=provider,
+            model=self.model,
+        )
         self._register_default_tools()
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
-        allowed_dir = self.workspace if self.restrict_to_workspace else None
+        allowed_dir = self.workspace if (self.restrict_to_workspace or self.exec_config.sandbox) else None
         extra_read = [BUILTIN_SKILLS_DIR] if allowed_dir else None
         self.tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read))
         for cls in (WriteFileTool, EditFileTool, ListDirTool):
+            self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
+        for cls in (GlobTool, GrepTool):
             self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
         if self.exec_config.enable:
             self.tools.register(ExecTool(
                 working_dir=str(self.workspace),
                 timeout=self.exec_config.timeout,
                 restrict_to_workspace=self.restrict_to_workspace,
+                sandbox=self.exec_config.sandbox,
                 path_append=self.exec_config.path_append,
             ))
         if self.web_config.enable:
@@ -520,7 +529,7 @@ class AgentLoop:
             session = self.sessions.get_or_create(key)
             if self._restore_runtime_checkpoint(session):
                 self.sessions.save(session)
-            await self.memory_consolidator.maybe_consolidate_by_tokens(session)
+            await self.consolidator.maybe_consolidate_by_tokens(session)
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
             history = session.get_history(max_messages=0)
             current_role = "assistant" if msg.sender_id == "subagent" else "user"
@@ -536,7 +545,7 @@ class AgentLoop:
             self._save_turn(session, all_msgs, 1 + len(history))
             self._clear_runtime_checkpoint(session)
             self.sessions.save(session)
-            self._schedule_background(self.memory_consolidator.maybe_consolidate_by_tokens(session))
+            self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
             return OutboundMessage(channel=channel, chat_id=chat_id,
                                   content=final_content or "Background task completed.")
 
@@ -554,7 +563,7 @@ class AgentLoop:
         if result := await self.commands.dispatch(ctx):
             return result
 
-        await self.memory_consolidator.maybe_consolidate_by_tokens(session)
+        await self.consolidator.maybe_consolidate_by_tokens(session)
 
         self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
         if message_tool := self.tools.get("message"):
@@ -593,7 +602,7 @@ class AgentLoop:
         self._save_turn(session, all_msgs, 1 + len(history))
         self._clear_runtime_checkpoint(session)
         self.sessions.save(session)
-        self._schedule_background(self.memory_consolidator.maybe_consolidate_by_tokens(session))
+        self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             return None
