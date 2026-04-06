@@ -232,16 +232,21 @@ class WhatsAppChannel(BaseChannel):
             sender_id = user_id.split("@")[0] if "@" in user_id else user_id
             logger.info("Sender {}", sender)
 
-            # Handle voice transcription if it's a voice message
-            if content == "[Voice Message]":
-                logger.info(
-                    "Voice message received from {}, but direct download from bridge is not yet supported.",
-                    sender_id,
-                )
-                content = "[Voice Message: Transcription not available for WhatsApp yet]"
-
             # Extract media paths (images/documents/videos downloaded by the bridge)
             media_paths = data.get("media") or []
+
+            # Handle voice transcription if it's a voice message
+            if content == "[Voice Message]":
+                if media_paths:
+                    logger.info("Transcribing voice message from {}...", sender_id)
+                    transcription = await self.transcribe_audio(media_paths[0])
+                    if transcription:
+                        content = transcription
+                        logger.info("Transcribed voice from {}: {}...", sender_id, transcription[:50])
+                    else:
+                        content = "[Voice Message: Transcription failed]"
+                else:
+                    content = "[Voice Message: Audio not available]"
 
             # Build content tags matching Telegram's pattern: [image: /path] or [file: /path]
             if media_paths:
