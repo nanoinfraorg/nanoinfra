@@ -41,6 +41,8 @@ class ChannelManager:
 
         transcription_provider = self.config.channels.transcription_provider
         transcription_key = self._resolve_transcription_key(transcription_provider)
+        fallback_provider = "groq" if transcription_provider == "openai" else "openai"
+        fallback_key = self._resolve_transcription_key(fallback_provider)
 
         for name, cls in discover_all().items():
             section = getattr(self.config.channels, name, None)
@@ -57,6 +59,7 @@ class ChannelManager:
                 channel = cls(section, self.bus)
                 channel.transcription_provider = transcription_provider
                 channel.transcription_api_key = transcription_key
+                channel._transcription_fallback_key = fallback_key
                 self.channels[name] = channel
                 logger.info("{} channel enabled", cls.display_name)
             except Exception as e:
@@ -66,9 +69,12 @@ class ChannelManager:
 
     def _resolve_transcription_key(self, provider: str) -> str:
         """Pick the API key for the configured transcription provider."""
-        if provider == "openai":
-            return self.config.providers.openai.api_key
-        return self.config.providers.groq.api_key
+        try:
+            if provider == "openai":
+                return self.config.providers.openai.api_key
+            return self.config.providers.groq.api_key
+        except AttributeError:
+            return ""
 
     def _validate_allow_from(self) -> None:
         for name, ch in self.channels.items():
