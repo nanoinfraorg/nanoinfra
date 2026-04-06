@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import email.utils
 import hashlib
 import importlib.util
 import os
 import secrets
 import string
-import time
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
@@ -636,38 +634,6 @@ class OpenAICompatProvider(LLMProvider):
             reasoning_content="".join(reasoning_parts) or None,
         )
 
-    @staticmethod
-    def _parse_retry_after_headers(headers: Any) -> float | None:
-        if headers is None:
-            return None
-
-        try:
-            retry_ms = headers.get("retry-after-ms")
-            if retry_ms is not None:
-                value = float(retry_ms) / 1000.0
-                if value > 0:
-                    return value
-        except (TypeError, ValueError):
-            pass
-
-        retry_after = headers.get("retry-after")
-        try:
-            if retry_after is not None:
-                value = float(retry_after)
-                if value > 0:
-                    return value
-        except (TypeError, ValueError):
-            pass
-
-        if retry_after is None:
-            return None
-        retry_date_tuple = email.utils.parsedate_tz(retry_after)
-        if retry_date_tuple is None:
-            return None
-        retry_date = email.utils.mktime_tz(retry_date_tuple)
-        value = float(retry_date - time.time())
-        return value if value > 0 else None
-
     @classmethod
     def _extract_error_metadata(cls, e: Exception) -> dict[str, Any]:
         response = getattr(e, "response", None)
@@ -712,7 +678,7 @@ class OpenAICompatProvider(LLMProvider):
             "error_kind": error_kind,
             "error_type": error_type,
             "error_code": error_code,
-            "error_retry_after_s": cls._parse_retry_after_headers(headers),
+            "error_retry_after_s": cls._extract_retry_after_from_headers(headers),
             "error_should_retry": should_retry,
         }
 

@@ -254,6 +254,14 @@ def test_extract_retry_after_from_headers_supports_numeric_and_http_date() -> No
     ) == 0.1
 
 
+def test_extract_retry_after_from_headers_supports_retry_after_ms() -> None:
+    assert LLMProvider._extract_retry_after_from_headers({"retry-after-ms": "250"}) == 0.25
+    assert LLMProvider._extract_retry_after_from_headers({"Retry-After-Ms": "1000"}) == 1.0
+    assert LLMProvider._extract_retry_after_from_headers(
+        {"retry-after-ms": "500", "retry-after": "10"},
+    ) == 0.5
+
+
 @pytest.mark.asyncio
 async def test_chat_with_retry_prefers_structured_retry_after_when_present(monkeypatch) -> None:
     provider = ScriptedProvider([

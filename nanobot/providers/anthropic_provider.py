@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import email.utils
 import os
 import re
 import secrets
 import string
-import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -54,49 +52,6 @@ class AnthropicProvider(LLMProvider):
         client_kw["max_retries"] = 0
         self._client = AsyncAnthropic(**client_kw)
 
-    @staticmethod
-    def _parse_retry_after_headers(headers: Any) -> float | None:
-        if headers is None:
-            return None
-
-        def _header_value(name: str) -> Any:
-            if hasattr(headers, "get"):
-                value = headers.get(name) or headers.get(name.title())
-                if value is not None:
-                    return value
-            if isinstance(headers, dict):
-                for key, value in headers.items():
-                    if isinstance(key, str) and key.lower() == name.lower():
-                        return value
-            return None
-
-        try:
-            retry_ms = _header_value("retry-after-ms")
-            if retry_ms is not None:
-                value = float(retry_ms) / 1000.0
-                if value > 0:
-                    return value
-        except (TypeError, ValueError):
-            pass
-
-        retry_after = _header_value("retry-after")
-        try:
-            if retry_after is not None:
-                value = float(retry_after)
-                if value > 0:
-                    return value
-        except (TypeError, ValueError):
-            pass
-
-        if retry_after is None:
-            return None
-        retry_date_tuple = email.utils.parsedate_tz(retry_after)
-        if retry_date_tuple is None:
-            return None
-        retry_date = email.utils.mktime_tz(retry_date_tuple)
-        value = float(retry_date - time.time())
-        return value if value > 0 else None
-
     @classmethod
     def _handle_error(cls, e: Exception) -> LLMResponse:
         response = getattr(e, "response", None)
@@ -115,7 +70,7 @@ class AnthropicProvider(LLMProvider):
                     payload = None
         payload_text = payload if isinstance(payload, str) else str(payload) if payload is not None else ""
         msg = f"Error: {payload_text.strip()[:500]}" if payload_text.strip() else f"Error calling LLM: {e}"
-        retry_after = cls._parse_retry_after_headers(headers)
+        retry_after = cls._extract_retry_after_from_headers(headers)
         if retry_after is None:
             retry_after = LLMProvider._extract_retry_after(msg)
 

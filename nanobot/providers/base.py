@@ -524,14 +524,28 @@ class LLMProvider(ABC):
     def _extract_retry_after_from_headers(cls, headers: Any) -> float | None:
         if not headers:
             return None
-        retry_after: Any = None
-        if hasattr(headers, "get"):
-            retry_after = headers.get("retry-after") or headers.get("Retry-After")
-        if retry_after is None and isinstance(headers, dict):
-            for key, value in headers.items():
-                if isinstance(key, str) and key.lower() == "retry-after":
-                    retry_after = value
-                    break
+
+        def _header_value(name: str) -> Any:
+            if hasattr(headers, "get"):
+                value = headers.get(name) or headers.get(name.title())
+                if value is not None:
+                    return value
+            if isinstance(headers, dict):
+                for key, value in headers.items():
+                    if isinstance(key, str) and key.lower() == name.lower():
+                        return value
+            return None
+
+        try:
+            retry_ms = _header_value("retry-after-ms")
+            if retry_ms is not None:
+                value = float(retry_ms) / 1000.0
+                if value > 0:
+                    return value
+        except (TypeError, ValueError):
+            pass
+
+        retry_after = _header_value("retry-after")
         if retry_after is None:
             return None
         retry_after_text = str(retry_after).strip()
