@@ -28,3 +28,11 @@ async def test_exec_path_append():
     tool = ExecTool(path_append="/opt/custom/bin")
     result = await tool.execute(command="echo $PATH")
     assert "/opt/custom/bin" in result
+
+
+@pytest.mark.asyncio
+async def test_exec_path_append_preserves_system_path():
+    """pathAppend must not clobber standard system paths."""
+    tool = ExecTool(path_append="/opt/custom/bin")
+    result = await tool.execute(command="ls /")
+    assert "Exit code: 0" in result

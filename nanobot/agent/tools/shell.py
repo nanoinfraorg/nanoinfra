@@ -96,6 +96,9 @@ class ExecTool(Tool):
 
         env = self._build_env()
 
+        if self.path_append:
+            command = f'export PATH="$PATH:{self.path_append}"; {command}'
+
         bash = shutil.which("bash") or "/bin/bash"
 
         try:
@@ -164,15 +167,11 @@ class ExecTool(Tool):
         secrets in env vars from leaking to LLM-generated commands.
         """
         home = os.environ.get("HOME", "/tmp")
-        env: dict[str, str] = {
+        return {
             "HOME": home,
             "LANG": os.environ.get("LANG", "C.UTF-8"),
             "TERM": os.environ.get("TERM", "dumb"),
         }
-        if self.path_append:
-            # Seed PATH so the login shell can append to it.
-            env["PATH"] = self.path_append
-        return env
 
     def _guard_command(self, command: str, cwd: str) -> str | None:
         """Best-effort safety guard for potentially destructive commands."""
