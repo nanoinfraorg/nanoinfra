@@ -144,31 +144,56 @@ class ContextBuilder:
         messages.append({"role": current_role, "content": merged})
         return messages
 
-    def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
-        """Build user message content with optional base64-encoded images."""
+    def _build_user_content(
+        self, text: str, media: list[str] | None
+    ) -> str | list[dict[str, Any]]:
+        """Build user message content with optional media.
+
+        Images are converted to base64 vision blocks.
+        Documents (PDF, Word, Excel, PPT) have their text extracted and appended.
+        """
         if not media:
             return text
 
-        images = []
+        images: list[dict[str, Any]] = []
+        doc_texts: list[str] = []
+
         for path in media:
             p = Path(path)
             if not p.is_file():
                 continue
             raw = p.read_bytes()
-            # Detect real MIME type from magic bytes; fallback to filename guess
             mime = detect_image_mime(raw) or mimetypes.guess_type(path)[0]
-            if not mime or not mime.startswith("image/"):
-                continue
-            b64 = base64.b64encode(raw).decode()
-            images.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:{mime};base64,{b64}"},
-                "_meta": {"path": str(p)},
-            })
 
-        if not images:
+            if mime and mime.startswith("image/"):
+                b64 = base64.b64encode(raw).decode()
+                images.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                    "_meta": {"path": str(p)},
+                })
+            else:
+                # Try document text extraction
+                from nanobot.utils.document import extract_text
+                extracted = extract_text(p)
+                if extracted and not extracted.startswith("Error"):
+                    doc_texts.append(f"[File: {p.name}]\n{extracted}")
+
+        # Build final content
+        parts: list[dict[str, Any]] = []
+        parts.extend(images)
+
+        combined_text = text
+        if doc_texts:
+            combined_text = text + "\n\n" + "\n\n".join(doc_texts)
+
+        if images:
+            parts.append({"type": "text", "text": combined_text})
+            return parts
+        elif doc_texts:
+            return combined_text
+        else:
             return text
-        return images + [{"type": "text", "text": text}]
 
     def add_tool_result(
         self, messages: list[dict[str, Any]],
