@@ -308,12 +308,19 @@ class DiscordChannel(BaseChannel):
             intents.value = self.config.intents
 
             proxy_auth = None
-            if self.config.proxy_username and self.config.proxy_password:
+            has_user = bool(self.config.proxy_username)
+            has_pass = bool(self.config.proxy_password)
+            if has_user and has_pass:
                 import aiohttp
 
                 proxy_auth = aiohttp.BasicAuth(
                     login=self.config.proxy_username,
                     password=self.config.proxy_password,
+                )
+            elif has_user != has_pass:
+                logger.warning(
+                    "Discord proxy auth incomplete: both proxy_username and "
+                    "proxy_password must be set; ignoring partial credentials",
                 )
 
             self._client = DiscordBotClient(

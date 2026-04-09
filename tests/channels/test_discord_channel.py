@@ -845,3 +845,25 @@ async def test_start_no_proxy_auth_when_only_username(monkeypatch) -> None:
 
     assert channel.is_running is False
     assert _FakeDiscordClient.instances[0].proxy_auth is None
+
+
+@pytest.mark.asyncio
+async def test_start_no_proxy_auth_when_only_password(monkeypatch) -> None:
+    _FakeDiscordClient.instances.clear()
+    channel = DiscordChannel(
+        DiscordConfig(
+            enabled=True,
+            token="token",
+            allow_from=["*"],
+            proxy="http://127.0.0.1:7890",
+            proxy_password="pass",
+        ),
+        MessageBus(),
+    )
+    monkeypatch.setattr("nanobot.channels.discord.DiscordBotClient", _FakeDiscordClient)
+
+    await channel.start()
+
+    assert channel.is_running is False
+    assert _FakeDiscordClient.instances[0].proxy == "http://127.0.0.1:7890"
+    assert _FakeDiscordClient.instances[0].proxy_auth is None
