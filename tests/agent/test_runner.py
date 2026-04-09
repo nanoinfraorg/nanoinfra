@@ -856,6 +856,69 @@ async def test_loop_retries_think_only_final_response(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_llm_error_not_appended_to_session_messages():
+    """When LLM returns finish_reason='error', the error content must NOT be
+    appended to the messages list (prevents polluting session history)."""
+    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+
+    provider = MagicMock()
+    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
+        content="429 rate limit exceeded", finish_reason="error", tool_calls=[], usage={},
+    ))
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    runner = AgentRunner(provider)
+    result = await runner.run(AgentRunSpec(
+        initial_messages=[{"role": "user", "content": "hello"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=5,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+    ))
+
+    assert result.stop_reason == "error"
+    assert result.final_content == "429 rate limit exceeded"
+    assistant_msgs = [m for m in result.messages if m.get("role") == "assistant"]
+    assert all("429" not in (m.get("content") or "") for m in assistant_msgs), \
+        "Error content should not appear in session messages"
+
+
+@pytest.mark.asyncio
+async def test_streamed_flag_not_set_on_llm_error(tmp_path):
+    """When LLM errors during a streaming-capable channel interaction,
+    _streamed must NOT be set so ChannelManager delivers the error."""
+    from nanobot.agent.loop import AgentLoop
+    from nanobot.bus.events import InboundMessage
+    from nanobot.bus.queue import MessageBus
+
+    bus = MessageBus()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
+    error_resp = LLMResponse(
+        content="503 service unavailable", finish_reason="error", tool_calls=[], usage={},
+    )
+    loop.provider.chat_with_retry = AsyncMock(return_value=error_resp)
+    loop.provider.chat_stream_with_retry = AsyncMock(return_value=error_resp)
+    loop.tools.get_definitions = MagicMock(return_value=[])
+
+    msg = InboundMessage(
+        channel="feishu", sender_id="u1", chat_id="c1", content="hi",
+    )
+    result = await loop._process_message(
+        msg,
+        on_stream=AsyncMock(),
+        on_stream_end=AsyncMock(),
+    )
+
+    assert result is not None
+    assert "503" in result.content
+    assert not result.metadata.get("_streamed"), \
+        "_streamed must not be set when stop_reason is error"
+
+
+@pytest.mark.asyncio
 async def test_runner_tool_error_sets_final_content():
     from nanobot.agent.runner import AgentRunSpec, AgentRunner
 
