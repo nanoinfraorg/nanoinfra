@@ -562,6 +562,7 @@ Uses **WebSocket** long connection — no public IP required.
       "groupPolicy": "mention",
       "reactEmoji": "OnIt",
       "doneEmoji": "DONE",
+      "toolHintPrefix": "🔧",
       "streaming": true
     }
   }
@@ -574,6 +575,7 @@ Uses **WebSocket** long connection — no public IP required.
 > `groupPolicy`: `"mention"` (default — respond only when @mentioned), `"open"` (respond to all group messages). Private chats always respond.
 > `reactEmoji`: Emoji for "processing" status (default: `OnIt`). See [available emojis](https://open.larkoffice.com/document/server-docs/im-v1/message-reaction/emojis-introduce).
 > `doneEmoji`: Optional emoji for "completed" status (e.g., `DONE`, `OK`, `HEART`). When set, bot adds this reaction after removing `reactEmoji`.
+> `toolHintPrefix`: Prefix for inline tool hints in streaming cards (default: `🔧`).
 
 **3. Run**
 
