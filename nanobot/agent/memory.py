@@ -374,10 +374,6 @@ class Consolidator:
             weakref.WeakValueDictionary()
         )
 
-    def get_last_history_entry(self) -> dict[str, Any] | None:
-        """Return the most recent entry from history.jsonl."""
-        return self.store._read_last_entry()
-
     def get_lock(self, session_key: str) -> asyncio.Lock:
         """Return the shared consolidation lock for one session."""
         return self._locks.setdefault(session_key, asyncio.Lock())
@@ -437,13 +433,13 @@ class Consolidator:
             self._get_tool_definitions(),
         )
 
-    async def archive(self, messages: list[dict]) -> bool:
+    async def archive(self, messages: list[dict]) -> str | None:
         """Summarize messages via LLM and append to history.jsonl.
 
-        Returns True on success (or degraded success), False if nothing to do.
+        Returns the summary text on success, None if nothing to archive.
         """
         if not messages:
-            return False
+            return None
         try:
             formatted = MemoryStore._format_messages(messages)
             response = await self.provider.chat_with_retry(
@@ -463,11 +459,11 @@ class Consolidator:
             )
             summary = response.content or "[no summary]"
             self.store.append_history(summary)
-            return True
+            return summary
         except Exception:
             logger.warning("Consolidation LLM call failed, raw-dumping to history")
             self.store.raw_archive(messages)
-            return True
+            return None
 
     async def maybe_consolidate_by_tokens(self, session: Session) -> None:
         """Loop: archive old messages until prompt fits within safe budget.

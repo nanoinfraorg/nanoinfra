@@ -53,9 +53,7 @@ class AutoCompact:
                 return
             n = len(msgs)
             last_active = session.updated_at
-            await self.consolidator.archive(msgs)
-            entry = self.consolidator.get_last_history_entry()
-            summary = (entry or {}).get("content", "")
+            summary = await self.consolidator.archive(msgs) or ""
             if summary and summary != "(nothing)":
                 self._summaries[key] = (summary, last_active)
                 session.metadata["_last_summary"] = {"text": summary, "last_active": last_active.isoformat()}
@@ -71,6 +69,8 @@ class AutoCompact:
         if key in self._archiving or self._is_expired(session.updated_at):
             logger.info("Auto-compact: reloading session {} (archiving={})", key, key in self._archiving)
             session = self.sessions.get_or_create(key)
+        # Hot path: summary from in-memory dict (process hasn't restarted).
+        # Also clean metadata copy so stale _last_summary never leaks to disk.
         entry = self._summaries.pop(key, None)
         if entry:
             session.metadata.pop("_last_summary", None)

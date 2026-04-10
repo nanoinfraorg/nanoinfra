@@ -101,7 +101,7 @@ class TestAutoCompact:
         loop.sessions.save(s2)
 
         async def _fake_archive(messages):
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
         loop.auto_compact.check_expired(loop._schedule_background)
@@ -126,7 +126,7 @@ class TestAutoCompact:
 
         async def _fake_archive(messages):
             archived_messages.extend(messages)
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
 
@@ -147,12 +147,9 @@ class TestAutoCompact:
         loop.sessions.save(session)
 
         async def _fake_archive(messages):
-            return True
+            return "User said hello."
 
         loop.consolidator.archive = _fake_archive
-        loop.consolidator.get_last_history_entry = lambda: {
-            "cursor": 1, "timestamp": "2026-01-01 00:00", "content": "User said hello.",
-        }
 
         await loop.auto_compact._archive("cli:test")
 
@@ -174,7 +171,7 @@ class TestAutoCompact:
         async def _fake_archive(messages):
             nonlocal archive_called
             archive_called = True
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
 
@@ -201,7 +198,7 @@ class TestAutoCompact:
         async def _fake_archive(messages):
             nonlocal archived_count
             archived_count = len(messages)
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
 
@@ -243,12 +240,9 @@ class TestAutoCompactIdleDetection:
 
         async def _fake_archive(messages):
             archived_messages.extend(messages)
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
-        loop.consolidator.get_last_history_entry = lambda: {
-            "cursor": 1, "timestamp": "2026-01-01 00:00", "content": "Summary.",
-        }
 
         # Simulate proactive archive completing before message arrives
         await loop.auto_compact._archive("cli:test")
@@ -311,7 +305,7 @@ class TestAutoCompactIdleDetection:
         loop.sessions.save(session)
 
         async def _fake_archive(messages):
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
 
@@ -340,12 +334,9 @@ class TestAutoCompactSystemMessages:
         loop.sessions.save(session)
 
         async def _fake_archive(messages):
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
-        loop.consolidator.get_last_history_entry = lambda: {
-            "cursor": 1, "timestamp": "2026-01-01 00:00", "content": "Summary.",
-        }
 
         # Simulate proactive archive completing before system message arrives
         await loop.auto_compact._archive("cli:test")
@@ -428,12 +419,9 @@ class TestAutoCompactEdgeCases:
 
         async def _fake_archive(messages):
             archived_messages.extend(messages)
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
-        loop.consolidator.get_last_history_entry = lambda: {
-            "cursor": 1, "timestamp": "2026-01-01 00:00", "content": "Summary.",
-        }
 
         # Simulate proactive archive completing before message arrives
         await loop.auto_compact._archive("cli:test")
@@ -518,12 +506,9 @@ class TestAutoCompactIntegration:
         loop.sessions.save(session)
 
         async def _fake_archive(messages):
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
-        loop.consolidator.get_last_history_entry = lambda: {
-            "cursor": 1, "timestamp": "2026-01-01 00:00", "content": "Summary.",
-        }
 
         # Simulate proactive archive completing before message arrives
         await loop.auto_compact._archive("cli:test")
@@ -586,12 +571,9 @@ class TestProactiveAutoCompact:
 
         async def _fake_archive(messages):
             archived_messages.extend(messages)
-            return True
+            return "User chatted about old things."
 
         loop.consolidator.archive = _fake_archive
-        loop.consolidator.get_last_history_entry = lambda: {
-            "cursor": 1, "timestamp": "2026-01-01 00:00", "content": "User chatted about old things.",
-        }
 
         await self._run_check_expired(loop)
 
@@ -635,7 +617,7 @@ class TestProactiveAutoCompact:
             archive_count += 1
             started.set()
             await block_forever.wait()
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _slow_archive
 
@@ -688,7 +670,7 @@ class TestProactiveAutoCompact:
         async def _fake_archive(messages):
             nonlocal archive_called
             archive_called = True
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
 
@@ -712,12 +694,9 @@ class TestProactiveAutoCompact:
         async def _fake_archive(messages):
             nonlocal archive_count
             archive_count += 1
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
-        loop.consolidator.get_last_history_entry = lambda: {
-            "cursor": 1, "timestamp": "2026-01-01 00:00", "content": "Summary.",
-        }
 
         # First tick: archives the session
         await self._run_check_expired(loop)
@@ -741,7 +720,7 @@ class TestProactiveAutoCompact:
         async def _fake_archive(messages):
             nonlocal archive_count
             archive_count += 1
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
 
@@ -769,12 +748,9 @@ class TestProactiveAutoCompact:
         async def _fake_archive(messages):
             nonlocal archive_count
             archive_count += 1
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
-        loop.consolidator.get_last_history_entry = lambda: {
-            "cursor": 1, "timestamp": "2026-01-01 00:00", "content": "Summary.",
-        }
 
         # First compact cycle
         await loop.auto_compact._archive("cli:test")
@@ -810,12 +786,9 @@ class TestSummaryPersistence:
         loop.sessions.save(session)
 
         async def _fake_archive(messages):
-            return True
+            return "User said hello."
 
         loop.consolidator.archive = _fake_archive
-        loop.consolidator.get_last_history_entry = lambda: {
-            "cursor": 1, "timestamp": "2026-01-01 00:00", "content": "User said hello.",
-        }
 
         await loop.auto_compact._archive("cli:test")
 
@@ -839,12 +812,9 @@ class TestSummaryPersistence:
         loop.sessions.save(session)
 
         async def _fake_archive(messages):
-            return True
+            return "User said hello."
 
         loop.consolidator.archive = _fake_archive
-        loop.consolidator.get_last_history_entry = lambda: {
-            "cursor": 1, "timestamp": "2026-01-01 00:00", "content": "User said hello.",
-        }
 
         # Archive
         await loop.auto_compact._archive("cli:test")
@@ -874,12 +844,9 @@ class TestSummaryPersistence:
         loop.sessions.save(session)
 
         async def _fake_archive(messages):
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
-        loop.consolidator.get_last_history_entry = lambda: {
-            "cursor": 1, "timestamp": "2026-01-01 00:00", "content": "Summary.",
-        }
 
         await loop.auto_compact._archive("cli:test")
 
@@ -908,12 +875,9 @@ class TestSummaryPersistence:
         loop.sessions.save(session)
 
         async def _fake_archive(messages):
-            return True
+            return "Summary."
 
         loop.consolidator.archive = _fake_archive
-        loop.consolidator.get_last_history_entry = lambda: {
-            "cursor": 1, "timestamp": "2026-01-01 00:00", "content": "Summary.",
-        }
 
         await loop.auto_compact._archive("cli:test")
 
