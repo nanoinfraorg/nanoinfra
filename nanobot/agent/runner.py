@@ -111,14 +111,21 @@ class AgentRunner:
                 messages_for_model = self._microcompact(messages_for_model)
                 messages_for_model = self._apply_tool_result_budget(spec, messages_for_model)
                 messages_for_model = self._snip_history(spec, messages_for_model)
+                # Snipping may have created new orphans; clean them up.
+                messages_for_model = self._drop_orphan_tool_results(messages_for_model)
+                messages_for_model = self._backfill_missing_tool_results(messages_for_model)
             except Exception as exc:
                 logger.warning(
-                    "Context governance failed on turn {} for {}: {}; using raw messages",
+                    "Context governance failed on turn {} for {}: {}; applying minimal repair",
                     iteration,
                     spec.session_key or "default",
                     exc,
                 )
-                messages_for_model = messages
+                try:
+                    messages_for_model = self._drop_orphan_tool_results(messages)
+                    messages_for_model = self._backfill_missing_tool_results(messages_for_model)
+                except Exception:
+                    messages_for_model = messages
             context = AgentHookContext(iteration=iteration, messages=messages)
             await hook.before_iteration(context)
             response = await self._request_model(spec, messages_for_model, hook, context)
@@ -162,16 +169,6 @@ class AgentRunner:
                 tool_events.extend(new_events)
                 context.tool_results = list(results)
                 context.tool_events = list(new_events)
-                if fatal_error is not None:
-                    error = f"Error: {type(fatal_error).__name__}: {fatal_error}"
-                    final_content = error
-                    stop_reason = "tool_error"
-                    self._append_final_message(messages, final_content)
-                    context.final_content = final_content
-                    context.error = error
-                    context.stop_reason = stop_reason
-                    await hook.after_iteration(context)
-                    break
                 completed_tool_results: list[dict[str, Any]] = []
                 for tool_call, result in zip(response.tool_calls, results):
                     tool_message = {
@@ -187,6 +184,16 @@ class AgentRunner:
                     }
                     messages.append(tool_message)
                     completed_tool_results.append(tool_message)
+                if fatal_error is not None:
+                    error = f"Error: {type(fatal_error).__name__}: {fatal_error}"
+                    final_content = error
+                    stop_reason = "tool_error"
+                    self._append_final_message(messages, final_content)
+                    context.final_content = final_content
+                    context.error = error
+                    context.stop_reason = stop_reason
+                    await hook.after_iteration(context)
+                    break
                 await self._emit_checkpoint(
                     spec,
                     {

@@ -1607,3 +1607,118 @@ async def test_microcompact_skips_non_compactable_tools():
 
     result = AgentRunner._microcompact(messages)
     assert result is messages  # no compactable tools found
+
+
+@pytest.mark.asyncio
+async def test_runner_tool_error_preserves_tool_results_in_messages():
+    """When a tool raises a fatal error, its results must still be appended
+    to messages so the session never contains orphan tool_calls (#2943)."""
+    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+
+    provider = MagicMock()
+
+    async def chat_with_retry(*, messages, **kwargs):
+        return LLMResponse(
+            content=None,
+            tool_calls=[
+                ToolCallRequest(id="tc1", name="read_file", arguments={"path": "a"}),
+                ToolCallRequest(id="tc2", name="exec", arguments={"cmd": "bad"}),
+            ],
+            usage={},
+        )
+
+    provider.chat_with_retry = chat_with_retry
+    provider.chat_stream_with_retry = chat_with_retry
+
+    call_idx = 0
+
+    async def fake_execute(name, args, **kw):
+        nonlocal call_idx
+        call_idx += 1
+        if call_idx == 2:
+            raise RuntimeError("boom")
+        return "file content"
+
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+    tools.execute = AsyncMock(side_effect=fake_execute)
+
+    runner = AgentRunner(provider)
+    result = await runner.run(AgentRunSpec(
+        initial_messages=[{"role": "user", "content": "do stuff"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=1,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        fail_on_tool_error=True,
+    ))
+
+    assert result.stop_reason == "tool_error"
+    # Both tool results must be in messages even though tc2 had a fatal error.
+    tool_msgs = [m for m in result.messages if m.get("role") == "tool"]
+    assert len(tool_msgs) == 2
+    assert tool_msgs[0]["tool_call_id"] == "tc1"
+    assert tool_msgs[1]["tool_call_id"] == "tc2"
+    # The assistant message with tool_calls must precede the tool results.
+    asst_tc_idx = next(
+        i for i, m in enumerate(result.messages)
+        if m.get("role") == "assistant" and m.get("tool_calls")
+    )
+    tool_indices = [
+        i for i, m in enumerate(result.messages) if m.get("role") == "tool"
+    ]
+    assert all(ti > asst_tc_idx for ti in tool_indices)
+
+
+def test_governance_repairs_orphans_after_snip():
+    """After _snip_history clips an assistant+tool_calls, the second
+    _drop_orphan_tool_results pass must clean up the resulting orphans."""
+    from nanobot.agent.runner import AgentRunner
+
+    messages = [
+        {"role": "system", "content": "system"},
+        {"role": "user", "content": "old msg"},
+        {"role": "assistant", "content": None,
+         "tool_calls": [{"id": "tc_old", "type": "function",
+                         "function": {"name": "search", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "tc_old", "name": "search",
+         "content": "old result"},
+        {"role": "assistant", "content": "old answer"},
+        {"role": "user", "content": "new msg"},
+    ]
+
+    # Simulate snipping that keeps only the tail: drop the assistant with
+    # tool_calls but keep its tool result (orphan).
+    snipped = [
+        {"role": "system", "content": "system"},
+        {"role": "tool", "tool_call_id": "tc_old", "name": "search",
+         "content": "old result"},
+        {"role": "assistant", "content": "old answer"},
+        {"role": "user", "content": "new msg"},
+    ]
+
+    cleaned = AgentRunner._drop_orphan_tool_results(snipped)
+    # The orphan tool result should be removed.
+    assert not any(
+        m.get("role") == "tool" and m.get("tool_call_id") == "tc_old"
+        for m in cleaned
+    )
+
+
+def test_governance_fallback_still_repairs_orphans():
+    """When full governance fails, the fallback must still run
+    _drop_orphan_tool_results and _backfill_missing_tool_results."""
+    from nanobot.agent.runner import AgentRunner
+
+    # Messages with an orphan tool result (no matching assistant tool_call).
+    messages = [
+        {"role": "user", "content": "hello"},
+        {"role": "tool", "tool_call_id": "orphan_tc", "name": "read",
+         "content": "stale"},
+        {"role": "assistant", "content": "hi"},
+    ]
+
+    repaired = AgentRunner._drop_orphan_tool_results(messages)
+    repaired = AgentRunner._backfill_missing_tool_results(repaired)
+    # Orphan tool result should be gone.
+    assert not any(m.get("tool_call_id") == "orphan_tc" for m in repaired)
