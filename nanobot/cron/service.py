@@ -80,6 +80,7 @@ class CronService:
         self._store: CronStore | None = None
         self._timer_task: asyncio.Task | None = None
         self._running = False
+        self._executing = False
         self.max_sleep_ms = max_sleep_ms
 
     def _load_jobs(self) -> tuple[list[CronJob], int]:
@@ -171,7 +172,11 @@ class CronService:
     def _load_store(self) -> CronStore:
         """Load jobs from disk. Reloads automatically if file was modified externally.
         - Reload every time because it needs to merge operations on the jobs object from other instances.
+        - Skip reload when _executing to prevent on_job callbacks (e.g. list_jobs)
+          from replacing in-memory state that _on_timer is actively modifying.
         """
+        if self._executing and self._store is not None:
+            return self._store
         jobs, version = self._load_jobs()
         self._store = CronStore(version=version, jobs=jobs)
         self._merge_action()
@@ -298,8 +303,12 @@ class CronService:
             if j.enabled and j.state.next_run_at_ms and now >= j.state.next_run_at_ms
         ]
 
-        for job in due_jobs:
-            await self._execute_job(job)
+        self._executing = True
+        try:
+            for job in due_jobs:
+                await self._execute_job(job)
+        finally:
+            self._executing = False
 
         self._save_store()
         self._arm_timer()
