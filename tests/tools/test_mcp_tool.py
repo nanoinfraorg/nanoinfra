@@ -356,6 +356,46 @@ async def test_connect_mcp_servers_enabled_tools_warns_on_unknown_entries(
     assert "Available wrapped names: mcp_test_demo" in warnings[-1]
 
 
+@pytest.mark.asyncio
+async def test_connect_mcp_servers_one_failure_does_not_block_others(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sessions = {"good": _make_fake_session(["demo"])}
+
+    class _SelectiveClientSession:
+        def __init__(self, read: object, _write: object) -> None:
+            self._session = sessions[read]
+
+        async def __aenter__(self) -> object:
+            return self._session
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    @asynccontextmanager
+    async def _selective_stdio_client(params: object):
+        if params.command == "bad":
+            raise RuntimeError("boom")
+        yield params.command, object()
+
+    monkeypatch.setattr(sys.modules["mcp"], "ClientSession", _SelectiveClientSession)
+    monkeypatch.setattr(sys.modules["mcp.client.stdio"], "stdio_client", _selective_stdio_client)
+
+    registry = ToolRegistry()
+    stacks = await connect_mcp_servers(
+        {
+            "good": MCPServerConfig(command="good"),
+            "bad": MCPServerConfig(command="bad"),
+        },
+        registry,
+    )
+    for stack in stacks.values():
+        await stack.aclose()
+
+    assert registry.tool_names == ["mcp_good_demo"]
+    assert set(stacks) == {"good"}
+
+
 # ---------------------------------------------------------------------------
 # MCPResourceWrapper tests
 # ---------------------------------------------------------------------------
