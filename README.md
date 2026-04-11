@@ -1505,7 +1505,7 @@ MCP tools are automatically discovered and registered on startup. The LLM can us
 
 ### Auto Compact
 
-When a user is idle for longer than a configured TTL, nanobot **proactively** compresses the session context into a summary. This reduces token cost and first-token latency when the user returns — instead of re-processing a long stale context with an expired KV cache, the model receives a compact summary and fresh input.
+When a user is idle for longer than a configured TTL, nanobot **proactively** compresses the older part of the session context into a summary while keeping a recent legal suffix of live messages. This reduces token cost and first-token latency when the user returns — instead of re-processing a long stale context with an expired KV cache, the model receives a compact summary, the most recent live context, and fresh input.
 
 ```json
 {
@@ -1523,8 +1523,8 @@ When a user is idle for longer than a configured TTL, nanobot **proactively** co
 
 How it works:
 1. **Idle detection**: On each idle tick (~1 s), checks all sessions for expiration.
-2. **Background compaction**: Expired sessions are summarized via LLM, then cleared.
-3. **Summary injection**: When the user returns, the summary is injected as runtime context (one-shot, not persisted).
+2. **Background compaction**: Expired sessions summarize the older live prefix via LLM and keep the most recent legal suffix (currently 8 messages).
+3. **Summary injection**: When the user returns, the summary is injected as runtime context (one-shot, not persisted) alongside the retained recent suffix.
 
 > [!TIP]
 > The summary survives bot restarts — it's stored in session metadata and recovered on the next message.
