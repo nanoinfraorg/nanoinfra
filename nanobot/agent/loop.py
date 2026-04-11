@@ -324,6 +324,12 @@ class AgentLoop:
 
         return format_tool_hints(tool_calls)
 
+    def _effective_session_key(self, msg: InboundMessage) -> str:
+        """Return the session key used for task routing and mid-turn injections."""
+        if self._unified_session and not msg.session_key_override:
+            return UNIFIED_SESSION_KEY
+        return msg.session_key
+
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
@@ -430,30 +436,32 @@ class AgentLoop:
                 if result:
                     await self.bus.publish_outbound(result)
                 continue
+            effective_key = self._effective_session_key(msg)
             # If this session already has an active pending queue (i.e. a task
             # is processing this session), route the message there for mid-turn
             # injection instead of creating a competing task.
-            if msg.session_key in self._pending_queues:
+            if effective_key in self._pending_queues:
+                pending_msg = msg
+                if effective_key != msg.session_key:
+                    pending_msg = dataclasses.replace(
+                        msg,
+                        session_key_override=effective_key,
+                    )
                 try:
-                    self._pending_queues[msg.session_key].put_nowait(msg)
+                    self._pending_queues[effective_key].put_nowait(pending_msg)
                 except asyncio.QueueFull:
                     logger.warning(
                         "Pending queue full for session {}, dropping follow-up",
-                        msg.session_key,
+                        effective_key,
                     )
                 else:
                     logger.info(
                         "Routed follow-up message to pending queue for session {}",
-                        msg.session_key,
+                        effective_key,
                     )
                 continue
             # Compute the effective session key before dispatching
             # This ensures /stop command can find tasks correctly when unified session is enabled
-            effective_key = (
-                UNIFIED_SESSION_KEY
-                if self._unified_session and not msg.session_key_override
-                else msg.session_key
-            )
             task = asyncio.create_task(self._dispatch(msg))
             self._active_tasks.setdefault(effective_key, []).append(task)
             task.add_done_callback(
@@ -465,9 +473,9 @@ class AgentLoop:
 
     async def _dispatch(self, msg: InboundMessage) -> None:
         """Process a message: per-session serial, cross-session concurrent."""
-        if self._unified_session and not msg.session_key_override:
-            msg = dataclasses.replace(msg, session_key_override=UNIFIED_SESSION_KEY)
-        session_key = msg.session_key
+        session_key = self._effective_session_key(msg)
+        if session_key != msg.session_key:
+            msg = dataclasses.replace(msg, session_key_override=session_key)
         lock = self._session_locks.setdefault(session_key, asyncio.Lock())
         gate = self._concurrency_gate or nullcontext()
 

@@ -1863,6 +1863,66 @@ async def test_checkpoint2_injects_after_final_response_with_resuming_stream():
 
 
 @pytest.mark.asyncio
+async def test_checkpoint2_preserves_final_response_in_history_before_followup():
+    """A follow-up injected after a final answer must still see that answer in history."""
+    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+    from nanobot.bus.events import InboundMessage
+
+    provider = MagicMock()
+    call_count = {"n": 0}
+    captured_messages = []
+
+    async def chat_with_retry(*, messages, **kwargs):
+        call_count["n"] += 1
+        captured_messages.append([dict(message) for message in messages])
+        if call_count["n"] == 1:
+            return LLMResponse(content="first answer", tool_calls=[], usage={})
+        return LLMResponse(content="second answer", tool_calls=[], usage={})
+
+    provider.chat_with_retry = chat_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    injection_queue = asyncio.Queue()
+
+    async def inject_cb():
+        items = []
+        while not injection_queue.empty():
+            items.append(await injection_queue.get())
+        return items
+
+    await injection_queue.put(
+        InboundMessage(channel="cli", sender_id="u", chat_id="c", content="follow-up question")
+    )
+
+    runner = AgentRunner(provider)
+    result = await runner.run(AgentRunSpec(
+        initial_messages=[{"role": "user", "content": "hello"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=5,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        injection_callback=inject_cb,
+    ))
+
+    assert result.final_content == "second answer"
+    assert call_count["n"] == 2
+    assert captured_messages[-1] == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "first answer"},
+        {"role": "user", "content": "follow-up question"},
+    ]
+    assert [
+        {"role": message["role"], "content": message["content"]}
+        for message in result.messages
+        if message.get("role") == "assistant"
+    ] == [
+        {"role": "assistant", "content": "first answer"},
+        {"role": "assistant", "content": "second answer"},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_injection_cycles_capped_at_max():
     """Injection cycles should be capped at _MAX_INJECTION_CYCLES."""
     from nanobot.agent.runner import AgentRunSpec, AgentRunner, _MAX_INJECTION_CYCLES
@@ -1953,25 +2013,33 @@ async def test_pending_queue_cleanup_on_dispatch(tmp_path):
 
 @pytest.mark.asyncio
 async def test_followup_routed_to_pending_queue(tmp_path):
-    """When a session has an active dispatch, follow-up messages go to pending queue."""
+    """Unified-session follow-ups should route into the active pending queue."""
+    from nanobot.agent.loop import UNIFIED_SESSION_KEY
     from nanobot.bus.events import InboundMessage
 
     loop = _make_loop(tmp_path)
+    loop._unified_session = True
+    loop._dispatch = AsyncMock()  # type: ignore[method-assign]
 
-    # Simulate an active dispatch by manually adding a pending queue
     pending = asyncio.Queue(maxsize=20)
-    loop._pending_queues["cli:c"] = pending
+    loop._pending_queues[UNIFIED_SESSION_KEY] = pending
 
-    msg = InboundMessage(channel="cli", sender_id="u", chat_id="c", content="follow-up")
+    run_task = asyncio.create_task(loop.run())
+    msg = InboundMessage(channel="discord", sender_id="u", chat_id="c", content="follow-up")
+    await loop.bus.publish_inbound(msg)
 
-    # Directly test the routing logic from run() — if session_key is in
-    # _pending_queues, the message should be put into the queue.
-    assert msg.session_key in loop._pending_queues
-    loop._pending_queues[msg.session_key].put_nowait(msg)
+    deadline = time.time() + 2
+    while pending.empty() and time.time() < deadline:
+        await asyncio.sleep(0.01)
 
+    loop.stop()
+    await asyncio.wait_for(run_task, timeout=2)
+
+    assert loop._dispatch.await_count == 0
     assert not pending.empty()
     queued_msg = pending.get_nowait()
     assert queued_msg.content == "follow-up"
+    assert queued_msg.session_key == UNIFIED_SESSION_KEY
 
 
 @pytest.mark.asyncio

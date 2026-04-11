@@ -309,6 +309,14 @@ class AgentRunner:
                     await hook.after_iteration(context)
                     continue
 
+            assistant_message: dict[str, Any] | None = None
+            if response.finish_reason != "error" and not is_blank_text(clean):
+                assistant_message = build_assistant_message(
+                    clean,
+                    reasoning_content=response.reasoning_content,
+                    thinking_blocks=response.thinking_blocks,
+                )
+
             # Check for mid-turn injections BEFORE signaling stream end.
             # If injections are found we keep the stream alive (resuming=True)
             # so streaming channels don't prematurely finalize the card.
@@ -319,6 +327,19 @@ class AgentRunner:
                     had_injections = True
                     injection_cycles += 1
                     _injected_after_final = True
+                    if assistant_message is not None:
+                        messages.append(assistant_message)
+                        await self._emit_checkpoint(
+                            spec,
+                            {
+                                "phase": "final_response",
+                                "iteration": iteration,
+                                "model": spec.model,
+                                "assistant_message": assistant_message,
+                                "completed_tool_results": [],
+                                "pending_tool_calls": [],
+                            },
+                        )
                     for text in injections:
                         messages.append({"role": "user", "content": text})
                     logger.info(
@@ -354,7 +375,7 @@ class AgentRunner:
                 await hook.after_iteration(context)
                 break
 
-            messages.append(build_assistant_message(
+            messages.append(assistant_message or build_assistant_message(
                 clean,
                 reasoning_content=response.reasoning_content,
                 thinking_blocks=response.thinking_blocks,
