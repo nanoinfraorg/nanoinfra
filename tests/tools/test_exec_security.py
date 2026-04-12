@@ -67,3 +67,49 @@ async def test_exec_blocks_chained_internal_url():
             command="echo start && curl http://169.254.169.254/latest/meta-data/ && echo done"
         )
     assert "Error" in result
+
+
+# --- #2989: block writes to nanobot internal state files -----------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat foo >> history.jsonl",
+        "echo '{}' > history.jsonl",
+        "echo '{}' > memory/history.jsonl",
+        "echo '{}' > ./workspace/memory/history.jsonl",
+        "tee -a history.jsonl < foo",
+        "tee history.jsonl",
+        "cp /tmp/fake.jsonl history.jsonl",
+        "mv backup.jsonl memory/history.jsonl",
+        "dd if=/dev/zero of=memory/history.jsonl",
+        "sed -i 's/old/new/' history.jsonl",
+        "echo x > .dream_cursor",
+        "cp /tmp/x memory/.dream_cursor",
+    ],
+)
+def test_exec_blocks_writes_to_history_jsonl(command):
+    """Direct writes to history.jsonl / .dream_cursor must be blocked (#2989)."""
+    tool = ExecTool()
+    result = tool._guard_command(command, "/tmp")
+    assert result is not None
+    assert "dangerous pattern" in result.lower()
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat history.jsonl",
+        "wc -l history.jsonl",
+        "tail -n 5 history.jsonl",
+        "grep foo history.jsonl",
+        "ls memory/",
+        "echo history.jsonl",
+    ],
+)
+def test_exec_allows_reads_of_history_jsonl(command):
+    """Read-only access to history.jsonl must still be allowed."""
+    tool = ExecTool()
+    result = tool._guard_command(command, "/tmp")
+    assert result is None
