@@ -66,7 +66,7 @@ class ExecTool(Tool):
             # direct writes corrupt the cursor format and crash /dream.
             r">>?\s*\S*(?:history\.jsonl|\.dream_cursor)",            # > / >> redirect
             r"\btee\b[^|;&<>]*(?:history\.jsonl|\.dream_cursor)",     # tee / tee -a
-            r"\b(?:cp|mv)\b[^|;&<>]*(?:history\.jsonl|\.dream_cursor)",  # cp/mv target
+            r"\b(?:cp|mv)\b(?:\s+[^\s|;&<>]+)+\s+\S*(?:history\.jsonl|\.dream_cursor)",  # cp/mv target
             r"\bdd\b[^|;&<>]*\bof=\S*(?:history\.jsonl|\.dream_cursor)",  # dd of=
             r"\bsed\s+-i[^|;&<>]*(?:history\.jsonl|\.dream_cursor)",  # sed -i
         ]

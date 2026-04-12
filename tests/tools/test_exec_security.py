@@ -104,6 +104,7 @@ def test_exec_blocks_writes_to_history_jsonl(command):
         "wc -l history.jsonl",
         "tail -n 5 history.jsonl",
         "grep foo history.jsonl",
+        "cp history.jsonl /tmp/history.backup",
         "ls memory/",
         "echo history.jsonl",
     ],
