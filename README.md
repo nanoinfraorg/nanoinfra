@@ -1597,6 +1597,26 @@ When enabled, all incoming messages — regardless of which channel they arrive 
 
 > This is designed for single-user, multi-device setups. It is **off by default** — existing users see zero behavior change.
 
+### Disabled Skills
+
+nanobot ships with built-in skills, and your workspace can also define custom skills under `skills/`. If you want to hide specific skills from the agent, set `agents.defaults.disabledSkills` to a list of skill directory names:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "disabledSkills": ["github", "weather"]
+    }
+  }
+}
+```
+
+Disabled skills are excluded from the main agent's skill summary, from always-on skill injection, and from subagent skill summaries. This is useful when some bundled skills are unnecessary for your deployment or should not be exposed to end users.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `agents.defaults.disabledSkills` | `[]` | List of skill directory names to exclude from loading. Applies to both built-in skills and workspace skills. |
+
 ## 🧩 Multiple Instances
 
 Run multiple nanobot instances simultaneously with separate configs and runtime data. Use `--config` as the main entrypoint. Optionally pass `--workspace` during `onboard` when you want to initialize or update the saved workspace for a specific instance.
