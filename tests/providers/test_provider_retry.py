@@ -1,4 +1,5 @@
 import asyncio
+import copy
 
 import pytest
 
@@ -152,7 +153,7 @@ async def test_non_transient_error_with_images_retries_without_images() -> None:
         LLMResponse(content="ok, no image"),
     ])
 
-    response = await provider.chat_with_retry(messages=_IMAGE_MSG)
+    response = await provider.chat_with_retry(messages=copy.deepcopy(_IMAGE_MSG))
 
     assert response.content == "ok, no image"
     assert provider.calls == 2
@@ -187,7 +188,7 @@ async def test_image_fallback_returns_error_on_second_failure() -> None:
         LLMResponse(content="still failing", finish_reason="error"),
     ])
 
-    response = await provider.chat_with_retry(messages=_IMAGE_MSG)
+    response = await provider.chat_with_retry(messages=copy.deepcopy(_IMAGE_MSG))
 
     assert provider.calls == 2
     assert response.content == "still failing"
@@ -202,7 +203,7 @@ async def test_image_fallback_without_meta_uses_default_placeholder() -> None:
         LLMResponse(content="ok"),
     ])
 
-    response = await provider.chat_with_retry(messages=_IMAGE_MSG_NO_META)
+    response = await provider.chat_with_retry(messages=copy.deepcopy(_IMAGE_MSG_NO_META))
 
     assert response.content == "ok"
     assert provider.calls == 2
