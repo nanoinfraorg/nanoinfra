@@ -251,8 +251,9 @@ def extract_documents(
             )
             continue
 
-        raw = p.read_bytes()
-        mime = detect_image_mime(raw) or mimetypes.guess_type(path_str)[0]
+        with open(p, "rb") as f:
+            header = f.read(16)
+        mime = detect_image_mime(header) or mimetypes.guess_type(path_str)[0]
         if mime and mime.startswith("image/"):
             image_paths.append(path_str)
         else:

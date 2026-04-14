@@ -429,6 +429,32 @@ def test_extract_documents_skips_oversized_files(tmp_path) -> None:
     assert image_paths == []
 
 
+def test_extract_documents_does_not_read_full_file_for_mime(tmp_path) -> None:
+    """MIME detection should only read header bytes, not the entire file."""
+    from pathlib import Path as _Path
+
+    big_txt = tmp_path / "big.txt"
+    big_txt.write_bytes(b"hello world " * 100_000)  # ~1.2 MB
+
+    original_read_bytes = _Path.read_bytes
+    read_sizes: list[int] = []
+
+    def _tracking_read_bytes(self):
+        data = original_read_bytes(self)
+        read_sizes.append(len(data))
+        return data
+
+    import unittest.mock
+    with unittest.mock.patch.object(_Path, "read_bytes", _tracking_read_bytes):
+        extract_documents("test", [str(big_txt)])
+
+    # If the full file was read for MIME detection, read_sizes would
+    # contain a >1MB entry.  After the fix, only a small header is read.
+    assert all(size <= 4096 for size in read_sizes), (
+        f"extract_documents read full file for MIME detection: sizes={read_sizes}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # DOCX upload test — API saves file, loop layer extracts text
 # ---------------------------------------------------------------------------
