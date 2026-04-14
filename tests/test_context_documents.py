@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
 
 from nanobot.agent.context import ContextBuilder
@@ -64,3 +63,19 @@ def test_build_user_content_mixed_image_and_document(tmp_path: Path) -> None:
     assert any(b["type"] == "image_url" for b in result)
     text_parts = [b.get("text", "") for b in result if b.get("type") == "text"]
     assert any("Report text here" in t for t in text_parts)
+
+
+def test_build_user_content_skips_document_extraction_errors(tmp_path: Path, monkeypatch) -> None:
+    """Document extraction errors should not be embedded into the user prompt."""
+    docx_path = tmp_path / "broken.docx"
+    docx_path.write_text("not a real docx", encoding="utf-8")
+
+    builder = _make_builder(tmp_path)
+
+    monkeypatch.setattr(
+        "nanobot.utils.document.extract_text",
+        lambda _path: "[error: failed to extract DOCX: boom]",
+    )
+
+    result = builder._build_user_content("summarize this", [str(docx_path)])
+    assert result == "summarize this"

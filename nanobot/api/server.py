@@ -84,6 +84,10 @@ def _save_base64_data_url(data_url: str, media_dir: Path) -> str | None:
         raw = base64.b64decode(b64_payload)
     except Exception:
         return None
+    if len(raw) > MAX_FILE_SIZE:
+        raise _FileSizeExceeded(
+            f"File exceeds {MAX_FILE_SIZE // (1024 * 1024)}MB limit"
+        )
     ext = mimetypes.guess_extension(mime_type) or ".bin"
     filename = f"{uuid.uuid4().hex[:12]}{ext}"
     dest = media_dir / safe_filename(filename)

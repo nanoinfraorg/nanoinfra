@@ -10,8 +10,7 @@ import pytest
 import pytest_asyncio
 
 from nanobot.api.server import (
-    API_CHAT_ID,
-    API_SESSION_KEY,
+    _FileSizeExceeded,
     _parse_json_content,
     _save_base64_data_url,
     create_app,
@@ -91,6 +90,15 @@ def test_save_base64_data_url_handles_unknown_mime(tmp_path) -> None:
     assert result.endswith(".bin")
 
 
+def test_save_base64_data_url_rejects_oversized_payload(tmp_path) -> None:
+    """Base64 uploads should respect the same per-file limit as multipart."""
+    large_payload = base64.b64encode(b"x" * (11 * 1024 * 1024)).decode()
+    data_url = f"data:image/png;base64,{large_payload}"
+
+    with pytest.raises(_FileSizeExceeded, match="10MB limit"):
+        _save_base64_data_url(data_url, tmp_path)
+
+
 def test_parse_json_content_extracts_text_and_media(tmp_path) -> None:
     """Parse JSON with text + base64 image saves image and returns paths."""
     b64_data = base64.b64encode(b"img").decode()
@@ -142,6 +150,31 @@ def test_parse_json_content_validates_user_role() -> None:
     body = {"messages": [{"role": "system", "content": "you are a bot"}]}
     with pytest.raises(ValueError, match="single user message"):
         _parse_json_content(body)
+
+
+def test_parse_json_content_rejects_oversized_base64_file(tmp_path) -> None:
+    """Oversized JSON data URLs should fail before writing to disk."""
+    large_payload = base64.b64encode(b"x" * (11 * 1024 * 1024)).decode()
+    body = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{large_payload}"}},
+                ],
+            }
+        ]
+    }
+    import os
+    original_cwd = os.getcwd()
+    os.chdir(tmp_path)
+
+    try:
+        with pytest.raises(_FileSizeExceeded, match="10MB limit"):
+            _parse_json_content(body)
+    finally:
+        os.chdir(original_cwd)
 
 
 # ---------------------------------------------------------------------------
