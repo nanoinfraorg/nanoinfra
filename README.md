@@ -21,15 +21,20 @@
 
 ## 📢 News
 
+- **2026-04-14** 🚀 Released **v0.1.5.post1** — Dream skill discovery, mid-turn follow-up injection, WebSocket channel, and deeper channel integrations. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.5.post1) for details.
 - **2026-04-13** 🛡️ Agent turn hardened — user messages persisted early, auto-compact skips active tasks.
 - **2026-04-12** 🔒 Lark global domain support, Dream learns discovered skills, shell sandbox tightened.
-- **2026-04-11** ⚡ Auto compact shrinks sessions on the fly; Kagi web search; QQ & WeCom full media.
+- **2026-04-11** ⚡ Context compact shrinks sessions on the fly; Kagi web search; QQ & WeCom full media.
 - **2026-04-10** 📓 Notebook editing tool, multiple MCP servers, Feishu streaming & done-emoji.
 - **2026-04-09** 🔌 WebSocket channel, unified cross-channel session, `disabled_skills` config.
 - **2026-04-08** 📤 API file uploads, OpenAI reasoning auto-routing with Responses fallback.
 - **2026-04-07** 🧠 Anthropic adaptive thinking, MCP resources & prompts exposed as tools.
 - **2026-04-06** 🛰️ Langfuse observability, unified Whisper transcription, email attachments.
 - **2026-04-05** 🚀 Released **v0.1.5** — sturdier long-running tasks, Dream two-stage memory, production-ready sandboxing and programming Agent SDK. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.5) for details.
+
+<details>
+<summary>Earlier news</summary>
+
 - **2026-04-04** 🚀 Jinja2 response templates, Dream memory hardened, smarter retry handling.
 - **2026-04-03** 🧠 Xiaomi MiMo provider, chain-of-thought reasoning visible, Telegram UX polish.
 - **2026-04-02** 🧱 Long-running tasks run more reliably — core runtime hardening.
@@ -39,11 +44,6 @@
 - **2026-03-29** 💬 WeChat voice, typing, QR/media resilience; fixed-session OpenAI-compatible API.
 - **2026-03-28** 📚 Provider docs refresh; skill template wording fix.
 - **2026-03-27** 🚀 Released **v0.1.4.post6** — architecture decoupling, litellm removal, end-to-end streaming, WeChat channel, and a security fix. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post6) for details.
-
-
-<details>
-<summary>Earlier news</summary>
-
 - **2026-03-26** 🏗️ Agent runner extracted and lifecycle hooks unified; stream delta coalescing at boundaries.
 - **2026-03-25** 🌏 StepFun provider, configurable timezone, Gemini thought signatures.
 - **2026-03-24** 🔧 WeChat compatibility, Feishu CardKit streaming, test suite restructured.
