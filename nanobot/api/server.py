@@ -19,7 +19,8 @@ from aiohttp import web
 from loguru import logger
 
 from nanobot.config.paths import get_media_dir
-from nanobot.utils.helpers import safe_filename
+from nanobot.utils.document import extract_text
+from nanobot.utils.helpers import detect_image_mime, safe_filename
 from nanobot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -162,6 +163,40 @@ async def _parse_multipart(request: web.Request) -> tuple[str, list[str], str | 
 
 
 # ---------------------------------------------------------------------------
+# Pre-processing: extract document text at the API boundary
+# ---------------------------------------------------------------------------
+
+def _extract_documents(text: str, media_paths: list[str]) -> tuple[str, list[str]]:
+    """Separate images from documents in *media_paths*.
+
+    Documents (PDF, DOCX, XLSX, PPTX, …) have their text extracted and
+    appended to *text*.  Only image paths are kept in the returned list so
+    that downstream layers (ContextBuilder) only need to handle vision
+    blocks.
+    """
+    image_paths: list[str] = []
+    doc_texts: list[str] = []
+
+    for path_str in media_paths:
+        p = Path(path_str)
+        if not p.is_file():
+            continue
+        raw = p.read_bytes()
+        mime = detect_image_mime(raw) or mimetypes.guess_type(path_str)[0]
+        if mime and mime.startswith("image/"):
+            image_paths.append(path_str)
+        else:
+            extracted = extract_text(p)
+            if extracted and not extracted.startswith("[error:"):
+                doc_texts.append(f"[File: {p.name}]\n{extracted}")
+
+    if doc_texts:
+        text = text + "\n\n" + "\n\n".join(doc_texts)
+
+    return text, image_paths
+
+
+# ---------------------------------------------------------------------------
 # Route handlers
 # ---------------------------------------------------------------------------
 
@@ -196,6 +231,10 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     except Exception:
         logger.exception("Error parsing upload")
         return _error_json(413, "File too large or invalid upload")
+
+    # Extract document text at the API boundary; only images stay in media.
+    if media_paths:
+        text, media_paths = _extract_documents(text, media_paths)
 
     session_key = f"api:{session_id}" if session_id else API_SESSION_KEY
     session_locks: dict[str, asyncio.Lock] = request.app["session_locks"]

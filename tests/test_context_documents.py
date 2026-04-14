@@ -1,4 +1,8 @@
-"""Tests for context builder document handling."""
+"""Tests for context builder media handling.
+
+The ContextBuilder._build_user_content method should ONLY handle images.
+Document text extraction is the responsibility of the API layer.
+"""
 
 from __future__ import annotations
 
@@ -30,52 +34,25 @@ def test_build_user_content_with_image_returns_list(tmp_path: Path) -> None:
     assert "text" in types
 
 
-def test_build_user_content_with_docx_includes_extracted_text(tmp_path: Path) -> None:
-    """Document files should have their text extracted and included."""
-    from docx import Document
-
-    doc = Document()
-    doc.add_paragraph("Quarterly revenue is $5M")
-    docx_path = tmp_path / "report.docx"
-    doc.save(docx_path)
-
+def test_build_user_content_ignores_non_image_files(tmp_path: Path) -> None:
+    """Non-image files should be silently skipped — extraction is not context builder's job."""
     builder = _make_builder(tmp_path)
-    result = builder._build_user_content("summarize this", [str(docx_path)])
-    assert isinstance(result, str)
-    assert "Quarterly revenue" in result
+    txt = tmp_path / "notes.txt"
+    txt.write_text("some text", encoding="utf-8")
+    result = builder._build_user_content("summarize", [str(txt)])
+    assert result == "summarize"
 
 
-def test_build_user_content_mixed_image_and_document(tmp_path: Path) -> None:
-    """Mix of images and documents: images as base64, docs as text."""
-    from docx import Document
-
+def test_build_user_content_mixed_image_and_non_image(tmp_path: Path) -> None:
+    """Only images should be included; non-image files are skipped."""
+    builder = _make_builder(tmp_path)
     png = tmp_path / "chart.png"
     png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+    txt = tmp_path / "report.txt"
+    txt.write_text("report text", encoding="utf-8")
 
-    doc = Document()
-    doc.add_paragraph("Report text here")
-    docx = tmp_path / "report.docx"
-    doc.save(docx)
-
-    builder = _make_builder(tmp_path)
-    result = builder._build_user_content("analyze both", [str(png), str(docx)])
+    result = builder._build_user_content("analyze", [str(png), str(txt)])
     assert isinstance(result, list)
     assert any(b["type"] == "image_url" for b in result)
     text_parts = [b.get("text", "") for b in result if b.get("type") == "text"]
-    assert any("Report text here" in t for t in text_parts)
-
-
-def test_build_user_content_skips_document_extraction_errors(tmp_path: Path, monkeypatch) -> None:
-    """Document extraction errors should not be embedded into the user prompt."""
-    docx_path = tmp_path / "broken.docx"
-    docx_path.write_text("not a real docx", encoding="utf-8")
-
-    builder = _make_builder(tmp_path)
-
-    monkeypatch.setattr(
-        "nanobot.utils.document.extract_text",
-        lambda _path: "[error: failed to extract DOCX: boom]",
-    )
-
-    result = builder._build_user_content("summarize this", [str(docx_path)])
-    assert result == "summarize this"
+    assert all("report text" not in t for t in text_parts)
