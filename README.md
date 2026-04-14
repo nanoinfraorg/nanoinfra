@@ -1727,6 +1727,7 @@ Example config:
     }
   },
   "gateway": {
+    "host": "127.0.0.1",
     "port": 18790
   }
 }
@@ -1739,11 +1740,13 @@ nanobot gateway --config ~/.nanobot-telegram/config.json
 nanobot gateway --config ~/.nanobot-discord/config.json
 ```
 
-Each gateway instance also exposes a lightweight HTTP status endpoint on
-`gateway.host:gateway.port`:
+Each gateway instance also exposes a lightweight HTTP health endpoint on
+`gateway.host:gateway.port`. By default, the gateway binds to `127.0.0.1`,
+so the endpoint stays local unless you explicitly set `gateway.host` to a
+public or LAN-facing address.
 
-- `GET /` returns `nanobot`
-- `GET /health` returns JSON with service metadata, uptime, and enabled channels
+- `GET /health` returns `{"status":"ok"}`
+- Other paths return `404`
 
 Override workspace for one-off runs when needed:
 

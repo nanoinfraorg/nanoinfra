@@ -824,9 +824,6 @@ def gateway(
     async def _health_server(host: str, health_port: int):
         """Lightweight HTTP health endpoint on the gateway port."""
         import json as _json
-        import time
-
-        start_time = time.monotonic()
 
         async def handle(reader, writer):
             try:
@@ -842,25 +839,10 @@ def gateway(
                 method, path = parts[0], parts[1]
 
             if method == "GET" and path == "/health":
-                uptime_s = int(time.monotonic() - start_time)
-                body = _json.dumps({
-                    "service": "nanobot",
-                    "version": __version__,
-                    "status": "running",
-                    "uptime_seconds": uptime_s,
-                    "channels": channels.enabled_channels,
-                })
+                body = _json.dumps({"status": "ok"})
                 resp = (
                     f"HTTP/1.0 200 OK\r\n"
                     f"Content-Type: application/json\r\n"
-                    f"Content-Length: {len(body)}\r\n"
-                    f"\r\n{body}"
-                )
-            elif method == "GET" and path == "/":
-                body = "nanobot"
-                resp = (
-                    f"HTTP/1.0 200 OK\r\n"
-                    f"Content-Type: text/plain\r\n"
                     f"Content-Length: {len(body)}\r\n"
                     f"\r\n{body}"
                 )

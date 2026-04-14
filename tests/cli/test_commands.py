@@ -1131,7 +1131,6 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
 ) -> None:
     config_file = _write_instance_config(tmp_path)
     config = Config()
-    config.gateway.host = "127.0.0.9"
     config.gateway.port = 18791
     captured: dict[str, object] = {}
 
@@ -1245,9 +1244,9 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
     result = runner.invoke(app, ["gateway", "--config", str(config_file)])
 
     assert result.exit_code == 0
-    assert captured["host"] == "127.0.0.9"
+    assert captured["host"] == "127.0.0.1"
     assert captured["port"] == 18791
-    assert "Health endpoint: http://127.0.0.9:18791/health" in result.stdout
+    assert "Health endpoint: http://127.0.0.1:18791/health" in result.stdout
 
     def _call_handler(path: str) -> tuple[str, _FakeWriter]:
         request = f"GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n".encode()
@@ -1259,17 +1258,14 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
 
     root_response, root_writer = _call_handler("/")
     assert root_writer.closed is True
-    assert "HTTP/1.0 200 OK" in root_response
-    assert root_response.endswith("\r\n\r\nnanobot")
+    assert "HTTP/1.0 404 Not Found" in root_response
+    assert root_response.endswith("\r\n\r\nNot Found")
 
     health_response, health_writer = _call_handler("/health")
     assert health_writer.closed is True
     assert "HTTP/1.0 200 OK" in health_response
     health_body = json.loads(health_response.split("\r\n\r\n", 1)[1])
-    assert health_body["service"] == "nanobot"
-    assert health_body["status"] == "running"
-    assert health_body["channels"] == ["telegram", "discord"]
-    assert health_body["uptime_seconds"] >= 0
+    assert health_body == {"status": "ok"}
 
     missing_response, missing_writer = _call_handler("/missing")
     assert missing_writer.closed is True
