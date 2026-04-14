@@ -10,12 +10,12 @@ import pytest
 import pytest_asyncio
 
 from nanobot.api.server import (
-    _extract_documents,
     _FileSizeExceeded,
     _parse_json_content,
     _save_base64_data_url,
     create_app,
 )
+from nanobot.utils.document import extract_documents
 
 try:
     from aiohttp.test_utils import TestClient, TestServer
@@ -185,7 +185,7 @@ def test_parse_json_content_rejects_oversized_base64_file(tmp_path) -> None:
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
 async def test_multipart_upload_saves_file(aiohttp_client, mock_agent, tmp_path) -> None:
-    """Multipart upload of non-image extracts text into content (not media)."""
+    """Multipart upload saves file to media dir and passes path to process_direct."""
     import os
     original_cwd = os.getcwd()
     os.chdir(tmp_path)
@@ -203,9 +203,8 @@ async def test_multipart_upload_saves_file(aiohttp_client, mock_agent, tmp_path)
         )
         assert resp.status == 200
         call_kwargs = mock_agent.process_direct.call_args.kwargs
-        assert "analyze this" in call_kwargs["content"]
-        # Non-image file text is extracted into content, not kept as media
-        assert not call_kwargs.get("media")
+        assert call_kwargs["content"] == "analyze this"
+        assert len(call_kwargs.get("media") or []) == 1
     finally:
         os.chdir(original_cwd)
 
@@ -373,7 +372,7 @@ async def test_json_base64_image_upload(aiohttp_client, mock_agent, tmp_path) ->
 
 
 # ---------------------------------------------------------------------------
-# _extract_documents tests (API-layer document extraction)
+# extract_documents tests (now in nanobot.utils.document)
 # ---------------------------------------------------------------------------
 
 def test_extract_documents_separates_images_from_docs(tmp_path) -> None:
@@ -388,7 +387,7 @@ def test_extract_documents_separates_images_from_docs(tmp_path) -> None:
     docx_path = tmp_path / "report.docx"
     doc.save(docx_path)
 
-    text, image_paths = _extract_documents("summarize", [str(png), str(docx_path)])
+    text, image_paths = extract_documents("summarize", [str(png), str(docx_path)])
     assert len(image_paths) == 1
     assert image_paths[0] == str(png)
     assert "Quarterly revenue" in text
@@ -400,13 +399,13 @@ def test_extract_documents_skips_extraction_errors(tmp_path, monkeypatch) -> Non
     bad_file = tmp_path / "broken.docx"
     bad_file.write_text("not a docx", encoding="utf-8")
 
-    import nanobot.api.server as _srv
+    import nanobot.utils.document as _doc
     monkeypatch.setattr(
-        _srv, "extract_text",
+        _doc, "extract_text",
         lambda _path: "[error: failed to extract DOCX: boom]",
     )
 
-    text, image_paths = _extract_documents("hello", [str(bad_file)])
+    text, image_paths = extract_documents("hello", [str(bad_file)])
     assert text == "hello"
     assert image_paths == []
 
@@ -415,23 +414,31 @@ def test_extract_documents_images_only(tmp_path) -> None:
     """When all files are images, text is unchanged and all paths kept."""
     png = tmp_path / "a.png"
     png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
-    text, image_paths = _extract_documents("describe", [str(png)])
+    text, image_paths = extract_documents("describe", [str(png)])
     assert text == "describe"
     assert len(image_paths) == 1
 
 
+def test_extract_documents_skips_oversized_files(tmp_path) -> None:
+    """Files exceeding the size limit should be silently skipped."""
+    big = tmp_path / "huge.txt"
+    big.write_bytes(b"x" * 200)
+
+    text, image_paths = extract_documents("hello", [str(big)], max_file_size=100)
+    assert text == "hello"
+    assert image_paths == []
+
+
 # ---------------------------------------------------------------------------
-# DOCX end-to-end upload test (API layer now extracts text)
+# DOCX upload test — API saves file, loop layer extracts text
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
-async def test_docx_upload_extracted_and_sent(aiohttp_client, tmp_path) -> None:
-    """Uploaded DOCX text should be extracted at the API layer and
-    appended to the content string, not passed as media."""
-    from docx import Document
-
-    agent = _make_mock_agent("This report shows $5M revenue")
+async def test_docx_upload_passes_media_path(aiohttp_client, tmp_path) -> None:
+    """Uploaded DOCX is saved to disk and its path passed as media.
+    (Text extraction happens later in AgentLoop._process_message.)"""
+    agent = _make_mock_agent("report summary")
     import os
     original_cwd = os.getcwd()
     os.chdir(tmp_path)
@@ -440,25 +447,24 @@ async def test_docx_upload_extracted_and_sent(aiohttp_client, tmp_path) -> None:
         app = create_app(agent, model_name="m")
         client = await aiohttp_client(app)
 
+        from docx import Document
         doc = Document()
-        doc.add_heading("Q1 Report", level=1)
         doc.add_paragraph("Total revenue: $5,000,000")
         buf = BytesIO()
         doc.save(buf)
-        docx_bytes = buf.getvalue()
 
         import aiohttp
         data = aiohttp.FormData()
         data.add_field("message", "summarize the report")
-        data.add_field("files", docx_bytes, filename="report.docx",
+        data.add_field("files", buf.getvalue(), filename="report.docx",
                        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
         resp = await client.post("/v1/chat/completions", data=data)
         assert resp.status == 200
         call_kwargs = agent.process_direct.call_args.kwargs
-        # Document text should be extracted into content, not media
-        assert "Total revenue" in call_kwargs["content"]
-        # No media (docx is not an image)
-        assert not call_kwargs.get("media")
+        assert call_kwargs["content"] == "summarize the report"
+        media = call_kwargs.get("media", [])
+        assert len(media) == 1
+        assert "report.docx" in media[0]
     finally:
         os.chdir(original_cwd)
