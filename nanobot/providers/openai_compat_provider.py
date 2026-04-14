@@ -50,6 +50,29 @@ _DEFAULT_OPENROUTER_HEADERS = {
     "X-OpenRouter-Title": "nanobot",
     "X-OpenRouter-Categories": "cli-agent,personal-agent",
 }
+_KIMI_THINKING_MODELS: frozenset[str] = frozenset({
+    "kimi-k2.5",
+    "k2.6-code-preview",
+})
+
+
+def _is_kimi_thinking_model(model_name: str) -> bool:
+    """Return True if model_name refers to a Kimi thinking-capable model.
+
+    Supports two forms:
+    - Exact match: kimi-k2.5 in _KIMI_THINKING_MODELS
+    - Slug match:  moonshotai/kimi-k2.5 -> the part after the last "/"
+                   is checked against _KIMI_THINKING_MODELS
+
+    This covers both the native Moonshot provider (bare slug) and
+    OpenRouter-style names (``"publisher/slug"``).
+    """
+    name = model_name.lower()
+    if name in _KIMI_THINKING_MODELS:
+        return True
+    if "/" in name and name.rsplit("/", 1)[1] in _KIMI_THINKING_MODELS:
+        return True
+    return False
 
 
 def _short_tool_id() -> str:
@@ -362,6 +385,16 @@ class OpenAICompatProvider(LLMProvider):
                 }
             if extra:
                 kwargs.setdefault("extra_body", {}).update(extra)
+
+        # Model-level thinking injection for Kimi thinking-capable models.
+        # Strip any provider prefix (e.g. "moonshotai/") before the set lookup
+        # so that OpenRouter-style names like "moonshotai/kimi-k2.5" are handled
+        # identically to bare names like "kimi-k2.5".
+        if reasoning_effort is not None and _is_kimi_thinking_model(model_name):
+            thinking_enabled = reasoning_effort.lower() != "minimal"
+            kwargs.setdefault("extra_body", {}).update(
+                {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
+            )
 
         if tools:
             kwargs["tools"] = tools
