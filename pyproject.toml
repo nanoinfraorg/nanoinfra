@@ -1,6 +1,6 @@
 [project]
 name = "nanobot-ai"
-version = "0.1.5"
+version = "0.1.5.post1"
 description = "A lightweight personal AI assistant framework"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -51,6 +51,10 @@ dependencies = [
     "jinja2>=3.1.0,<4.0.0",
     "dulwich>=0.22.0,<1.0.0",
     "pyyaml>=6.0,<7.0.0",
+    "pypdf>=5.0.0,<6.0.0",
+    "python-docx>=1.1.0,<2.0.0",
+    "openpyxl>=3.1.0,<4.0.0",
+    "python-pptx>=1.0.0,<2.0.0",
     "filelock>=3.25.2",
 ]
 
