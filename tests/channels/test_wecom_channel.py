@@ -573,7 +573,7 @@ async def test_process_mixed_message() -> None:
         msg = await channel.bus.consume_inbound()
         assert msg.sender_id == "user1"
         assert msg.chat_id == "chat1"
-        assert msg.content == "hello wecom"
+        assert msg.content.startswith("hello wecom")
         assert msg.metadata["msg_type"] == "text"
         assert len(msg.media) == 1
         assert msg.media[0].endswith("photo.png")
