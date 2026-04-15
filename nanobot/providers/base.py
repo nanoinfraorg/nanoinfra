@@ -514,12 +514,8 @@ class LLMProvider(ABC):
         """Call chat_stream() with retry on transient provider failures."""
         if max_tokens is self._SENTINEL or max_tokens is None:
             max_tokens = self.generation.max_tokens
-        if max_tokens is None:
-            max_tokens = GenerationSettings.max_tokens
         if temperature is self._SENTINEL or temperature is None:
             temperature = self.generation.temperature
-        if temperature is None:
-            temperature = GenerationSettings.temperature
         if reasoning_effort is self._SENTINEL:
             reasoning_effort = self.generation.reasoning_effort
 
@@ -554,19 +550,14 @@ class LLMProvider(ABC):
         Parameters default to ``self.generation`` when not explicitly passed,
         so callers no longer need to thread temperature / max_tokens /
         reasoning_effort through every layer. Explicit ``None`` is also
-        normalized to the provider's generation defaults, with a final fallback
-        to :class:`GenerationSettings` class defaults so that downstream
+        normalized to the provider's generation defaults so that downstream
         ``_build_kwargs`` never sees ``None`` for ``max_tokens`` / ``temperature``
         (which would crash ``max(1, max_tokens)``).
         """
         if max_tokens is self._SENTINEL or max_tokens is None:
             max_tokens = self.generation.max_tokens
-        if max_tokens is None:
-            max_tokens = GenerationSettings.max_tokens
         if temperature is self._SENTINEL or temperature is None:
             temperature = self.generation.temperature
-        if temperature is None:
-            temperature = GenerationSettings.temperature
         if reasoning_effort is self._SENTINEL:
             reasoning_effort = self.generation.reasoning_effort
 

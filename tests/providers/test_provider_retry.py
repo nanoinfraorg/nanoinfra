@@ -547,23 +547,6 @@ async def test_chat_with_retry_normalizes_explicit_none_max_tokens() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_with_retry_hard_fallback_when_generation_max_tokens_is_none() -> None:
-    """Final fallback: even if provider.generation.max_tokens is None,
-    chat() must receive the GenerationSettings class default (not None)."""
-    provider = ScriptedProvider([LLMResponse(content="ok")])
-    # Bypass the dataclass type hint by constructing with None explicitly.
-    provider.generation = GenerationSettings(max_tokens=None, temperature=None)  # type: ignore[arg-type]
-
-    response = await provider.chat_with_retry(
-        messages=[{"role": "user", "content": "hi"}],
-    )
-
-    assert response.content == "ok"
-    assert provider.last_kwargs["max_tokens"] == GenerationSettings.max_tokens
-    assert provider.last_kwargs["temperature"] == GenerationSettings.temperature
-
-
-@pytest.mark.asyncio
 async def test_chat_stream_with_retry_normalizes_explicit_none_max_tokens() -> None:
     """chat_stream_with_retry must apply the same None-guard as chat_with_retry."""
     provider = ScriptedProvider([LLMResponse(content="ok")])
