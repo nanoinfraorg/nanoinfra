@@ -300,7 +300,7 @@ class MSTeamsChannel(BaseChannel):
         while preview_lines and not preview_lines[0]:
             preview_lines.pop(0)
         first_line = preview_lines[0] if preview_lines else ""
-        looks_like_quote_wrapper = first_line.lower().startswith("replying to ") or first_line.startswith("Quoted reply")
+        looks_like_quote_wrapper = first_line.lower().startswith("replying to ") or first_line.startswith("Reply wrapper")
 
         if reply_to_id or channel_data.get("messageType") == "reply" or looks_like_quote_wrapper:
             text = self._normalize_teams_reply_quote(text)
@@ -333,10 +333,10 @@ class MSTeamsChannel(BaseChannel):
             reply = "\n".join(lines[1:]).strip()
             return self._format_reply_with_quote(quoted, reply)
 
-        # Observed quoted-reply wrapper where the quoted content is surfaced after a
-        # synthetic "Quoted reply" header, sometimes with a blank line separating quote
+        # Observed reply wrapper where the quoted content is surfaced after a
+        # synthetic "Reply wrapper" header, sometimes with a blank line separating quote
         # and reply, and sometimes as a compact line-based fallback shape.
-        if lines and lines[0].strip().startswith("Quoted reply"):
+        if lines and lines[0].strip().startswith("Reply wrapper"):
             body = normalized_newlines.split("\n", 1)[1] if "\n" in normalized_newlines else ""
             body = body.lstrip()
             parts = re.split(r"\n\s*\n", body, maxsplit=1)
@@ -354,10 +354,10 @@ class MSTeamsChannel(BaseChannel):
                     return self._format_reply_with_quote(quoted, reply)
 
         # Observed compact fallback where the relay flattens quote and reply into
-        # a single line after the synthetic Quoted reply prefix.
+        # a single line after the synthetic Reply wrapper prefix.
         compact = re.sub(r"\s+", " ", normalized_newlines).strip()
-        if compact.startswith("Quoted reply "):
-            compact = compact[len("Quoted reply ") :].strip()
+        if compact.startswith("Reply wrapper "):
+            compact = compact[len("Reply wrapper ") :].strip()
             for boundary in (". ", "! ", "? ", "… "):
                 idx = compact.rfind(boundary)
                 if idx == -1:
@@ -370,7 +370,7 @@ class MSTeamsChannel(BaseChannel):
         return cleaned
 
     def _format_reply_with_quote(self, quoted: str, reply: str) -> str:
-        """Format a quoted reply for the model without Teams wrapper noise."""
+        """Format a reply-with-context message for the model without Teams wrapper noise."""
         quoted = quoted.strip()
         reply = reply.strip()
         if quoted and reply:
