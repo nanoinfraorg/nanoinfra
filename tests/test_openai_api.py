@@ -318,6 +318,32 @@ async def test_multimodal_content_extracts_text(aiohttp_client, mock_agent) -> N
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
+async def test_multimodal_remote_image_url_returns_400(aiohttp_client, mock_agent) -> None:
+    app = create_app(mock_agent, model_name="m")
+    client = await aiohttp_client(app)
+    resp = await client.post(
+        "/v1/chat/completions",
+        json={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "describe this"},
+                        {"type": "image_url", "image_url": {"url": "https://example.com/image.png"}},
+                    ],
+                }
+            ]
+        },
+    )
+
+    assert resp.status == 400
+    body = await resp.json()
+    assert "remote image urls are not supported" in body["error"]["message"].lower()
+    mock_agent.process_direct.assert_not_called()
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
 async def test_empty_response_retry_then_success(aiohttp_client) -> None:
     call_count = 0
 
