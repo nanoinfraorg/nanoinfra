@@ -835,7 +835,7 @@ class TestInspectTaskStatuses:
 
 
 # ---------------------------------------------------------------------------
-# read-only mode (my_set=False)
+# read-only mode (tools.my.allow_set=False)
 # ---------------------------------------------------------------------------
 
 class TestReadOnlyMode:

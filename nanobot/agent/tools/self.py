@@ -284,7 +284,7 @@ class MyTool(Tool):
         if action in ("inspect", "check"):
             return self._inspect(key)
         if not self._modify_allowed:
-            return "Error: set is disabled (my_set is False)"
+            return "Error: set is disabled (tools.my.allow_set is false)"
         if action in ("modify", "set"):
             return self._modify(key, value)
         return f"Unknown action: {action}"

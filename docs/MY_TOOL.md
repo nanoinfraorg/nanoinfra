@@ -18,11 +18,15 @@ Enabled by default (read-only mode). The agent can check its state but not set i
 
 ```yaml
 tools:
-  my_enabled: true    # default: true
-  my_set: false       # default: false (read-only)
+  my:
+    enable: true       # default: true
+    allow_set: false   # default: false (read-only)
 ```
 
-To allow the agent to set its configuration (e.g. switch models, adjust parameters), set `my_set: true`.
+To allow the agent to set its configuration (e.g. switch models, adjust parameters), set `tools.my.allow_set: true`.
+
+Legacy `tools.myEnabled` / `tools.mySet` keys are auto-migrated on load, and
+rewritten in-place the next time `nanobot onboard` refreshes the config.
 
 All modifications are held in memory only — restart restores defaults.
 

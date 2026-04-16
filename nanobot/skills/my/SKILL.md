@@ -59,7 +59,7 @@ always: true
 
 - All modifications in-memory only — restart resets everything
 - Protected params have type/range validation: `max_iterations` (1–100), `context_window_tokens` (4096–1M), `model` (non-empty str)
-- If `my_set` is false, check only
+- If `tools.my.allow_set` is false, check only
 
 ## Related tools
 
