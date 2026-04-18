@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from loguru import logger
@@ -10,7 +9,6 @@ from loguru import logger
 from nanobot.utils.helpers import stringify_text_blocks
 
 _MAX_REPEAT_EXTERNAL_LOOKUPS = 2
-_MAX_REPEAT_TOOL_CALLS = 2
 
 EMPTY_FINAL_RESPONSE_MESSAGE = (
     "I completed the tool steps but couldn't produce a final answer. "
@@ -75,15 +73,6 @@ def external_lookup_signature(tool_name: str, arguments: dict[str, Any]) -> str 
     return None
 
 
-def tool_call_signature(tool_name: str, arguments: dict[str, Any]) -> str:
-    """Stable signature for repeated tool calls across retries."""
-    try:
-        args_json = json.dumps(arguments, sort_keys=True, default=str, ensure_ascii=True)
-    except Exception:
-        args_json = repr(sorted(arguments.items()))
-    return f"{tool_name}:{args_json}"
-
-
 def repeated_external_lookup_error(
     tool_name: str,
     arguments: dict[str, Any],
@@ -105,27 +94,4 @@ def repeated_external_lookup_error(
     return (
         "Error: repeated external lookup blocked. "
         "Use the results you already have to answer, or try a meaningfully different source."
-    )
-
-
-def repeated_tool_call_error(
-    tool_name: str,
-    arguments: dict[str, Any],
-    seen_counts: dict[str, int],
-) -> str | None:
-    """Block repeated identical tool calls after a small retry budget."""
-    signature = tool_call_signature(tool_name, arguments)
-    count = seen_counts.get(signature, 0) + 1
-    seen_counts[signature] = count
-    if count <= _MAX_REPEAT_TOOL_CALLS:
-        return None
-    logger.warning(
-        "Blocking repeated tool call {} on attempt {}",
-        signature[:160],
-        count,
-    )
-    return (
-        f"Error: repeated identical call to '{tool_name}' blocked after {count - 1} attempts. "
-        "The previous attempts used the same arguments. Change the arguments or try a different "
-        "approach."
     )
