@@ -21,9 +21,9 @@ _CRON_PARAMETERS = tool_parameters_schema(
         "(e.g., 'weather-monitor', 'daily-standup'). Defaults to first 30 chars of message."
     ),
     message=StringSchema(
-        "Instruction for the agent to execute when the job triggers. "
-        "Required when action='add' "
-        "(e.g., 'Send a reminder to WeChat: xxx' or 'Check system status and report')"
+        "REQUIRED when action='add'. Instruction for the agent to execute when the job triggers "
+        "(e.g., 'Send a reminder to WeChat: xxx' or 'Check system status and report'). "
+        "Not used for action='list' or action='remove'."
     ),
     every_seconds=IntegerSchema(0, description="Interval in seconds (for recurring tasks)"),
     cron_expr=StringSchema("Cron expression like '0 9 * * *' (for scheduled tasks)"),
@@ -39,7 +39,7 @@ _CRON_PARAMETERS = tool_parameters_schema(
         description="Whether to deliver the execution result to the user channel (default true)",
         default=True,
     ),
-    job_id=StringSchema("Job ID (for remove)"),
+    job_id=StringSchema("REQUIRED when action='remove'. Job ID to remove (obtain via action='list')."),
     required=["action"],
     description=(
         "Action-specific parameters: add requires a non-empty message plus one schedule "
@@ -69,9 +69,7 @@ _CRON_PARAMETERS["oneOf"] = [
 ]
 
 
-@tool_parameters(
-    _CRON_PARAMETERS
-)
+@tool_parameters(_CRON_PARAMETERS)
 class CronTool(Tool):
     """Tool to schedule reminders and recurring tasks."""
 
@@ -172,7 +170,8 @@ class CronTool(Tool):
         if not message:
             return (
                 "Error: cron action='add' requires a non-empty 'message' parameter "
-                "describing what to do when the job triggers. Retry including message=\"...\"."
+                "describing what to do when the job triggers "
+                "(e.g. the reminder text). Retry including message=\"...\"."
             )
         if not self._channel or not self._chat_id:
             return "Error: no session context (channel/chat_id)"
