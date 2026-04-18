@@ -11,6 +11,10 @@ webui/node_modules/
 webui/dist/
 webui/coverage/
 webui/.vite/
+webui/*.tsbuildinfo
+
+# Built webui assets shipped from `webui/` into the Python package
+nanobot/web/dist/
 
 # Python bytecode & caches
 *.pyc
