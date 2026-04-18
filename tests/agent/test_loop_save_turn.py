@@ -561,3 +561,18 @@ def test_subagent_followup_dedupes_by_task_id() -> None:
     assert loop._persist_subagent_followup(session, msg) is True
     assert loop._persist_subagent_followup(session, msg) is False
     assert len(session.messages) == 1
+
+
+def test_subagent_followup_skips_empty_content() -> None:
+    loop = _mk_loop()
+    session = Session(key="cli:empty")
+    msg = InboundMessage(
+        channel="system",
+        sender_id="subagent",
+        chat_id="cli:empty",
+        content="",
+        metadata={"subagent_task_id": "sub-empty"},
+    )
+
+    assert loop._persist_subagent_followup(session, msg) is False
+    assert session.messages == []

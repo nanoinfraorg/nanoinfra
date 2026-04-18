@@ -647,15 +647,23 @@ class AgentLoop:
             session, pending = self.auto_compact.prepare_session(session, key)
 
             await self.consolidator.maybe_consolidate_by_tokens(session)
-            if msg.sender_id == "subagent" and self._persist_subagent_followup(session, msg):
+            # Persist subagent follow-ups into durable history BEFORE prompt
+            # assembly. ContextBuilder merges adjacent same-role messages for
+            # provider compatibility, which previously caused the follow-up to
+            # disappear from session.messages while still being visible to the
+            # LLM via the merged prompt. See _persist_subagent_followup.
+            is_subagent = msg.sender_id == "subagent"
+            if is_subagent and self._persist_subagent_followup(session, msg):
                 self.sessions.save(session)
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
             history = session.get_history(max_messages=0)
-            current_role = "assistant" if msg.sender_id == "subagent" else "user"
+            current_role = "assistant" if is_subagent else "user"
 
+            # Subagent content is already in `history` above; passing it again
+            # as current_message would double-project it into the prompt.
             messages = self.context.build_messages(
                 history=history,
-                current_message="" if msg.sender_id == "subagent" else msg.content,
+                current_message="" if is_subagent else msg.content,
                 channel=channel,
                 chat_id=chat_id,
                 session_summary=pending,
@@ -875,7 +883,14 @@ class AgentLoop:
         session.updated_at = datetime.now()
 
     def _persist_subagent_followup(self, session: Session, msg: InboundMessage) -> bool:
-        """Persist subagent follow-ups before prompt assembly so history stays durable."""
+        """Persist subagent follow-ups before prompt assembly so history stays durable.
+
+        Returns True if a new entry was appended; False if the follow-up was
+        deduped (same ``subagent_task_id`` already in session) or carries no
+        content worth persisting.
+        """
+        if not msg.content:
+            return False
         task_id = msg.metadata.get("subagent_task_id") if isinstance(msg.metadata, dict) else None
         if task_id and any(
             m.get("injected_event") == "subagent_result" and m.get("subagent_task_id") == task_id
