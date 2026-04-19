@@ -11,6 +11,8 @@ import {
 import { deriveTitle } from "@/lib/format";
 import type { ChatSummary, UIMessage } from "@/lib/types";
 
+const EMPTY_MESSAGES: UIMessage[] = [];
+
 /** Sidebar state: fetches the full session list and exposes create / delete actions. */
 export function useSessions(): {
   sessions: ChatSummary[];
@@ -163,13 +165,13 @@ export function useSessionHistory(key: string | null): {
   }, [key, token]);
 
   if (!key) {
-    return { messages: [], loading: false, error: null };
+    return { messages: EMPTY_MESSAGES, loading: false, error: null };
   }
 
   // Even before the effect above commits its loading state, never surface the
   // previous session's payload for a brand-new key.
   if (state.key !== key) {
-    return { messages: [], loading: true, error: null };
+    return { messages: EMPTY_MESSAGES, loading: true, error: null };
   }
 
   return {
