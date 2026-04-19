@@ -499,9 +499,10 @@ class Consolidator:
                 )
                 return
 
+            last_summary = None
             for round_num in range(self._MAX_CONSOLIDATION_ROUNDS):
                 if estimated <= target:
-                    return
+                    break
 
                 boundary = self.pick_consolidation_boundary(session, max(1, estimated - target))
                 if boundary is None:
@@ -510,7 +511,7 @@ class Consolidator:
                         session.key,
                         round_num,
                     )
-                    return
+                    break
 
                 end_idx = boundary[0]
                 end_idx = self._cap_consolidation_boundary(session, end_idx)
@@ -520,11 +521,11 @@ class Consolidator:
                         session.key,
                         round_num,
                     )
-                    return
+                    break
 
                 chunk = session.messages[session.last_consolidated:end_idx]
                 if not chunk:
-                    return
+                    break
 
                 logger.info(
                     "Token consolidation round {} for {}: {}/{} via {}, chunk={} msgs",
@@ -535,8 +536,11 @@ class Consolidator:
                     source,
                     len(chunk),
                 )
-                if not await self.archive(chunk):
-                    return
+                summary = await self.archive(chunk)
+                if summary:
+                    last_summary = summary
+                else:
+                    break
                 session.last_consolidated = end_idx
                 self.sessions.save(session)
 
@@ -546,7 +550,17 @@ class Consolidator:
                     logger.exception("Token estimation failed for {}", session.key)
                     estimated, source = 0, "error"
                 if estimated <= 0:
-                    return
+                    break
+
+            # Persist the last summary to session metadata so it can be injected
+            # into the runtime context on the next prepare_session() call, aligning
+            # the summary injection strategy with AutoCompact._archive().
+            if last_summary and last_summary != "(nothing)":
+                session.metadata["_last_summary"] = {
+                    "text": last_summary,
+                    "last_active": session.updated_at.isoformat(),
+                }
+                self.sessions.save(session)
 
 
 # ---------------------------------------------------------------------------
