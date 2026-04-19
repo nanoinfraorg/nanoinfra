@@ -416,7 +416,12 @@ class Consolidator:
                 return idx
         return None
 
-    def estimate_session_prompt_tokens(self, session: Session) -> tuple[int, str]:
+    def estimate_session_prompt_tokens(
+        self,
+        session: Session,
+        *,
+        session_summary: str | None = None,
+    ) -> tuple[int, str]:
         """Estimate current prompt size for the normal session history view."""
         history = session.get_history(max_messages=0)
         channel, chat_id = (session.key.split(":", 1) if ":" in session.key else (None, None))
@@ -425,6 +430,7 @@ class Consolidator:
             current_message="[token-probe]",
             channel=channel,
             chat_id=chat_id,
+            session_summary=session_summary,
         )
         return estimate_prompt_tokens_chain(
             self.provider,
@@ -467,7 +473,12 @@ class Consolidator:
             self.store.raw_archive(messages)
             return None
 
-    async def maybe_consolidate_by_tokens(self, session: Session) -> None:
+    async def maybe_consolidate_by_tokens(
+        self,
+        session: Session,
+        *,
+        session_summary: str | None = None,
+    ) -> None:
         """Loop: archive old messages until prompt fits within safe budget.
 
         The budget reserves space for completion tokens and a safety buffer
@@ -481,7 +492,10 @@ class Consolidator:
             budget = self.context_window_tokens - self.max_completion_tokens - self._SAFETY_BUFFER
             target = budget // 2
             try:
-                estimated, source = self.estimate_session_prompt_tokens(session)
+                estimated, source = self.estimate_session_prompt_tokens(
+                    session,
+                    session_summary=session_summary,
+                )
             except Exception:
                 logger.exception("Token estimation failed for {}", session.key)
                 estimated, source = 0, "error"
@@ -545,7 +559,10 @@ class Consolidator:
                 self.sessions.save(session)
 
                 try:
-                    estimated, source = self.estimate_session_prompt_tokens(session)
+                    estimated, source = self.estimate_session_prompt_tokens(
+                        session,
+                        session_summary=session_summary,
+                    )
                 except Exception:
                     logger.exception("Token estimation failed for {}", session.key)
                     estimated, source = 0, "error"
