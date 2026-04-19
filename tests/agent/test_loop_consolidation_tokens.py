@@ -157,6 +157,43 @@ async def test_consolidation_continues_below_trigger_until_half_target(tmp_path,
 
 
 @pytest.mark.asyncio
+async def test_consolidation_persists_summary_for_next_prepare_session(tmp_path, monkeypatch) -> None:
+    loop = _make_loop(tmp_path, estimated_tokens=0, context_window_tokens=200)
+    loop.consolidator.archive = AsyncMock(return_value="User discussed project status.")  # type: ignore[method-assign]
+
+    session = loop.sessions.get_or_create("cli:test")
+    session.messages = [
+        {"role": "user", "content": "u1", "timestamp": "2026-01-01T00:00:00"},
+        {"role": "assistant", "content": "a1", "timestamp": "2026-01-01T00:00:01"},
+        {"role": "user", "content": "u2", "timestamp": "2026-01-01T00:00:02"},
+    ]
+    loop.sessions.save(session)
+
+    call_count = [0]
+
+    def mock_estimate(_session):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return (500, "test")
+        return (80, "test")
+
+    loop.consolidator.estimate_session_prompt_tokens = mock_estimate  # type: ignore[method-assign]
+    monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda _m: 150)
+
+    await loop.consolidator.maybe_consolidate_by_tokens(session)
+
+    reloaded = loop.sessions.get_or_create("cli:test")
+    meta = reloaded.metadata.get("_last_summary")
+    assert meta is not None
+    assert meta["text"] == "User discussed project status."
+
+    reloaded, pending = loop.auto_compact.prepare_session(reloaded, "cli:test")
+    assert pending is not None
+    assert "User discussed project status." in pending
+    assert "_last_summary" not in reloaded.metadata
+
+
+@pytest.mark.asyncio
 async def test_preflight_consolidation_before_llm_call(tmp_path, monkeypatch) -> None:
     """Verify preflight consolidation runs before the LLM call in process_direct."""
     order: list[str] = []
