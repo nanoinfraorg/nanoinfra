@@ -37,7 +37,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         <p
           className={cn(
             "ml-auto w-fit rounded-[18px] border border-border/60 bg-secondary/70 px-4 py-2",
-            "text-right text-sm whitespace-pre-wrap break-words",
+            "text-right text-[18px]/[1.8] whitespace-pre-wrap break-words",
             "shadow-[0_10px_24px_-18px_rgba(0,0,0,0.55)]",
           )}
         >
@@ -49,7 +49,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
   const empty = message.content.trim().length === 0;
   return (
-    <div className={cn("w-full text-sm leading-relaxed", baseAnim)}>
+    <div className={cn("w-full text-sm", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
       {empty && message.isStreaming ? (
         <TypingDots />
       ) : (
