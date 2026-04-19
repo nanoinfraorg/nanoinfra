@@ -1,3 +1,5 @@
+import i18n, { currentLocale } from "@/i18n";
+
 /** Truncate the first user message into a chat title. */
 export function deriveTitle(preview: string | undefined, fallback: string): string {
   if (!preview) return fallback;
@@ -23,22 +25,53 @@ const RELATIVE_THRESHOLDS: [number, Intl.RelativeTimeFormatUnit][] = [
   [Number.POSITIVE_INFINITY, "year"],
 ];
 
-const RTF = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+const relativeTimeFormatters = new Map<string, Intl.RelativeTimeFormat>();
+const dateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
 
-export function relativeTime(value: string | number | null | undefined): string {
+function activeLocale(locale?: string): string {
+  return locale || i18n.resolvedLanguage || i18n.language || currentLocale();
+}
+
+function relativeTimeFormatter(locale: string): Intl.RelativeTimeFormat {
+  const existing = relativeTimeFormatters.get(locale);
+  if (existing) return existing;
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  relativeTimeFormatters.set(locale, formatter);
+  return formatter;
+}
+
+function dateTimeFormatter(locale: string): Intl.DateTimeFormat {
+  const existing = dateTimeFormatters.get(locale);
+  if (existing) return existing;
+  const formatter = new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+  dateTimeFormatters.set(locale, formatter);
+  return formatter;
+}
+
+export function relativeTime(
+  value: string | number | null | undefined,
+  locale?: string,
+): string {
   const date = parseDate(value);
   if (!date) return "";
   let delta = (date.getTime() - Date.now()) / 1000;
+  const formatter = relativeTimeFormatter(activeLocale(locale));
   for (const [step, unit] of RELATIVE_THRESHOLDS) {
     if (Math.abs(delta) < step) {
-      return RTF.format(Math.round(delta), unit);
+      return formatter.format(Math.round(delta), unit);
     }
     delta /= step;
   }
-  return RTF.format(Math.round(delta), "year");
+  return formatter.format(Math.round(delta), "year");
 }
 
-export function fmtDateTime(value: string | number | null | undefined): string {
+export function fmtDateTime(
+  value: string | number | null | undefined,
+  locale?: string,
+): string {
   const date = parseDate(value);
-  return date ? date.toLocaleString() : "";
+  return date ? dateTimeFormatter(activeLocale(locale)).format(date) : "";
 }

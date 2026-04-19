@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import { ThreadHeader } from "@/components/thread/ThreadHeader";
@@ -33,6 +34,7 @@ export function ThreadShell({
   onNewChat,
   hideSidebarToggleOnDesktop = false,
 }: ThreadShellProps) {
+  const { t } = useTranslation();
   const chatId = session?.chatId ?? null;
   const historyKey = session?.key ?? null;
   const { messages: historical, loading } = useSessionHistory(historyKey);
@@ -105,7 +107,7 @@ export function ThreadShell({
 
   const emptyState = loading ? (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      Loading conversation…
+      {t("thread.loadingConversation")}
     </div>
   ) : (
     <div className="flex w-full max-w-[40rem] flex-col gap-2 text-left animate-in fade-in-0 slide-in-from-bottom-2 duration-500">
@@ -120,7 +122,7 @@ export function ThreadShell({
         <span className="text-foreground/82">nanobot</span>
       </div>
       <p className="max-w-[28rem] text-[13px] leading-6 text-muted-foreground">
-        Ask questions, continue local work, or start a new thread.
+        {t("thread.empty.description")}
       </p>
     </div>
   );
@@ -142,7 +144,11 @@ export function ThreadShell({
             <ThreadComposer
               onSend={send}
               disabled={!chatId}
-              placeholder={showHeroComposer ? "What's on your mind?" : "Type your message…"}
+              placeholder={
+                showHeroComposer
+                  ? t("thread.composer.placeholderHero")
+                  : t("thread.composer.placeholderThread")
+              }
               modelLabel={toModelBadgeLabel(modelName)}
               variant={showHeroComposer ? "hero" : "thread"}
             />
@@ -150,7 +156,11 @@ export function ThreadShell({
             <ThreadComposer
               onSend={handleWelcomeSend}
               disabled={booting}
-              placeholder={booting ? "Opening a new chat…" : "What's on your mind?"}
+              placeholder={
+                booting
+                  ? t("thread.composer.placeholderOpening")
+                  : t("thread.composer.placeholderHero")
+              }
               modelLabel={toModelBadgeLabel(modelName)}
               variant="hero"
             />

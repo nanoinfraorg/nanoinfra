@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDown } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { ThreadMessages } from "@/components/thread/ThreadMessages";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ export function ThreadViewport({
   composer,
   emptyState,
 }: ThreadViewportProps) {
+  const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
   const hasMessages = messages.length > 0;
@@ -104,7 +106,7 @@ export function ThreadViewport({
             "bg-background/90 backdrop-blur",
             "animate-in fade-in-0 zoom-in-95",
           )}
-          aria-label="Scroll to bottom"
+          aria-label={t("thread.scrollToBottom")}
         >
           <ArrowDown className="h-4 w-4" />
         </Button>

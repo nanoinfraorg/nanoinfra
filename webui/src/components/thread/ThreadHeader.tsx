@@ -1,4 +1,5 @@
 import { PanelLeftOpen } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -16,13 +17,14 @@ export function ThreadHeader({
   onGoHome,
   hideSidebarToggleOnDesktop = false,
 }: ThreadHeaderProps) {
+  const { t } = useTranslation();
   return (
     <div className="relative z-10 flex items-center justify-between gap-3 px-3 py-2">
       <div className="relative flex min-w-0 items-center gap-2">
         <Button
           variant="ghost"
           size="icon"
-          aria-label="Toggle sidebar"
+          aria-label={t("thread.header.toggleSidebar")}
           onClick={onToggleSidebar}
           className={cn(
             "h-7 w-7 rounded-md text-muted-foreground hover:bg-accent/35 hover:text-foreground",

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import {
   oneDark,
@@ -15,6 +16,7 @@ interface CodeBlockProps {
 }
 
 export function CodeBlock({ language, code, className }: CodeBlockProps) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 
   const onCopy = () => {
@@ -33,19 +35,21 @@ export function CodeBlock({ language, code, className }: CodeBlockProps) {
   return (
     <div className={cn("overflow-hidden rounded-lg", className)}>
       <div className="flex items-center justify-between bg-zinc-900 px-4 py-1.5 text-xs font-medium text-zinc-200">
-        <span className="lowercase">{language || "code"}</span>
+        <span className="lowercase">
+          {language || t("code.fallbackLanguage")}
+        </span>
         <button
           type="button"
           onClick={onCopy}
           className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
-          aria-label="Copy code"
+          aria-label={t("code.copyAria")}
         >
           {copied ? (
             <Check className="h-3.5 w-3.5" />
           ) : (
             <Copy className="h-3.5 w-3.5" />
           )}
-          <span>{copied ? "Copied" : "Copy"}</span>
+          <span>{copied ? t("code.copied") : t("code.copy")}</span>
         </button>
       </div>
       <SyntaxHighlighter

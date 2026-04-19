@@ -8,6 +8,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useTranslation } from "react-i18next";
 
 interface DeleteConfirmProps {
   open: boolean;
@@ -22,22 +23,27 @@ export function DeleteConfirm({
   onCancel,
   onConfirm,
 }: DeleteConfirmProps) {
+  const { t } = useTranslation();
   return (
     <AlertDialog open={open} onOpenChange={(o) => (!o ? onCancel() : undefined)}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete “{title}”?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {t("deleteConfirm.title", { title })}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            The session file will be removed from disk. This cannot be undone.
+            {t("deleteConfirm.description")}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={onCancel}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel onClick={onCancel}>
+            {t("deleteConfirm.cancel")}
+          </AlertDialogCancel>
           <AlertDialogAction
             onClick={onConfirm}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
-            Delete
+            {t("deleteConfirm.confirm")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

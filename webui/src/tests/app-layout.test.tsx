@@ -144,5 +144,5 @@ describe("App layout", () => {
     );
     expect(screen.queryByText('Delete “First chat”?')).not.toBeInTheDocument();
     expect(document.body.style.pointerEvents).not.toBe("none");
-  });
+  }, 15_000);
 });

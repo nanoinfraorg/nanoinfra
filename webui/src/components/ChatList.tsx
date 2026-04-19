@@ -1,4 +1,5 @@
 import { MoreHorizontal, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import {
   DropdownMenu,
@@ -19,10 +20,10 @@ interface ChatListProps {
   loading?: boolean;
 }
 
-function titleFor(s: ChatSummary): string {
+function titleFor(s: ChatSummary, fallbackTitle: string): string {
   const p = s.preview?.trim();
   if (p) return p.length > 48 ? `${p.slice(0, 45)}…` : p;
-  return `Chat ${s.chatId.slice(0, 6)}`;
+  return fallbackTitle;
 }
 
 export function ChatList({
@@ -32,16 +33,19 @@ export function ChatList({
   onRequestDelete,
   loading,
 }: ChatListProps) {
+  const { t } = useTranslation();
   if (loading && sessions.length === 0) {
     return (
-      <div className="px-3 py-6 text-[12px] text-muted-foreground">Loading…</div>
+      <div className="px-3 py-6 text-[12px] text-muted-foreground">
+        {t("chat.loading")}
+      </div>
     );
   }
 
   if (sessions.length === 0) {
     return (
       <div className="px-3 py-6 text-xs text-muted-foreground">
-        No sessions yet.
+        {t("chat.noSessions")}
       </div>
     );
   }
@@ -51,7 +55,10 @@ export function ChatList({
       <ul className="space-y-0.5 px-2 py-1">
         {sessions.map((s) => {
           const active = s.key === activeKey;
-          const title = titleFor(s);
+          const title = titleFor(
+            s,
+            t("chat.fallbackTitle", { id: s.chatId.slice(0, 6) }),
+          );
           return (
             <li key={s.key}>
               <div
@@ -80,7 +87,7 @@ export function ChatList({
                       "focus-visible:opacity-100",
                       active && "opacity-100",
                     )}
-                    aria-label={`Chat actions for ${title}`}
+                    aria-label={t("chat.actions", { title })}
                   >
                     <MoreHorizontal className="h-4 w-4" />
                   </DropdownMenuTrigger>
@@ -95,7 +102,7 @@ export function ChatList({
                       className="text-destructive focus:text-destructive"
                     >
                       <Trash2 className="mr-2 h-4 w-4" />
-                      Delete
+                      {t("chat.delete")}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

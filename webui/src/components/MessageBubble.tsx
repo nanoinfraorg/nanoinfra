@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronRight, Wrench } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { MarkdownText } from "@/components/MarkdownText";
 import { cn } from "@/lib/utils";
@@ -63,9 +64,10 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
 /** Blinking cursor appended at the end of streaming text. */
 function StreamCursor() {
+  const { t } = useTranslation();
   return (
     <span
-      aria-label="streaming"
+      aria-label={t("message.streaming")}
       className={cn(
         "ml-0.5 inline-block h-[1em] w-[3px] translate-y-[2px] align-middle",
         "rounded-sm bg-foreground/70 animate-pulse",
@@ -76,9 +78,10 @@ function StreamCursor() {
 
 /** Pre-token-arrival placeholder: three bouncing dots. */
 function TypingDots() {
+  const { t } = useTranslation();
   return (
     <span
-      aria-label="Assistant is typing"
+      aria-label={t("message.assistantTyping")}
       className="inline-flex items-center gap-1 py-1"
     >
       <Dot delay="0ms" />
@@ -111,6 +114,7 @@ interface TraceGroupProps {
  * group down to a one-line summary so it never dominates the thread.
  */
 function TraceGroup({ message, animClass }: TraceGroupProps) {
+  const { t } = useTranslation();
   const lines = message.traces ?? [message.content];
   const count = lines.length;
   const [open, setOpen] = useState(true);
@@ -127,7 +131,9 @@ function TraceGroup({ message, animClass }: TraceGroupProps) {
       >
         <Wrench className="h-3.5 w-3.5" aria-hidden />
         <span className="font-medium">
-          {count === 1 ? "Using a tool" : `Used ${count} tools`}
+          {count === 1
+            ? t("message.toolSingle")
+            : t("message.toolMany", { count })}
         </span>
         <ChevronRight
           aria-hidden

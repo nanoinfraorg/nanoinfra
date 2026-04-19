@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUp } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -15,13 +16,16 @@ interface ThreadComposerProps {
 export function ThreadComposer({
   onSend,
   disabled,
-  placeholder = "Type your message…",
+  placeholder,
   modelLabel = null,
   variant = "thread",
 }: ThreadComposerProps) {
+  const { t } = useTranslation();
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isHero = variant === "hero";
+  const resolvedPlaceholder =
+    placeholder ?? t("thread.composer.placeholderThread");
 
   useEffect(() => {
     if (disabled) return;
@@ -83,9 +87,9 @@ export function ThreadComposer({
           onInput={onInput}
           onKeyDown={onKeyDown}
           rows={1}
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           disabled={disabled}
-          aria-label="Message input"
+          aria-label={t("thread.composer.inputAria")}
           className={cn(
             "w-full resize-none bg-transparent",
             isHero
@@ -120,7 +124,7 @@ export function ThreadComposer({
               </span>
             ) : null}
             <span className="hidden select-none text-[10.5px] text-muted-foreground/60 sm:inline">
-              Enter to send · Shift+Enter for newline
+              {t("thread.composer.sendHint")}
             </span>
           </div>
           <span className="sm:hidden" aria-hidden />
@@ -128,7 +132,7 @@ export function ThreadComposer({
             type="submit"
             size="icon"
             disabled={disabled || !value.trim()}
-            aria-label="Send message"
+            aria-label={t("thread.composer.send")}
             className={cn(
               "rounded-full border border-border/70 bg-secondary/85 text-secondary-foreground shadow-none transition-transform hover:bg-accent",
               isHero ? "h-8.5 w-8.5" : "h-7.5 w-7.5",

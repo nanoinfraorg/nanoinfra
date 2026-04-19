@@ -1,4 +1,7 @@
 import "@testing-library/jest-dom/vitest";
+import { beforeEach } from "vitest";
+
+import i18n from "@/i18n";
 
 // happy-dom doesn't ship with ``crypto.randomUUID``; shim a tiny v4-ish helper.
 if (!("randomUUID" in globalThis.crypto)) {
@@ -12,3 +15,10 @@ if (!("randomUUID" in globalThis.crypto)) {
     configurable: true,
   });
 }
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+  document.documentElement.lang = "en";
+  document.title = "nanobot";
+  localStorage.setItem("nanobot.locale", "en");
+});

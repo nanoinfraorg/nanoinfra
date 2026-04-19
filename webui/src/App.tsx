@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { DeleteConfirm } from "@/components/DeleteConfirm";
 import { Sidebar } from "@/components/Sidebar";
 import { ThreadShell } from "@/components/thread/ThreadShell";
@@ -37,6 +38,7 @@ function readSidebarOpen(): boolean {
 }
 
 export default function App() {
+  const { t } = useTranslation();
   const [state, setState] = useState<BootState>({ status: "loading" });
 
   useEffect(() => {
@@ -107,7 +109,7 @@ export default function App() {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground/40" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-foreground/60" />
             </span>
-            Connecting to nanobot…
+            {t("app.loading.connecting")}
           </div>
         </div>
       </div>
@@ -124,11 +126,10 @@ export default function App() {
             aria-hidden
             draggable={false}
           />
-          <p className="text-lg font-semibold">Couldn't reach nanobot</p>
+          <p className="text-lg font-semibold">{t("app.error.title")}</p>
           <p className="text-sm text-muted-foreground">{state.message}</p>
           <p className="text-xs text-muted-foreground">
-            Make sure the gateway is running (`nanobot web`) and that this page
-            is open on the same machine.
+            {t("app.error.gatewayHint")}
           </p>
         </div>
       </div>
@@ -147,6 +148,7 @@ export default function App() {
 }
 
 function Shell() {
+  const { t, i18n } = useTranslation();
   const { theme, toggle } = useTheme();
   const { sessions, loading, refresh, createChat, deleteChat } = useSessions();
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -241,8 +243,15 @@ function Shell() {
   }, [pendingDelete, deleteChat, activeKey, sessions]);
 
   const headerTitle = activeSession
-    ? activeSession.preview || `Chat ${activeSession.chatId.slice(0, 6)}`
-    : "nanobot";
+    ? activeSession.preview ||
+      t("chat.fallbackTitle", { id: activeSession.chatId.slice(0, 6) })
+    : t("app.brand");
+
+  useEffect(() => {
+    document.title = activeSession
+      ? t("app.documentTitle.chat", { title: headerTitle })
+      : t("app.documentTitle.base");
+  }, [activeSession, headerTitle, i18n.resolvedLanguage, t]);
 
   const sidebarProps = {
     sessions,
@@ -284,7 +293,11 @@ function Shell() {
         open={mobileSidebarOpen}
         onOpenChange={(open) => setMobileSidebarOpen(open)}
       >
-        <SheetContent side="left" className="w-[279px] p-0 sm:max-w-[279px] lg:hidden">
+        <SheetContent
+          side="left"
+          showCloseButton={false}
+          className="w-[279px] p-0 sm:max-w-[279px] lg:hidden"
+        >
           <Sidebar {...sidebarProps} onCollapse={closeMobileSidebar} />
         </SheetContent>
       </Sheet>

@@ -1,7 +1,9 @@
 import { Moon, PanelLeftClose, Plus, RefreshCcw, Sun } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { ChatList } from "@/components/ChatList";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import type { ChatSummary } from "@/lib/types";
@@ -20,13 +22,14 @@ interface SidebarProps {
 }
 
 export function Sidebar(props: SidebarProps) {
+  const { t } = useTranslation();
   return (
     <aside className="flex h-full w-full flex-col border-r border-sidebar-border/70 bg-sidebar text-sidebar-foreground">
       <div className="flex items-center justify-between px-2 py-2">
         <Button
           variant="ghost"
           size="icon"
-          aria-label="Collapse sidebar"
+          aria-label={t("sidebar.collapse")}
           onClick={props.onCollapse}
           className="h-7 w-7 rounded-lg text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
         >
@@ -35,7 +38,7 @@ export function Sidebar(props: SidebarProps) {
         <Button
           variant="ghost"
           size="icon"
-          aria-label="Toggle theme"
+          aria-label={t("sidebar.toggleTheme")}
           onClick={props.onToggleTheme}
           className="h-7 w-7 rounded-lg text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
         >
@@ -53,18 +56,18 @@ export function Sidebar(props: SidebarProps) {
           variant="outline"
         >
           <Plus className="h-3.5 w-3.5" />
-          New chat
+          {t("sidebar.newChat")}
         </Button>
       </div>
       <Separator className="bg-sidebar-border/70" />
       <div className="flex items-center justify-between px-2.5 py-2 text-[11px] font-medium text-muted-foreground">
-        <span>Recent</span>
+        <span>{t("sidebar.recent")}</span>
         <Button
           variant="ghost"
           size="icon"
           className="h-6 w-6 rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
           onClick={props.onRefresh}
-          aria-label="Refresh sessions"
+          aria-label={t("sidebar.refreshSessions")}
         >
           <RefreshCcw className="h-3.5 w-3.5" />
         </Button>
@@ -79,8 +82,9 @@ export function Sidebar(props: SidebarProps) {
         />
       </div>
       <Separator className="bg-sidebar-border/70" />
-      <div className="flex items-center justify-between px-2.5 py-2 text-xs">
+      <div className="flex items-center justify-between gap-2 px-2.5 py-2 text-xs">
         <ConnectionBadge />
+        <LanguageSwitcher />
       </div>
     </aside>
   );

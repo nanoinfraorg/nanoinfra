@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useClient } from "@/providers/ClientProvider";
+import i18n from "@/i18n";
 import {
   ApiError,
   deleteSession as apiDeleteSession,
@@ -183,5 +184,8 @@ export function sessionTitle(
   session: ChatSummary,
   firstUserMessage?: string,
 ): string {
-  return deriveTitle(firstUserMessage || session.preview, "New chat");
+  return deriveTitle(
+    firstUserMessage || session.preview,
+    i18n.t("chat.newChat"),
+  );
 }
