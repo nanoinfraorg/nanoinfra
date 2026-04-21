@@ -35,7 +35,15 @@ From the repository root:
 pip install -e .
 ```
 
-### 2. Start the gateway
+### 2. Enable the WebSocket channel
+
+In `~/.nanobot/config.json`:
+
+```json
+{ "channels": { "websocket": { "enabled": true } } }
+```
+
+### 3. Start the gateway
 
 In one terminal:
 
@@ -43,7 +51,7 @@ In one terminal:
 nanobot gateway
 ```
 
-### 3. Start the WebUI dev server
+### 4. Start the WebUI dev server
 
 In another terminal:
 

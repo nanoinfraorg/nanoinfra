@@ -194,13 +194,19 @@ nanobot agent
   <img src="images/nanobot_webui.png" alt="nanobot webui preview" width="900">
 </p>
 
-**1. Start the gateway**
+**1. Enable the WebSocket channel in `~/.nanobot/config.json`**
+
+```json
+{ "channels": { "websocket": { "enabled": true } } }
+```
+
+**2. Start the gateway**
 
 ```bash
 nanobot gateway
 ```
 
-**2. Start the webui dev server**
+**3. Start the webui dev server**
 
 ```bash
 cd webui
