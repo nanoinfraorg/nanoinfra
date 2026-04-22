@@ -18,7 +18,7 @@ from nanobot.agent.tools.schema import IntegerSchema, StringSchema, tool_paramet
 from nanobot.utils.helpers import build_image_content_blocks
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import WebSearchConfig
+    from nanobot.config.schema import WebSearchConfig, WebFetchConfig
 
 # Shared constants
 _DEFAULT_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36"
@@ -304,10 +304,13 @@ class WebFetchTool(Tool):
         "Works for most web pages and docs; may fail on login-walled or JS-heavy sites."
     )
 
-    def __init__(self, max_chars: int = 50000, proxy: str | None = None, user_agent: str | None = None):
-        self.max_chars = max_chars
+    def __init__(self, config: WebFetchConfig | None = None, proxy: str | None = None, user_agent: str | None = None, max_chars: int = 50000):
+        from nanobot.config.schema import WebFetchConfig
+
+        self.config = config if config is not None else WebFetchConfig()
         self.proxy = proxy
         self.user_agent = user_agent or _DEFAULT_USER_AGENT
+        self.max_chars = max_chars
 
     @property
     def read_only(self) -> bool:
@@ -337,7 +340,9 @@ class WebFetchTool(Tool):
         except Exception as e:
             logger.debug("Pre-fetch image detection failed for {}: {}", url, e)
 
-        result = await self._fetch_jina(url, max_chars)
+        result = None
+        if self.config.use_jina_reader:
+            result = await self._fetch_jina(url, max_chars)
         if result is None:
             result = await self._fetch_readability(url, extractMode, max_chars)
         return result

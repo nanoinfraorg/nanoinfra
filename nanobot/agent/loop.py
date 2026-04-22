@@ -292,6 +292,7 @@ class AgentLoop:
             )
             self.tools.register(
                 WebFetchTool(
+                    config=self.web_config.fetch,
                     proxy=self.web_config.proxy,
                     user_agent=self.web_config.user_agent,
                 )

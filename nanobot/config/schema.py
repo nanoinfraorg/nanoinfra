@@ -175,6 +175,12 @@ class WebSearchConfig(Base):
     timeout: int = 30  # Wall-clock timeout (seconds) for search operations
 
 
+class WebFetchConfig(Base):
+    """Web fetch tool configuration."""
+
+    use_jina_reader: bool = True
+
+
 class WebToolsConfig(Base):
     """Web tools configuration."""
 
@@ -184,6 +190,7 @@ class WebToolsConfig(Base):
     )
     user_agent: str | None = None
     search: WebSearchConfig = Field(default_factory=WebSearchConfig)
+    fetch: WebFetchConfig = Field(default_factory=WebFetchConfig)
 
 
 class ExecToolConfig(Base):
