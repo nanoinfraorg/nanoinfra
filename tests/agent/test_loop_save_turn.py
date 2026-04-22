@@ -349,6 +349,61 @@ async def test_process_message_does_not_duplicate_early_persisted_user_message(t
 
 
 @pytest.mark.asyncio
+async def test_process_message_uses_context_chat_id_for_runtime_prompt(tmp_path: Path) -> None:
+    loop = _make_full_loop(tmp_path)
+    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    loop.context.build_messages = MagicMock(  # type: ignore[method-assign]
+        return_value=[
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "runtime + hello"},
+        ]
+    )
+    loop._run_agent_loop = AsyncMock(return_value=(  # type: ignore[method-assign]
+        "done",
+        [],
+        [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "runtime + hello"},
+            {"role": "assistant", "content": "done"},
+        ],
+        "stop",
+        False,
+    ))
+
+    result = await loop._process_message(
+        InboundMessage(
+            channel="discord",
+            sender_id="u1",
+            chat_id="thread-777",
+            content="hello",
+            metadata={"context_chat_id": "parent-456"},
+            session_key_override="discord:parent-456:thread:thread-777",
+        )
+    )
+
+    assert result is not None
+    assert result.chat_id == "thread-777"
+    assert loop.context.build_messages.call_args.kwargs["chat_id"] == "parent-456"
+    assert loop._run_agent_loop.call_args.kwargs["chat_id"] == "thread-777"
+
+
+def test_set_tool_context_uses_effective_key_for_spawn_tool(tmp_path: Path) -> None:
+    loop = _make_full_loop(tmp_path)
+    spawn_tool = loop.tools.get("spawn")
+    assert spawn_tool is not None
+
+    loop._set_tool_context(
+        "discord",
+        "thread-777",
+        effective_key="discord:parent-456:thread:thread-777",
+    )
+
+    assert spawn_tool._origin_channel.get() == "discord"  # type: ignore[attr-defined]
+    assert spawn_tool._origin_chat_id.get() == "thread-777"  # type: ignore[attr-defined]
+    assert spawn_tool._session_key.get() == "discord:parent-456:thread:thread-777"  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
 async def test_next_turn_after_crash_closes_pending_user_turn_before_new_input(tmp_path: Path) -> None:
     loop = _make_full_loop(tmp_path)
     loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]

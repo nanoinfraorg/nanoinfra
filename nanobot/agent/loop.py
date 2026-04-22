@@ -26,8 +26,8 @@ from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.notebook import NotebookEditTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.search import GlobTool, GrepTool
-from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.self import MyTool
+from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
@@ -62,6 +62,7 @@ class _LoopHook(AgentHook):
         channel: str = "cli",
         chat_id: str = "direct",
         message_id: str | None = None,
+        effective_key: str | None = None,
     ) -> None:
         super().__init__(reraise=True)
         self._loop = agent_loop
@@ -71,6 +72,7 @@ class _LoopHook(AgentHook):
         self._channel = channel
         self._chat_id = chat_id
         self._message_id = message_id
+        self._effective_key = effective_key
         self._stream_buf = ""
 
     def wants_streaming(self) -> bool:
@@ -107,7 +109,12 @@ class _LoopHook(AgentHook):
         for tc in context.tool_calls:
             args_str = json.dumps(tc.arguments, ensure_ascii=False)
             logger.info("Tool call: {}({})", tc.name, args_str[:200])
-        self._loop._set_tool_context(self._channel, self._chat_id, self._message_id)
+        self._loop._set_tool_context(
+            self._channel,
+            self._chat_id,
+            self._message_id,
+            effective_key=self._effective_key,
+        )
 
     async def after_iteration(self, context: AgentHookContext) -> None:
         u = context.usage or {}
@@ -316,16 +323,29 @@ class AgentLoop:
         finally:
             self._mcp_connecting = False
 
-    def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
+    def _set_tool_context(
+        self,
+        channel: str,
+        chat_id: str,
+        message_id: str | None = None,
+        *,
+        effective_key: str | None = None,
+    ) -> None:
         """Update context for all tools that need routing info."""
         # Compute the effective session key (accounts for unified sessions)
         # so that subagent results route to the correct pending queue.
-        effective_key = UNIFIED_SESSION_KEY if self._unified_session else f"{channel}:{chat_id}"
+        context_key = (
+            effective_key
+            if effective_key is not None
+            else UNIFIED_SESSION_KEY
+            if self._unified_session
+            else f"{channel}:{chat_id}"
+        )
         for name in ("message", "spawn", "cron", "my"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     if name == "spawn":
-                        tool.set_context(channel, chat_id, effective_key=effective_key)
+                        tool.set_context(channel, chat_id, effective_key=context_key)
                     else:
                         tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))
 
@@ -337,6 +357,11 @@ class AgentLoop:
         from nanobot.utils.helpers import strip_think
 
         return strip_think(text) or None
+
+    @staticmethod
+    def _runtime_chat_id(msg: InboundMessage) -> str:
+        """Return the chat id shown in runtime metadata for the model."""
+        return str(msg.metadata.get("context_chat_id") or msg.chat_id)
 
     @staticmethod
     def _tool_hint(tool_calls: list) -> str:
@@ -393,6 +418,7 @@ class AgentLoop:
         channel: str = "cli",
         chat_id: str = "direct",
         message_id: str | None = None,
+        effective_key: str | None = None,
         pending_queue: asyncio.Queue | None = None,
     ) -> tuple[str | None, list[str], list[dict], str, bool]:
         """Run the agent iteration loop.
@@ -412,6 +438,7 @@ class AgentLoop:
             channel=channel,
             chat_id=chat_id,
             message_id=message_id,
+            effective_key=effective_key,
         )
         hook: AgentHook = (
             CompositeHook([loop_hook] + self._extra_hooks) if self._extra_hooks else loop_hook
@@ -443,7 +470,7 @@ class AgentLoop:
                 user_content = self.context._build_user_content(content, media)
                 runtime_ctx = self.context._build_runtime_context(
                     pending_msg.channel,
-                    pending_msg.chat_id,
+                    self._runtime_chat_id(pending_msg),
                     self.context.timezone,
                 )
                 if isinstance(user_content, str):
@@ -759,7 +786,7 @@ class AgentLoop:
             is_subagent = msg.sender_id == "subagent"
             if is_subagent and self._persist_subagent_followup(session, msg):
                 self.sessions.save(session)
-            self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
+            self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"), effective_key=key)
             history = session.get_history(max_messages=0)
             current_role = "assistant" if is_subagent else "user"
 
@@ -776,6 +803,7 @@ class AgentLoop:
             final_content, _, all_msgs, _, _ = await self._run_agent_loop(
                 messages, session=session, channel=channel, chat_id=chat_id,
                 message_id=msg.metadata.get("message_id"),
+                effective_key=key,
                 pending_queue=pending_queue,
             )
             self._save_turn(session, all_msgs, 1 + len(history))
@@ -817,7 +845,12 @@ class AgentLoop:
             session_summary=pending,
         )
 
-        self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
+        self._set_tool_context(
+            msg.channel,
+            msg.chat_id,
+            msg.metadata.get("message_id"),
+            effective_key=key,
+        )
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
@@ -830,7 +863,7 @@ class AgentLoop:
             session_summary=pending,
             media=msg.media if msg.media else None,
             channel=msg.channel,
-            chat_id=msg.chat_id,
+            chat_id=self._runtime_chat_id(msg),
         )
 
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
@@ -883,6 +916,7 @@ class AgentLoop:
             channel=msg.channel,
             chat_id=msg.chat_id,
             message_id=msg.metadata.get("message_id"),
+            effective_key=key,
             pending_queue=pending_queue,
         )
 
