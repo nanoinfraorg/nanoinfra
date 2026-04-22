@@ -605,6 +605,7 @@ If you need to allow trusted private ranges such as Tailscale / CGNAT addresses,
 |--------|------|---------|-------------|
 | `enable` | boolean | `true` | Enable or disable all built-in web tools (`web_search` + `web_fetch`) |
 | `proxy` | string or null | `null` | Proxy for all web requests, for example `http://127.0.0.1:7890` |
+| `userAgent` | string or null | `null` | User agent header for all web requests. If null, a browser one will be used |
 
 ### `tools.web.search`
 

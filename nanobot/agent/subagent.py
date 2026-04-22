@@ -173,8 +173,19 @@ class SubagentManager:
                     allowed_env_keys=self.exec_config.allowed_env_keys,
                 ))
             if self.web_config.enable:
-                tools.register(WebSearchTool(config=self.web_config.search, proxy=self.web_config.proxy))
-                tools.register(WebFetchTool(proxy=self.web_config.proxy))
+                tools.register(
+                    WebSearchTool(
+                        config=self.web_config.search,
+                        proxy=self.web_config.proxy,
+                        user_agent=self.web_config.user_agent,
+                    )
+                )
+                tools.register(
+                    WebFetchTool(
+                        proxy=self.web_config.proxy,
+                        user_agent=self.web_config.user_agent,
+                    )
+                )
             system_prompt = self._build_subagent_prompt()
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},

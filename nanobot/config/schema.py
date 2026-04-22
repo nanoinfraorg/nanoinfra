@@ -182,6 +182,7 @@ class WebToolsConfig(Base):
     proxy: str | None = (
         None  # HTTP/SOCKS5 proxy URL, e.g. "http://127.0.0.1:7890" or "socks5://127.0.0.1:1080"
     )
+    user_agent: str | None = None
     search: WebSearchConfig = Field(default_factory=WebSearchConfig)
 
 
