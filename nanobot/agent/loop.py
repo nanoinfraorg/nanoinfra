@@ -103,13 +103,18 @@ class _LoopHook(AgentHook):
                 if thought:
                     await self._on_progress(thought)
             tool_hint = self._loop._strip_think(self._loop._tool_hint(context.tool_calls))
-            await self._on_progress(tool_hint, tool_hint=True)
+            tool_events = [self._loop._tool_event_start_payload(tc) for tc in context.tool_calls]
+            await self._on_progress(tool_hint, tool_hint=True, tool_events=tool_events)
         for tc in context.tool_calls:
             args_str = json.dumps(tc.arguments, ensure_ascii=False)
             logger.info("Tool call: {}({})", tc.name, args_str[:200])
         self._loop._set_tool_context(self._channel, self._chat_id, self._message_id)
 
     async def after_iteration(self, context: AgentHookContext) -> None:
+        if self._on_progress and context.tool_calls and context.tool_events:
+            tool_events = self._loop._tool_event_finish_payloads(context)
+            if tool_events:
+                await self._on_progress("", tool_events=tool_events)
         u = context.usage or {}
         logger.debug(
             "LLM usage: prompt={} completion={} cached={}",
@@ -374,6 +379,58 @@ class AgentLoop:
                 pass
         sub_cancelled = await self.subagents.cancel_by_session(key)
         return cancelled + sub_cancelled
+
+    @staticmethod
+    def _tool_event_start_payload(tool_call: Any) -> dict[str, Any]:
+        return {
+            "version": 1,
+            "phase": "start",
+            "call_id": str(getattr(tool_call, "id", "") or ""),
+            "name": getattr(tool_call, "name", ""),
+            "arguments": getattr(tool_call, "arguments", {}) or {},
+            "result": None,
+            "error": None,
+            "files": [],
+            "embeds": [],
+        }
+
+    @staticmethod
+    def _tool_event_result_extras(result: Any) -> tuple[list[Any], list[Any]]:
+        if not isinstance(result, dict):
+            return [], []
+        files = result.get("files") if isinstance(result.get("files"), list) else []
+        embeds = result.get("embeds") if isinstance(result.get("embeds"), list) else []
+        return files, embeds
+
+    @classmethod
+    def _tool_event_finish_payloads(cls, context: AgentHookContext) -> list[dict[str, Any]]:
+        payloads: list[dict[str, Any]] = []
+        count = min(len(context.tool_calls), len(context.tool_results), len(context.tool_events))
+        for idx in range(count):
+            tool_call = context.tool_calls[idx]
+            result = context.tool_results[idx]
+            event = context.tool_events[idx] if isinstance(context.tool_events[idx], dict) else {}
+            status = event.get("status")
+            phase = "end" if status == "ok" else "error"
+            files, embeds = cls._tool_event_result_extras(result)
+            payload = {
+                "version": 1,
+                "phase": phase,
+                "call_id": str(getattr(tool_call, "id", "") or ""),
+                "name": getattr(tool_call, "name", ""),
+                "arguments": getattr(tool_call, "arguments", {}) or {},
+                "result": result if phase == "end" else None,
+                "error": None,
+                "files": files,
+                "embeds": embeds,
+            }
+            if phase == "error":
+                if isinstance(result, str) and result.strip():
+                    payload["error"] = result.strip()
+                else:
+                    payload["error"] = str(event.get("detail") or "Tool execution failed")
+            payloads.append(payload)
+        return payloads
 
     def _effective_session_key(self, msg: InboundMessage) -> str:
         """Return the session key used for task routing and mid-turn injections."""
@@ -726,7 +783,7 @@ class AgentLoop:
         self,
         msg: InboundMessage,
         session_key: str | None = None,
-        on_progress: Callable[[str], Awaitable[None]] | None = None,
+        on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         pending_queue: asyncio.Queue | None = None,
@@ -833,10 +890,17 @@ class AgentLoop:
             chat_id=msg.chat_id,
         )
 
-        async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
+        async def _bus_progress(
+            content: str,
+            *,
+            tool_hint: bool = False,
+            tool_events: list[dict[str, Any]] | None = None,
+        ) -> None:
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint
+            if tool_events:
+                meta["_tool_events"] = tool_events
             await self.bus.publish_outbound(
                 OutboundMessage(
                     channel=msg.channel,
@@ -1137,7 +1201,7 @@ class AgentLoop:
         channel: str = "cli",
         chat_id: str = "direct",
         media: list[str] | None = None,
-        on_progress: Callable[[str], Awaitable[None]] | None = None,
+        on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
     ) -> OutboundMessage | None:
