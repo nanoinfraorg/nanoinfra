@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import inspect
 import json
 import os
 import time
@@ -104,17 +105,32 @@ class _LoopHook(AgentHook):
                     await self._on_progress(thought)
             tool_hint = self._loop._strip_think(self._loop._tool_hint(context.tool_calls))
             tool_events = [self._loop._tool_event_start_payload(tc) for tc in context.tool_calls]
-            await self._on_progress(tool_hint, tool_hint=True, tool_events=tool_events)
+            await self._loop._invoke_on_progress(
+                self._on_progress,
+                tool_hint,
+                tool_hint=True,
+                tool_events=tool_events,
+            )
         for tc in context.tool_calls:
             args_str = json.dumps(tc.arguments, ensure_ascii=False)
             logger.info("Tool call: {}({})", tc.name, args_str[:200])
         self._loop._set_tool_context(self._channel, self._chat_id, self._message_id)
 
     async def after_iteration(self, context: AgentHookContext) -> None:
-        if self._on_progress and context.tool_calls and context.tool_events:
+        if (
+            self._on_progress
+            and context.tool_calls
+            and context.tool_events
+            and self._loop._on_progress_accepts_tool_events(self._on_progress)
+        ):
             tool_events = self._loop._tool_event_finish_payloads(context)
             if tool_events:
-                await self._on_progress("", tool_events=tool_events)
+                await self._loop._invoke_on_progress(
+                    self._on_progress,
+                    "",
+                    tool_hint=False,
+                    tool_events=tool_events,
+                )
         u = context.usage or {}
         logger.debug(
             "LLM usage: prompt={} completion={} cached={}",
@@ -379,6 +395,29 @@ class AgentLoop:
                 pass
         sub_cancelled = await self.subagents.cancel_by_session(key)
         return cancelled + sub_cancelled
+
+    @staticmethod
+    def _on_progress_accepts_tool_events(cb: Callable[..., Any]) -> bool:
+        try:
+            sig = inspect.signature(cb)
+        except (TypeError, ValueError):
+            return False
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+            return True
+        return "tool_events" in sig.parameters
+
+    @staticmethod
+    async def _invoke_on_progress(
+        on_progress: Callable[..., Awaitable[None]],
+        content: str,
+        *,
+        tool_hint: bool = False,
+        tool_events: list[dict[str, Any]] | None = None,
+    ) -> None:
+        if tool_events and AgentLoop._on_progress_accepts_tool_events(on_progress):
+            await on_progress(content, tool_hint=tool_hint, tool_events=tool_events)
+        else:
+            await on_progress(content, tool_hint=tool_hint)
 
     @staticmethod
     def _tool_event_start_payload(tool_call: Any) -> dict[str, Any]:

@@ -99,12 +99,17 @@ class TestToolEventProgress:
         loop.tools.prepare_call = MagicMock(return_value=(None, {"command": "ls"}, None))
         loop.tools.execute = AsyncMock(return_value="file.txt")
 
-        msg = InboundMessage(channel="telegram", chat_id="chat1", content="run ls")
-        await loop.run(msg)
+        msg = InboundMessage(
+            channel="telegram",
+            sender_id="u1",
+            chat_id="chat1",
+            content="run ls",
+        )
+        await loop._dispatch(msg)
 
         # Drain all outbound messages and find the one carrying _tool_events
         outbound = []
-        while bus.outbound_size() > 0:
+        while bus.outbound_size > 0:
             outbound.append(await bus.consume_outbound())
 
         tool_event_msgs = [m for m in outbound if m.metadata and m.metadata.get("_tool_events")]
