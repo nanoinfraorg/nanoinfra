@@ -20,7 +20,13 @@ from nanobot.agent.memory import Consolidator, Dream
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from nanobot.agent.skills import BUILTIN_SKILLS_DIR
 from nanobot.agent.subagent import SubagentManager
-from nanobot.agent.tools.ask import AskUserTool
+from nanobot.agent.tools.ask import (
+    AskUserTool,
+    ask_user_options_from_messages,
+    ask_user_outbound,
+    ask_user_tool_result_messages,
+    pending_ask_user_id,
+)
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.message import MessageTool
@@ -54,7 +60,6 @@ if TYPE_CHECKING:
 
 
 UNIFIED_SESSION_KEY = "unified:default"
-BUTTON_CHANNELS = frozenset({"telegram"})
 
 
 class _LoopHook(AgentHook):
@@ -409,69 +414,6 @@ class AgentLoop:
         if self._unified_session and not msg.session_key_override:
             return UNIFIED_SESSION_KEY
         return msg.session_key
-
-    @staticmethod
-    def _tool_call_name(tool_call: dict[str, Any]) -> str:
-        function = tool_call.get("function")
-        if isinstance(function, dict) and isinstance(function.get("name"), str):
-            return function["name"]
-        name = tool_call.get("name")
-        return name if isinstance(name, str) else ""
-
-    @staticmethod
-    def _tool_call_arguments(tool_call: dict[str, Any]) -> dict[str, Any]:
-        function = tool_call.get("function")
-        raw = function.get("arguments") if isinstance(function, dict) else tool_call.get("arguments")
-        if isinstance(raw, dict):
-            return raw
-        if isinstance(raw, str):
-            try:
-                parsed = json.loads(raw)
-            except json.JSONDecodeError:
-                return {}
-            return parsed if isinstance(parsed, dict) else {}
-        return {}
-
-    def _pending_ask_user_id(self, history: list[dict[str, Any]]) -> str | None:
-        pending: dict[str, str] = {}
-        for message in history:
-            if message.get("role") == "assistant":
-                for tool_call in message.get("tool_calls") or []:
-                    if isinstance(tool_call, dict) and isinstance(tool_call.get("id"), str):
-                        pending[tool_call["id"]] = self._tool_call_name(tool_call)
-            elif message.get("role") == "tool":
-                tool_call_id = message.get("tool_call_id")
-                if isinstance(tool_call_id, str):
-                    pending.pop(tool_call_id, None)
-        for tool_call_id, name in reversed(pending.items()):
-            if name == "ask_user":
-                return tool_call_id
-        return None
-
-    def _ask_user_options_from_messages(self, messages: list[dict[str, Any]]) -> list[str]:
-        for message in reversed(messages):
-            if message.get("role") != "assistant":
-                continue
-            for tool_call in reversed(message.get("tool_calls") or []):
-                if not isinstance(tool_call, dict) or self._tool_call_name(tool_call) != "ask_user":
-                    continue
-                options = self._tool_call_arguments(tool_call).get("options")
-                if isinstance(options, list):
-                    return [str(option) for option in options if isinstance(option, str)]
-        return []
-
-    @staticmethod
-    def _ask_user_outbound(
-        content: str | None,
-        options: list[str],
-        channel: str,
-    ) -> tuple[str | None, list[list[str]]]:
-        if not options:
-            return content, []
-        if channel in BUTTON_CHANNELS:
-            return content, [options]
-        option_text = "\n".join(f"{index}. {option}" for index, option in enumerate(options, 1))
-        return f"{content}\n\n{option_text}" if content else option_text, []
 
     async def _run_agent_loop(
         self,
@@ -874,8 +816,8 @@ class AgentLoop:
             self._clear_runtime_checkpoint(session)
             self.sessions.save(session)
             self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
-            options = self._ask_user_options_from_messages(all_msgs) if stop_reason == "ask_user" else []
-            content, buttons = self._ask_user_outbound(
+            options = ask_user_options_from_messages(all_msgs) if stop_reason == "ask_user" else []
+            content, buttons = ask_user_outbound(
                 final_content or "Background task completed.",
                 options,
                 channel,
@@ -923,18 +865,14 @@ class AgentLoop:
 
         history = session.get_history(max_messages=0)
 
-        pending_ask_id = self._pending_ask_user_id(history)
+        pending_ask_id = pending_ask_user_id(history)
         if pending_ask_id:
-            initial_messages = [
-                {"role": "system", "content": self.context.build_system_prompt(channel=msg.channel)},
-                *history,
-                {
-                    "role": "tool",
-                    "tool_call_id": pending_ask_id,
-                    "name": "ask_user",
-                    "content": msg.content,
-                },
-            ]
+            initial_messages = ask_user_tool_result_messages(
+                self.context.build_system_prompt(channel=msg.channel),
+                history,
+                pending_ask_id,
+                msg.content,
+            )
         else:
             initial_messages = self.context.build_messages(
                 history=history,
@@ -1030,12 +968,12 @@ class AgentLoop:
         logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
 
         meta = dict(msg.metadata or {})
-        final_content, buttons = self._ask_user_outbound(
+        final_content, buttons = ask_user_outbound(
             final_content,
-            self._ask_user_options_from_messages(all_msgs) if stop_reason == "ask_user" else [],
+            ask_user_options_from_messages(all_msgs) if stop_reason == "ask_user" else [],
             msg.channel,
         )
-        if on_stream is not None and stop_reason != "error":
+        if on_stream is not None and stop_reason not in {"ask_user", "error"}:
             meta["_streamed"] = True
         return OutboundMessage(
             channel=msg.channel,

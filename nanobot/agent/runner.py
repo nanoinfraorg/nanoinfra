@@ -278,17 +278,22 @@ class AgentRunner:
             self._accumulate_usage(usage, raw_usage)
 
             if response.should_execute_tools:
+                tool_calls = list(response.tool_calls)
+                ask_index = next((i for i, tc in enumerate(tool_calls) if tc.name == "ask_user"), None)
+                if ask_index is not None:
+                    tool_calls = tool_calls[: ask_index + 1]
+                context.tool_calls = list(tool_calls)
                 if hook.wants_streaming():
                     await hook.on_stream_end(context, resuming=True)
 
                 assistant_message = build_assistant_message(
                     response.content or "",
-                    tool_calls=[tc.to_openai_tool_call() for tc in response.tool_calls],
+                    tool_calls=[tc.to_openai_tool_call() for tc in tool_calls],
                     reasoning_content=response.reasoning_content,
                     thinking_blocks=response.thinking_blocks,
                 )
                 messages.append(assistant_message)
-                tools_used.extend(tc.name for tc in response.tool_calls)
+                tools_used.extend(tc.name for tc in tool_calls)
                 await self._emit_checkpoint(
                     spec,
                     {
@@ -297,7 +302,7 @@ class AgentRunner:
                         "model": spec.model,
                         "assistant_message": assistant_message,
                         "completed_tool_results": [],
-                        "pending_tool_calls": [tc.to_openai_tool_call() for tc in response.tool_calls],
+                        "pending_tool_calls": [tc.to_openai_tool_call() for tc in tool_calls],
                     },
                 )
 
@@ -305,14 +310,14 @@ class AgentRunner:
 
                 results, new_events, fatal_error = await self._execute_tools(
                     spec,
-                    response.tool_calls,
+                    tool_calls,
                     external_lookup_counts,
                 )
                 tool_events.extend(new_events)
                 context.tool_results = list(results)
                 context.tool_events = list(new_events)
                 completed_tool_results: list[dict[str, Any]] = []
-                for tool_call, result in zip(response.tool_calls, results):
+                for tool_call, result in zip(tool_calls, results):
                     if isinstance(fatal_error, AskUserInterrupt) and tool_call.name == "ask_user":
                         continue
                     tool_message = {
@@ -700,7 +705,7 @@ class AgentRunner:
         tool_call: ToolCallRequest,
         external_lookup_counts: dict[str, int],
     ) -> tuple[Any, dict[str, str], BaseException | None]:
-        _HINT = "\n\n[Analyze the error above and try a different approach.]"
+        hint = "\n\n[Analyze the error above and try a different approach.]"
         lookup_error = repeated_external_lookup_error(
             tool_call.name,
             tool_call.arguments,
@@ -713,8 +718,8 @@ class AgentRunner:
                 "detail": "repeated external lookup blocked",
             }
             if spec.fail_on_tool_error:
-                return lookup_error + _HINT, event, RuntimeError(lookup_error)
-            return lookup_error + _HINT, event, None
+                return lookup_error + hint, event, RuntimeError(lookup_error)
+            return lookup_error + hint, event, None
         prepare_call = getattr(spec.tools, "prepare_call", None)
         tool, params, prep_error = None, tool_call.arguments, None
         if callable(prepare_call):
@@ -730,7 +735,7 @@ class AgentRunner:
                 "status": "error",
                 "detail": prep_error.split(": ", 1)[-1][:120],
             }
-            return prep_error + _HINT, event, RuntimeError(prep_error) if spec.fail_on_tool_error else None
+            return prep_error + hint, event, RuntimeError(prep_error) if spec.fail_on_tool_error else None
         try:
             if tool is not None:
                 result = await tool.execute(**params)
@@ -758,8 +763,8 @@ class AgentRunner:
                 "detail": result.replace("\n", " ").strip()[:120],
             }
             if spec.fail_on_tool_error:
-                return result + _HINT, event, RuntimeError(result)
-            return result + _HINT, event, None
+                return result + hint, event, RuntimeError(result)
+            return result + hint, event, None
 
         detail = "" if result is None else str(result)
         detail = detail.replace("\n", " ").strip()

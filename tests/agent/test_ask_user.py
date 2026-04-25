@@ -15,10 +15,15 @@ from nanobot.providers.base import GenerationSettings, LLMResponse, ToolCallRequ
 
 
 def _make_provider(chat_with_retry):
+    async def chat_stream_with_retry(**kwargs):
+        kwargs.pop("on_content_delta", None)
+        return await chat_with_retry(**kwargs)
+
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
     provider.generation = GenerationSettings()
     provider.chat_with_retry = chat_with_retry
+    provider.chat_stream_with_retry = chat_stream_with_retry
     return provider
 
 
@@ -88,7 +93,8 @@ async def test_runner_pauses_on_ask_user_without_executing_later_tools():
     assert "ask_user" in result.tools_used
     assert later.called is False
     assert result.messages[-1]["role"] == "assistant"
-    assert result.messages[-1]["tool_calls"][0]["function"]["name"] == "ask_user"
+    tool_calls = result.messages[-1]["tool_calls"]
+    assert [tool_call["function"]["name"] for tool_call in tool_calls] == ["ask_user"]
     assert not any(message.get("name") == "ask_user" for message in result.messages)
 
 
@@ -122,13 +128,22 @@ async def test_ask_user_text_fallback_resumes_with_next_message(tmp_path):
         model="test-model",
     )
 
+    async def on_stream(delta: str) -> None:
+        pass
+
+    async def on_stream_end(**kwargs) -> None:
+        pass
+
     first = await loop._process_message(
-        InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="set it up")
+        InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="set it up"),
+        on_stream=on_stream,
+        on_stream_end=on_stream_end,
     )
 
     assert first is not None
     assert first.content == "Install the optional package?\n\n1. Install\n2. Skip"
     assert first.buttons == []
+    assert "_streamed" not in first.metadata
 
     session = loop.sessions.get_or_create("cli:direct")
     assert any(message.get("role") == "assistant" and message.get("tool_calls") for message in session.messages)
