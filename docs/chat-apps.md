@@ -651,6 +651,7 @@ Create or reuse a Microsoft Teams / Azure bot app registration. Set the bot mess
 > - `replyInThread: true` replies to the triggering Teams activity when a stored `activity_id` is available.
 > - `mentionOnlyResponse` controls what Nanobot receives when a user sends only a bot mention (`<at>Nanobot</at>`). Set to `""` to ignore mention-only messages.
 > - `validateInboundAuth: true` enables inbound Bot Framework bearer-token validation (signature, issuer, audience, lifetime, `serviceUrl`). This is the safe default for public deployments. Only set it to `false` for local development or tightly controlled testing.
+> - Conversation refs are auto-pruned to avoid bad outbound routing: Web Chat refs, non-`personal` refs, and refs older than 30 days are removed.
 
 **4. Run**
 

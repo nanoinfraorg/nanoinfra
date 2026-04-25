@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 import nanobot.channels.msteams as msteams_module
 from nanobot.bus.events import OutboundMessage
-from nanobot.channels.msteams import ConversationRef, MSTeamsChannel, MSTeamsConfig
+from nanobot.channels.msteams import ConversationRef, MSTeamsChannel
 
 
 class DummyBus:
@@ -115,6 +115,95 @@ async def test_handle_activity_personal_message_publishes_and_stores_ref(make_ch
     saved = json.loads((tmp_path / "state" / "msteams_conversations.json").read_text(encoding="utf-8"))
     assert saved["conv-123"]["conversation_id"] == "conv-123"
     assert saved["conv-123"]["tenant_id"] == "tenant-id"
+    assert float(saved["conv-123"]["updated_at"]) > 0
+
+
+def test_init_prunes_stale_and_unsupported_conversation_refs(make_channel, tmp_path, monkeypatch):
+    now = 1_800_000_000.0
+    monkeypatch.setattr(msteams_module.time, "time", lambda: now)
+
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    refs_path = state_dir / "msteams_conversations.json"
+    refs_path.write_text(
+        json.dumps(
+            {
+                "conv-valid": {
+                    "service_url": "https://smba.trafficmanager.net/amer/",
+                    "conversation_id": "conv-valid",
+                    "conversation_type": "personal",
+                    "updated_at": now - 60,
+                },
+                "conv-webchat": {
+                    "service_url": "https://webchat.botframework.com/",
+                    "conversation_id": "conv-webchat",
+                    "conversation_type": "personal",
+                    "updated_at": now - 60,
+                },
+                "conv-group": {
+                    "service_url": "https://smba.trafficmanager.net/amer/",
+                    "conversation_id": "conv-group",
+                    "conversation_type": "channel",
+                    "updated_at": now - 60,
+                },
+                "conv-stale": {
+                    "service_url": "https://smba.trafficmanager.net/amer/",
+                    "conversation_id": "conv-stale",
+                    "conversation_type": "personal",
+                    "updated_at": now - msteams_module.MSTEAMS_REF_TTL_S - 1,
+                },
+                "conv-missing-ts": {
+                    "service_url": "https://smba.trafficmanager.net/amer/",
+                    "conversation_id": "conv-missing-ts",
+                    "conversation_type": "personal",
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    ch = make_channel()
+
+    assert set(ch._conversation_refs.keys()) == {"conv-valid"}
+    assert ch._conversation_refs["conv-valid"].conversation_id == "conv-valid"
+
+    persisted = json.loads(refs_path.read_text(encoding="utf-8"))
+    assert set(persisted.keys()) == {"conv-valid"}
+
+
+def test_save_prunes_unsupported_conversation_refs(make_channel, tmp_path, monkeypatch):
+    now = 1_800_000_000.0
+    monkeypatch.setattr(msteams_module.time, "time", lambda: now)
+
+    ch = make_channel()
+    ch._conversation_refs = {
+        "conv-valid": ConversationRef(
+            service_url="https://smba.trafficmanager.net/amer/",
+            conversation_id="conv-valid",
+            conversation_type="personal",
+            updated_at=now,
+        ),
+        "conv-webchat": ConversationRef(
+            service_url="https://webchat.botframework.com/",
+            conversation_id="conv-webchat",
+            conversation_type="personal",
+            updated_at=now,
+        ),
+        "conv-group": ConversationRef(
+            service_url="https://smba.trafficmanager.net/amer/",
+            conversation_id="conv-group",
+            conversation_type="groupChat",
+            updated_at=now,
+        ),
+    }
+
+    ch._save_refs()
+
+    assert set(ch._conversation_refs.keys()) == {"conv-valid"}
+
+    saved = json.loads((tmp_path / "state" / "msteams_conversations.json").read_text(encoding="utf-8"))
+    assert set(saved.keys()) == {"conv-valid"}
 
 
 @pytest.mark.asyncio
@@ -558,5 +647,3 @@ def test_msteams_default_config_includes_restart_notify_fields():
     assert "restartNotifyEnabled" not in cfg
     assert "restartNotifyPreMessage" not in cfg
     assert "restartNotifyPostMessage" not in cfg
-
-

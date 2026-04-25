@@ -21,6 +21,7 @@ import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import httpx
 from loguru import logger
@@ -42,6 +43,10 @@ if TYPE_CHECKING:
 
 if MSTEAMS_AVAILABLE:
     import jwt
+
+MSTEAMS_REF_TTL_DAYS = 30
+MSTEAMS_REF_TTL_S = MSTEAMS_REF_TTL_DAYS * 24 * 60 * 60
+MSTEAMS_WEBCHAT_HOST = "webchat.botframework.com"
 
 
 class MSTeamsConfig(Base):
@@ -70,6 +75,7 @@ class ConversationRef:
     activity_id: str | None = None
     conversation_type: str | None = None
     tenant_id: str | None = None
+    updated_at: float | None = None
 
 
 class MSTeamsChannel(BaseChannel):
@@ -103,6 +109,8 @@ class MSTeamsChannel(BaseChannel):
         self._refs_path = get_workspace_path() / "state" / "msteams_conversations.json"
         self._refs_path.parent.mkdir(parents=True, exist_ok=True)
         self._conversation_refs: dict[str, ConversationRef] = self._load_refs()
+        if self._prune_conversation_refs():
+            self._save_refs(prune=False)
 
     async def start(self) -> None:
         """Start the Teams webhook listener."""
@@ -289,6 +297,7 @@ class MSTeamsChannel(BaseChannel):
             activity_id=activity_id or None,
             conversation_type=conversation_type or None,
             tenant_id=str((channel_data.get("tenant") or {}).get("id") or "") or None,
+            updated_at=time.time(),
         )
         self._save_refs()
 
@@ -491,9 +500,59 @@ class MSTeamsChannel(BaseChannel):
             logger.warning("Failed to load MSTeams conversation refs: {}", e)
             return {}
 
-    def _save_refs(self) -> None:
+    def _is_webchat_service_url(self, service_url: str) -> bool:
+        """Return True when service URL points to unsupported Bot Framework Web Chat."""
+        normalized = service_url.strip()
+        if not normalized:
+            return False
+        host = (urlparse(normalized).hostname or "").strip().lower()
+        if host:
+            return host == MSTEAMS_WEBCHAT_HOST or host.endswith(f".{MSTEAMS_WEBCHAT_HOST}")
+        return MSTEAMS_WEBCHAT_HOST in normalized.lower()
+
+    def _prune_conversation_refs(self, *, now: float | None = None) -> bool:
+        """Remove stale and unsupported conversation refs from memory."""
+        if not self._conversation_refs:
+            return False
+
+        now_ts = time.time() if now is None else now
+        stale_before = now_ts - MSTEAMS_REF_TTL_S
+        keys_to_drop: list[str] = []
+
+        for key, ref in self._conversation_refs.items():
+            if self._is_webchat_service_url(ref.service_url):
+                keys_to_drop.append(key)
+                continue
+
+            conv_type = str(ref.conversation_type or "").strip().lower()
+            if conv_type and conv_type != "personal":
+                keys_to_drop.append(key)
+                continue
+
+            try:
+                updated_at = float(ref.updated_at) if ref.updated_at is not None else 0.0
+            except (TypeError, ValueError):
+                updated_at = 0.0
+            if updated_at <= 0 or updated_at < stale_before:
+                keys_to_drop.append(key)
+
+        if not keys_to_drop:
+            return False
+
+        for key in keys_to_drop:
+            self._conversation_refs.pop(key, None)
+        logger.info(
+            "MSTeams pruned {} stale/unsupported conversation refs (ttl={} days)",
+            len(keys_to_drop),
+            MSTEAMS_REF_TTL_DAYS,
+        )
+        return True
+
+    def _save_refs(self, *, prune: bool = True) -> None:
         """Persist conversation references."""
         try:
+            if prune:
+                self._prune_conversation_refs()
             data = {
                 key: {
                     "service_url": ref.service_url,
@@ -502,6 +561,7 @@ class MSTeamsChannel(BaseChannel):
                     "activity_id": ref.activity_id,
                     "conversation_type": ref.conversation_type,
                     "tenant_id": ref.tenant_id,
+                    "updated_at": ref.updated_at,
                 }
                 for key, ref in self._conversation_refs.items()
             }
