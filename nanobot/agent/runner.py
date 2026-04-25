@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
 import inspect
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
 from nanobot.agent.hook import AgentHook, AgentHookContext
-from nanobot.utils.prompt_templates import render_template
+from nanobot.agent.tools.ask import AskUserInterrupt
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.utils.helpers import (
@@ -23,6 +23,7 @@ from nanobot.utils.helpers import (
     maybe_persist_tool_result,
     truncate_text,
 )
+from nanobot.utils.prompt_templates import render_template
 from nanobot.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
     build_finalization_retry_message,
@@ -312,6 +313,8 @@ class AgentRunner:
                 context.tool_events = list(new_events)
                 completed_tool_results: list[dict[str, Any]] = []
                 for tool_call, result in zip(response.tool_calls, results):
+                    if isinstance(fatal_error, AskUserInterrupt) and tool_call.name == "ask_user":
+                        continue
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": tool_call.id,
@@ -326,6 +329,15 @@ class AgentRunner:
                     messages.append(tool_message)
                     completed_tool_results.append(tool_message)
                 if fatal_error is not None:
+                    if isinstance(fatal_error, AskUserInterrupt):
+                        final_content = fatal_error.question
+                        stop_reason = "ask_user"
+                        context.final_content = final_content
+                        context.stop_reason = stop_reason
+                        if hook.wants_streaming():
+                            await hook.on_stream_end(context, resuming=False)
+                        await hook.after_iteration(context)
+                        break
                     error = f"Error: {type(fatal_error).__name__}: {fatal_error}"
                     final_content = error
                     stop_reason = "tool_error"
@@ -656,13 +668,21 @@ class AgentRunner:
         tool_results: list[tuple[Any, dict[str, str], BaseException | None]] = []
         for batch in batches:
             if spec.concurrent_tools and len(batch) > 1:
-                tool_results.extend(await asyncio.gather(*(
+                batch_results = await asyncio.gather(*(
                     self._run_tool(spec, tool_call, external_lookup_counts)
                     for tool_call in batch
-                )))
+                ))
+                tool_results.extend(batch_results)
             else:
+                batch_results = []
                 for tool_call in batch:
-                    tool_results.append(await self._run_tool(spec, tool_call, external_lookup_counts))
+                    result = await self._run_tool(spec, tool_call, external_lookup_counts)
+                    tool_results.append(result)
+                    batch_results.append(result)
+                    if isinstance(result[2], AskUserInterrupt):
+                        break
+            if any(isinstance(error, AskUserInterrupt) for _, _, error in batch_results):
+                break
 
         results: list[Any] = []
         events: list[dict[str, str]] = []
@@ -724,6 +744,9 @@ class AgentRunner:
                 "status": "error",
                 "detail": str(exc),
             }
+            if isinstance(exc, AskUserInterrupt):
+                event["status"] = "waiting"
+                return "", event, exc
             if spec.fail_on_tool_error:
                 return f"Error: {type(exc).__name__}: {exc}", event, exc
             return f"Error: {type(exc).__name__}: {exc}", event, None

@@ -20,14 +20,15 @@ from nanobot.agent.memory import Consolidator, Dream
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from nanobot.agent.skills import BUILTIN_SKILLS_DIR
 from nanobot.agent.subagent import SubagentManager
+from nanobot.agent.tools.ask import AskUserTool
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.notebook import NotebookEditTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.search import GlobTool, GrepTool
-from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.self import MyTool
+from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
@@ -287,6 +288,7 @@ class AgentLoop:
             self.workspace if (self.restrict_to_workspace or self.exec_config.sandbox) else None
         )
         extra_read = [BUILTIN_SKILLS_DIR] if allowed_dir else None
+        self.tools.register(AskUserTool())
         self.tools.register(
             ReadFileTool(
                 workspace=self.workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read
@@ -406,6 +408,56 @@ class AgentLoop:
         if self._unified_session and not msg.session_key_override:
             return UNIFIED_SESSION_KEY
         return msg.session_key
+
+    @staticmethod
+    def _tool_call_name(tool_call: dict[str, Any]) -> str:
+        function = tool_call.get("function")
+        if isinstance(function, dict) and isinstance(function.get("name"), str):
+            return function["name"]
+        name = tool_call.get("name")
+        return name if isinstance(name, str) else ""
+
+    @staticmethod
+    def _tool_call_arguments(tool_call: dict[str, Any]) -> dict[str, Any]:
+        function = tool_call.get("function")
+        raw = function.get("arguments") if isinstance(function, dict) else tool_call.get("arguments")
+        if isinstance(raw, dict):
+            return raw
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return {}
+
+    def _pending_ask_user_id(self, history: list[dict[str, Any]]) -> str | None:
+        pending: dict[str, str] = {}
+        for message in history:
+            if message.get("role") == "assistant":
+                for tool_call in message.get("tool_calls") or []:
+                    if isinstance(tool_call, dict) and isinstance(tool_call.get("id"), str):
+                        pending[tool_call["id"]] = self._tool_call_name(tool_call)
+            elif message.get("role") == "tool":
+                tool_call_id = message.get("tool_call_id")
+                if isinstance(tool_call_id, str):
+                    pending.pop(tool_call_id, None)
+        for tool_call_id, name in reversed(pending.items()):
+            if name == "ask_user":
+                return tool_call_id
+        return None
+
+    def _ask_user_options_from_messages(self, messages: list[dict[str, Any]]) -> list[str]:
+        for message in reversed(messages):
+            if message.get("role") != "assistant":
+                continue
+            for tool_call in reversed(message.get("tool_calls") or []):
+                if not isinstance(tool_call, dict) or self._tool_call_name(tool_call) != "ask_user":
+                    continue
+                options = self._tool_call_arguments(tool_call).get("options")
+                if isinstance(options, list):
+                    return [str(option) for option in options if isinstance(option, str)]
+        return []
 
     async def _run_agent_loop(
         self,
@@ -799,7 +851,7 @@ class AgentLoop:
                 session_summary=pending,
                 current_role=current_role,
             )
-            final_content, _, all_msgs, _, _ = await self._run_agent_loop(
+            final_content, _, all_msgs, stop_reason, _ = await self._run_agent_loop(
                 messages, session=session, channel=channel, chat_id=chat_id,
                 message_id=msg.metadata.get("message_id"),
                 pending_queue=pending_queue,
@@ -808,10 +860,12 @@ class AgentLoop:
             self._clear_runtime_checkpoint(session)
             self.sessions.save(session)
             self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
+            options = self._ask_user_options_from_messages(all_msgs) if stop_reason == "ask_user" else []
             return OutboundMessage(
                 channel=channel,
                 chat_id=chat_id,
                 content=final_content or "Background task completed.",
+                buttons=[options] if options else [],
             )
 
         # Extract document text from media at the processing boundary so all
@@ -850,14 +904,27 @@ class AgentLoop:
 
         history = session.get_history(max_messages=0)
 
-        initial_messages = self.context.build_messages(
-            history=history,
-            current_message=msg.content,
-            session_summary=pending,
-            media=msg.media if msg.media else None,
-            channel=msg.channel,
-            chat_id=msg.chat_id,
-        )
+        pending_ask_id = self._pending_ask_user_id(history)
+        if pending_ask_id:
+            initial_messages = [
+                {"role": "system", "content": self.context.build_system_prompt(channel=msg.channel)},
+                *history,
+                {
+                    "role": "tool",
+                    "tool_call_id": pending_ask_id,
+                    "name": "ask_user",
+                    "content": msg.content,
+                },
+            ]
+        else:
+            initial_messages = self.context.build_messages(
+                history=history,
+                current_message=msg.content,
+                session_summary=pending,
+                media=msg.media if msg.media else None,
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+            )
 
         async def _bus_progress(
             content: str,
@@ -898,7 +965,7 @@ class AgentLoop:
         user_persisted_early = False
         media_paths = [p for p in (msg.media or []) if isinstance(p, str) and p]
         has_text = isinstance(msg.content, str) and msg.content.strip()
-        if has_text or media_paths:
+        if not pending_ask_id and (has_text or media_paths):
             extra: dict[str, Any] = {"media": list(media_paths)} if media_paths else {}
             text = msg.content if isinstance(msg.content, str) else ""
             session.add_message("user", text, **extra)
@@ -944,6 +1011,11 @@ class AgentLoop:
         logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
 
         meta = dict(msg.metadata or {})
+        buttons: list[list[str]] = []
+        if stop_reason == "ask_user":
+            options = self._ask_user_options_from_messages(all_msgs)
+            if options:
+                buttons = [options]
         if on_stream is not None and stop_reason != "error":
             meta["_streamed"] = True
         return OutboundMessage(
@@ -951,6 +1023,7 @@ class AgentLoop:
             chat_id=msg.chat_id,
             content=final_content,
             metadata=meta,
+            buttons=buttons,
         )
 
     def _sanitize_persisted_blocks(
