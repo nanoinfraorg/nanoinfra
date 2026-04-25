@@ -54,6 +54,7 @@ if TYPE_CHECKING:
 
 
 UNIFIED_SESSION_KEY = "unified:default"
+BUTTON_CHANNELS = frozenset({"telegram"})
 
 
 class _LoopHook(AgentHook):
@@ -459,6 +460,19 @@ class AgentLoop:
                     return [str(option) for option in options if isinstance(option, str)]
         return []
 
+    @staticmethod
+    def _ask_user_outbound(
+        content: str | None,
+        options: list[str],
+        channel: str,
+    ) -> tuple[str | None, list[list[str]]]:
+        if not options:
+            return content, []
+        if channel in BUTTON_CHANNELS:
+            return content, [options]
+        option_text = "\n".join(f"{index}. {option}" for index, option in enumerate(options, 1))
+        return f"{content}\n\n{option_text}" if content else option_text, []
+
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
@@ -861,11 +875,16 @@ class AgentLoop:
             self.sessions.save(session)
             self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
             options = self._ask_user_options_from_messages(all_msgs) if stop_reason == "ask_user" else []
+            content, buttons = self._ask_user_outbound(
+                final_content or "Background task completed.",
+                options,
+                channel,
+            )
             return OutboundMessage(
                 channel=channel,
                 chat_id=chat_id,
-                content=final_content or "Background task completed.",
-                buttons=[options] if options else [],
+                content=content,
+                buttons=buttons,
             )
 
         # Extract document text from media at the processing boundary so all
@@ -1011,11 +1030,11 @@ class AgentLoop:
         logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
 
         meta = dict(msg.metadata or {})
-        buttons: list[list[str]] = []
-        if stop_reason == "ask_user":
-            options = self._ask_user_options_from_messages(all_msgs)
-            if options:
-                buttons = [options]
+        final_content, buttons = self._ask_user_outbound(
+            final_content,
+            self._ask_user_options_from_messages(all_msgs) if stop_reason == "ask_user" else [],
+            msg.channel,
+        )
         if on_stream is not None and stop_reason != "error":
             meta["_streamed"] = True
         return OutboundMessage(

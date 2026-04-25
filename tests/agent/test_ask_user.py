@@ -93,7 +93,7 @@ async def test_runner_pauses_on_ask_user_without_executing_later_tools():
 
 
 @pytest.mark.asyncio
-async def test_ask_user_sends_buttons_and_resumes_with_next_message(tmp_path):
+async def test_ask_user_text_fallback_resumes_with_next_message(tmp_path):
     seen_messages: list[list[dict]] = []
 
     async def chat_with_retry(**kwargs):
@@ -127,8 +127,8 @@ async def test_ask_user_sends_buttons_and_resumes_with_next_message(tmp_path):
     )
 
     assert first is not None
-    assert first.content == "Install the optional package?"
-    assert first.buttons == [["Install", "Skip"]]
+    assert first.content == "Install the optional package?\n\n1. Install\n2. Skip"
+    assert first.buttons == []
 
     session = loop.sessions.get_or_create("cli:direct")
     assert any(message.get("role") == "assistant" and message.get("tool_calls") for message in session.messages)
@@ -156,3 +156,37 @@ async def test_ask_user_sends_buttons_and_resumes_with_next_message(tmp_path):
         and message.get("content") == "Skip"
         for message in session.messages
     )
+
+
+@pytest.mark.asyncio
+async def test_ask_user_keeps_buttons_for_telegram(tmp_path):
+    async def chat_with_retry(**kwargs):
+        return LLMResponse(
+            content="",
+            finish_reason="tool_calls",
+            tool_calls=[
+                ToolCallRequest(
+                    id="call_ask",
+                    name="ask_user",
+                    arguments={
+                        "question": "Install the optional package?",
+                        "options": ["Install", "Skip"],
+                    },
+                )
+            ],
+        )
+
+    loop = AgentLoop(
+        bus=MessageBus(),
+        provider=_make_provider(chat_with_retry),
+        workspace=tmp_path,
+        model="test-model",
+    )
+
+    response = await loop._process_message(
+        InboundMessage(channel="telegram", sender_id="user", chat_id="123", content="set it up")
+    )
+
+    assert response is not None
+    assert response.content == "Install the optional package?"
+    assert response.buttons == [["Install", "Skip"]]
