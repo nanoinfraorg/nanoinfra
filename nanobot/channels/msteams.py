@@ -15,7 +15,9 @@ import asyncio
 import html
 import importlib.util
 import json
+import os
 import re
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -63,6 +65,9 @@ class MSTeamsConfig(Base):
     reply_in_thread: bool = True
     mention_only_response: str = "Hi — what can I help with?"
     validate_inbound_auth: bool = True
+    ref_ttl_days: int = Field(default=MSTEAMS_REF_TTL_DAYS, ge=1)
+    prune_web_chat_refs: bool = True
+    prune_non_personal_refs: bool = True
 
 
 @dataclass
@@ -516,16 +521,17 @@ class MSTeamsChannel(BaseChannel):
             return False
 
         now_ts = time.time() if now is None else now
-        stale_before = now_ts - MSTEAMS_REF_TTL_S
+        ttl_days = int(self.config.ref_ttl_days)
+        stale_before = now_ts - (ttl_days * 24 * 60 * 60)
         keys_to_drop: list[str] = []
 
         for key, ref in self._conversation_refs.items():
-            if self._is_webchat_service_url(ref.service_url):
+            if self.config.prune_web_chat_refs and self._is_webchat_service_url(ref.service_url):
                 keys_to_drop.append(key)
                 continue
 
             conv_type = str(ref.conversation_type or "").strip().lower()
-            if conv_type and conv_type != "personal":
+            if self.config.prune_non_personal_refs and conv_type and conv_type != "personal":
                 keys_to_drop.append(key)
                 continue
 
@@ -544,9 +550,31 @@ class MSTeamsChannel(BaseChannel):
         logger.info(
             "MSTeams pruned {} stale/unsupported conversation refs (ttl={} days)",
             len(keys_to_drop),
-            MSTEAMS_REF_TTL_DAYS,
+            ttl_days,
         )
         return True
+
+    def _write_refs_atomically(self, data: dict[str, Any]) -> None:
+        """Write refs JSON atomically to reduce corruption risk during crashes."""
+        payload = json.dumps(data, indent=2)
+        tmp_path: str | None = None
+        try:
+            fd, tmp_path = tempfile.mkstemp(
+                dir=str(self._refs_path.parent),
+                prefix=f"{self._refs_path.name}.",
+                suffix=".tmp",
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self._refs_path)
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
     def _save_refs(self, *, prune: bool = True) -> None:
         """Persist conversation references."""
@@ -565,7 +593,7 @@ class MSTeamsChannel(BaseChannel):
                 }
                 for key, ref in self._conversation_refs.items()
             }
-            self._refs_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            self._write_refs_atomically(data)
         except Exception as e:
             logger.warning("Failed to save MSTeams conversation refs: {}", e)
 

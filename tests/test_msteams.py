@@ -206,6 +206,115 @@ def test_save_prunes_unsupported_conversation_refs(make_channel, tmp_path, monke
     assert set(saved.keys()) == {"conv-valid"}
 
 
+def test_init_respects_prune_toggle_flags(make_channel, tmp_path, monkeypatch):
+    now = 1_800_000_000.0
+    monkeypatch.setattr(msteams_module.time, "time", lambda: now)
+
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    refs_path = state_dir / "msteams_conversations.json"
+    refs_path.write_text(
+        json.dumps(
+            {
+                "conv-webchat": {
+                    "service_url": "https://webchat.botframework.com/",
+                    "conversation_id": "conv-webchat",
+                    "conversation_type": "personal",
+                    "updated_at": now - 60,
+                },
+                "conv-group": {
+                    "service_url": "https://smba.trafficmanager.net/amer/",
+                    "conversation_id": "conv-group",
+                    "conversation_type": "channel",
+                    "updated_at": now - 60,
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    ch = make_channel(pruneWebChatRefs=False, pruneNonPersonalRefs=False)
+
+    assert set(ch._conversation_refs.keys()) == {"conv-webchat", "conv-group"}
+    persisted = json.loads(refs_path.read_text(encoding="utf-8"))
+    assert set(persisted.keys()) == {"conv-webchat", "conv-group"}
+
+
+def test_init_respects_custom_ref_ttl_days(make_channel, tmp_path, monkeypatch):
+    now = 1_800_000_000.0
+    monkeypatch.setattr(msteams_module.time, "time", lambda: now)
+
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    refs_path = state_dir / "msteams_conversations.json"
+    refs_path.write_text(
+        json.dumps(
+            {
+                "conv-fresh": {
+                    "service_url": "https://smba.trafficmanager.net/amer/",
+                    "conversation_id": "conv-fresh",
+                    "conversation_type": "personal",
+                    "updated_at": now - 12 * 60 * 60,
+                },
+                "conv-old": {
+                    "service_url": "https://smba.trafficmanager.net/amer/",
+                    "conversation_id": "conv-old",
+                    "conversation_type": "personal",
+                    "updated_at": now - 10 * 24 * 60 * 60,
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    ch = make_channel(refTtlDays=1)
+
+    assert set(ch._conversation_refs.keys()) == {"conv-fresh"}
+    persisted = json.loads(refs_path.read_text(encoding="utf-8"))
+    assert set(persisted.keys()) == {"conv-fresh"}
+
+
+def test_save_uses_atomic_replace_and_keeps_existing_file_on_replace_error(make_channel, tmp_path, monkeypatch):
+    ch = make_channel()
+    refs_path = tmp_path / "state" / "msteams_conversations.json"
+    refs_path.write_text(
+        json.dumps(
+            {
+                "conv-old": {
+                    "service_url": "https://smba.trafficmanager.net/amer/",
+                    "conversation_id": "conv-old",
+                    "conversation_type": "personal",
+                    "updated_at": 1_700_000_000.0,
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    ch._conversation_refs = {
+        "conv-new": ConversationRef(
+            service_url="https://smba.trafficmanager.net/amer/",
+            conversation_id="conv-new",
+            conversation_type="personal",
+            updated_at=1_800_000_000.0,
+        )
+    }
+
+    def _raise_replace(_src, _dst):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(msteams_module.os, "replace", _raise_replace)
+    ch._save_refs()
+
+    persisted = json.loads(refs_path.read_text(encoding="utf-8"))
+    assert set(persisted.keys()) == {"conv-old"}
+    tmp_files = list((tmp_path / "state").glob("msteams_conversations.json.*.tmp"))
+    assert tmp_files == []
+
+
 @pytest.mark.asyncio
 async def test_handle_activity_ignores_group_messages(make_channel):
     ch = make_channel()
@@ -644,6 +753,9 @@ def test_msteams_default_config_includes_restart_notify_fields():
     cfg = MSTeamsChannel.default_config()
 
     assert cfg["validateInboundAuth"] is True
+    assert cfg["refTtlDays"] == msteams_module.MSTEAMS_REF_TTL_DAYS
+    assert cfg["pruneWebChatRefs"] is True
+    assert cfg["pruneNonPersonalRefs"] is True
     assert "restartNotifyEnabled" not in cfg
     assert "restartNotifyPreMessage" not in cfg
     assert "restartNotifyPostMessage" not in cfg
