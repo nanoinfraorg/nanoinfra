@@ -66,6 +66,28 @@ export interface BootstrapResponse {
   model_name?: string | null;
 }
 
+export interface SettingsPayload {
+  agent: {
+    model: string;
+    provider: string;
+    resolved_provider: string | null;
+    has_api_key: boolean;
+  };
+  providers: Array<{
+    name: string;
+    label: string;
+  }>;
+  runtime: {
+    config_path: string;
+  };
+  requires_restart: boolean;
+}
+
+export interface SettingsUpdate {
+  model?: string;
+  provider?: string;
+}
+
 export type ConnectionStatus =
   | "idle"
   | "connecting"

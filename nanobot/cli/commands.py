@@ -412,73 +412,13 @@ def _make_provider(config: Config):
 
     Routing is driven by ``ProviderSpec.backend`` in the registry.
     """
-    from nanobot.providers.base import GenerationSettings
-    from nanobot.providers.registry import find_by_name
+    from nanobot.agent.runtime import make_provider
 
-    model = config.agents.defaults.model
-    provider_name = config.get_provider_name(model)
-    p = config.get_provider(model)
-    spec = find_by_name(provider_name) if provider_name else None
-    backend = spec.backend if spec else "openai_compat"
-
-    # --- validation ---
-    if backend == "azure_openai":
-        if not p or not p.api_key or not p.api_base:
-            console.print("[red]Error: Azure OpenAI requires api_key and api_base.[/red]")
-            console.print("Set them in ~/.nanobot/config.json under providers.azure_openai section")
-            console.print("Use the model field to specify the deployment name.")
-            raise typer.Exit(1)
-    elif backend == "openai_compat" and not model.startswith("bedrock/"):
-        needs_key = not (p and p.api_key)
-        exempt = spec and (spec.is_oauth or spec.is_local or spec.is_direct)
-        if needs_key and not exempt:
-            console.print("[red]Error: No API key configured.[/red]")
-            console.print("Set one in ~/.nanobot/config.json under providers section")
-            raise typer.Exit(1)
-
-    # --- instantiation by backend ---
-    if backend == "openai_codex":
-        from nanobot.providers.openai_codex_provider import OpenAICodexProvider
-
-        provider = OpenAICodexProvider(default_model=model)
-    elif backend == "azure_openai":
-        from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
-
-        provider = AzureOpenAIProvider(
-            api_key=p.api_key,
-            api_base=p.api_base,
-            default_model=model,
-        )
-    elif backend == "github_copilot":
-        from nanobot.providers.github_copilot_provider import GitHubCopilotProvider
-        provider = GitHubCopilotProvider(default_model=model)
-    elif backend == "anthropic":
-        from nanobot.providers.anthropic_provider import AnthropicProvider
-
-        provider = AnthropicProvider(
-            api_key=p.api_key if p else None,
-            api_base=config.get_api_base(model),
-            default_model=model,
-            extra_headers=p.extra_headers if p else None,
-        )
-    else:
-        from nanobot.providers.openai_compat_provider import OpenAICompatProvider
-
-        provider = OpenAICompatProvider(
-            api_key=p.api_key if p else None,
-            api_base=config.get_api_base(model),
-            default_model=model,
-            extra_headers=p.extra_headers if p else None,
-            spec=spec,
-        )
-
-    defaults = config.agents.defaults
-    provider.generation = GenerationSettings(
-        temperature=defaults.temperature,
-        max_tokens=defaults.max_tokens,
-        reasoning_effort=defaults.reasoning_effort,
-    )
-    return provider
+    try:
+        return make_provider(config)
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        raise typer.Exit(1) from exc
 
 
 def _load_runtime_config(config: str | None = None, workspace: str | None = None) -> Config:
@@ -656,6 +596,7 @@ def _run_gateway(
 ) -> None:
     """Shared gateway runtime; ``open_browser_url`` opens a tab once channels are up."""
     from nanobot.agent.loop import AgentLoop
+    from nanobot.agent.runtime import build_agent_runtime, load_agent_runtime
     from nanobot.bus.queue import MessageBus
     from nanobot.channels.manager import ChannelManager
     from nanobot.cron.service import CronService
@@ -668,7 +609,12 @@ def _run_gateway(
     console.print(f"{__logo__} Starting nanobot gateway version {__version__} on port {port}...")
     sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
-    provider = _make_provider(config)
+    try:
+        runtime = build_agent_runtime(config)
+    except ValueError as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        raise typer.Exit(1) from exc
+    provider = runtime.provider
     session_manager = SessionManager(config.workspace_path)
 
     # Preserve existing single-workspace installs, but keep custom workspaces clean.
@@ -684,9 +630,9 @@ def _run_gateway(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
-        model=config.agents.defaults.model,
+        model=runtime.model,
         max_iterations=config.agents.defaults.max_tool_iterations,
-        context_window_tokens=config.agents.defaults.context_window_tokens,
+        context_window_tokens=runtime.context_window_tokens,
         web_config=config.tools.web,
         context_block_limit=config.agents.defaults.context_block_limit,
         max_tool_result_chars=config.agents.defaults.max_tool_result_chars,
@@ -702,6 +648,8 @@ def _run_gateway(
         disabled_skills=config.agents.defaults.disabled_skills,
         session_ttl_minutes=config.agents.defaults.session_ttl_minutes,
         tools_config=config.tools,
+        runtime_loader=load_agent_runtime,
+        runtime_signature=runtime.signature,
     )
 
     # Set cron callback (needs agent)

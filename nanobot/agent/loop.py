@@ -18,6 +18,7 @@ from nanobot.agent.context import ContextBuilder
 from nanobot.agent.hook import AgentHook, AgentHookContext, CompositeHook
 from nanobot.agent.memory import Consolidator, Dream
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
+from nanobot.agent.runtime import AgentRuntime
 from nanobot.agent.skills import BUILTIN_SKILLS_DIR
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.ask import (
@@ -194,6 +195,8 @@ class AgentLoop:
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
         tools_config: ToolsConfig | None = None,
+        runtime_loader: Callable[[], AgentRuntime] | None = None,
+        runtime_signature: tuple[object, ...] | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig, ToolsConfig, WebToolsConfig
 
@@ -202,6 +205,8 @@ class AgentLoop:
         self.bus = bus
         self.channels_config = channels_config
         self.provider = provider
+        self._runtime_loader = runtime_loader
+        self._runtime_signature = runtime_signature
         self.workspace = workspace
         self.model = model or provider.get_default_model()
         self.max_iterations = (
@@ -287,6 +292,43 @@ class AgentLoop:
         self._current_iteration: int = 0
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
+
+    def _apply_runtime(self, runtime: AgentRuntime) -> None:
+        """Swap model/provider for future turns without disturbing an active one."""
+        provider = runtime.provider
+        model = runtime.model
+        context_window_tokens = runtime.context_window_tokens
+        if self.provider is provider and self.model == model:
+            return
+        old_model = self.model
+        self.provider = provider
+        self.model = model
+        self.context_window_tokens = context_window_tokens
+        self.runner.provider = provider
+        self.subagents.provider = provider
+        self.subagents.model = model
+        self.subagents.runner.provider = provider
+        self.consolidator.provider = provider
+        self.consolidator.model = model
+        self.consolidator.context_window_tokens = context_window_tokens
+        self.consolidator.max_completion_tokens = provider.generation.max_tokens
+        self.dream.provider = provider
+        self.dream.model = model
+        self.dream._runner.provider = provider
+        self._runtime_signature = runtime.signature
+        logger.info("Runtime model switched for next turn: {} -> {}", old_model, model)
+
+    def _refresh_runtime(self) -> None:
+        if self._runtime_loader is None:
+            return
+        try:
+            runtime = self._runtime_loader()
+        except Exception:
+            logger.exception("Failed to refresh runtime config")
+            return
+        if runtime.signature == self._runtime_signature:
+            return
+        self._apply_runtime(runtime)
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
@@ -766,6 +808,7 @@ class AgentLoop:
         pending_queue: asyncio.Queue | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
+        self._refresh_runtime()
         # System messages: parse origin from chat_id ("channel:chat_id")
         if msg.channel == "system":
             channel, chat_id = (
