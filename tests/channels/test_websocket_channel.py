@@ -178,6 +178,7 @@ async def test_send_delivers_json_message_with_media_and_reply() -> None:
         content="hello",
         reply_to="m1",
         media=["/tmp/a.png"],
+        buttons=[["Yes", "No"]],
     )
     await channel.send(msg)
 
@@ -185,9 +186,11 @@ async def test_send_delivers_json_message_with_media_and_reply() -> None:
     payload = json.loads(mock_ws.send.call_args[0][0])
     assert payload["event"] == "message"
     assert payload["chat_id"] == "chat-1"
-    assert payload["text"] == "hello"
+    assert payload["text"] == "hello\n\n1. Yes\n2. No"
+    assert payload["button_prompt"] == "hello"
     assert payload["reply_to"] == "m1"
     assert payload["media"] == ["/tmp/a.png"]
+    assert payload["buttons"] == [["Yes", "No"]]
 
 
 @pytest.mark.asyncio
