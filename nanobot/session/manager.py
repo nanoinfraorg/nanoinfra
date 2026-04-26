@@ -12,6 +12,7 @@ from loguru import logger
 
 from nanobot.config.paths import get_legacy_sessions_dir
 from nanobot.utils.helpers import (
+    estimate_message_tokens,
     ensure_dir,
     find_legal_message_start,
     image_placeholder_text,
@@ -41,8 +42,17 @@ class Session:
         self.messages.append(msg)
         self.updated_at = datetime.now()
 
-    def get_history(self, max_messages: int = 500) -> list[dict[str, Any]]:
-        """Return unconsolidated messages for LLM input, aligned to a legal tool-call boundary."""
+    def get_history(
+        self,
+        max_messages: int = 500,
+        *,
+        max_tokens: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Return unconsolidated messages for LLM input.
+
+        History is sliced by message count first (``max_messages``), then by
+        token budget from the tail (``max_tokens``) when provided.
+        """
         unconsolidated = self.messages[self.last_consolidated:]
         sliced = unconsolidated[-max_messages:]
 
@@ -80,6 +90,38 @@ class Session:
                 if key in message:
                     entry[key] = message[key]
             out.append(entry)
+
+        if max_tokens > 0 and out:
+            kept: list[dict[str, Any]] = []
+            used = 0
+            for message in reversed(out):
+                tokens = estimate_message_tokens(message)
+                if kept and used + tokens > max_tokens:
+                    break
+                kept.append(message)
+                used += tokens
+            kept.reverse()
+
+            # Keep history aligned to the first visible user turn.
+            first_user = next((i for i, m in enumerate(kept) if m.get("role") == "user"), None)
+            if first_user is not None:
+                kept = kept[first_user:]
+            else:
+                # Tight token budgets can otherwise leave assistant-only tails.
+                # If a user turn exists in the unsliced output, recover the
+                # nearest one even if it slightly exceeds the token budget.
+                recovered_user = next(
+                    (i for i in range(len(out) - 1, -1, -1) if out[i].get("role") == "user"),
+                    None,
+                )
+                if recovered_user is not None:
+                    kept = out[recovered_user:]
+
+            # And keep a legal tool-call boundary at the front.
+            start = find_legal_message_start(kept)
+            if start:
+                kept = kept[start:]
+            out = kept
         return out
 
     def clear(self) -> None:
@@ -89,25 +131,41 @@ class Session:
         self.updated_at = datetime.now()
 
     def retain_recent_legal_suffix(self, max_messages: int) -> None:
-        """Keep a legal recent suffix, mirroring get_history boundary rules."""
+        """Keep a legal recent suffix constrained by a hard message cap."""
         if max_messages <= 0:
             self.clear()
             return
         if len(self.messages) <= max_messages:
             return
 
-        start_idx = max(0, len(self.messages) - max_messages)
+        retained = list(self.messages[-max_messages:])
 
-        # If the cutoff lands mid-turn, extend backward to the nearest user turn.
-        while start_idx > 0 and self.messages[start_idx].get("role") != "user":
-            start_idx -= 1
-
-        retained = self.messages[start_idx:]
+        # Prefer starting at a user turn when one exists within the tail.
+        first_user = next((i for i, m in enumerate(retained) if m.get("role") == "user"), None)
+        if first_user is not None:
+            retained = retained[first_user:]
+        else:
+            # If the tail is assistant/tool-only, anchor to the latest user in
+            # the full session and take a capped forward window from there.
+            latest_user = next(
+                (i for i in range(len(self.messages) - 1, -1, -1)
+                 if self.messages[i].get("role") == "user"),
+                None,
+            )
+            if latest_user is not None:
+                retained = list(self.messages[latest_user: latest_user + max_messages])
 
         # Mirror get_history(): avoid persisting orphan tool results at the front.
         start = find_legal_message_start(retained)
         if start:
             retained = retained[start:]
+
+        # Hard-cap guarantee: never keep more than max_messages.
+        if len(retained) > max_messages:
+            retained = retained[-max_messages:]
+            start = find_legal_message_start(retained)
+            if start:
+                retained = retained[start:]
 
         dropped = len(self.messages) - len(retained)
         self.messages = retained

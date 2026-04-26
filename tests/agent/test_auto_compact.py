@@ -2,8 +2,8 @@
 
 import asyncio
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -15,7 +15,13 @@ from nanobot.command import CommandContext
 from nanobot.providers.base import LLMResponse
 
 
-def _make_loop(tmp_path: Path, session_ttl_minutes: int = 15) -> AgentLoop:
+def _make_loop(
+    tmp_path: Path,
+    session_ttl_minutes: int = 15,
+    session_history_max_messages: int | None = None,
+    session_history_max_tokens: int | None = None,
+    session_file_max_messages: int | None = None,
+) -> AgentLoop:
     """Create a minimal AgentLoop for testing."""
     bus = MessageBus()
     provider = MagicMock()
@@ -30,6 +36,9 @@ def _make_loop(tmp_path: Path, session_ttl_minutes: int = 15) -> AgentLoop:
         model="test-model",
         context_window_tokens=128_000,
         session_ttl_minutes=session_ttl_minutes,
+        session_history_max_messages=session_history_max_messages,
+        session_history_max_tokens=session_history_max_tokens,
+        session_file_max_messages=session_file_max_messages,
     )
     loop.tools.get_definitions = MagicMock(return_value=[])
     return loop
@@ -72,6 +81,34 @@ class TestSessionTTLConfig:
         assert data["idleCompactAfterMinutes"] == 30
         assert "sessionTtlMinutes" not in data
 
+    def test_default_session_history_window(self):
+        """Session history replay should be capped by default."""
+        defaults = AgentDefaults()
+        assert defaults.session_history_max_messages == 120
+
+    def test_default_session_history_token_budget_auto(self):
+        defaults = AgentDefaults()
+        assert defaults.session_history_max_tokens == 0
+
+    def test_default_session_file_cap(self):
+        defaults = AgentDefaults()
+        assert defaults.session_file_max_messages == 2000
+
+    def test_serializes_session_history_window(self):
+        """Config should expose sessionHistoryMaxMessages in JSON output."""
+        defaults = AgentDefaults(session_history_max_messages=64)
+        data = defaults.model_dump(mode="json", by_alias=True)
+        assert data["sessionHistoryMaxMessages"] == 64
+
+    def test_serializes_history_token_budget_and_file_cap(self):
+        defaults = AgentDefaults(
+            session_history_max_tokens=2048,
+            session_file_max_messages=1024,
+        )
+        data = defaults.model_dump(mode="json", by_alias=True)
+        assert data["sessionHistoryMaxTokens"] == 2048
+        assert data["sessionFileMaxMessages"] == 1024
+
 
 class TestAgentLoopTTLParam:
     """Test that AutoCompact receives and stores session_ttl_minutes."""
@@ -85,6 +122,109 @@ class TestAgentLoopTTLParam:
         """AutoCompact default TTL should be 0 (disabled)."""
         loop = _make_loop(tmp_path, session_ttl_minutes=0)
         assert loop.auto_compact._ttl == 0
+
+    def test_loop_stores_history_window(self, tmp_path):
+        """AgentLoop should store configured session history max_messages."""
+        loop = _make_loop(tmp_path, session_history_max_messages=42)
+        assert loop.session_history_max_messages == 42
+
+    def test_loop_stores_history_token_budget(self, tmp_path):
+        loop = _make_loop(tmp_path, session_history_max_tokens=2048)
+        assert loop.session_history_max_tokens == 2048
+
+    def test_loop_stores_session_file_cap(self, tmp_path):
+        loop = _make_loop(tmp_path, session_file_max_messages=512)
+        assert loop.session_file_max_messages == 512
+
+    @pytest.mark.asyncio
+    async def test_process_message_reads_history_with_configured_cap(self, tmp_path):
+        """_process_message should use session_history_max_messages, not unlimited history."""
+        loop = _make_loop(tmp_path, session_history_max_messages=7)
+        session = loop.sessions.get_or_create("cli:direct")
+        session.get_history = MagicMock(return_value=[])
+        loop.context.build_messages = MagicMock(return_value=[])
+        loop._run_agent_loop = AsyncMock(return_value=("ok", [], [], "stop", False))
+        loop._save_turn = MagicMock()
+
+        msg = InboundMessage(
+            channel="cli",
+            sender_id="u1",
+            chat_id="direct",
+            content="hello",
+        )
+        await loop._process_message(msg)
+        session.get_history.assert_called_once()
+        kwargs = session.get_history.call_args.kwargs
+        assert kwargs["max_messages"] == 7
+        assert isinstance(kwargs.get("max_tokens"), int)
+
+    @pytest.mark.asyncio
+    async def test_process_message_reads_history_with_token_budget(self, tmp_path):
+        loop = _make_loop(
+            tmp_path,
+            session_history_max_messages=7,
+            session_history_max_tokens=333,
+        )
+        session = loop.sessions.get_or_create("cli:direct")
+        session.get_history = MagicMock(return_value=[])
+        loop.context.build_messages = MagicMock(return_value=[])
+        loop._run_agent_loop = AsyncMock(return_value=("ok", [], [], "stop", False))
+        loop._save_turn = MagicMock()
+
+        msg = InboundMessage(
+            channel="cli",
+            sender_id="u1",
+            chat_id="direct",
+            content="hello",
+        )
+        await loop._process_message(msg)
+        session.get_history.assert_called_once_with(max_messages=7, max_tokens=333)
+
+    @pytest.mark.asyncio
+    async def test_session_file_cap_archives_and_trims_old_messages(self, tmp_path):
+        loop = _make_loop(tmp_path, session_file_max_messages=6)
+        loop.context.memory.raw_archive = MagicMock()
+
+        for i in range(4):
+            msg = InboundMessage(
+                channel="cli",
+                sender_id="u1",
+                chat_id="direct",
+                content=f"hello {i}",
+            )
+            await loop._process_message(msg)
+
+        session = loop.sessions.get_or_create("cli:direct")
+        assert len(session.messages) <= 6
+        assert loop.context.memory.raw_archive.called
+
+    def test_session_file_cap_skips_raw_archive_when_dropped_prefix_is_already_consolidated(self, tmp_path):
+        loop = _make_loop(tmp_path, session_file_max_messages=4)
+        loop.context.memory.raw_archive = MagicMock()
+        session = loop.sessions.get_or_create("cli:direct")
+        for i in range(8):
+            session.add_message("user", f"u{i}")
+        session.last_consolidated = 6
+
+        loop._enforce_session_file_cap(session)
+
+        assert len(session.messages) <= 4
+        loop.context.memory.raw_archive.assert_not_called()
+
+    def test_session_file_cap_archives_only_unconsolidated_part_of_dropped_prefix(self, tmp_path):
+        loop = _make_loop(tmp_path, session_file_max_messages=4)
+        loop.context.memory.raw_archive = MagicMock()
+        session = loop.sessions.get_or_create("cli:direct")
+        for i in range(8):
+            session.add_message("user", f"u{i}")
+        session.last_consolidated = 2
+
+        loop._enforce_session_file_cap(session)
+
+        assert len(session.messages) <= 4
+        loop.context.memory.raw_archive.assert_called_once()
+        archived = loop.context.memory.raw_archive.call_args.args[0]
+        assert [m["content"] for m in archived] == ["u2", "u3"]
 
 
 class TestAutoCompact:
