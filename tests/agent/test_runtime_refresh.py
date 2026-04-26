@@ -14,7 +14,7 @@ def _provider(default_model: str, max_tokens: int = 123) -> MagicMock:
     return provider
 
 
-def test_runtime_refresh_updates_loop_dependents(tmp_path: Path) -> None:
+def test_provider_refresh_updates_all_model_dependents(tmp_path: Path) -> None:
     old_provider = _provider("old-model")
     new_provider = _provider("new-model", max_tokens=456)
     loop = AgentLoop(

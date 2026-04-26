@@ -307,16 +307,9 @@ class AgentLoop:
         self.model = model
         self.context_window_tokens = context_window_tokens
         self.runner.provider = provider
-        self.subagents.provider = provider
-        self.subagents.model = model
-        self.subagents.runner.provider = provider
-        self.consolidator.provider = provider
-        self.consolidator.model = model
-        self.consolidator.context_window_tokens = context_window_tokens
-        self.consolidator.max_completion_tokens = provider.generation.max_tokens
-        self.dream.provider = provider
-        self.dream.model = model
-        self.dream._runner.provider = provider
+        self.subagents.set_provider(provider, model)
+        self.consolidator.set_provider(provider, model, context_window_tokens)
+        self.dream.set_provider(provider, model)
         self._provider_signature = snapshot.signature
         logger.info("Runtime model switched for next turn: {} -> {}", old_model, model)
 
