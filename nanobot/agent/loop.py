@@ -42,6 +42,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.command import CommandContext, CommandRouter, register_builtin_commands
 from nanobot.config.schema import AgentDefaults
 from nanobot.providers.base import LLMProvider
+from nanobot.providers.factory import ProviderSnapshot
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.document import extract_documents
 from nanobot.utils.helpers import image_placeholder_text
@@ -195,6 +196,8 @@ class AgentLoop:
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
         tools_config: ToolsConfig | None = None,
+        provider_snapshot_loader: Callable[[], ProviderSnapshot] | None = None,
+        provider_signature: tuple[object, ...] | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig, ToolsConfig, WebToolsConfig
 
@@ -203,6 +206,8 @@ class AgentLoop:
         self.bus = bus
         self.channels_config = channels_config
         self.provider = provider
+        self._provider_snapshot_loader = provider_snapshot_loader
+        self._provider_signature = provider_signature
         self.workspace = workspace
         self.model = model or provider.get_default_model()
         self.max_iterations = (
@@ -289,6 +294,36 @@ class AgentLoop:
         self._current_iteration: int = 0
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
+
+    def _apply_provider_snapshot(self, snapshot: ProviderSnapshot) -> None:
+        """Swap model/provider for future turns without disturbing an active one."""
+        provider = snapshot.provider
+        model = snapshot.model
+        context_window_tokens = snapshot.context_window_tokens
+        if self.provider is provider and self.model == model:
+            return
+        old_model = self.model
+        self.provider = provider
+        self.model = model
+        self.context_window_tokens = context_window_tokens
+        self.runner.provider = provider
+        self.subagents.set_provider(provider, model)
+        self.consolidator.set_provider(provider, model, context_window_tokens)
+        self.dream.set_provider(provider, model)
+        self._provider_signature = snapshot.signature
+        logger.info("Runtime model switched for next turn: {} -> {}", old_model, model)
+
+    def _refresh_provider_snapshot(self) -> None:
+        if self._provider_snapshot_loader is None:
+            return
+        try:
+            snapshot = self._provider_snapshot_loader()
+        except Exception:
+            logger.exception("Failed to refresh provider config")
+            return
+        if snapshot.signature == self._provider_signature:
+            return
+        self._apply_provider_snapshot(snapshot)
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
@@ -768,6 +803,7 @@ class AgentLoop:
         pending_queue: asyncio.Queue | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
+        self._refresh_provider_snapshot()
         # System messages: parse origin from chat_id ("channel:chat_id")
         if msg.channel == "system":
             channel, chat_id = (
