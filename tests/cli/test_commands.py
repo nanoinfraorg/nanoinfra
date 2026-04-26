@@ -8,11 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from nanobot.agent.runtime import AgentRuntime
 from nanobot.bus.events import OutboundMessage
 from nanobot.cli.commands import _make_provider, app
 from nanobot.config.schema import Config
 from nanobot.cron.types import CronJob, CronPayload
+from nanobot.providers.factory import ProviderSnapshot
 from nanobot.providers.openai_codex_provider import _strip_model_prefix
 from nanobot.providers.registry import find_by_name
 
@@ -777,8 +777,8 @@ def _stop_gateway_provider(_config) -> object:
     raise _StopGatewayError("stop")
 
 
-def _test_agent_runtime(provider: object, config: Config) -> AgentRuntime:
-    return AgentRuntime(
+def _test_provider_snapshot(provider: object, config: Config) -> ProviderSnapshot:
+    return ProviderSnapshot(
         provider=provider,
         model=config.agents.defaults.model,
         context_window_tokens=config.agents.defaults.context_window_tokens,
@@ -815,12 +815,12 @@ def _patch_cli_command_runtime(
         provider_factory,
     )
     monkeypatch.setattr(
-        "nanobot.agent.runtime.build_agent_runtime",
-        lambda _config: _test_agent_runtime(provider_factory(_config), _config),
+        "nanobot.providers.factory.build_provider_snapshot",
+        lambda _config: _test_provider_snapshot(provider_factory(_config), _config),
     )
     monkeypatch.setattr(
-        "nanobot.agent.runtime.load_agent_runtime",
-        lambda _config_path=None: _test_agent_runtime(provider_factory(config), config),
+        "nanobot.providers.factory.load_provider_snapshot",
+        lambda _config_path=None: _test_provider_snapshot(provider_factory(config), config),
     )
 
     if message_bus is not None:
@@ -962,12 +962,12 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
     monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr("nanobot.cli.commands._make_provider", lambda _config: provider)
     monkeypatch.setattr(
-        "nanobot.agent.runtime.build_agent_runtime",
-        lambda _config: _test_agent_runtime(provider, _config),
+        "nanobot.providers.factory.build_provider_snapshot",
+        lambda _config: _test_provider_snapshot(provider, _config),
     )
     monkeypatch.setattr(
-        "nanobot.agent.runtime.load_agent_runtime",
-        lambda _config_path=None: _test_agent_runtime(provider, config),
+        "nanobot.providers.factory.load_provider_snapshot",
+        lambda _config_path=None: _test_provider_snapshot(provider, config),
     )
     monkeypatch.setattr("nanobot.bus.queue.MessageBus", lambda: bus)
 
@@ -1111,12 +1111,12 @@ def test_gateway_cron_job_suppresses_intermediate_progress(
     monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr("nanobot.cli.commands._make_provider", lambda _config: object())
     monkeypatch.setattr(
-        "nanobot.agent.runtime.build_agent_runtime",
-        lambda _config: _test_agent_runtime(object(), _config),
+        "nanobot.providers.factory.build_provider_snapshot",
+        lambda _config: _test_provider_snapshot(object(), _config),
     )
     monkeypatch.setattr(
-        "nanobot.agent.runtime.load_agent_runtime",
-        lambda _config_path=None: _test_agent_runtime(object(), config),
+        "nanobot.providers.factory.load_provider_snapshot",
+        lambda _config_path=None: _test_provider_snapshot(object(), config),
     )
     monkeypatch.setattr("nanobot.bus.queue.MessageBus", lambda: bus)
     monkeypatch.setattr("nanobot.session.manager.SessionManager", lambda _workspace: object())

@@ -3,8 +3,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from nanobot.agent.loop import AgentLoop
-from nanobot.agent.runtime import AgentRuntime
 from nanobot.bus.queue import MessageBus
+from nanobot.providers.factory import ProviderSnapshot
 
 
 def _provider(default_model: str, max_tokens: int = 123) -> MagicMock:
@@ -23,7 +23,7 @@ def test_runtime_refresh_updates_loop_dependents(tmp_path: Path) -> None:
         workspace=tmp_path,
         model="old-model",
         context_window_tokens=1000,
-        runtime_loader=lambda: AgentRuntime(
+        provider_snapshot_loader=lambda: ProviderSnapshot(
             provider=new_provider,
             model="new-model",
             context_window_tokens=2000,
@@ -31,7 +31,7 @@ def test_runtime_refresh_updates_loop_dependents(tmp_path: Path) -> None:
         ),
     )
 
-    loop._refresh_runtime()
+    loop._refresh_provider_snapshot()
 
     assert loop.provider is new_provider
     assert loop.model == "new-model"

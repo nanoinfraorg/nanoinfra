@@ -120,6 +120,6 @@ class Nanobot:
 
 def _make_provider(config: Any) -> Any:
     """Create the LLM provider from config (extracted from CLI)."""
-    from nanobot.agent.runtime import make_provider
+    from nanobot.providers.factory import make_provider
 
     return make_provider(config)

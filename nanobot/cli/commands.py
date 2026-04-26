@@ -412,7 +412,7 @@ def _make_provider(config: Config):
 
     Routing is driven by ``ProviderSpec.backend`` in the registry.
     """
-    from nanobot.agent.runtime import make_provider
+    from nanobot.providers.factory import make_provider
 
     try:
         return make_provider(config)
@@ -597,7 +597,6 @@ def _run_gateway(
 ) -> None:
     """Shared gateway runtime; ``open_browser_url`` opens a tab once channels are up."""
     from nanobot.agent.loop import AgentLoop
-    from nanobot.agent.runtime import build_agent_runtime, load_agent_runtime
     from nanobot.agent.tools.cron import CronTool
     from nanobot.agent.tools.message import MessageTool
     from nanobot.bus.queue import MessageBus
@@ -605,6 +604,7 @@ def _run_gateway(
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
+    from nanobot.providers.factory import build_provider_snapshot, load_provider_snapshot
     from nanobot.session.manager import SessionManager
 
     port = port if port is not None else config.gateway.port
@@ -613,11 +613,11 @@ def _run_gateway(
     sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
     try:
-        runtime = build_agent_runtime(config)
+        provider_snapshot = build_provider_snapshot(config)
     except ValueError as exc:
         console.print(f"[red]Error: {exc}[/red]")
         raise typer.Exit(1) from exc
-    provider = runtime.provider
+    provider = provider_snapshot.provider
     session_manager = SessionManager(config.workspace_path)
 
     # Preserve existing single-workspace installs, but keep custom workspaces clean.
@@ -633,9 +633,9 @@ def _run_gateway(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
-        model=runtime.model,
+        model=provider_snapshot.model,
         max_iterations=config.agents.defaults.max_tool_iterations,
-        context_window_tokens=runtime.context_window_tokens,
+        context_window_tokens=provider_snapshot.context_window_tokens,
         web_config=config.tools.web,
         context_block_limit=config.agents.defaults.context_block_limit,
         max_tool_result_chars=config.agents.defaults.max_tool_result_chars,
@@ -652,8 +652,8 @@ def _run_gateway(
         session_ttl_minutes=config.agents.defaults.session_ttl_minutes,
         consolidation_ratio=config.agents.defaults.consolidation_ratio,
         tools_config=config.tools,
-        runtime_loader=load_agent_runtime,
-        runtime_signature=runtime.signature,
+        provider_snapshot_loader=load_provider_snapshot,
+        provider_signature=provider_snapshot.signature,
     )
 
     from nanobot.agent.loop import UNIFIED_SESSION_KEY

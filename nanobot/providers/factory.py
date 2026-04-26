@@ -1,4 +1,4 @@
-"""Runtime model/provider resolution for agent turns."""
+"""Create LLM providers from config."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from nanobot.providers.registry import find_by_name
 
 
 @dataclass(frozen=True)
-class AgentRuntime:
+class ProviderSnapshot:
     provider: LLMProvider
     model: str
     context_window_tokens: int
@@ -80,8 +80,8 @@ def make_provider(config: Config) -> LLMProvider:
     return provider
 
 
-def runtime_signature(config: Config) -> tuple[object, ...]:
-    """Return the config fields that affect the primary LLM runtime."""
+def provider_signature(config: Config) -> tuple[object, ...]:
+    """Return the config fields that affect the primary LLM provider."""
     model = config.agents.defaults.model
     defaults = config.agents.defaults
     return (
@@ -97,16 +97,16 @@ def runtime_signature(config: Config) -> tuple[object, ...]:
     )
 
 
-def build_agent_runtime(config: Config) -> AgentRuntime:
-    return AgentRuntime(
+def build_provider_snapshot(config: Config) -> ProviderSnapshot:
+    return ProviderSnapshot(
         provider=make_provider(config),
         model=config.agents.defaults.model,
         context_window_tokens=config.agents.defaults.context_window_tokens,
-        signature=runtime_signature(config),
+        signature=provider_signature(config),
     )
 
 
-def load_agent_runtime(config_path: Path | None = None) -> AgentRuntime:
+def load_provider_snapshot(config_path: Path | None = None) -> ProviderSnapshot:
     from nanobot.config.loader import load_config, resolve_config_env_vars
 
-    return build_agent_runtime(resolve_config_env_vars(load_config(config_path)))
+    return build_provider_snapshot(resolve_config_env_vars(load_config(config_path)))

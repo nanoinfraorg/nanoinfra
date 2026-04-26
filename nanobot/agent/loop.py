@@ -18,7 +18,6 @@ from nanobot.agent.context import ContextBuilder
 from nanobot.agent.hook import AgentHook, AgentHookContext, CompositeHook
 from nanobot.agent.memory import Consolidator, Dream
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
-from nanobot.agent.runtime import AgentRuntime
 from nanobot.agent.skills import BUILTIN_SKILLS_DIR
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.ask import (
@@ -43,6 +42,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.command import CommandContext, CommandRouter, register_builtin_commands
 from nanobot.config.schema import AgentDefaults
 from nanobot.providers.base import LLMProvider
+from nanobot.providers.factory import ProviderSnapshot
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.document import extract_documents
 from nanobot.utils.helpers import image_placeholder_text
@@ -196,8 +196,8 @@ class AgentLoop:
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
         tools_config: ToolsConfig | None = None,
-        runtime_loader: Callable[[], AgentRuntime] | None = None,
-        runtime_signature: tuple[object, ...] | None = None,
+        provider_snapshot_loader: Callable[[], ProviderSnapshot] | None = None,
+        provider_signature: tuple[object, ...] | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig, ToolsConfig, WebToolsConfig
 
@@ -206,8 +206,8 @@ class AgentLoop:
         self.bus = bus
         self.channels_config = channels_config
         self.provider = provider
-        self._runtime_loader = runtime_loader
-        self._runtime_signature = runtime_signature
+        self._provider_snapshot_loader = provider_snapshot_loader
+        self._provider_signature = provider_signature
         self.workspace = workspace
         self.model = model or provider.get_default_model()
         self.max_iterations = (
@@ -295,11 +295,11 @@ class AgentLoop:
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
 
-    def _apply_runtime(self, runtime: AgentRuntime) -> None:
+    def _apply_provider_snapshot(self, snapshot: ProviderSnapshot) -> None:
         """Swap model/provider for future turns without disturbing an active one."""
-        provider = runtime.provider
-        model = runtime.model
-        context_window_tokens = runtime.context_window_tokens
+        provider = snapshot.provider
+        model = snapshot.model
+        context_window_tokens = snapshot.context_window_tokens
         if self.provider is provider and self.model == model:
             return
         old_model = self.model
@@ -317,20 +317,20 @@ class AgentLoop:
         self.dream.provider = provider
         self.dream.model = model
         self.dream._runner.provider = provider
-        self._runtime_signature = runtime.signature
+        self._provider_signature = snapshot.signature
         logger.info("Runtime model switched for next turn: {} -> {}", old_model, model)
 
-    def _refresh_runtime(self) -> None:
-        if self._runtime_loader is None:
+    def _refresh_provider_snapshot(self) -> None:
+        if self._provider_snapshot_loader is None:
             return
         try:
-            runtime = self._runtime_loader()
+            snapshot = self._provider_snapshot_loader()
         except Exception:
-            logger.exception("Failed to refresh runtime config")
+            logger.exception("Failed to refresh provider config")
             return
-        if runtime.signature == self._runtime_signature:
+        if snapshot.signature == self._provider_signature:
             return
-        self._apply_runtime(runtime)
+        self._apply_provider_snapshot(snapshot)
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
@@ -810,7 +810,7 @@ class AgentLoop:
         pending_queue: asyncio.Queue | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
-        self._refresh_runtime()
+        self._refresh_provider_snapshot()
         # System messages: parse origin from chat_id ("channel:chat_id")
         if msg.channel == "system":
             channel, chat_id = (
