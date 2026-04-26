@@ -537,6 +537,7 @@ def serve(
         unified_session=runtime_config.agents.defaults.unified_session,
         disabled_skills=runtime_config.agents.defaults.disabled_skills,
         session_ttl_minutes=runtime_config.agents.defaults.session_ttl_minutes,
+        consolidation_ratio=runtime_config.agents.defaults.consolidation_ratio,
         tools_config=runtime_config.tools,
     )
 
@@ -597,6 +598,8 @@ def _run_gateway(
     """Shared gateway runtime; ``open_browser_url`` opens a tab once channels are up."""
     from nanobot.agent.loop import AgentLoop
     from nanobot.agent.runtime import build_agent_runtime, load_agent_runtime
+    from nanobot.agent.tools.cron import CronTool
+    from nanobot.agent.tools.message import MessageTool
     from nanobot.bus.queue import MessageBus
     from nanobot.channels.manager import ChannelManager
     from nanobot.cron.service import CronService
@@ -647,10 +650,51 @@ def _run_gateway(
         unified_session=config.agents.defaults.unified_session,
         disabled_skills=config.agents.defaults.disabled_skills,
         session_ttl_minutes=config.agents.defaults.session_ttl_minutes,
+        consolidation_ratio=config.agents.defaults.consolidation_ratio,
         tools_config=config.tools,
         runtime_loader=load_agent_runtime,
         runtime_signature=runtime.signature,
     )
+
+    from nanobot.agent.loop import UNIFIED_SESSION_KEY
+    from nanobot.bus.events import OutboundMessage
+
+    def _channel_session_key(channel: str, chat_id: str) -> str:
+        return (
+            UNIFIED_SESSION_KEY
+            if config.agents.defaults.unified_session
+            else f"{channel}:{chat_id}"
+        )
+
+    async def _deliver_to_channel(msg: OutboundMessage, *, record: bool = False) -> None:
+        """Publish a user-visible message and mirror it into that channel's session."""
+        metadata = dict(msg.metadata or {})
+        record = record or bool(metadata.pop("_record_channel_delivery", False))
+        if metadata != (msg.metadata or {}):
+            msg = OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=msg.content,
+                reply_to=msg.reply_to,
+                media=msg.media,
+                metadata=metadata,
+                buttons=msg.buttons,
+            )
+        if (
+            record
+            and msg.channel != "cli"
+            and msg.content.strip()
+            and hasattr(session_manager, "get_or_create")
+            and hasattr(session_manager, "save")
+        ):
+            session = session_manager.get_or_create(_channel_session_key(msg.channel, msg.chat_id))
+            session.add_message("assistant", msg.content, _channel_delivery=True)
+            session_manager.save(session)
+        await bus.publish_outbound(msg)
+
+    message_tool = getattr(agent, "tools", {}).get("message")
+    if isinstance(message_tool, MessageTool):
+        message_tool.set_send_callback(_deliver_to_channel)
 
     # Set cron callback (needs agent)
     async def on_cron_job(job: CronJob) -> str | None:
@@ -664,8 +708,6 @@ def _run_gateway(
                 logger.exception("Dream cron job failed")
             return None
 
-        from nanobot.agent.tools.cron import CronTool
-        from nanobot.agent.tools.message import MessageTool
         from nanobot.utils.evaluator import evaluate_response
 
         reminder_note = (
@@ -682,6 +724,10 @@ def _run_gateway(
         async def _silent(*_args, **_kwargs):
             pass
 
+        message_record_token = None
+        if isinstance(message_tool, MessageTool):
+            message_record_token = message_tool.set_record_channel_delivery(True)
+
         try:
             resp = await agent.process_direct(
                 reminder_note,
@@ -693,10 +739,11 @@ def _run_gateway(
         finally:
             if isinstance(cron_tool, CronTool) and cron_token is not None:
                 cron_tool.reset_cron_context(cron_token)
+            if isinstance(message_tool, MessageTool) and message_record_token is not None:
+                message_tool.reset_record_channel_delivery(message_record_token)
 
         response = resp.content if resp else ""
 
-        message_tool = agent.tools.get("message")
         if job.payload.deliver and isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
             return response
 
@@ -705,12 +752,14 @@ def _run_gateway(
                 response, reminder_note, provider, agent.model,
             )
             if should_notify:
-                from nanobot.bus.events import OutboundMessage
-                await bus.publish_outbound(OutboundMessage(
-                    channel=job.payload.channel or "cli",
-                    chat_id=job.payload.to,
-                    content=response,
-                ))
+                await _deliver_to_channel(
+                    OutboundMessage(
+                        channel=job.payload.channel or "cli",
+                        chat_id=job.payload.to,
+                        content=response,
+                    ),
+                    record=True,
+                )
         return response
 
     cron.on_job = on_cron_job
@@ -760,12 +809,22 @@ def _run_gateway(
         return resp.content if resp else ""
 
     async def on_heartbeat_notify(response: str) -> None:
-        """Deliver a heartbeat response to the user's channel."""
-        from nanobot.bus.events import OutboundMessage
+        """Deliver a heartbeat response to the user's channel.
+
+        In addition to publishing the outbound message, this injects the
+        delivered text as an assistant turn into the *target channel's*
+        session.  Without this, a user reply on the channel (e.g. "Sure")
+        lands in a session that has no context about the heartbeat message
+        and the agent cannot follow through.
+        """
         channel, chat_id = _pick_heartbeat_target()
         if channel == "cli":
             return  # No external channel available to deliver to
-        await bus.publish_outbound(OutboundMessage(channel=channel, chat_id=chat_id, content=response))
+
+        await _deliver_to_channel(
+            OutboundMessage(channel=channel, chat_id=chat_id, content=response),
+            record=True,
+        )
 
     hb_cfg = config.gateway.heartbeat
     heartbeat = HeartbeatService(
@@ -968,6 +1027,7 @@ def agent(
         unified_session=config.agents.defaults.unified_session,
         disabled_skills=config.agents.defaults.disabled_skills,
         session_ttl_minutes=config.agents.defaults.session_ttl_minutes,
+        consolidation_ratio=config.agents.defaults.consolidation_ratio,
         tools_config=config.tools,
     )
     restart_notice = consume_restart_notice_from_env()
