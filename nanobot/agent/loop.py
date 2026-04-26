@@ -832,7 +832,7 @@ class AgentLoop:
             if is_subagent and self._persist_subagent_followup(session, msg):
                 self.sessions.save(session)
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
-            history = session.get_history(max_messages=0)
+            history = session.get_history(max_messages=0, include_timestamps=True)
             current_role = "assistant" if is_subagent else "user"
 
             # Subagent content is already in `history` above; passing it again
@@ -901,7 +901,7 @@ class AgentLoop:
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
 
-        history = session.get_history(max_messages=0)
+        history = session.get_history(max_messages=0, include_timestamps=True)
 
         pending_ask_id = pending_ask_user_id(history)
         if pending_ask_id:
