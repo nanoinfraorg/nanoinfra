@@ -1,11 +1,14 @@
 """Message tool for sending messages to users."""
 
+import os
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.schema import ArraySchema, StringSchema, tool_parameters_schema
 from nanobot.bus.events import OutboundMessage
+from nanobot.config.paths import get_workspace_path
 
 
 @tool_parameters(
@@ -33,13 +36,19 @@ class MessageTool(Tool):
         default_channel: str = "",
         default_chat_id: str = "",
         default_message_id: str | None = None,
+        workspace: str | Path | None = None,
     ):
         self._send_callback = send_callback
+        self._workspace = Path(workspace).expanduser() if workspace is not None else get_workspace_path()
         self._default_channel: ContextVar[str] = ContextVar("message_default_channel", default=default_channel)
         self._default_chat_id: ContextVar[str] = ContextVar("message_default_chat_id", default=default_chat_id)
         self._default_message_id: ContextVar[str | None] = ContextVar(
             "message_default_message_id",
             default=default_message_id,
+        )
+        self._default_metadata: ContextVar[dict[str, Any]] = ContextVar(
+            "message_default_metadata",
+            default={},
         )
         self._sent_in_turn_var: ContextVar[bool] = ContextVar("message_sent_in_turn", default=False)
         self._record_channel_delivery_var: ContextVar[bool] = ContextVar(
@@ -47,11 +56,18 @@ class MessageTool(Tool):
             default=False,
         )
 
-    def set_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
+    def set_context(
+        self,
+        channel: str,
+        chat_id: str,
+        message_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         """Set the current message context."""
         self._default_channel.set(channel)
         self._default_chat_id.set(chat_id)
         self._default_message_id.set(message_id)
+        self._default_metadata.set(metadata or {})
 
     def set_send_callback(self, callback: Callable[[OutboundMessage], Awaitable[None]]) -> None:
         """Set the callback for sending messages."""
@@ -118,7 +134,8 @@ class MessageTool(Tool):
         # some channels (e.g. Feishu) use it to determine the target
         # conversation via their Reply API, which would route the message
         # to the wrong chat entirely.
-        if channel == default_channel and chat_id == default_chat_id:
+        same_target = channel == default_channel and chat_id == default_chat_id
+        if same_target:
             message_id = message_id or self._default_message_id.get()
         else:
             message_id = None
@@ -129,9 +146,18 @@ class MessageTool(Tool):
         if not self._send_callback:
             return "Error: Message sending not configured"
 
-        metadata = {
-            "message_id": message_id,
-        } if message_id else {}
+        if media:
+            resolved = []
+            for p in media:
+                if p.startswith(("http://", "https://")) or os.path.isabs(p):
+                    resolved.append(p)
+                else:
+                    resolved.append(str(self._workspace / p))
+            media = resolved
+
+        metadata = dict(self._default_metadata.get()) if same_target else {}
+        if message_id:
+            metadata["message_id"] = message_id
         if self._record_channel_delivery_var.get():
             metadata["_record_channel_delivery"] = True
 

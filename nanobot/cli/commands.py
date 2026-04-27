@@ -672,7 +672,9 @@ def _run_gateway(
             else f"{channel}:{chat_id}"
         )
 
-    async def _deliver_to_channel(msg: OutboundMessage, *, record: bool = False) -> None:
+    async def _deliver_to_channel(
+        msg: OutboundMessage, *, record: bool = False, session_key: str | None = None,
+    ) -> None:
         """Publish a user-visible message and mirror it into that channel's session."""
         metadata = dict(msg.metadata or {})
         record = record or bool(metadata.pop("_record_channel_delivery", False))
@@ -693,7 +695,8 @@ def _run_gateway(
             and hasattr(session_manager, "get_or_create")
             and hasattr(session_manager, "save")
         ):
-            session = session_manager.get_or_create(_channel_session_key(msg.channel, msg.chat_id))
+            key = session_key or _channel_session_key(msg.channel, msg.chat_id)
+            session = session_manager.get_or_create(key)
             session.add_message("assistant", msg.content, _channel_delivery=True)
             session_manager.save(session)
         await bus.publish_outbound(msg)
@@ -717,9 +720,11 @@ def _run_gateway(
         from nanobot.utils.evaluator import evaluate_response
 
         reminder_note = (
-            "[Scheduled Task] Timer finished.\n\n"
-            f"Task '{job.name}' has been triggered.\n"
-            f"Scheduled instruction: {job.payload.message}"
+            "The scheduled time has arrived. Deliver this reminder to the user now, "
+            "as a brief and natural message in their language. Speak directly to them — "
+            "do not narrate progress, summarize, include user IDs, or add status reports "
+            "like 'Done' or 'Reminded'.\n\n"
+            f"Reminder: {job.payload.message}"
         )
 
         cron_tool = agent.tools.get("cron")
@@ -763,8 +768,10 @@ def _run_gateway(
                         channel=job.payload.channel or "cli",
                         chat_id=job.payload.to,
                         content=response,
+                        metadata=dict(job.payload.channel_meta),
                     ),
                     record=True,
+                    session_key=job.payload.session_key,
                 )
         return response
 

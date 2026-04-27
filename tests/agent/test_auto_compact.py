@@ -178,7 +178,11 @@ class TestAgentLoopTTLParam:
             content="hello",
         )
         await loop._process_message(msg)
-        session.get_history.assert_called_once_with(max_messages=7, max_tokens=333)
+        session.get_history.assert_called_once_with(
+            max_messages=7,
+            max_tokens=333,
+            include_timestamps=True,
+        )
 
     @pytest.mark.asyncio
     async def test_session_file_cap_archives_and_trims_old_messages(self, tmp_path):
