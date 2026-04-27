@@ -132,14 +132,15 @@ async def test_send_uses_thread_for_channel_messages() -> None:
     )
 
     assert len(fake_web.chat_post_calls) == 1
-    assert fake_web.chat_post_calls[0]["text"] == "hello\n"
+    assert fake_web.chat_post_calls[0]["text"] == "hello"
     assert fake_web.chat_post_calls[0]["thread_ts"] == "1700000000.000100"
     assert len(fake_web.file_upload_calls) == 1
     assert fake_web.file_upload_calls[0]["thread_ts"] == "1700000000.000100"
 
 
 @pytest.mark.asyncio
-async def test_send_omits_thread_for_dm_messages() -> None:
+async def test_send_omits_thread_for_dm_root_messages() -> None:
+    """DM root replies should not be threaded; metadata carries thread_ts=None."""
     channel = SlackChannel(SlackConfig(enabled=True), MessageBus())
     fake_web = _FakeAsyncWebClient()
     channel._web_client = fake_web
@@ -150,15 +151,44 @@ async def test_send_omits_thread_for_dm_messages() -> None:
             chat_id="D123",
             content="hello",
             media=["/tmp/demo.txt"],
-            metadata={"slack": {"thread_ts": "1700000000.000100", "channel_type": "im"}},
+            metadata={"slack": {"thread_ts": None, "channel_type": "im"}},
         )
     )
 
     assert len(fake_web.chat_post_calls) == 1
-    assert fake_web.chat_post_calls[0]["text"] == "hello\n"
+    assert fake_web.chat_post_calls[0]["text"] == "hello"
     assert fake_web.chat_post_calls[0]["thread_ts"] is None
     assert len(fake_web.file_upload_calls) == 1
     assert fake_web.file_upload_calls[0]["thread_ts"] is None
+
+
+@pytest.mark.asyncio
+async def test_send_keeps_thread_for_dm_thread_messages() -> None:
+    """When the user replies inside a DM thread, bot replies stay in the same thread."""
+    channel = SlackChannel(SlackConfig(enabled=True), MessageBus())
+    fake_web = _FakeAsyncWebClient()
+    channel._web_client = fake_web
+
+    await channel.send(
+        OutboundMessage(
+            channel="slack",
+            chat_id="D123",
+            content="hello",
+            media=["/tmp/demo.txt"],
+            metadata={
+                "slack": {
+                    "thread_ts": "1700000000.000100",
+                    "channel_type": "im",
+                    "event": {"channel": "D123"},
+                }
+            },
+        )
+    )
+
+    assert len(fake_web.chat_post_calls) == 1
+    assert fake_web.chat_post_calls[0]["thread_ts"] == "1700000000.000100"
+    assert len(fake_web.file_upload_calls) == 1
+    assert fake_web.file_upload_calls[0]["thread_ts"] == "1700000000.000100"
 
 
 @pytest.mark.asyncio
@@ -262,7 +292,7 @@ async def test_send_resolves_channel_name_to_channel_id() -> None:
     )
 
     assert fake_web.chat_post_calls == [
-        {"channel": "C999", "text": "hello\n", "thread_ts": None}
+        {"channel": "C999", "text": "hello", "thread_ts": None}
     ]
     assert len(fake_web.conversations_list_calls) == 1
 
@@ -296,7 +326,7 @@ async def test_send_resolves_user_handle_to_dm_channel() -> None:
 
     assert fake_web.conversations_open_calls == [{"users": "U234"}]
     assert fake_web.chat_post_calls == [
-        {"channel": "D234", "text": "hello\n", "thread_ts": None}
+        {"channel": "D234", "text": "hello", "thread_ts": None}
     ]
 
 
@@ -327,7 +357,7 @@ async def test_send_updates_reaction_on_origin_channel_for_cross_channel_send() 
     )
 
     assert fake_web.chat_post_calls == [
-        {"channel": "C999", "text": "done\n", "thread_ts": None}
+        {"channel": "C999", "text": "done", "thread_ts": None}
     ]
     assert fake_web.reactions_remove_calls == [
         {"channel": "D_ORIGIN", "name": "eyes", "timestamp": "1700000000.000100"}
@@ -365,7 +395,7 @@ async def test_send_does_not_reuse_origin_thread_ts_for_cross_channel_send() -> 
     )
 
     assert fake_web.chat_post_calls == [
-        {"channel": "C999", "text": "done\n", "thread_ts": None}
+        {"channel": "C999", "text": "done", "thread_ts": None}
     ]
 
 
@@ -429,6 +459,100 @@ async def test_with_thread_context_fetches_root_once() -> None:
     )
     assert second == "again"
     assert len(fake_web.conversations_replies_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_with_thread_context_fetches_replies_in_dm_thread() -> None:
+    """DM threads should also pull thread history (not only channel threads)."""
+    channel = SlackChannel(SlackConfig(enabled=True), MessageBus())
+    channel._bot_user_id = "UBOT"
+    fake_web = _FakeAsyncWebClient()
+    fake_web._conversations_replies_response = {
+        "messages": [
+            {"ts": "211.000", "user": "UA", "text": "here is the file"},
+            {"ts": "212.000", "user": "UA", "text": "please read it"},
+        ]
+    }
+    channel._web_client = fake_web
+
+    content = await channel._with_thread_context(
+        "what did you see?",
+        chat_id="D123",
+        channel_type="im",
+        thread_ts="211.000",
+        raw_thread_ts="211.000",
+        current_ts="213.000",
+    )
+
+    assert fake_web.conversations_replies_calls == [
+        {"channel": "D123", "ts": "211.000", "limit": 20}
+    ]
+    assert "Slack thread context before this mention:" in content
+    assert "- <@UA>: here is the file" in content
+
+
+@pytest.mark.asyncio
+async def test_dm_root_message_has_no_thread_ts_and_no_thread_session() -> None:
+    """A top-level DM should not synthesize a thread_ts and uses the default session."""
+    channel = SlackChannel(SlackConfig(enabled=True), MessageBus())
+    channel._bot_user_id = "UBOT"
+    channel._web_client = _FakeAsyncWebClient()
+    channel._handle_message = AsyncMock()  # type: ignore[method-assign]
+    client = SimpleNamespace(send_socket_mode_response=AsyncMock())
+    req = SimpleNamespace(
+        type="events_api",
+        envelope_id="env-dm-root",
+        payload={
+            "event": {
+                "type": "message",
+                "user": "U1",
+                "channel": "D123",
+                "channel_type": "im",
+                "text": "hello",
+                "ts": "1700000000.000100",
+            }
+        },
+    )
+
+    await channel._on_socket_request(client, req)
+
+    channel._handle_message.assert_awaited_once()
+    kwargs = channel._handle_message.await_args.kwargs
+    assert kwargs["session_key"] is None
+    assert kwargs["metadata"]["slack"]["thread_ts"] is None
+
+
+@pytest.mark.asyncio
+async def test_dm_thread_message_keeps_thread_ts_and_threaded_session() -> None:
+    """A DM message inside a real thread should preserve thread_ts and isolate the session."""
+    channel = SlackChannel(SlackConfig(enabled=True), MessageBus())
+    channel._bot_user_id = "UBOT"
+    channel._web_client = _FakeAsyncWebClient()
+    channel._handle_message = AsyncMock()  # type: ignore[method-assign]
+    channel._with_thread_context = AsyncMock(return_value="hello")  # type: ignore[method-assign]
+    client = SimpleNamespace(send_socket_mode_response=AsyncMock())
+    req = SimpleNamespace(
+        type="events_api",
+        envelope_id="env-dm-thread",
+        payload={
+            "event": {
+                "type": "message",
+                "user": "U1",
+                "channel": "D123",
+                "channel_type": "im",
+                "text": "hello",
+                "ts": "1700000000.000200",
+                "thread_ts": "1700000000.000100",
+            }
+        },
+    )
+
+    await channel._on_socket_request(client, req)
+
+    channel._handle_message.assert_awaited_once()
+    kwargs = channel._handle_message.await_args.kwargs
+    assert kwargs["session_key"] == "slack:D123:1700000000.000100"
+    assert kwargs["metadata"]["slack"]["thread_ts"] == "1700000000.000100"
 
 
 @pytest.mark.asyncio

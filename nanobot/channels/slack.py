@@ -133,14 +133,12 @@ class SlackChannel(BaseChannel):
             target_chat_id = await self._resolve_target_chat_id(msg.chat_id)
             slack_meta = msg.metadata.get("slack", {}) if msg.metadata else {}
             thread_ts = slack_meta.get("thread_ts")
-            channel_type = slack_meta.get("channel_type")
             origin_chat_id = str((slack_meta.get("event", {}) or {}).get("channel") or msg.chat_id)
-            # Slack DMs don't use threads; channel/group replies may keep thread_ts.
-            thread_ts_param = (
-                thread_ts
-                if thread_ts and channel_type != "im" and target_chat_id == origin_chat_id
-                else None
-            )
+            # Reply in the same thread the inbound message belongs to (works
+            # for both real channel threads and DM threads). When the agent
+            # is forwarding to a different channel, drop thread_ts because it
+            # only makes sense within the originating conversation.
+            thread_ts_param = thread_ts if thread_ts and target_chat_id == origin_chat_id else None
 
             if msg.content or not (msg.media or []):
                 mrkdwn = self._to_mrkdwn(msg.content) if msg.content else " "
@@ -352,7 +350,14 @@ class SlackChannel(BaseChannel):
         event_ts = event.get("ts")
         raw_thread_ts = event.get("thread_ts")
         thread_ts = raw_thread_ts
-        if self.config.reply_in_thread and not thread_ts:
+        # In DMs we don't auto-open a thread on top-level messages (it would
+        # bury replies under "1 reply"). But if the user explicitly opened a
+        # thread inside the DM, raw_thread_ts is set and we honor it.
+        if (
+            self.config.reply_in_thread
+            and not thread_ts
+            and channel_type != "im"
+        ):
             thread_ts = event_ts
         # Add :eyes: reaction to the triggering message (best-effort)
         try:
@@ -365,8 +370,12 @@ class SlackChannel(BaseChannel):
         except Exception as e:
             logger.debug("Slack reactions_add failed: {}", e)
 
-        # Thread-scoped session key for channel/group messages
-        session_key = f"slack:{chat_id}:{thread_ts}" if thread_ts and channel_type != "im" else None
+        # Thread-scoped session key whenever the user is in a real thread
+        # (raw_thread_ts is set). DM threads get their own session, separate
+        # from the DM root, so context doesn't bleed across thread boundaries.
+        session_key = (
+            f"slack:{chat_id}:{thread_ts}" if thread_ts and raw_thread_ts else None
+        )
         media_paths: list[str] = []
         file_markers: list[str] = []
         for file_info in event.get("files") or []:
@@ -494,10 +503,10 @@ class SlackChannel(BaseChannel):
         current_ts: str | None,
     ) -> str:
         """Include thread history the first time the bot is pulled into a Slack thread."""
+        del channel_type  # DM and channel threads are both fetched via conversations.replies
         if (
             not self.config.include_thread_context
             or not self._web_client
-            or channel_type == "im"
             or not raw_thread_ts
             or not thread_ts
             or current_ts == thread_ts
@@ -644,7 +653,7 @@ class SlackChannel(BaseChannel):
         if not text:
             return ""
         text = cls._TABLE_RE.sub(cls._convert_table, text)
-        return cls._fixup_mrkdwn(slackify_markdown(text))
+        return cls._fixup_mrkdwn(slackify_markdown(text)).rstrip("\n")
 
     @classmethod
     def _fixup_mrkdwn(cls, text: str) -> str:
