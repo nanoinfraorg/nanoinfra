@@ -477,6 +477,18 @@ class AgentLoop:
             return UNIFIED_SESSION_KEY
         return msg.session_key
 
+    def _replay_token_budget(self) -> int:
+        """Derive a token budget for session history replay from the context window."""
+        if self.context_window_tokens <= 0:
+            return 0
+        max_output = getattr(getattr(self.provider, "generation", None), "max_tokens", 4096)
+        try:
+            reserved_output = int(max_output)
+        except (TypeError, ValueError):
+            reserved_output = 4096
+        budget = self.context_window_tokens - max(1, reserved_output) - 1024
+        return budget if budget > 0 else max(128, self.context_window_tokens // 2)
+
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
@@ -867,7 +879,10 @@ class AgentLoop:
                 channel, chat_id, msg.metadata.get("message_id"),
                 msg.metadata, session_key=key,
             )
-            history = session.get_history(max_messages=0, include_timestamps=True)
+            history = session.get_history(
+                max_tokens=self._replay_token_budget(),
+                include_timestamps=True,
+            )
             current_role = "assistant" if is_subagent else "user"
 
             # Subagent content is already in `history` above; passing it again
@@ -888,6 +903,7 @@ class AgentLoop:
                 pending_queue=pending_queue,
             )
             self._save_turn(session, all_msgs, 1 + len(history))
+            session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
             self._clear_runtime_checkpoint(session)
             self.sessions.save(session)
             self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
@@ -950,7 +966,10 @@ class AgentLoop:
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
 
-        history = session.get_history(max_messages=0, include_timestamps=True)
+        history = session.get_history(
+            max_tokens=self._replay_token_budget(),
+            include_timestamps=True,
+        )
 
         pending_ask_id = pending_ask_user_id(history)
         if pending_ask_id:
@@ -1038,6 +1057,7 @@ class AgentLoop:
         # Skip the already-persisted user message when saving the turn
         save_skip = 1 + len(history) + (1 if user_persisted_early else 0)
         self._save_turn(session, all_msgs, save_skip)
+        session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
         self._clear_pending_user_turn(session)
         self._clear_runtime_checkpoint(session)
         self.sessions.save(session)
