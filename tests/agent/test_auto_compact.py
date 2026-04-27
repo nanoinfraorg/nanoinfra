@@ -18,9 +18,6 @@ from nanobot.providers.base import LLMResponse
 def _make_loop(
     tmp_path: Path,
     session_ttl_minutes: int = 15,
-    session_history_max_messages: int | None = None,
-    session_history_max_tokens: int | None = None,
-    session_file_max_messages: int | None = None,
 ) -> AgentLoop:
     """Create a minimal AgentLoop for testing."""
     bus = MessageBus()
@@ -36,9 +33,6 @@ def _make_loop(
         model="test-model",
         context_window_tokens=128_000,
         session_ttl_minutes=session_ttl_minutes,
-        session_history_max_messages=session_history_max_messages,
-        session_history_max_tokens=session_history_max_tokens,
-        session_file_max_messages=session_file_max_messages,
     )
     loop.tools.get_definitions = MagicMock(return_value=[])
     return loop
@@ -81,33 +75,11 @@ class TestSessionTTLConfig:
         assert data["idleCompactAfterMinutes"] == 30
         assert "sessionTtlMinutes" not in data
 
-    def test_default_session_history_window(self):
-        """Session history replay should be capped by default."""
-        defaults = AgentDefaults()
-        assert defaults.session_history_max_messages == 120
-
-    def test_default_session_history_token_budget_auto(self):
-        defaults = AgentDefaults()
-        assert defaults.session_history_max_tokens == 0
-
-    def test_default_session_file_cap(self):
-        defaults = AgentDefaults()
-        assert defaults.session_file_max_messages == 2000
-
-    def test_serializes_session_history_window(self):
-        """Config should expose sessionHistoryMaxMessages in JSON output."""
-        defaults = AgentDefaults(session_history_max_messages=64)
-        data = defaults.model_dump(mode="json", by_alias=True)
-        assert data["sessionHistoryMaxMessages"] == 64
-
-    def test_serializes_history_token_budget_and_file_cap(self):
-        defaults = AgentDefaults(
-            session_history_max_tokens=2048,
-            session_file_max_messages=1024,
-        )
-        data = defaults.model_dump(mode="json", by_alias=True)
-        assert data["sessionHistoryMaxTokens"] == 2048
-        assert data["sessionFileMaxMessages"] == 1024
+    def test_session_history_and_file_cap_are_internal_constants(self):
+        """Session history/file cap should be internal constants, not config fields."""
+        from nanobot.session.manager import HISTORY_MAX_MESSAGES, FILE_MAX_MESSAGES
+        assert HISTORY_MAX_MESSAGES == 120
+        assert FILE_MAX_MESSAGES == 2000
 
 
 class TestAgentLoopTTLParam:
@@ -123,23 +95,10 @@ class TestAgentLoopTTLParam:
         loop = _make_loop(tmp_path, session_ttl_minutes=0)
         assert loop.auto_compact._ttl == 0
 
-    def test_loop_stores_history_window(self, tmp_path):
-        """AgentLoop should store configured session history max_messages."""
-        loop = _make_loop(tmp_path, session_history_max_messages=42)
-        assert loop.session_history_max_messages == 42
-
-    def test_loop_stores_history_token_budget(self, tmp_path):
-        loop = _make_loop(tmp_path, session_history_max_tokens=2048)
-        assert loop.session_history_max_tokens == 2048
-
-    def test_loop_stores_session_file_cap(self, tmp_path):
-        loop = _make_loop(tmp_path, session_file_max_messages=512)
-        assert loop.session_file_max_messages == 512
-
     @pytest.mark.asyncio
-    async def test_process_message_reads_history_with_configured_cap(self, tmp_path):
-        """_process_message should use session_history_max_messages, not unlimited history."""
-        loop = _make_loop(tmp_path, session_history_max_messages=7)
+    async def test_process_message_reads_history_with_token_budget(self, tmp_path):
+        """_process_message should pass an auto-derived token budget to get_history."""
+        loop = _make_loop(tmp_path)
         session = loop.sessions.get_or_create("cli:direct")
         session.get_history = MagicMock(return_value=[])
         loop.context.build_messages = MagicMock(return_value=[])
@@ -155,38 +114,13 @@ class TestAgentLoopTTLParam:
         await loop._process_message(msg)
         session.get_history.assert_called_once()
         kwargs = session.get_history.call_args.kwargs
-        assert kwargs["max_messages"] == 7
         assert isinstance(kwargs.get("max_tokens"), int)
-
-    @pytest.mark.asyncio
-    async def test_process_message_reads_history_with_token_budget(self, tmp_path):
-        loop = _make_loop(
-            tmp_path,
-            session_history_max_messages=7,
-            session_history_max_tokens=333,
-        )
-        session = loop.sessions.get_or_create("cli:direct")
-        session.get_history = MagicMock(return_value=[])
-        loop.context.build_messages = MagicMock(return_value=[])
-        loop._run_agent_loop = AsyncMock(return_value=("ok", [], [], "stop", False))
-        loop._save_turn = MagicMock()
-
-        msg = InboundMessage(
-            channel="cli",
-            sender_id="u1",
-            chat_id="direct",
-            content="hello",
-        )
-        await loop._process_message(msg)
-        session.get_history.assert_called_once_with(
-            max_messages=7,
-            max_tokens=333,
-            include_timestamps=True,
-        )
+        assert kwargs["max_tokens"] > 0
+        assert kwargs["include_timestamps"] is True
 
     @pytest.mark.asyncio
     async def test_session_file_cap_archives_and_trims_old_messages(self, tmp_path):
-        loop = _make_loop(tmp_path, session_file_max_messages=6)
+        loop = _make_loop(tmp_path)
         loop.context.memory.raw_archive = MagicMock()
 
         for i in range(4):
@@ -199,35 +133,35 @@ class TestAgentLoopTTLParam:
             await loop._process_message(msg)
 
         session = loop.sessions.get_or_create("cli:direct")
-        assert len(session.messages) <= 6
-        assert loop.context.memory.raw_archive.called
+        from nanobot.session.manager import FILE_MAX_MESSAGES
+        assert len(session.messages) <= FILE_MAX_MESSAGES
 
-    def test_session_file_cap_skips_raw_archive_when_dropped_prefix_is_already_consolidated(self, tmp_path):
-        loop = _make_loop(tmp_path, session_file_max_messages=4)
-        loop.context.memory.raw_archive = MagicMock()
-        session = loop.sessions.get_or_create("cli:direct")
+    def test_session_enforce_file_cap_skips_archive_when_dropped_prefix_already_consolidated(self, tmp_path):
+        from nanobot.session.manager import Session
+        archive_fn = MagicMock()
+        session = Session(key="cli:direct")
         for i in range(8):
             session.add_message("user", f"u{i}")
         session.last_consolidated = 6
 
-        loop._enforce_session_file_cap(session)
+        session.enforce_file_cap(on_archive=archive_fn, limit=4)
 
         assert len(session.messages) <= 4
-        loop.context.memory.raw_archive.assert_not_called()
+        archive_fn.assert_not_called()
 
-    def test_session_file_cap_archives_only_unconsolidated_part_of_dropped_prefix(self, tmp_path):
-        loop = _make_loop(tmp_path, session_file_max_messages=4)
-        loop.context.memory.raw_archive = MagicMock()
-        session = loop.sessions.get_or_create("cli:direct")
+    def test_session_enforce_file_cap_archives_only_unconsolidated_dropped_prefix(self, tmp_path):
+        from nanobot.session.manager import Session
+        archive_fn = MagicMock()
+        session = Session(key="cli:direct")
         for i in range(8):
             session.add_message("user", f"u{i}")
         session.last_consolidated = 2
 
-        loop._enforce_session_file_cap(session)
+        session.enforce_file_cap(on_archive=archive_fn, limit=4)
 
         assert len(session.messages) <= 4
-        loop.context.memory.raw_archive.assert_called_once()
-        archived = loop.context.memory.raw_archive.call_args.args[0]
+        archive_fn.assert_called_once()
+        archived = archive_fn.call_args.args[0]
         assert [m["content"] for m in archived] == ["u2", "u3"]
 
 

@@ -20,6 +20,10 @@ from nanobot.utils.helpers import (
 )
 
 
+HISTORY_MAX_MESSAGES = 120
+FILE_MAX_MESSAGES = 2000
+
+
 @dataclass
 class Session:
     """A conversation session."""
@@ -70,7 +74,7 @@ class Session:
 
     def get_history(
         self,
-        max_messages: int = 500,
+        max_messages: int = HISTORY_MAX_MESSAGES,
         *,
         max_tokens: int = 0,
         include_timestamps: bool = False,
@@ -200,6 +204,36 @@ class Session:
         self.messages = retained
         self.last_consolidated = max(0, self.last_consolidated - dropped)
         self.updated_at = datetime.now()
+
+    def enforce_file_cap(
+        self,
+        on_archive: Any = None,
+        limit: int = FILE_MAX_MESSAGES,
+    ) -> None:
+        """Bound session message growth by archiving and trimming old prefixes."""
+        if limit <= 0 or len(self.messages) <= limit:
+            return
+
+        before = list(self.messages)
+        before_last_consolidated = self.last_consolidated
+        before_count = len(before)
+        self.retain_recent_legal_suffix(limit)
+        dropped_count = before_count - len(self.messages)
+        if dropped_count <= 0:
+            return
+
+        dropped = before[:dropped_count]
+        already_consolidated = min(before_last_consolidated, dropped_count)
+        archive_chunk = dropped[already_consolidated:]
+        if archive_chunk and on_archive:
+            on_archive(archive_chunk)
+        logger.info(
+            "Session file cap hit for {}: dropped {}, raw-archived {}, kept {}",
+            self.key,
+            dropped_count,
+            len(archive_chunk),
+            len(self.messages),
+        )
 
 
 class SessionManager:

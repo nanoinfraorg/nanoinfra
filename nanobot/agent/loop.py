@@ -202,9 +202,6 @@ class AgentLoop:
         timezone: str | None = None,
         session_ttl_minutes: int = 0,
         consolidation_ratio: float = 0.5,
-        session_history_max_messages: int | None = None,
-        session_history_max_tokens: int | None = None,
-        session_file_max_messages: int | None = None,
         hooks: list[AgentHook] | None = None,
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
@@ -236,21 +233,6 @@ class AgentLoop:
             max_tool_result_chars
             if max_tool_result_chars is not None
             else defaults.max_tool_result_chars
-        )
-        self.session_history_max_messages = (
-            session_history_max_messages
-            if session_history_max_messages is not None
-            else defaults.session_history_max_messages
-        )
-        self.session_history_max_tokens = (
-            session_history_max_tokens
-            if session_history_max_tokens is not None
-            else defaults.session_history_max_tokens
-        )
-        self.session_file_max_messages = (
-            session_file_max_messages
-            if session_file_max_messages is not None
-            else defaults.session_file_max_messages
         )
         self.provider_retry_mode = provider_retry_mode
         self.web_config = web_config or WebToolsConfig()
@@ -495,10 +477,8 @@ class AgentLoop:
             return UNIFIED_SESSION_KEY
         return msg.session_key
 
-    def _history_token_budget(self) -> int:
-        """Resolve token budget for session history replay."""
-        if self.session_history_max_tokens > 0:
-            return self.session_history_max_tokens
+    def _replay_token_budget(self) -> int:
+        """Derive a token budget for session history replay from the context window."""
         if self.context_window_tokens <= 0:
             return 0
         max_output = getattr(getattr(self.provider, "generation", None), "max_tokens", 4096)
@@ -507,36 +487,7 @@ class AgentLoop:
         except (TypeError, ValueError):
             reserved_output = 4096
         budget = self.context_window_tokens - max(1, reserved_output) - 1024
-        if budget > 0:
-            return budget
-        return max(128, self.context_window_tokens // 2)
-
-    def _enforce_session_file_cap(self, session: Session) -> None:
-        """Bound session.jsonl growth by archiving and trimming old prefixes."""
-        limit = self.session_file_max_messages
-        if limit <= 0 or len(session.messages) <= limit:
-            return
-
-        before = list(session.messages)
-        before_last_consolidated = session.last_consolidated
-        before_count = len(before)
-        session.retain_recent_legal_suffix(limit)
-        dropped_count = before_count - len(session.messages)
-        if dropped_count <= 0:
-            return
-
-        dropped = before[:dropped_count]
-        already_consolidated = min(before_last_consolidated, dropped_count)
-        archive_chunk = dropped[already_consolidated:]
-        if archive_chunk:
-            self.context.memory.raw_archive(archive_chunk)
-        logger.info(
-            "Session file cap hit for {}: dropped {}, raw-archived {}, kept {}",
-            session.key,
-            dropped_count,
-            len(archive_chunk),
-            len(session.messages),
-        )
+        return budget if budget > 0 else max(128, self.context_window_tokens // 2)
 
     async def _run_agent_loop(
         self,
@@ -929,8 +880,7 @@ class AgentLoop:
                 msg.metadata, session_key=key,
             )
             history = session.get_history(
-                max_messages=self.session_history_max_messages,
-                max_tokens=self._history_token_budget(),
+                max_tokens=self._replay_token_budget(),
                 include_timestamps=True,
             )
             current_role = "assistant" if is_subagent else "user"
@@ -953,7 +903,7 @@ class AgentLoop:
                 pending_queue=pending_queue,
             )
             self._save_turn(session, all_msgs, 1 + len(history))
-            self._enforce_session_file_cap(session)
+            session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
             self._clear_runtime_checkpoint(session)
             self.sessions.save(session)
             self._schedule_background(self.consolidator.maybe_consolidate_by_tokens(session))
@@ -1017,8 +967,7 @@ class AgentLoop:
                 message_tool.start_turn()
 
         history = session.get_history(
-            max_messages=self.session_history_max_messages,
-            max_tokens=self._history_token_budget(),
+            max_tokens=self._replay_token_budget(),
             include_timestamps=True,
         )
 
@@ -1108,7 +1057,7 @@ class AgentLoop:
         # Skip the already-persisted user message when saving the turn
         save_skip = 1 + len(history) + (1 if user_persisted_early else 0)
         self._save_turn(session, all_msgs, save_skip)
-        self._enforce_session_file_cap(session)
+        session.enforce_file_cap(on_archive=self.context.memory.raw_archive)
         self._clear_pending_user_turn(session)
         self._clear_runtime_checkpoint(session)
         self.sessions.save(session)

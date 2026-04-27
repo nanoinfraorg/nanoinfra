@@ -538,9 +538,6 @@ def serve(
         disabled_skills=runtime_config.agents.defaults.disabled_skills,
         session_ttl_minutes=runtime_config.agents.defaults.session_ttl_minutes,
         consolidation_ratio=runtime_config.agents.defaults.consolidation_ratio,
-        session_history_max_messages=runtime_config.agents.defaults.session_history_max_messages,
-        session_history_max_tokens=runtime_config.agents.defaults.session_history_max_tokens,
-        session_file_max_messages=runtime_config.agents.defaults.session_file_max_messages,
         tools_config=runtime_config.tools,
     )
 
@@ -654,9 +651,6 @@ def _run_gateway(
         disabled_skills=config.agents.defaults.disabled_skills,
         session_ttl_minutes=config.agents.defaults.session_ttl_minutes,
         consolidation_ratio=config.agents.defaults.consolidation_ratio,
-        session_history_max_messages=config.agents.defaults.session_history_max_messages,
-        session_history_max_tokens=config.agents.defaults.session_history_max_tokens,
-        session_file_max_messages=config.agents.defaults.session_file_max_messages,
         tools_config=config.tools,
         provider_snapshot_loader=load_provider_snapshot,
         provider_signature=provider_snapshot.signature,
@@ -1041,9 +1035,6 @@ def agent(
         disabled_skills=config.agents.defaults.disabled_skills,
         session_ttl_minutes=config.agents.defaults.session_ttl_minutes,
         consolidation_ratio=config.agents.defaults.consolidation_ratio,
-        session_history_max_messages=config.agents.defaults.session_history_max_messages,
-        session_history_max_tokens=config.agents.defaults.session_history_max_tokens,
-        session_file_max_messages=config.agents.defaults.session_file_max_messages,
         tools_config=config.tools,
     )
     restart_notice = consume_restart_notice_from_env()

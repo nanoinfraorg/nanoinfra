@@ -97,18 +97,6 @@ class AgentDefaults(Base):
         validation_alias=AliasChoices("consolidationRatio"),
         serialization_alias="consolidationRatio",
     )  # Consolidation target ratio (0.5 = 50% of budget retained after compression)
-    session_history_max_messages: int = Field(
-        default=120,
-        ge=0,
-    )  # Per-turn session history window for prompt replay (0 = unlimited)
-    session_history_max_tokens: int = Field(
-        default=0,
-        ge=0,
-    )  # Per-turn token budget for replay history (0 = auto based on context window)
-    session_file_max_messages: int = Field(
-        default=2000,
-        ge=0,
-    )  # Hard cap for on-disk session.jsonl messages (0 = disabled)
     dream: DreamConfig = Field(default_factory=DreamConfig)
 
 
