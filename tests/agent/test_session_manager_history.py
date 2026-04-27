@@ -194,7 +194,13 @@ def test_get_history_preserves_reasoning_content():
     ]
 
 
-def test_get_history_exposes_turn_timestamps_to_model():
+def test_get_history_annotates_user_turns_but_not_assistant_turns():
+    """Only user turns carry the timestamp prefix.
+
+    Annotating assistant turns trains the model (via in-context examples) to
+    start its own replies with ``[Message Time: ...]``. User-side stamps are
+    enough to pin adjacent assistant replies for relative-time reasoning.
+    """
     session = Session(key="test:timestamps")
     session.messages.append({
         "role": "user",
@@ -216,7 +222,42 @@ def test_get_history_exposes_turn_timestamps_to_model():
         },
         {
             "role": "assistant",
-            "content": "[Message Time: 2026-04-26T22:00:05]\n记下来了",
+            "content": "记下来了",
+        },
+    ]
+
+
+def test_get_history_annotates_proactive_assistant_deliveries_with_timestamps():
+    """Cron / heartbeat assistant pushes still carry a timestamp prefix.
+
+    These proactive deliveries can sit hours away from the next user reply,
+    so the model needs to know when they fired. They are rare enough that
+    they don't act as in-context demonstrations encouraging the model to
+    prefix its own normal replies with ``[Message Time: ...]``.
+    """
+    session = Session(key="test:proactive-timestamps")
+    session.messages.append({
+        "role": "assistant",
+        "content": "记得喝水",
+        "timestamp": "2026-04-26T15:00:00",
+        "_channel_delivery": True,
+    })
+    session.messages.append({
+        "role": "user",
+        "content": "好",
+        "timestamp": "2026-04-26T18:00:00",
+    })
+
+    history = session.get_history(max_messages=500, include_timestamps=True)
+
+    assert history == [
+        {
+            "role": "assistant",
+            "content": "[Message Time: 2026-04-26T15:00:00]\n记得喝水",
+        },
+        {
+            "role": "user",
+            "content": "[Message Time: 2026-04-26T18:00:00]\n好",
         },
     ]
 
