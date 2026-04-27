@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 # Check optional Slack dependencies before running tests
@@ -31,7 +32,7 @@ class _FakeAsyncWebClient:
         self._users_pages: list[dict[str, object]] = []
         self._open_dm_response: dict[str, object] = {"channel": {"id": "D_OPENED"}}
 
-    async def chat_postMessage(
+    async def chat_postMessage(  # noqa: N802 - mirrors Slack SDK method name
         self,
         *,
         channel: str,
@@ -457,6 +458,65 @@ async def test_slack_slash_command_skips_thread_context() -> None:
     channel._with_thread_context.assert_not_awaited()
     channel._handle_message.assert_awaited_once()
     assert channel._handle_message.await_args.kwargs["content"] == "/restart"
+
+
+@pytest.mark.asyncio
+async def test_slack_file_share_downloads_media_and_reaches_agent() -> None:
+    channel = SlackChannel(SlackConfig(enabled=True, bot_token="xoxb-test"), MessageBus())
+    channel._bot_user_id = "UBOT"
+    channel._web_client = _FakeAsyncWebClient()
+    channel._handle_message = AsyncMock()  # type: ignore[method-assign]
+    channel._download_slack_file = AsyncMock(  # type: ignore[method-assign]
+        return_value=("/tmp/report.pdf", "[file: report.pdf]")
+    )
+    client = SimpleNamespace(send_socket_mode_response=AsyncMock())
+    req = SimpleNamespace(
+        type="events_api",
+        envelope_id="env-file",
+        payload={
+            "event": {
+                "type": "message",
+                "subtype": "file_share",
+                "user": "U1",
+                "channel": "D123",
+                "channel_type": "im",
+                "text": "please read this",
+                "ts": "1700000000.000100",
+                "files": [
+                    {
+                        "id": "F123",
+                        "name": "report.pdf",
+                        "mimetype": "application/pdf",
+                        "url_private_download": "https://files.slack.com/report.pdf",
+                    }
+                ],
+            }
+        },
+    )
+
+    await channel._on_socket_request(client, req)
+
+    channel._download_slack_file.assert_awaited_once()
+    channel._handle_message.assert_awaited_once()
+    kwargs = channel._handle_message.await_args.kwargs
+    assert kwargs["content"] == "please read this\n[file: report.pdf]"
+    assert kwargs["media"] == ["/tmp/report.pdf"]
+
+
+def test_slack_download_rejects_login_html() -> None:
+    html_response = httpx.Response(
+        200,
+        headers={"content-type": "text/html; charset=utf-8"},
+        content=b"<!doctype html><html><title>Sign in to Slack</title>",
+    )
+    markdown_response = httpx.Response(
+        200,
+        headers={"content-type": "text/markdown"},
+        content=b"# PR Extraction Guide\n",
+    )
+
+    assert SlackChannel._looks_like_html_download(html_response) is True
+    assert SlackChannel._looks_like_html_download(markdown_response) is False
 
 
 def test_slack_channel_uses_channel_aware_allow_policy() -> None:

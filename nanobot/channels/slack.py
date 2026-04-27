@@ -2,8 +2,10 @@
 
 import asyncio
 import re
+from pathlib import Path
 from typing import Any
 
+import httpx
 from loguru import logger
 from pydantic import Field
 from slack_sdk.socket_mode.request import SocketModeRequest
@@ -15,8 +17,9 @@ from slackify_markdown import slackify_markdown
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
+from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
-from nanobot.utils.helpers import split_message
+from nanobot.utils.helpers import safe_filename, split_message
 
 
 class SlackDMConfig(Base):
@@ -48,6 +51,8 @@ class SlackConfig(Base):
 
 
 SLACK_MAX_MESSAGE_LEN = 39_000  # Slack API allows ~40k; leave margin
+SLACK_DOWNLOAD_TIMEOUT = 30.0
+_HTML_DOWNLOAD_PREFIXES = (b"<!doctype html", b"<html")
 
 
 class SlackChannel(BaseChannel):
@@ -307,8 +312,10 @@ class SlackChannel(BaseChannel):
         sender_id = event.get("user")
         chat_id = event.get("channel")
 
-        # Ignore bot/system messages (any subtype = not a normal user message)
-        if event.get("subtype"):
+        subtype = event.get("subtype")
+        # Slack uses subtype=file_share for user messages with attachments.
+        # Ignore other subtypes such as bot_message / message_changed / deleted.
+        if subtype and subtype != "file_share":
             return
         if self._bot_user_id and sender_id == self._bot_user_id:
             return
@@ -323,7 +330,7 @@ class SlackChannel(BaseChannel):
         logger.debug(
             "Slack event: type={} subtype={} user={} channel={} channel_type={} text={}",
             event_type,
-            event.get("subtype"),
+            subtype,
             sender_id,
             chat_id,
             event.get("channel_type"),
@@ -360,6 +367,17 @@ class SlackChannel(BaseChannel):
 
         # Thread-scoped session key for channel/group messages
         session_key = f"slack:{chat_id}:{thread_ts}" if thread_ts and channel_type != "im" else None
+        media_paths: list[str] = []
+        file_markers: list[str] = []
+        for file_info in event.get("files") or []:
+            if not isinstance(file_info, dict):
+                continue
+            file_path, marker = await self._download_slack_file(file_info)
+            if file_path:
+                media_paths.append(file_path)
+            if marker:
+                file_markers.append(marker)
+
         is_slash = text.strip().startswith("/")
         content = text if is_slash else await self._with_thread_context(
             text,
@@ -369,12 +387,17 @@ class SlackChannel(BaseChannel):
             raw_thread_ts=raw_thread_ts,
             current_ts=event_ts,
         )
+        if file_markers:
+            content = "\n".join(part for part in [content, *file_markers] if part)
+        if not content and not media_paths:
+            return
 
         try:
             await self._handle_message(
                 sender_id=sender_id,
                 chat_id=chat_id,
                 content=content,
+                media=media_paths,
                 metadata={
                     "slack": {
                         "event": event,
@@ -386,6 +409,48 @@ class SlackChannel(BaseChannel):
             )
         except Exception:
             logger.exception("Error handling Slack message from {}", sender_id)
+
+    async def _download_slack_file(self, file_info: dict[str, Any]) -> tuple[str | None, str]:
+        """Download a Slack private file to the local media directory."""
+        file_id = str(file_info.get("id") or "file")
+        name = str(
+            file_info.get("name")
+            or file_info.get("title")
+            or file_info.get("id")
+            or "slack-file"
+        )
+        marker_type = "image" if str(file_info.get("mimetype") or "").startswith("image/") else "file"
+        marker = f"[{marker_type}: {name}]"
+        url = str(file_info.get("url_private_download") or file_info.get("url_private") or "")
+        if not url:
+            return None, f"[{marker_type}: {name}: missing download url]"
+        if not self.config.bot_token:
+            return None, f"[{marker_type}: {name}: missing bot token]"
+
+        filename = safe_filename(f"{file_id}_{name}")
+        path = Path(get_media_dir("slack")) / filename
+        try:
+            async with httpx.AsyncClient(timeout=SLACK_DOWNLOAD_TIMEOUT, follow_redirects=True) as client:
+                response = await client.get(
+                    url,
+                    headers={"Authorization": f"Bearer {self.config.bot_token}"},
+                )
+                response.raise_for_status()
+            if self._looks_like_html_download(response):
+                raise ValueError("Slack returned HTML instead of file content")
+            path.write_bytes(response.content)
+            return str(path), marker
+        except Exception as e:
+            logger.warning("Failed to download Slack file {}: {}", file_id, e)
+            return None, f"[{marker_type}: {name}: download failed]"
+
+    @staticmethod
+    def _looks_like_html_download(response: httpx.Response) -> bool:
+        content_type = response.headers.get("content-type", "").lower()
+        if "text/html" in content_type:
+            return True
+        preview = response.content[:256].lstrip().lower()
+        return preview.startswith(_HTML_DOWNLOAD_PREFIXES)
 
     async def _on_block_action(self, client: SocketModeClient, req: SocketModeRequest) -> None:
         """Handle button clicks from ask_user blocks."""
