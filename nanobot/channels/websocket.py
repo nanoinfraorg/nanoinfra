@@ -13,6 +13,7 @@ import json
 import mimetypes
 import re
 import secrets
+import shutil
 import ssl
 import time
 import uuid
@@ -33,6 +34,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
+from nanobot.utils.helpers import safe_filename
 from nanobot.utils.media_decode import (
     FileSizeExceeded,
     save_base64_data_url,
@@ -50,6 +52,14 @@ def _strip_trailing_slash(path: str) -> str:
 
 def _normalize_config_path(path: str) -> str:
     return _strip_trailing_slash(path)
+
+
+def _append_buttons_as_text(text: str, buttons: list[list[str]]) -> str:
+    labels = [label for row in buttons for label in row if label]
+    if not labels:
+        return text
+    fallback = "\n".join(f"{index}. {label}" for index, label in enumerate(labels, 1))
+    return f"{text}\n\n{fallback}" if text else fallback
 
 
 class WebSocketConfig(Base):
@@ -218,12 +228,14 @@ def _parse_envelope(raw: str) -> dict[str, Any] | None:
     return data
 
 
-# Per-message image limits. The server-side guard is a touch looser than the
+# Per-message media limits. The server-side guard is a touch looser than the
 # client's ``Worker`` normalization target (6 MB) — tolerate client slop, but
 # still cap total ingress at ``_MAX_IMAGES_PER_MESSAGE * _MAX_IMAGE_BYTES``
 # which fits comfortably inside ``max_message_bytes``.
 _MAX_IMAGES_PER_MESSAGE = 4
 _MAX_IMAGE_BYTES = 8 * 1024 * 1024
+_MAX_VIDEOS_PER_MESSAGE = 1
+_MAX_VIDEO_BYTES = 20 * 1024 * 1024
 
 # Image MIME whitelist — matches the Composer's ``accept`` list. SVG is
 # explicitly excluded to avoid the XSS surface inside embedded scripts.
@@ -233,6 +245,14 @@ _IMAGE_MIME_ALLOWED: frozenset[str] = frozenset({
     "image/webp",
     "image/gif",
 })
+
+_VIDEO_MIME_ALLOWED: frozenset[str] = frozenset({
+    "video/mp4",
+    "video/webm",
+    "video/quicktime",
+})
+
+_UPLOAD_MIME_ALLOWED: frozenset[str] = _IMAGE_MIME_ALLOWED | _VIDEO_MIME_ALLOWED
 
 _DATA_URL_MIME_RE = re.compile(r"^data:([^;]+);base64,", re.DOTALL)
 
@@ -339,6 +359,9 @@ _MEDIA_ALLOWED_MIMES: frozenset[str] = frozenset({
     "image/jpeg",
     "image/webp",
     "image/gif",
+    "video/mp4",
+    "video/webm",
+    "video/quicktime",
 })
 
 
@@ -516,6 +539,12 @@ class WebSocketChannel(BaseChannel):
         if got == "/api/sessions":
             return self._handle_sessions_list(request)
 
+        if got == "/api/settings":
+            return self._handle_settings(request)
+
+        if got == "/api/settings/update":
+            return self._handle_settings_update(request)
+
         m = re.match(r"^/api/sessions/([^/]+)/messages$", got)
         if m:
             return self._handle_session_messages(request, m.group(1))
@@ -624,6 +653,75 @@ class WebSocketChannel(BaseChannel):
         ]
         return _http_json_response({"sessions": cleaned})
 
+    def _settings_payload(self, *, requires_restart: bool = False) -> dict[str, Any]:
+        from nanobot.config.loader import get_config_path, load_config
+        from nanobot.providers.registry import PROVIDERS, find_by_name
+
+        config = load_config()
+        defaults = config.agents.defaults
+        provider_name = config.get_provider_name(defaults.model) or defaults.provider
+        provider = config.get_provider(defaults.model)
+        selected_provider = provider_name
+        if defaults.provider != "auto":
+            spec = find_by_name(defaults.provider)
+            selected_provider = spec.name if spec else provider_name
+        return {
+            "agent": {
+                "model": defaults.model,
+                "provider": selected_provider,
+                "resolved_provider": provider_name,
+                "has_api_key": bool(provider and provider.api_key),
+            },
+            "providers": [
+                {"name": "auto", "label": "Auto"}
+            ] + [
+                {"name": spec.name, "label": spec.label}
+                for spec in PROVIDERS
+            ],
+            "runtime": {
+                "config_path": str(get_config_path().expanduser()),
+            },
+            "requires_restart": requires_restart,
+        }
+
+    def _handle_settings(self, request: WsRequest) -> Response:
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        return _http_json_response(self._settings_payload())
+
+    def _handle_settings_update(self, request: WsRequest) -> Response:
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        from nanobot.config.loader import load_config, save_config
+        from nanobot.providers.registry import find_by_name
+
+        query = _parse_query(request.path)
+        config = load_config()
+        defaults = config.agents.defaults
+        changed = False
+
+        model = _query_first(query, "model")
+        if model is not None:
+            model = model.strip()
+            if not model:
+                return _http_error(400, "model is required")
+            if defaults.model != model:
+                defaults.model = model
+                changed = True
+
+        provider = _query_first(query, "provider")
+        if provider is not None:
+            provider = provider.strip() or "auto"
+            if provider != "auto" and find_by_name(provider) is None:
+                return _http_error(400, "unknown provider")
+            if defaults.provider != provider:
+                defaults.provider = provider
+                changed = True
+
+        if changed:
+            save_config(config)
+        return _http_json_response(self._settings_payload(requires_restart=changed))
+
     @staticmethod
     def _is_webui_session_key(key: str) -> bool:
         """Return True when *key* belongs to the webui's websocket-only surface."""
@@ -702,6 +800,33 @@ class WebSocketChannel(BaseChannel):
             self._media_secret, payload.encode("ascii"), hashlib.sha256
         ).digest()[:16]
         return f"/api/media/{_b64url_encode(mac)}/{payload}"
+
+    def _sign_or_stage_media_path(self, path: Path) -> dict[str, str] | None:
+        """Return a signed media URL payload for *path*.
+
+        Persisted inbound media already lives under ``get_media_dir`` and can
+        be signed directly. Outbound bot-generated files may live anywhere on
+        disk; copy those into the websocket media bucket first so the browser
+        can fetch them through the existing signed media route without
+        exposing arbitrary filesystem paths.
+        """
+        signed = self._sign_media_path(path)
+        if signed is not None:
+            return {"url": signed, "name": path.name}
+        try:
+            if not path.is_file():
+                return None
+            media_dir = get_media_dir("websocket")
+            safe_name = safe_filename(path.name) or "attachment"
+            staged = media_dir / f"{uuid.uuid4().hex[:12]}-{safe_name}"
+            shutil.copyfile(path, staged)
+        except OSError as exc:
+            logger.warning("websocket: failed to stage outbound media {}: {}", path, exc)
+            return None
+        signed = self._sign_media_path(staged)
+        if signed is None:
+            return None
+        return {"url": signed, "name": path.name}
 
     def _handle_media_fetch(self, sig: str, payload: str) -> Response:
         """Serve a single media file previously signed via
@@ -945,14 +1070,25 @@ class WebSocketChannel(BaseChannel):
         Returns ``(paths, None)`` on success or ``([], reason)`` on the first
         failure — the caller is expected to surface ``reason`` to the client
         and skip publishing so no half-formed message ever reaches the agent.
-        On failure, any images already written to disk earlier in the same
+        On failure, any files already written to disk earlier in the same
         call are unlinked so partial ingress doesn't leak orphan files.
         ``reason`` is a short, stable token suitable for UI localization.
 
         Shape: ``list[{"data_url": str, "name"?: str | None}]``.
         """
-        if len(media) > _MAX_IMAGES_PER_MESSAGE:
+        image_count = 0
+        video_count = 0
+        for item in media:
+            mime = _extract_data_url_mime(item.get("data_url", "")) if isinstance(item, dict) else None
+            if mime in _VIDEO_MIME_ALLOWED:
+                video_count += 1
+            elif mime in _IMAGE_MIME_ALLOWED:
+                image_count += 1
+        if image_count > _MAX_IMAGES_PER_MESSAGE:
             return [], "too_many_images"
+        if video_count > _MAX_VIDEOS_PER_MESSAGE:
+            return [], "too_many_videos"
+
         media_dir = get_media_dir("websocket")
         paths: list[str] = []
 
@@ -975,11 +1111,13 @@ class WebSocketChannel(BaseChannel):
             mime = _extract_data_url_mime(data_url)
             if mime is None:
                 return _abort("decode")
-            if mime not in _IMAGE_MIME_ALLOWED:
+            if mime not in _UPLOAD_MIME_ALLOWED:
                 return _abort("mime")
+            is_video = mime in _VIDEO_MIME_ALLOWED
+            max_bytes = _MAX_VIDEO_BYTES if is_video else _MAX_IMAGE_BYTES
             try:
                 saved = save_base64_data_url(
-                    data_url, media_dir, max_bytes=_MAX_IMAGE_BYTES,
+                    data_url, media_dir, max_bytes=max_bytes,
                 )
             except FileSizeExceeded:
                 return _abort("size")
@@ -1091,13 +1229,26 @@ class WebSocketChannel(BaseChannel):
         if not conns:
             logger.warning("websocket: no active subscribers for chat_id={}", msg.chat_id)
             return
+        text = msg.content
+        if msg.buttons:
+            text = _append_buttons_as_text(text, msg.buttons)
         payload: dict[str, Any] = {
             "event": "message",
             "chat_id": msg.chat_id,
-            "text": msg.content,
+            "text": text,
         }
+        if msg.buttons:
+            payload["buttons"] = msg.buttons
+            payload["button_prompt"] = msg.content
         if msg.media:
             payload["media"] = msg.media
+            urls: list[dict[str, str]] = []
+            for entry in msg.media:
+                signed = self._sign_or_stage_media_path(Path(entry))
+                if signed is not None:
+                    urls.append(signed)
+            if urls:
+                payload["media_urls"] = urls
         if msg.reply_to:
             payload["reply_to"] = msg.reply_to
         # Mark intermediate agent breadcrumbs (tool-call hints, generic
