@@ -871,7 +871,8 @@ def test_save_refs_prunes_webchat_and_stale_refs(make_channel):
     assert set(ch._conversation_refs) == {"teams-good"}
     saved = json.loads(ch._refs_path.read_text(encoding="utf-8"))
     assert set(saved) == {"teams-good"}
-    assert saved["teams-good"]["updated_at"] == pytest.approx(now)
+    saved_meta = json.loads(ch._refs_meta_path.read_text(encoding="utf-8"))
+    assert saved_meta["teams-good"]["updated_at"] == pytest.approx(now)
 
 
 def test_msteams_default_config_includes_restart_notify_fields():
