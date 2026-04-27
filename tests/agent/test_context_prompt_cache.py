@@ -188,6 +188,16 @@ def test_identity_has_no_behavioral_instructions(tmp_path) -> None:
     assert "Execution Rules" not in identity
 
 
+def test_system_prompt_treats_message_time_as_metadata(tmp_path) -> None:
+    workspace = _make_workspace(tmp_path)
+    builder = ContextBuilder(workspace)
+
+    prompt = builder.build_system_prompt()
+
+    assert "Historical messages may include `[Message Time: ...]` prefixes" in prompt
+    assert "never quote, copy, or include those markers" in prompt
+
+
 def test_default_soul_template_contains_execution_rules() -> None:
     """Default SOUL.md template must contain execution rules with act/plan layering."""
     soul = (pkg_files("nanobot") / "templates" / "SOUL.md").read_text(encoding="utf-8")
