@@ -18,7 +18,7 @@ from nanobot.agent.tools.schema import IntegerSchema, StringSchema, tool_paramet
 from nanobot.utils.helpers import build_image_content_blocks
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import WebSearchConfig, WebFetchConfig
+    from nanobot.config.schema import WebFetchConfig, WebSearchConfig
 
 # Shared constants
 _DEFAULT_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36"
@@ -159,7 +159,11 @@ class WebSearchTool(Tool):
                 r = await client.get(
                     "https://api.search.brave.com/res/v1/web/search",
                     params={"q": query, "count": n},
-                    headers={"Accept": "application/json", "X-Subscription-Token": api_key},
+                    headers={
+                        "Accept": "application/json",
+                        "X-Subscription-Token": api_key,
+                        "User-Agent": self.user_agent,
+                    },
                     timeout=10.0,
                 )
                 r.raise_for_status()
@@ -180,7 +184,7 @@ class WebSearchTool(Tool):
             async with httpx.AsyncClient(proxy=self.proxy) as client:
                 r = await client.post(
                     "https://api.tavily.com/search",
-                    headers={"Authorization": f"Bearer {api_key}"},
+                    headers={"Authorization": f"Bearer {api_key}", "User-Agent": self.user_agent},
                     json={"query": query, "max_results": n},
                     timeout=15.0,
                 )
@@ -217,7 +221,11 @@ class WebSearchTool(Tool):
             logger.warning("JINA_API_KEY not set, falling back to DuckDuckGo")
             return await self._search_duckduckgo(query, n)
         try:
-            headers = {"Accept": "application/json", "Authorization": f"Bearer {api_key}"}
+            headers = {
+                "Accept": "application/json",
+                "Authorization": f"Bearer {api_key}",
+                "User-Agent": self.user_agent,
+            }
             encoded_query = quote(query, safe="")
             async with httpx.AsyncClient(proxy=self.proxy) as client:
                 r = await client.get(
@@ -246,7 +254,7 @@ class WebSearchTool(Tool):
                 r = await client.get(
                     "https://kagi.com/api/v0/search",
                     params={"q": query, "limit": n},
-                    headers={"Authorization": f"Bot {api_key}"},
+                    headers={"Authorization": f"Bot {api_key}", "User-Agent": self.user_agent},
                     timeout=10.0,
                 )
                 r.raise_for_status()
@@ -316,8 +324,15 @@ class WebFetchTool(Tool):
     def read_only(self) -> bool:
         return True
 
-    async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, **kwargs: Any) -> Any:
-        max_chars = maxChars or self.max_chars
+    async def execute(
+        self,
+        url: str,
+        extract_mode: str = "markdown",
+        max_chars: int | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        extract_mode = kwargs.pop("extractMode", extract_mode)
+        max_chars = kwargs.pop("maxChars", max_chars) or self.max_chars
         is_valid, error_msg = _validate_url_safe(url)
         if not is_valid:
             return json.dumps({"error": f"URL validation failed: {error_msg}", "url": url}, ensure_ascii=False)
@@ -344,7 +359,7 @@ class WebFetchTool(Tool):
         if self.config.use_jina_reader:
             result = await self._fetch_jina(url, max_chars)
         if result is None:
-            result = await self._fetch_readability(url, extractMode, max_chars)
+            result = await self._fetch_readability(url, extract_mode, max_chars)
         return result
 
     async def _fetch_jina(self, url: str, max_chars: int) -> str | None:
