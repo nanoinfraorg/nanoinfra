@@ -187,6 +187,12 @@ class WebSearchConfig(Base):
     timeout: int = 30  # Wall-clock timeout (seconds) for search operations
 
 
+class WebFetchConfig(Base):
+    """Web fetch tool configuration."""
+
+    use_jina_reader: bool = True
+
+
 class WebToolsConfig(Base):
     """Web tools configuration."""
 
@@ -194,7 +200,9 @@ class WebToolsConfig(Base):
     proxy: str | None = (
         None  # HTTP/SOCKS5 proxy URL, e.g. "http://127.0.0.1:7890" or "socks5://127.0.0.1:1080"
     )
+    user_agent: str | None = None
     search: WebSearchConfig = Field(default_factory=WebSearchConfig)
+    fetch: WebFetchConfig = Field(default_factory=WebFetchConfig)
 
 
 class ExecToolConfig(Base):
