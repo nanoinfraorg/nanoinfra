@@ -23,6 +23,7 @@
 
 ## 📢 News
 
+- **2026-04-29** 🚀 Released **v0.1.5.post3** — Smarter threads on Feishu, Discord, Slack, and Teams; **DeepSeek-V4**; Hugging Face & Olostep; choices, `/history`, and steadier long chats. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.5.post3) for details.
 - **2026-04-28** 🌐 Olostep web search, Hugging Face provider, safer workspace-tool interruptions.
 - **2026-04-27** 💬 `/history` command, smarter session replay caps, smoother Discord / Slack / Telegram threads.
 - **2026-04-26** 🧭 Natural cron reminders, thread-aware restarts, safer local provider and shell behavior.
