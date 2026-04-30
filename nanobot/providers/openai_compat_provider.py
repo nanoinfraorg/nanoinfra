@@ -457,9 +457,14 @@ class OpenAICompatProvider(LLMProvider):
         if (
             not self._spec
             or self._spec.name != "deepseek"
-            or not reasoning_effort
-            or reasoning_effort.lower() == "none"
         ):
+            return messages
+
+        # For DeepSeek models, always check for incomplete reasoning history
+        # when thinking mode might be active. reasoning_effort may not be set
+        # explicitly but the model could still be using thinking mode by default.
+        # Only skip this check when reasoning_effort is explicitly set to "none".
+        if reasoning_effort is not None and reasoning_effort.lower() == "none":
             return messages
 
         bad_idx = None
