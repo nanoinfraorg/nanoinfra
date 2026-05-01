@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -37,13 +38,6 @@ _BOOL_CAMEL_ALIASES: dict[str, str] = {
     "send_tool_hints": "sendToolHints",
 }
 
-
-@dataclass
-class _RecentOutbound:
-    fingerprint: str
-    ts: float
-
-
 class ChannelManager:
     """
     Manages chat channels and coordinates message routing.
@@ -66,7 +60,7 @@ class ChannelManager:
         self._session_manager = session_manager
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
-        self._recent_outbound: dict[tuple[str, str], _RecentOutbound] = {}
+        self._origin_reply_fingerprints: dict[tuple[str, str, str], str] = {}
 
         self._init_channels()
 
@@ -228,10 +222,8 @@ class ChannelManager:
         # Stop dispatcher
         if self._dispatch_task:
             self._dispatch_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._dispatch_task
-            except asyncio.CancelledError:
-                pass
 
         # Stop all channels
         for name, channel in self.channels.items():
@@ -247,17 +239,25 @@ class ChannelManager:
         return hashlib.sha1(normalized.encode("utf-8")).hexdigest() if normalized else ""
 
     def _should_suppress_outbound(self, msg: OutboundMessage) -> bool:
-        if msg.metadata.get("_progress"):
+        metadata = msg.metadata or {}
+        if metadata.get("_progress"):
             return False
         fingerprint = self._fingerprint_content(msg.content)
         if not fingerprint:
             return False
-        key = (msg.channel, msg.chat_id)
-        recent = self._recent_outbound.get(key)
-        now = asyncio.get_running_loop().time()
-        if recent and recent.fingerprint == fingerprint and now - recent.ts <= 8.0:
-            return True
-        self._recent_outbound[key] = _RecentOutbound(fingerprint=fingerprint, ts=now)
+
+        origin_message_id = metadata.get("origin_message_id")
+        if isinstance(origin_message_id, str) and origin_message_id:
+            key = (msg.channel, msg.chat_id, origin_message_id)
+            if self._origin_reply_fingerprints.get(key) == fingerprint:
+                return True
+            self._origin_reply_fingerprints[key] = fingerprint
+
+        message_id = metadata.get("message_id")
+        if isinstance(message_id, str) and message_id:
+            key = (msg.channel, msg.chat_id, message_id)
+            self._origin_reply_fingerprints[key] = fingerprint
+
         return False
 
     async def _dispatch_outbound(self) -> None:
@@ -300,8 +300,13 @@ class ChannelManager:
 
                 channel = self.channels.get(msg.channel)
                 if channel:
-                    # Duplicate suppression (non-streaming only)
-                    if not msg.metadata.get("_stream_delta") and not msg.metadata.get("_stream_end") and not msg.metadata.get("_streamed"):
+                    # Duplicate suppression is scoped to a known source message
+                    # so repeated content from separate turns is still delivered.
+                    if (
+                        not msg.metadata.get("_stream_delta")
+                        and not msg.metadata.get("_stream_end")
+                        and not msg.metadata.get("_streamed")
+                    ):
                         if self._should_suppress_outbound(msg):
                             logger.info("Suppressing duplicate outbound message to {}:{}", msg.channel, msg.chat_id)
                             continue
