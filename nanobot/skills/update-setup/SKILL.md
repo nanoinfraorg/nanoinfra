@@ -78,7 +78,7 @@ description: "Upgrade nanobot to the latest version. Triggers: upgrade nanobot, 
 1. (If proxy configured) Set proxy: `export http_proxy=URL && export https_proxy=URL`
 2. Use `exec` to run the upgrade command: <UPGRADE_COMMAND>
 3. Use `exec` to verify: `nanobot --version`
-4. Tell the user the new version. Say: "Restart nanobot to apply the update."
+4. Tell the user the new version. Say: "Run `/restart` to restart nanobot and apply the update. If `/restart` is unavailable in this channel, restart the nanobot process manually."
 ```
 
 ## Step 5: Confirm
