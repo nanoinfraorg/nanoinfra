@@ -441,6 +441,8 @@ class AgentLoop:
                 if hasattr(tool, "set_context"):
                     if name == "spawn":
                         tool.set_context(channel, chat_id, effective_key=effective_key)
+                        if hasattr(tool, "set_origin_message_id"):
+                            tool.set_origin_message_id(message_id)
                     elif name == "cron":
                         tool.set_context(channel, chat_id, metadata=metadata, session_key=session_key)
                     elif name == "message":
@@ -957,6 +959,8 @@ class AgentLoop:
             outbound_metadata: dict[str, Any] = {}
             if channel == "slack" and key.startswith("slack:") and key.count(":") >= 2:
                 outbound_metadata["slack"] = {"thread_ts": key.split(":", 2)[2]}
+            if origin_message_id := msg.metadata.get("origin_message_id"):
+                outbound_metadata["origin_message_id"] = origin_message_id
             return OutboundMessage(
                 channel=channel,
                 chat_id=chat_id,
