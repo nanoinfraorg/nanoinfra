@@ -452,6 +452,7 @@ class OpenAICompatProvider(LLMProvider):
     def _drop_deepseek_incomplete_reasoning_history(
         self,
         messages: list[dict[str, Any]],
+        model_name: str,
         reasoning_effort: str | None,
     ) -> list[dict[str, Any]]:
         if (
@@ -460,12 +461,18 @@ class OpenAICompatProvider(LLMProvider):
         ):
             return messages
 
-        # For DeepSeek models, always check for incomplete reasoning history
-        # when thinking mode might be active. reasoning_effort may not be set
-        # explicitly but the model could still be using thinking mode by default.
-        # Only skip this check when reasoning_effort is explicitly set to "none".
-        if reasoning_effort is not None and reasoning_effort.lower() == "none":
+        semantic_effort = reasoning_effort.lower() if isinstance(reasoning_effort, str) else None
+        if semantic_effort in {"none", "minimal", "minimum"}:
             return messages
+
+        # DeepSeek-V4 can require reasoning_content even when the config did
+        # not explicitly request reasoning_effort. Keep that implicit-thinking
+        # cleanup scoped to known thinking-capable DeepSeek models so normal
+        # deepseek-chat history is not trimmed.
+        if semantic_effort is None:
+            model_lower = model_name.lower()
+            if not any(token in model_lower for token in ("deepseek-v4", "deepseek-reasoner")):
+                return messages
 
         bad_idx = None
         for idx, msg in enumerate(messages):
@@ -537,6 +544,7 @@ class OpenAICompatProvider(LLMProvider):
 
         messages = self._drop_deepseek_incomplete_reasoning_history(
             messages,
+            model_name,
             reasoning_effort,
         )
         kwargs: dict[str, Any] = {
