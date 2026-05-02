@@ -833,13 +833,13 @@ class AgentRunner:
 
     # Markers identifying tool results that represent a workspace / safety boundary rejection.
     _WORKSPACE_BLOCK_MARKERS: tuple[str, ...] = (
-        "blocked by safety guard",
         "outside the configured workspace",
         "outside allowed directory",
         "working_dir is outside",
         "working_dir could not be resolved",
         "path traversal detected",
         "path outside working dir",
+        "internal/private url detected",
     )
 
     @classmethod
