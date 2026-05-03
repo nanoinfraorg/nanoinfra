@@ -220,9 +220,12 @@ class ExecTool(Tool):
     ) -> asyncio.subprocess.Process:
         """Launch *command* in a platform-appropriate shell."""
         if _IS_WINDOWS:
-            comspec = env.get("COMSPEC", os.environ.get("COMSPEC", "cmd.exe"))
-            return await asyncio.create_subprocess_exec(
-                comspec, "/c", command,
+            # create_subprocess_exec re-quotes args via list2cmdline, which
+            # breaks commands containing paths with spaces (e.g. "D:\Program
+            # Files\python.exe" "script.py"). create_subprocess_shell passes
+            # the raw command string to COMSPEC without re-quoting.
+            return await asyncio.create_subprocess_shell(
+                command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
@@ -346,11 +349,14 @@ class ExecTool(Tool):
                     continue
 
                 media_path = get_media_dir().resolve()
+                dev_path = Path("/dev").resolve()
                 if (p.is_absolute()
                     and cwd_path not in p.parents
                     and p != cwd_path
                     and media_path not in p.parents
                     and p != media_path
+                    and dev_path not in p.parents
+                    and p != dev_path
                 ):
                     return (
                         "Error: Command blocked by safety guard (path outside working dir)"
@@ -372,5 +378,5 @@ class ExecTool(Tool):
         # NOTE: `*` is required so `C:\` (nothing after the slash) is still extracted.
         win_paths = re.findall(r"[A-Za-z]:\\[^\s\"'|><;]*", command)
         posix_paths = re.findall(r"(?:^|[\s|>'\"])(/[^\s\"'>;|<]+)", command) # POSIX: /absolute only
-        home_paths = re.findall(r"(?:^|[\s|>'\"])(~[^\s\"'>;|<]*)", command) # POSIX/Windows home shortcut: ~
+        home_paths = re.findall(r"(?:^|[\s>'\"])(~[^\s\"'>;|<]*)", command) # POSIX/Windows home shortcut: ~
         return win_paths + posix_paths + home_paths
