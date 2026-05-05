@@ -17,7 +17,7 @@ async def test_interactive_retry_wait_is_rendered_as_progress_even_when_progress
         metadata={"_retry_wait": True},
     )
 
-    async def fake_print(text: str, active_thinking: object | None) -> None:
+    async def fake_print(text: str, active_thinking: object | None, renderer=None) -> None:
         calls.append((text, active_thinking))
 
     with patch("nanobot.cli.commands._print_interactive_progress_line", side_effect=fake_print):
