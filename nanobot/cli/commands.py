@@ -237,6 +237,16 @@ def _print_cli_progress_line(text: str, thinking: ThinkingSpinner | None, render
         target.print(f"  [dim]↳ {text}[/dim]")
 
 
+def _print_cli_reasoning(text: str, thinking: ThinkingSpinner | None, renderer: StreamRenderer | None = None) -> None:
+    """Print reasoning/thinking content in a distinct style."""
+    if not text.strip():
+        return
+    target = renderer.console if renderer else console
+    pause = renderer.pause_spinner() if renderer else (thinking.pause() if thinking else nullcontext())
+    with pause:
+        target.print(f"[dim italic]✻ {text}[/dim italic]")
+
+
 async def _print_interactive_progress_line(text: str, thinking: ThinkingSpinner | None, renderer: StreamRenderer | None = None) -> None:
     """Print an interactive progress line, pausing the spinner if needed."""
     if not text.strip():
@@ -264,12 +274,18 @@ async def _maybe_print_interactive_progress(
         return False
 
     is_tool_hint = metadata.get("_tool_hint", False)
+    is_reasoning = metadata.get("_reasoning", False)
     if channels_config and is_tool_hint and not channels_config.send_tool_hints:
         return True
     if channels_config and not is_tool_hint and not channels_config.send_progress:
         return True
+    if is_reasoning and channels_config and not channels_config.show_reasoning:
+        return True
 
-    await _print_interactive_progress_line(msg.content, thinking, renderer)
+    if is_reasoning:
+        _print_cli_reasoning(msg.content, thinking, renderer)
+    else:
+        await _print_interactive_progress_line(msg.content, thinking, renderer)
     return True
 
 
@@ -1129,13 +1145,18 @@ def agent(
     _thinking: ThinkingSpinner | None = None
 
     def _make_progress(renderer: StreamRenderer | None = None):
-        async def _cli_progress(content: str, *, tool_hint: bool = False, **_kwargs: Any) -> None:
+        async def _cli_progress(content: str, *, tool_hint: bool = False, reasoning: bool = False, **_kwargs: Any) -> None:
             ch = agent_loop.channels_config
             if ch and tool_hint and not ch.send_tool_hints:
                 return
             if ch and not tool_hint and not ch.send_progress:
                 return
-            _print_cli_progress_line(content, _thinking, renderer)
+            if reasoning and ch and not ch.show_reasoning:
+                return
+            if reasoning:
+                _print_cli_reasoning(content, _thinking, renderer)
+            else:
+                _print_cli_progress_line(content, _thinking, renderer)
         return _cli_progress
 
     if message:

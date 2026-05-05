@@ -48,6 +48,9 @@ class AgentHook:
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         pass
 
+    async def emit_reasoning(self, reasoning_content: str | None) -> None:
+        pass
+
     async def after_iteration(self, context: AgentHookContext) -> None:
         pass
 
@@ -94,6 +97,9 @@ class CompositeHook(AgentHook):
 
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         await self._for_each_hook_safe("before_execute_tools", context)
+
+    async def emit_reasoning(self, reasoning_content: str | None) -> None:
+        await self._for_each_hook_safe("emit_reasoning", reasoning_content)
 
     async def after_iteration(self, context: AgentHookContext) -> None:
         await self._for_each_hook_safe("after_iteration", context)

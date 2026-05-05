@@ -155,6 +155,14 @@ class _LoopHook(AgentHook):
             session_key=self._session_key,
         )
 
+    async def emit_reasoning(self, reasoning_content: str | None) -> None:
+        """Send reasoning/thinking content as progress before the main answer."""
+        ch = self._loop.channels_config
+        if not ch or not ch.show_reasoning:
+            return
+        if self._on_progress and reasoning_content:
+            await self._on_progress(reasoning_content, reasoning=True)
+
     async def after_iteration(self, context: AgentHookContext) -> None:
         if (
             self._on_progress
@@ -1114,10 +1122,13 @@ class AgentLoop:
             *,
             tool_hint: bool = False,
             tool_events: list[dict[str, Any]] | None = None,
+            reasoning: bool = False,
         ) -> None:
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint
+            if reasoning:
+                meta["_reasoning"] = True
             if tool_events:
                 meta["_tool_events"] = tool_events
             await self.bus.publish_outbound(

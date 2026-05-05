@@ -282,6 +282,9 @@ class AgentRunner:
             context.tool_calls = list(response.tool_calls)
             self._accumulate_usage(usage, raw_usage)
 
+            if response.reasoning_content:
+                await hook.emit_reasoning(response.reasoning_content)
+
             if response.should_execute_tools:
                 tool_calls = list(response.tool_calls)
                 ask_index = next((i for i, tc in enumerate(tool_calls) if tc.name == "ask_user"), None)

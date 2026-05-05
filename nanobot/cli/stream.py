@@ -84,7 +84,6 @@ class StreamRenderer:
         self._show_spinner = show_spinner
         self._buf = ""
         self.streamed = False
-        self._header_printed = False
         self._console = _make_console()
         self._live: Live | None = None
         self._spinner: ThinkingSpinner | None = None
@@ -127,12 +126,12 @@ class StreamRenderer:
     async def on_delta(self, delta: str) -> None:
         self.streamed = True
         self._buf += delta
-        if not self._header_printed and self._buf.strip():
+        if self._live is None:
+            if not self._buf.strip():
+                return
+            self._stop_spinner()
             self._console.print()
             self._console.print(f"[cyan]{__logo__} nanobot[/cyan]")
-            self._header_printed = True
-        self._stop_spinner()
-        if not self._live:
             self._live = Live(
                 self._renderable(),
                 console=self._console,
@@ -153,7 +152,7 @@ class StreamRenderer:
             self._live.stop()
             self._live = None
         self._stop_spinner()
-        if self._header_printed and self._buf.strip():
+        if self._buf.strip():
             # Print final rendered content (persists after Live is gone).
             out = sys.stdout
             out.write(self._render_str())
