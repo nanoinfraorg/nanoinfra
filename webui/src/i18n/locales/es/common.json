@@ -45,8 +45,8 @@
     "newChat": "Nuevo chat"
   },
   "deleteConfirm": {
-    "title": "¿Eliminar “{{title}}”?",
-    "description": "El archivo de sesión se eliminará del disco. Esta acción no se puede deshacer.",
+    "title": "¿Eliminar este chat?",
+    "description": "Esta acción no se puede deshacer.",
     "cancel": "Cancelar",
     "confirm": "Eliminar"
   },

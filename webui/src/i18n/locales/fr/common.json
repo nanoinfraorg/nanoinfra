@@ -45,8 +45,8 @@
     "newChat": "Nouvelle discussion"
   },
   "deleteConfirm": {
-    "title": "Supprimer « {{title}} » ?",
-    "description": "Le fichier de session sera supprimé du disque. Cette action est irréversible.",
+    "title": "Supprimer cette discussion ?",
+    "description": "Cette action est irréversible.",
     "cancel": "Annuler",
     "confirm": "Supprimer"
   },

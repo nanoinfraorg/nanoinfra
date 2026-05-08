@@ -45,8 +45,8 @@
     "newChat": "新しいチャット"
   },
   "deleteConfirm": {
-    "title": "「{{title}}」を削除しますか？",
-    "description": "セッションファイルはディスクから削除されます。この操作は元に戻せません。",
+    "title": "このチャットを削除しますか？",
+    "description": "この操作は元に戻せません。",
     "cancel": "キャンセル",
     "confirm": "削除"
   },

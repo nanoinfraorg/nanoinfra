@@ -45,8 +45,8 @@
     "newChat": "Cuộc trò chuyện mới"
   },
   "deleteConfirm": {
-    "title": "Xóa “{{title}}”?",
-    "description": "Tệp phiên sẽ bị xóa khỏi đĩa. Không thể hoàn tác thao tác này.",
+    "title": "Xóa cuộc trò chuyện này?",
+    "description": "Không thể hoàn tác thao tác này.",
     "cancel": "Hủy",
     "confirm": "Xóa"
   },

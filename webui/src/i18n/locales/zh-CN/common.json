@@ -58,8 +58,8 @@
     }
   },
   "deleteConfirm": {
-    "title": "删除“{{title}}”？",
-    "description": "这个会话文件会从磁盘中删除，且无法撤销。",
+    "title": "删除这个对话？",
+    "description": "此操作无法撤销。",
     "cancel": "取消",
     "confirm": "删除"
   },

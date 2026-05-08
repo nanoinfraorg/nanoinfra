@@ -45,8 +45,8 @@
     "newChat": "새 채팅"
   },
   "deleteConfirm": {
-    "title": "“{{title}}”을(를) 삭제할까요?",
-    "description": "세션 파일이 디스크에서 제거됩니다. 이 작업은 되돌릴 수 없습니다.",
+    "title": "이 채팅을 삭제할까요?",
+    "description": "이 작업은 되돌릴 수 없습니다.",
     "cancel": "취소",
     "confirm": "삭제"
   },

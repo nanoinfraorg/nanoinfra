@@ -45,8 +45,8 @@
     "newChat": "Obrolan baru"
   },
   "deleteConfirm": {
-    "title": "Hapus “{{title}}”?",
-    "description": "File sesi akan dihapus dari disk. Tindakan ini tidak dapat dibatalkan.",
+    "title": "Hapus obrolan ini?",
+    "description": "Tindakan ini tidak dapat dibatalkan.",
     "cancel": "Batal",
     "confirm": "Hapus"
   },

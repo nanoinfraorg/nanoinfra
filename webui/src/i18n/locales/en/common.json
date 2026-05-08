@@ -70,8 +70,8 @@
     }
   },
   "deleteConfirm": {
-    "title": "Delete “{{title}}”?",
-    "description": "The session file will be removed from disk. This cannot be undone.",
+    "title": "Delete this chat?",
+    "description": "This action cannot be undone.",
     "cancel": "Cancel",
     "confirm": "Delete"
   },

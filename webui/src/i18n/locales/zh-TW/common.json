@@ -45,8 +45,8 @@
     "newChat": "新增對話"
   },
   "deleteConfirm": {
-    "title": "刪除「{{title}}」？",
-    "description": "這個會話檔案會從磁碟中移除，而且無法復原。",
+    "title": "刪除這個對話？",
+    "description": "此操作無法復原。",
     "cancel": "取消",
     "confirm": "刪除"
   },
