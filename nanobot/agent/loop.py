@@ -631,6 +631,32 @@ class AgentLoop:
             return True
         return False
 
+    def _build_initial_messages(
+        self,
+        msg: InboundMessage,
+        session: Session,
+        history: list[dict[str, Any]],
+        pending_ask_id: str | None,
+        pending_summary: Any,
+    ) -> list[dict[str, Any]]:
+        """Build the initial message list for the LLM turn."""
+        if pending_ask_id:
+            return ask_user_tool_result_messages(
+                self.context.build_system_prompt(channel=msg.channel),
+                history,
+                pending_ask_id,
+                image_generation_prompt(msg.content, msg.metadata),
+            )
+        return self.context.build_messages(
+            history=history,
+            current_message=image_generation_prompt(msg.content, msg.metadata),
+            session_summary=pending_summary,
+            media=msg.media if msg.media else None,
+            channel=msg.channel,
+            chat_id=self._runtime_chat_id(msg),
+            sender_id=msg.sender_id,
+        )
+
     async def _dispatch_command_inline(
         self,
         msg: InboundMessage,
@@ -1213,23 +1239,9 @@ class AgentLoop:
         history = session.get_history(**_hist_kwargs)
 
         pending_ask_id = pending_ask_user_id(history)
-        if pending_ask_id:
-            initial_messages = ask_user_tool_result_messages(
-                self.context.build_system_prompt(channel=msg.channel),
-                history,
-                pending_ask_id,
-                image_generation_prompt(msg.content, msg.metadata),
-            )
-        else:
-            initial_messages = self.context.build_messages(
-                history=history,
-                current_message=image_generation_prompt(msg.content, msg.metadata),
-                session_summary=pending,
-                media=msg.media if msg.media else None,
-                channel=msg.channel,
-                chat_id=self._runtime_chat_id(msg),
-                sender_id=msg.sender_id,
-            )
+        initial_messages = self._build_initial_messages(
+            msg, session, history, pending_ask_id, pending
+        )
 
         _bus_progress = await self._build_bus_progress_callback(msg)
         _on_retry_wait = await self._build_retry_wait_callback(msg)
