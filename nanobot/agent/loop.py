@@ -1289,12 +1289,28 @@ class AgentLoop:
             )
         )
 
-        # When follow-up messages were injected mid-turn, a later natural
-        # language reply may address those follow-ups and should not be
-        # suppressed just because MessageTool was used earlier in the turn.
-        # However, if the turn falls back to the empty-final-response
-        # placeholder, suppress it when the real user-visible output already
-        # came from MessageTool.
+        return self._assemble_outbound(
+            msg,
+            final_content,
+            all_msgs,
+            stop_reason,
+            had_injections,
+            generated_media,
+            on_stream,
+        )
+
+    def _assemble_outbound(
+        self,
+        msg: InboundMessage,
+        final_content: str,
+        all_msgs: list[dict[str, Any]],
+        stop_reason: str,
+        had_injections: bool,
+        generated_media: list[str],
+        on_stream: Callable | None,
+    ) -> OutboundMessage | None:
+        """Assemble the final outbound message from turn results."""
+        # MessageTool suppression
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             if not had_injections or stop_reason == "empty_final_response":
                 return None
@@ -1303,17 +1319,18 @@ class AgentLoop:
         logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
 
         meta = dict(msg.metadata or {})
-        final_content, buttons = ask_user_outbound(
+        content, buttons = ask_user_outbound(
             final_content,
             ask_user_options_from_messages(all_msgs) if stop_reason == "ask_user" else [],
             msg.channel,
         )
         if on_stream is not None and stop_reason not in {"ask_user", "error", "tool_error"}:
             meta["_streamed"] = True
+
         return OutboundMessage(
             channel=msg.channel,
             chat_id=msg.chat_id,
-            content=final_content,
+            content=content,
             media=generated_media,
             metadata=meta,
             buttons=buttons,
