@@ -75,6 +75,7 @@ def test_generated_image_paths_from_tool_results() -> None:
             {"id": "img_2", "path": "/tmp/two.png"},
         ]
     )
+    payload = json.loads(result)
 
     assert generated_image_paths_from_messages(
         [
@@ -82,3 +83,5 @@ def test_generated_image_paths_from_tool_results() -> None:
             {"role": "tool", "name": "other", "content": result},
         ]
     ) == ["/tmp/one.png", "/tmp/two.png"]
+    assert "runtime attaches generated images automatically" in payload["next_step"]
+    assert "Do not call message" in payload["next_step"]

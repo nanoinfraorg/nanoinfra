@@ -289,6 +289,18 @@ def test_build_messages_passes_channel_to_system_prompt(tmp_path) -> None:
     assert "messaging app" in system
 
 
+def test_system_prompt_keeps_message_tool_out_of_current_chat_replies(tmp_path) -> None:
+    workspace = _make_workspace(tmp_path)
+    builder = ContextBuilder(workspace)
+
+    prompt = builder.build_system_prompt(channel="slack")
+
+    assert "Do not use the 'message' tool for normal replies in the current chat" in prompt
+    assert "the runtime attaches those artifacts to the final assistant reply automatically" in prompt
+    assert "do not call 'message' just to announce or resend them" in prompt
+    assert "Wait for the tool results, then answer once" in prompt
+
+
 def test_subagent_result_does_not_create_consecutive_assistant_messages(tmp_path) -> None:
     workspace = _make_workspace(tmp_path)
     builder = ContextBuilder(workspace)

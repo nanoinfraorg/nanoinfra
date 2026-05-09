@@ -13,12 +13,24 @@ from nanobot.config.paths import get_workspace_path
 
 @tool_parameters(
     tool_parameters_schema(
-        content=StringSchema("The message content to send"),
-        channel=StringSchema("Optional: target channel (telegram, discord, etc.)"),
-        chat_id=StringSchema("Optional: target chat/user ID"),
+        content=StringSchema(
+            "Message content for proactive or cross-channel delivery. "
+            "Do not use this for a normal reply in the current chat."
+        ),
+        channel=StringSchema(
+            "Optional target channel for cross-channel/proactive delivery. "
+            "Do not set this to the current runtime channel for a normal reply."
+        ),
+        chat_id=StringSchema(
+            "Optional target chat/user ID for cross-channel/proactive delivery. "
+            "Do not set this to the current runtime chat for a normal reply."
+        ),
         media=ArraySchema(
             StringSchema(""),
-            description="Optional: list of file paths to attach (images, video, audio, documents)",
+            description=(
+                "Optional list of existing file paths to attach for proactive or cross-channel delivery. "
+                "Do not use this to resend generate_image outputs in the current chat."
+            ),
         ),
         buttons=ArraySchema(
             ArraySchema(StringSchema("Button label")),
@@ -100,9 +112,14 @@ class MessageTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Send a message to the user, optionally with file attachments. "
-            "This is the ONLY way to deliver files (images, documents, audio, video) to the user. "
-            "Use the 'media' parameter with file paths to attach files. "
+            "Proactively send a message to a user/channel, optionally with file attachments. "
+            "Use this for reminders, cross-channel delivery, or explicit proactive sends. "
+            "Do not use this for the normal reply in the current chat: answer naturally instead. "
+            "If channel/chat_id would target the current runtime conversation, do not call this tool "
+            "unless the user explicitly asked you to proactively send an existing file attachment. "
+            "When generate_image creates images in the current chat, the final assistant reply "
+            "automatically attaches them; do not call message just to announce or resend them. "
+            "For proactive attachment delivery, use the 'media' parameter with file paths. "
             "Do NOT use read_file to send files — that only reads content for your own analysis."
         )
 

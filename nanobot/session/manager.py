@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -21,6 +22,25 @@ from nanobot.utils.helpers import (
 )
 
 FILE_MAX_MESSAGES = 2000
+_MESSAGE_TIME_PREFIX_RE = re.compile(r"^\[Message Time: [^\]]+\]\n?")
+_LOCAL_IMAGE_BREADCRUMB_RE = re.compile(r"^\[image: (?:/|~)[^\]]+\]\s*$")
+_TOOL_CALL_ECHO_RE = re.compile(r'^\s*(?:generate_image|message)\([^)]*\)\s*$')
+
+
+def _sanitize_assistant_replay_text(content: str) -> str:
+    """Remove internal replay artifacts that the model may have copied before.
+
+    These strings are useful as runtime/session metadata, but when they appear
+    in assistant examples they become demonstrations for the model to repeat.
+    """
+    content = _MESSAGE_TIME_PREFIX_RE.sub("", content, count=1)
+    lines = [
+        line
+        for line in content.splitlines()
+        if not _LOCAL_IMAGE_BREADCRUMB_RE.match(line)
+        and not _TOOL_CALL_ECHO_RE.match(line)
+    ]
+    return "\n".join(lines).strip()
 
 
 @dataclass
@@ -41,22 +61,15 @@ class Session:
         Annotating *every* assistant turn trains the model (via in-context
         demonstrations) to start its own replies with the same
         ``[Message Time: ...]`` prefix, which leaks metadata back to the user.
-        We therefore only annotate:
-
-        * ``user`` turns — needed so the model can pin the conversation in time.
-        * proactive deliveries (``_channel_delivery=True``) — cron / heartbeat
-          assistant pushes that may sit hours away from the next user reply,
-          and are too infrequent to act as parroting demonstrations.
+        We therefore only annotate user turns. User-side stamps are enough to
+        pin adjacent assistant replies for relative-time reasoning, including
+        proactive messages the user replies to later.
         """
         timestamp = message.get("timestamp")
         if not timestamp or not isinstance(content, str):
             return content
         role = message.get("role")
-        if role == "user":
-            pass
-        elif role == "assistant" and message.get("_channel_delivery"):
-            pass
-        else:
+        if role != "user":
             return content
         return f"[Message Time: {timestamp}]\n{content}"
 
@@ -105,19 +118,25 @@ class Session:
         out: list[dict[str, Any]] = []
         for message in sliced:
             content = message.get("content", "")
+            role = message.get("role")
+            if role == "assistant" and isinstance(content, str):
+                content = _sanitize_assistant_replay_text(content)
             # Synthesize an ``[image: path]`` breadcrumb from the persisted
             # ``media`` kwarg so LLM replay still sees *something* where the
             # image used to be. Without this, an image-only user turn
             # replays as an empty user message — the assistant's reply then
             # looks like it's responding to nothing.
             media = message.get("media")
-            if isinstance(media, list) and media and isinstance(content, str):
+            if role == "user" and isinstance(media, list) and media and isinstance(content, str):
                 breadcrumbs = "\n".join(
                     image_placeholder_text(p) for p in media if isinstance(p, str) and p
                 )
                 content = f"{content}\n{breadcrumbs}" if content else breadcrumbs
             if include_timestamps:
                 content = self._annotate_message_time(message, content)
+            if role == "assistant" and isinstance(content, str) and not content.strip():
+                if not any(key in message for key in ("tool_calls", "reasoning_content", "thinking_blocks")):
+                    continue
             entry: dict[str, Any] = {"role": message["role"], "content": content}
             for key in ("tool_calls", "tool_call_id", "name", "reasoning_content", "thinking_blocks"):
                 if key in message:

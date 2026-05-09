@@ -115,7 +115,8 @@ def generated_image_tool_result(artifacts: list[dict[str, Any]]) -> str:
             "artifacts": artifacts,
             "next_step": (
                 "Use these artifact paths as reference_images for follow-up edits. "
-                "Mention the image id/path to the user; do not paste base64."
+                "For the current chat, reply naturally; the runtime attaches generated images automatically. "
+                "Do not call message just to announce or resend them. Keep raw paths internal unless the user asks for debug details."
             ),
         },
         ensure_ascii=False,
