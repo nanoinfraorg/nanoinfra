@@ -1325,6 +1325,11 @@ class AgentLoop:
                 )
             ctx.state = next_state
 
+        logger.debug(
+            "[turn {}] Turn completed after {} states",
+            ctx.turn_id,
+            len(ctx.trace),
+        )
         return ctx.outbound
 
     def _assemble_outbound(
