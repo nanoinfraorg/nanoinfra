@@ -422,6 +422,17 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         detect_by_base_keyword="1234",
         default_api_base="http://localhost:1234/v1",
     ),
+    # Atomic Chat (local, OpenAI-compatible) — https://atomic.chat/
+    ProviderSpec(
+        name="atomic_chat",
+        keywords=("atomic-chat", "atomic_chat", "atomicchat"),
+        env_key="ATOMIC_CHAT_API_KEY",
+        display_name="Atomic Chat",
+        backend="openai_compat",
+        is_local=True,
+        detect_by_base_keyword="1337",
+        default_api_base="http://localhost:1337/v1",
+    ),
     # === OpenVINO Model Server (direct, local, OpenAI-compatible at /v3) ===
     ProviderSpec(
         name="ovms",
