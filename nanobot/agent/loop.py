@@ -101,17 +101,23 @@ class _LoopHook(AgentHook):
         self._metadata = metadata or {}
         self._session_key = session_key
         self._stream_buf = ""
+        self._emitted_thinking = ""
 
     def wants_streaming(self) -> bool:
         return self._on_stream is not None
 
     async def on_stream(self, context: AgentHookContext, delta: str) -> None:
-        from nanobot.utils.helpers import strip_think
+        from nanobot.utils.helpers import emit_incremental_think, strip_think
 
         prev_clean = strip_think(self._stream_buf)
         self._stream_buf += delta
         new_clean = strip_think(self._stream_buf)
         incremental = new_clean[len(prev_clean) :]
+
+        self._emitted_thinking = await emit_incremental_think(
+            self._stream_buf, self._emitted_thinking, self.emit_reasoning,
+        )
+
         if incremental and self._on_stream:
             await self._on_stream(incremental)
 
@@ -119,6 +125,7 @@ class _LoopHook(AgentHook):
         if self._on_stream_end:
             await self._on_stream_end(resuming=resuming)
         self._stream_buf = ""
+        self._emitted_thinking = ""
 
     async def before_iteration(self, context: AgentHookContext) -> None:
         self._loop._current_iteration = context.iteration

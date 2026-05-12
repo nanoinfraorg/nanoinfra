@@ -102,6 +102,132 @@ async def test_runner_preserves_reasoning_fields_and_tool_results():
 
 
 @pytest.mark.asyncio
+async def test_runner_emits_anthropic_thinking_blocks():
+    from nanobot.agent.hook import AgentHook, AgentHookContext
+    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+
+    provider = MagicMock()
+    emitted_reasoning: list[str] = []
+
+    async def chat_with_retry(**kwargs):
+        return LLMResponse(
+            content="The answer is 42.",
+            thinking_blocks=[
+                {"type": "thinking", "thinking": "Let me analyze this step by step.", "signature": "sig1"},
+                {"type": "thinking", "thinking": "After careful consideration.", "signature": "sig2"},
+            ],
+            tool_calls=[],
+            usage={"prompt_tokens": 5, "completion_tokens": 3},
+        )
+
+    provider.chat_with_retry = chat_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    class ReasoningHook(AgentHook):
+        async def emit_reasoning(self, reasoning_content: str | None) -> None:
+            if reasoning_content:
+                emitted_reasoning.append(reasoning_content)
+
+    runner = AgentRunner(provider)
+    result = await runner.run(AgentRunSpec(
+        initial_messages=[{"role": "user", "content": "question"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=3,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        hook=ReasoningHook(),
+    ))
+
+    assert result.final_content == "The answer is 42."
+    assert len(emitted_reasoning) == 1
+    assert "Let me analyze this" in emitted_reasoning[0]
+    assert "After careful consideration" in emitted_reasoning[0]
+
+
+@pytest.mark.asyncio
+async def test_runner_emits_inline_think_content_as_reasoning():
+    """Models returning <think>...</think> in content should have thinking extracted and emitted."""
+    from nanobot.agent.hook import AgentHook, AgentHookContext
+    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+
+    provider = MagicMock()
+    emitted_reasoning: list[str] = []
+
+    async def chat_with_retry(**kwargs):
+        return LLMResponse(
+            content="<think>Let me think about this...\nThe answer is 42.</think>The answer is 42.",
+            tool_calls=[],
+            usage={"prompt_tokens": 5, "completion_tokens": 3},
+        )
+
+    provider.chat_with_retry = chat_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    class ReasoningHook(AgentHook):
+        async def emit_reasoning(self, reasoning_content: str | None) -> None:
+            if reasoning_content:
+                emitted_reasoning.append(reasoning_content)
+
+    runner = AgentRunner(provider)
+    result = await runner.run(AgentRunSpec(
+        initial_messages=[{"role": "user", "content": "what is the answer?"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=3,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        hook=ReasoningHook(),
+    ))
+
+    assert result.final_content == "The answer is 42."
+    assert len(emitted_reasoning) == 1
+    assert "Let me think about this" in emitted_reasoning[0]
+    assert "The answer is 42" in emitted_reasoning[0]
+
+
+@pytest.mark.asyncio
+async def test_runner_prefers_reasoning_content_over_inline_think():
+    from nanobot.agent.hook import AgentHook, AgentHookContext
+    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+
+    provider = MagicMock()
+    emitted_reasoning: list[str] = []
+
+    async def chat_with_retry(**kwargs):
+        return LLMResponse(
+            content="<think>inline thinking</think>The answer.",
+            reasoning_content="dedicated reasoning field",
+            tool_calls=[],
+            usage={"prompt_tokens": 5, "completion_tokens": 3},
+        )
+
+    provider.chat_with_retry = chat_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    class ReasoningHook(AgentHook):
+        async def emit_reasoning(self, reasoning_content: str | None) -> None:
+            if reasoning_content:
+                emitted_reasoning.append(reasoning_content)
+
+    runner = AgentRunner(provider)
+    result = await runner.run(AgentRunSpec(
+        initial_messages=[{"role": "user", "content": "question"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=3,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        hook=ReasoningHook(),
+    ))
+
+    assert result.final_content == "The answer."
+    # Only the dedicated field should be emitted, not the inline <think> content
+    assert len(emitted_reasoning) == 1
+    assert emitted_reasoning[0] == "dedicated reasoning field"
+
+
+@pytest.mark.asyncio
 async def test_runner_calls_hooks_in_order():
     from nanobot.agent.hook import AgentHook, AgentHookContext
     from nanobot.agent.runner import AgentRunSpec, AgentRunner

@@ -71,6 +71,47 @@ def strip_think(text: str) -> str:
     return text.strip()
 
 
+def extract_think(text: str) -> tuple[str | None, str]:
+    """Extract thinking/reasoning content from <think> and <thought> tags.
+
+    Returns (thinking_text, cleaned_text) where:
+      - thinking_text: concatenated content from all <think>...</think> and
+        <thought>...</thought> blocks, or None if none found.
+      - cleaned_text: the input with all thinking blocks removed (same as
+        strip_think()).
+
+    Only extracts from well-formed closed blocks. Unclosed trailing tags
+    (common during streaming) are stripped without extraction — use
+    strip_think() for pure streaming cleanup.
+    """
+    parts: list[str] = []
+    for m in re.finditer(r"<think>([\s\S]*?)</think>", text):
+        parts.append(m.group(1).strip())
+    for m in re.finditer(r"<thought>([\s\S]*?)</thought>", text):
+        parts.append(m.group(1).strip())
+    thinking = "\n\n".join(parts) if parts else None
+    return thinking, strip_think(text)
+
+
+async def emit_incremental_think(
+    buf: str,
+    emitted: str,
+    emit_fn: Any,
+) -> str:
+    """Extract new thinking from buf and emit if not yet emitted.
+
+    Returns the updated emitted state.  *emit_fn* is an async callable
+    that accepts a single reasoning string (e.g. ``hook.emit_reasoning``).
+    """
+    thinking, _ = extract_think(buf)
+    if thinking and thinking != emitted:
+        new = thinking[len(emitted):]
+        if new.strip():
+            await emit_fn(new.strip())
+        return thinking
+    return emitted
+
+
 def detect_image_mime(data: bytes) -> str | None:
     """Detect image MIME type from magic bytes, ignoring file extension."""
     if data[:8] == b"\x89PNG\r\n\x1a\n":

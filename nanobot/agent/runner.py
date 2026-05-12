@@ -18,8 +18,10 @@ from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.utils.helpers import (
     build_assistant_message,
+    emit_incremental_think,
     estimate_message_tokens,
     estimate_prompt_tokens_chain,
+    extract_think,
     find_legal_message_start,
     maybe_persist_tool_result,
     strip_think,
@@ -283,7 +285,23 @@ class AgentRunner:
             self._accumulate_usage(usage, raw_usage)
 
             if response.reasoning_content:
-                await hook.emit_reasoning(response.reasoning_content)
+                if not context.streamed_content:
+                    await hook.emit_reasoning(response.reasoning_content)
+                if response.content:
+                    response.content = strip_think(response.content)
+            elif response.thinking_blocks:
+                # Anthropic extended thinking: extract from thinking_blocks.
+                if not context.streamed_content:
+                    parts = [tb.get("thinking", "") for tb in response.thinking_blocks if tb.get("type") == "thinking"]
+                    if parts:
+                        await hook.emit_reasoning("\n\n".join(parts))
+            elif response.content:
+                inline_thinking, clean_content = extract_think(response.content)
+                if inline_thinking:
+                    # Only emit if streaming didn't already handle it.
+                    if not context.streamed_content:
+                        await hook.emit_reasoning(inline_thinking)
+                    response.content = clean_content
 
             if response.should_execute_tools:
                 tool_calls = list(response.tool_calls)
@@ -636,15 +654,21 @@ class AgentRunner:
             )
         elif wants_progress_streaming:
             stream_buf = ""
+            emitted_thinking = ""
 
             async def _stream_progress(delta: str) -> None:
-                nonlocal stream_buf
+                nonlocal stream_buf, emitted_thinking
                 if not delta:
                     return
                 prev_clean = strip_think(stream_buf)
                 stream_buf += delta
                 new_clean = strip_think(stream_buf)
                 incremental = new_clean[len(prev_clean):]
+
+                emitted_thinking = await emit_incremental_think(
+                    stream_buf, emitted_thinking, hook.emit_reasoning,
+                )
+
                 if incremental:
                     context.streamed_content = True
                     await spec.progress_callback(incremental)
