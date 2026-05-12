@@ -7,6 +7,7 @@ from pathlib import Path
 
 from nanobot.config.schema import Config, ModelPresetConfig
 from nanobot.providers.base import LLMProvider
+from nanobot.providers.fallback_provider import FallbackProvider
 from nanobot.providers.registry import find_by_name
 
 
@@ -27,15 +28,16 @@ def _resolve_model_preset(
     return preset if preset is not None else config.resolve_preset(preset_name)
 
 
-def make_provider(
+def _make_provider_core(
     config: Config,
     *,
     preset_name: str | None = None,
     preset: ModelPresetConfig | None = None,
+    model: str | None = None,
 ) -> LLMProvider:
-    """Create the LLM provider implied by config."""
+    """Create a plain LLM provider without failover wrapping."""
     resolved = _resolve_model_preset(config, preset_name=preset_name, preset=preset)
-    model = resolved.model
+    model = model or resolved.model
     provider_name = config.get_provider_name(model, preset=resolved)
     p = config.get_provider(model, preset=resolved)
     spec = find_by_name(provider_name) if provider_name else None
@@ -99,6 +101,34 @@ def make_provider(
         )
 
     provider.generation = resolved.to_generation_settings()
+    return provider
+
+
+def make_provider(
+    config: Config,
+    *,
+    preset_name: str | None = None,
+    preset: ModelPresetConfig | None = None,
+    model: str | None = None,
+) -> LLMProvider:
+    """Create the LLM provider implied by config.
+
+    When *model* is given, it overrides the resolved/preset model — used by
+    the failover path to create providers for fallback models.
+    """
+    resolved = _resolve_model_preset(config, preset_name=preset_name, preset=preset)
+    provider = _make_provider_core(config, preset_name=preset_name, preset=preset, model=model)
+
+    if resolved.fallback_models:
+        fb_preset = resolved.model_copy(update={"provider": "auto", "fallback_models": []})
+        provider = FallbackProvider(
+            primary=provider,
+            fallback_models=resolved.fallback_models,
+            provider_factory=lambda m: _make_provider_core(
+                config, preset_name=preset_name, preset=fb_preset, model=m
+            ),
+        )
+
     return provider
 
 

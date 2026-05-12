@@ -82,6 +82,7 @@ class ModelPresetConfig(Base):
     context_window_tokens: int = 65_536
     temperature: float = 0.1
     reasoning_effort: str | None = None
+    fallback_models: list[str] = Field(default_factory=list)
 
     def to_generation_settings(self) -> Any:
         from nanobot.providers.base import GenerationSettings
