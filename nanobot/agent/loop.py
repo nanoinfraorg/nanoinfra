@@ -22,12 +22,6 @@ from nanobot.agent.memory import Consolidator, Dream
 from nanobot.agent import model_presets as preset_helpers
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from nanobot.agent.subagent import SubagentManager
-from nanobot.agent.tools.ask import (
-    ask_user_options_from_messages,
-    ask_user_outbound,
-    ask_user_tool_result_messages,
-    pending_ask_user_id,
-)
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
@@ -693,7 +687,6 @@ class AgentLoop:
         self,
         msg: InboundMessage,
         session: Session,
-        pending_ask_id: str | None,
     ) -> bool:
         """Persist the triggering user message before the turn starts.
 
@@ -701,7 +694,7 @@ class AgentLoop:
         """
         media_paths = [p for p in (msg.media or []) if isinstance(p, str) and p]
         has_text = isinstance(msg.content, str) and msg.content.strip()
-        if not pending_ask_id and (has_text or media_paths):
+        if has_text or media_paths:
             extra: dict[str, Any] = {"media": list(media_paths)} if media_paths else {}
             text = msg.content if isinstance(msg.content, str) else ""
             session.add_message("user", text, **extra)
@@ -715,21 +708,9 @@ class AgentLoop:
         msg: InboundMessage,
         session: Session,
         history: list[dict[str, Any]],
-        pending_ask_id: str | None,
         pending_summary: str | None,
     ) -> list[dict[str, Any]]:
         """Build the initial message list for the LLM turn."""
-        if pending_ask_id:
-            system_prompt = self.context.build_system_prompt(
-                channel=msg.channel,
-                session_summary=pending_summary,
-            )
-            return ask_user_tool_result_messages(
-                system_prompt,
-                history,
-                pending_ask_id,
-                image_generation_prompt(msg.content, msg.metadata),
-            )
         return self.context.build_messages(
             history=history,
             current_message=image_generation_prompt(msg.content, msg.metadata),
@@ -1237,12 +1218,7 @@ class AgentLoop:
                 replay_max_messages=self._max_messages,
             )
         )
-        options = ask_user_options_from_messages(all_msgs) if stop_reason == "ask_user" else []
-        content, buttons = ask_user_outbound(
-            final_content or "Background task completed.",
-            options,
-            channel,
-        )
+        content = final_content or "Background task completed."
         outbound_metadata: dict[str, Any] = {}
         if channel == "slack" and key.startswith("slack:") and key.count(":") >= 2:
             outbound_metadata["slack"] = {"thread_ts": key.split(":", 2)[2]}
@@ -1252,7 +1228,6 @@ class AgentLoop:
             channel=channel,
             chat_id=chat_id,
             content=content,
-            buttons=buttons,
             metadata=outbound_metadata,
         )
 
@@ -1365,21 +1340,15 @@ class AgentLoop:
         logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
 
         meta = dict(msg.metadata or {})
-        content, buttons = ask_user_outbound(
-            final_content,
-            ask_user_options_from_messages(all_msgs) if stop_reason == "ask_user" else [],
-            msg.channel,
-        )
-        if on_stream is not None and stop_reason not in {"ask_user", "error", "tool_error"}:
+        if on_stream is not None and stop_reason not in {"error", "tool_error"}:
             meta["_streamed"] = True
 
         return OutboundMessage(
             channel=msg.channel,
             chat_id=msg.chat_id,
-            content=content,
+            content=final_content,
             media=generated_media,
             metadata=meta,
-            buttons=buttons,
         )
 
     async def _state_restore(self, ctx: TurnContext) -> TurnState:
@@ -1446,12 +1415,11 @@ class AgentLoop:
         }
         ctx.history = ctx.session.get_history(**_hist_kwargs)
 
-        pending_ask_id = pending_ask_user_id(ctx.history)
         ctx.initial_messages = self._build_initial_messages(
-            ctx.msg, ctx.session, ctx.history, pending_ask_id, ctx.pending_summary
+            ctx.msg, ctx.session, ctx.history, ctx.pending_summary
         )
         ctx.user_persisted_early = self._persist_user_message_early(
-            ctx.msg, ctx.session, pending_ask_id
+            ctx.msg, ctx.session
         )
 
         if ctx.on_progress is None:
