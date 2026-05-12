@@ -228,6 +228,111 @@ async def test_runner_prefers_reasoning_content_over_inline_think():
 
 
 @pytest.mark.asyncio
+async def test_runner_emits_reasoning_content_even_when_answer_was_streamed():
+    """`reasoning_content` arrives only on the final response; streaming the
+    answer must not suppress it (the answer stream and the reasoning channel
+    are independent — only the reasoning-already-emitted bit matters)."""
+    from nanobot.agent.hook import AgentHook, AgentHookContext
+    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+
+    provider = MagicMock()
+    provider.supports_progress_deltas = True
+    emitted_reasoning: list[str] = []
+
+    async def chat_stream_with_retry(*, on_content_delta=None, **kwargs):
+        if on_content_delta:
+            await on_content_delta("The ")
+            await on_content_delta("answer.")
+        return LLMResponse(
+            content="The answer.",
+            reasoning_content="step-by-step deduction",
+            tool_calls=[],
+            usage={"prompt_tokens": 5, "completion_tokens": 3},
+        )
+
+    provider.chat_stream_with_retry = chat_stream_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    class ReasoningHook(AgentHook):
+        async def emit_reasoning(self, reasoning_content: str | None) -> None:
+            if reasoning_content:
+                emitted_reasoning.append(reasoning_content)
+
+    progress_calls: list[str] = []
+
+    async def _progress(content: str, **_kwargs):
+        progress_calls.append(content)
+
+    runner = AgentRunner(provider)
+    result = await runner.run(AgentRunSpec(
+        initial_messages=[{"role": "user", "content": "question"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=3,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        hook=ReasoningHook(),
+        stream_progress_deltas=True,
+        progress_callback=_progress,
+    ))
+
+    assert result.final_content == "The answer."
+    # The answer must have streamed AND the dedicated reasoning_content must
+    # have been emitted exactly once after the stream completed.
+    assert progress_calls, "answer should have streamed via progress callback"
+    assert emitted_reasoning == ["step-by-step deduction"]
+
+
+@pytest.mark.asyncio
+async def test_runner_does_not_double_emit_when_inline_think_already_streamed():
+    """Inline `<think>` blocks streamed incrementally during the answer
+    stream must not be re-emitted from the final response."""
+    from nanobot.agent.hook import AgentHook, AgentHookContext
+    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+
+    provider = MagicMock()
+    provider.supports_progress_deltas = True
+    emitted_reasoning: list[str] = []
+
+    async def chat_stream_with_retry(*, on_content_delta=None, **kwargs):
+        if on_content_delta:
+            await on_content_delta("<think>working...</think>")
+            await on_content_delta("The answer.")
+        return LLMResponse(
+            content="<think>working...</think>The answer.",
+            tool_calls=[],
+            usage={"prompt_tokens": 5, "completion_tokens": 3},
+        )
+
+    provider.chat_stream_with_retry = chat_stream_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    class ReasoningHook(AgentHook):
+        async def emit_reasoning(self, reasoning_content: str | None) -> None:
+            if reasoning_content:
+                emitted_reasoning.append(reasoning_content)
+
+    async def _progress(content: str, **_kwargs):
+        pass
+
+    runner = AgentRunner(provider)
+    result = await runner.run(AgentRunSpec(
+        initial_messages=[{"role": "user", "content": "question"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=3,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        hook=ReasoningHook(),
+        stream_progress_deltas=True,
+        progress_callback=_progress,
+    ))
+
+    assert result.final_content == "The answer."
+    assert emitted_reasoning == ["working..."]
+
+
+@pytest.mark.asyncio
 async def test_runner_calls_hooks_in_order():
     from nanobot.agent.hook import AgentHook, AgentHookContext
     from nanobot.agent.runner import AgentRunSpec, AgentRunner

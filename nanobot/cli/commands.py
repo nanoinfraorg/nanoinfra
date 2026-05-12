@@ -275,17 +275,17 @@ async def _maybe_print_interactive_progress(
 
     is_tool_hint = metadata.get("_tool_hint", False)
     is_reasoning = metadata.get("_reasoning", False)
+    if is_reasoning:
+        if channels_config and not channels_config.show_reasoning:
+            return True
+        _print_cli_reasoning(msg.content, thinking, renderer)
+        return True
     if channels_config and is_tool_hint and not channels_config.send_tool_hints:
         return True
     if channels_config and not is_tool_hint and not channels_config.send_progress:
         return True
-    if is_reasoning and channels_config and not channels_config.show_reasoning:
-        return True
 
-    if is_reasoning:
-        _print_cli_reasoning(msg.content, thinking, renderer)
-    else:
-        await _print_interactive_progress_line(msg.content, thinking, renderer)
+    await _print_interactive_progress_line(msg.content, thinking, renderer)
     return True
 
 
@@ -1147,16 +1147,16 @@ def agent(
     def _make_progress(renderer: StreamRenderer | None = None):
         async def _cli_progress(content: str, *, tool_hint: bool = False, reasoning: bool = False, **_kwargs: Any) -> None:
             ch = agent_loop.channels_config
+            if reasoning:
+                if ch and not ch.show_reasoning:
+                    return
+                _print_cli_reasoning(content, _thinking, renderer)
+                return
             if ch and tool_hint and not ch.send_tool_hints:
                 return
             if ch and not tool_hint and not ch.send_progress:
                 return
-            if reasoning and ch and not ch.show_reasoning:
-                return
-            if reasoning:
-                _print_cli_reasoning(content, _thinking, renderer)
-            else:
-                _print_cli_progress_line(content, _thinking, renderer)
+            _print_cli_progress_line(content, _thinking, renderer)
         return _cli_progress
 
     if message:

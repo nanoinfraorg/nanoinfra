@@ -48,7 +48,7 @@ from nanobot.providers.factory import ProviderSnapshot
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.artifacts import generated_image_paths_from_messages
 from nanobot.utils.document import extract_documents
-from nanobot.utils.helpers import image_placeholder_text
+from nanobot.utils.helpers import IncrementalThinkExtractor, image_placeholder_text
 from nanobot.utils.helpers import truncate_text as truncate_text_fn
 from nanobot.utils.image_generation_intent import image_generation_prompt
 from nanobot.utils.progress_events import (
@@ -101,22 +101,21 @@ class _LoopHook(AgentHook):
         self._metadata = metadata or {}
         self._session_key = session_key
         self._stream_buf = ""
-        self._emitted_thinking = ""
+        self._think_extractor = IncrementalThinkExtractor()
 
     def wants_streaming(self) -> bool:
         return self._on_stream is not None
 
     async def on_stream(self, context: AgentHookContext, delta: str) -> None:
-        from nanobot.utils.helpers import emit_incremental_think, strip_think
+        from nanobot.utils.helpers import strip_think
 
         prev_clean = strip_think(self._stream_buf)
         self._stream_buf += delta
         new_clean = strip_think(self._stream_buf)
         incremental = new_clean[len(prev_clean) :]
 
-        self._emitted_thinking = await emit_incremental_think(
-            self._stream_buf, self._emitted_thinking, self.emit_reasoning,
-        )
+        if await self._think_extractor.feed(self._stream_buf, self.emit_reasoning):
+            context.streamed_reasoning = True
 
         if incremental and self._on_stream:
             await self._on_stream(incremental)
@@ -125,7 +124,7 @@ class _LoopHook(AgentHook):
         if self._on_stream_end:
             await self._on_stream_end(resuming=resuming)
         self._stream_buf = ""
-        self._emitted_thinking = ""
+        self._think_extractor.reset()
 
     async def before_iteration(self, context: AgentHookContext) -> None:
         self._loop._current_iteration = context.iteration

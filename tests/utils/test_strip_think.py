@@ -1,4 +1,4 @@
-from nanobot.utils.helpers import extract_think, strip_think
+from nanobot.utils.helpers import extract_reasoning, extract_think, strip_think
 
 
 class TestStripThinkTag:
@@ -225,3 +225,49 @@ squares = [x**2 for x in range(10)]
         assert "List comprehensions in Python" in clean
         assert "<think>" not in clean
         assert "</think>" not in clean
+
+
+class TestExtractReasoning:
+    """Single source of truth for reasoning extraction across all providers."""
+
+    def test_prefers_reasoning_content_and_strips_inline_think(self):
+        # Dedicated field wins; inline tags are still scrubbed from content.
+        reasoning, content = extract_reasoning(
+            "dedicated",
+            None,
+            "<think>inline</think>visible answer",
+        )
+        assert reasoning == "dedicated"
+        assert content == "visible answer"
+
+    def test_falls_back_to_thinking_blocks(self):
+        reasoning, content = extract_reasoning(
+            None,
+            [
+                {"type": "thinking", "thinking": "step 1"},
+                {"type": "thinking", "thinking": "step 2"},
+                {"type": "redacted_thinking"},
+            ],
+            "hello",
+        )
+        assert reasoning == "step 1\n\nstep 2"
+        assert content == "hello"
+
+    def test_falls_back_to_inline_think_tags(self):
+        reasoning, content = extract_reasoning(
+            None, None, "<think>plan</think>answer"
+        )
+        assert reasoning == "plan"
+        assert content == "answer"
+
+    def test_no_reasoning_returns_none(self):
+        reasoning, content = extract_reasoning(None, None, "plain answer")
+        assert reasoning is None
+        assert content == "plain answer"
+
+    def test_empty_thinking_blocks_falls_through_to_inline(self):
+        reasoning, content = extract_reasoning(
+            None, [], "<think>plan</think>answer"
+        )
+        assert reasoning == "plan"
+        assert content == "answer"

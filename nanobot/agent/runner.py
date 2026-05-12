@@ -17,11 +17,11 @@ from nanobot.agent.tools.ask import AskUserInterrupt
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.utils.helpers import (
+    IncrementalThinkExtractor,
     build_assistant_message,
-    emit_incremental_think,
     estimate_message_tokens,
     estimate_prompt_tokens_chain,
-    extract_think,
+    extract_reasoning,
     find_legal_message_start,
     maybe_persist_tool_result,
     strip_think,
@@ -284,24 +284,15 @@ class AgentRunner:
             context.tool_calls = list(response.tool_calls)
             self._accumulate_usage(usage, raw_usage)
 
-            if response.reasoning_content:
-                if not context.streamed_content:
-                    await hook.emit_reasoning(response.reasoning_content)
-                if response.content:
-                    response.content = strip_think(response.content)
-            elif response.thinking_blocks:
-                # Anthropic extended thinking: extract from thinking_blocks.
-                if not context.streamed_content:
-                    parts = [tb.get("thinking", "") for tb in response.thinking_blocks if tb.get("type") == "thinking"]
-                    if parts:
-                        await hook.emit_reasoning("\n\n".join(parts))
-            elif response.content:
-                inline_thinking, clean_content = extract_think(response.content)
-                if inline_thinking:
-                    # Only emit if streaming didn't already handle it.
-                    if not context.streamed_content:
-                        await hook.emit_reasoning(inline_thinking)
-                    response.content = clean_content
+            reasoning_text, cleaned_content = extract_reasoning(
+                response.reasoning_content,
+                response.thinking_blocks,
+                response.content,
+            )
+            response.content = cleaned_content
+            if reasoning_text and not context.streamed_reasoning:
+                await hook.emit_reasoning(reasoning_text)
+                context.streamed_reasoning = True
 
             if response.should_execute_tools:
                 tool_calls = list(response.tool_calls)
@@ -654,10 +645,10 @@ class AgentRunner:
             )
         elif wants_progress_streaming:
             stream_buf = ""
-            emitted_thinking = ""
+            think_extractor = IncrementalThinkExtractor()
 
             async def _stream_progress(delta: str) -> None:
-                nonlocal stream_buf, emitted_thinking
+                nonlocal stream_buf
                 if not delta:
                     return
                 prev_clean = strip_think(stream_buf)
@@ -665,9 +656,8 @@ class AgentRunner:
                 new_clean = strip_think(stream_buf)
                 incremental = new_clean[len(prev_clean):]
 
-                emitted_thinking = await emit_incremental_think(
-                    stream_buf, emitted_thinking, hook.emit_reasoning,
-                )
+                if await think_extractor.feed(stream_buf, hook.emit_reasoning):
+                    context.streamed_reasoning = True
 
                 if incremental:
                     context.streamed_content = True
