@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import nullcontext
+from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
@@ -95,6 +96,23 @@ def test_print_cli_progress_line_pauses_spinner_before_printing():
             commands._print_cli_progress_line("tool running", thinking)
 
     assert order == ["start", "stop", "print", "start", "stop"]
+
+
+def test_thinking_spinner_clears_status_line_when_paused():
+    """Stopping the spinner should erase its transient line before output."""
+    stream = StringIO()
+    stream.isatty = lambda: True  # type: ignore[method-assign]
+    mock_console = MagicMock()
+    mock_console.file = stream
+    spinner = MagicMock()
+    mock_console.status.return_value = spinner
+
+    thinking = stream_mod.ThinkingSpinner(console=mock_console)
+    with thinking:
+        with thinking.pause():
+            pass
+
+    assert "\r\x1b[2K" in stream.getvalue()
 
 
 def test_print_cli_progress_line_opens_renderer_header_before_trace():

@@ -18,6 +18,16 @@ from rich.markdown import Markdown
 from rich.text import Text
 
 
+def _clear_current_line(console: Console) -> None:
+    """Erase a transient status line before printing persistent output."""
+    file = console.file
+    isatty = getattr(file, "isatty", lambda: False)
+    if not isatty():
+        return
+    file.write("\r\x1b[2K")
+    file.flush()
+
+
 def _make_console() -> Console:
     """Create a Console that emits plain text when stdout is not a TTY.
 
@@ -37,6 +47,7 @@ class ThinkingSpinner:
 
     def __init__(self, console: Console | None = None, bot_name: str = "nanobot"):
         c = console or _make_console()
+        self._console = c
         self._spinner = c.status(f"[dim]{bot_name} is thinking...[/dim]", spinner="dots")
         self._active = False
 
@@ -48,6 +59,7 @@ class ThinkingSpinner:
     def __exit__(self, *exc):
         self._active = False
         self._spinner.stop()
+        _clear_current_line(self._console)
         return False
 
     def pause(self):
@@ -58,6 +70,7 @@ class ThinkingSpinner:
         def _ctx():
             if self._spinner and self._active:
                 self._spinner.stop()
+                _clear_current_line(self._console)
             try:
                 yield
             finally:
