@@ -89,6 +89,8 @@ export async function fetchSessionMessages(
     content: string;
     timestamp?: string;
     tool_calls?: unknown;
+    reasoning_content?: string | null;
+    thinking_blocks?: unknown;
     tool_call_id?: string;
     name?: string;
     /** Present on ``user`` turns that attached images. Paths have already
