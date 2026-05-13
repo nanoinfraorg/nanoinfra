@@ -92,7 +92,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   return (
     <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
       {hasReasoning ? (
-        <ReasoningBubble text={reasoning} streaming={reasoningStreaming} />
+        <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={!empty} />
       ) : null}
       {empty && message.isStreaming && !hasReasoning ? (
         <TypingDots />
@@ -443,6 +443,7 @@ function TraceGroup({ message, animClass }: TraceGroupProps) {
 interface ReasoningBubbleProps {
   text: string;
   streaming: boolean;
+  hasBodyBelow: boolean;
 }
 
 /**
@@ -456,7 +457,7 @@ interface ReasoningBubbleProps {
  *     the user can re-expand to inspect the chain of thought. The local
  *     toggle persists once the user interacts.
  */
-function ReasoningBubble({ text, streaming }: ReasoningBubbleProps) {
+function ReasoningBubble({ text, streaming, hasBodyBelow }: ReasoningBubbleProps) {
   const { t } = useTranslation();
   const [userToggled, setUserToggled] = useState(false);
   const [openLocal, setOpenLocal] = useState(true);
@@ -466,7 +467,12 @@ function ReasoningBubble({ text, streaming }: ReasoningBubbleProps) {
     setOpenLocal((v) => (userToggled ? !v : !open));
   };
   return (
-    <div className="mb-2 w-full animate-in fade-in-0 slide-in-from-top-1 duration-200">
+    <div
+      className={cn(
+        "w-full animate-in fade-in-0 slide-in-from-top-1 duration-200",
+        hasBodyBelow && "mb-2",
+      )}
+    >
       <button
         type="button"
         onClick={onToggle}

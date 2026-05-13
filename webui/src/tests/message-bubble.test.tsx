@@ -119,6 +119,7 @@ describe("MessageBubble", () => {
     expect(screen.getByText("Thinking…")).toBeInTheDocument();
     expect(screen.getByText(/Step 1: parse intent\./)).toBeInTheDocument();
     expect(container.querySelector(".reasoning-shimmer")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /thinking/i }).parentElement).not.toHaveClass("mb-2");
   });
 
   it("collapses the reasoning section by default once streaming ends", () => {
@@ -136,6 +137,7 @@ describe("MessageBubble", () => {
     expect(screen.getByText("Thinking")).toBeInTheDocument();
     expect(screen.getByText("The answer is 42.")).toBeInTheDocument();
     expect(screen.queryByText("hidden until expanded")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /thinking/i }).parentElement).toHaveClass("mb-2");
 
     fireEvent.click(screen.getByRole("button", { name: /thinking/i }));
     expect(screen.getByText("hidden until expanded")).toBeInTheDocument();
