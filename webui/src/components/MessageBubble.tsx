@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, ChevronRight, Copy, FileIcon, ImageIcon, PlaySquare, Wrench } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronRight, Copy, FileIcon, ImageIcon, PlaySquare, Sparkles, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { ImageLightbox } from "@/components/ImageLightbox";
@@ -85,12 +85,14 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
   const empty = message.content.trim().length === 0;
   const media = message.media ?? [];
+  const reasoning = message.role === "assistant" ? message.reasoning ?? [] : [];
   const showAssistantActions = message.role === "assistant" && !message.isStreaming && !empty;
   return (
     <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
-      {empty && message.isStreaming ? (
+      {reasoning.length > 0 ? <ReasoningBubble lines={reasoning} /> : null}
+      {empty && message.isStreaming && reasoning.length === 0 ? (
         <TypingDots />
-      ) : (
+      ) : empty && message.isStreaming ? null : (
         <>
           <MarkdownText>{message.content}</MarkdownText>
           {message.isStreaming && <StreamCursor />}
@@ -429,6 +431,56 @@ function TraceGroup({ message, animClass }: TraceGroupProps) {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+interface ReasoningBubbleProps {
+  lines: string[];
+}
+
+/**
+ * Subordinate "thinking" trace shown above an assistant turn. Mirrors the
+ * CLI's italic dim ``ChevronRight`` row visually; collapsible because
+ * reasoning from models like DeepSeek-R1 / o-series can run long. Defaults
+ * to expanded while the answer is still streaming (so the user sees the
+ * model "thinking out loud"), but the toggle persists across rerenders.
+ */
+function ReasoningBubble({ lines }: ReasoningBubbleProps) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(true);
+  const text = useMemo(() => lines.join("\n\n"), [lines]);
+  return (
+    <div className="mb-2 w-full animate-in fade-in-0 slide-in-from-top-1 duration-200">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "flex w-full items-center gap-2 rounded-md px-2 py-1.5",
+          "text-xs text-muted-foreground transition-colors hover:bg-muted/45",
+        )}
+        aria-expanded={open}
+      >
+        <Sparkles className="h-3.5 w-3.5" aria-hidden />
+        <span className="font-medium">{t("message.reasoning", { defaultValue: "Thinking" })}</span>
+        <ChevronRight
+          aria-hidden
+          className={cn(
+            "ml-auto h-3.5 w-3.5 transition-transform duration-200",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+      {open && (
+        <div
+          className={cn(
+            "mt-1 whitespace-pre-wrap break-words border-l border-muted-foreground/20 pl-3",
+            "text-[12.5px] italic leading-relaxed text-muted-foreground/85",
+          )}
+        >
+          {text}
+        </div>
       )}
     </div>
   );

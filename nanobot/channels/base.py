@@ -28,6 +28,7 @@ class BaseChannel(ABC):
     transcription_language: str | None = None
     send_progress: bool = True
     send_tool_hints: bool = False
+    show_reasoning: bool = True
 
     def __init__(self, config: Any, bus: MessageBus):
         """
@@ -119,6 +120,18 @@ class BaseChannel(ABC):
         ``_stream_id`` rather than only by ``chat_id``.
         """
         pass
+
+    async def send_reasoning(self, msg: OutboundMessage) -> None:
+        """Surface model reasoning/thinking content.
+
+        Default is no-op. Channels with a native low-emphasis primitive
+        (Slack context block, Telegram expandable blockquote, Discord
+        subtext, WebUI italic bubble, ...) override to render reasoning
+        as a subordinate trace. Channels without a suitable affordance
+        keep this no-op: silently dropping is better than leaking raw
+        model thoughts as regular conversational messages.
+        """
+        return
 
     @property
     def supports_streaming(self) -> bool:

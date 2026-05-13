@@ -1487,6 +1487,30 @@ class WebSocketChannel(BaseChannel):
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" ")
 
+    async def send_reasoning(self, msg: OutboundMessage) -> None:
+        """Stream model reasoning as a subordinate trace frame.
+
+        Renders as ``kind=reasoning`` alongside the existing ``tool_hint`` /
+        ``progress`` frames; the WebUI mounts these on the active assistant
+        bubble rather than as a conversational reply.
+        """
+        conns = list(self._subs.get(msg.chat_id, ()))
+        if not conns:
+            return
+        if not msg.content:
+            return
+        payload: dict[str, Any] = {
+            "event": "message",
+            "chat_id": msg.chat_id,
+            "text": msg.content,
+            "kind": "reasoning",
+        }
+        if msg.reply_to:
+            payload["reply_to"] = msg.reply_to
+        raw = json.dumps(payload, ensure_ascii=False)
+        for connection in conns:
+            await self._safe_send_to(connection, raw, label=" reasoning ")
+
     async def send_delta(
         self,
         chat_id: str,

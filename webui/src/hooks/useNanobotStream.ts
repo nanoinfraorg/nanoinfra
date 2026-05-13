@@ -183,8 +183,41 @@ export function useNanobotStream(
       if (ev.event === "message") {
         if (
           suppressStreamUntilTurnEndRef.current &&
-          (ev.kind === "tool_hint" || ev.kind === "progress")
+          (ev.kind === "tool_hint" || ev.kind === "progress" || ev.kind === "reasoning")
         ) {
+          return;
+        }
+        // Model reasoning rides its own channel: stash it on the next
+        // assistant turn so the bubble renders it as a subordinate trace.
+        // If the assistant message hasn't materialized yet (typical, since
+        // reasoning fires before tool calls/answers), park it on a sentinel
+        // pending row that the next assistant message absorbs.
+        if (ev.kind === "reasoning") {
+          const line = ev.text;
+          if (!line) return;
+          setMessages((prev) => {
+            for (let i = prev.length - 1; i >= 0; i -= 1) {
+              const candidate = prev[i];
+              if (candidate.role === "assistant" && candidate.kind !== "trace") {
+                const merged: UIMessage = {
+                  ...candidate,
+                  reasoning: [...(candidate.reasoning ?? []), line],
+                };
+                return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];
+              }
+            }
+            return [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: "",
+                isStreaming: true,
+                reasoning: [line],
+                createdAt: Date.now(),
+              },
+            ];
+          });
           return;
         }
         // Intermediate agent breadcrumbs (tool-call hints, raw progress).

@@ -36,6 +36,7 @@ _SEND_RETRY_DELAYS = (1, 2, 4)
 _BOOL_CAMEL_ALIASES: dict[str, str] = {
     "send_progress": "sendProgress",
     "send_tool_hints": "sendToolHints",
+    "show_reasoning": "showReasoning",
 }
 
 class ChannelManager:
@@ -103,6 +104,9 @@ class ChannelManager:
                 )
                 channel.send_tool_hints = self._resolve_bool_override(
                     section, "send_tool_hints", self.config.channels.send_tool_hints,
+                )
+                channel.show_reasoning = self._resolve_bool_override(
+                    section, "show_reasoning", self.config.channels.show_reasoning,
                 )
                 self.channels[name] = channel
                 logger.info("{} channel enabled", cls.display_name)
@@ -279,6 +283,18 @@ class ChannelManager:
                         timeout=1.0
                     )
 
+                if msg.metadata.get("_reasoning"):
+                    # Reasoning rides its own plugin channel: only delivered when
+                    # the destination channel both opts in (``show_reasoning``)
+                    # and overrides ``send_reasoning``. Channels without a
+                    # low-emphasis UI primitive keep the base no-op and the
+                    # content silently drops here rather than leak as a
+                    # conversational reply.
+                    channel = self.channels.get(msg.channel)
+                    if channel is not None and channel.show_reasoning:
+                        await self._send_with_retry(channel, msg)
+                    continue
+
                 if msg.metadata.get("_progress"):
                     if msg.metadata.get("_tool_hint") and not self._should_send_progress(
                         msg.channel, tool_hint=True,
@@ -329,7 +345,9 @@ class ChannelManager:
     @staticmethod
     async def _send_once(channel: BaseChannel, msg: OutboundMessage) -> None:
         """Send one outbound message without retry policy."""
-        if msg.metadata.get("_stream_delta") or msg.metadata.get("_stream_end"):
+        if msg.metadata.get("_reasoning"):
+            await channel.send_reasoning(msg)
+        elif msg.metadata.get("_stream_delta") or msg.metadata.get("_stream_end"):
             await channel.send_delta(msg.chat_id, msg.content, msg.metadata)
         elif not msg.metadata.get("_streamed"):
             await channel.send(msg)

@@ -147,10 +147,13 @@ class _LoopHook(AgentHook):
         )
 
     async def emit_reasoning(self, reasoning_content: str | None) -> None:
-        """Send reasoning/thinking content as progress before the main answer."""
-        ch = self._loop.channels_config
-        if not ch or not ch.show_reasoning:
-            return
+        """Publish reasoning content; channel plugins decide whether to render.
+
+        The loop is intentionally not the gate: ``ChannelsConfig.show_reasoning``
+        is a default that ``ChannelManager`` and ``BaseChannel.send_reasoning``
+        consult per channel. A channel without a low-emphasis UI primitive
+        keeps the base no-op and the content drops at the dispatch boundary.
+        """
         if self._on_progress and reasoning_content:
             await self._on_progress(reasoning_content, reasoning=True)
 

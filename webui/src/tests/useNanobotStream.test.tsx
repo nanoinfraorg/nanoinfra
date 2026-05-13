@@ -113,6 +113,78 @@ describe("useNanobotStream", () => {
     expect(result.current.messages[1].kind).toBeUndefined();
   });
 
+  it("parks reasoning frames on a placeholder assistant message until the answer arrives", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-r", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-r", {
+        event: "message",
+        chat_id: "chat-r",
+        text: "Let me think step by step.",
+        kind: "reasoning",
+      });
+      fake.emit("chat-r", {
+        event: "message",
+        chat_id: "chat-r",
+        text: "First, decompose the request.",
+        kind: "reasoning",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].role).toBe("assistant");
+    expect(result.current.messages[0].reasoning).toEqual([
+      "Let me think step by step.",
+      "First, decompose the request.",
+    ]);
+  });
+
+  it("attaches reasoning to the latest assistant turn rather than spawning a new one", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-r2", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-r2", {
+        event: "message",
+        chat_id: "chat-r2",
+        text: "The answer is 42.",
+      });
+      fake.emit("chat-r2", {
+        event: "message",
+        chat_id: "chat-r2",
+        text: "Reasoning surfaced post-hoc.",
+        kind: "reasoning",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].content).toBe("The answer is 42.");
+    expect(result.current.messages[0].reasoning).toEqual(["Reasoning surfaced post-hoc."]);
+  });
+
+  it("ignores empty reasoning frames", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-r3", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-r3", {
+        event: "message",
+        chat_id: "chat-r3",
+        text: "",
+        kind: "reasoning",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(0);
+  });
+
   it("attaches assistant media_urls to complete messages", () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-m", EMPTY_MESSAGES), {

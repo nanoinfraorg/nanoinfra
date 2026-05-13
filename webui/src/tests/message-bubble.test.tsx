@@ -103,6 +103,39 @@ describe("MessageBubble", () => {
     expect(container.querySelector("video[controls]")).toBeInTheDocument();
   });
 
+  it("surfaces reasoning content above the assistant answer when provided", () => {
+    const message: UIMessage = {
+      id: "a-reasoning",
+      role: "assistant",
+      content: "The answer is 42.",
+      createdAt: Date.now(),
+      reasoning: ["Step 1: parse intent.", "Step 2: compute."],
+    };
+
+    render(<MessageBubble message={message} />);
+
+    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.getByText(/Step 1: parse intent\./)).toBeInTheDocument();
+    expect(screen.getByText(/Step 2: compute\./)).toBeInTheDocument();
+    expect(screen.getByText("The answer is 42.")).toBeInTheDocument();
+  });
+
+  it("collapses the reasoning section when toggled", () => {
+    const message: UIMessage = {
+      id: "a-reasoning-collapse",
+      role: "assistant",
+      content: "done",
+      createdAt: Date.now(),
+      reasoning: ["hidden after toggle"],
+    };
+
+    render(<MessageBubble message={message} />);
+
+    expect(screen.getByText("hidden after toggle")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /thinking/i }));
+    expect(screen.queryByText("hidden after toggle")).not.toBeInTheDocument();
+  });
+
   it("renders assistant image media as a larger generated result", () => {
     const message: UIMessage = {
       id: "a-image",

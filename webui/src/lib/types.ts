@@ -44,6 +44,10 @@ export interface UIMessage {
   images?: UIImage[];
   /** Signed or local UI-renderable media attachments. */
   media?: UIMediaAttachment[];
+  /** Assistant turn: model reasoning / thinking content collected from
+   * `kind: "reasoning"` frames. Each entry is one emit cycle, joined with
+   * blank lines on render. */
+  reasoning?: string[];
 }
 
 export interface ChatSummary {
@@ -141,7 +145,7 @@ export type InboundEvent =
       media_urls?: Array<{ url: string; name?: string }>;
       /** Present when the frame is an agent breadcrumb (e.g. tool hint,
        * generic progress line) rather than a conversational reply. */
-      kind?: "tool_hint" | "progress";
+      kind?: "tool_hint" | "progress" | "reasoning";
     }
   | {
       event: "delta";

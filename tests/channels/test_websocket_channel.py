@@ -359,6 +359,60 @@ async def test_send_delta_emits_delta_and_stream_end() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_reasoning_emits_reasoning_kind_frame() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send_reasoning(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-1",
+        content="step-by-step thinking",
+        metadata={"_progress": True, "_reasoning": True},
+    ))
+
+    mock_ws.send.assert_awaited_once()
+    payload = json.loads(mock_ws.send.await_args.args[0])
+    assert payload["event"] == "message"
+    assert payload["chat_id"] == "chat-1"
+    assert payload["text"] == "step-by-step thinking"
+    assert payload["kind"] == "reasoning"
+
+
+@pytest.mark.asyncio
+async def test_send_reasoning_drops_empty_content() -> None:
+    """Empty reasoning emits nothing — keeps the frontend bubble clean."""
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send_reasoning(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-1",
+        content="",
+        metadata={"_reasoning": True},
+    ))
+
+    mock_ws.send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_send_reasoning_without_subscribers_is_noop() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
+
+    await channel.send_reasoning(OutboundMessage(
+        channel="websocket",
+        chat_id="unattached",
+        content="thinking",
+        metadata={"_reasoning": True},
+    ))
+    # No subscribers, no exception, no send.
+
+
+@pytest.mark.asyncio
 async def test_send_turn_end_emits_turn_end_event() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
