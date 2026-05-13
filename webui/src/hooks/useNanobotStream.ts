@@ -33,7 +33,11 @@ function attachReasoningChunk(prev: UIMessage[], chunk: string): UIMessage[] {
     // A user turn is a hard boundary: reasoning after it belongs to the new
     // assistant turn, never to an earlier assistant reply.
     if (candidate.role === "user") break;
-    if (candidate.role !== "assistant" || candidate.kind === "trace") continue;
+    // A trace row (e.g. Used tools) is also a phase boundary. Reasoning after
+    // tools belongs to the next assistant iteration, not the assistant turn
+    // that produced those tool calls.
+    if (candidate.kind === "trace") break;
+    if (candidate.role !== "assistant") continue;
     const hasAnswer = candidate.content.length > 0;
     if (
       candidate.reasoningStreaming

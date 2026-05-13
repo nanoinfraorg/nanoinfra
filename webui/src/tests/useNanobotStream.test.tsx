@@ -276,6 +276,45 @@ describe("useNanobotStream", () => {
     expect(result.current.messages[2].reasoningStreaming).toBe(true);
   });
 
+  it("does not attach reasoning across a tool trace boundary", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-r7", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-r7", {
+        event: "reasoning_delta",
+        chat_id: "chat-r7",
+        text: "First reasoning.",
+      });
+      fake.emit("chat-r7", { event: "reasoning_end", chat_id: "chat-r7" });
+      fake.emit("chat-r7", {
+        event: "message",
+        chat_id: "chat-r7",
+        text: "web_search({\"query\":\"OpenClaw\"})",
+        kind: "tool_hint",
+      });
+      fake.emit("chat-r7", {
+        event: "reasoning_delta",
+        chat_id: "chat-r7",
+        text: "Second reasoning.",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(3);
+    expect(result.current.messages.map((m) => m.kind ?? "message")).toEqual([
+      "message",
+      "trace",
+      "message",
+    ]);
+    expect(result.current.messages[0].reasoning).toBe("First reasoning.");
+    expect(result.current.messages[1].traces).toEqual([
+      "web_search({\"query\":\"OpenClaw\"})",
+    ]);
+    expect(result.current.messages[2].reasoning).toBe("Second reasoning.");
+  });
+
   it("attaches assistant media_urls to complete messages", () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-m", EMPTY_MESSAGES), {
