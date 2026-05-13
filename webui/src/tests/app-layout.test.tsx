@@ -342,6 +342,7 @@ describe("App layout", () => {
         chatId: "chat-alpha",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        title: "Q2 roadmap",
         preview: "Project planning notes",
       },
       {
@@ -358,15 +359,22 @@ describe("App layout", () => {
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    expect(within(sidebar).getByText("Project planning notes")).toBeInTheDocument();
+    expect(within(sidebar).getByText("Q2 roadmap")).toBeInTheDocument();
     expect(within(sidebar).getByText("Travel ideas")).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Search chats" }), {
-      target: { value: "travel" },
+      target: { value: "planning" },
     });
 
-    expect(within(sidebar).queryByText("Project planning notes")).not.toBeInTheDocument();
-    expect(within(sidebar).getByText("Travel ideas")).toBeInTheDocument();
+    expect(within(sidebar).getByText("Q2 roadmap")).toBeInTheDocument();
+    expect(within(sidebar).queryByText("Travel ideas")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search chats" }), {
+      target: { value: "road q2" },
+    });
+
+    expect(within(sidebar).getByText("Q2 roadmap")).toBeInTheDocument();
+    expect(within(sidebar).queryByText("Travel ideas")).not.toBeInTheDocument();
   });
 
   it("opens a blank start page without creating an empty chat", async () => {

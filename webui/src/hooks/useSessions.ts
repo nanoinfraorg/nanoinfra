@@ -10,6 +10,7 @@ import {
 } from "@/lib/api";
 import { deriveTitle } from "@/lib/format";
 import { toMediaAttachment } from "@/lib/media";
+import { formatToolCallTrace } from "@/lib/tool-traces";
 import type { ChatSummary, UIMessage } from "@/lib/types";
 
 const EMPTY_MESSAGES: UIMessage[] = [];
@@ -29,24 +30,6 @@ function reasoningFromHistory(message: HistoryMessage): string | undefined {
     })
     .filter(Boolean);
   return parts.length > 0 ? parts.join("\n\n") : undefined;
-}
-
-function formatToolCallTrace(call: unknown): string | null {
-  if (!call || typeof call !== "object") return null;
-  const item = call as {
-    name?: unknown;
-    function?: { name?: unknown; arguments?: unknown };
-  };
-  const name =
-    typeof item.function?.name === "string"
-      ? item.function.name
-      : typeof item.name === "string"
-        ? item.name
-        : "";
-  if (!name) return null;
-  const args = item.function?.arguments;
-  if (typeof args === "string" && args.trim()) return `${name}(${args})`;
-  return `${name}()`;
 }
 
 function toolTracesFromHistory(message: HistoryMessage): string[] {
@@ -133,23 +116,31 @@ export function useSessionHistory(key: string | null): {
   messages: UIMessage[];
   loading: boolean;
   error: string | null;
+  refresh: () => void;
+  version: number;
   /** ``true`` when the last persisted assistant turn has ``tool_calls`` but no
    *  final text yet — the model was still processing when the page loaded. */
   hasPendingToolCalls: boolean;
 } {
   const { token } = useClient();
+  const [refreshSeq, setRefreshSeq] = useState(0);
+  const refresh = useCallback(() => {
+    setRefreshSeq((value) => value + 1);
+  }, []);
   const [state, setState] = useState<{
     key: string | null;
     messages: UIMessage[];
     loading: boolean;
     error: string | null;
     hasPendingToolCalls: boolean;
+    version: number;
   }>({
     key: null,
     messages: [],
     loading: false,
     error: null,
     hasPendingToolCalls: false,
+    version: 0,
   });
 
   useEffect(() => {
@@ -160,19 +151,23 @@ export function useSessionHistory(key: string | null): {
         loading: false,
         error: null,
         hasPendingToolCalls: false,
+        version: 0,
       });
       return;
     }
     let cancelled = false;
     // Mark the new key as loading immediately so callers never see stale
     // messages from the previous session during the render right after a switch.
-    setState({
-      key,
-      messages: [],
-      loading: true,
-      error: null,
-      hasPendingToolCalls: false,
-    });
+    setState((prev) => prev.key === key
+      ? { ...prev, loading: true, error: null }
+      : {
+          key,
+          messages: [],
+          loading: true,
+          error: null,
+          hasPendingToolCalls: false,
+          version: 0,
+        });
     (async () => {
       try {
         const body = await fetchSessionMessages(token, key);
@@ -203,7 +198,9 @@ export function useSessionHistory(key: string | null): {
               : {}),
           };
           const traces = m.role === "assistant" ? toolTracesFromHistory(m) : [];
-          if (traces.length === 0) return [row];
+          if (traces.length === 0) {
+            return row.content.trim() || row.media?.length ? [row] : [];
+          }
           return [
             ...(row.content.trim() || row.reasoning || row.media?.length ? [row] : []),
             {
@@ -225,55 +222,74 @@ export function useSessionHistory(key: string | null): {
           lastRaw?.role === "assistant" &&
           Array.isArray(lastRaw.tool_calls) &&
           lastRaw.tool_calls.length > 0;
-        setState({
+        setState((prev) => ({
           key,
           messages: ui,
           loading: false,
           error: null,
           hasPendingToolCalls: hasPending,
-        });
+          version: prev.key === key ? prev.version + 1 : 1,
+        }));
       } catch (e) {
         if (cancelled) return;
         // A 404 just means the session hasn't been persisted yet (brand-new
         // chat, first message not sent). That's a normal state, not an error.
         if (e instanceof ApiError && e.status === 404) {
-          setState({
+          setState((prev) => ({
             key,
             messages: [],
             loading: false,
             error: null,
             hasPendingToolCalls: false,
-          });
+            version: prev.key === key ? prev.version + 1 : 1,
+          }));
         } else {
-          setState({
+          setState((prev) => ({
             key,
             messages: [],
             loading: false,
             error: (e as Error).message,
             hasPendingToolCalls: false,
-          });
+            version: prev.key === key ? prev.version : 0,
+          }));
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [key, token]);
+  }, [key, token, refreshSeq]);
 
   if (!key) {
-    return { messages: EMPTY_MESSAGES, loading: false, error: null, hasPendingToolCalls: false };
+    return {
+      messages: EMPTY_MESSAGES,
+      loading: false,
+      error: null,
+      refresh,
+      version: 0,
+      hasPendingToolCalls: false,
+    };
   }
 
   // Even before the effect above commits its loading state, never surface the
   // previous session's payload for a brand-new key.
   if (state.key !== key) {
-    return { messages: EMPTY_MESSAGES, loading: true, error: null, hasPendingToolCalls: false };
+    return {
+      messages: EMPTY_MESSAGES,
+      loading: true,
+      error: null,
+      refresh,
+      version: 0,
+      hasPendingToolCalls: false,
+    };
   }
 
   return {
     messages: state.messages,
     loading: state.loading,
     error: state.error,
+    refresh,
+    version: state.version,
     hasPendingToolCalls: state.hasPendingToolCalls,
   };
 }

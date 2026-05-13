@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useClient } from "@/providers/ClientProvider";
 import { toMediaAttachment } from "@/lib/media";
+import { toolTraceLinesFromEvents } from "@/lib/tool-traces";
 import type { StreamError } from "@/lib/nanobot-client";
 import type {
   InboundEvent,
@@ -105,6 +106,59 @@ function closeReasoningStream(prev: UIMessage[]): UIMessage[] {
     return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];
   }
   return prev;
+}
+
+function isReasoningOnlyPlaceholder(message: UIMessage): boolean {
+  return (
+    message.role === "assistant"
+    && message.kind !== "trace"
+    && message.content.trim().length === 0
+    && !!message.reasoning
+    && !message.reasoningStreaming
+    && !message.media?.length
+  );
+}
+
+function isToolTrace(message: UIMessage | undefined): boolean {
+  return message?.kind === "trace";
+}
+
+function pruneReasoningOnlyPlaceholders(prev: UIMessage[]): UIMessage[] {
+  return prev.filter((message, index) => {
+    if (!isReasoningOnlyPlaceholder(message)) return true;
+    // A reasoning-only assistant row immediately followed by tool traces is
+    // the live equivalent of a persisted assistant tool-call message with
+    // empty content, reasoning_content, and tool_calls. Keep it so live render
+    // and history replay stay isomorphic.
+    return isToolTrace(prev[index + 1]);
+  });
+}
+
+function absorbCompleteAssistantMessage(
+  prev: UIMessage[],
+  message: Omit<UIMessage, "id" | "role" | "createdAt">,
+): UIMessage[] {
+  const last = prev[prev.length - 1];
+  if (!last || !isReasoningOnlyPlaceholder(last)) {
+    return [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        createdAt: Date.now(),
+        ...message,
+      },
+    ];
+  }
+  return [
+    ...prev.slice(0, -1),
+    {
+      ...last,
+      ...message,
+      isStreaming: false,
+      reasoningStreaming: false,
+    },
+  ];
 }
 
 /**
@@ -286,9 +340,10 @@ export function useNanobotStream(
           streamEndTimerRef.current = null;
         }
         setIsStreaming(false);
-        setMessages((prev) =>
-          prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)),
-        );
+        setMessages((prev) => {
+          const finalized = prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
+          return pruneReasoningOnlyPlaceholders(finalized);
+        });
         suppressStreamUntilTurnEndRef.current = false;
         onTurnEnd?.();
         return;
@@ -314,14 +369,20 @@ export function useNanobotStream(
         // Attach them to the last trace row if it was the last emitted item
         // so a sequence of calls collapses into one compact trace group.
         if (ev.kind === "tool_hint" || ev.kind === "progress") {
-          const line = ev.text;
+          const structuredLines = toolTraceLinesFromEvents(ev.tool_events);
+          const lines = structuredLines.length > 0
+            ? structuredLines
+            : ev.text
+              ? [ev.text]
+              : [];
+          if (lines.length === 0) return;
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last && last.kind === "trace" && !last.isStreaming) {
               const merged: UIMessage = {
                 ...last,
-                traces: [...(last.traces ?? [last.content]), line],
-                content: line,
+                traces: [...(last.traces ?? [last.content]), ...lines],
+                content: lines[lines.length - 1],
               };
               return [...prev.slice(0, -1), merged];
             }
@@ -331,8 +392,8 @@ export function useNanobotStream(
                 id: crypto.randomUUID(),
                 role: "tool",
                 kind: "trace",
-                content: line,
-                traces: [line],
+                content: lines[lines.length - 1],
+                traces: lines,
                 createdAt: Date.now(),
               },
             ];
@@ -354,16 +415,10 @@ export function useNanobotStream(
         setMessages((prev) => {
           const filtered = activeId ? prev.filter((m) => m.id !== activeId) : prev;
           const content = ev.text;
-          return [
-            ...filtered,
-            {
-              id: crypto.randomUUID(),
-              role: "assistant",
-              content,
-              createdAt: Date.now(),
-              ...(hasMedia ? { media } : {}),
-            },
-          ];
+          return absorbCompleteAssistantMessage(filtered, {
+            content,
+            ...(hasMedia ? { media } : {}),
+          });
         });
         if (hasMedia) {
           suppressStreamUntilTurnEndRef.current = true;
@@ -395,7 +450,7 @@ export function useNanobotStream(
 
       const previews = hasImages ? images!.map((i) => i.preview) : undefined;
       setMessages((prev) => [
-        ...prev,
+        ...pruneReasoningOnlyPlaceholders(prev),
         {
           id: crypto.randomUUID(),
           role: "user",

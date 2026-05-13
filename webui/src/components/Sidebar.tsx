@@ -31,8 +31,10 @@ export function Sidebar(props: SidebarProps) {
   const normalizedQuery = query.trim().toLowerCase();
   const filteredSessions = useMemo(() => {
     if (!normalizedQuery) return props.sessions;
+    const terms = normalizedQuery.split(/\s+/).filter(Boolean);
     return props.sessions.filter((session) => {
       const haystack = [
+        session.title,
         session.preview,
         session.chatId,
         session.channel,
@@ -41,7 +43,7 @@ export function Sidebar(props: SidebarProps) {
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
-      return haystack.includes(normalizedQuery);
+      return terms.every((term) => haystack.includes(term));
     });
   }, [normalizedQuery, props.sessions]);
 

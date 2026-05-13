@@ -53,6 +53,18 @@ export interface UIMessage {
   reasoningStreaming?: boolean;
 }
 
+export interface ToolProgressEvent {
+  version?: number;
+  phase?: "start" | "end" | "error" | string;
+  call_id?: string;
+  name?: string;
+  arguments?: unknown;
+  result?: unknown;
+  error?: unknown;
+  files?: unknown[];
+  embeds?: unknown[];
+}
+
 export interface ChatSummary {
   /** Server-side session key, e.g. ``websocket:abcd-...``. */
   key: string;
@@ -146,6 +158,7 @@ export type InboundEvent =
       reply_to?: string;
       media?: string[];
       media_urls?: Array<{ url: string; name?: string }>;
+      tool_events?: ToolProgressEvent[];
       /** Present when the frame is an agent breadcrumb (e.g. tool hint,
        * generic progress line) rather than a conversational reply. */
       kind?: "tool_hint" | "progress" | "reasoning";

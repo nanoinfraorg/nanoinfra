@@ -8,6 +8,7 @@ import { ClientProvider } from "@/providers/ClientProvider";
 function makeClient() {
   const errorHandlers = new Set<(err: { kind: string }) => void>();
   const chatHandlers = new Map<string, Set<(ev: import("@/lib/types").InboundEvent) => void>>();
+  const sessionUpdateHandlers = new Set<(chatId: string) => void>();
   return {
     status: "open" as const,
     defaultChatId: null as string | null,
@@ -30,11 +31,20 @@ function makeClient() {
         errorHandlers.delete(handler);
       };
     },
+    onSessionUpdate: (handler: (chatId: string) => void) => {
+      sessionUpdateHandlers.add(handler);
+      return () => {
+        sessionUpdateHandlers.delete(handler);
+      };
+    },
     _emitError(err: { kind: string }) {
       for (const h of errorHandlers) h(err);
     },
     _emitChat(chatId: string, ev: import("@/lib/types").InboundEvent) {
       for (const h of chatHandlers.get(chatId) ?? []) h(ev);
+    },
+    _emitSessionUpdate(chatId: string) {
+      for (const h of sessionUpdateHandlers) h(chatId);
     },
     sendMessage: vi.fn(),
     newChat: vi.fn(),
@@ -571,6 +581,134 @@ describe("ThreadShell", () => {
     });
 
     await waitFor(() => expect(screen.getByText("live assistant reply")).toBeInTheDocument());
+  });
+
+  it("replaces live streamed content with canonical history after turn end", async () => {
+    const client = makeClient();
+    let historyCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("websocket%3Achat-a/messages")) {
+          historyCalls += 1;
+          return httpJson({
+            key: "websocket:chat-a",
+            created_at: null,
+            updated_at: null,
+            messages: historyCalls === 1
+              ? [{ role: "user", content: "question" }]
+              : [
+                  { role: "user", content: "question" },
+                  { role: "assistant", content: "canonical markdown answer" },
+                ],
+          });
+        }
+        return {
+          ok: false,
+          status: 404,
+          json: async () => ({}),
+        };
+      }),
+    );
+
+    render(
+      wrap(
+        client,
+        <ThreadShell
+          session={session("chat-a")}
+          title="Chat chat-a"
+          onToggleSidebar={() => {}}
+          onNewChat={() => {}}
+        />,
+      ),
+    );
+
+    await waitFor(() => expect(screen.getByText("question")).toBeInTheDocument());
+    await act(async () => {
+      client._emitChat("chat-a", {
+        event: "delta",
+        chat_id: "chat-a",
+        text: "live half-parsed | markdown",
+      });
+      client._emitChat("chat-a", {
+        event: "turn_end",
+        chat_id: "chat-a",
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText("canonical markdown answer")).toBeInTheDocument());
+    expect(screen.queryByText("live half-parsed | markdown")).not.toBeInTheDocument();
+  });
+
+  it("scrolls to the bottom after loading a session from the blank new-chat page", async () => {
+    const client = makeClient();
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("websocket%3Achat-a/messages")) {
+          return httpJson({
+            key: "websocket:chat-a",
+            created_at: null,
+            updated_at: null,
+            messages: [
+              { role: "user", content: "question" },
+              { role: "assistant", content: "loaded answer" },
+            ],
+          });
+        }
+        return {
+          ok: false,
+          status: 404,
+          json: async () => ({}),
+        };
+      }),
+    );
+
+    try {
+      const { rerender } = render(
+        wrap(
+          client,
+          <ThreadShell
+            session={null}
+            title="nanobot"
+            onToggleSidebar={() => {}}
+            onNewChat={() => {}}
+          />,
+        ),
+      );
+
+      expect(screen.getByText("What can I do for you?")).toBeInTheDocument();
+      scrollIntoView.mockClear();
+
+      await act(async () => {
+        rerender(
+          wrap(
+            client,
+            <ThreadShell
+              session={session("chat-a")}
+              title="Chat chat-a"
+              onToggleSidebar={() => {}}
+              onNewChat={() => {}}
+            />,
+          ),
+        );
+      });
+
+      await waitFor(() => expect(screen.getByText("loaded answer")).toBeInTheDocument());
+      await waitFor(() =>
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          block: "end",
+          behavior: "smooth",
+        }),
+      );
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    }
   });
 
   it("opens slash commands on the blank welcome page", async () => {

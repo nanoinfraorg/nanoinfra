@@ -323,6 +323,54 @@ async def test_send_removes_connection_on_connection_closed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_progress_includes_structured_tool_events() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-1",
+        content='search "hermes"',
+        metadata={
+            "_progress": True,
+            "_tool_hint": True,
+            "_tool_events": [
+                {
+                    "version": 1,
+                    "phase": "start",
+                    "call_id": "call-1",
+                    "name": "web_search",
+                    "arguments": {"query": "hermes", "count": 8},
+                    "result": None,
+                    "error": None,
+                    "files": [],
+                    "embeds": [],
+                }
+            ],
+        },
+    ))
+
+    payload = json.loads(mock_ws.send.await_args.args[0])
+    assert payload["event"] == "message"
+    assert payload["kind"] == "tool_hint"
+    assert payload["tool_events"] == [
+        {
+            "version": 1,
+            "phase": "start",
+            "call_id": "call-1",
+            "name": "web_search",
+            "arguments": {"query": "hermes", "count": 8},
+            "result": None,
+            "error": None,
+            "files": [],
+            "embeds": [],
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_send_delta_removes_connection_on_connection_closed() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus)

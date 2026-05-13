@@ -245,6 +245,30 @@ describe("useSessions", () => {
     expect(result.current.messages[0].reasoningStreaming).toBe(false);
   });
 
+  it("drops replayed assistant turns that only contain reasoning", async () => {
+    vi.mocked(api.fetchSessionMessages).mockResolvedValue({
+      key: "websocket:chat-empty-reasoning",
+      created_at: "2026-04-20T10:00:00Z",
+      updated_at: "2026-04-20T10:05:00Z",
+      messages: [
+        {
+          role: "assistant",
+          content: "",
+          timestamp: "2026-04-20T10:00:01Z",
+          reasoning_content: "orphan reasoning",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useSessionHistory("websocket:chat-empty-reasoning"), {
+      wrapper: wrap(fakeClient()),
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.messages).toHaveLength(0);
+  });
+
   it("hydrates historical assistant tool calls into a replay trace row", async () => {
     vi.mocked(api.fetchSessionMessages).mockResolvedValue({
       key: "websocket:chat-tools",

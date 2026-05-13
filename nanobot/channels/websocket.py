@@ -1476,6 +1476,8 @@ class WebSocketChannel(BaseChannel):
                 payload["media_urls"] = urls
         if msg.reply_to:
             payload["reply_to"] = msg.reply_to
+        if msg.metadata.get("_tool_events"):
+            payload["tool_events"] = msg.metadata["_tool_events"]
         # Mark intermediate agent breadcrumbs (tool-call hints, generic
         # progress strings) so WS clients can render them as subordinate
         # trace rows rather than conversational replies.

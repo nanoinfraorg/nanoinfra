@@ -113,6 +113,43 @@ describe("useNanobotStream", () => {
     expect(result.current.messages[1].kind).toBeUndefined();
   });
 
+  it("renders live tool traces from structured tool events", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-tool-events", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-tool-events", {
+        event: "message",
+        chat_id: "chat-tool-events",
+        text: 'search "hermes"',
+        kind: "tool_hint",
+        tool_events: [
+          {
+            phase: "start",
+            name: "web_search",
+            arguments: { query: "NousResearch hermes-agent", count: 8 },
+          },
+          {
+            phase: "start",
+            name: "web_search",
+            arguments: { query: "hermes-agent GitHub stars", count: 8 },
+          },
+        ],
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].traces).toEqual([
+      'web_search({"query":"NousResearch hermes-agent","count":8})',
+      'web_search({"query":"hermes-agent GitHub stars","count":8})',
+    ]);
+    expect(result.current.messages[0].content).toBe(
+      'web_search({"query":"hermes-agent GitHub stars","count":8})',
+    );
+  });
+
   it("accumulates reasoning_delta chunks on a placeholder until reasoning_end", () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-r", EMPTY_MESSAGES), {
@@ -313,6 +350,148 @@ describe("useNanobotStream", () => {
       "web_search({\"query\":\"OpenClaw\"})",
     ]);
     expect(result.current.messages[2].reasoning).toBe("Second reasoning.");
+  });
+
+  it("keeps tool-call reasoning before the matching live tool trace", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-tool-reasoning", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-tool-reasoning", {
+        event: "reasoning_delta",
+        chat_id: "chat-tool-reasoning",
+        text: "I should search first.",
+      });
+      fake.emit("chat-tool-reasoning", {
+        event: "reasoning_end",
+        chat_id: "chat-tool-reasoning",
+      });
+      fake.emit("chat-tool-reasoning", {
+        event: "message",
+        chat_id: "chat-tool-reasoning",
+        text: "web_search({\"query\":\"hermes\"})",
+        kind: "tool_hint",
+      });
+      fake.emit("chat-tool-reasoning", {
+        event: "turn_end",
+        chat_id: "chat-tool-reasoning",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[0]).toMatchObject({
+      role: "assistant",
+      content: "",
+      reasoning: "I should search first.",
+      reasoningStreaming: false,
+      isStreaming: false,
+    });
+    expect(result.current.messages[1]).toMatchObject({
+      role: "tool",
+      kind: "trace",
+      traces: ["web_search({\"query\":\"hermes\"})"],
+    });
+  });
+
+  it("absorbs non-streamed final answers into the preceding reasoning placeholder", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-final-reasoning", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-final-reasoning", {
+        event: "message",
+        chat_id: "chat-final-reasoning",
+        text: "web_search({\"query\":\"hermes\"})",
+        kind: "tool_hint",
+      });
+      fake.emit("chat-final-reasoning", {
+        event: "reasoning_delta",
+        chat_id: "chat-final-reasoning",
+        text: "Got results; now summarize.",
+      });
+      fake.emit("chat-final-reasoning", {
+        event: "reasoning_end",
+        chat_id: "chat-final-reasoning",
+      });
+      fake.emit("chat-final-reasoning", {
+        event: "message",
+        chat_id: "chat-final-reasoning",
+        text: "Hermes is an open-source agent project.",
+      });
+      fake.emit("chat-final-reasoning", {
+        event: "turn_end",
+        chat_id: "chat-final-reasoning",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[0]).toMatchObject({
+      role: "tool",
+      kind: "trace",
+    });
+    expect(result.current.messages[1]).toMatchObject({
+      role: "assistant",
+      content: "Hermes is an open-source agent project.",
+      reasoning: "Got results; now summarize.",
+      reasoningStreaming: false,
+      isStreaming: false,
+    });
+  });
+
+  it("prunes reasoning-only placeholders when a turn ends without an answer", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-empty-thinking", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-empty-thinking", {
+        event: "reasoning_delta",
+        chat_id: "chat-empty-thinking",
+        text: "thinking without final text",
+      });
+      fake.emit("chat-empty-thinking", {
+        event: "reasoning_end",
+        chat_id: "chat-empty-thinking",
+      });
+      fake.emit("chat-empty-thinking", {
+        event: "turn_end",
+        chat_id: "chat-empty-thinking",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(0);
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("drops stale reasoning-only placeholders before sending the next user turn", () => {
+    const fake = fakeClient();
+    const initialMessages = [
+      {
+        id: "stale-thinking",
+        role: "assistant" as const,
+        content: "",
+        reasoning: "leftover thinking",
+        reasoningStreaming: false,
+        createdAt: Date.now(),
+      },
+    ];
+    const { result } = renderHook(
+      () => useNanobotStream("chat-stale-thinking", initialMessages),
+      { wrapper: wrap(fake.client) },
+    );
+
+    act(() => {
+      result.current.send("fine");
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].role).toBe("user");
+    expect(result.current.messages[0].content).toBe("fine");
   });
 
   it("attaches assistant media_urls to complete messages", () => {
