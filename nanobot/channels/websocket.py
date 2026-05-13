@@ -1487,6 +1487,54 @@ class WebSocketChannel(BaseChannel):
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" ")
 
+    async def send_reasoning_delta(
+        self,
+        chat_id: str,
+        delta: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Push one chunk of model reasoning. Mirrors ``send_delta`` shape so
+        WebUI receives a stream that opens, updates in place, and closes —
+        rendered above the active assistant bubble with a shimmer header
+        until the matching ``reasoning_end`` arrives.
+        """
+        conns = list(self._subs.get(chat_id, ()))
+        if not conns or not delta:
+            return
+        meta = metadata or {}
+        body: dict[str, Any] = {
+            "event": "reasoning_delta",
+            "chat_id": chat_id,
+            "text": delta,
+        }
+        stream_id = meta.get("_stream_id")
+        if stream_id is not None:
+            body["stream_id"] = stream_id
+        raw = json.dumps(body, ensure_ascii=False)
+        for connection in conns:
+            await self._safe_send_to(connection, raw, label=" reasoning ")
+
+    async def send_reasoning_end(
+        self,
+        chat_id: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Close the current reasoning stream segment for in-place renderers."""
+        conns = list(self._subs.get(chat_id, ()))
+        if not conns:
+            return
+        meta = metadata or {}
+        body: dict[str, Any] = {
+            "event": "reasoning_end",
+            "chat_id": chat_id,
+        }
+        stream_id = meta.get("_stream_id")
+        if stream_id is not None:
+            body["stream_id"] = stream_id
+        raw = json.dumps(body, ensure_ascii=False)
+        for connection in conns:
+            await self._safe_send_to(connection, raw, label=" reasoning_end ")
+
     async def send_delta(
         self,
         chat_id: str,

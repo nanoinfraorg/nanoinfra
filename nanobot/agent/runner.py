@@ -16,9 +16,11 @@ from nanobot.agent.hook import AgentHook, AgentHookContext
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.utils.helpers import (
+    IncrementalThinkExtractor,
     build_assistant_message,
     estimate_message_tokens,
     estimate_prompt_tokens_chain,
+    extract_reasoning,
     find_legal_message_start,
     maybe_persist_tool_result,
     strip_think,
@@ -280,6 +282,17 @@ class AgentRunner:
             context.usage = dict(raw_usage)
             context.tool_calls = list(response.tool_calls)
             self._accumulate_usage(usage, raw_usage)
+
+            reasoning_text, cleaned_content = extract_reasoning(
+                response.reasoning_content,
+                response.thinking_blocks,
+                response.content,
+            )
+            response.content = cleaned_content
+            if reasoning_text and not context.streamed_reasoning:
+                await hook.emit_reasoning(reasoning_text)
+                await hook.emit_reasoning_end()
+                context.streamed_reasoning = True
 
             if response.should_execute_tools:
                 context.tool_calls = list(response.tool_calls)
@@ -605,6 +618,8 @@ class AgentRunner:
             and getattr(self.provider, "supports_progress_deltas", False) is True
         )
 
+        progress_state: dict[str, bool] | None = None
+
         if wants_streaming:
             async def _stream(delta: str) -> None:
                 if delta:
@@ -617,6 +632,8 @@ class AgentRunner:
             )
         elif wants_progress_streaming:
             stream_buf = ""
+            think_extractor = IncrementalThinkExtractor()
+            progress_state = {"reasoning_open": False}
 
             async def _stream_progress(delta: str) -> None:
                 nonlocal stream_buf
@@ -626,7 +643,15 @@ class AgentRunner:
                 stream_buf += delta
                 new_clean = strip_think(stream_buf)
                 incremental = new_clean[len(prev_clean):]
+
+                if await think_extractor.feed(stream_buf, hook.emit_reasoning):
+                    context.streamed_reasoning = True
+                    progress_state["reasoning_open"] = True
+
                 if incremental:
+                    if progress_state["reasoning_open"]:
+                        await hook.emit_reasoning_end()
+                        progress_state["reasoning_open"] = False
                     context.streamed_content = True
                     await spec.progress_callback(incremental)
 
@@ -637,16 +662,20 @@ class AgentRunner:
         else:
             coro = self.provider.chat_with_retry(**kwargs)
 
-        if timeout_s is None:
-            return await coro
         try:
-            return await asyncio.wait_for(coro, timeout=timeout_s)
+            response = (
+                await coro if timeout_s is None
+                else await asyncio.wait_for(coro, timeout=timeout_s)
+            )
         except asyncio.TimeoutError:
             return LLMResponse(
                 content=f"Error calling LLM: timed out after {timeout_s:g}s",
                 finish_reason="error",
                 error_kind="timeout",
             )
+        if progress_state and progress_state.get("reasoning_open"):
+            await hook.emit_reasoning_end()
+        return response
 
     async def _request_finalization_retry(
         self,

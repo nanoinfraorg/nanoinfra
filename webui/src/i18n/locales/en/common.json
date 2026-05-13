@@ -332,6 +332,8 @@
     "assistantTyping": "Assistant is typing",
     "toolSingle": "Using a tool",
     "toolMany": "Used {{count}} tools",
+    "reasoning": "Thinking",
+    "reasoningStreaming": "Thinking…",
     "imageAttachment": "Image attachment",
     "copyReply": "Copy reply",
     "copiedReply": "Copied reply"

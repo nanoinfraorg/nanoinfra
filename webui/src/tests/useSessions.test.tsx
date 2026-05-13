@@ -170,6 +170,92 @@ describe("useSessions", () => {
     ]);
   });
 
+  it("hydrates persisted assistant reasoning into the replayed message", async () => {
+    vi.mocked(api.fetchSessionMessages).mockResolvedValue({
+      key: "websocket:chat-reasoning",
+      created_at: "2026-04-20T10:00:00Z",
+      updated_at: "2026-04-20T10:05:00Z",
+      messages: [
+        {
+          role: "assistant",
+          content: "final answer",
+          timestamp: "2026-04-20T10:00:01Z",
+          reasoning_content: "hidden but persisted reasoning",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useSessionHistory("websocket:chat-reasoning"), {
+      wrapper: wrap(fakeClient()),
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].role).toBe("assistant");
+    expect(result.current.messages[0].content).toBe("final answer");
+    expect(result.current.messages[0].reasoning).toBe("hidden but persisted reasoning");
+    expect(result.current.messages[0].reasoningStreaming).toBe(false);
+  });
+
+  it("hydrates historical assistant tool calls into a replay trace row", async () => {
+    vi.mocked(api.fetchSessionMessages).mockResolvedValue({
+      key: "websocket:chat-tools",
+      created_at: "2026-04-20T10:00:00Z",
+      updated_at: "2026-04-20T10:05:00Z",
+      messages: [
+        {
+          role: "user",
+          content: "research this",
+          timestamp: "2026-04-20T10:00:00Z",
+        },
+        {
+          role: "assistant",
+          content: "",
+          timestamp: "2026-04-20T10:00:01Z",
+          tool_calls: [
+            {
+              id: "call-1",
+              type: "function",
+              function: { name: "web_search", arguments: "{\"query\":\"agents\"}" },
+            },
+            {
+              id: "call-2",
+              type: "function",
+              function: { name: "web_fetch", arguments: "{\"url\":\"https://example.com\"}" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          content: "tool output that should not render directly",
+          timestamp: "2026-04-20T10:00:02Z",
+          tool_call_id: "call-1",
+        },
+        {
+          role: "assistant",
+          content: "summary",
+          timestamp: "2026-04-20T10:00:03Z",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useSessionHistory("websocket:chat-tools"), {
+      wrapper: wrap(fakeClient()),
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.messages.map((m) => m.role)).toEqual(["user", "tool", "assistant"]);
+    const trace = result.current.messages[1];
+    expect(trace.kind).toBe("trace");
+    expect(trace.traces).toEqual([
+      "web_search({\"query\":\"agents\"})",
+      "web_fetch({\"url\":\"https://example.com\"})",
+    ]);
+    expect(result.current.messages[2].content).toBe("summary");
+  });
+
   it("flags history with trailing assistant tool calls as still pending", async () => {
     vi.mocked(api.fetchSessionMessages).mockResolvedValue({
       key: "websocket:chat-pending",

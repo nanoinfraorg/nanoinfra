@@ -117,6 +117,34 @@
     --cjk-line-height: 1.625;
   }
 
+  /* Shimmer band sweeping across the reasoning header while
+     ``reasoning_delta`` frames are arriving. Pure CSS, no JS animation,
+     respects ``prefers-reduced-motion``. */
+  @keyframes reasoning-shimmer-sweep {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+  .reasoning-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsl(var(--muted-foreground) / 0.18) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    background-repeat: no-repeat;
+    animation: reasoning-shimmer-sweep 2.2s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reasoning-shimmer {
+      animation: none;
+    }
+  }
+
   /* Subtle scrollbar that doesn't fight the dark background. */
   .scrollbar-thin {
     scrollbar-width: thin;
