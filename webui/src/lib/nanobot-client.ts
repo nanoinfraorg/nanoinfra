@@ -15,6 +15,7 @@ type Unsubscribe = () => void;
 type EventHandler = (ev: InboundEvent) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
 type RuntimeModelHandler = (modelName: string | null, modelPreset?: string | null) => void;
+type SessionUpdateHandler = (chatId: string) => void;
 
 /** Structured connection-level errors surfaced to the UI.
  *
@@ -60,6 +61,7 @@ export class NanobotClient {
   private socket: WebSocket | null = null;
   private statusHandlers = new Set<StatusHandler>();
   private runtimeModelHandlers = new Set<RuntimeModelHandler>();
+  private sessionUpdateHandlers = new Set<SessionUpdateHandler>();
   private errorHandlers = new Set<ErrorHandler>();
   // chat_id -> handlers listening on it
   private chatHandlers = new Map<string, Set<EventHandler>>();
@@ -113,6 +115,13 @@ export class NanobotClient {
     this.runtimeModelHandlers.add(handler);
     return () => {
       this.runtimeModelHandlers.delete(handler);
+    };
+  }
+
+  onSessionUpdate(handler: SessionUpdateHandler): Unsubscribe {
+    this.sessionUpdateHandlers.add(handler);
+    return () => {
+      this.sessionUpdateHandlers.delete(handler);
     };
   }
 
@@ -259,6 +268,11 @@ export class NanobotClient {
       return;
     }
 
+    if (parsed.event === "session_updated") {
+      this.emitSessionUpdate(parsed.chat_id);
+      return;
+    }
+
     const chatId = (parsed as { chat_id?: string }).chat_id;
     if (chatId) this.dispatch(chatId, parsed);
   }
@@ -266,6 +280,12 @@ export class NanobotClient {
   private emitRuntimeModelUpdate(modelName: string | null, modelPreset?: string | null): void {
     for (const handler of this.runtimeModelHandlers) {
       handler(modelName, modelPreset);
+    }
+  }
+
+  private emitSessionUpdate(chatId: string): void {
+    for (const handler of this.sessionUpdateHandlers) {
+      handler(chatId);
     }
   }
 

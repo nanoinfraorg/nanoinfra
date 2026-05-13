@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { AskUserPrompt } from "@/components/thread/AskUserPrompt";
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import { ThreadHeader } from "@/components/thread/ThreadHeader";
 import { StreamErrorNotice } from "@/components/thread/StreamErrorNotice";
@@ -105,21 +104,6 @@ export function ThreadShell({
     dismissStreamError,
   } = useNanobotStream(chatId, initial, hasPendingToolCalls, onTurnEnd);
   const showHeroComposer = messages.length === 0 && !loading;
-  const pendingAsk = useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (message.kind === "trace") continue;
-      if (message.role === "user") return null;
-      if (message.role === "assistant" && message.buttons?.some((row) => row.length > 0)) {
-        return {
-          question: message.content,
-          buttons: message.buttons,
-        };
-      }
-      if (message.role === "assistant") return null;
-    }
-    return null;
-  }, [messages]);
 
   useEffect(() => {
     if (!chatId || loading) return;
@@ -247,13 +231,6 @@ export function ThreadShell({
           onDismiss={dismissStreamError}
         />
       ) : null}
-      {pendingAsk ? (
-        <AskUserPrompt
-          question={pendingAsk.question}
-          buttons={pendingAsk.buttons}
-          onAnswer={send}
-        />
-      ) : null}
       {session ? (
         <ThreadComposer
           onSend={send}
@@ -283,6 +260,7 @@ export function ThreadShell({
           }
           modelLabel={toModelBadgeLabel(modelName)}
           variant="hero"
+          slashCommands={slashCommands}
           imageMode={heroImageMode}
           onImageModeChange={setHeroImageMode}
         />

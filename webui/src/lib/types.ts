@@ -44,8 +44,13 @@ export interface UIMessage {
   images?: UIImage[];
   /** Signed or local UI-renderable media attachments. */
   media?: UIMediaAttachment[];
-  /** Optional answer choices for a pending ask_user question. */
-  buttons?: string[][];
+  /** Assistant turn: accumulated model reasoning / thinking text. Built up
+   * incrementally from ``reasoning_delta`` frames; finalized when
+   * ``reasoning_end`` arrives. */
+  reasoning?: string;
+  /** True while ``reasoning_delta`` frames are still arriving for this turn.
+   * Drives the shimmer header on ``ReasoningBubble``. */
+  reasoningStreaming?: boolean;
 }
 
 export interface ChatSummary {
@@ -141,12 +146,9 @@ export type InboundEvent =
       reply_to?: string;
       media?: string[];
       media_urls?: Array<{ url: string; name?: string }>;
-      buttons?: string[][];
-      /** Original prompt before the websocket text fallback appends buttons. */
-      button_prompt?: string;
       /** Present when the frame is an agent breadcrumb (e.g. tool hint,
        * generic progress line) rather than a conversational reply. */
-      kind?: "tool_hint" | "progress";
+      kind?: "tool_hint" | "progress" | "reasoning";
     }
   | {
       event: "delta";
@@ -156,6 +158,17 @@ export type InboundEvent =
     }
   | {
       event: "stream_end";
+      chat_id: string;
+      stream_id?: string;
+    }
+  | {
+      event: "reasoning_delta";
+      chat_id: string;
+      text: string;
+      stream_id?: string;
+    }
+  | {
+      event: "reasoning_end";
       chat_id: string;
       stream_id?: string;
     }

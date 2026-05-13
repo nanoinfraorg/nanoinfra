@@ -176,13 +176,15 @@ def _print_agent_response(
     response: str,
     render_markdown: bool,
     metadata: dict | None = None,
+    show_header: bool = True,
 ) -> None:
     """Render assistant response with consistent terminal styling."""
     console = _make_console()
     content = response or ""
     body = _response_renderable(content, render_markdown, metadata)
-    console.print()
-    console.print(f"[cyan]{__logo__} nanobot[/cyan]")
+    if show_header:
+        console.print()
+        console.print(f"[cyan]{__logo__} nanobot[/cyan]")
     console.print(body)
     console.print()
 
@@ -228,42 +230,70 @@ async def _print_interactive_response(
     await run_in_terminal(_write)
 
 
-def _print_cli_progress_line(text: str, thinking: ThinkingSpinner | None) -> None:
+def _print_cli_progress_line(text: str, thinking: ThinkingSpinner | None, renderer: StreamRenderer | None = None) -> None:
     """Print a CLI progress line, pausing the spinner if needed."""
     if not text.strip():
         return
-    with thinking.pause() if thinking else nullcontext():
-        console.print(f"  [dim]↳ {text}[/dim]")
+    target = renderer.console if renderer else console
+    pause = renderer.pause_spinner() if renderer else (thinking.pause() if thinking else nullcontext())
+    with pause:
+        if renderer:
+            renderer.ensure_header()
+        target.print(f"  [dim]↳ {text}[/dim]")
 
 
-async def _print_interactive_progress_line(text: str, renderer: StreamRenderer | None) -> None:
-    """Print an interactive progress line, pausing the renderer's spinner if needed."""
+def _print_cli_reasoning(text: str, thinking: ThinkingSpinner | None, renderer: StreamRenderer | None = None) -> None:
+    """Print reasoning/thinking content in a distinct style."""
     if not text.strip():
         return
-    with renderer.pause() if renderer else nullcontext():
-        await _print_interactive_line(text)
+    target = renderer.console if renderer else console
+    pause = renderer.pause_spinner() if renderer else (thinking.pause() if thinking else nullcontext())
+    with pause:
+        if renderer:
+            renderer.ensure_header()
+        target.print(f"[dim italic]✻ {text}[/dim italic]")
+
+
+async def _print_interactive_progress_line(text: str, thinking: ThinkingSpinner | None, renderer: StreamRenderer | None = None) -> None:
+    """Print an interactive progress line, pausing the spinner if needed."""
+    if not text.strip():
+        return
+    if renderer:
+        with renderer.pause_spinner():
+            renderer.ensure_header()
+            renderer.console.print(f"  [dim]↳ {text}[/dim]")
+    else:
+        with thinking.pause() if thinking else nullcontext():
+            await _print_interactive_line(text)
 
 
 async def _maybe_print_interactive_progress(
     msg: Any,
-    renderer: StreamRenderer | None,
+    thinking: ThinkingSpinner | None,
     channels_config: Any,
+    renderer: StreamRenderer | None = None,
 ) -> bool:
     metadata = msg.metadata or {}
     if metadata.get("_retry_wait"):
-        await _print_interactive_progress_line(msg.content, renderer)
+        await _print_interactive_progress_line(msg.content, thinking, renderer)
         return True
 
     if not metadata.get("_progress"):
         return False
 
     is_tool_hint = metadata.get("_tool_hint", False)
+    is_reasoning = metadata.get("_reasoning", False) or metadata.get("_reasoning_delta", False)
+    if is_reasoning:
+        if channels_config and not channels_config.show_reasoning:
+            return True
+        _print_cli_reasoning(msg.content, thinking, renderer)
+        return True
     if channels_config and is_tool_hint and not channels_config.send_tool_hints:
         return True
     if channels_config and not is_tool_hint and not channels_config.send_progress:
         return True
 
-    await _print_interactive_progress_line(msg.content, renderer)
+    await _print_interactive_progress_line(msg.content, thinking, renderer)
     return True
 
 
@@ -1064,13 +1094,20 @@ def agent(
     # Shared reference for progress callbacks
     _thinking: ThinkingSpinner | None = None
 
-    async def _cli_progress(content: str, *, tool_hint: bool = False, **_kwargs: Any) -> None:
-        ch = agent_loop.channels_config
-        if ch and tool_hint and not ch.send_tool_hints:
-            return
-        if ch and not tool_hint and not ch.send_progress:
-            return
-        _print_cli_progress_line(content, _thinking)
+    def _make_progress(renderer: StreamRenderer | None = None):
+        async def _cli_progress(content: str, *, tool_hint: bool = False, reasoning: bool = False, **_kwargs: Any) -> None:
+            ch = agent_loop.channels_config
+            if reasoning:
+                if ch and not ch.show_reasoning:
+                    return
+                _print_cli_reasoning(content, _thinking, renderer)
+                return
+            if ch and tool_hint and not ch.send_tool_hints:
+                return
+            if ch and not tool_hint and not ch.send_progress:
+                return
+            _print_cli_progress_line(content, _thinking, renderer)
+        return _cli_progress
 
     if message:
         # Single message mode — direct call, no bus needed
@@ -1082,16 +1119,20 @@ def agent(
             )
             response = await agent_loop.process_direct(
                 message, session_id,
-                on_progress=_cli_progress,
+                on_progress=_make_progress(renderer),
                 on_stream=renderer.on_delta,
                 on_stream_end=renderer.on_end,
             )
             if not renderer.streamed:
                 await renderer.close()
+                print_kwargs: dict[str, Any] = {}
+                if renderer.header_printed:
+                    print_kwargs["show_header"] = False
                 _print_agent_response(
                     response.content if response else "",
                     render_markdown=markdown,
                     metadata=response.metadata if response else None,
+                    **print_kwargs,
                 )
             await agent_loop.close_mcp()
 
@@ -1154,6 +1195,7 @@ def agent(
                             msg,
                             renderer,
                             agent_loop.channels_config,
+                            renderer,
                         ):
                             continue
 
@@ -1215,8 +1257,14 @@ def agent(
                             if content and not meta.get("_streamed"):
                                 if renderer:
                                     await renderer.close()
+                                print_kwargs: dict[str, Any] = {}
+                                if renderer and renderer.header_printed:
+                                    print_kwargs["show_header"] = False
                                 _print_agent_response(
-                                    content, render_markdown=markdown, metadata=meta,
+                                    content,
+                                    render_markdown=markdown,
+                                    metadata=meta,
+                                    **print_kwargs,
                                 )
                         elif renderer and not renderer.streamed:
                             await renderer.close()

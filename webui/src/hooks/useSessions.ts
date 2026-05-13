@@ -14,6 +14,48 @@ import type { ChatSummary, UIMessage } from "@/lib/types";
 
 const EMPTY_MESSAGES: UIMessage[] = [];
 
+type HistoryMessage = Awaited<ReturnType<typeof fetchSessionMessages>>["messages"][number];
+
+function reasoningFromHistory(message: HistoryMessage): string | undefined {
+  if (typeof message.reasoning_content === "string" && message.reasoning_content.trim()) {
+    return message.reasoning_content;
+  }
+  if (!Array.isArray(message.thinking_blocks)) return undefined;
+  const parts = message.thinking_blocks
+    .map((block) => {
+      if (!block || typeof block !== "object") return "";
+      const thinking = (block as { thinking?: unknown }).thinking;
+      return typeof thinking === "string" ? thinking.trim() : "";
+    })
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+function formatToolCallTrace(call: unknown): string | null {
+  if (!call || typeof call !== "object") return null;
+  const item = call as {
+    name?: unknown;
+    function?: { name?: unknown; arguments?: unknown };
+  };
+  const name =
+    typeof item.function?.name === "string"
+      ? item.function.name
+      : typeof item.name === "string"
+        ? item.name
+        : "";
+  if (!name) return null;
+  const args = item.function?.arguments;
+  if (typeof args === "string" && args.trim()) return `${name}(${args})`;
+  return `${name}()`;
+}
+
+function toolTracesFromHistory(message: HistoryMessage): string[] {
+  if (!Array.isArray(message.tool_calls)) return [];
+  return message.tool_calls
+    .map(formatToolCallTrace)
+    .filter((trace): trace is string => !!trace);
+}
+
 /** Sidebar state: fetches the full session list and exposes create / delete actions. */
 export function useSessions(): {
   sessions: ChatSummary[];
@@ -48,6 +90,12 @@ export function useSessions(): {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    return client.onSessionUpdate(() => {
+      void refresh();
+    });
+  }, [client, refresh]);
 
   const createChat = useCallback(async (): Promise<string> => {
     const chatId = await client.newChat();
@@ -143,14 +191,28 @@ export function useSessionHistory(key: string | null): {
             m.role === "user" && media?.every((item) => item.kind === "image")
               ? media.map((item) => ({ url: item.url, name: item.name }))
               : undefined;
+          const row: UIMessage = {
+            id: `hist-${idx}`,
+            role: m.role,
+            content: m.content,
+            createdAt: m.timestamp ? Date.parse(m.timestamp) : Date.now(),
+            ...(images ? { images } : {}),
+            ...(media ? { media } : {}),
+            ...(m.role === "assistant" && reasoningFromHistory(m)
+              ? { reasoning: reasoningFromHistory(m), reasoningStreaming: false }
+              : {}),
+          };
+          const traces = m.role === "assistant" ? toolTracesFromHistory(m) : [];
+          if (traces.length === 0) return [row];
           return [
+            ...(row.content.trim() || row.reasoning || row.media?.length ? [row] : []),
             {
-              id: `hist-${idx}`,
-              role: m.role,
-              content: m.content,
+              id: `hist-${idx}-tools`,
+              role: "tool" as const,
+              kind: "trace" as const,
+              content: traces[traces.length - 1],
+              traces,
               createdAt: m.timestamp ? Date.parse(m.timestamp) : Date.now(),
-              ...(images ? { images } : {}),
-              ...(media ? { media } : {}),
             },
           ];
         });

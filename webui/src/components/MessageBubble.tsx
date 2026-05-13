@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, ChevronRight, Copy, FileIcon, ImageIcon, PlaySquare, Wrench } from "lucide-react";
+import { Check, ChevronRight, Copy, FileIcon, ImageIcon, PlaySquare, Sparkles, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { ImageLightbox } from "@/components/ImageLightbox";
@@ -85,12 +85,18 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
   const empty = message.content.trim().length === 0;
   const media = message.media ?? [];
+  const reasoning = message.role === "assistant" ? message.reasoning ?? "" : "";
+  const reasoningStreaming = !!(message.role === "assistant" && message.reasoningStreaming);
+  const hasReasoning = reasoning.length > 0 || reasoningStreaming;
   const showAssistantActions = message.role === "assistant" && !message.isStreaming && !empty;
   return (
     <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
-      {empty && message.isStreaming ? (
+      {hasReasoning ? (
+        <ReasoningBubble text={reasoning} streaming={reasoningStreaming} hasBodyBelow={!empty} />
+      ) : null}
+      {empty && message.isStreaming && !hasReasoning ? (
         <TypingDots />
-      ) : (
+      ) : empty && message.isStreaming ? null : (
         <>
           <MarkdownText>{message.content}</MarkdownText>
           {message.isStreaming && <StreamCursor />}
@@ -380,14 +386,14 @@ interface TraceGroupProps {
 
 /**
  * Collapsible group of tool-call / progress breadcrumbs. Defaults to
- * expanded for discoverability; a single click on the header folds the
- * group down to a one-line summary so it never dominates the thread.
+ * collapsed because tool traces are supporting evidence, not the answer.
+ * A single click expands the exact calls when the user wants details.
  */
 function TraceGroup({ message, animClass }: TraceGroupProps) {
   const { t } = useTranslation();
   const lines = message.traces ?? [message.content];
   const count = lines.length;
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   return (
     <div className={cn("w-full", animClass)}>
       <button
@@ -429,6 +435,82 @@ function TraceGroup({ message, animClass }: TraceGroupProps) {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+interface ReasoningBubbleProps {
+  text: string;
+  streaming: boolean;
+  hasBodyBelow: boolean;
+}
+
+/**
+ * Subordinate "thinking" trace shown above an assistant turn.
+ *
+ * Lifecycle:
+ *   - While ``streaming`` is true (``reasoning_delta`` frames still arriving),
+ *     the bubble defaults to open and the header runs a shimmer + pulse so
+ *     the user sees the model "thinking out loud" in real time.
+ *   - On ``reasoning_end`` the bubble auto-collapses for prose density —
+ *     the user can re-expand to inspect the chain of thought. The local
+ *     toggle persists once the user interacts.
+ */
+function ReasoningBubble({ text, streaming, hasBodyBelow }: ReasoningBubbleProps) {
+  const { t } = useTranslation();
+  const [userToggled, setUserToggled] = useState(false);
+  const [openLocal, setOpenLocal] = useState(true);
+  const open = userToggled ? openLocal : streaming;
+  const onToggle = () => {
+    setUserToggled(true);
+    setOpenLocal((v) => (userToggled ? !v : !open));
+  };
+  return (
+    <div
+      className={cn(
+        "w-full animate-in fade-in-0 slide-in-from-top-1 duration-200",
+        hasBodyBelow && "mb-2",
+      )}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className={cn(
+          "group flex w-full items-center gap-2 rounded-md px-2 py-1.5",
+          "text-xs text-muted-foreground transition-colors hover:bg-muted/45",
+          streaming && "reasoning-shimmer",
+        )}
+        aria-expanded={open}
+        aria-live={streaming ? "polite" : undefined}
+      >
+        <Sparkles
+          className={cn("h-3.5 w-3.5", streaming && "animate-pulse")}
+          aria-hidden
+        />
+        <span className="font-medium">
+          {streaming
+            ? t("message.reasoningStreaming", { defaultValue: "Thinking…" })
+            : t("message.reasoning", { defaultValue: "Thinking" })}
+        </span>
+        <ChevronRight
+          aria-hidden
+          className={cn(
+            "ml-auto h-3.5 w-3.5 transition-transform duration-200",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+      {open && text.length > 0 && (
+        <div
+          className={cn(
+            "mt-1 space-y-0.5 whitespace-pre-wrap break-words border-l border-muted-foreground/20 pl-3",
+            "animate-in fade-in-0 slide-in-from-top-1 duration-200",
+            "text-[12.5px] italic leading-relaxed text-muted-foreground/85",
+          )}
+        >
+          {text}
+        </div>
       )}
     </div>
   );

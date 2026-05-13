@@ -573,7 +573,7 @@ describe("ThreadShell", () => {
     await waitFor(() => expect(screen.getByText("live assistant reply")).toBeInTheDocument());
   });
 
-  it("does not open slash commands on the blank welcome page", async () => {
+  it("opens slash commands on the blank welcome page", async () => {
     const client = makeClient();
     vi.stubGlobal(
       "fetch",
@@ -583,10 +583,11 @@ describe("ThreadShell", () => {
           return httpJson({
             commands: [
               {
-                command: "/stop",
-                title: "Stop current task",
-                description: "Cancel the active agent turn.",
-                icon: "square",
+                command: "/history",
+                title: "Show conversation history",
+                description: "Print the last N persisted messages.",
+                icon: "history",
+                arg_hint: "[n]",
               },
             ],
           });
@@ -622,7 +623,8 @@ describe("ThreadShell", () => {
       target: { value: "/" },
     });
 
-    expect(screen.queryByRole("listbox", { name: "Slash commands" })).not.toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "Slash commands" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /\/history/i })).toBeInTheDocument();
   });
 
   it("switches welcome quick actions when image mode is enabled", async () => {
@@ -808,47 +810,5 @@ describe("ThreadShell", () => {
 
     await waitFor(() => expect(screen.getByText("from chat b")).toBeInTheDocument());
     expect(screen.queryByText("from chat a")).not.toBeInTheDocument();
-  });
-
-  it("renders ask_user options above the composer and sends selected answers", async () => {
-    const client = makeClient();
-    const onNewChat = vi.fn().mockResolvedValue("chat-a");
-
-    render(
-      wrap(
-        client,
-        <ThreadShell
-          session={session("chat-a")}
-          title="Chat chat-a"
-          onToggleSidebar={() => {}}
-          onGoHome={() => {}}
-          onNewChat={onNewChat}
-        />,
-      ),
-    );
-
-    await act(async () => {
-      client._emitChat("chat-a", {
-        event: "message",
-        chat_id: "chat-a",
-        text: "How should I continue?",
-        buttons: [["Short answer", "Detailed answer"]],
-      });
-    });
-
-    expect(screen.getByRole("group", { name: "Question" })).toHaveTextContent(
-      "How should I continue?",
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Short answer" }));
-
-    expect(client.sendMessage).toHaveBeenCalledWith(
-      "chat-a",
-      "Short answer",
-      undefined,
-    );
-    await waitFor(() => {
-      expect(screen.queryByRole("group", { name: "Question" })).not.toBeInTheDocument();
-    });
   });
 });

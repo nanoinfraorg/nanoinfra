@@ -113,6 +113,208 @@ describe("useNanobotStream", () => {
     expect(result.current.messages[1].kind).toBeUndefined();
   });
 
+  it("accumulates reasoning_delta chunks on a placeholder until reasoning_end", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-r", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-r", {
+        event: "reasoning_delta",
+        chat_id: "chat-r",
+        text: "Let me think ",
+      });
+      fake.emit("chat-r", {
+        event: "reasoning_delta",
+        chat_id: "chat-r",
+        text: "step by step.",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].role).toBe("assistant");
+    expect(result.current.messages[0].reasoning).toBe("Let me think step by step.");
+    expect(result.current.messages[0].reasoningStreaming).toBe(true);
+
+    act(() => {
+      fake.emit("chat-r", { event: "reasoning_end", chat_id: "chat-r" });
+    });
+
+    expect(result.current.messages[0].reasoningStreaming).toBe(false);
+    expect(result.current.messages[0].reasoning).toBe("Let me think step by step.");
+  });
+
+  it("absorbs a streaming reasoning placeholder into the answer turn that follows", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-r2", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-r2", {
+        event: "reasoning_delta",
+        chat_id: "chat-r2",
+        text: "Plan first.",
+      });
+      fake.emit("chat-r2", { event: "reasoning_end", chat_id: "chat-r2" });
+      fake.emit("chat-r2", {
+        event: "delta",
+        chat_id: "chat-r2",
+        text: "The answer is 42.",
+      });
+      fake.emit("chat-r2", { event: "stream_end", chat_id: "chat-r2" });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].content).toBe("The answer is 42.");
+    expect(result.current.messages[0].reasoning).toBe("Plan first.");
+    expect(result.current.messages[0].reasoningStreaming).toBe(false);
+  });
+
+  it("ignores empty reasoning_delta frames", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-r3", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-r3", {
+        event: "reasoning_delta",
+        chat_id: "chat-r3",
+        text: "",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(0);
+  });
+
+  it("treats legacy kind=reasoning messages as a complete delta + end pair", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-r4", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-r4", {
+        event: "message",
+        chat_id: "chat-r4",
+        text: "one-shot reasoning",
+        kind: "reasoning",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].reasoning).toBe("one-shot reasoning");
+    expect(result.current.messages[0].reasoningStreaming).toBe(false);
+  });
+
+  it("attaches post-hoc reasoning to the same assistant turn above the answer", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-r5", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-r5", {
+        event: "delta",
+        chat_id: "chat-r5",
+        text: "hi~",
+      });
+      fake.emit("chat-r5", { event: "stream_end", chat_id: "chat-r5" });
+      fake.emit("chat-r5", {
+        event: "reasoning_delta",
+        chat_id: "chat-r5",
+        text: "This reasoning arrived after the answer stream.",
+      });
+      fake.emit("chat-r5", { event: "reasoning_end", chat_id: "chat-r5" });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].content).toBe("hi~");
+    expect(result.current.messages[0].reasoning).toBe(
+      "This reasoning arrived after the answer stream.",
+    );
+    expect(result.current.messages[0].reasoningStreaming).toBe(false);
+  });
+
+  it("does not attach a new turn's reasoning across the latest user boundary", () => {
+    const fake = fakeClient();
+    const initialMessages = [
+      {
+        id: "a-prev",
+        role: "assistant" as const,
+        content: "Previous answer.",
+        reasoning: "Previous thought.",
+        createdAt: Date.now(),
+      },
+      {
+        id: "u-next",
+        role: "user" as const,
+        content: "Next question",
+        createdAt: Date.now(),
+      },
+    ];
+    const { result } = renderHook(
+      () => useNanobotStream("chat-r6", initialMessages),
+      { wrapper: wrap(fake.client) },
+    );
+
+    act(() => {
+      fake.emit("chat-r6", {
+        event: "reasoning_delta",
+        chat_id: "chat-r6",
+        text: "New turn thinking.",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(3);
+    expect(result.current.messages[0].reasoning).toBe("Previous thought.");
+    expect(result.current.messages[2].role).toBe("assistant");
+    expect(result.current.messages[2].content).toBe("");
+    expect(result.current.messages[2].reasoning).toBe("New turn thinking.");
+    expect(result.current.messages[2].reasoningStreaming).toBe(true);
+  });
+
+  it("does not attach reasoning across a tool trace boundary", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-r7", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-r7", {
+        event: "reasoning_delta",
+        chat_id: "chat-r7",
+        text: "First reasoning.",
+      });
+      fake.emit("chat-r7", { event: "reasoning_end", chat_id: "chat-r7" });
+      fake.emit("chat-r7", {
+        event: "message",
+        chat_id: "chat-r7",
+        text: "web_search({\"query\":\"OpenClaw\"})",
+        kind: "tool_hint",
+      });
+      fake.emit("chat-r7", {
+        event: "reasoning_delta",
+        chat_id: "chat-r7",
+        text: "Second reasoning.",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(3);
+    expect(result.current.messages.map((m) => m.kind ?? "message")).toEqual([
+      "message",
+      "trace",
+      "message",
+    ]);
+    expect(result.current.messages[0].reasoning).toBe("First reasoning.");
+    expect(result.current.messages[1].traces).toEqual([
+      "web_search({\"query\":\"OpenClaw\"})",
+    ]);
+    expect(result.current.messages[2].reasoning).toBe("Second reasoning.");
+  });
+
   it("attaches assistant media_urls to complete messages", () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-m", EMPTY_MESSAGES), {
@@ -217,29 +419,6 @@ describe("useNanobotStream", () => {
     expect(result.current.messages[0].content).toBe("long task");
   });
 
-  it("keeps assistant buttons on complete messages", () => {
-    const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-q", EMPTY_MESSAGES), {
-      wrapper: wrap(fake.client),
-    });
-
-    act(() => {
-      fake.emit("chat-q", {
-        event: "message",
-        chat_id: "chat-q",
-        text: "How should I continue?\n\n1. Short answer\n2. Detailed answer",
-        button_prompt: "How should I continue?",
-        buttons: [["Short answer", "Detailed answer"]],
-      });
-    });
-
-    expect(result.current.messages).toHaveLength(1);
-    expect(result.current.messages[0].content).toBe("How should I continue?");
-    expect(result.current.messages[0].buttons).toEqual([
-      ["Short answer", "Detailed answer"],
-    ]);
-  });
-
   it("keeps streaming alive across stream_end and completes on turn_end", () => {
     const fake = fakeClient();
     const onTurnEnd = vi.fn();
@@ -298,20 +477,4 @@ describe("useNanobotStream", () => {
     expect(onTurnEnd).toHaveBeenCalledTimes(1);
   });
 
-  it("refreshes session metadata when the server reports a session update", () => {
-    const fake = fakeClient();
-    const onTurnEnd = vi.fn();
-    renderHook(() => useNanobotStream("chat-title", EMPTY_MESSAGES, false, onTurnEnd), {
-      wrapper: wrap(fake.client),
-    });
-
-    act(() => {
-      fake.emit("chat-title", {
-        event: "session_updated",
-        chat_id: "chat-title",
-      });
-    });
-
-    expect(onTurnEnd).toHaveBeenCalledTimes(1);
-  });
 });
