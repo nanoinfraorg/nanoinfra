@@ -21,17 +21,23 @@ interface StreamBuffer {
 /**
  * Append a reasoning chunk to the last open reasoning stream in ``prev``.
  *
- * Lookup rule: find the most recent assistant turn that is either still
- * streaming reasoning (``reasoningStreaming``) or has no answer text yet.
- * Anything else starts a fresh streaming placeholder so a new turn's
- * reasoning never bleeds into the previous answer.
+ * Lookup rule: prefer the most recent assistant turn in the active UI tail.
+ * Most providers emit reasoning before answer text, but some only expose
+ * ``reasoning_content`` after the answer stream completes. In that post-hoc
+ * case the reasoning still belongs to the same assistant turn and must render
+ * above the answer, not as a new row below it.
  */
 function attachReasoningChunk(prev: UIMessage[], chunk: string): UIMessage[] {
   for (let i = prev.length - 1; i >= 0; i -= 1) {
     const candidate = prev[i];
     if (candidate.role !== "assistant" || candidate.kind === "trace") continue;
     const hasAnswer = candidate.content.length > 0;
-    if (candidate.reasoningStreaming || (!hasAnswer && candidate.reasoning !== undefined)) {
+    if (
+      candidate.reasoningStreaming
+      || candidate.reasoning !== undefined
+      || hasAnswer
+      || candidate.isStreaming
+    ) {
       const merged: UIMessage = {
         ...candidate,
         reasoning: (candidate.reasoning ?? "") + chunk,

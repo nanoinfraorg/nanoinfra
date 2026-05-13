@@ -209,6 +209,35 @@ describe("useNanobotStream", () => {
     expect(result.current.messages[0].reasoningStreaming).toBe(false);
   });
 
+  it("attaches post-hoc reasoning to the same assistant turn above the answer", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-r5", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-r5", {
+        event: "delta",
+        chat_id: "chat-r5",
+        text: "hi~",
+      });
+      fake.emit("chat-r5", { event: "stream_end", chat_id: "chat-r5" });
+      fake.emit("chat-r5", {
+        event: "reasoning_delta",
+        chat_id: "chat-r5",
+        text: "This reasoning arrived after the answer stream.",
+      });
+      fake.emit("chat-r5", { event: "reasoning_end", chat_id: "chat-r5" });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].content).toBe("hi~");
+    expect(result.current.messages[0].reasoning).toBe(
+      "This reasoning arrived after the answer stream.",
+    );
+    expect(result.current.messages[0].reasoningStreaming).toBe(false);
+  });
+
   it("attaches assistant media_urls to complete messages", () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-m", EMPTY_MESSAGES), {
