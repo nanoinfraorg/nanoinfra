@@ -143,10 +143,13 @@ class StreamRenderer:
         return self._header_printed
 
     def ensure_header(self) -> None:
-        """Print the assistant header once, before trace or answer content."""
+        """Stop transient status and print the assistant header once."""
+        # A turn can print trace rows before the final answer, then restart the
+        # spinner while tools run. The next answer delta still needs to stop
+        # that spinner even though the header was already printed.
+        self._stop_spinner()
         if self._header_printed:
             return
-        self._stop_spinner()
         self._console.print()
         header = f"{self._bot_icon} {self._bot_name}" if self._bot_icon else self._bot_name
         self._console.print(f"[cyan]{header}[/cyan]")

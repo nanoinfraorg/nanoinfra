@@ -115,6 +115,24 @@ def test_thinking_spinner_clears_status_line_when_paused():
     assert "\r\x1b[2K" in stream.getvalue()
 
 
+def test_stream_renderer_stops_spinner_even_after_header_printed():
+    """A later answer delta must stop the spinner even when header already exists."""
+    stream = StringIO()
+    stream.isatty = lambda: True  # type: ignore[method-assign]
+    mock_console = MagicMock()
+    mock_console.file = stream
+    spinner = MagicMock()
+    mock_console.status.return_value = spinner
+
+    with patch.object(stream_mod, "_make_console", return_value=mock_console):
+        renderer = stream_mod.StreamRenderer(show_spinner=True)
+        renderer._header_printed = True
+        renderer.ensure_header()
+
+    spinner.stop.assert_called_once()
+    assert "\r\x1b[2K" in stream.getvalue()
+
+
 def test_print_cli_progress_line_opens_renderer_header_before_trace():
     """Trace lines should appear under the assistant header, not under You."""
     order: list[str] = []
