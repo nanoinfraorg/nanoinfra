@@ -91,6 +91,12 @@ export function useSessions(): {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    return client.onSessionUpdate(() => {
+      void refresh();
+    });
+  }, [client, refresh]);
+
   const createChat = useCallback(async (): Promise<string> => {
     const chatId = await client.newChat();
     const key = `websocket:${chatId}`;

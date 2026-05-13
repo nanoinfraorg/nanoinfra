@@ -109,6 +109,25 @@ describe("NanobotClient", () => {
     expect(handler).toHaveBeenCalledWith("openai/gpt-4.1", "fast");
   });
 
+  it("dispatches session updates globally", () => {
+    const client = new NanobotClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const globalHandler = vi.fn();
+    const chatHandler = vi.fn();
+    client.onSessionUpdate(globalHandler);
+    client.onChat("chat-title", chatHandler);
+    client.connect();
+    lastSocket().fakeOpen();
+
+    lastSocket().fakeMessage({ event: "session_updated", chat_id: "chat-title" });
+
+    expect(globalHandler).toHaveBeenCalledWith("chat-title");
+    expect(chatHandler).not.toHaveBeenCalled();
+  });
+
   it("resolves newChat() via the server-assigned chat_id", async () => {
     const client = new NanobotClient({
       url: "ws://test",

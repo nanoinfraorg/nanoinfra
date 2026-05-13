@@ -477,20 +477,4 @@ describe("useNanobotStream", () => {
     expect(onTurnEnd).toHaveBeenCalledTimes(1);
   });
 
-  it("refreshes session metadata when the server reports a session update", () => {
-    const fake = fakeClient();
-    const onTurnEnd = vi.fn();
-    renderHook(() => useNanobotStream("chat-title", EMPTY_MESSAGES, false, onTurnEnd), {
-      wrapper: wrap(fake.client),
-    });
-
-    act(() => {
-      fake.emit("chat-title", {
-        event: "session_updated",
-        chat_id: "chat-title",
-      });
-    });
-
-    expect(onTurnEnd).toHaveBeenCalledTimes(1);
-  });
 });

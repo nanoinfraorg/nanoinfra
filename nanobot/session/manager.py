@@ -25,6 +25,7 @@ FILE_MAX_MESSAGES = 2000
 _MESSAGE_TIME_PREFIX_RE = re.compile(r"^\[Message Time: [^\]]+\]\n?")
 _LOCAL_IMAGE_BREADCRUMB_RE = re.compile(r"^\[image: (?:/|~)[^\]]+\]\s*$")
 _TOOL_CALL_ECHO_RE = re.compile(r'^\s*(?:generate_image|message)\([^)]*\)\s*$')
+_SESSION_PREVIEW_MAX_CHARS = 120
 
 
 def _sanitize_assistant_replay_text(content: str) -> str:
@@ -41,6 +42,27 @@ def _sanitize_assistant_replay_text(content: str) -> str:
         and not _TOOL_CALL_ECHO_RE.match(line)
     ]
     return "\n".join(lines).strip()
+
+
+def _text_preview(content: Any) -> str:
+    """Return compact display text for session lists."""
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                value = block.get("text")
+                if isinstance(value, str):
+                    parts.append(value)
+        text = " ".join(parts)
+    else:
+        return ""
+    text = _sanitize_assistant_replay_text(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > _SESSION_PREVIEW_MAX_CHARS:
+        text = text[: _SESSION_PREVIEW_MAX_CHARS - 1].rstrip() + "…"
+    return text
 
 
 @dataclass
@@ -560,7 +582,7 @@ class SessionManager:
         for path in self.sessions_dir.glob("*.jsonl"):
             fallback_key = path.stem.replace("_", ":", 1)
             try:
-                # Read just the metadata line
+                # Read the metadata line and a small preview for WebUI/session lists.
                 with open(path, encoding="utf-8") as f:
                     first_line = f.readline().strip()
                     if first_line:
@@ -569,11 +591,29 @@ class SessionManager:
                             key = data.get("key") or path.stem.replace("_", ":", 1)
                             metadata = data.get("metadata", {})
                             title = metadata.get("title") if isinstance(metadata, dict) else None
+                            preview = ""
+                            fallback_preview = ""
+                            for line in f:
+                                if not line.strip():
+                                    continue
+                                item = json.loads(line)
+                                if item.get("_type") == "metadata":
+                                    continue
+                                text = _text_preview(item.get("content"))
+                                if not text:
+                                    continue
+                                if item.get("role") == "user":
+                                    preview = text
+                                    break
+                                if not fallback_preview and item.get("role") == "assistant":
+                                    fallback_preview = text
+                            preview = preview or fallback_preview
                             sessions.append({
                                 "key": key,
                                 "created_at": data.get("created_at"),
                                 "updated_at": data.get("updated_at"),
                                 "title": title if isinstance(title, str) else "",
+                                "preview": preview,
                                 "path": str(path)
                             })
             except Exception:
@@ -587,6 +627,14 @@ class SessionManager:
                             repaired.metadata.get("title")
                             if isinstance(repaired.metadata.get("title"), str)
                             else ""
+                        ),
+                        "preview": next(
+                            (
+                                text
+                                for msg in repaired.messages
+                                if (text := _text_preview(msg.get("content")))
+                            ),
+                            "",
                         ),
                         "path": str(path)
                     })

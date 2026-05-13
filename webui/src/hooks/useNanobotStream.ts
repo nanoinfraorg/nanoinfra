@@ -294,11 +294,6 @@ export function useNanobotStream(
         return;
       }
 
-      if (ev.event === "session_updated") {
-        onTurnEnd?.();
-        return;
-      }
-
       if (ev.event === "message") {
         if (
           suppressStreamUntilTurnEndRef.current &&
