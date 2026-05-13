@@ -16,8 +16,6 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.text import Text
 
-from nanobot import __logo__
-
 
 def _make_console() -> Console:
     """Create a Console that emits plain text when stdout is not a TTY.
@@ -34,11 +32,11 @@ def _make_console() -> Console:
 
 
 class ThinkingSpinner:
-    """Spinner that shows 'nanobot is thinking...' with pause support."""
+    """Spinner that shows '<bot_name> is thinking...' with pause support."""
 
-    def __init__(self, console: Console | None = None):
+    def __init__(self, console: Console | None = None, bot_name: str = "nanobot"):
         c = console or _make_console()
-        self._spinner = c.status("[dim]nanobot is thinking...[/dim]", spinner="dots")
+        self._spinner = c.status(f"[dim]{bot_name} is thinking...[/dim]", spinner="dots")
         self._active = False
 
     def __enter__(self):
@@ -79,9 +77,17 @@ class StreamRenderer:
       on_end -> stop Live + final render
     """
 
-    def __init__(self, render_markdown: bool = True, show_spinner: bool = True):
+    def __init__(
+        self,
+        render_markdown: bool = True,
+        show_spinner: bool = True,
+        bot_name: str = "nanobot",
+        bot_icon: str = "🐈",
+    ):
         self._md = render_markdown
         self._show_spinner = show_spinner
+        self._bot_name = bot_name
+        self._bot_icon = bot_icon
         self._buf = ""
         self.streamed = False
         self._console = _make_console()
@@ -103,7 +109,7 @@ class StreamRenderer:
 
     def _start_spinner(self) -> None:
         if self._show_spinner:
-            self._spinner = ThinkingSpinner()
+            self._spinner = ThinkingSpinner(bot_name=self._bot_name)
             self._spinner.__enter__()
 
     def _stop_spinner(self) -> None:
@@ -131,7 +137,8 @@ class StreamRenderer:
                 return
             self._stop_spinner()
             self._console.print()
-            self._console.print(f"[cyan]{__logo__} nanobot[/cyan]")
+            header = f"{self._bot_icon} {self._bot_name}" if self._bot_icon else self._bot_name
+            self._console.print(f"[cyan]{header}[/cyan]")
             self._live = Live(
                 self._renderable(),
                 console=self._console,

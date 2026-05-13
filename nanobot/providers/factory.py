@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from nanobot.config.schema import Config
-from nanobot.providers.base import GenerationSettings, LLMProvider
+from nanobot.config.schema import Config, ModelPresetConfig
+from nanobot.providers.base import LLMProvider
 from nanobot.providers.registry import find_by_name
 
 
@@ -18,11 +18,26 @@ class ProviderSnapshot:
     signature: tuple[object, ...]
 
 
-def make_provider(config: Config) -> LLMProvider:
+def _resolve_model_preset(
+    config: Config,
+    *,
+    preset_name: str | None = None,
+    preset: ModelPresetConfig | None = None,
+) -> ModelPresetConfig:
+    return preset if preset is not None else config.resolve_preset(preset_name)
+
+
+def make_provider(
+    config: Config,
+    *,
+    preset_name: str | None = None,
+    preset: ModelPresetConfig | None = None,
+) -> LLMProvider:
     """Create the LLM provider implied by config."""
-    model = config.agents.defaults.model
-    provider_name = config.get_provider_name(model)
-    p = config.get_provider(model)
+    resolved = _resolve_model_preset(config, preset_name=preset_name, preset=preset)
+    model = resolved.model
+    provider_name = config.get_provider_name(model, preset=resolved)
+    p = config.get_provider(model, preset=resolved)
     spec = find_by_name(provider_name) if provider_name else None
     backend = spec.backend if spec else "openai_compat"
 
@@ -56,7 +71,7 @@ def make_provider(config: Config) -> LLMProvider:
 
         provider = AnthropicProvider(
             api_key=p.api_key if p else None,
-            api_base=config.get_api_base(model),
+            api_base=config.get_api_base(model, preset=resolved),
             default_model=model,
             extra_headers=p.extra_headers if p else None,
         )
@@ -76,54 +91,66 @@ def make_provider(config: Config) -> LLMProvider:
 
         provider = OpenAICompatProvider(
             api_key=p.api_key if p else None,
-            api_base=config.get_api_base(model),
+            api_base=config.get_api_base(model, preset=resolved),
             default_model=model,
             extra_headers=p.extra_headers if p else None,
             spec=spec,
             extra_body=p.extra_body if p else None,
         )
 
-    defaults = config.agents.defaults
-    provider.generation = GenerationSettings(
-        temperature=defaults.temperature,
-        max_tokens=defaults.max_tokens,
-        reasoning_effort=defaults.reasoning_effort,
-    )
+    provider.generation = resolved.to_generation_settings()
     return provider
 
 
-def provider_signature(config: Config) -> tuple[object, ...]:
+def provider_signature(
+    config: Config,
+    *,
+    preset_name: str | None = None,
+    preset: ModelPresetConfig | None = None,
+) -> tuple[object, ...]:
     """Return the config fields that affect the primary LLM provider."""
-    model = config.agents.defaults.model
-    defaults = config.agents.defaults
-    p = config.get_provider(model)
+    resolved = _resolve_model_preset(config, preset_name=preset_name, preset=preset)
+    p = config.get_provider(resolved.model, preset=resolved)
     return (
-        model,
-        defaults.provider,
-        config.get_provider_name(model),
-        config.get_api_key(model),
-        config.get_api_base(model),
+        resolved.model,
+        resolved.provider,
+        config.get_provider_name(resolved.model, preset=resolved),
+        config.get_api_key(resolved.model, preset=resolved),
+        config.get_api_base(resolved.model, preset=resolved),
         p.extra_headers if p else None,
         p.extra_body if p else None,
         getattr(p, "region", None) if p else None,
         getattr(p, "profile", None) if p else None,
-        defaults.max_tokens,
-        defaults.temperature,
-        defaults.reasoning_effort,
-        defaults.context_window_tokens,
+        resolved.max_tokens,
+        resolved.temperature,
+        resolved.reasoning_effort,
+        resolved.context_window_tokens,
     )
 
 
-def build_provider_snapshot(config: Config) -> ProviderSnapshot:
+def build_provider_snapshot(
+    config: Config,
+    *,
+    preset_name: str | None = None,
+    preset: ModelPresetConfig | None = None,
+) -> ProviderSnapshot:
+    resolved = _resolve_model_preset(config, preset_name=preset_name, preset=preset)
     return ProviderSnapshot(
-        provider=make_provider(config),
-        model=config.agents.defaults.model,
-        context_window_tokens=config.agents.defaults.context_window_tokens,
-        signature=provider_signature(config),
+        provider=make_provider(config, preset=resolved),
+        model=resolved.model,
+        context_window_tokens=resolved.context_window_tokens,
+        signature=provider_signature(config, preset=resolved),
     )
 
 
-def load_provider_snapshot(config_path: Path | None = None) -> ProviderSnapshot:
+def load_provider_snapshot(
+    config_path: Path | None = None,
+    *,
+    preset_name: str | None = None,
+) -> ProviderSnapshot:
     from nanobot.config.loader import load_config, resolve_config_env_vars
 
-    return build_provider_snapshot(resolve_config_env_vars(load_config(config_path)))
+    return build_provider_snapshot(
+        resolve_config_env_vars(load_config(config_path)),
+        preset_name=preset_name,
+    )

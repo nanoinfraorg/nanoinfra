@@ -55,14 +55,6 @@ def _normalize_config_path(path: str) -> str:
     return _strip_trailing_slash(path)
 
 
-def _append_buttons_as_text(text: str, buttons: list[list[str]]) -> str:
-    labels = [label for row in buttons for label in row if label]
-    if not labels:
-        return text
-    fallback = "\n".join(f"{index}. {label}" for index, label in enumerate(labels, 1))
-    return f"{text}\n\n{fallback}" if text else fallback
-
-
 class WebSocketConfig(Base):
     """WebSocket server channel configuration.
 
@@ -155,12 +147,30 @@ def _http_json_response(data: dict[str, Any], *, status: int = 200) -> Response:
     return Response(status, reason, headers, body)
 
 
+def publish_runtime_model_update(
+    bus: MessageBus,
+    model: str,
+    model_preset: str | None,
+) -> None:
+    """Publish a WebUI runtime-model update onto the outbound bus."""
+    bus.outbound.put_nowait(OutboundMessage(
+        channel="websocket",
+        chat_id="*",
+        content="",
+        metadata={
+            "_runtime_model_updated": True,
+            "model": model,
+            "model_preset": model_preset,
+        },
+    ))
+
+
 def _read_webui_model_name() -> str | None:
-    """Return the configured default model for readonly webui display."""
+    """Return the resolved startup model for readonly WebUI display."""
     try:
         from nanobot.config.loader import load_config
 
-        model = load_config().agents.defaults.model.strip()
+        model = load_config().resolve_preset().model.strip()
         return model or None
     except Exception as e:
         logger.debug("webui bootstrap could not load model name: {}", e)
@@ -195,6 +205,20 @@ def _mask_secret_hint(secret: str | None) -> str | None:
     if len(secret) <= 8:
         return "••••"
     return f"{secret[:4]}••••{secret[-4:]}"
+
+
+_WEB_SEARCH_PROVIDER_OPTIONS: tuple[dict[str, str], ...] = (
+    {"name": "duckduckgo", "label": "DuckDuckGo", "credential": "none"},
+    {"name": "brave", "label": "Brave Search", "credential": "api_key"},
+    {"name": "tavily", "label": "Tavily", "credential": "api_key"},
+    {"name": "searxng", "label": "SearXNG", "credential": "base_url"},
+    {"name": "jina", "label": "Jina", "credential": "api_key"},
+    {"name": "kagi", "label": "Kagi", "credential": "api_key"},
+    {"name": "olostep", "label": "Olostep", "credential": "api_key"},
+)
+_WEB_SEARCH_PROVIDER_BY_NAME = {
+    provider["name"]: provider for provider in _WEB_SEARCH_PROVIDER_OPTIONS
+}
 
 
 def _parse_inbound_payload(raw: str) -> str | None:
@@ -571,6 +595,9 @@ class WebSocketChannel(BaseChannel):
         if got == "/api/settings/provider/update":
             return self._handle_settings_provider_update(request)
 
+        if got == "/api/settings/web-search/update":
+            return self._handle_settings_web_search_update(request)
+
         m = re.match(r"^/api/sessions/([^/]+)/messages$", got)
         if m:
             return self._handle_session_messages(request, m.group(1))
@@ -714,6 +741,12 @@ class WebSocketChannel(BaseChannel):
                     "default_api_base": spec.default_api_base or None,
                 }
             )
+        search_config = config.tools.web.search
+        search_provider = (
+            search_config.provider
+            if search_config.provider in _WEB_SEARCH_PROVIDER_BY_NAME
+            else "duckduckgo"
+        )
         return {
             "agent": {
                 "model": defaults.model,
@@ -722,6 +755,12 @@ class WebSocketChannel(BaseChannel):
                 "has_api_key": bool(provider and provider.api_key),
             },
             "providers": providers,
+            "web_search": {
+                "provider": search_provider,
+                "api_key_hint": _mask_secret_hint(search_config.api_key),
+                "base_url": search_config.base_url or None,
+                "providers": list(_WEB_SEARCH_PROVIDER_OPTIONS),
+            },
             "runtime": {
                 "config_path": str(get_config_path().expanduser()),
             },
@@ -819,6 +858,63 @@ class WebSocketChannel(BaseChannel):
         if changed:
             save_config(config)
         # API key/base changes are picked up by the next provider snapshot refresh.
+        return _http_json_response(self._settings_payload(requires_restart=False))
+
+    def _handle_settings_web_search_update(self, request: WsRequest) -> Response:
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        from nanobot.config.loader import load_config, save_config
+
+        query = _parse_query(request.path)
+        provider_name = (_query_first(query, "provider") or "").strip().lower()
+        provider_option = _WEB_SEARCH_PROVIDER_BY_NAME.get(provider_name)
+        if provider_option is None:
+            return _http_error(400, "unknown web search provider")
+
+        config = load_config()
+        search_config = config.tools.web.search
+        previous_provider = search_config.provider
+        changed = False
+
+        def set_value(attr: str, value: str | None) -> None:
+            nonlocal changed
+            if getattr(search_config, attr) != value:
+                setattr(search_config, attr, value)
+                changed = True
+
+        if search_config.provider != provider_name:
+            search_config.provider = provider_name
+            changed = True
+
+        credential = provider_option["credential"]
+        if credential == "none":
+            set_value("api_key", "")
+            set_value("base_url", "")
+        elif credential == "base_url":
+            base_url = _query_first(query, "base_url")
+            if base_url is None:
+                base_url = _query_first(query, "baseUrl")
+            base_url = base_url.strip() if base_url is not None else None
+            if not base_url and previous_provider == provider_name and search_config.base_url:
+                base_url = search_config.base_url
+            if not base_url:
+                return _http_error(400, "base_url is required")
+            set_value("base_url", base_url)
+            set_value("api_key", "")
+        else:
+            api_key = _query_first(query, "api_key")
+            if api_key is None:
+                api_key = _query_first(query, "apiKey")
+            api_key = api_key.strip() if api_key is not None else None
+            if not api_key and previous_provider == provider_name and search_config.api_key:
+                api_key = search_config.api_key
+            if not api_key:
+                return _http_error(400, "api_key is required")
+            set_value("api_key", api_key)
+            set_value("base_url", "")
+
+        if changed:
+            save_config(config)
         return _http_json_response(self._settings_payload(requires_restart=False))
 
     @staticmethod
@@ -1056,6 +1152,10 @@ class WebSocketChannel(BaseChannel):
         return None
 
     async def start(self) -> None:
+        from nanobot.utils.logging_bridge import redirect_lib_logging
+
+        redirect_lib_logging("websockets", level="WARNING")
+
         self._running = True
         self._stop_event = asyncio.Event()
 
@@ -1333,6 +1433,13 @@ class WebSocketChannel(BaseChannel):
             raise
 
     async def send(self, msg: OutboundMessage) -> None:
+        if msg.metadata.get("_runtime_model_updated"):
+            await self.send_runtime_model_updated(
+                model_name=msg.metadata.get("model"),
+                model_preset=msg.metadata.get("model_preset"),
+            )
+            return
+
         # Snapshot the subscriber set so ConnectionClosed cleanups mid-iteration are safe.
         conns = list(self._subs.get(msg.chat_id, ()))
         if not conns:
@@ -1353,16 +1460,11 @@ class WebSocketChannel(BaseChannel):
             await self.send_session_updated(msg.chat_id)
             return
         text = msg.content
-        if msg.buttons:
-            text = _append_buttons_as_text(text, msg.buttons)
         payload: dict[str, Any] = {
             "event": "message",
             "chat_id": msg.chat_id,
             "text": text,
         }
-        if msg.buttons:
-            payload["buttons"] = msg.buttons
-            payload["button_prompt"] = msg.content
         if msg.media:
             payload["media"] = msg.media
             urls: list[dict[str, str]] = []
@@ -1428,3 +1530,23 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" session_updated ")
+
+    async def send_runtime_model_updated(
+        self,
+        *,
+        model_name: Any,
+        model_preset: Any = None,
+    ) -> None:
+        """Broadcast runtime model changes to all active WebUI clients."""
+        conns = list(self._conn_chats)
+        if not conns or not isinstance(model_name, str) or not model_name.strip():
+            return
+        body: dict[str, Any] = {
+            "event": "runtime_model_updated",
+            "model_name": model_name.strip(),
+        }
+        if isinstance(model_preset, str) and model_preset.strip():
+            body["model_preset"] = model_preset.strip()
+        raw = json.dumps(body, ensure_ascii=False)
+        for connection in conns:
+            await self._safe_send_to(connection, raw, label=" runtime_model_updated ")

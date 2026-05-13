@@ -57,6 +57,7 @@ vi.mock("@/lib/nanobot-client", () => {
     defaultChatId: string | null = null;
     connect = connectSpy;
     onStatus = () => () => {};
+    onRuntimeModelUpdate = () => () => {};
     onError = () => () => {};
     onChat = () => () => {};
     sendMessage = vi.fn();
@@ -181,7 +182,12 @@ describe("App layout", () => {
                 has_api_key: true,
               },
               providers: [
-                { name: "openai", label: "OpenAI", configured: true },
+                {
+                  name: "openai",
+                  label: "OpenAI",
+                  configured: true,
+                  api_key_hint: "open••••-key",
+                },
                 {
                   name: "openrouter",
                   label: "OpenRouter",
@@ -189,6 +195,16 @@ describe("App layout", () => {
                   default_api_base: "https://openrouter.ai/api/v1",
                 },
               ],
+              web_search: {
+                provider: "brave",
+                api_key_hint: "BSAo••••ew20",
+                base_url: null,
+                providers: [
+                  { name: "duckduckgo", label: "DuckDuckGo", credential: "none" },
+                  { name: "brave", label: "Brave Search", credential: "api_key" },
+                  { name: "tavily", label: "Tavily", credential: "api_key" },
+                ],
+              },
               runtime: {
                 config_path: "/tmp/config.json",
               },
@@ -219,11 +235,37 @@ describe("App layout", () => {
     expect(screen.getByText("AI")).toBeInTheDocument();
     expect(screen.getByDisplayValue("openai/gpt-4o")).toBeInTheDocument();
     fireEvent.click(within(settingsNav).getByRole("button", { name: "BYOK" }));
+    expect(screen.getByRole("tab", { name: "LLM" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Web Search" })).toBeInTheDocument();
     expect(screen.getByText("OpenRouter")).toBeInTheDocument();
     expect(screen.getAllByText("Not configured").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByText("OpenAI"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByPlaceholderText("Leave blank to keep the current key"), {
+      target: { value: "unsaved-openai-key" },
+    });
+    fireEvent.click(screen.getByText("OpenRouter"));
+    fireEvent.click(screen.getByText("OpenAI"));
+    expect(screen.getByText("open••••-key")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("unsaved-openai-key")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Web Search" }));
+    expect(screen.getByText("Search provider")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Brave Search/ })).toBeInTheDocument();
+    expect(screen.getByText("BSAo••••ew20")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByPlaceholderText("Leave blank to keep the current key"), {
+      target: { value: "unsaved-brave-key" },
+    });
+    fireEvent.pointerDown(screen.getByRole("button", { name: /Brave Search/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Tavily" }));
+    fireEvent.pointerDown(screen.getByRole("button", { name: /Tavily/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Brave Search" }));
+    expect(screen.getByText("BSAo••••ew20")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("unsaved-brave-key")).not.toBeInTheDocument();
   });
 
-  it("returns from settings to an available chat instead of the blank start page", async () => {
+  it("returns from settings to the blank start page when no session was active", async () => {
     mockSessions = [
       {
         key: "websocket:chat-a",
@@ -257,6 +299,15 @@ describe("App layout", () => {
                 has_api_key: true,
               },
               providers: [{ name: "openai", label: "OpenAI", configured: true }],
+              web_search: {
+                provider: "duckduckgo",
+                api_key_hint: null,
+                base_url: null,
+                providers: [
+                  { name: "duckduckgo", label: "DuckDuckGo", credential: "none" },
+                  { name: "brave", label: "Brave Search", credential: "api_key" },
+                ],
+              },
               runtime: {
                 config_path: "/tmp/config.json",
               },
@@ -279,10 +330,8 @@ describe("App layout", () => {
     expect(await screen.findByRole("heading", { name: "General" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
 
-    await waitFor(() => expect(document.title).toBe("First chat · nanobot"));
-    const restoredSidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    fireEvent.click(within(restoredSidebar).getByRole("button", { name: /^Second chat$/ }));
-    await waitFor(() => expect(document.title).toBe("Second chat · nanobot"));
+    await waitFor(() => expect(document.title).toBe("nanobot"));
+    expect(screen.getByText("What can I do for you?")).toBeInTheDocument();
   });
 
   it("filters sidebar sessions through the lightweight search row", async () => {

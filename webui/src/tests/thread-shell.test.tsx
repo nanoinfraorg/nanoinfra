@@ -12,6 +12,7 @@ function makeClient() {
     status: "open" as const,
     defaultChatId: null as string | null,
     onStatus: () => () => {},
+    onRuntimeModelUpdate: () => () => {},
     onChat: (chatId: string, handler: (ev: import("@/lib/types").InboundEvent) => void) => {
       let handlers = chatHandlers.get(chatId);
       if (!handlers) {
@@ -807,47 +808,5 @@ describe("ThreadShell", () => {
 
     await waitFor(() => expect(screen.getByText("from chat b")).toBeInTheDocument());
     expect(screen.queryByText("from chat a")).not.toBeInTheDocument();
-  });
-
-  it("renders ask_user options above the composer and sends selected answers", async () => {
-    const client = makeClient();
-    const onNewChat = vi.fn().mockResolvedValue("chat-a");
-
-    render(
-      wrap(
-        client,
-        <ThreadShell
-          session={session("chat-a")}
-          title="Chat chat-a"
-          onToggleSidebar={() => {}}
-          onGoHome={() => {}}
-          onNewChat={onNewChat}
-        />,
-      ),
-    );
-
-    await act(async () => {
-      client._emitChat("chat-a", {
-        event: "message",
-        chat_id: "chat-a",
-        text: "How should I continue?",
-        buttons: [["Short answer", "Detailed answer"]],
-      });
-    });
-
-    expect(screen.getByRole("group", { name: "Question" })).toHaveTextContent(
-      "How should I continue?",
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Short answer" }));
-
-    expect(client.sendMessage).toHaveBeenCalledWith(
-      "chat-a",
-      "Short answer",
-      undefined,
-    );
-    await waitFor(() => {
-      expect(screen.queryByRole("group", { name: "Question" })).not.toBeInTheDocument();
-    });
   });
 });

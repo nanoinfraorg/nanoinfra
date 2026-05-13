@@ -44,8 +44,6 @@ export interface UIMessage {
   images?: UIImage[];
   /** Signed or local UI-renderable media attachments. */
   media?: UIMediaAttachment[];
-  /** Optional answer choices for a pending ask_user question. */
-  buttons?: string[][];
 }
 
 export interface ChatSummary {
@@ -82,6 +80,16 @@ export interface SettingsPayload {
     api_base?: string | null;
     default_api_base?: string | null;
   }>;
+  web_search: {
+    provider: string;
+    api_key_hint?: string | null;
+    base_url?: string | null;
+    providers: Array<{
+      name: string;
+      label: string;
+      credential: "none" | "api_key" | "base_url";
+    }>;
+  };
   runtime: {
     config_path: string;
   };
@@ -97,6 +105,12 @@ export interface ProviderSettingsUpdate {
   provider: string;
   apiKey?: string;
   apiBase?: string;
+}
+
+export interface WebSearchSettingsUpdate {
+  provider: string;
+  apiKey?: string;
+  baseUrl?: string;
 }
 
 export interface SlashCommand {
@@ -125,9 +139,6 @@ export type InboundEvent =
       reply_to?: string;
       media?: string[];
       media_urls?: Array<{ url: string; name?: string }>;
-      buttons?: string[][];
-      /** Original prompt before the websocket text fallback appends buttons. */
-      button_prompt?: string;
       /** Present when the frame is an agent breadcrumb (e.g. tool hint,
        * generic progress line) rather than a conversational reply. */
       kind?: "tool_hint" | "progress";
@@ -142,6 +153,11 @@ export type InboundEvent =
       event: "stream_end";
       chat_id: string;
       stream_id?: string;
+    }
+  | {
+      event: "runtime_model_updated";
+      model_name: string;
+      model_preset?: string | null;
     }
   | { event: "turn_end"; chat_id: string }
   | { event: "session_updated"; chat_id: string }

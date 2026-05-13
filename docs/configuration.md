@@ -53,6 +53,7 @@ IMAP_PASSWORD=your-password-here
 > - **Zhipu Coding Plan**: If you're on Zhipu's coding plan, set `"apiBase": "https://open.bigmodel.cn/api/coding/paas/v4"` in your zhipu provider config.
 > - **Alibaba Cloud BaiLian**: If you're using Alibaba Cloud BaiLian's OpenAI-compatible endpoint, set `"apiBase": "https://dashscope.aliyuncs.com/compatible-mode/v1"` in your dashscope provider config.
 > - **Step Fun (Mainland China)**: If your API key is from Step Fun's mainland China platform (stepfun.com), set `"apiBase": "https://api.stepfun.com/v1"` in your stepfun provider config.
+> - **Xiaomi MiMo thinking mode**: MiMo models (e.g. `mimo-v2.5-pro`) default to enabled thinking. Use `agents.defaults.reasoningEffort: "none"` to disable it, or `"low"` / `"medium"` / `"high"` to keep it on. Omitting the field preserves the provider's per-model default.
 
 | Provider | Purpose | Get API Key |
 |----------|---------|-------------|
@@ -655,6 +656,71 @@ That's it! Environment variables, model routing, config matching, and `nanobot s
 | `supports_max_completion_tokens` | Use `max_completion_tokens` instead of `max_tokens`; required for providers that reject both being set simultaneously (e.g. VolcEngine) | `True` |
 
 </details>
+
+## Model Presets
+
+Model presets let you name a complete model configuration and switch it at runtime with `/model <preset>`.
+
+Existing configs do not need to change. If you do not set `modelPresets` or `agents.defaults.modelPreset`, nanobot keeps using `agents.defaults.*` exactly as before.
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "openai/gpt-4.1",
+      "provider": "openai",
+      "maxTokens": 8192,
+      "contextWindowTokens": 128000,
+      "temperature": 0.1,
+      "modelPreset": null
+    }
+  },
+  "modelPresets": {
+    "fast": {
+      "model": "openai/gpt-4.1-mini",
+      "provider": "openai",
+      "maxTokens": 4096,
+      "contextWindowTokens": 128000,
+      "temperature": 0.2,
+      "reasoningEffort": "low"
+    },
+    "deep": {
+      "model": "anthropic/claude-opus-4-5",
+      "provider": "anthropic",
+      "maxTokens": 8192,
+      "contextWindowTokens": 200000,
+      "reasoningEffort": "high"
+    }
+  }
+}
+```
+
+`modelPresets` is a top-level object. The keys under it (`fast`, `deep`, `coding`, etc.) are user-defined preset names. Each preset supports:
+
+| Field | Description |
+|-------|-------------|
+| `model` | Model name to use for this preset. |
+| `provider` | Provider name, or `"auto"` to use provider auto-detection. |
+| `maxTokens` | Maximum completion/output tokens. |
+| `contextWindowTokens` | Context window size used by prompt building and consolidation decisions. |
+| `temperature` | Sampling temperature. |
+| `reasoningEffort` | Optional reasoning/thinking setting. Provider support varies. |
+
+`default` is reserved and always means the implicit preset built from `agents.defaults.*`; do not define `modelPresets.default`. Use `/model default` to switch back to `agents.defaults.*`.
+
+Set `agents.defaults.modelPreset` to start with a named preset:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "modelPreset": "fast"
+    }
+  }
+}
+```
+
+When `modelPreset` is `null` or omitted, startup uses the implicit `default` preset from `agents.defaults.*`. Runtime changes made with `/model <preset>` are not written back to `config.json`; they affect future turns until the process restarts or another model/config change replaces them.
 
 ## Channel Settings
 
