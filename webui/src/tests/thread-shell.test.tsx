@@ -573,7 +573,7 @@ describe("ThreadShell", () => {
     await waitFor(() => expect(screen.getByText("live assistant reply")).toBeInTheDocument());
   });
 
-  it("does not open slash commands on the blank welcome page", async () => {
+  it("opens slash commands on the blank welcome page", async () => {
     const client = makeClient();
     vi.stubGlobal(
       "fetch",
@@ -583,10 +583,11 @@ describe("ThreadShell", () => {
           return httpJson({
             commands: [
               {
-                command: "/stop",
-                title: "Stop current task",
-                description: "Cancel the active agent turn.",
-                icon: "square",
+                command: "/history",
+                title: "Show conversation history",
+                description: "Print the last N persisted messages.",
+                icon: "history",
+                arg_hint: "[n]",
               },
             ],
           });
@@ -622,7 +623,8 @@ describe("ThreadShell", () => {
       target: { value: "/" },
     });
 
-    expect(screen.queryByRole("listbox", { name: "Slash commands" })).not.toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "Slash commands" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /\/history/i })).toBeInTheDocument();
   });
 
   it("switches welcome quick actions when image mode is enabled", async () => {

@@ -260,6 +260,7 @@ export function ThreadShell({
           }
           modelLabel={toModelBadgeLabel(modelName)}
           variant="hero"
+          slashCommands={slashCommands}
           imageMode={heroImageMode}
           onImageModeChange={setHeroImageMode}
         />

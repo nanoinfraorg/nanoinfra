@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -77,6 +78,17 @@ const COMMAND_ICONS: Record<string, LucideIcon> = {
 type ImageAspectRatio = "auto" | "1:1" | "3:4" | "9:16" | "4:3" | "16:9";
 
 const IMAGE_ASPECT_RATIOS: ImageAspectRatio[] = ["auto", "1:1", "3:4", "9:16", "4:3", "16:9"];
+const SLASH_PALETTE_GAP_PX = 8;
+const SLASH_PALETTE_MAX_HEIGHT_PX = 288;
+const SLASH_PALETTE_MIN_HEIGHT_PX = 144;
+const SLASH_PALETTE_CHROME_PX = 64;
+
+type SlashPalettePlacement = "above" | "below";
+
+interface SlashPaletteLayout {
+  placement: SlashPalettePlacement;
+  maxHeight: number;
+}
 
 function slashCommandI18nKey(command: string): string {
   return command.replace(/^\//, "").replace(/-/g, "_");
@@ -94,6 +106,24 @@ function scrollNearestOverflowParent(target: EventTarget | null, deltaY: number)
     }
     el = el.parentElement;
   }
+}
+
+function getVisibleBounds(el: HTMLElement): { top: number; bottom: number } {
+  let top = 0;
+  let bottom = window.innerHeight;
+  let parent = el.parentElement;
+
+  while (parent) {
+    const style = window.getComputedStyle(parent);
+    if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) {
+      const rect = parent.getBoundingClientRect();
+      top = Math.max(top, rect.top);
+      bottom = Math.min(bottom, rect.bottom);
+    }
+    parent = parent.parentElement;
+  }
+
+  return { top, bottom };
 }
 
 export function ThreadComposer({
@@ -117,6 +147,7 @@ export function ThreadComposer({
   const [imageAspectRatio, setImageAspectRatio] = useState<ImageAspectRatio>("auto");
   const [aspectMenuOpen, setAspectMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const aspectControlRef = useRef<HTMLDivElement>(null);
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -221,6 +252,10 @@ export function ThreadComposer({
   }, [slashCommands, slashQuery, t]);
 
   const showSlashMenu = filteredSlashCommands.length > 0;
+  const [slashPaletteLayout, setSlashPaletteLayout] = useState<SlashPaletteLayout>({
+    placement: "above",
+    maxHeight: SLASH_PALETTE_MAX_HEIGHT_PX,
+  });
 
   useEffect(() => {
     setSelectedCommandIndex(0);
@@ -231,6 +266,56 @@ export function ThreadComposer({
       setSelectedCommandIndex(0);
     }
   }, [filteredSlashCommands.length, selectedCommandIndex]);
+
+  useEffect(() => {
+    if (!showSlashMenu) return;
+
+    const dismissOnPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && formRef.current?.contains(target)) return;
+      setSlashMenuDismissed(true);
+    };
+
+    document.addEventListener("pointerdown", dismissOnPointerDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOnPointerDown, true);
+    };
+  }, [showSlashMenu]);
+
+  useLayoutEffect(() => {
+    if (!showSlashMenu) return;
+
+    const updateLayout = () => {
+      const form = formRef.current;
+      if (!form) return;
+      const rect = form.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return;
+
+      const bounds = getVisibleBounds(form);
+      const spaceAbove = Math.max(0, rect.top - bounds.top - SLASH_PALETTE_GAP_PX);
+      const spaceBelow = Math.max(0, bounds.bottom - rect.bottom - SLASH_PALETTE_GAP_PX);
+      const placement: SlashPalettePlacement =
+        spaceAbove >= SLASH_PALETTE_MIN_HEIGHT_PX || spaceAbove >= spaceBelow
+          ? "above"
+          : "below";
+      const available = placement === "above" ? spaceAbove : spaceBelow;
+      const maxHeight = Math.min(SLASH_PALETTE_MAX_HEIGHT_PX, available);
+
+      setSlashPaletteLayout((current) =>
+        current.placement === placement && current.maxHeight === maxHeight
+          ? current
+          : { placement, maxHeight },
+      );
+    };
+
+    updateLayout();
+    window.addEventListener("resize", updateLayout);
+    document.addEventListener("scroll", updateLayout, true);
+    return () => {
+      window.removeEventListener("resize", updateLayout);
+      document.removeEventListener("scroll", updateLayout, true);
+    };
+  }, [filteredSlashCommands.length, showSlashMenu]);
 
   useEffect(() => {
     if (!aspectMenuOpen) return;
@@ -398,6 +483,7 @@ export function ThreadComposer({
 
   return (
     <form
+      ref={formRef}
       onSubmit={(e) => {
         e.preventDefault();
         submit();
@@ -412,6 +498,7 @@ export function ThreadComposer({
         <SlashCommandPalette
           commands={filteredSlashCommands}
           selectedIndex={selectedCommandIndex}
+          layout={slashPaletteLayout}
           isHero={isHero}
           onHover={setSelectedCommandIndex}
           onChoose={chooseSlashCommand}
@@ -634,6 +721,7 @@ export function ThreadComposer({
 interface SlashCommandPaletteProps {
   commands: SlashCommand[];
   selectedIndex: number;
+  layout: SlashPaletteLayout;
   isHero: boolean;
   onHover: (index: number) => void;
   onChoose: (command: SlashCommand) => void;
@@ -695,17 +783,24 @@ function ImageAspectMenu({
 function SlashCommandPalette({
   commands,
   selectedIndex,
+  layout,
   isHero,
   onHover,
   onChoose,
 }: SlashCommandPaletteProps) {
   const { t } = useTranslation();
+  const listMaxHeight = Math.max(
+    0,
+    layout.maxHeight - SLASH_PALETTE_CHROME_PX,
+  );
   return (
     <div
       role="listbox"
       aria-label={t("thread.composer.slash.ariaLabel")}
+      style={{ maxHeight: layout.maxHeight }}
       className={cn(
-        "absolute bottom-full left-1/2 z-30 mb-2 max-h-[22rem] w-[calc(100%-0.5rem)] -translate-x-1/2 overflow-hidden rounded-[18px] border",
+        "absolute left-1/2 z-30 w-[calc(100%-0.5rem)] -translate-x-1/2 overflow-hidden rounded-[18px] border",
+        layout.placement === "above" ? "bottom-full mb-2" : "top-full mt-2",
         "border-border/65 bg-popover p-1.5 text-popover-foreground shadow-[0_18px_55px_rgba(15,23,42,0.18)]",
         "dark:border-white/10 dark:shadow-[0_22px_55px_rgba(0,0,0,0.45)]",
         isHero ? "max-w-[58rem]" : "max-w-[49.5rem]",
@@ -714,7 +809,7 @@ function SlashCommandPalette({
       <div className="px-2 pb-1 pt-1 text-[11px] font-medium tracking-[0.08em] text-muted-foreground/70">
         {t("thread.composer.slash.label")}
       </div>
-      <div className="max-h-[18rem] overflow-y-auto pr-0.5">
+      <div className="overflow-y-auto pr-0.5" style={{ maxHeight: listMaxHeight }}>
         {commands.map((command, index) => {
           const Icon = COMMAND_ICONS[command.icon] ?? CircleHelp;
           const selected = index === selectedIndex;

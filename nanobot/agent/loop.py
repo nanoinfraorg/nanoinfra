@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import json
 import os
 import time
 from contextlib import AsyncExitStack, nullcontext, suppress
@@ -15,11 +14,12 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from loguru import logger
 
+from nanobot.agent import model_presets as preset_helpers
 from nanobot.agent.autocompact import AutoCompact
 from nanobot.agent.context import ContextBuilder
-from nanobot.agent.hook import AgentHook, AgentHookContext, CompositeHook
+from nanobot.agent.hook import AgentHook, CompositeHook
 from nanobot.agent.memory import Consolidator, Dream
-from nanobot.agent import model_presets as preset_helpers
+from nanobot.agent.progress_hook import AgentProgressHook
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
@@ -35,15 +35,9 @@ from nanobot.providers.factory import ProviderSnapshot
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.artifacts import generated_image_paths_from_messages
 from nanobot.utils.document import extract_documents
-from nanobot.utils.helpers import IncrementalThinkExtractor, image_placeholder_text
+from nanobot.utils.helpers import image_placeholder_text
 from nanobot.utils.helpers import truncate_text as truncate_text_fn
 from nanobot.utils.image_generation_intent import image_generation_prompt
-from nanobot.utils.progress_events import (
-    build_tool_event_finish_payloads,
-    build_tool_event_start_payload,
-    invoke_on_progress,
-    on_progress_accepts_tool_events,
-)
 from nanobot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 from nanobot.utils.webui_titles import mark_webui_session, maybe_generate_webui_title_after_turn
 
@@ -57,148 +51,6 @@ if TYPE_CHECKING:
 
 
 UNIFIED_SESSION_KEY = "unified:default"
-
-
-class _LoopHook(AgentHook):
-    """Core hook for the main loop."""
-
-    def __init__(
-        self,
-        agent_loop: AgentLoop,
-        on_progress: Callable[..., Awaitable[None]] | None = None,
-        on_stream: Callable[[str], Awaitable[None]] | None = None,
-        on_stream_end: Callable[..., Awaitable[None]] | None = None,
-        *,
-        channel: str = "cli",
-        chat_id: str = "direct",
-        message_id: str | None = None,
-        metadata: dict[str, Any] | None = None,
-        session_key: str | None = None,
-    ) -> None:
-        super().__init__(reraise=True)
-        self._loop = agent_loop
-        self._on_progress = on_progress
-        self._on_stream = on_stream
-        self._on_stream_end = on_stream_end
-        self._channel = channel
-        self._chat_id = chat_id
-        self._message_id = message_id
-        self._metadata = metadata or {}
-        self._session_key = session_key
-        self._stream_buf = ""
-        self._think_extractor = IncrementalThinkExtractor()
-        self._reasoning_open = False
-
-    def wants_streaming(self) -> bool:
-        return self._on_stream is not None
-
-    async def on_stream(self, context: AgentHookContext, delta: str) -> None:
-        from nanobot.utils.helpers import strip_think
-
-        prev_clean = strip_think(self._stream_buf)
-        self._stream_buf += delta
-        new_clean = strip_think(self._stream_buf)
-        incremental = new_clean[len(prev_clean) :]
-
-        if await self._think_extractor.feed(self._stream_buf, self.emit_reasoning):
-            context.streamed_reasoning = True
-
-        if incremental:
-            # Answer text has started — close any open reasoning segment so
-            # the UI can lock the bubble before the answer renders below it.
-            await self.emit_reasoning_end()
-            if self._on_stream:
-                await self._on_stream(incremental)
-
-    async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
-        await self.emit_reasoning_end()
-        if self._on_stream_end:
-            await self._on_stream_end(resuming=resuming)
-        self._stream_buf = ""
-        self._think_extractor.reset()
-
-    async def before_iteration(self, context: AgentHookContext) -> None:
-        self._loop._current_iteration = context.iteration
-        logger.debug(
-            "Starting agent loop iteration {} for session {}",
-            context.iteration,
-            self._session_key,
-        )
-
-    async def before_execute_tools(self, context: AgentHookContext) -> None:
-        if self._on_progress:
-            if not self._on_stream and not context.streamed_content:
-                thought = self._loop._strip_think(
-                    context.response.content if context.response else None
-                )
-                if thought:
-                    await self._on_progress(thought)
-            tool_hint = self._loop._strip_think(self._loop._tool_hint(context.tool_calls))
-            tool_events = [build_tool_event_start_payload(tc) for tc in context.tool_calls]
-            await invoke_on_progress(
-                self._on_progress,
-                tool_hint,
-                tool_hint=True,
-                tool_events=tool_events,
-            )
-        for tc in context.tool_calls:
-            args_str = json.dumps(tc.arguments, ensure_ascii=False)
-            logger.info("Tool call: {}({})", tc.name, args_str[:200])
-        self._loop._set_tool_context(
-            self._channel,
-            self._chat_id,
-            self._message_id,
-            self._metadata,
-            session_key=self._session_key,
-        )
-
-    async def emit_reasoning(self, reasoning_content: str | None) -> None:
-        """Publish a reasoning chunk; channel plugins decide whether to render.
-
-        Each call is one delta in a streaming session. ``emit_reasoning_end``
-        closes the segment. The loop is intentionally not the gate:
-        ``ChannelsConfig.show_reasoning`` is a default that ``ChannelManager``
-        and ``BaseChannel.send_reasoning_delta`` consult per channel — a
-        channel without a low-emphasis UI primitive keeps the base no-op
-        and the content drops at the dispatch boundary.
-        """
-        if self._on_progress and reasoning_content:
-            self._reasoning_open = True
-            await self._on_progress(reasoning_content, reasoning=True)
-
-    async def emit_reasoning_end(self) -> None:
-        """Close the current reasoning stream segment, if any was open."""
-        if self._reasoning_open and self._on_progress:
-            self._reasoning_open = False
-            await self._on_progress("", reasoning_end=True)
-        else:
-            self._reasoning_open = False
-
-    async def after_iteration(self, context: AgentHookContext) -> None:
-        if (
-            self._on_progress
-            and context.tool_calls
-            and context.tool_events
-            and on_progress_accepts_tool_events(self._on_progress)
-        ):
-            tool_events = build_tool_event_finish_payloads(context)
-            if tool_events:
-                await invoke_on_progress(
-                    self._on_progress,
-                    "",
-                    tool_hint=False,
-                    tool_events=tool_events,
-                )
-        u = context.usage or {}
-        logger.debug(
-            "LLM usage: prompt={} completion={} cached={}",
-            u.get("prompt_tokens", 0),
-            u.get("completion_tokens", 0),
-            u.get("cached_tokens", 0),
-        )
-
-    def finalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
-        return self._loop._strip_think(content)
 
 
 class TurnState(Enum):
@@ -652,24 +504,9 @@ class AgentLoop:
                 tool.set_context(request_ctx)
 
     @staticmethod
-    def _strip_think(text: str | None) -> str | None:
-        """Remove <think>…</think> blocks that some models embed in content."""
-        if not text:
-            return None
-        from nanobot.utils.helpers import strip_think
-
-        return strip_think(text) or None
-
-    @staticmethod
     def _runtime_chat_id(msg: InboundMessage) -> str:
         """Return the chat id shown in runtime metadata for the model."""
         return str(msg.metadata.get("context_chat_id") or msg.chat_id)
-
-    def _tool_hint(self, tool_calls: list) -> str:
-        """Format tool calls as concise hints with smart abbreviation."""
-        from nanobot.utils.tool_hints import format_tool_hints
-
-        return format_tool_hints(tool_calls, max_length=self.tool_hint_max_length)
 
     async def _build_bus_progress_callback(
         self, msg: InboundMessage
@@ -834,8 +671,7 @@ class AgentLoop:
         """
         self._sync_subagent_runtime_limits()
 
-        loop_hook = _LoopHook(
-            self,
+        loop_hook = AgentProgressHook(
             on_progress=on_progress,
             on_stream=on_stream,
             on_stream_end=on_stream_end,
@@ -844,6 +680,9 @@ class AgentLoop:
             message_id=message_id,
             metadata=metadata,
             session_key=session_key,
+            tool_hint_max_length=self.tool_hint_max_length,
+            set_tool_context=self._set_tool_context,
+            on_iteration=lambda iteration: setattr(self, "_current_iteration", iteration),
         )
         hook: AgentHook = (
             CompositeHook([loop_hook] + self._extra_hooks) if self._extra_hooks else loop_hook
