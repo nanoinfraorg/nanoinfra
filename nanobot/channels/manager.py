@@ -283,13 +283,18 @@ class ChannelManager:
                         timeout=1.0
                     )
 
-                if msg.metadata.get("_reasoning"):
-                    # Reasoning rides its own plugin channel: only delivered when
-                    # the destination channel both opts in (``show_reasoning``)
-                    # and overrides ``send_reasoning``. Channels without a
-                    # low-emphasis UI primitive keep the base no-op and the
-                    # content silently drops here rather than leak as a
-                    # conversational reply.
+                if (
+                    msg.metadata.get("_reasoning_delta")
+                    or msg.metadata.get("_reasoning_end")
+                    or msg.metadata.get("_reasoning")
+                ):
+                    # Reasoning rides its own plugin channel: only delivered
+                    # when the destination channel opts in via ``show_reasoning``
+                    # and overrides the streaming primitives. Channels without
+                    # a low-emphasis UI affordance keep the base no-op and the
+                    # content silently drops here. ``_reasoning`` (one-shot)
+                    # is accepted for backward compatibility with hooks that
+                    # haven't migrated to delta/end yet.
                     channel = self.channels.get(msg.channel)
                     if channel is not None and channel.show_reasoning:
                         await self._send_with_retry(channel, msg)
@@ -345,7 +350,14 @@ class ChannelManager:
     @staticmethod
     async def _send_once(channel: BaseChannel, msg: OutboundMessage) -> None:
         """Send one outbound message without retry policy."""
-        if msg.metadata.get("_reasoning"):
+        if msg.metadata.get("_reasoning_end"):
+            await channel.send_reasoning_end(msg.chat_id, msg.metadata)
+        elif msg.metadata.get("_reasoning_delta"):
+            await channel.send_reasoning_delta(msg.chat_id, msg.content, msg.metadata)
+        elif msg.metadata.get("_reasoning"):
+            # Back-compat: one-shot reasoning. BaseChannel translates this
+            # to a single delta + end pair so plugins only implement the
+            # streaming primitives.
             await channel.send_reasoning(msg)
         elif msg.metadata.get("_stream_delta") or msg.metadata.get("_stream_end"):
             await channel.send_delta(msg.chat_id, msg.content, msg.metadata)

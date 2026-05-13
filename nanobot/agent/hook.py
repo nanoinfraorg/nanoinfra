@@ -52,6 +52,14 @@ class AgentHook:
     async def emit_reasoning(self, reasoning_content: str | None) -> None:
         pass
 
+    async def emit_reasoning_end(self) -> None:
+        """Mark the end of an in-flight reasoning stream.
+
+        Hooks that buffer ``emit_reasoning`` chunks (for in-place UI updates)
+        flush and freeze the rendered group here. One-shot hooks ignore.
+        """
+        pass
+
     async def after_iteration(self, context: AgentHookContext) -> None:
         pass
 
@@ -101,6 +109,9 @@ class CompositeHook(AgentHook):
 
     async def emit_reasoning(self, reasoning_content: str | None) -> None:
         await self._for_each_hook_safe("emit_reasoning", reasoning_content)
+
+    async def emit_reasoning_end(self) -> None:
+        await self._for_each_hook_safe("emit_reasoning_end")
 
     async def after_iteration(self, context: AgentHookContext) -> None:
         await self._for_each_hook_safe("after_iteration", context)

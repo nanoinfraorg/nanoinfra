@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ChevronRight, Copy, FileIcon, ImageIcon, PlaySquare, Sparkles, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -85,12 +85,16 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
   const empty = message.content.trim().length === 0;
   const media = message.media ?? [];
-  const reasoning = message.role === "assistant" ? message.reasoning ?? [] : [];
+  const reasoning = message.role === "assistant" ? message.reasoning ?? "" : "";
+  const reasoningStreaming = !!(message.role === "assistant" && message.reasoningStreaming);
+  const hasReasoning = reasoning.length > 0 || reasoningStreaming;
   const showAssistantActions = message.role === "assistant" && !message.isStreaming && !empty;
   return (
     <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
-      {reasoning.length > 0 ? <ReasoningBubble lines={reasoning} /> : null}
-      {empty && message.isStreaming && reasoning.length === 0 ? (
+      {hasReasoning ? (
+        <ReasoningBubble text={reasoning} streaming={reasoningStreaming} />
+      ) : null}
+      {empty && message.isStreaming && !hasReasoning ? (
         <TypingDots />
       ) : empty && message.isStreaming ? null : (
         <>
@@ -437,33 +441,52 @@ function TraceGroup({ message, animClass }: TraceGroupProps) {
 }
 
 interface ReasoningBubbleProps {
-  lines: string[];
+  text: string;
+  streaming: boolean;
 }
 
 /**
- * Subordinate "thinking" trace shown above an assistant turn. Mirrors the
- * CLI's italic dim ``ChevronRight`` row visually; collapsible because
- * reasoning from models like DeepSeek-R1 / o-series can run long. Defaults
- * to expanded while the answer is still streaming (so the user sees the
- * model "thinking out loud"), but the toggle persists across rerenders.
+ * Subordinate "thinking" trace shown above an assistant turn.
+ *
+ * Lifecycle:
+ *   - While ``streaming`` is true (``reasoning_delta`` frames still arriving),
+ *     the bubble defaults to open and the header runs a shimmer + pulse so
+ *     the user sees the model "thinking out loud" in real time.
+ *   - On ``reasoning_end`` the bubble auto-collapses for prose density —
+ *     the user can re-expand to inspect the chain of thought. The local
+ *     toggle persists once the user interacts.
  */
-function ReasoningBubble({ lines }: ReasoningBubbleProps) {
+function ReasoningBubble({ text, streaming }: ReasoningBubbleProps) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(true);
-  const text = useMemo(() => lines.join("\n\n"), [lines]);
+  const [userToggled, setUserToggled] = useState(false);
+  const [openLocal, setOpenLocal] = useState(true);
+  const open = userToggled ? openLocal : streaming;
+  const onToggle = () => {
+    setUserToggled(true);
+    setOpenLocal((v) => (userToggled ? !v : !open));
+  };
   return (
     <div className="mb-2 w-full animate-in fade-in-0 slide-in-from-top-1 duration-200">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onToggle}
         className={cn(
           "flex w-full items-center gap-2 rounded-md px-2 py-1.5",
           "text-xs text-muted-foreground transition-colors hover:bg-muted/45",
+          streaming && "reasoning-shimmer",
         )}
         aria-expanded={open}
+        aria-live={streaming ? "polite" : undefined}
       >
-        <Sparkles className="h-3.5 w-3.5" aria-hidden />
-        <span className="font-medium">{t("message.reasoning", { defaultValue: "Thinking" })}</span>
+        <Sparkles
+          className={cn("h-3.5 w-3.5", streaming && "animate-pulse")}
+          aria-hidden
+        />
+        <span className="font-medium">
+          {streaming
+            ? t("message.reasoningStreaming", { defaultValue: "Thinking…" })
+            : t("message.reasoning", { defaultValue: "Thinking" })}
+        </span>
         <ChevronRight
           aria-hidden
           className={cn(
@@ -472,7 +495,7 @@ function ReasoningBubble({ lines }: ReasoningBubbleProps) {
           )}
         />
       </button>
-      {open && (
+      {open && text.length > 0 && (
         <div
           className={cn(
             "mt-1 whitespace-pre-wrap break-words border-l border-muted-foreground/20 pl-3",

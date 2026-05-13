@@ -103,37 +103,41 @@ describe("MessageBubble", () => {
     expect(container.querySelector("video[controls]")).toBeInTheDocument();
   });
 
-  it("surfaces reasoning content above the assistant answer when provided", () => {
+  it("auto-expands the reasoning trace while streaming with a shimmer header", () => {
     const message: UIMessage = {
-      id: "a-reasoning",
+      id: "a-reasoning-streaming",
+      role: "assistant",
+      content: "",
+      createdAt: Date.now(),
+      reasoning: "Step 1: parse intent. Step 2: compute.",
+      reasoningStreaming: true,
+    };
+
+    const { container } = render(<MessageBubble message={message} />);
+
+    expect(screen.getByText("Thinking…")).toBeInTheDocument();
+    expect(screen.getByText(/Step 1: parse intent\./)).toBeInTheDocument();
+    expect(container.querySelector(".reasoning-shimmer")).toBeInTheDocument();
+  });
+
+  it("collapses the reasoning section by default once streaming ends", () => {
+    const message: UIMessage = {
+      id: "a-reasoning-done",
       role: "assistant",
       content: "The answer is 42.",
       createdAt: Date.now(),
-      reasoning: ["Step 1: parse intent.", "Step 2: compute."],
+      reasoning: "hidden until expanded",
+      reasoningStreaming: false,
     };
 
     render(<MessageBubble message={message} />);
 
     expect(screen.getByText("Thinking")).toBeInTheDocument();
-    expect(screen.getByText(/Step 1: parse intent\./)).toBeInTheDocument();
-    expect(screen.getByText(/Step 2: compute\./)).toBeInTheDocument();
     expect(screen.getByText("The answer is 42.")).toBeInTheDocument();
-  });
+    expect(screen.queryByText("hidden until expanded")).not.toBeInTheDocument();
 
-  it("collapses the reasoning section when toggled", () => {
-    const message: UIMessage = {
-      id: "a-reasoning-collapse",
-      role: "assistant",
-      content: "done",
-      createdAt: Date.now(),
-      reasoning: ["hidden after toggle"],
-    };
-
-    render(<MessageBubble message={message} />);
-
-    expect(screen.getByText("hidden after toggle")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /thinking/i }));
-    expect(screen.queryByText("hidden after toggle")).not.toBeInTheDocument();
+    expect(screen.getByText("hidden until expanded")).toBeInTheDocument();
   });
 
   it("renders assistant image media as a larger generated result", () => {

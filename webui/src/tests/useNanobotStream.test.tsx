@@ -113,7 +113,7 @@ describe("useNanobotStream", () => {
     expect(result.current.messages[1].kind).toBeUndefined();
   });
 
-  it("parks reasoning frames on a placeholder assistant message until the answer arrives", () => {
+  it("accumulates reasoning_delta chunks on a placeholder until reasoning_end", () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-r", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
@@ -121,28 +121,31 @@ describe("useNanobotStream", () => {
 
     act(() => {
       fake.emit("chat-r", {
-        event: "message",
+        event: "reasoning_delta",
         chat_id: "chat-r",
-        text: "Let me think step by step.",
-        kind: "reasoning",
+        text: "Let me think ",
       });
       fake.emit("chat-r", {
-        event: "message",
+        event: "reasoning_delta",
         chat_id: "chat-r",
-        text: "First, decompose the request.",
-        kind: "reasoning",
+        text: "step by step.",
       });
     });
 
     expect(result.current.messages).toHaveLength(1);
     expect(result.current.messages[0].role).toBe("assistant");
-    expect(result.current.messages[0].reasoning).toEqual([
-      "Let me think step by step.",
-      "First, decompose the request.",
-    ]);
+    expect(result.current.messages[0].reasoning).toBe("Let me think step by step.");
+    expect(result.current.messages[0].reasoningStreaming).toBe(true);
+
+    act(() => {
+      fake.emit("chat-r", { event: "reasoning_end", chat_id: "chat-r" });
+    });
+
+    expect(result.current.messages[0].reasoningStreaming).toBe(false);
+    expect(result.current.messages[0].reasoning).toBe("Let me think step by step.");
   });
 
-  it("attaches reasoning to the latest assistant turn rather than spawning a new one", () => {
+  it("absorbs a streaming reasoning placeholder into the answer turn that follows", () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-r2", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
@@ -150,24 +153,26 @@ describe("useNanobotStream", () => {
 
     act(() => {
       fake.emit("chat-r2", {
-        event: "message",
+        event: "reasoning_delta",
+        chat_id: "chat-r2",
+        text: "Plan first.",
+      });
+      fake.emit("chat-r2", { event: "reasoning_end", chat_id: "chat-r2" });
+      fake.emit("chat-r2", {
+        event: "delta",
         chat_id: "chat-r2",
         text: "The answer is 42.",
       });
-      fake.emit("chat-r2", {
-        event: "message",
-        chat_id: "chat-r2",
-        text: "Reasoning surfaced post-hoc.",
-        kind: "reasoning",
-      });
+      fake.emit("chat-r2", { event: "stream_end", chat_id: "chat-r2" });
     });
 
     expect(result.current.messages).toHaveLength(1);
     expect(result.current.messages[0].content).toBe("The answer is 42.");
-    expect(result.current.messages[0].reasoning).toEqual(["Reasoning surfaced post-hoc."]);
+    expect(result.current.messages[0].reasoning).toBe("Plan first.");
+    expect(result.current.messages[0].reasoningStreaming).toBe(false);
   });
 
-  it("ignores empty reasoning frames", () => {
+  it("ignores empty reasoning_delta frames", () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-r3", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
@@ -175,14 +180,33 @@ describe("useNanobotStream", () => {
 
     act(() => {
       fake.emit("chat-r3", {
-        event: "message",
+        event: "reasoning_delta",
         chat_id: "chat-r3",
         text: "",
-        kind: "reasoning",
       });
     });
 
     expect(result.current.messages).toHaveLength(0);
+  });
+
+  it("treats legacy kind=reasoning messages as a complete delta + end pair", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-r4", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-r4", {
+        event: "message",
+        chat_id: "chat-r4",
+        text: "one-shot reasoning",
+        kind: "reasoning",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].reasoning).toBe("one-shot reasoning");
+    expect(result.current.messages[0].reasoningStreaming).toBe(false);
   });
 
   it("attaches assistant media_urls to complete messages", () => {

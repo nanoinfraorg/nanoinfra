@@ -44,10 +44,13 @@ export interface UIMessage {
   images?: UIImage[];
   /** Signed or local UI-renderable media attachments. */
   media?: UIMediaAttachment[];
-  /** Assistant turn: model reasoning / thinking content collected from
-   * `kind: "reasoning"` frames. Each entry is one emit cycle, joined with
-   * blank lines on render. */
-  reasoning?: string[];
+  /** Assistant turn: accumulated model reasoning / thinking text. Built up
+   * incrementally from ``reasoning_delta`` frames; finalized when
+   * ``reasoning_end`` arrives. */
+  reasoning?: string;
+  /** True while ``reasoning_delta`` frames are still arriving for this turn.
+   * Drives the shimmer header on ``ReasoningBubble``. */
+  reasoningStreaming?: boolean;
 }
 
 export interface ChatSummary {
@@ -155,6 +158,17 @@ export type InboundEvent =
     }
   | {
       event: "stream_end";
+      chat_id: string;
+      stream_id?: string;
+    }
+  | {
+      event: "reasoning_delta";
+      chat_id: string;
+      text: string;
+      stream_id?: string;
+    }
+  | {
+      event: "reasoning_end";
       chat_id: string;
       stream_id?: string;
     }

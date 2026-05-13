@@ -359,30 +359,44 @@ async def test_send_delta_emits_delta_and_stream_end() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_reasoning_emits_reasoning_kind_frame() -> None:
+async def test_send_reasoning_delta_emits_streaming_frame() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
     mock_ws = AsyncMock()
     channel._attach(mock_ws, "chat-1")
 
-    await channel.send_reasoning(OutboundMessage(
-        channel="websocket",
-        chat_id="chat-1",
-        content="step-by-step thinking",
-        metadata={"_progress": True, "_reasoning": True},
-    ))
+    await channel.send_reasoning_delta(
+        "chat-1",
+        "step-by-step thinking",
+        {"_reasoning_delta": True, "_stream_id": "r1"},
+    )
 
     mock_ws.send.assert_awaited_once()
     payload = json.loads(mock_ws.send.await_args.args[0])
-    assert payload["event"] == "message"
+    assert payload["event"] == "reasoning_delta"
     assert payload["chat_id"] == "chat-1"
     assert payload["text"] == "step-by-step thinking"
-    assert payload["kind"] == "reasoning"
+    assert payload["stream_id"] == "r1"
 
 
 @pytest.mark.asyncio
-async def test_send_reasoning_drops_empty_content() -> None:
-    """Empty reasoning emits nothing — keeps the frontend bubble clean."""
+async def test_send_reasoning_end_emits_close_frame() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send_reasoning_end("chat-1", {"_reasoning_end": True, "_stream_id": "r1"})
+
+    payload = json.loads(mock_ws.send.await_args.args[0])
+    assert payload == {"event": "reasoning_end", "chat_id": "chat-1", "stream_id": "r1"}
+
+
+@pytest.mark.asyncio
+async def test_send_reasoning_one_shot_expands_to_delta_plus_end() -> None:
+    """``send_reasoning`` is back-compat for hooks that haven't migrated:
+    the base implementation must produce one delta and one end so the
+    WebUI sees the same shape either way."""
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
     mock_ws = AsyncMock()
@@ -391,9 +405,26 @@ async def test_send_reasoning_drops_empty_content() -> None:
     await channel.send_reasoning(OutboundMessage(
         channel="websocket",
         chat_id="chat-1",
-        content="",
+        content="thinking",
         metadata={"_reasoning": True},
     ))
+
+    assert mock_ws.send.await_count == 2
+    first = json.loads(mock_ws.send.call_args_list[0][0][0])
+    second = json.loads(mock_ws.send.call_args_list[1][0][0])
+    assert first["event"] == "reasoning_delta"
+    assert first["text"] == "thinking"
+    assert second["event"] == "reasoning_end"
+
+
+@pytest.mark.asyncio
+async def test_send_reasoning_delta_drops_empty_chunks() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send_reasoning_delta("chat-1", "", {"_reasoning_delta": True})
 
     mock_ws.send.assert_not_awaited()
 
@@ -403,12 +434,8 @@ async def test_send_reasoning_without_subscribers_is_noop() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
 
-    await channel.send_reasoning(OutboundMessage(
-        channel="websocket",
-        chat_id="unattached",
-        content="thinking",
-        metadata={"_reasoning": True},
-    ))
+    await channel.send_reasoning_delta("unattached", "thinking", None)
+    await channel.send_reasoning_end("unattached", None)
     # No subscribers, no exception, no send.
 
 

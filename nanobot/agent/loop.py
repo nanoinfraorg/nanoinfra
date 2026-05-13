@@ -87,6 +87,7 @@ class _LoopHook(AgentHook):
         self._session_key = session_key
         self._stream_buf = ""
         self._think_extractor = IncrementalThinkExtractor()
+        self._reasoning_open = False
 
     def wants_streaming(self) -> bool:
         return self._on_stream is not None
@@ -102,10 +103,15 @@ class _LoopHook(AgentHook):
         if await self._think_extractor.feed(self._stream_buf, self.emit_reasoning):
             context.streamed_reasoning = True
 
-        if incremental and self._on_stream:
-            await self._on_stream(incremental)
+        if incremental:
+            # Answer text has started — close any open reasoning segment so
+            # the UI can lock the bubble before the answer renders below it.
+            await self.emit_reasoning_end()
+            if self._on_stream:
+                await self._on_stream(incremental)
 
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
+        await self.emit_reasoning_end()
         if self._on_stream_end:
             await self._on_stream_end(resuming=resuming)
         self._stream_buf = ""
@@ -147,15 +153,26 @@ class _LoopHook(AgentHook):
         )
 
     async def emit_reasoning(self, reasoning_content: str | None) -> None:
-        """Publish reasoning content; channel plugins decide whether to render.
+        """Publish a reasoning chunk; channel plugins decide whether to render.
 
-        The loop is intentionally not the gate: ``ChannelsConfig.show_reasoning``
-        is a default that ``ChannelManager`` and ``BaseChannel.send_reasoning``
-        consult per channel. A channel without a low-emphasis UI primitive
-        keeps the base no-op and the content drops at the dispatch boundary.
+        Each call is one delta in a streaming session. ``emit_reasoning_end``
+        closes the segment. The loop is intentionally not the gate:
+        ``ChannelsConfig.show_reasoning`` is a default that ``ChannelManager``
+        and ``BaseChannel.send_reasoning_delta`` consult per channel — a
+        channel without a low-emphasis UI primitive keeps the base no-op
+        and the content drops at the dispatch boundary.
         """
         if self._on_progress and reasoning_content:
+            self._reasoning_open = True
             await self._on_progress(reasoning_content, reasoning=True)
+
+    async def emit_reasoning_end(self) -> None:
+        """Close the current reasoning stream segment, if any was open."""
+        if self._reasoning_open and self._on_progress:
+            self._reasoning_open = False
+            await self._on_progress("", reasoning_end=True)
+        else:
+            self._reasoning_open = False
 
     async def after_iteration(self, context: AgentHookContext) -> None:
         if (
@@ -665,12 +682,15 @@ class AgentLoop:
             tool_hint: bool = False,
             tool_events: list[dict[str, Any]] | None = None,
             reasoning: bool = False,
+            reasoning_end: bool = False,
         ) -> None:
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint
             if reasoning:
-                meta["_reasoning"] = True
+                meta["_reasoning_delta"] = True
+            if reasoning_end:
+                meta["_reasoning_end"] = True
             if tool_events:
                 meta["_tool_events"] = tool_events
             await self.bus.publish_outbound(

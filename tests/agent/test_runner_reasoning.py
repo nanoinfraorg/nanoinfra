@@ -24,10 +24,14 @@ class _RecordingHook(AgentHook):
     def __init__(self) -> None:
         super().__init__()
         self.emitted: list[str] = []
+        self.end_calls = 0
 
     async def emit_reasoning(self, reasoning_content: str | None) -> None:
         if reasoning_content:
             self.emitted.append(reasoning_content)
+
+    async def emit_reasoning_end(self) -> None:
+        self.end_calls += 1
 
 
 @pytest.mark.asyncio
@@ -277,3 +281,41 @@ async def test_runner_does_not_double_emit_when_inline_think_already_streamed():
 
     assert result.final_content == "The answer."
     assert hook.emitted == ["working..."]
+    assert hook.end_calls >= 1, "reasoning stream must be closed once the answer starts"
+
+
+@pytest.mark.asyncio
+async def test_runner_closes_reasoning_stream_after_one_shot_response():
+    """A non-streaming response carrying ``reasoning_content`` must emit
+    both a reasoning delta and an end marker so channels can finalize the
+    in-place bubble."""
+    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+
+    provider = MagicMock()
+
+    async def chat_with_retry(**kwargs):
+        return LLMResponse(
+            content="answer",
+            reasoning_content="hidden thought",
+            tool_calls=[],
+            usage={"prompt_tokens": 5, "completion_tokens": 3},
+        )
+
+    provider.chat_with_retry = chat_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    hook = _RecordingHook()
+    runner = AgentRunner(provider)
+    result = await runner.run(AgentRunSpec(
+        initial_messages=[{"role": "user", "content": "q"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=3,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        hook=hook,
+    ))
+
+    assert result.final_content == "answer"
+    assert hook.emitted == ["hidden thought"]
+    assert hook.end_calls == 1

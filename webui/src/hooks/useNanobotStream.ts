@@ -19,6 +19,82 @@ interface StreamBuffer {
 }
 
 /**
+ * Append a reasoning chunk to the last open reasoning stream in ``prev``.
+ *
+ * Lookup rule: find the most recent assistant turn that is either still
+ * streaming reasoning (``reasoningStreaming``) or has no answer text yet.
+ * Anything else starts a fresh streaming placeholder so a new turn's
+ * reasoning never bleeds into the previous answer.
+ */
+function attachReasoningChunk(prev: UIMessage[], chunk: string): UIMessage[] {
+  for (let i = prev.length - 1; i >= 0; i -= 1) {
+    const candidate = prev[i];
+    if (candidate.role !== "assistant" || candidate.kind === "trace") continue;
+    const hasAnswer = candidate.content.length > 0;
+    if (candidate.reasoningStreaming || (!hasAnswer && candidate.reasoning !== undefined)) {
+      const merged: UIMessage = {
+        ...candidate,
+        reasoning: (candidate.reasoning ?? "") + chunk,
+        reasoningStreaming: true,
+      };
+      return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];
+    }
+    if (!hasAnswer && candidate.isStreaming) {
+      const merged: UIMessage = {
+        ...candidate,
+        reasoning: chunk,
+        reasoningStreaming: true,
+      };
+      return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];
+    }
+    break;
+  }
+  return [
+    ...prev,
+    {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: "",
+      isStreaming: true,
+      reasoning: chunk,
+      reasoningStreaming: true,
+      createdAt: Date.now(),
+    },
+  ];
+}
+
+/**
+ * Find the most recent assistant placeholder that an incoming answer
+ * delta should adopt instead of spawning a parallel row. We look for an
+ * empty-content assistant turn that is still marked ``isStreaming`` —
+ * typically created earlier by ``reasoning_delta``. Anything else means
+ * the model already produced an answer in a previous turn, so the new
+ * delta belongs in a fresh row.
+ */
+function findActiveAssistantPlaceholder(prev: UIMessage[]): string | null {
+  const last = prev[prev.length - 1];
+  if (!last) return null;
+  if (last.role !== "assistant" || last.kind === "trace") return null;
+  if (last.content.length > 0) return null;
+  if (!last.isStreaming) return null;
+  return last.id;
+}
+
+/**
+ * Close the active reasoning stream segment, if any. Idempotent: a
+ * ``reasoning_end`` with no preceding deltas is a harmless no-op.
+ */
+function closeReasoningStream(prev: UIMessage[]): UIMessage[] {
+  for (let i = prev.length - 1; i >= 0; i -= 1) {
+    const candidate = prev[i];
+    if (!candidate.reasoningStreaming) continue;
+    const merged: UIMessage = { ...candidate, reasoningStreaming: false };
+    return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];
+  }
+  return prev;
+}
+
+/**
  * Subscribe to a chat by ID. Returns the in-memory message list for the chat,
  * a streaming flag, and a ``send`` function. Initial history must be seeded
  * separately (e.g. via ``fetchSessionMessages``) since the server only replays
@@ -122,27 +198,42 @@ export function useNanobotStream(
 
       if (ev.event === "delta") {
         if (suppressStreamUntilTurnEndRef.current) return;
-        const id = buffer.current?.messageId ?? crypto.randomUUID();
-        if (!buffer.current) {
-          buffer.current = { messageId: id, parts: [] };
-          setMessages((prev) => [
-            ...prev,
-            {
-              id,
-              role: "assistant",
-              content: "",
-              isStreaming: true,
-              createdAt: Date.now(),
-            },
-          ]);
-          setIsStreaming(true);
-        }
-        buffer.current.parts.push(ev.text);
-        const combined = buffer.current.parts.join("");
-        const targetId = buffer.current.messageId;
-        setMessages((prev) =>
-          prev.map((m) => (m.id === targetId ? { ...m, content: combined } : m)),
-        );
+        const chunk = ev.text;
+        setIsStreaming(true);
+        setMessages((prev) => {
+          // Reuse an in-flight assistant placeholder (typically created by
+          // ``reasoning_delta``) so the answer renders below its own
+          // thinking trace instead of in a parallel row.
+          const adopted = !buffer.current ? findActiveAssistantPlaceholder(prev) : null;
+          let targetId: string;
+          let next: UIMessage[];
+          if (buffer.current) {
+            targetId = buffer.current.messageId;
+            next = prev;
+          } else if (adopted) {
+            targetId = adopted;
+            buffer.current = { messageId: targetId, parts: [] };
+            next = prev;
+          } else {
+            targetId = crypto.randomUUID();
+            buffer.current = { messageId: targetId, parts: [] };
+            next = [
+              ...prev,
+              {
+                id: targetId,
+                role: "assistant",
+                content: "",
+                isStreaming: true,
+                createdAt: Date.now(),
+              },
+            ];
+          }
+          buffer.current.parts.push(chunk);
+          const combined = buffer.current.parts.join("");
+          return next.map((m) =>
+            m.id === targetId ? { ...m, content: combined, isStreaming: true } : m,
+          );
+        });
         return;
       }
 
@@ -156,6 +247,21 @@ export function useNanobotStream(
         // definitive "turn is complete" signal is ``turn_end``.
         if (!buffer.current) return;
         buffer.current = null;
+        return;
+      }
+
+      if (ev.event === "reasoning_delta") {
+        if (suppressStreamUntilTurnEndRef.current) return;
+        const chunk = ev.text;
+        if (!chunk) return;
+        setMessages((prev) => attachReasoningChunk(prev, chunk));
+        setIsStreaming(true);
+        return;
+      }
+
+      if (ev.event === "reasoning_end") {
+        if (suppressStreamUntilTurnEndRef.current) return;
+        setMessages((prev) => closeReasoningStream(prev));
         return;
       }
 
@@ -187,37 +293,13 @@ export function useNanobotStream(
         ) {
           return;
         }
-        // Model reasoning rides its own channel: stash it on the next
-        // assistant turn so the bubble renders it as a subordinate trace.
-        // If the assistant message hasn't materialized yet (typical, since
-        // reasoning fires before tool calls/answers), park it on a sentinel
-        // pending row that the next assistant message absorbs.
+        // Back-compat: a legacy ``kind: "reasoning"`` message (no streaming
+        // partner) is treated as one complete delta + immediate end so the
+        // bubble renders identically to the streaming path.
         if (ev.kind === "reasoning") {
           const line = ev.text;
           if (!line) return;
-          setMessages((prev) => {
-            for (let i = prev.length - 1; i >= 0; i -= 1) {
-              const candidate = prev[i];
-              if (candidate.role === "assistant" && candidate.kind !== "trace") {
-                const merged: UIMessage = {
-                  ...candidate,
-                  reasoning: [...(candidate.reasoning ?? []), line],
-                };
-                return [...prev.slice(0, i), merged, ...prev.slice(i + 1)];
-              }
-            }
-            return [
-              ...prev,
-              {
-                id: crypto.randomUUID(),
-                role: "assistant",
-                content: "",
-                isStreaming: true,
-                reasoning: [line],
-                createdAt: Date.now(),
-              },
-            ];
-          });
+          setMessages((prev) => closeReasoningStream(attachReasoningChunk(prev, line)));
           return;
         }
         // Intermediate agent breadcrumbs (tool-call hints, raw progress).
