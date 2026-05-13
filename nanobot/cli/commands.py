@@ -176,13 +176,15 @@ def _print_agent_response(
     response: str,
     render_markdown: bool,
     metadata: dict | None = None,
+    show_header: bool = True,
 ) -> None:
     """Render assistant response with consistent terminal styling."""
     console = _make_console()
     content = response or ""
     body = _response_renderable(content, render_markdown, metadata)
-    console.print()
-    console.print(f"[cyan]{__logo__} nanobot[/cyan]")
+    if show_header:
+        console.print()
+        console.print(f"[cyan]{__logo__} nanobot[/cyan]")
     console.print(body)
     console.print()
 
@@ -235,6 +237,8 @@ def _print_cli_progress_line(text: str, thinking: ThinkingSpinner | None, render
     target = renderer.console if renderer else console
     pause = renderer.pause_spinner() if renderer else (thinking.pause() if thinking else nullcontext())
     with pause:
+        if renderer:
+            renderer.ensure_header()
         target.print(f"  [dim]↳ {text}[/dim]")
 
 
@@ -245,6 +249,8 @@ def _print_cli_reasoning(text: str, thinking: ThinkingSpinner | None, renderer: 
     target = renderer.console if renderer else console
     pause = renderer.pause_spinner() if renderer else (thinking.pause() if thinking else nullcontext())
     with pause:
+        if renderer:
+            renderer.ensure_header()
         target.print(f"[dim italic]✻ {text}[/dim italic]")
 
 
@@ -254,6 +260,7 @@ async def _print_interactive_progress_line(text: str, thinking: ThinkingSpinner 
         return
     if renderer:
         with renderer.pause_spinner():
+            renderer.ensure_header()
             renderer.console.print(f"  [dim]↳ {text}[/dim]")
     else:
         with thinking.pause() if thinking else nullcontext():
@@ -275,7 +282,7 @@ async def _maybe_print_interactive_progress(
         return False
 
     is_tool_hint = metadata.get("_tool_hint", False)
-    is_reasoning = metadata.get("_reasoning", False)
+    is_reasoning = metadata.get("_reasoning", False) or metadata.get("_reasoning_delta", False)
     if is_reasoning:
         if channels_config and not channels_config.show_reasoning:
             return True
@@ -1118,10 +1125,14 @@ def agent(
             )
             if not renderer.streamed:
                 await renderer.close()
+                print_kwargs: dict[str, Any] = {}
+                if renderer.header_printed:
+                    print_kwargs["show_header"] = False
                 _print_agent_response(
                     response.content if response else "",
                     render_markdown=markdown,
                     metadata=response.metadata if response else None,
+                    **print_kwargs,
                 )
             await agent_loop.close_mcp()
 
@@ -1246,8 +1257,14 @@ def agent(
                             if content and not meta.get("_streamed"):
                                 if renderer:
                                     await renderer.close()
+                                print_kwargs: dict[str, Any] = {}
+                                if renderer and renderer.header_printed:
+                                    print_kwargs["show_header"] = False
                                 _print_agent_response(
-                                    content, render_markdown=markdown, metadata=meta,
+                                    content,
+                                    render_markdown=markdown,
+                                    metadata=meta,
+                                    **print_kwargs,
                                 )
                         elif renderer and not renderer.streamed:
                             await renderer.close()

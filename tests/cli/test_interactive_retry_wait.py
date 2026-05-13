@@ -51,6 +51,25 @@ async def test_reasoning_displayed_when_show_reasoning_enabled():
 
 
 @pytest.mark.asyncio
+async def test_reasoning_delta_displayed_when_show_reasoning_enabled():
+    """Streamed reasoning delta frames should use the reasoning renderer."""
+    calls: list[str] = []
+    channels_config = SimpleNamespace(
+        send_progress=True, send_tool_hints=False, show_reasoning=True,
+    )
+    msg = SimpleNamespace(
+        content="I should search first.",
+        metadata={"_progress": True, "_reasoning_delta": True},
+    )
+
+    with patch("nanobot.cli.commands._print_cli_reasoning", side_effect=lambda t, th, r=None: calls.append(t)):
+        handled = await commands._maybe_print_interactive_progress(msg, None, channels_config)
+
+    assert handled is True
+    assert calls == ["I should search first."]
+
+
+@pytest.mark.asyncio
 async def test_reasoning_hidden_when_show_reasoning_disabled():
     """Reasoning content should be suppressed when show_reasoning is False."""
     channels_config = SimpleNamespace(

@@ -10,6 +10,7 @@ that plagued earlier approaches.
 from __future__ import annotations
 
 import sys
+from contextlib import contextmanager, nullcontext
 
 from rich.console import Console
 from rich.live import Live
@@ -93,6 +94,7 @@ class StreamRenderer:
         self._console = _make_console()
         self._live: Live | None = None
         self._spinner: ThinkingSpinner | None = None
+        self._header_printed = False
         self._start_spinner()
 
     def _renderable(self):
@@ -122,12 +124,41 @@ class StreamRenderer:
         """Expose the Live's console so external print functions can use it."""
         return self._console
 
+    @property
+    def header_printed(self) -> bool:
+        """Whether this turn has already opened the assistant output block."""
+        return self._header_printed
+
+    def ensure_header(self) -> None:
+        """Print the assistant header once, before trace or answer content."""
+        if self._header_printed:
+            return
+        self._stop_spinner()
+        self._console.print()
+        header = f"{self._bot_icon} {self._bot_name}" if self._bot_icon else self._bot_name
+        self._console.print(f"[cyan]{header}[/cyan]")
+        self._header_printed = True
+
     def pause_spinner(self):
-        """Context manager: temporarily stop spinner for clean output."""
-        if self._spinner:
-            return self._spinner.pause()
-        from contextlib import nullcontext
-        return nullcontext()
+        """Context manager: temporarily stop transient output for clean trace lines."""
+        @contextmanager
+        def _pause():
+            live_was_active = self._live is not None
+            if self._live:
+                # Trace/reasoning can arrive after answer streaming has started.
+                # Stop the transient Live view first so it does not leak a raw
+                # partial markdown frame before the trace line.
+                self._live.stop()
+                self._live = None
+            with self._spinner.pause() if self._spinner else nullcontext():
+                yield
+            # If more answer deltas arrive after the trace, on_delta() will
+            # create a fresh Live using the existing buffer. If no deltas arrive,
+            # on_end() prints the final buffered answer once.
+            if live_was_active:
+                return
+
+        return _pause()
 
     async def on_delta(self, delta: str) -> None:
         self.streamed = True
@@ -135,10 +166,7 @@ class StreamRenderer:
         if self._live is None:
             if not self._buf.strip():
                 return
-            self._stop_spinner()
-            self._console.print()
-            header = f"{self._bot_icon} {self._bot_name}" if self._bot_icon else self._bot_name
-            self._console.print(f"[cyan]{header}[/cyan]")
+            self.ensure_header()
             self._live = Live(
                 self._renderable(),
                 console=self._console,
@@ -174,7 +202,6 @@ class StreamRenderer:
 
     def pause(self):
         """Context manager: pause spinner for external output. No-op once streaming has started."""
-        from contextlib import nullcontext
         if self._spinner:
             return self._spinner.pause()
         return nullcontext()

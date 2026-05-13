@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import nullcontext
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
@@ -94,6 +95,31 @@ def test_print_cli_progress_line_pauses_spinner_before_printing():
             commands._print_cli_progress_line("tool running", thinking)
 
     assert order == ["start", "stop", "print", "start", "stop"]
+
+
+def test_print_cli_progress_line_opens_renderer_header_before_trace():
+    """Trace lines should appear under the assistant header, not under You."""
+    order: list[str] = []
+    renderer = MagicMock()
+    renderer.console.print.side_effect = lambda *_args, **_kwargs: order.append("print")
+    renderer.ensure_header.side_effect = lambda: order.append("header")
+    renderer.pause_spinner.return_value = nullcontext()
+
+    commands._print_cli_progress_line("tool running", None, renderer)
+
+    assert order == ["header", "print"]
+
+
+def test_print_cli_progress_line_stops_live_before_trace():
+    """A trace line should not leak the current transient Live frame."""
+    mock_live = MagicMock()
+    renderer = stream_mod.StreamRenderer(show_spinner=False)
+    renderer._live = mock_live
+
+    commands._print_cli_progress_line("tool running", None, renderer)
+
+    mock_live.stop.assert_called_once()
+    assert renderer._live is None
 
 
 @pytest.mark.asyncio
