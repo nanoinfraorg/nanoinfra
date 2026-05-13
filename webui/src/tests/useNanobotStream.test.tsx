@@ -238,6 +238,44 @@ describe("useNanobotStream", () => {
     expect(result.current.messages[0].reasoningStreaming).toBe(false);
   });
 
+  it("does not attach a new turn's reasoning across the latest user boundary", () => {
+    const fake = fakeClient();
+    const initialMessages = [
+      {
+        id: "a-prev",
+        role: "assistant" as const,
+        content: "Previous answer.",
+        reasoning: "Previous thought.",
+        createdAt: Date.now(),
+      },
+      {
+        id: "u-next",
+        role: "user" as const,
+        content: "Next question",
+        createdAt: Date.now(),
+      },
+    ];
+    const { result } = renderHook(
+      () => useNanobotStream("chat-r6", initialMessages),
+      { wrapper: wrap(fake.client) },
+    );
+
+    act(() => {
+      fake.emit("chat-r6", {
+        event: "reasoning_delta",
+        chat_id: "chat-r6",
+        text: "New turn thinking.",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(3);
+    expect(result.current.messages[0].reasoning).toBe("Previous thought.");
+    expect(result.current.messages[2].role).toBe("assistant");
+    expect(result.current.messages[2].content).toBe("");
+    expect(result.current.messages[2].reasoning).toBe("New turn thinking.");
+    expect(result.current.messages[2].reasoningStreaming).toBe(true);
+  });
+
   it("attaches assistant media_urls to complete messages", () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-m", EMPTY_MESSAGES), {

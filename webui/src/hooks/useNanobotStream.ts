@@ -30,6 +30,9 @@ interface StreamBuffer {
 function attachReasoningChunk(prev: UIMessage[], chunk: string): UIMessage[] {
   for (let i = prev.length - 1; i >= 0; i -= 1) {
     const candidate = prev[i];
+    // A user turn is a hard boundary: reasoning after it belongs to the new
+    // assistant turn, never to an earlier assistant reply.
+    if (candidate.role === "user") break;
     if (candidate.role !== "assistant" || candidate.kind === "trace") continue;
     const hasAnswer = candidate.content.length > 0;
     if (
