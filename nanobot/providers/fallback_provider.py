@@ -24,7 +24,7 @@ class FallbackProvider(LLMProvider):
     provider on-the-fly.
 
     Key design:
-    - Failover attempts are request-scoped; primary circuit state persists.
+    - Failover is request-scoped (the wrapper itself is stateless between turns).
     - Skipped when content was already streamed to avoid duplicate output.
     - Recursive failover is prevented by the factory returning plain providers.
     - Primary provider is circuit-broken after repeated failures to avoid
@@ -34,8 +34,8 @@ class FallbackProvider(LLMProvider):
     def __init__(
         self,
         primary: LLMProvider,
-        fallback_models: list[Any],
-        provider_factory: Callable[[Any], LLMProvider],
+        fallback_models: list[str],
+        provider_factory: Callable[[str], LLMProvider],
     ):
         self._primary = primary
         self._fallback_models = list(fallback_models)
@@ -51,10 +51,6 @@ class FallbackProvider(LLMProvider):
     @generation.setter
     def generation(self, value):
         self._primary.generation = value
-
-    @property
-    def supports_progress_deltas(self) -> bool:
-        return bool(getattr(self._primary, "supports_progress_deltas", False))
 
     def get_default_model(self) -> str:
         return self._primary.get_default_model()
@@ -126,8 +122,7 @@ class FallbackProvider(LLMProvider):
 
         last_response: LLMResponse | None = None
         primary_skipped = not self._primary_available()
-        for idx, fallback in enumerate(self._fallback_models):
-            fallback_model = fallback.model
+        for idx, fallback_model in enumerate(self._fallback_models):
             if has_streamed is not None and has_streamed[0]:
                 break
             if idx == 0 and primary_skipped:
@@ -143,35 +138,25 @@ class FallbackProvider(LLMProvider):
             else:
                 logger.info(
                     "Fallback '{}' also failed, trying next fallback '{}'",
-                    self._fallback_models[idx - 1].model, fallback_model,
+                    self._fallback_models[idx - 1], fallback_model,
                 )
             try:
-                fallback_provider = self._provider_factory(fallback)
+                fallback_provider = self._provider_factory(fallback_model)
             except Exception as exc:
                 logger.warning(
                     "Failed to create provider for fallback '{}': {}", fallback_model, exc
                 )
                 continue
 
-            original_values = {
-                name: kwargs.get(name, LLMProvider._SENTINEL)
-                for name in ("model", "max_tokens", "temperature", "reasoning_effort")
-            }
+            original_model = kwargs.get("model")
             kwargs["model"] = fallback_model
-            if fallback.max_tokens is not None:
-                kwargs["max_tokens"] = fallback.max_tokens
-            if fallback.temperature is not None:
-                kwargs["temperature"] = fallback.temperature
-            if fallback.reasoning_effort is not None:
-                kwargs["reasoning_effort"] = fallback.reasoning_effort
             try:
                 fallback_response = await call(fallback_provider, kwargs)
             finally:
-                for name, value in original_values.items():
-                    if value is LLMProvider._SENTINEL:
-                        kwargs.pop(name, None)
-                    else:
-                        kwargs[name] = value
+                if original_model is not None:
+                    kwargs["model"] = original_model
+                else:
+                    kwargs.pop("model", None)
 
             if fallback_response.finish_reason != "error":
                 logger.info(

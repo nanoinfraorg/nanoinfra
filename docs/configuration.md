@@ -672,12 +672,6 @@ Existing configs do not need to change. If you do not set `modelPresets` or `age
       "maxTokens": 8192,
       "contextWindowTokens": 128000,
       "temperature": 0.1,
-      "fallbackModels": [
-        {
-          "provider": "anthropic",
-          "model": "anthropic/claude-sonnet-4-6"
-        }
-      ],
       "modelPreset": null
     }
   },
@@ -688,17 +682,7 @@ Existing configs do not need to change. If you do not set `modelPresets` or `age
       "maxTokens": 4096,
       "contextWindowTokens": 128000,
       "temperature": 0.2,
-      "reasoningEffort": "low",
-      "fallbackModels": [
-        {
-          "provider": "deepseek",
-          "model": "deepseek/deepseek-chat",
-          "maxTokens": 4096,
-          "contextWindowTokens": 64000,
-          "temperature": 0.1,
-          "reasoningEffort": null
-        }
-      ]
+      "reasoningEffort": "low"
     },
     "deep": {
       "model": "anthropic/claude-opus-4-5",
@@ -721,52 +705,8 @@ Existing configs do not need to change. If you do not set `modelPresets` or `age
 | `contextWindowTokens` | Context window size used by prompt building and consolidation decisions. |
 | `temperature` | Sampling temperature. |
 | `reasoningEffort` | Optional reasoning/thinking setting. Provider support varies. |
-| `fallbackModels` | Optional ordered fallback models for this active configuration only. |
 
 `default` is reserved and always means the implicit preset built from `agents.defaults.*`; do not define `modelPresets.default`. Use `/model default` to switch back to `agents.defaults.*`.
-
-### Model Fallbacks
-
-`fallbackModels` belongs to the currently active model configuration. If the active configuration is `agents.defaults`, only `agents.defaults.fallbackModels` is used. If the active configuration is `modelPresets.fast`, only `modelPresets.fast.fallbackModels` is used. nanobot does not inherit or merge fallbacks between defaults and presets.
-
-Each fallback entry must include at least `provider` and `model`. The other fields are optional; omitted values inherit from the active primary configuration for that request.
-
-```json
-{
-  "modelPresets": {
-    "fast": {
-      "model": "MiniMax-M2.7-highspeed",
-      "provider": "minimaxAnthropic",
-      "maxTokens": 4096,
-      "contextWindowTokens": 262144,
-      "temperature": 0.1,
-      "reasoningEffort": null,
-      "fallbackModels": [
-        {
-          "provider": "deepseek",
-          "model": "deepseek-v4-pro",
-          "maxTokens": 4096,
-          "contextWindowTokens": 262144,
-          "temperature": 0.1,
-          "reasoningEffort": null
-        }
-      ]
-    },
-    "deep": {
-      "model": "deepseek-v4-pro",
-      "provider": "deepseek",
-      "maxTokens": 4096,
-      "contextWindowTokens": 262144,
-      "temperature": 0.1,
-      "reasoningEffort": null
-    }
-  }
-}
-```
-
-In this example, `/model fast` can fail over to DeepSeek, but `/model deep` has no fallback because the `deep` preset does not define `fallbackModels`.
-
-Failover only runs when the primary model returns an error before any answer text has been streamed. Fallback models are tried in order. If a fallback has a smaller `contextWindowTokens`, nanobot uses the smallest window in the active chain when building context so the fallback can receive the same prompt.
 
 Set `agents.defaults.modelPreset` to start with a named preset:
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from nanobot.config.schema import Config, ModelFallbackConfig, ModelPresetConfig
+from nanobot.config.schema import Config, ModelPresetConfig
 from nanobot.providers.base import LLMProvider
 from nanobot.providers.fallback_provider import FallbackProvider
 from nanobot.providers.registry import find_by_name
@@ -104,28 +104,6 @@ def _make_provider_core(
     return provider
 
 
-def _fallback_preset(primary: ModelPresetConfig, fallback: ModelFallbackConfig) -> ModelPresetConfig:
-    """Build the effective provider/generation config for one fallback model."""
-    return ModelPresetConfig(
-        model=fallback.model,
-        provider=fallback.provider,
-        max_tokens=fallback.max_tokens if fallback.max_tokens is not None else primary.max_tokens,
-        context_window_tokens=(
-            fallback.context_window_tokens
-            if fallback.context_window_tokens is not None
-            else primary.context_window_tokens
-        ),
-        temperature=(
-            fallback.temperature if fallback.temperature is not None else primary.temperature
-        ),
-        reasoning_effort=(
-            fallback.reasoning_effort
-            if fallback.reasoning_effort is not None
-            else primary.reasoning_effort
-        ),
-    )
-
-
 def make_provider(
     config: Config,
     *,
@@ -142,11 +120,12 @@ def make_provider(
     provider = _make_provider_core(config, preset_name=preset_name, preset=preset, model=model)
 
     if resolved.fallback_models:
+        fb_preset = resolved.model_copy(update={"provider": "auto", "fallback_models": []})
         provider = FallbackProvider(
             primary=provider,
             fallback_models=resolved.fallback_models,
-            provider_factory=lambda fb: _make_provider_core(
-                config, preset_name=preset_name, preset=_fallback_preset(resolved, fb)
+            provider_factory=lambda m: _make_provider_core(
+                config, preset_name=preset_name, preset=fb_preset, model=m
             ),
         )
 
@@ -159,32 +138,9 @@ def provider_signature(
     preset_name: str | None = None,
     preset: ModelPresetConfig | None = None,
 ) -> tuple[object, ...]:
-    """Return the config fields that affect the active provider chain."""
+    """Return the config fields that affect the primary LLM provider."""
     resolved = _resolve_model_preset(config, preset_name=preset_name, preset=preset)
     p = config.get_provider(resolved.model, preset=resolved)
-
-    def _fallback_signature(fallback: ModelFallbackConfig) -> tuple[object, ...]:
-        fallback_preset = _fallback_preset(resolved, fallback)
-        fp = config.get_provider(fallback.model, preset=fallback_preset)
-        return (
-            fallback.model,
-            fallback.provider,
-            fallback_preset.max_tokens,
-            fallback_preset.temperature,
-            fallback_preset.reasoning_effort,
-            fallback_preset.context_window_tokens,
-            config.get_provider_name(fallback.model, preset=fallback_preset),
-            config.get_api_key(fallback.model, preset=fallback_preset),
-            config.get_api_base(fallback.model, preset=fallback_preset),
-            fp.extra_headers if fp else None,
-            fp.extra_body if fp else None,
-            getattr(fp, "region", None) if fp else None,
-            getattr(fp, "profile", None) if fp else None,
-        )
-
-    fallback_signatures = tuple(
-        _fallback_signature(fallback) for fallback in resolved.fallback_models
-    )
     return (
         resolved.model,
         resolved.provider,
@@ -199,7 +155,6 @@ def provider_signature(
         resolved.temperature,
         resolved.reasoning_effort,
         resolved.context_window_tokens,
-        fallback_signatures,
     )
 
 
@@ -210,14 +165,10 @@ def build_provider_snapshot(
     preset: ModelPresetConfig | None = None,
 ) -> ProviderSnapshot:
     resolved = _resolve_model_preset(config, preset_name=preset_name, preset=preset)
-    fallback_windows = [
-        _fallback_preset(resolved, fallback).context_window_tokens
-        for fallback in resolved.fallback_models
-    ]
     return ProviderSnapshot(
         provider=make_provider(config, preset=resolved),
         model=resolved.model,
-        context_window_tokens=min([resolved.context_window_tokens, *fallback_windows]),
+        context_window_tokens=resolved.context_window_tokens,
         signature=provider_signature(config, preset=resolved),
     )
 

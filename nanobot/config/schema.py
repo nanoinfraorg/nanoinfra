@@ -74,17 +74,6 @@ class DreamConfig(Base):
         return f"every {hours}h"
 
 
-class ModelFallbackConfig(Base):
-    """A fallback model tied to one active model configuration."""
-
-    model: str
-    provider: str
-    max_tokens: int | None = None
-    context_window_tokens: int | None = None
-    temperature: float | None = None
-    reasoning_effort: str | None = None
-
-
 class ModelPresetConfig(Base):
     """A named set of model + generation parameters for quick switching."""
 
@@ -94,7 +83,7 @@ class ModelPresetConfig(Base):
     context_window_tokens: int = 65_536
     temperature: float = 0.1
     reasoning_effort: str | None = None
-    fallback_models: list[ModelFallbackConfig] = Field(default_factory=list)
+    fallback_models: list[str] = Field(default_factory=list)
 
     def to_generation_settings(self) -> Any:
         from nanobot.providers.base import GenerationSettings
@@ -118,7 +107,6 @@ class AgentDefaults(Base):
     context_window_tokens: int = 65_536
     context_block_limit: int | None = None
     temperature: float = 0.1
-    fallback_models: list[ModelFallbackConfig] = Field(default_factory=list)
     max_tool_iterations: int = 200
     max_concurrent_subagents: int = Field(default=1, ge=1)
     max_tool_result_chars: int = 16_000
@@ -309,7 +297,6 @@ class Config(BaseSettings):
             model=d.model, provider=d.provider, max_tokens=d.max_tokens,
             context_window_tokens=d.context_window_tokens,
             temperature=d.temperature, reasoning_effort=d.reasoning_effort,
-            fallback_models=d.fallback_models,
         )
 
     def resolve_preset(self, name: str | None = None) -> ModelPresetConfig:
