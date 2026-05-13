@@ -72,11 +72,12 @@ describe("MessageBubble", () => {
     render(<MessageBubble message={message} />);
     const toggle = screen.getByRole("button", { name: /used 2 tools/i });
 
-    expect(screen.getByText('weather("get")')).toBeInTheDocument();
-    expect(screen.getByText('search "hk weather"')).toBeInTheDocument();
+    expect(screen.queryByText('weather("get")')).not.toBeInTheDocument();
+    expect(screen.queryByText('search "hk weather"')).not.toBeInTheDocument();
 
     fireEvent.click(toggle);
-    expect(screen.queryByText('weather("get")')).not.toBeInTheDocument();
+    expect(screen.getByText('weather("get")')).toBeInTheDocument();
+    expect(screen.getByText('search "hk weather"')).toBeInTheDocument();
   });
 
   it("renders video media as an inline player", () => {

@@ -386,14 +386,14 @@ interface TraceGroupProps {
 
 /**
  * Collapsible group of tool-call / progress breadcrumbs. Defaults to
- * expanded for discoverability; a single click on the header folds the
- * group down to a one-line summary so it never dominates the thread.
+ * collapsed because tool traces are supporting evidence, not the answer.
+ * A single click expands the exact calls when the user wants details.
  */
 function TraceGroup({ message, animClass }: TraceGroupProps) {
   const { t } = useTranslation();
   const lines = message.traces ?? [message.content];
   const count = lines.length;
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   return (
     <div className={cn("w-full", animClass)}>
       <button
@@ -471,7 +471,7 @@ function ReasoningBubble({ text, streaming }: ReasoningBubbleProps) {
         type="button"
         onClick={onToggle}
         className={cn(
-          "flex w-full items-center gap-2 rounded-md px-2 py-1.5",
+          "group flex w-full items-center gap-2 rounded-md px-2 py-1.5",
           "text-xs text-muted-foreground transition-colors hover:bg-muted/45",
           streaming && "reasoning-shimmer",
         )}
@@ -498,7 +498,8 @@ function ReasoningBubble({ text, streaming }: ReasoningBubbleProps) {
       {open && text.length > 0 && (
         <div
           className={cn(
-            "mt-1 whitespace-pre-wrap break-words border-l border-muted-foreground/20 pl-3",
+            "mt-1 space-y-0.5 whitespace-pre-wrap break-words border-l border-muted-foreground/20 pl-3",
+            "animate-in fade-in-0 slide-in-from-top-1 duration-200",
             "text-[12.5px] italic leading-relaxed text-muted-foreground/85",
           )}
         >
