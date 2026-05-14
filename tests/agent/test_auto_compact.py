@@ -434,6 +434,7 @@ class TestAutoCompactIdleDetection:
         assert session_after.messages[0].get("_command") is True
         assert session_after.messages[1]["role"] == "assistant"
         assert session_after.messages[1].get("_command") is True
+        assert AgentLoop._PENDING_USER_TURN_KEY not in session_after.metadata
         await loop.close_mcp()
 
     @pytest.mark.asyncio

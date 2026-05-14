@@ -44,6 +44,14 @@ def test_is_allowed_denies_empty_dict_allow_from() -> None:
     assert channel.is_allowed("alice") is False
 
 
+def test_is_allowed_handles_none_allow_from() -> None:
+    channel = _DummyChannel({"allow_from": None}, MessageBus())
+    assert channel.is_allowed("alice") is False
+
+    channel2 = _DummyChannel({"allowFrom": None}, MessageBus())
+    assert channel2.is_allowed("alice") is False
+
+
 def test_is_allowed_star_allows_all() -> None:
     channel = _DummyChannel({"allowFrom": ["*"]}, MessageBus())
     assert channel.is_allowed("anyone") is True
