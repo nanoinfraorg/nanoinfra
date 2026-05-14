@@ -1249,6 +1249,8 @@ class WebSocketChannel(BaseChannel):
                 content = _parse_inbound_payload(raw)
                 if content is None:
                     continue
+                # WebSocket connections are always treated as 1:1 (DM) because
+                # each connection represents a single client browser/tab.
                 await self._handle_message(
                     sender_id=client_id,
                     chat_id=default_chat_id,

@@ -342,6 +342,22 @@ class SlackChannel(BaseChannel):
         channel_type = event.get("channel_type") or ""
 
         if not self._is_allowed(sender_id, chat_id, channel_type):
+            if channel_type == "im" and self.config.dm.enabled:
+                from nanobot.pairing import generate_code
+                code = generate_code(self.name, sender_id)
+                reply = (
+                    "This assistant requires approval before it can respond.\n"
+                    f"Your pairing code is: `{code}`\n"
+                    f"Ask the owner to run: `nanobot pairing approve {code}`"
+                )
+                await self.send(
+                    OutboundMessage(
+                        channel=self.name,
+                        chat_id=chat_id,
+                        content=reply,
+                        metadata={"_pairing_code": code},
+                    )
+                )
             return
 
         if channel_type != "im" and not self._should_respond_in_channel(event_type, text, chat_id):
@@ -608,11 +624,13 @@ class SlackChannel(BaseChannel):
                 self.logger.debug("done reaction failed: {}", e)
 
     def _is_allowed(self, sender_id: str, chat_id: str, channel_type: str) -> bool:
+        from nanobot.pairing import is_approved
+
         if channel_type == "im":
             if not self.config.dm.enabled:
                 return False
             if self.config.dm.policy == "allowlist":
-                return sender_id in self.config.dm.allow_from
+                return sender_id in self.config.dm.allow_from or is_approved(self.name, sender_id)
             return True
 
         # Group / channel messages

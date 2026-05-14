@@ -143,9 +143,9 @@ class ChannelManager:
                     allow = cfg.get("allowFrom")
             else:
                 allow = getattr(cfg, "allow_from", None)
-            if allow == []:
+            if allow is None:
                 raise SystemExit(
-                    f'Error: "{name}" has empty allowFrom (denies all). '
+                    f'Error: "{name}" is missing allowFrom. '
                     f'Set ["*"] to allow everyone, or add specific user IDs.'
                 )
 

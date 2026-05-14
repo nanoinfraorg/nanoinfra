@@ -8,6 +8,7 @@ private-assistant scale: small JSON file, simple locking, no external DB.
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import string
 import threading
@@ -20,8 +21,9 @@ from loguru import logger
 from nanobot.config.paths import get_data_dir
 
 _LOCK = threading.Lock()
+
 _ALPHABET = string.ascii_uppercase + string.digits
-_CODE_LENGTH = 6  # e.g. XK9-42F
+_CODE_LENGTH = 8  # e.g. XK9-42F-MP
 _TTL_DEFAULT_S = 600  # 10 minutes
 
 
@@ -48,7 +50,17 @@ def _save(data: dict[str, Any]) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
         f.flush()
+        os.fsync(f.fileno())
     tmp.replace(path)
+    # Ensure directory entry is flushed for durability (Unix only; no-op on Windows)
+    try:
+        fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except (OSError, NotImplementedError):
+        pass
 
 
 def _gc_pending(data: dict[str, Any]) -> None:
@@ -75,7 +87,7 @@ def generate_code(
         # Ensure uniqueness
         for _ in range(100):
             raw = "".join(secrets.choice(_ALPHABET) for _ in range(_CODE_LENGTH))
-            code = f"{raw[:3]}-{raw[3:]}"
+            code = f"{raw[:4]}-{raw[4:]}"
             if code not in data.get("pending", {}):
                 break
         else:  # pragma: no cover

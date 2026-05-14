@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -191,6 +192,10 @@ class BaseChannel(ABC):
         2. ``allowFrom`` list → allow if sender_id is present.
         3. Pairing store approved list → allow if previously approved.
         4. Otherwise deny.
+
+        An empty ``allowFrom`` list does not cause a hard exit; instead it
+        defers to the pairing store so that unknown DM senders can request
+        access via a pairing code.
         """
         if isinstance(self.config, dict):
             if "allow_from" in self.config:
@@ -296,8 +301,6 @@ class BaseChannel(ABC):
                 reply = "No pending pairing requests."
             else:
                 lines = ["Pending pairing requests:"]
-                import time
-
                 for item in pending:
                     remaining = int(item.get("expires_at", 0) - time.time())
                     expiry = f"{remaining}s" if remaining > 0 else "expired"
@@ -331,12 +334,14 @@ class BaseChannel(ABC):
 
         elif sub == "revoke":
             if arg is None:
-                reply = "Usage: `/pairing revoke <user_id>`"
+                reply = "Usage: `/pairing revoke <user_id>` or `/pairing revoke <channel> <user_id>`"
             else:
-                if revoke(self.name, arg):
-                    reply = f"Revoked {arg} from {self.name}"
+                target_channel = parts[3] if len(parts) > 3 else self.name
+                target_user = arg if len(parts) <= 3 else parts[3]
+                if revoke(target_channel, target_user):
+                    reply = f"Revoked {target_user} from {target_channel}"
                 else:
-                    reply = f"{arg} was not in the approved list for {self.name}"
+                    reply = f"{target_user} was not in the approved list for {target_channel}"
 
         else:
             reply = (
