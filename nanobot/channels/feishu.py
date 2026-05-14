@@ -1699,9 +1699,6 @@ class FeishuChannel(BaseChannel):
             chat_type = message.chat_type
             msg_type = message.message_type
 
-            if not self.is_allowed(sender_id):
-                return
-
             if chat_type == "group" and not self._is_group_message_for_bot(message):
                 self.logger.debug("skipping group message (not mentioned)")
                 return
@@ -1829,6 +1826,7 @@ class FeishuChannel(BaseChannel):
                     "thread_id": thread_id,
                 },
                 session_key=session_key,
+                is_dm=chat_type == "p2p",
             )
 
         except Exception:
