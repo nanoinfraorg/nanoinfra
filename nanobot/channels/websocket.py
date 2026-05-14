@@ -1249,14 +1249,15 @@ class WebSocketChannel(BaseChannel):
                 content = _parse_inbound_payload(raw)
                 if content is None:
                     continue
-                # WebSocket connections are always treated as 1:1 (DM) because
-                # each connection represents a single client browser/tab.
+                # WebSocket already authenticates at handshake time (token),
+                # so pairing is not applicable. Treat as non-DM to avoid
+                # sending pairing codes to an already-authenticated client.
                 await self._handle_message(
                     sender_id=client_id,
                     chat_id=default_chat_id,
                     content=content,
                     metadata={"remote": getattr(connection, "remote_address", None)},
-                    is_dm=True,
+                    is_dm=False,
                 )
         except Exception as e:
             self.logger.debug("connection ended: {}", e)
@@ -1402,7 +1403,7 @@ class WebSocketChannel(BaseChannel):
                 content=content,
                 media=media_paths or None,
                 metadata=metadata,
-                is_dm=True,
+                is_dm=False,
             )
             return
         await self._send_event(connection, "error", detail=f"unknown type: {t!r}")
