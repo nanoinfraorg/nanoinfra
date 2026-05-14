@@ -1712,6 +1712,18 @@ class FeishuChannel(BaseChannel):
             while len(self._processed_message_ids) > 1000:
                 self._processed_message_ids.popitem(last=False)
 
+            # Early permission check — avoid side effects for unauthorized users.
+            # Group chats are silently ignored; DMs get a pairing code.
+            if not self.is_allowed(sender_id):
+                if chat_type == "p2p":
+                    await self._handle_message(
+                        sender_id=sender_id,
+                        chat_id=sender_id,
+                        content="",
+                        is_dm=True,
+                    )
+                return
+
             # Add reaction (non-blocking — tracked background task)
             task = asyncio.create_task(
                 self._add_reaction(message_id, self.config.react_emoji)
