@@ -26,21 +26,21 @@
 - **2026-05-14** 🎯 **`/goal`** for long-term objectives, visible multi-step progress, long-horizon missions in chat.
 - **2026-05-13** 🧠 Streaming reasoning before answers, automatic backup models, smoother plug-in reconnects.
 - **2026-05-12** 🎛️ Saved model presets with WebUI badge, simpler plug-in tools, quieter Feishu topic threads.
-- **2026-05-11** 🖥️ NVIDIA NIM deployment path, terminal bot name and icon, streamed reasoning and MiMo toggle clarity.
-- **2026-05-09** 🖼️ Sharper image replay and delivery, BYO web-search keys in Settings, Feishu threads routed cleanly.
+- **2026-05-11** 🖥️ NVIDIA NIM support, terminal bot name and icon, streamed reasoning and MiMo toggle clarity.
+- **2026-05-09** 🖼️ Sharper image replay, BYO web-search keys in Settings, Feishu threads routed cleanly.
 - **2026-05-08** ✨ Inline chat image previews, redesigned Settings and keys, Dream memory aligned with visible history.
-- **2026-05-07** 📜 Locale-aware slash palette in WebUI, LAN login gated by secrets, faithful HTTP streaming responses.
-- **2026-05-06** 🧩 Tunable tool hint length, steadier voice and plug-in startups, schedules and reminders that stick.
-- **2026-05-05** 🛡️ Quiet deny for unknown Telegram chats, Dream cleanup and Feishu attachments, fuller automation summaries.
+- **2026-05-07** 📜 Locale-aware slash palette in WebUI, LAN login, faithful HTTP streaming responses.
+- **2026-05-06** 🧩 Tunable tool hint, steadier voice and plug-in startups, schedules and reminders that stick.
+- **2026-05-05** 🛡️ Quiet deny for unknown Telegram chats, Dream cleanup, fuller automation summaries.
 
 <details>
 <summary>Earlier news</summary>
 
-- **2026-05-04** 🔐 Safer DingTalk outbound media links, durable cron persistence, DeepSeek polish and WhatsApp voice notes.
-- **2026-05-03** ⚙️ Predictable shell allow-list behavior, isolated chats mid-reply in WebUI, cleaner interactive retries.
-- **2026-05-02** 🐈 LongCat OpenAI-compatible routing, smarter token sizing hints, clearer bundled upgrade guidance.
-- **2026-05-01** ☁️ Native AWS Bedrock provider, tighter helper handoffs and scoped session files, steadier threading and Anthropic streaming.
-- **2026-04-30** 💬 Feishu threads that honor replies and topics, WhatsApp bridge refresh on source edits, gentler helper iteration caps.
+- **2026-05-04** 🔐 Safer DingTalk outbound media links, durable cron persistence, DeepSeek polish.
+- **2026-05-03** ⚙️ Predictable shell allow-list behavior, isolated chats mid-reply, cleaner interactive retries.
+- **2026-05-02** 🐈 LongCat support, smarter token sizing hints, clearer bundled upgrade guidance.
+- **2026-05-01** ☁️ Native AWS Bedrock provider, tighter helper handoffs and scoped session files.
+- **2026-04-30** 💬 Feishu threads that honor replies and topics, WhatsApp bridge refresh on source edits.
 - **2026-04-29** 🚀 Released **v0.1.5.post3** — Smarter threads on Feishu, Discord, Slack, and Teams; **DeepSeek-V4**; Hugging Face & Olostep; choices, `/history`, and steadier long chats. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.5.post3) for details.
 - **2026-04-28** 🌐 Olostep web search, Hugging Face provider, safer workspace-tool interruptions.
 - **2026-04-27** 💬 `/history` command, smarter session replay caps, smoother Discord / Slack threads.
