@@ -18,7 +18,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
-from nanobot.pairing import PAIRING_CODE_META_KEY, format_pairing_reply, generate_code, is_approved
+from nanobot.pairing import is_approved
 from nanobot.utils.helpers import safe_filename, split_message
 
 
@@ -344,15 +344,11 @@ class SlackChannel(BaseChannel):
 
         if not self._is_allowed(sender_id, chat_id, channel_type):
             if channel_type == "im" and self.config.dm.enabled:
-                code = generate_code(self.name, sender_id)
-                reply = format_pairing_reply(code)
-                await self.send(
-                    OutboundMessage(
-                        channel=self.name,
-                        chat_id=chat_id,
-                        content=reply,
-                        metadata={PAIRING_CODE_META_KEY: code},
-                    )
+                await self._handle_message(
+                    sender_id=sender_id,
+                    chat_id=chat_id,
+                    content="",
+                    is_dm=True,
                 )
             return
 
