@@ -184,12 +184,9 @@ class BaseChannel(ABC):
     def is_allowed(self, sender_id: str) -> bool:
         """Check sender permission: star > allowlist > pairing store > deny."""
         if isinstance(self.config, dict):
-            if "allow_from" in self.config:
-                allow_list = self.config.get("allow_from") or []
-            else:
-                allow_list = self.config.get("allowFrom", []) or []
+            allow_list = self.config.get("allow_from") or self.config.get("allowFrom") or []
         else:
-            allow_list = getattr(self.config, "allow_from", []) or []
+            allow_list = getattr(self.config, "allow_from", None) or []
         if "*" in allow_list:
             return True
         # allowFrom entries are opaque tokens — must match exactly.
