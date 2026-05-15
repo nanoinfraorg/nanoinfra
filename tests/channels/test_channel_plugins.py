@@ -1011,6 +1011,36 @@ async def test_validate_allow_from_allows_empty_dict_allow_from():
 
 
 @pytest.mark.asyncio
+async def test_validate_allow_from_allows_missing_allow_from():
+    """Omitted allowFrom is valid — channel operates in pairing-only mode."""
+    fake_config = SimpleNamespace(
+        channels=ChannelsConfig(),
+        providers=SimpleNamespace(groq=SimpleNamespace(api_key="")),
+    )
+
+    class _NoAllowFromChannel(BaseChannel):
+        name = "noallow"
+        display_name = "No Allow"
+
+        async def start(self) -> None:
+            pass
+
+        async def stop(self) -> None:
+            pass
+
+        async def send(self, msg: OutboundMessage) -> None:
+            pass
+
+    mgr = ChannelManager.__new__(ChannelManager)
+    mgr.config = fake_config
+    mgr.channels = {"test": _NoAllowFromChannel({"enabled": True}, None)}
+    mgr._dispatch_task = None
+
+    # Should not raise — pairing-only mode
+    mgr._validate_allow_from()
+
+
+@pytest.mark.asyncio
 async def test_get_channel_returns_channel_if_exists():
     """get_channel should return the channel if it exists."""
     fake_config = SimpleNamespace(
