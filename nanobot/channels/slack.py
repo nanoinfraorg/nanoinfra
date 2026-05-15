@@ -18,7 +18,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
-from nanobot.pairing import format_pairing_reply, generate_code, is_approved
+from nanobot.pairing import PAIRING_CODE_META_KEY, format_pairing_reply, generate_code, is_approved
 from nanobot.utils.helpers import safe_filename, split_message
 
 
@@ -351,7 +351,7 @@ class SlackChannel(BaseChannel):
                         channel=self.name,
                         chat_id=chat_id,
                         content=reply,
-                        metadata={"_pairing_code": code},
+                        metadata={PAIRING_CODE_META_KEY: code},
                     )
                 )
             return

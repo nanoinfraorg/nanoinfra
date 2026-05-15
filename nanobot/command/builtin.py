@@ -548,14 +548,14 @@ async def cmd_history(ctx: CommandContext) -> OutboundMessage:
 
 async def cmd_pairing(ctx: CommandContext) -> OutboundMessage:
     """List, approve, deny or revoke pairing requests."""
-    from nanobot.pairing import handle_pairing_command
+    from nanobot.pairing import PAIRING_COMMAND_META_KEY, handle_pairing_command
 
     reply = handle_pairing_command(ctx.msg.channel, ctx.args)
     return OutboundMessage(
         channel=ctx.msg.channel,
         chat_id=ctx.msg.chat_id,
         content=reply,
-        metadata={"_pairing_command": True},
+        metadata={PAIRING_COMMAND_META_KEY: True},
     )
 
 

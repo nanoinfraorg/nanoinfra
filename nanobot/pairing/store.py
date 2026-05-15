@@ -35,11 +35,11 @@ def _store_path() -> Path:
 
 def _load() -> dict[str, Any]:
     path = _store_path()
-    if not path.exists():
-        return {"approved": {}, "pending": {}}
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
+    except FileNotFoundError:
+        return {"approved": {}, "pending": {}}
     except (json.JSONDecodeError, OSError):
         logger.warning("Corrupted pairing store, resetting")
         return {"approved": {}, "pending": {}}
@@ -82,8 +82,6 @@ def generate_code(
     with _LOCK:
         data = _load()
         _gc_pending(data)
-        # Collision probability is negligible (~1e-12 with 20 pending codes),
-        # so we skip an existence check for simplicity.
         raw = "".join(secrets.choice(_ALPHABET) for _ in range(_CODE_LENGTH))
         code = f"{raw[:4]}-{raw[4:]}"
 
@@ -236,22 +234,19 @@ def handle_pairing_command(channel: str, subcommand_text: str) -> str:
         return f"Pairing code `{arg}` not found or already expired"
 
     elif sub == "revoke":
-        if arg is None:
-            return "Usage: `/pairing revoke <user_id>` or `/pairing revoke <channel> <user_id>`"
-        elif len(parts) == 2:
+        if len(parts) == 2:
             return (
                 f"Revoked {arg} from {channel}"
                 if revoke(channel, arg)
                 else f"{arg} was not in the approved list for {channel}"
             )
-        elif len(parts) == 3:
+        if len(parts) == 3:
             return (
                 f"Revoked {parts[2]} from {arg}"
                 if revoke(arg, parts[2])
                 else f"{parts[2]} was not in the approved list for {arg}"
             )
-        else:
-            return "Usage: `/pairing revoke <user_id>` or `/pairing revoke <channel> <user_id>`"
+        return "Usage: `/pairing revoke <user_id>` or `/pairing revoke <channel> <user_id>`"
 
     return (
         "Unknown pairing command.\n"

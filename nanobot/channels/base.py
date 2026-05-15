@@ -11,6 +11,7 @@ from loguru import logger
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.pairing import (
+    PAIRING_CODE_META_KEY,
     format_pairing_reply,
     generate_code,
     is_approved,
@@ -181,18 +182,7 @@ class BaseChannel(ABC):
         return bool(streaming) and type(self).send_delta is not BaseChannel.send_delta
 
     def is_allowed(self, sender_id: str) -> bool:
-        """Check if *sender_id* is permitted.
-
-        Priority:
-        1. ``allowFrom: ["*"]`` → allow all.
-        2. ``allowFrom`` list → allow if sender_id is present.
-        3. Pairing store approved list → allow if previously approved.
-        4. Otherwise deny.
-
-        An empty ``allowFrom`` list does not cause a hard exit; instead it
-        defers to the pairing store so that unknown DM senders can request
-        access via a pairing code.
-        """
+        """Check sender permission: star > allowlist > pairing store > deny."""
         if isinstance(self.config, dict):
             if "allow_from" in self.config:
                 allow_list = self.config.get("allow_from") or []
@@ -228,7 +218,7 @@ class BaseChannel(ABC):
                         channel=self.name,
                         chat_id=str(chat_id),
                         content=format_pairing_reply(code),
-                        metadata={"_pairing_code": code},
+                        metadata={PAIRING_CODE_META_KEY: code},
                     )
                 )
                 self.logger.info(
