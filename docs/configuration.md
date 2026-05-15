@@ -1117,6 +1117,71 @@ MCP tools are automatically discovered and registered on startup. The LLM can us
 **Docker security**: The official Docker image runs as a non-root user (`nanobot`, UID 1000) with bubblewrap pre-installed. When using `docker-compose.yml`, the container drops all Linux capabilities except `SYS_ADMIN` (required for bwrap's namespace isolation).
 
 
+## Pairing
+
+Pairing lets users get access to the bot through a simple code exchange — no config editing required. This works for both new users and existing users connecting from a new channel (e.g. someone already approved on Telegram now setting up Discord).
+
+### How it works
+
+1. A user sends a DM to the bot on any channel (Telegram, Discord, Slack, etc.) where they aren't yet approved.
+2. The bot replies with a pairing code (like `ABCD-EFGH`) and tells them to forward it to you.
+3. You approve the code:
+
+```text
+/pairing approve ABCD-EFGH
+```
+
+4. The user can now chat with the bot normally.
+
+Pairing only works in **DMs** — unapproved users in group chats are silently ignored.
+
+### Pairing-only mode
+
+By default, if you don't set `allowFrom`, anyone who isn't approved yet will get a pairing code when they DM the bot. This means you can skip `allowFrom` entirely and manage all access through pairing:
+
+```json
+{
+  "channels": {
+    "telegram": {
+      "enabled": true
+    }
+  }
+}
+```
+
+If you prefer to allow everyone without approval:
+
+```json
+{
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "allowFrom": ["*"]
+    }
+  }
+}
+```
+
+### Managing access
+
+| Command | What it does |
+|---------|-------------|
+| `/pairing` | Show all pending pairing requests |
+| `/pairing approve <code>` | Approve a request — the sender can now chat |
+| `/pairing deny <code>` | Reject a pending request |
+| `/pairing revoke <user_id>` | Remove a previously approved user from the current channel |
+| `/pairing revoke <channel> <user_id>` | Remove a user from a specific channel |
+
+You can find user IDs in the output of `/pairing list`.
+
+From the terminal:
+
+```bash
+nanobot agent -m "/pairing list"
+nanobot agent -m "/pairing approve ABCD-EFGH"
+```
+
+
 ## Subagent Concurrency
 
 By default, nanobot only allows one spawned subagent at a time. When the limit is
