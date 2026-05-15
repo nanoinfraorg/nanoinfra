@@ -187,8 +187,7 @@ def format_pairing_reply(code: str) -> str:
         "Hi there! This assistant only responds to approved users.\n\n"
         f"Your pairing code is: `{code}`\n\n"
         "To get access, ask the owner to approve this code:\n"
-        f"- In this chat: send `/pairing approve {code}`\n"
-        f"- Via CLI: run `nanobot pairing approve {code}`"
+        f"- In this chat: send `/pairing approve {code}`"
     )
 
 
