@@ -114,10 +114,8 @@ export function ThreadShell({
     return messageCacheRef.current.get(chatId) ?? historical;
   }, [chatId, historical]);
   const handleTurnEnd = useCallback(() => {
-    if (chatId) pendingCanonicalHydrateRef.current.add(chatId);
-    refreshHistory();
     onTurnEnd?.();
-  }, [chatId, onTurnEnd, refreshHistory]);
+  }, [onTurnEnd]);
   const {
     messages,
     isStreaming,
@@ -147,8 +145,8 @@ export function ThreadShell({
     // When the user switches away and back, keep the local in-memory thread
     // state (including not-yet-persisted messages) instead of replacing it with
     // whatever the history endpoint currently knows about. Once a fresh
-    // canonical replay arrives after turn_end, prefer it so live Markdown/tool
-    // rendering converges to the same shape as a manual refresh.
+    // canonical replay arrives (e.g. after ``session_updated`` refresh), prefer it
+    // so rendering converges to the same shape as a manual refresh.
     setMessages((prev) => {
       if (hasNewCanonicalHistory && historical.length > 0) {
         pendingCanonicalHydrateRef.current.delete(chatId);

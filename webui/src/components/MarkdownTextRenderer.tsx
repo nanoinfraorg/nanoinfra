@@ -1,3 +1,4 @@
+import { Children, isValidElement } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
@@ -46,11 +47,19 @@ export default function MarkdownTextRenderer({
         components={{
           code({ className: cls, children: kids, ...props }) {
             const match = /language-(\w+)/.exec(cls || "");
-            if (!match) {
+            if (match) {
+              const code = String(kids).replace(/\n$/, "");
+              return <CodeBlock language={match[1]} code={code} className="my-3" />;
+            }
+            const raw = String(kids).replace(/\n$/, "");
+            /** Plain fenced ``` blocks (no language) & wide one-liners: block monospace, not inline pill. */
+            const widePlainBlock = raw.includes("\n") || raw.length > 120;
+            if (widePlainBlock) {
               return (
                 <code
                   className={cn(
-                    "rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]",
+                    "block min-w-0 whitespace-pre bg-transparent p-0 font-mono text-[0.8125rem]",
+                    "leading-snug text-inherit",
                     cls,
                   )}
                   {...props}
@@ -59,11 +68,36 @@ export default function MarkdownTextRenderer({
                 </code>
               );
             }
-            const code = String(kids).replace(/\n$/, "");
-            return <CodeBlock language={match[1]} code={code} className="my-3" />;
+            return (
+              <code
+                className={cn(
+                  "rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]",
+                  cls,
+                )}
+                {...props}
+              >
+                {kids}
+              </code>
+            );
           },
           pre({ children: markdownChildren }) {
-            return <>{markdownChildren}</>;
+            const kids = Children.toArray(markdownChildren);
+            const lone = kids.length === 1 ? kids[0] : null;
+            /** Highlighted fences render ``CodeBlock`` (block shell); skip invalid ``<pre><div>``. */
+            if (lone != null && isValidElement(lone) && lone.type === CodeBlock) {
+              return <>{markdownChildren}</>;
+            }
+            return (
+              <pre
+                className={cn(
+                  "my-3 overflow-x-auto rounded-lg border border-border/60 bg-muted/35",
+                  "p-3 font-mono text-[0.8125rem] leading-snug text-foreground/90",
+                  "whitespace-pre [overflow-wrap:normal]",
+                )}
+              >
+                {markdownChildren}
+              </pre>
+            );
           },
           a({ href, children: markdownChildren, ...props }) {
             return (

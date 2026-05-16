@@ -593,7 +593,7 @@ describe("ThreadShell", () => {
     await waitFor(() => expect(screen.getByText("live assistant reply")).toBeInTheDocument());
   });
 
-  it("replaces live streamed content with canonical history after turn end", async () => {
+  it("does not refetch thread history on turn_end", async () => {
     const client = makeClient();
     let historyCalls = 0;
     vi.stubGlobal(
@@ -646,8 +646,9 @@ describe("ThreadShell", () => {
       });
     });
 
-    await waitFor(() => expect(screen.getByText("canonical markdown answer")).toBeInTheDocument());
-    expect(screen.queryByText("live half-parsed | markdown")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("live half-parsed | markdown")).toBeInTheDocument());
+    expect(screen.queryByText("canonical markdown answer")).not.toBeInTheDocument();
+    expect(historyCalls).toBe(1);
   });
 
   it("scrolls to the bottom after loading a session from the blank new-chat page", async () => {

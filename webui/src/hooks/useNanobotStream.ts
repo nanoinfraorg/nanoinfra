@@ -14,10 +14,19 @@ import type {
 } from "@/lib/types";
 
 interface StreamBuffer {
-  /** ID of the assistant message currently receiving deltas. */
+  /** ID of the assistant message currently receiving deltas (cleared on ``stream_end``). */
   messageId: string;
-  /** Sequence of deltas accumulated in order. */
-  parts: string[];
+}
+
+/** Scan upward from the bottom skipping trace rows so tool breadcrumbs don't steal the stream target. */
+function findStreamingAssistantId(prev: UIMessage[]): string | null {
+  for (let i = prev.length - 1; i >= 0; i -= 1) {
+    const m = prev[i];
+    if (m.kind === "trace") continue;
+    if (m.role === "assistant" && m.isStreaming) return m.id;
+    if (m.role === "user") break;
+  }
+  return null;
 }
 
 /**
@@ -286,25 +295,22 @@ export function useNanobotStream(
 
       if (ev.event === "delta") {
         if (suppressStreamUntilTurnEndRef.current) return;
-        const chunk = ev.text;
+        const chunk = typeof ev.text === "string" ? ev.text : "";
         setIsStreaming(true);
         setMessages((prev) => {
-          // Reuse an in-flight assistant placeholder (typically created by
-          // ``reasoning_delta``) so the answer renders below its own
-          // thinking trace instead of in a parallel row.
-          const adopted = !buffer.current ? findActiveAssistantPlaceholder(prev) : null;
+          const adopted = findActiveAssistantPlaceholder(prev);
+          const streamingAssistId = findStreamingAssistantId(prev);
           let targetId: string;
           let next: UIMessage[];
-          if (buffer.current) {
-            targetId = buffer.current.messageId;
-            next = prev;
-          } else if (adopted) {
+
+          if (adopted) {
             targetId = adopted;
-            buffer.current = { messageId: targetId, parts: [] };
+            next = prev;
+          } else if (streamingAssistId) {
+            targetId = streamingAssistId;
             next = prev;
           } else {
             targetId = crypto.randomUUID();
-            buffer.current = { messageId: targetId, parts: [] };
             next = [
               ...prev,
               {
@@ -316,8 +322,11 @@ export function useNanobotStream(
               },
             ];
           }
-          buffer.current.parts.push(chunk);
-          const combined = buffer.current.parts.join("");
+
+          buffer.current = { messageId: targetId };
+
+          const priorContent = next.find((m) => m.id === targetId)?.content ?? "";
+          const combined = priorContent + chunk;
           return next.map((m) =>
             m.id === targetId ? { ...m, content: combined, isStreaming: true } : m,
           );
