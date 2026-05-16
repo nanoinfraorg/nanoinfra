@@ -9,6 +9,7 @@ from nanobot.agent.loop import AgentLoop
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMResponse
+from nanobot.session.goal_state import GOAL_STATE_KEY
 from nanobot.session.manager import Session
 from nanobot.utils.webui_titles import (
     WEBUI_SESSION_METADATA_KEY,
@@ -491,6 +492,58 @@ async def test_process_message_uses_context_chat_id_for_runtime_prompt(tmp_path:
     assert result.chat_id == "thread-777"
     assert loop.context.build_messages.call_args.kwargs["chat_id"] == "parent-456"
     assert loop._run_agent_loop.call_args.kwargs["chat_id"] == "thread-777"
+
+
+@pytest.mark.asyncio
+async def test_process_message_uses_explicit_session_metadata_for_goal_context(
+    tmp_path: Path,
+) -> None:
+    loop = _make_full_loop(tmp_path)
+    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
+    chat_session = loop.sessions.get_or_create("websocket:chat-with-goal")
+    chat_session.metadata[GOAL_STATE_KEY] = {
+        "status": "active",
+        "objective": "This chat goal must not leak into heartbeat.",
+    }
+    loop.sessions.save(chat_session)
+    system_session = loop.sessions.get_or_create("heartbeat")
+    system_session.metadata = {}
+    loop.sessions.save(system_session)
+
+    loop.context.build_messages = MagicMock(  # type: ignore[method-assign]
+        return_value=[
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "runtime + heartbeat"},
+        ]
+    )
+    loop._run_agent_loop = AsyncMock(return_value=(  # type: ignore[method-assign]
+        "ok",
+        [],
+        [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "runtime + heartbeat"},
+            {"role": "assistant", "content": "ok"},
+        ],
+        "stop",
+        False,
+    ))
+
+    result = await loop._process_message(
+        InboundMessage(
+            channel="websocket",
+            sender_id="heartbeat",
+            chat_id="chat-with-goal",
+            content="heartbeat work",
+        ),
+        session_key="heartbeat",
+    )
+
+    assert result is not None
+    assert result.content == "ok"
+    kwargs = loop.context.build_messages.call_args.kwargs
+    assert kwargs["chat_id"] == "chat-with-goal"
+    assert kwargs["session_metadata"] is system_session.metadata
+    assert GOAL_STATE_KEY not in kwargs["session_metadata"]
 
 
 def test_set_tool_context_uses_effective_key_for_spawn_tool(tmp_path: Path) -> None:

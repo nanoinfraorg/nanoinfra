@@ -299,6 +299,31 @@ class TestBuildMessages:
         assert "Goal (active):" in user_msg
         assert "Finish docs migration." in user_msg
 
+    def test_goal_state_does_not_leak_without_session_metadata(self, tmp_path):
+        builder = _builder(tmp_path)
+        other_session_meta = {
+            GOAL_STATE_KEY: {"status": "active", "objective": "Other chat goal."},
+        }
+
+        with_goal = builder.build_messages(
+            [],
+            "hi",
+            channel="websocket",
+            chat_id="chat-a",
+            session_metadata=other_session_meta,
+        )
+        without_goal = builder.build_messages(
+            [],
+            "hi",
+            channel="websocket",
+            chat_id="chat-b",
+            session_metadata={},
+        )
+
+        assert "Other chat goal." in str(with_goal[-1]["content"])
+        assert "Other chat goal." not in str(without_goal[-1]["content"])
+        assert "Goal (active):" not in str(without_goal[-1]["content"])
+
     def test_consecutive_same_role_merged(self, tmp_path):
         builder = _builder(tmp_path)
         history = [{"role": "user", "content": "previous user message"}]
