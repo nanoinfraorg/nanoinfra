@@ -8,6 +8,7 @@ from nanobot.session.goal_state import (
     goal_state_runtime_lines,
     goal_state_ws_blob,
     parse_goal_state,
+    sustained_goal_active,
 )
 
 
@@ -88,3 +89,19 @@ def test_goal_state_ws_blob_active_shape():
         "ui_summary": "feat",
         "objective": "Build feature.",
     }
+
+
+def test_sustained_goal_active_false_when_missing_or_completed():
+    assert sustained_goal_active(None) is False
+    assert sustained_goal_active({}) is False
+    assert sustained_goal_active({GOAL_STATE_KEY: {"status": "completed", "objective": "x"}}) is False
+
+
+def test_sustained_goal_active_true_when_active():
+    meta = {GOAL_STATE_KEY: {"status": "active", "objective": "Run long task."}}
+    assert sustained_goal_active(meta) is True
+
+
+def test_sustained_goal_active_respects_legacy_thread_goal_key():
+    meta = {"thread_goal": {"status": "active", "objective": "Legacy."}}
+    assert sustained_goal_active(meta) is True

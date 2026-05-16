@@ -35,6 +35,12 @@ def goal_state_raw(metadata: Mapping[str, Any] | None) -> Any:
     return _session_goal_raw(metadata)
 
 
+def sustained_goal_active(metadata: Mapping[str, Any] | None) -> bool:
+    """True when this session has an active sustained objective (``long_task`` bookkeeping)."""
+    goal = parse_goal_state(goal_state_raw(metadata))
+    return isinstance(goal, dict) and goal.get("status") == "active"
+
+
 def parse_goal_state(blob: Any) -> dict[str, Any] | None:
     if blob is None:
         return None

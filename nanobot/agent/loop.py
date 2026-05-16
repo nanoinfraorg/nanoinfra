@@ -32,7 +32,11 @@ from nanobot.command import CommandContext, CommandRouter, register_builtin_comm
 from nanobot.config.schema import AgentDefaults, ModelPresetConfig
 from nanobot.providers.base import LLMProvider
 from nanobot.providers.factory import ProviderSnapshot
-from nanobot.session.goal_state import goal_state_runtime_lines, goal_state_ws_blob
+from nanobot.session.goal_state import (
+    goal_state_runtime_lines,
+    goal_state_ws_blob,
+    sustained_goal_active,
+)
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.artifacts import generated_image_paths_from_messages
 from nanobot.utils.document import extract_documents
@@ -789,6 +793,13 @@ class AgentLoop:
                 retry_wait_callback=on_retry_wait,
                 checkpoint_callback=_checkpoint,
                 injection_callback=_drain_pending,
+                # Sustained goals may legitimately exceed NANOBOT_LLM_TIMEOUT_S; idle stall
+                # is still capped by NANOBOT_STREAM_IDLE_TIMEOUT_S in streaming providers.
+                llm_timeout_s=(
+                    0.0
+                    if session is not None and sustained_goal_active(session.metadata)
+                    else None
+                ),
             ))
         finally:
             reset_file_states(file_state_token)
