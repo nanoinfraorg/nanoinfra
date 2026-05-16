@@ -1,6 +1,6 @@
 ---
 name: long-goal
-description: Sustained objectives via long_task / complete_goal, Runtime Context goal lines, and idempotent goal wording.
+description: Sustained objectives via long_task / complete_goal — idempotent goal wording, project-style modular work, early web/doc research, Runtime Context metadata.
 ---
 
 # Long-running objectives (`long_task` / `complete_goal`)
@@ -40,3 +40,19 @@ Write goals so they are:
 6. **`ui_summary`** — Short label for sidebars/logs; keep **non-load-bearing** (no secret requirements only in the summary).
 
 If you discover the objective was underspecified, you may ask the user—or **`complete_goal`** with recap and register a **narrower** replacement goal rather than overloading one ambiguous string.
+
+## Project-shaped work (avoid the “mega file” trap)
+
+Use this when the goal is to **build or reshape a codebase** (app, service, tooling, sizeable feature):
+
+1. **Modular layout** — Split into **meaningful modules** (directories + files with clear responsibilities: entrypoints, domain logic, config, infra, CLI/UI routes, etc.). **Do not** default to dumping an entire project into one giant source file unless the user explicitly wants a minimal single-file artifact.
+2. **Conventional structure** — Follow normal practice for that stack (separation of concerns, sensible naming, config vs code, reusable helpers). Aim for reviewable increments, not unreadable blobs.
+3. **Verify as you go** — Run/format/lint/tests the project affords after meaningful chunks so the tree stays truthful; bake **checks or manual steps into the goal** when they matter.
+
+## Look things up instead of guessing
+
+Facts (API specifics, tooling flags, deprecations, best practices newer than cutoff) fail silently in sustained work unless you anchor them early:
+
+1. **Use discovery tools when appropriate** — If the ecosystem is unfamiliar or brittle, **`web_search`**, doc/web fetch (or MCP) **early**—before committing to architecture or rewriting large areas. Narrow queries tied to decisions you must make next.
+2. **Turn findings into scoped action** — Summarize conclusions into repo artifacts only when helpful (comments, README, small design note); keep **compact**—not a substitute for executing the objective.
+3. **Re-consult when stuck** — If errors contradict assumptions or loops repeat, pause and refresh context with targeted search/fetch rather than hammering blindly.

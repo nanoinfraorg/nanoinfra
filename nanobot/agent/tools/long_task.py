@@ -84,12 +84,8 @@ class _GoalToolsMixin(ContextAware):
     tool_parameters_schema(
         goal=StringSchema(
             "Full objective text for sustained execution on this chat thread. "
-            "Required: read the entire **long-goal** skill before composing this argument "
-            "(locate **long-goal** in the skills listing and open its file path, e.g. read_file)—do **not** "
-            "call `long_task` until you have read it. "
-            "Apply that skill literally: desired outcomes and acceptance criteria; "
-            "idempotent, self-contained wording (safe across compaction and resume; "
-            "no duplicate destructive steps); explicit deliverables, scope boundaries, and verification.",
+            "Required: open the **long-goal** skill from the skills listing (e.g. read_file its path)—do **not** "
+            "call `long_task` until you have read it. Compose `goal` exactly per that file.",
             max_length=12_000,
         ),
         ui_summary=StringSchema(
@@ -123,16 +119,11 @@ class LongTaskTool(Tool, _GoalToolsMixin):
     @property
     def description(self) -> str:
         return (
-            "Declare a sustained objective for this conversation. "
-            "Before calling: read the **long-goal** skill from its path in the skills listing—goals must be "
-            "idempotent and self-contained (clear end state, scope, verification), "
-            "not brittle step lists that break on retry or compaction. "
-            "Execution stays on the main agent across turns (use normal tools). "
-            "The active objective is mirrored each turn under Runtime Context as "
-            "\"Goal (active):\" plus the stored text. "
-            "When—and only when—the objective is fully satisfied, call complete_goal. "
-            "Do not call complete_goal for partial progress or because you are tired. "
-            "If an objective is already active, finish or complete_goal before starting another."
+            "Register one sustained objective for this thread. "
+            "Read the **long-goal** skill file (path in skills listing) before the first call—rules and phrasing live there. "
+            "The active goal is mirrored in Runtime Context each turn; use normal tools until done, then call "
+            "complete_goal only when the objective is fully satisfied (not for partial progress). "
+            "If a goal is already active, finish it or call complete_goal before registering another."
         )
 
     async def execute(self, goal: str, ui_summary: str | None = None, **kwargs: Any) -> str:
