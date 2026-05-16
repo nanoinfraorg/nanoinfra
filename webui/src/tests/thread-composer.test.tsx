@@ -107,7 +107,7 @@ describe("ThreadComposer", () => {
     vi.useRealTimers();
   });
 
-  it("opens a bottom sheet with full thread goal when expand is clicked", async () => {
+  it("opens an upward anchored goal panel with markdown content when expand is clicked", async () => {
     const longObjective =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz0123456789GoalTail";
     render(
@@ -124,12 +124,10 @@ describe("ThreadComposer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Show full goal" }));
 
-    const dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("dialog", { name: "Goal" });
     expect(dialog).toBeInTheDocument();
     expect(dialog).toHaveTextContent("Short summary for strip");
     expect(dialog).toHaveTextContent(longObjective);
-    expect(dialog).toHaveTextContent("Summary");
-    expect(dialog).toHaveTextContent("Objective");
   });
 
   it("opens a slash command palette and inserts the selected command", () => {

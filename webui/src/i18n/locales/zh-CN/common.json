@@ -236,9 +236,7 @@
       "goalStateStrip": "目标 · {{label}}",
       "goalStateFallback": "目标",
       "goalStateExpandAria": "查看完整目标",
-      "goalStateSheetTitle": "会话目标",
-      "goalStateSummaryHeading": "摘要",
-      "goalStateObjectiveHeading": "目标描述",
+      "goalStateSheetTitle": "目标",
       "send": "发送消息",
       "stop": "停止响应",
       "attachImage": "添加图片",
@@ -322,7 +320,8 @@
         "decode_failed": "无法解码这张图片",
         "too_large": "图片太大，请换一张小一点的",
         "io": "无法读取该文件"
-      }
+      },
+      "goalStateCloseAria": "关闭目标"
     },
     "scrollToBottom": "滚动到底部"
   },

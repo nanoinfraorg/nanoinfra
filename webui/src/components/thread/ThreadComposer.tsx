@@ -7,6 +7,8 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+
+import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import {
   Activity,
   ArrowUp,
@@ -31,12 +33,6 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import {
   useAttachedImages,
   type AttachedImage,
@@ -150,6 +146,27 @@ function goalStateStripPreview(
   return t("thread.composer.goalStateFallback");
 }
 
+const GOAL_PANEL_VIEWPORT_TOP_PAD = 20;
+const GOAL_PANEL_GAP_ABOVE_STRIP_PX = 10;
+const GOAL_PANEL_MIN_HEIGHT_PX = 112;
+const GOAL_PANEL_MAX_VIEWPORT_RATIO = 0.62;
+
+function measureGoalPanelMaxCssHeight(stripTopY: number): number {
+  const spaceAboveStrip =
+    stripTopY - GOAL_PANEL_VIEWPORT_TOP_PAD - GOAL_PANEL_GAP_ABOVE_STRIP_PX;
+  return Math.min(
+    Math.max(spaceAboveStrip, GOAL_PANEL_MIN_HEIGHT_PX),
+    Math.floor(window.innerHeight * GOAL_PANEL_MAX_VIEWPORT_RATIO),
+  );
+}
+
+function buildGoalMarkdownBody(summary: string, objective: string): string {
+  const s = summary.trim();
+  const o = objective.trim();
+  if (s && o) return `${s}\n\n---\n\n${o}`;
+  return o || s;
+}
+
 function RunElapsedStrip({
   startedAt,
   goalState,
@@ -158,13 +175,19 @@ function RunElapsedStrip({
   goalState?: GoalStateWsPayload;
 }) {
   const { t } = useTranslation();
-  const [goalSheetOpen, setGoalSheetOpen] = useState(false);
+  const [goalPanelOpen, setGoalPanelOpen] = useState(false);
   const [, setTick] = useState(0);
+  const stripWrapperRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const expandToggleRef = useRef<HTMLButtonElement>(null);
+  const [panelMaxPx, setPanelMaxPx] = useState(280);
+
   useEffect(() => {
     if (startedAt == null) return;
     const id = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
   }, [startedAt]);
+
   const showTimer = startedAt != null;
   const stripLabel = goalStateStripPreview(goalState, t);
   const showGoal = !!stripLabel?.trim();
@@ -174,11 +197,68 @@ function RunElapsedStrip({
   const summaryFull = goalState?.ui_summary?.trim() ?? "";
   const canExpandGoal = !!(goalState?.active && (objectiveFull || summaryFull));
 
+  const markdownBody =
+    objectiveFull || summaryFull
+      ? buildGoalMarkdownBody(summaryFull, objectiveFull)
+      : "";
+
+  useLayoutEffect(() => {
+    if (!goalPanelOpen) return;
+
+    function relayout(): void {
+      const el = stripWrapperRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      setPanelMaxPx(measureGoalPanelMaxCssHeight(top));
+    }
+
+    relayout();
+
+    preloadMarkdownText();
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => relayout())
+        : null;
+    if (stripWrapperRef.current && ro) {
+      ro.observe(stripWrapperRef.current);
+    }
+    window.addEventListener("resize", relayout);
+    window.addEventListener("scroll", relayout, true);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", relayout);
+      window.removeEventListener("scroll", relayout, true);
+    };
+  }, [goalPanelOpen]);
+
+  useEffect(() => {
+    if (!goalPanelOpen) return;
+
+    function onPointerDown(ev: MouseEvent): void {
+      const target = ev.target as Node | null;
+      if (!target) return;
+      if (panelRef.current?.contains(target)) return;
+      if (expandToggleRef.current?.contains(target)) return;
+      setGoalPanelOpen(false);
+    }
+
+    function onKey(ev: KeyboardEvent): void {
+      if (ev.key === "Escape") setGoalPanelOpen(false);
+    }
+
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [goalPanelOpen]);
+
   const elapsed =
     startedAt != null ? Math.max(0, Math.floor(Date.now() / 1000 - startedAt)) : 0;
   const m = Math.floor(elapsed / 60);
-  const s = elapsed % 60;
-  const shortElapsed = m > 0 ? `${m}:${s.toString().padStart(2, "0")}` : `${s}s`;
+  const sec = elapsed % 60;
+  const shortElapsed = m > 0 ? `${m}:${sec.toString().padStart(2, "0")}` : `${sec}s`;
   const timerTitle = showTimer
     ? t("thread.composer.runRuntimeTitle", { elapsed: shortElapsed })
     : null;
@@ -187,7 +267,52 @@ function RunElapsedStrip({
   const ariaLabel = ariaParts.join(" · ");
 
   return (
-    <>
+    <div ref={stripWrapperRef} className="relative z-30">
+      {goalPanelOpen && canExpandGoal && markdownBody ? (
+        <div
+          ref={panelRef}
+          id="nanobot-goal-panel-root"
+          role="dialog"
+          aria-modal="false"
+          aria-labelledby="nanobot-goal-panel-title"
+          tabIndex={-1}
+          className={cn(
+            "absolute bottom-[calc(100%+8px)] left-3 right-3 z-[50] flex max-w-none flex-col overflow-hidden",
+            "rounded-2xl border border-black/[0.08] bg-card shadow-[0_12px_40px_rgba(15,23,42,0.14)]",
+            "backdrop-blur-sm dark:border-white/[0.1] dark:shadow-[0_16px_48px_rgba(0,0,0,0.45)]",
+          )}
+          style={{ maxHeight: `${Math.round(panelMaxPx)}px` }}
+        >
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-black/[0.06] px-3 py-2 dark:border-white/[0.08]">
+            <h2
+              id="nanobot-goal-panel-title"
+              className="min-w-0 truncate text-[13px] font-semibold tracking-tight text-foreground"
+            >
+              {t("thread.composer.goalStateSheetTitle")}
+            </h2>
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                "text-muted-foreground transition-colors hover:bg-muted/65 hover:text-foreground",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              )}
+              aria-label={t("thread.composer.goalStateCloseAria")}
+              onClick={() => setGoalPanelOpen(false)}
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+          <div
+            id="nanobot-goal-panel-scroll"
+            className="min-h-0 flex-1 overflow-y-auto scrollbar-thin px-3 pb-3 pt-2"
+          >
+            <MarkdownText className="max-w-none text-[13.5px] leading-relaxed text-foreground/90">
+              {markdownBody}
+            </MarkdownText>
+          </div>
+        </div>
+      ) : null}
       <div
         className="flex min-h-[36px] items-center gap-2 border-b border-black/[0.04] px-3 py-2 dark:border-white/[0.06]"
         role="status"
@@ -213,55 +338,28 @@ function RunElapsedStrip({
         </span>
         {canExpandGoal ? (
           <button
+            ref={expandToggleRef}
             type="button"
             className={cn(
               "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
               "text-muted-foreground transition-colors hover:bg-muted/55 hover:text-foreground",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}
+            aria-expanded={goalPanelOpen}
+            aria-controls={goalPanelOpen ? "nanobot-goal-panel-root" : undefined}
             aria-label={t("thread.composer.goalStateExpandAria")}
             title={t("thread.composer.goalStateExpandAria")}
-            onClick={() => setGoalSheetOpen(true)}
+            onClick={() => setGoalPanelOpen((o) => !o)}
           >
-            <ChevronUp className="h-4 w-4" aria-hidden />
+            {goalPanelOpen ? (
+              <ChevronDown className="h-4 w-4" aria-hidden />
+            ) : (
+              <ChevronUp className="h-4 w-4" aria-hidden />
+            )}
           </button>
         ) : null}
       </div>
-
-      <Sheet open={goalSheetOpen} onOpenChange={setGoalSheetOpen}>
-        <SheetContent
-          side="bottom"
-          showCloseButton
-          aria-describedby={undefined}
-          className={cn(
-            "max-h-[min(85vh,560px)] rounded-t-2xl border-t px-4 pb-6 pt-4",
-            "gap-3 sm:max-w-lg sm:rounded-t-2xl",
-          )}
-        >
-          <SheetHeader className="space-y-1 text-left">
-            <SheetTitle>{t("thread.composer.goalStateSheetTitle")}</SheetTitle>
-          </SheetHeader>
-          <div className="flex max-h-[min(58vh,420px)] flex-col gap-4 overflow-y-auto pr-0.5 text-[14px] leading-relaxed">
-            {summaryFull ? (
-              <section>
-                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t("thread.composer.goalStateSummaryHeading")}
-                </p>
-                <p className="whitespace-pre-wrap text-foreground/90">{summaryFull}</p>
-              </section>
-            ) : null}
-            {objectiveFull ? (
-              <section>
-                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t("thread.composer.goalStateObjectiveHeading")}
-                </p>
-                <p className="whitespace-pre-wrap text-foreground/90">{objectiveFull}</p>
-              </section>
-            ) : null}
-          </div>
-        </SheetContent>
-      </Sheet>
-    </>
+    </div>
   );
 }
 
@@ -655,7 +753,7 @@ export function ThreadComposer({
           disabled && "opacity-60",
           isDragging && "ring-2 ring-primary/40 motion-reduce:ring-0 motion-reduce:border-primary",
           goalState?.active &&
-            "thread-goal-shell-glow ring-1 ring-sky-400/35 motion-reduce:ring-sky-400/25 dark:ring-sky-400/45",
+            "goal-shell-glow ring-1 ring-sky-400/35 motion-reduce:ring-sky-400/25 dark:ring-sky-400/45",
         )}
       >
         {images.length > 0 ? (

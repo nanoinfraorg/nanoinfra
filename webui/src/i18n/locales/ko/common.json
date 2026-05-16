@@ -222,9 +222,7 @@
       "goalStateStrip": "목표 · {{label}}",
       "goalStateFallback": "목표",
       "goalStateExpandAria": "전체 목표 보기",
-      "goalStateSheetTitle": "스레드 목표",
-      "goalStateSummaryHeading": "요약",
-      "goalStateObjectiveHeading": "목표 설명",
+      "goalStateSheetTitle": "목표",
       "send": "메시지 보내기",
       "stop": "응답 중지",
       "attachImage": "이미지 첨부",
@@ -302,7 +300,8 @@
             "description": "사용 가능한 슬래시 명령을 나열합니다."
           }
         }
-      }
+      },
+      "goalStateCloseAria": "목표 닫기"
     },
     "scrollToBottom": "맨 아래로 스크롤"
   },

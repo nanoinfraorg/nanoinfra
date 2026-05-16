@@ -222,9 +222,7 @@
       "goalStateStrip": "目標 · {{label}}",
       "goalStateFallback": "目標",
       "goalStateExpandAria": "查看完整目標",
-      "goalStateSheetTitle": "對話目標",
-      "goalStateSummaryHeading": "摘要",
-      "goalStateObjectiveHeading": "目標描述",
+      "goalStateSheetTitle": "目標",
       "send": "送出訊息",
       "stop": "停止回覆",
       "attachImage": "附加圖片",
@@ -302,7 +300,8 @@
             "description": "列出可用的斜線命令。"
           }
         }
-      }
+      },
+      "goalStateCloseAria": "關閉目標"
     },
     "scrollToBottom": "捲動到底部"
   },

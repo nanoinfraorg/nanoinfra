@@ -222,9 +222,7 @@
       "goalStateStrip": "Objectif · {{label}}",
       "goalStateFallback": "Objectif",
       "goalStateExpandAria": "Afficher l’objectif complet",
-      "goalStateSheetTitle": "Objectif du fil",
-      "goalStateSummaryHeading": "Résumé",
-      "goalStateObjectiveHeading": "Objectif",
+      "goalStateSheetTitle": "Objectif",
       "send": "Envoyer le message",
       "stop": "Arrêter la réponse",
       "attachImage": "Joindre une image",
@@ -302,7 +300,8 @@
             "description": "Lister les commandes slash disponibles."
           }
         }
-      }
+      },
+      "goalStateCloseAria": "Fermer l’objectif"
     },
     "scrollToBottom": "Faire défiler vers le bas"
   },

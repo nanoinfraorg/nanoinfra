@@ -222,9 +222,7 @@
       "goalStateStrip": "Mục tiêu · {{label}}",
       "goalStateFallback": "Mục tiêu",
       "goalStateExpandAria": "Xem đầy đủ mục tiêu",
-      "goalStateSheetTitle": "Mục tiêu luồng",
-      "goalStateSummaryHeading": "Tóm tắt",
-      "goalStateObjectiveHeading": "Mục tiêu",
+      "goalStateSheetTitle": "Mục tiêu",
       "send": "Gửi tin nhắn",
       "stop": "Dừng phản hồi",
       "attachImage": "Đính kèm ảnh",
@@ -302,7 +300,8 @@
             "description": "Liệt kê các lệnh slash có sẵn."
           }
         }
-      }
+      },
+      "goalStateCloseAria": "Đóng mục tiêu"
     },
     "scrollToBottom": "Cuộn xuống cuối"
   },

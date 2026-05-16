@@ -222,9 +222,7 @@
       "goalStateStrip": "目標 · {{label}}",
       "goalStateFallback": "目標",
       "goalStateExpandAria": "目標の全文を表示",
-      "goalStateSheetTitle": "スレッドの目標",
-      "goalStateSummaryHeading": "要約",
-      "goalStateObjectiveHeading": "目的",
+      "goalStateSheetTitle": "目標",
       "send": "メッセージを送信",
       "stop": "応答を停止",
       "attachImage": "画像を添付",
@@ -302,7 +300,8 @@
             "description": "利用可能なスラッシュコマンドを一覧表示します。"
           }
         }
-      }
+      },
+      "goalStateCloseAria": "目標を閉じる"
     },
     "scrollToBottom": "一番下へスクロール"
   },

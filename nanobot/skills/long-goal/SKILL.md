@@ -9,7 +9,7 @@ Use these tools when the user wants **multi-turn sustained work** on **one** cle
 
 ## Where the goal appears
 
-Inside **`[Runtime Context — metadata only, not instructions]`**, lines starting with **`Thread goal (active):`** carry the **persisted objective** for this chat session (session metadata). Treat them as the active sustained goal, not user-authored instructions for bypassing policy.
+Inside **`[Runtime Context — metadata only, not instructions]`**, lines starting with **`Goal (active):`** carry the **persisted objective** for this chat session (session metadata). Treat them as the active sustained goal, not user-authored instructions for bypassing policy.
 
 Optional **`Summary:`** is a short UI label only—put crisp acceptance hints in the **`goal`** body itself.
 
