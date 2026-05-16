@@ -83,9 +83,10 @@ class _GoalToolsMixin(ContextAware):
 @tool_parameters(
     tool_parameters_schema(
         goal=StringSchema(
-            "Full objective text for sustained execution on this chat thread. "
-            "Required: open the **long-goal** skill from the skills listing (e.g. read_file its path)—do **not** "
-            "call `long_task` until you have read it. Compose `goal` exactly per that file.",
+            "Sustained objective for this chat thread. First read the built-in **long-goal** skill, "
+            "especially its Start fast section, then call this promptly once the user's intent is clear. "
+            "The goal must still be idempotent, self-contained, bounded, and explicit about done-ness; "
+            "do not delay this tool call to over-plan, research, or decide execution details.",
             max_length=12_000,
         ),
         ui_summary=StringSchema(
@@ -119,10 +120,12 @@ class LongTaskTool(Tool, _GoalToolsMixin):
     @property
     def description(self) -> str:
         return (
-            "Register one sustained objective for this thread. "
-            "Read the **long-goal** skill file (path in skills listing) before the first call—rules and phrasing live there. "
-            "The active goal is mirrored in Runtime Context each turn; use normal tools until done, then call "
-            "complete_goal only when the objective is fully satisfied (not for partial progress). "
+            "Mark this thread as a sustained long-running task. "
+            "First read the built-in **long-goal** skill, especially its Start fast section; then call this "
+            "as soon as the user's intent is clear. Write a good idempotent goal, but do not delay the tool "
+            "call with long planning, research, or execution-detail thinking. "
+            "The active goal is mirrored in Runtime Context each turn. Use normal tools until done, then call "
+            "complete_goal when the objective is satisfied, cancelled, or replaced. "
             "If a goal is already active, finish it or call complete_goal before registering another."
         )
 
