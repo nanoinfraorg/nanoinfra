@@ -35,6 +35,18 @@ vi.mock("react-syntax-highlighter/dist/esm/styles/prism/one-light", () => ({
 }));
 
 describe("CodeBlock", () => {
+  it("renders plain code without mounting the highlighter when highlighting is disabled", () => {
+    render(
+      <ThemeProvider theme="dark">
+        <CodeBlock language="ts" code="const value = 1;" highlight={false} />
+      </ThemeProvider>,
+    );
+
+    expect(screen.queryByTestId("highlighted-code")).not.toBeInTheDocument();
+    expect(screen.getByText("const value = 1;")).toBeInTheDocument();
+    expect(screen.getByText("ts")).toBeInTheDocument();
+  });
+
   it("reads theme from context without creating per-block observers", async () => {
     const originalMutationObserver = globalThis.MutationObserver;
     const observer = vi.fn();

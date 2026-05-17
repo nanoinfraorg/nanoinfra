@@ -230,6 +230,25 @@ def _mask_secret_hint(secret: str | None) -> str | None:
     return f"{secret[:4]}••••{secret[-4:]}"
 
 
+def _provider_requires_api_key(spec: Any) -> bool:
+    if spec.backend == "azure_openai":
+        return True
+    if spec.is_local or spec.is_direct:
+        return False
+    return True
+
+
+def _provider_configured_for_settings(spec: Any, provider_config: Any) -> bool:
+    if _provider_requires_api_key(spec):
+        return bool(provider_config.api_key)
+    return bool(
+        provider_config.api_key
+        or provider_config.api_base
+        or getattr(provider_config, "region", None)
+        or getattr(provider_config, "profile", None)
+    )
+
+
 _WEB_SEARCH_PROVIDER_OPTIONS: tuple[dict[str, str], ...] = (
     {"name": "duckduckgo", "label": "DuckDuckGo", "credential": "none"},
     {"name": "brave", "label": "Brave Search", "credential": "api_key"},
@@ -786,13 +805,14 @@ class WebSocketChannel(BaseChannel):
         providers = []
         for spec in PROVIDERS:
             provider_config = getattr(config.providers, spec.name, None)
-            if provider_config is None or spec.is_oauth or spec.is_local:
+            if provider_config is None or spec.is_oauth:
                 continue
             providers.append(
                 {
                     "name": spec.name,
                     "label": spec.label,
-                    "configured": bool(provider_config.api_key),
+                    "configured": _provider_configured_for_settings(spec, provider_config),
+                    "api_key_required": _provider_requires_api_key(spec),
                     "api_key_hint": _mask_secret_hint(provider_config.api_key),
                     "api_base": provider_config.api_base,
                     "default_api_base": spec.default_api_base or None,
@@ -862,7 +882,12 @@ class WebSocketChannel(BaseChannel):
             if find_by_name(provider) is None:
                 return _http_error(400, "unknown provider")
             provider_config = getattr(config.providers, provider, None)
-            if provider_config is None or not provider_config.api_key:
+            spec = find_by_name(provider)
+            if (
+                provider_config is None
+                or spec is None
+                or not _provider_configured_for_settings(spec, provider_config)
+            ):
                 return _http_error(400, "provider is not configured")
             if defaults.provider != provider:
                 defaults.provider = provider
@@ -885,7 +910,7 @@ class WebSocketChannel(BaseChannel):
         if not provider_name:
             return _http_error(400, "provider is required")
         spec = find_by_name(provider_name)
-        if spec is None or spec.is_oauth or spec.is_local:
+        if spec is None or spec.is_oauth:
             return _http_error(400, "unknown provider")
 
         config = load_config()

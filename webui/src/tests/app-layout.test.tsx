@@ -198,7 +198,51 @@ describe("App layout", () => {
                   name: "openrouter",
                   label: "OpenRouter",
                   configured: false,
+                  api_key_required: true,
                   default_api_base: "https://openrouter.ai/api/v1",
+                },
+                {
+                  name: "azure_openai",
+                  label: "Azure OpenAI",
+                  configured: false,
+                  api_key_required: true,
+                },
+                {
+                  name: "huggingface",
+                  label: "Hugging Face",
+                  configured: false,
+                  api_key_required: true,
+                },
+                {
+                  name: "siliconflow",
+                  label: "SiliconFlow",
+                  configured: false,
+                  api_key_required: true,
+                },
+                {
+                  name: "volcengine",
+                  label: "VolcEngine",
+                  configured: false,
+                  api_key_required: true,
+                },
+                {
+                  name: "byteplus",
+                  label: "BytePlus",
+                  configured: false,
+                  api_key_required: true,
+                },
+                {
+                  name: "qianfan",
+                  label: "Qianfan",
+                  configured: false,
+                  api_key_required: true,
+                },
+                {
+                  name: "atomic_chat",
+                  label: "Atomic Chat",
+                  configured: false,
+                  api_key_required: false,
+                  default_api_base: "http://localhost:1337/v1",
                 },
               ],
               web_search: {
@@ -254,6 +298,9 @@ describe("App layout", () => {
     fireEvent.click(screen.getByText("OpenAI"));
     expect(screen.getByText("open••••-key")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("unsaved-openai-key")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Atomic Chat"));
+    expect(screen.getByDisplayValue("http://localhost:1337/v1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
 
     fireEvent.click(screen.getByRole("tab", { name: "Web Search" }));
     expect(screen.getByText("Search provider")).toBeInTheDocument();

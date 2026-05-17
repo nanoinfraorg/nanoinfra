@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useDeferredValue,
   useEffect,
   useRef,
   useState,
@@ -120,7 +119,7 @@ export function MessageBubble({
         <TypingDots />
       ) : empty && message.isStreaming ? null : (
         <>
-          <MarkdownText>{message.content}</MarkdownText>
+          <MarkdownText streaming={!!message.isStreaming}>{message.content}</MarkdownText>
           {media.length > 0 ? <MessageMedia media={media} align="left" /> : null}
           {showAssistantFooterRow ? (
             <div className="mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
@@ -480,8 +479,6 @@ export function ReasoningBubble({
   embeddedInCluster = false,
 }: ReasoningBubbleProps) {
   const { t } = useTranslation();
-  const deferredText = useDeferredValue(text);
-  const markdownSource = streaming ? deferredText : text;
   const [userToggled, setUserToggled] = useState(false);
   const [openLocal, setOpenLocal] = useState(true);
   const open = userToggled ? openLocal : streaming;
@@ -537,6 +534,7 @@ export function ReasoningBubble({
           )}
         >
           <MarkdownText
+            streaming={streaming}
             className={cn(
               "text-[12.5px] italic text-muted-foreground/88",
               "prose-p:my-1.5 prose-li:my-0.5",
@@ -547,7 +545,7 @@ export function ReasoningBubble({
               "prose-code:text-[0.92em]",
             )}
           >
-            {markdownSource}
+            {text}
           </MarkdownText>
         </div>
       )}

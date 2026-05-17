@@ -9,6 +9,7 @@ interface CodeBlockProps {
   language?: string;
   code: string;
   className?: string;
+  highlight?: boolean;
 }
 
 interface HighlightedCodeProps {
@@ -60,7 +61,12 @@ function PlainCodeFallback({ code }: { code: string }) {
   );
 }
 
-export function CodeBlock({ language, code, className }: CodeBlockProps) {
+export function CodeBlock({
+  language,
+  code,
+  className,
+  highlight = true,
+}: CodeBlockProps) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const isDark = useThemeValue() === "dark";
@@ -111,9 +117,13 @@ export function CodeBlock({ language, code, className }: CodeBlockProps) {
           <span>{copied ? t("code.copied") : t("code.copy")}</span>
         </button>
       </div>
-      <Suspense fallback={<PlainCodeFallback code={code} />}>
-        <LazyHighlightedCode language={language} code={code} isDark={isDark} />
-      </Suspense>
+      {highlight ? (
+        <Suspense fallback={<PlainCodeFallback code={code} />}>
+          <LazyHighlightedCode language={language} code={code} isDark={isDark} />
+        </Suspense>
+      ) : (
+        <PlainCodeFallback code={code} />
+      )}
     </div>
   );
 }
