@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
 import { CodeBlock } from "@/components/CodeBlock";
+import { FileReferenceChip, isLikelyFilePath } from "@/components/FileReferenceChip";
 import { cn } from "@/lib/utils";
 
 import "katex/dist/katex.min.css";
@@ -44,6 +45,9 @@ export default function MarkdownTextRenderer({
           );
         }
         const raw = String(kids).replace(/\n$/, "");
+        if (isLikelyFilePath(raw)) {
+          return <FileReferenceChip path={raw} />;
+        }
         /** Plain fenced ``` blocks (no language) & wide one-liners: block monospace, not inline pill. */
         const widePlainBlock = raw.includes("\n") || raw.length > 120;
         if (widePlainBlock) {
