@@ -1606,6 +1606,7 @@ class WebSocketChannel(BaseChannel):
         if not conns:
             if (
                 msg.metadata.get("_progress")
+                or msg.metadata.get("_file_edit_events")
                 or msg.metadata.get("_turn_end")
                 or msg.metadata.get("_session_updated")
                 or msg.metadata.get("_goal_status")
@@ -1638,7 +1639,22 @@ class WebSocketChannel(BaseChannel):
             await self.send_turn_end(msg.chat_id, latency_ms=lat_i, goal_state=gs_blob)
             return
         if msg.metadata.get("_session_updated"):
-            await self.send_session_updated(msg.chat_id)
+            scope = msg.metadata.get("_session_update_scope")
+            await self.send_session_updated(
+                msg.chat_id,
+                scope=scope if isinstance(scope, str) else None,
+            )
+            return
+        if msg.metadata.get("_file_edit_events"):
+            payload: dict[str, Any] = {
+                "event": "file_edit",
+                "chat_id": msg.chat_id,
+                "edits": msg.metadata["_file_edit_events"],
+            }
+            self._try_append_webui_transcript(msg.chat_id, payload)
+            raw = json.dumps(payload, ensure_ascii=False)
+            for connection in conns:
+                await self._safe_send_to(connection, raw, label=" ")
             return
         text = msg.content
         payload: dict[str, Any] = {
@@ -1805,12 +1821,14 @@ class WebSocketChannel(BaseChannel):
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" goal_status ")
 
-    async def send_session_updated(self, chat_id: str) -> None:
+    async def send_session_updated(self, chat_id: str, *, scope: str | None = None) -> None:
         """Notify clients that session metadata changed outside the main turn."""
         conns = list(self._subs.get(chat_id, ()))
         if not conns:
             return
         body: dict[str, Any] = {"event": "session_updated", "chat_id": chat_id}
+        if scope:
+            body["scope"] = scope
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" session_updated ")

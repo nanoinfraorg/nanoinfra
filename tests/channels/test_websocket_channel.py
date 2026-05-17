@@ -371,6 +371,55 @@ async def test_send_progress_includes_structured_tool_events() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_file_edit_progress_uses_file_edit_event() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-1",
+        content="",
+        metadata={
+            "_progress": True,
+            "_file_edit_events": [
+                {
+                    "version": 1,
+                    "phase": "start",
+                    "call_id": "call-1",
+                    "tool": "write_file",
+                    "path": "src/app.py",
+                    "added": 12,
+                    "deleted": 2,
+                    "approximate": True,
+                    "status": "editing",
+                }
+            ],
+        },
+    ))
+
+    payload = json.loads(mock_ws.send.await_args.args[0])
+    assert payload == {
+        "event": "file_edit",
+        "chat_id": "chat-1",
+        "edits": [
+            {
+                "version": 1,
+                "phase": "start",
+                "call_id": "call-1",
+                "tool": "write_file",
+                "path": "src/app.py",
+                "added": 12,
+                "deleted": 2,
+                "approximate": True,
+                "status": "editing",
+            }
+        ],
+    }
+
+
+@pytest.mark.asyncio
 async def test_send_progress_includes_agent_ui_blob() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
@@ -756,6 +805,25 @@ async def test_send_session_updated_emits_session_updated_event() -> None:
     mock_ws.send.assert_awaited_once()
     body = json.loads(mock_ws.send.await_args.args[0])
     assert body == {"event": "session_updated", "chat_id": "chat-1"}
+
+
+@pytest.mark.asyncio
+async def test_send_session_updated_includes_scope_when_present() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-1",
+        content="",
+        metadata={"_session_updated": True, "_session_update_scope": "metadata"},
+    ))
+
+    mock_ws.send.assert_awaited_once()
+    body = json.loads(mock_ws.send.await_args.args[0])
+    assert body == {"event": "session_updated", "chat_id": "chat-1", "scope": "metadata"}
 
 
 @pytest.mark.asyncio

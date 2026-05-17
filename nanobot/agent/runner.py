@@ -15,6 +15,12 @@ from loguru import logger
 from nanobot.agent.hook import AgentHook, AgentHookContext
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from nanobot.utils.file_edit_events import (
+    build_file_edit_end_event,
+    build_file_edit_error_event,
+    build_file_edit_start_event,
+    prepare_file_edit_tracker,
+)
 from nanobot.utils.helpers import (
     IncrementalThinkExtractor,
     build_assistant_message,
@@ -26,6 +32,7 @@ from nanobot.utils.helpers import (
     strip_think,
     truncate_text,
 )
+from nanobot.utils.progress_events import invoke_file_edit_progress
 from nanobot.utils.prompt_templates import render_template
 from nanobot.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
@@ -813,6 +820,21 @@ class AgentRunner:
             return prep_error + hint, event, (
                 RuntimeError(prep_error) if spec.fail_on_tool_error else None
             )
+        file_edit_tracker = prepare_file_edit_tracker(
+            call_id=tool_call.id,
+            tool_name=tool_call.name,
+            tool=tool,
+            workspace=spec.workspace,
+            params=params if isinstance(params, dict) else None,
+        )
+        if file_edit_tracker is not None and spec.progress_callback is not None:
+            await invoke_file_edit_progress(
+                spec.progress_callback,
+                [build_file_edit_start_event(
+                    file_edit_tracker,
+                    params if isinstance(params, dict) else None,
+                )],
+            )
         try:
             if tool is not None:
                 result = await tool.execute(**params)
@@ -821,6 +843,11 @@ class AgentRunner:
         except asyncio.CancelledError:
             raise
         except BaseException as exc:
+            if file_edit_tracker is not None and spec.progress_callback is not None:
+                await invoke_file_edit_progress(
+                    spec.progress_callback,
+                    [build_file_edit_error_event(file_edit_tracker, str(exc))],
+                )
             event = {
                 "name": tool_call.name,
                 "status": "error",
@@ -842,6 +869,11 @@ class AgentRunner:
             return payload, event, None
 
         if isinstance(result, str) and result.startswith("Error"):
+            if file_edit_tracker is not None and spec.progress_callback is not None:
+                await invoke_file_edit_progress(
+                    spec.progress_callback,
+                    [build_file_edit_error_event(file_edit_tracker, result)],
+                )
             event = {
                 "name": tool_call.name,
                 "status": "error",
@@ -859,6 +891,12 @@ class AgentRunner:
             if spec.fail_on_tool_error:
                 return result + hint, event, RuntimeError(result)
             return result + hint, event, None
+
+        if file_edit_tracker is not None and spec.progress_callback is not None:
+            await invoke_file_edit_progress(
+                spec.progress_callback,
+                [build_file_edit_end_event(file_edit_tracker)],
+            )
 
         detail = "" if result is None else str(result)
         detail = detail.replace("\n", " ").strip()

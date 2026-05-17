@@ -11,7 +11,9 @@ from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMResponse
 from nanobot.session.goal_state import GOAL_STATE_KEY
 from nanobot.session.manager import Session
-from nanobot.utils.webui_titles import (
+from nanobot.utils.webui_turn_helpers import (
+    TITLE_GENERATION_MAX_TOKENS,
+    TITLE_GENERATION_REASONING_EFFORT,
     WEBUI_SESSION_METADATA_KEY,
     WEBUI_TITLE_METADATA_KEY,
     maybe_generate_webui_title,
@@ -55,6 +57,11 @@ async def test_generate_webui_title_only_for_marked_webui_sessions(tmp_path: Pat
     assert generated is True
     assert session.metadata[WEBUI_TITLE_METADATA_KEY] == "优化 WebUI 侧边栏"
     loop.provider.chat_with_retry.assert_awaited_once()
+    assert loop.provider.chat_with_retry.await_args.kwargs["max_tokens"] == TITLE_GENERATION_MAX_TOKENS
+    assert (
+        loop.provider.chat_with_retry.await_args.kwargs["reasoning_effort"]
+        == TITLE_GENERATION_REASONING_EFFORT
+    )
 
 
 @pytest.mark.asyncio
@@ -70,6 +77,31 @@ async def test_generate_webui_title_skips_plain_websocket_sessions(tmp_path: Pat
     generated = await maybe_generate_webui_title(
         sessions=loop.sessions,
         session_key="websocket:custom-client",
+        provider=loop.provider,
+        model=loop.model,
+    )
+
+    assert generated is False
+    assert WEBUI_TITLE_METADATA_KEY not in session.metadata
+    loop.provider.chat_with_retry.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_generate_webui_title_ignores_command_only_sessions(tmp_path: Path) -> None:
+    loop = _make_full_loop(tmp_path)
+    session = loop.sessions.get_or_create("websocket:command-title")
+    session.metadata[WEBUI_SESSION_METADATA_KEY] = True
+    session.add_message("user", "/model deep", _command=True)
+    session.add_message(
+        "assistant",
+        "Switched model preset to `deep`.\n- Model: `deepseek-v4-pro`",
+        _command=True,
+    )
+    loop.sessions.save(session)
+
+    generated = await maybe_generate_webui_title(
+        sessions=loop.sessions,
+        session_key="websocket:command-title",
         provider=loop.provider,
         model=loop.model,
     )
