@@ -1,3 +1,6 @@
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
+
 import { MessageBubble } from "@/components/MessageBubble";
 import {
   AgentActivityCluster,
@@ -9,6 +12,8 @@ interface ThreadMessagesProps {
   messages: UIMessage[];
   /** When true, agent turn still in flight — keeps activity cluster expanded. */
   isStreaming?: boolean;
+  hiddenMessageCount?: number;
+  onLoadEarlier?: () => void;
 }
 
 export type DisplayUnit =
@@ -30,7 +35,7 @@ export function isFinalAssistantSliceBeforeNextUser(
   return true;
 }
 
-function buildDisplayUnits(messages: UIMessage[]): DisplayUnit[] {
+export function buildDisplayUnits(messages: UIMessage[]): DisplayUnit[] {
   const out: DisplayUnit[] = [];
   let i = 0;
   while (i < messages.length) {
@@ -50,11 +55,49 @@ function buildDisplayUnits(messages: UIMessage[]): DisplayUnit[] {
   return out;
 }
 
-export function ThreadMessages({ messages, isStreaming = false }: ThreadMessagesProps) {
-  const units = buildDisplayUnits(messages);
+export function assistantCopyFlags(units: DisplayUnit[]): boolean[] {
+  const flags = new Array<boolean>(units.length).fill(true);
+  let hasLaterUnitBeforeUser = false;
+  for (let i = units.length - 1; i >= 0; i -= 1) {
+    const unit = units[i];
+    if (unit.type === "single" && unit.message.role === "user") {
+      hasLaterUnitBeforeUser = false;
+      continue;
+    }
+    if (unit.type === "single" && unit.message.role === "assistant") {
+      flags[i] = !hasLaterUnitBeforeUser;
+    }
+    hasLaterUnitBeforeUser = true;
+  }
+  return flags;
+}
+
+export function ThreadMessages({
+  messages,
+  isStreaming = false,
+  hiddenMessageCount = 0,
+  onLoadEarlier,
+}: ThreadMessagesProps) {
+  const { t } = useTranslation();
+  const units = useMemo(() => buildDisplayUnits(messages), [messages]);
+  const copyFlags = useMemo(() => assistantCopyFlags(units), [units]);
 
   return (
     <div className="flex w-full flex-col">
+      {hiddenMessageCount > 0 && onLoadEarlier ? (
+        <div className="mb-4 flex justify-center">
+          <button
+            type="button"
+            onClick={onLoadEarlier}
+            className="rounded-full border border-border/60 bg-background/85 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted/55 hover:text-foreground"
+          >
+            {t("thread.loadEarlier", {
+              count: hiddenMessageCount,
+              defaultValue: "Load earlier messages",
+            })}
+          </button>
+        </div>
+      ) : null}
       {units.map((unit, index) => {
         const prev = units[index - 1];
         const marginTop =
@@ -80,7 +123,7 @@ export function ThreadMessages({ messages, isStreaming = false }: ThreadMessages
                 message={unit.message}
                 showAssistantCopyAction={
                   unit.message.role === "assistant"
-                    ? isFinalAssistantSliceBeforeNextUser(units, index)
+                    ? copyFlags[index]
                     : true
                 }
               />

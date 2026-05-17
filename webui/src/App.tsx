@@ -7,7 +7,8 @@ import { ThreadShell } from "@/components/thread/ThreadShell";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 
 import { useSessions } from "@/hooks/useSessions";
-import { useTheme } from "@/hooks/useTheme";
+import { useDeferredTitleRefresh } from "@/hooks/useDeferredTitleRefresh";
+import { ThemeProvider, useTheme } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
 import {
   clearSavedSecret,
@@ -219,7 +220,13 @@ export default function App() {
   );
 }
 
-function Shell({ onModelNameChange, onLogout }: { onModelNameChange: (modelName: string | null) => void; onLogout: () => void }) {
+function Shell({
+  onModelNameChange,
+  onLogout,
+}: {
+  onModelNameChange: (modelName: string | null) => void;
+  onLogout: () => void;
+}) {
   const { t, i18n } = useTranslation();
   const { client } = useClient();
   const { theme, toggle } = useTheme();
@@ -362,9 +369,7 @@ function Shell({ onModelNameChange, onLogout }: { onModelNameChange: (modelName:
     });
   }, [client, t]);
 
-  const onTurnEnd = useCallback(() => {
-    void refresh();
-  }, [refresh]);
+  const onTurnEnd = useDeferredTitleRefresh(activeSession, refresh);
 
   const onConfirmDelete = useCallback(async () => {
     if (!pendingDelete) return;
@@ -415,93 +420,95 @@ function Shell({ onModelNameChange, onLogout }: { onModelNameChange: (modelName:
   const showMainSidebar = view !== "settings";
 
   return (
-    <div className="relative flex h-full w-full overflow-hidden">
-      {/* Desktop sidebar: in normal flow, so the thread area width stays honest. */}
-      {showMainSidebar ? (
-        <aside
-          className={cn(
-            "relative z-20 hidden shrink-0 overflow-hidden lg:block",
-            "transition-[width] duration-300 ease-out",
-          )}
-          style={{ width: desktopSidebarOpen ? SIDEBAR_WIDTH : 0 }}
-        >
+    <ThemeProvider theme={theme}>
+      <div className="relative flex h-full w-full overflow-hidden">
+        {/* Desktop sidebar: in normal flow, so the thread area width stays honest. */}
+        {showMainSidebar ? (
+          <aside
+            className={cn(
+              "relative z-20 hidden shrink-0 overflow-hidden lg:block",
+              "transition-[width] duration-300 ease-out",
+            )}
+            style={{ width: desktopSidebarOpen ? SIDEBAR_WIDTH : 0 }}
+          >
+            <div
+              className={cn(
+                "absolute inset-y-0 left-0 h-full overflow-hidden bg-sidebar shadow-inner-right",
+                "transition-transform duration-300 ease-out",
+                desktopSidebarOpen ? "translate-x-0" : "-translate-x-full",
+              )}
+              style={{ width: SIDEBAR_WIDTH }}
+            >
+              <Sidebar {...sidebarProps} onCollapse={closeDesktopSidebar} />
+            </div>
+          </aside>
+        ) : null}
+
+        {showMainSidebar ? (
+          <Sheet
+            open={mobileSidebarOpen}
+            onOpenChange={(open) => setMobileSidebarOpen(open)}
+          >
+            <SheetContent
+              side="left"
+              showCloseButton={false}
+              className="p-0 lg:hidden"
+              style={{ width: SIDEBAR_WIDTH, maxWidth: SIDEBAR_WIDTH }}
+            >
+              <Sidebar {...sidebarProps} onCollapse={closeMobileSidebar} />
+            </SheetContent>
+          </Sheet>
+        ) : null}
+
+        <main className="relative flex h-full min-w-0 flex-1 flex-col">
           <div
             className={cn(
-              "absolute inset-y-0 left-0 h-full overflow-hidden bg-sidebar shadow-inner-right",
-              "transition-transform duration-300 ease-out",
-              desktopSidebarOpen ? "translate-x-0" : "-translate-x-full",
+              "absolute inset-0 flex flex-col",
+              view === "settings" && "invisible pointer-events-none",
             )}
-            style={{ width: SIDEBAR_WIDTH }}
           >
-            <Sidebar {...sidebarProps} onCollapse={closeDesktopSidebar} />
-          </div>
-        </aside>
-      ) : null}
-
-      {showMainSidebar ? (
-        <Sheet
-          open={mobileSidebarOpen}
-          onOpenChange={(open) => setMobileSidebarOpen(open)}
-        >
-          <SheetContent
-            side="left"
-            showCloseButton={false}
-            className="p-0 lg:hidden"
-            style={{ width: SIDEBAR_WIDTH, maxWidth: SIDEBAR_WIDTH }}
-          >
-            <Sidebar {...sidebarProps} onCollapse={closeMobileSidebar} />
-          </SheetContent>
-        </Sheet>
-      ) : null}
-
-      <main className="relative flex h-full min-w-0 flex-1 flex-col">
-        <div
-          className={cn(
-            "absolute inset-0 flex flex-col",
-            view === "settings" && "invisible pointer-events-none",
-          )}
-        >
-          <ThreadShell
-            session={activeSession}
-            title={headerTitle}
-            onToggleSidebar={toggleSidebar}
-            onNewChat={onNewChat}
-            onCreateChat={onCreateChat}
-            onTurnEnd={onTurnEnd}
-            theme={theme}
-            onToggleTheme={toggle}
-            hideSidebarToggleOnDesktop={desktopSidebarOpen}
-          />
-        </div>
-        {view === "settings" && (
-          <div className="absolute inset-0 flex flex-col">
-            <SettingsView
+            <ThreadShell
+              session={activeSession}
+              title={headerTitle}
+              onToggleSidebar={toggleSidebar}
+              onNewChat={onNewChat}
+              onCreateChat={onCreateChat}
+              onTurnEnd={onTurnEnd}
               theme={theme}
               onToggleTheme={toggle}
-              onBackToChat={onBackToChat}
-              onModelNameChange={onModelNameChange}
-              onLogout={onLogout}
-              onRestart={onRestart}
-              isRestarting={isRestarting}
+              hideSidebarToggleOnDesktop={desktopSidebarOpen}
             />
           </div>
-        )}
-      </main>
+          {view === "settings" && (
+            <div className="absolute inset-0 flex flex-col">
+              <SettingsView
+                theme={theme}
+                onToggleTheme={toggle}
+                onBackToChat={onBackToChat}
+                onModelNameChange={onModelNameChange}
+                onLogout={onLogout}
+                onRestart={onRestart}
+                isRestarting={isRestarting}
+              />
+            </div>
+          )}
+        </main>
 
-      <DeleteConfirm
-        open={!!pendingDelete}
-        title={pendingDelete?.label ?? ""}
-        onCancel={() => setPendingDelete(null)}
-        onConfirm={onConfirmDelete}
-      />
-      {restartToast ? (
-        <div
-          role="status"
-          className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full border border-border/70 bg-popover px-4 py-2 text-sm font-medium text-popover-foreground shadow-lg"
-        >
-          {restartToast}
-        </div>
-      ) : null}
-    </div>
+        <DeleteConfirm
+          open={!!pendingDelete}
+          title={pendingDelete?.label ?? ""}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={onConfirmDelete}
+        />
+        {restartToast ? (
+          <div
+            role="status"
+            className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-full border border-border/70 bg-popover px-4 py-2 text-sm font-medium text-popover-foreground shadow-lg"
+          >
+            {restartToast}
+          </div>
+        ) : null}
+      </div>
+    </ThemeProvider>
   );
 }

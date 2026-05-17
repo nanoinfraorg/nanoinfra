@@ -167,10 +167,15 @@ function MessageMedia({
   align: "left" | "right";
 }) {
   if (media.length === 0) return null;
-  const images = media
-    .filter((item) => item.kind === "image")
-    .map(({ url, name }) => ({ url, name }));
-  const nonImages = media.filter((item) => item.kind !== "image");
+  const images: UIImage[] = [];
+  const nonImages: UIMediaAttachment[] = [];
+  for (const item of media) {
+    if (item.kind === "image") {
+      images.push({ url: item.url, name: item.name });
+    } else {
+      nonImages.push(item);
+    }
+  }
 
   return (
     <div
@@ -276,13 +281,14 @@ function UserImages({
   const { t } = useTranslation();
   // Only real-URL images can open in the lightbox; historical-replay
   // placeholders (no URL) have nothing to zoom into.
-  const viewable = images
-    .map((img, i) => ({ img, i }))
-    .filter(({ img }) => typeof img.url === "string" && img.url.length > 0);
-  const viewableImages = viewable.map(({ img }) => img);
-  const originalToViewable = new Map<number, number>(
-    viewable.map(({ i }, v) => [i, v]),
-  );
+  const viewableImages: UIImage[] = [];
+  const originalToViewable = new Map<number, number>();
+  for (let i = 0; i < images.length; i += 1) {
+    const img = images[i];
+    if (typeof img.url !== "string" || img.url.length === 0) continue;
+    originalToViewable.set(i, viewableImages.length);
+    viewableImages.push(img);
+  }
 
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
@@ -416,7 +422,7 @@ function Dot({ delay }: { delay: string }) {
   );
 }
 
-/** L→R sheen overlay on label text; base copy stays solid ``text-muted-foreground``. */
+/** L→R sheen on the glyphs themselves; inactive labels stay solid muted text. */
 export function StreamingLabelSheen({
   children,
   active,
@@ -426,21 +432,21 @@ export function StreamingLabelSheen({
   active: boolean;
   className?: string;
 }) {
+  const sheenText =
+    typeof children === "string" || typeof children === "number"
+      ? String(children)
+      : undefined;
   return (
-    <span className={cn("relative block min-w-0 py-px", className)}>
+    <span className={cn("block min-w-0 overflow-hidden py-px", className)}>
       <span
+        data-sheen-text={active ? sheenText : undefined}
         className={cn(
-          "relative z-0 block font-medium leading-normal text-muted-foreground",
-          !active && "truncate",
+          "block w-fit max-w-full truncate font-medium leading-normal",
+          active ? "streaming-text-sheen" : "text-muted-foreground",
         )}
       >
         {children}
       </span>
-      {active ? (
-        <span className="reasoning-sheen-track" aria-hidden dir="ltr">
-          <span className="reasoning-sheen-stripe" />
-        </span>
-      ) : null}
     </span>
   );
 }

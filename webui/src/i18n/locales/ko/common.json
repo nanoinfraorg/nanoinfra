@@ -303,7 +303,8 @@
       },
       "goalStateCloseAria": "목표 닫기"
     },
-    "scrollToBottom": "맨 아래로 스크롤"
+    "scrollToBottom": "맨 아래로 스크롤",
+    "loadEarlier": "이전 메시지 불러오기"
   },
   "message": {
     "streaming": "생성 중",

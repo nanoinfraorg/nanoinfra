@@ -32,12 +32,18 @@ vi.mock("@/hooks/useSessions", async (importOriginal) => {
   };
 });
 
-vi.mock("@/hooks/useTheme", () => ({
-  useTheme: () => ({
-    theme: "light" as const,
-    toggle: toggleThemeSpy,
-  }),
-}));
+vi.mock("@/hooks/useTheme", async () => {
+  const React = await import("react");
+  return {
+    ThemeProvider: ({ children }: { children: React.ReactNode }) =>
+      React.createElement(React.Fragment, null, children),
+    useTheme: () => ({
+      theme: "light" as const,
+      toggle: toggleThemeSpy,
+    }),
+    useThemeValue: () => "light" as const,
+  };
+});
 
 vi.mock("@/lib/bootstrap", () => ({
   fetchBootstrap: vi.fn().mockResolvedValue({

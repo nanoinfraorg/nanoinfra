@@ -83,7 +83,112 @@ function wrap(client: ReturnType<typeof fakeClient>["client"]) {
   };
 }
 
+async function flushStreamFrame() {
+  await act(async () => {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+  });
+}
+
 describe("useNanobotStream", () => {
+  it("batches answer deltas into one animation-frame update", async () => {
+    const fake = fakeClient();
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame");
+    const { result } = renderHook(() => useNanobotStream("chat-batch", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-batch", {
+        event: "delta",
+        chat_id: "chat-batch",
+        text: "Hello",
+      });
+      fake.emit("chat-batch", {
+        event: "delta",
+        chat_id: "chat-batch",
+        text: " world",
+      });
+    });
+
+    expect(requestFrame).toHaveBeenCalledTimes(1);
+    expect(result.current.messages).toHaveLength(0);
+
+    await flushStreamFrame();
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0]).toMatchObject({
+      role: "assistant",
+      content: "Hello world",
+      isStreaming: true,
+    });
+    requestFrame.mockRestore();
+  });
+
+  it("flushes pending delta text before turn_end finalizes the turn", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-flush", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-flush", {
+        event: "delta",
+        chat_id: "chat-flush",
+        text: "final chunk",
+      });
+      fake.emit("chat-flush", {
+        event: "turn_end",
+        chat_id: "chat-flush",
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0]).toMatchObject({
+      role: "assistant",
+      content: "final chunk",
+      isStreaming: false,
+    });
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("drops pending stream work when switching chats", async () => {
+    const fake = fakeClient();
+    const { result, rerender } = renderHook(
+      ({ chatId }: { chatId: string }) => useNanobotStream(chatId, EMPTY_MESSAGES),
+      {
+        wrapper: wrap(fake.client),
+        initialProps: { chatId: "chat-old" },
+      },
+    );
+
+    act(() => {
+      fake.emit("chat-old", {
+        event: "delta",
+        chat_id: "chat-old",
+        text: "stale",
+      });
+    });
+
+    rerender({ chatId: "chat-new" });
+
+    act(() => {
+      fake.emit("chat-new", {
+        event: "delta",
+        chat_id: "chat-new",
+        text: "fresh",
+      });
+    });
+    await flushStreamFrame();
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0]).toMatchObject({
+      role: "assistant",
+      content: "fresh",
+    });
+  });
+
   it("starts in streaming mode when history shows pending tool calls", () => {
     const fake = fakeClient();
     const initialMessages = [{
@@ -203,7 +308,7 @@ describe("useNanobotStream", () => {
     );
   });
 
-  it("accumulates reasoning_delta chunks on a placeholder until reasoning_end", () => {
+  it("accumulates reasoning_delta chunks on a placeholder until reasoning_end", async () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-r", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
@@ -221,6 +326,8 @@ describe("useNanobotStream", () => {
         text: "step by step.",
       });
     });
+
+    await flushStreamFrame();
 
     expect(result.current.messages).toHaveLength(1);
     expect(result.current.messages[0].role).toBe("assistant");
@@ -328,7 +435,7 @@ describe("useNanobotStream", () => {
     expect(result.current.messages[0].reasoningStreaming).toBe(false);
   });
 
-  it("does not attach a new turn's reasoning across the latest user boundary", () => {
+  it("does not attach a new turn's reasoning across the latest user boundary", async () => {
     const fake = fakeClient();
     const initialMessages = [
       {
@@ -358,6 +465,8 @@ describe("useNanobotStream", () => {
       });
     });
 
+    await flushStreamFrame();
+
     expect(result.current.messages).toHaveLength(3);
     expect(result.current.messages[0].reasoning).toBe("Previous thought.");
     expect(result.current.messages[2].role).toBe("assistant");
@@ -366,7 +475,7 @@ describe("useNanobotStream", () => {
     expect(result.current.messages[2].reasoningStreaming).toBe(true);
   });
 
-  it("does not attach reasoning across a tool trace boundary", () => {
+  it("does not attach reasoning across a tool trace boundary", async () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-r7", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
@@ -391,6 +500,8 @@ describe("useNanobotStream", () => {
         text: "Second reasoning.",
       });
     });
+
+    await flushStreamFrame();
 
     expect(result.current.messages).toHaveLength(3);
     expect(result.current.messages.map((m) => m.kind ?? "message")).toEqual([
@@ -651,7 +762,7 @@ describe("useNanobotStream", () => {
     expect(result.current.messages[0].content).toBe("long task");
   });
 
-  it("keeps streaming alive across stream_end and completes on turn_end", () => {
+  it("keeps streaming alive across stream_end and completes on turn_end", async () => {
     const fake = fakeClient();
     const onTurnEnd = vi.fn();
     const { result } = renderHook(() => useNanobotStream("chat-s", EMPTY_MESSAGES, false, onTurnEnd), {
@@ -665,6 +776,8 @@ describe("useNanobotStream", () => {
         text: "Hello",
       });
     });
+
+    await flushStreamFrame();
 
     expect(result.current.isStreaming).toBe(true);
     expect(result.current.messages[0]).toMatchObject({

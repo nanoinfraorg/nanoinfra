@@ -389,6 +389,7 @@ export function ThreadShell({
         composer={composer}
         scrollToBottomSignal={scrollToBottomSignal}
         conversationKey={historyKey}
+        showScrollToBottomButton={!!session}
       />
     </section>
   );

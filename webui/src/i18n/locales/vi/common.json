@@ -303,7 +303,8 @@
       },
       "goalStateCloseAria": "Đóng mục tiêu"
     },
-    "scrollToBottom": "Cuộn xuống cuối"
+    "scrollToBottom": "Cuộn xuống cuối",
+    "loadEarlier": "Tải tin nhắn trước đó"
   },
   "message": {
     "streaming": "đang truyền",

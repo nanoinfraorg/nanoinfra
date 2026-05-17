@@ -303,7 +303,8 @@
       },
       "goalStateCloseAria": "Tutup tujuan"
     },
-    "scrollToBottom": "Gulir ke bawah"
+    "scrollToBottom": "Gulir ke bawah",
+    "loadEarlier": "Muat pesan sebelumnya"
   },
   "message": {
     "streaming": "sedang mengalir",

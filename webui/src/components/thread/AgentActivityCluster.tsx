@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronRight, Layers } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -8,6 +8,7 @@ import type { UIMessage } from "@/lib/types";
 
 /** Scrollport height for the Cursor-style “live trace” strip (tailwind spacing). */
 const CLUSTER_SCROLL_MAX_CLASS = "max-h-52";
+const ACTIVITY_SCROLL_NEAR_BOTTOM_PX = 24;
 
 export function isReasoningOnlyAssistant(m: UIMessage): boolean {
   if (m.role !== "assistant" || m.kind === "trace") return false;
@@ -19,14 +20,20 @@ export function isAgentActivityMember(m: UIMessage): boolean {
   return isReasoningOnlyAssistant(m) || m.kind === "trace";
 }
 
-function countToolCalls(messages: UIMessage[]): number {
-  let n = 0;
+function countActivity(messages: UIMessage[]): { reasoningSteps: number; toolCalls: number } {
+  let reasoningSteps = 0;
+  let toolCalls = 0;
   for (const m of messages) {
-    if (m.kind !== "trace") continue;
-    const lines = m.traces?.length ?? (m.content.trim() ? 1 : 0);
-    n += Math.max(lines, 1);
+    if (isReasoningOnlyAssistant(m)) {
+      reasoningSteps += 1;
+      continue;
+    }
+    if (m.kind === "trace") {
+      const lines = m.traces?.length ?? (m.content.trim() ? 1 : 0);
+      toolCalls += Math.max(lines, 1);
+    }
   }
-  return n;
+  return { reasoningSteps, toolCalls };
 }
 
 interface AgentActivityClusterProps {
@@ -46,11 +53,14 @@ export function AgentActivityCluster({
   hasBodyBelow,
 }: AgentActivityClusterProps) {
   const { t } = useTranslation();
-  const reasoningSteps = messages.filter(isReasoningOnlyAssistant).length;
-  const toolCalls = countToolCalls(messages);
+  const { reasoningSteps, toolCalls } = countActivity(messages);
 
   const [userToggledOuter, setUserToggledOuter] = useState(false);
   const [outerOpenLocal, setOuterOpenLocal] = useState(false);
+  const activityScrollRef = useRef<HTMLDivElement>(null);
+  const activityContentRef = useRef<HTMLDivElement>(null);
+  const autoFollowActivityRef = useRef(true);
+  const scrollFrameRef = useRef<number | null>(null);
   /** Collapsed by default during “Working…” and after the turn; user expands to inspect traces. */
   const outerExpanded = userToggledOuter ? outerOpenLocal : false;
 
@@ -79,10 +89,65 @@ export function AgentActivityCluster({
             defaultValue: "{{tools}} tool calls",
           });
 
+  const cancelActivityScrollFrame = useCallback(() => {
+    if (scrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    }
+  }, []);
+
+  const scrollActivityToBottom = useCallback(() => {
+    const el = activityScrollRef.current;
+    if (!el) return;
+    el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+  }, []);
+
+  const scheduleActivityScrollToBottom = useCallback(() => {
+    cancelActivityScrollFrame();
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      scrollActivityToBottom();
+    });
+  }, [cancelActivityScrollFrame, scrollActivityToBottom]);
+
   const toggleOuter = () => {
+    const nextOpen = userToggledOuter ? !outerOpenLocal : !outerExpanded;
+    if (nextOpen) {
+      autoFollowActivityRef.current = true;
+    }
     setUserToggledOuter(true);
-    setOuterOpenLocal((v) => (userToggledOuter ? !v : !outerExpanded));
+    setOuterOpenLocal(nextOpen);
   };
+
+  useLayoutEffect(() => {
+    if (!outerExpanded || !autoFollowActivityRef.current) return;
+    scheduleActivityScrollToBottom();
+  }, [outerExpanded, messages, isTurnStreaming, scheduleActivityScrollToBottom]);
+
+  useEffect(() => {
+    if (!outerExpanded) {
+      autoFollowActivityRef.current = true;
+      return;
+    }
+    const target = activityContentRef.current;
+    if (!target || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (autoFollowActivityRef.current) {
+        scheduleActivityScrollToBottom();
+      }
+    });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [outerExpanded, scheduleActivityScrollToBottom]);
+
+  useEffect(() => cancelActivityScrollFrame, [cancelActivityScrollFrame]);
+
+  const onActivityScroll = useCallback(() => {
+    const el = activityScrollRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    autoFollowActivityRef.current = distance < ACTIVITY_SCROLL_NEAR_BOTTOM_PX;
+  }, []);
 
   return (
     <div className={cn("w-full", hasBodyBelow && "mb-2")}>
@@ -118,12 +183,15 @@ export function AgentActivityCluster({
           )}
         >
           <div
+            ref={activityScrollRef}
+            data-testid="agent-activity-scroll"
+            onScroll={onActivityScroll}
             className={cn(
               CLUSTER_SCROLL_MAX_CLASS,
               "overflow-y-auto px-2 py-1.5 scrollbar-thin scrollbar-track-transparent",
             )}
           >
-            <div className="flex flex-col gap-2">
+            <div ref={activityContentRef} className="flex flex-col gap-2">
               {messages.map((m) => {
                 if (isReasoningOnlyAssistant(m)) {
                   return (

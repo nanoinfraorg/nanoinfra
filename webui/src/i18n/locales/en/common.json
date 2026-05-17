@@ -335,7 +335,8 @@
         "io": "Couldn't read this file"
       }
     },
-    "scrollToBottom": "Scroll to bottom"
+    "scrollToBottom": "Scroll to bottom",
+    "loadEarlier": "Load earlier messages"
   },
   "message": {
     "streaming": "streaming",

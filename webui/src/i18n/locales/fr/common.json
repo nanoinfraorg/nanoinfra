@@ -303,7 +303,8 @@
       },
       "goalStateCloseAria": "Fermer l’objectif"
     },
-    "scrollToBottom": "Faire défiler vers le bas"
+    "scrollToBottom": "Faire défiler vers le bas",
+    "loadEarlier": "Charger les messages précédents"
   },
   "message": {
     "streaming": "en cours de génération",
