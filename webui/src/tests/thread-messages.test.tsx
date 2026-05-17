@@ -55,6 +55,59 @@ describe("ThreadMessages", () => {
     expect(rows[1]).toHaveClass("mt-4");
   });
 
+  it("folds final answer reasoning into the preceding activity cluster", () => {
+    const messages: UIMessage[] = [
+      {
+        id: "r1",
+        role: "assistant",
+        content: "",
+        reasoning: "search plan",
+        reasoningStreaming: false,
+        createdAt: 1,
+      },
+      {
+        id: "t1",
+        role: "tool",
+        kind: "trace",
+        content: "web_search()",
+        traces: ["web_search()"],
+        createdAt: 2,
+      },
+      {
+        id: "a1",
+        role: "assistant",
+        content: "final answer",
+        reasoning: "summarize results",
+        reasoningStreaming: false,
+        createdAt: 3,
+      },
+    ];
+
+    const units = buildDisplayUnits(messages);
+
+    expect(units).toHaveLength(2);
+    expect(units[0]).toMatchObject({ type: "cluster" });
+    expect(units[0].type === "cluster" ? units[0].messages.map((m) => m.id) : []).toEqual([
+      "r1",
+      "t1",
+      "a1-reasoning",
+    ]);
+    expect(units[1]).toMatchObject({
+      type: "single",
+      message: {
+        id: "a1",
+        content: "final answer",
+      },
+    });
+    if (units[1].type === "single") {
+      expect(units[1].message).not.toHaveProperty("reasoning");
+    }
+
+    render(<ThreadMessages messages={messages} isStreaming={false} />);
+    expect(screen.queryByRole("button", { name: /^thinking$/i })).not.toBeInTheDocument();
+    expect(screen.getByText("final answer")).toBeInTheDocument();
+  });
+
   it("shows copy only on the last assistant slice before the next user turn", () => {
     const messages: UIMessage[] = [
       {

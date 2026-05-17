@@ -49,10 +49,45 @@ export function buildDisplayUnits(messages: UIMessage[]): DisplayUnit[] {
       out.push({ type: "cluster", messages: cluster });
       continue;
     }
+    const previous = out[out.length - 1];
+    if (previous?.type === "cluster" && assistantHasInlineReasoning(m)) {
+      previous.messages.push(reasoningOnlyMessageFromAnswer(m));
+      out.push({ type: "single", message: stripInlineReasoning(m) });
+      i += 1;
+      continue;
+    }
     out.push({ type: "single", message: m });
     i += 1;
   }
   return out;
+}
+
+function assistantHasInlineReasoning(message: UIMessage): boolean {
+  return (
+    message.role === "assistant"
+    && message.kind !== "trace"
+    && message.content.trim().length > 0
+    && (!!message.reasoning?.trim() || !!message.reasoningStreaming)
+  );
+}
+
+function reasoningOnlyMessageFromAnswer(message: UIMessage): UIMessage {
+  return {
+    id: `${message.id}-reasoning`,
+    role: "assistant",
+    content: "",
+    createdAt: message.createdAt,
+    reasoning: message.reasoning,
+    reasoningStreaming: message.reasoningStreaming,
+    isStreaming: message.reasoningStreaming,
+  };
+}
+
+function stripInlineReasoning(message: UIMessage): UIMessage {
+  const next = { ...message };
+  delete next.reasoning;
+  delete next.reasoningStreaming;
+  return next;
 }
 
 export function assistantCopyFlags(units: DisplayUnit[]): boolean[] {
