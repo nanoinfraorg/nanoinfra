@@ -9,7 +9,7 @@ from typing import Any, Callable, Coroutine
 from loguru import logger
 
 from nanobot.providers.base import LLMProvider
-from nanobot.utils.llm_runtime import LLMRuntime, LLMRuntimeResolver, static_llm_runtime
+from nanobot.utils.llm_runtime import LLMRuntimeResolver, static_llm_runtime
 
 _HEARTBEAT_TOOL = [
     {
