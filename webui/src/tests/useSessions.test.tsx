@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useSessionHistory, useSessions } from "@/hooks/useSessions";
+import { sessionTitle, useSessionHistory, useSessions } from "@/hooks/useSessions";
 import * as api from "@/lib/api";
 import { ClientProvider } from "@/providers/ClientProvider";
 
@@ -17,7 +17,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 });
 
 function fakeClient() {
-  const sessionUpdateHandlers = new Set<(chatId: string) => void>();
+  const sessionUpdateHandlers = new Set<(chatId: string, scope?: string) => void>();
   return {
     status: "open" as const,
     defaultChatId: null as string | null,
@@ -25,12 +25,12 @@ function fakeClient() {
     onError: () => () => {},
     onChat: () => () => {},
     getRunStartedAt: () => null,
-    onSessionUpdate: (handler: (chatId: string) => void) => {
+    onSessionUpdate: (handler: (chatId: string, scope?: string) => void) => {
       sessionUpdateHandlers.add(handler);
       return () => sessionUpdateHandlers.delete(handler);
     },
-    emitSessionUpdate: (chatId: string) => {
-      for (const handler of sessionUpdateHandlers) handler(chatId);
+    emitSessionUpdate: (chatId: string, scope?: string) => {
+      for (const handler of sessionUpdateHandlers) handler(chatId, scope);
     },
     sendMessage: vi.fn(),
     newChat: vi.fn(),
@@ -59,6 +59,28 @@ describe("useSessions", () => {
     vi.mocked(api.listSessions).mockReset();
     vi.mocked(api.deleteSession).mockReset();
     vi.mocked(api.fetchWebuiThread).mockReset();
+  });
+
+  it("does not use low-information greetings as fallback session titles", () => {
+    expect(sessionTitle({
+      key: "websocket:chat-hi",
+      channel: "websocket",
+      chatId: "chat-hi",
+      createdAt: "2026-04-16T10:00:00Z",
+      updatedAt: "2026-04-16T10:00:00Z",
+      title: "",
+      preview: "hi",
+    })).toBe("New chat");
+
+    expect(sessionTitle({
+      key: "websocket:chat-work",
+      channel: "websocket",
+      chatId: "chat-work",
+      createdAt: "2026-04-16T10:00:00Z",
+      updatedAt: "2026-04-16T10:00:00Z",
+      title: "",
+      preview: "帮我优化 WebUI 性能",
+    })).toBe("帮我优化 WebUI 性能");
   });
 
   it("removes a session from the local list after delete succeeds", async () => {

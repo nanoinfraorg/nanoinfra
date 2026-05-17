@@ -117,12 +117,12 @@ export function Sidebar(props: SidebarProps) {
         />
       </div>
       <Separator className="bg-sidebar-border/50" />
-      <div className="space-y-1 px-2.5 py-2.5 text-xs">
+      <div className="flex items-center gap-1 px-2.5 py-2.5 text-xs">
         <Button
           type="button"
           variant="ghost"
           onClick={props.onOpenSettings}
-          className="h-8 w-full justify-start gap-2 rounded-full px-2.5 text-[12.5px] font-medium text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
+          className="h-8 min-w-0 flex-1 justify-start gap-2 rounded-full px-2.5 text-[12.5px] font-medium text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
         >
           <Settings className="h-3.5 w-3.5" aria-hidden />
           {t("sidebar.settings")}

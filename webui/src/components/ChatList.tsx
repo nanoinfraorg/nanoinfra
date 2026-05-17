@@ -7,6 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { deriveTitle } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { ChatSummary } from "@/lib/types";
 
@@ -64,8 +65,11 @@ export function ChatList({
                 const fallbackTitle = t("chat.fallbackTitle", {
                   id: s.chatId.slice(0, 6),
                 });
-                const rawLabel = (s.title || s.preview)?.trim();
-                const title = rawLabel || fallbackTitle;
+                const generatedTitle = s.title?.trim() || "";
+                const title =
+                  generatedTitle || deriveTitle(s.preview, t("chat.newChat"));
+                const tooltipTitle =
+                  generatedTitle || deriveTitle(s.preview, fallbackTitle);
                 return (
                   <li key={s.key} className="min-w-0">
                     <div
@@ -79,7 +83,7 @@ export function ChatList({
                       <button
                         type="button"
                         onClick={() => onSelect(s.key)}
-                        title={rawLabel || fallbackTitle}
+                        title={tooltipTitle}
                         className="min-w-0 flex-1 overflow-hidden py-1.5 text-left"
                       >
                         <span className="block w-full truncate font-medium leading-5">{title}</span>

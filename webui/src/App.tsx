@@ -17,6 +17,7 @@ import {
   loadSavedSecret,
   saveSecret,
 } from "@/lib/bootstrap";
+import { deriveTitle } from "@/lib/format";
 import { NanobotClient } from "@/lib/nanobot-client";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
 import type { ChatSummary } from "@/lib/types";
@@ -391,8 +392,7 @@ function Shell({
 
   const headerTitle = activeSession
     ? activeSession.title ||
-      activeSession.preview ||
-      t("chat.fallbackTitle", { id: activeSession.chatId.slice(0, 6) })
+      deriveTitle(activeSession.preview, t("chat.newChat"))
     : t("app.brand");
 
   useEffect(() => {

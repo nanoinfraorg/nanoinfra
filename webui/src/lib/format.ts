@@ -1,10 +1,35 @@
 import i18n, { currentLocale } from "@/i18n";
 
+const LOW_INFORMATION_TITLE_PREVIEWS = new Set([
+  "hi",
+  "hello",
+  "hey",
+  "hello nano",
+  "hello nanobot",
+  "hi nano",
+  "hi nanobot",
+  "你好",
+  "您好",
+  "嗨",
+  "哈喽",
+  "哈啰",
+  "在吗",
+]);
+
+function isLowInformationTitlePreview(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/[.!?。！？~～\s]+$/g, "").trim();
+  return (
+    normalized.startsWith("/") ||
+    LOW_INFORMATION_TITLE_PREVIEWS.has(normalized)
+  );
+}
+
 /** Truncate the first user message into a chat title. */
 export function deriveTitle(preview: string | undefined, fallback: string): string {
   if (!preview) return fallback;
   const oneLine = preview.replace(/\s+/g, " ").trim();
   if (!oneLine) return fallback;
+  if (isLowInformationTitlePreview(oneLine)) return fallback;
   return oneLine.length > 60 ? `${oneLine.slice(0, 57)}…` : oneLine;
 }
 

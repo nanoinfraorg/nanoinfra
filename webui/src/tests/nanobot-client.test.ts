@@ -233,9 +233,13 @@ describe("NanobotClient", () => {
     client.connect();
     lastSocket().fakeOpen();
 
-    lastSocket().fakeMessage({ event: "session_updated", chat_id: "chat-title" });
+    lastSocket().fakeMessage({
+      event: "session_updated",
+      chat_id: "chat-title",
+      scope: "metadata",
+    });
 
-    expect(globalHandler).toHaveBeenCalledWith("chat-title");
+    expect(globalHandler).toHaveBeenCalledWith("chat-title", "metadata");
     expect(chatHandler).not.toHaveBeenCalled();
   });
 
