@@ -10,14 +10,16 @@ from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMResponse
 from nanobot.session.goal_state import GOAL_STATE_KEY
-from nanobot.session.manager import Session
+from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.webui_turn_helpers import (
     TITLE_GENERATION_MAX_TOKENS,
     TITLE_GENERATION_REASONING_EFFORT,
     WEBUI_SESSION_METADATA_KEY,
     WEBUI_TITLE_METADATA_KEY,
+    WebuiTurnCoordinator,
     maybe_generate_webui_title,
 )
+from nanobot.utils.llm_runtime import LLMRuntime
 
 
 def _mk_loop() -> AgentLoop:
@@ -33,6 +35,22 @@ def _make_full_loop(tmp_path: Path) -> AgentLoop:
     provider.get_default_model.return_value = "test-model"
     provider.chat_with_retry = AsyncMock(return_value=LLMResponse(content="Test title"))
     return AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path, model="test-model")
+
+
+def test_agent_loop_llm_runtime_reflects_current_provider_and_model(tmp_path: Path) -> None:
+    loop = _make_full_loop(tmp_path)
+    runtime = loop.llm_runtime()
+
+    assert runtime.provider is loop.provider
+    assert runtime.model == "test-model"
+
+    next_provider = MagicMock()
+    loop.provider = next_provider
+    loop.model = "next-model"
+    runtime = loop.llm_runtime()
+
+    assert runtime.provider is next_provider
+    assert runtime.model == "next-model"
 
 
 @pytest.mark.asyncio
@@ -109,6 +127,55 @@ async def test_generate_webui_title_ignores_command_only_sessions(tmp_path: Path
     assert generated is False
     assert WEBUI_TITLE_METADATA_KEY not in session.metadata
     loop.provider.chat_with_retry.assert_not_awaited()
+
+
+def test_webui_title_update_uses_captured_llm_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bus = MessageBus()
+    sessions = SessionManager(tmp_path)
+    scheduled: list[object] = []
+    captured: dict[str, object] = {}
+
+    async def fake_title_after_turn(**kwargs: object) -> bool:
+        captured.update(kwargs)
+        return False
+
+    monkeypatch.setattr(
+        "nanobot.utils.webui_turn_helpers.maybe_generate_webui_title_after_turn",
+        fake_title_after_turn,
+    )
+    coordinator = WebuiTurnCoordinator(
+        bus=bus,
+        sessions=sessions,
+        schedule_background=lambda coro: scheduled.append(coro),
+    )
+    provider = MagicMock()
+    msg = InboundMessage(
+        channel="websocket",
+        sender_id="u1",
+        chat_id="chat1",
+        content="say hello",
+        metadata={"webui": True},
+    )
+
+    coordinator.capture_title_context(
+        "websocket:chat1",
+        msg,
+        LLMRuntime(provider, "turn-model"),
+    )
+    asyncio.run(coordinator.handle_turn_end(
+        msg,
+        session_key="websocket:chat1",
+        latency_ms=None,
+    ))
+
+    assert len(scheduled) == 1
+    asyncio.run(scheduled[0])  # type: ignore[arg-type]
+
+    assert captured["provider"] is provider
+    assert captured["model"] == "turn-model"
 
 
 def test_save_turn_skips_multimodal_user_when_only_runtime_context() -> None:

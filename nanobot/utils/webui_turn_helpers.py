@@ -20,6 +20,7 @@ from nanobot.providers.base import LLMProvider
 from nanobot.session.goal_state import goal_state_ws_blob
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.helpers import truncate_text
+from nanobot.utils.llm_runtime import LLMRuntime
 
 WEBUI_SESSION_METADATA_KEY = "webui"
 WEBUI_TITLE_METADATA_KEY = "title"
@@ -31,7 +32,6 @@ TITLE_GENERATION_REASONING_EFFORT = "none"
 # Wall-clock turn start per ``chat_id`` (websocket only). Survives browser refresh while the
 # gateway process stays up; cleared on idle/stop and implicitly dropped on restart.
 _WEBSOCKET_TURN_WALL_STARTED_AT: dict[str, float] = {}
-TitleContext = tuple[LLMProvider, str]
 
 
 def mark_webui_session(session: Session, metadata: dict[str, Any]) -> bool:
@@ -241,17 +241,16 @@ class WebuiTurnCoordinator:
     bus: MessageBus
     sessions: SessionManager
     schedule_background: Callable[[Awaitable[None]], None]
-    _title_contexts: dict[str, TitleContext] = field(default_factory=dict)
+    _title_contexts: dict[str, LLMRuntime] = field(default_factory=dict)
 
     def capture_title_context(
         self,
         session_key: str,
         msg: InboundMessage,
-        provider: LLMProvider,
-        model: str,
+        llm: LLMRuntime,
     ) -> None:
         if msg.channel == "websocket" and msg.metadata.get("webui") is True:
-            self._title_contexts[session_key] = (provider, model)
+            self._title_contexts[session_key] = llm
 
     def discard(self, session_key: str) -> None:
         self._title_contexts.pop(session_key, None)
@@ -287,19 +286,16 @@ class WebuiTurnCoordinator:
         if msg.metadata.get("webui") is not True or title_context is None:
             return
 
-        title_provider, title_model = title_context
-
         async def _generate_title_and_notify(
-            provider: LLMProvider = title_provider,
-            model: str = title_model,
+            title_llm: LLMRuntime = title_context,
         ) -> None:
             generated = await maybe_generate_webui_title_after_turn(
                 channel=msg.channel,
                 metadata=msg.metadata,
                 sessions=self.sessions,
                 session_key=session_key,
-                provider=provider,
-                model=model,
+                provider=title_llm.provider,
+                model=title_llm.model,
             )
             if generated:
                 await self.bus.publish_outbound(OutboundMessage(
