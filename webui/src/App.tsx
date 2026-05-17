@@ -32,13 +32,29 @@ type BootState =
       status: "ready";
       client: NanobotClient;
       token: string;
+      tokenExpiresAt: number;
       modelName: string | null;
     };
 
 const SIDEBAR_STORAGE_KEY = "nanobot-webui.sidebar";
 const RESTART_STARTED_KEY = "nanobot-webui.restartStartedAt";
 const SIDEBAR_WIDTH = 272;
+const TOKEN_REFRESH_MARGIN_MS = 30_000;
+const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
 type ShellView = "chat" | "settings";
+
+function bootstrapTokenExpiresAt(expiresInSeconds: number): number {
+  return Date.now() + Math.max(0, expiresInSeconds) * 1000;
+}
+
+function tokenRefreshDelayMs(expiresAt: number): number {
+  const remaining = Math.max(0, expiresAt - Date.now());
+  const margin = Math.min(
+    TOKEN_REFRESH_MARGIN_MS,
+    Math.max(1_000, remaining / 2),
+  );
+  return Math.max(TOKEN_REFRESH_MIN_DELAY_MS, remaining - margin);
+}
 
 function AuthForm({
   failed,
@@ -108,6 +124,7 @@ function readSidebarOpen(): boolean {
 export default function App() {
   const { t } = useTranslation();
   const [state, setState] = useState<BootState>({ status: "loading" });
+  const bootstrapSecretRef = useRef("");
 
   const bootstrapWithSecret = useCallback(
     (secret: string) => {
@@ -119,22 +136,37 @@ export default function App() {
           if (cancelled) return;
           if (secret) saveSecret(secret);
           const url = deriveWsUrl(boot.ws_path, boot.token);
-          const client = new NanobotClient({
+          let client: NanobotClient;
+          client = new NanobotClient({
             url,
             onReauth: async () => {
               try {
-                const refreshed = await fetchBootstrap("", secret);
-                return deriveWsUrl(refreshed.ws_path, refreshed.token);
+                const refreshed = await fetchBootstrap("", bootstrapSecretRef.current);
+                const refreshedUrl = deriveWsUrl(refreshed.ws_path, refreshed.token);
+                const tokenExpiresAt = bootstrapTokenExpiresAt(refreshed.expires_in);
+                setState((current) =>
+                  current.status === "ready" && current.client === client
+                    ? {
+                        ...current,
+                        token: refreshed.token,
+                        tokenExpiresAt,
+                        modelName: refreshed.model_name ?? current.modelName,
+                      }
+                    : current,
+                );
+                return refreshedUrl;
               } catch {
                 return null;
               }
             },
           });
+          bootstrapSecretRef.current = secret;
           client.connect();
           setState({
             status: "ready",
             client,
             token: boot.token,
+            tokenExpiresAt: bootstrapTokenExpiresAt(boot.expires_in),
             modelName: boot.model_name ?? null,
           });
         } catch (e) {
@@ -153,6 +185,35 @@ export default function App() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (state.status !== "ready") return;
+    const client = state.client;
+    const timer = window.setTimeout(async () => {
+      try {
+        const boot = await fetchBootstrap("", bootstrapSecretRef.current);
+        const url = deriveWsUrl(boot.ws_path, boot.token);
+        const tokenExpiresAt = bootstrapTokenExpiresAt(boot.expires_in);
+        client.updateUrl(url);
+        setState((current) =>
+          current.status === "ready" && current.client === client
+            ? {
+                ...current,
+                token: boot.token,
+                tokenExpiresAt,
+                modelName: boot.model_name ?? current.modelName,
+              }
+            : current,
+        );
+      } catch (e) {
+        const msg = (e as Error).message;
+        if (msg.includes("HTTP 401") || msg.includes("HTTP 403")) {
+          setState({ status: "auth", failed: true });
+        }
+      }
+    }, tokenRefreshDelayMs(state.tokenExpiresAt));
+    return () => window.clearTimeout(timer);
+  }, [state]);
 
   useEffect(() => {
     const saved = loadSavedSecret();
