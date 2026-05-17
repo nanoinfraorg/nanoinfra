@@ -1549,6 +1549,9 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
             self.dream = _FakeDream()
             self.sessions = _FakeSessionManager()
 
+        def llm_runtime(self) -> None:
+            return None
+
         async def run(self) -> None:
             await asyncio.Event().wait()
 
