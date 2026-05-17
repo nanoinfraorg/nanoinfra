@@ -6,10 +6,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import nanobot.agent.runner as runner_module
 from nanobot.agent.loop import AgentLoop
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMResponse, ToolCallRequest
+from nanobot.utils.progress_events import (
+    invoke_file_edit_progress,
+    on_progress_accepts_file_edit_events,
+)
 
 
 def _make_loop(tmp_path: Path) -> AgentLoop:
@@ -139,6 +144,52 @@ class TestToolEventProgress:
         assert (file_events[1]["added"], file_events[1]["deleted"]) == (2, 1)
 
     @pytest.mark.asyncio
+    async def test_file_edit_snapshot_skipped_when_progress_callback_cannot_emit_file_edits(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        loop = _make_loop(tmp_path)
+        target = tmp_path / "foo.txt"
+        target.write_text("old\n", encoding="utf-8")
+        tool_call = ToolCallRequest(
+            id="call-write",
+            name="write_file",
+            arguments={"path": "foo.txt", "content": "new\n"},
+        )
+        calls = iter([
+            LLMResponse(content="", tool_calls=[tool_call]),
+            LLMResponse(content="Done", tool_calls=[]),
+        ])
+        loop.provider.chat_with_retry = AsyncMock(side_effect=lambda *a, **kw: next(calls))
+        loop.tools.get_definitions = MagicMock(return_value=[])
+        loop.tools.prepare_call = MagicMock(
+            return_value=(None, {"path": "foo.txt", "content": "new\n"}, None),
+        )
+
+        async def execute(name: str, params: dict) -> str:
+            target.write_text(params["content"], encoding="utf-8")
+            return "ok"
+
+        loop.tools.execute = AsyncMock(side_effect=execute)
+        prepare_tracker = MagicMock(side_effect=AssertionError("unexpected file snapshot"))
+        monkeypatch.setattr(runner_module, "prepare_file_edit_tracker", prepare_tracker)
+
+        async def on_progress(
+            content: str,
+            *,
+            tool_hint: bool = False,
+            tool_events: list[dict] | None = None,
+        ) -> None:
+            pass
+
+        final_content, _, _, _, _ = await loop._run_agent_loop([], on_progress=on_progress)
+
+        assert final_content == "Done"
+        assert target.read_text(encoding="utf-8") == "new\n"
+        prepare_tracker.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_exec_does_not_emit_file_edit_progress(self, tmp_path: Path) -> None:
         loop = _make_loop(tmp_path)
         tool_call = ToolCallRequest(
@@ -243,6 +294,7 @@ class TestToolEventProgress:
             chat_id="chat1",
             content="edit",
         ))
+        assert on_progress_accepts_file_edit_events(websocket_progress) is True
         await websocket_progress("", file_edit_events=edit_events)
         outbound = await bus.consume_outbound()
         assert outbound.metadata["_file_edit_events"] == edit_events
@@ -253,7 +305,8 @@ class TestToolEventProgress:
             chat_id="chat2",
             content="edit",
         ))
-        await telegram_progress("", file_edit_events=edit_events)
+        assert on_progress_accepts_file_edit_events(telegram_progress) is False
+        await invoke_file_edit_progress(telegram_progress, edit_events)
         assert bus.outbound_size == 0
 
     @pytest.mark.asyncio

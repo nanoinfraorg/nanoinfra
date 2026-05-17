@@ -200,7 +200,7 @@ def build_bus_progress_callback(
 ) -> Callable[..., Awaitable[None]]:
     """Return the bus progress callback for agent runtime events."""
 
-    async def _bus_progress(
+    async def _publish_progress(
         content: str,
         *,
         tool_hint: bool = False,
@@ -209,8 +209,6 @@ def build_bus_progress_callback(
         reasoning: bool = False,
         reasoning_end: bool = False,
     ) -> None:
-        if file_edit_events and msg.channel != "websocket":
-            return
         meta = dict(msg.metadata or {})
         meta["_progress"] = True
         meta["_tool_hint"] = tool_hint
@@ -229,6 +227,43 @@ def build_bus_progress_callback(
                 content=content,
                 metadata=meta,
             )
+        )
+
+    if msg.channel == "websocket":
+        async def _websocket_progress(
+            content: str,
+            *,
+            tool_hint: bool = False,
+            tool_events: list[dict[str, Any]] | None = None,
+            file_edit_events: list[dict[str, Any]] | None = None,
+            reasoning: bool = False,
+            reasoning_end: bool = False,
+        ) -> None:
+            await _publish_progress(
+                content,
+                tool_hint=tool_hint,
+                tool_events=tool_events,
+                file_edit_events=file_edit_events,
+                reasoning=reasoning,
+                reasoning_end=reasoning_end,
+            )
+
+        return _websocket_progress
+
+    async def _bus_progress(
+        content: str,
+        *,
+        tool_hint: bool = False,
+        tool_events: list[dict[str, Any]] | None = None,
+        reasoning: bool = False,
+        reasoning_end: bool = False,
+    ) -> None:
+        await _publish_progress(
+            content,
+            tool_hint=tool_hint,
+            tool_events=tool_events,
+            reasoning=reasoning,
+            reasoning_end=reasoning_end,
         )
 
     return _bus_progress

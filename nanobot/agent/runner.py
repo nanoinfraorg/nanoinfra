@@ -32,7 +32,10 @@ from nanobot.utils.helpers import (
     strip_think,
     truncate_text,
 )
-from nanobot.utils.progress_events import invoke_file_edit_progress
+from nanobot.utils.progress_events import (
+    invoke_file_edit_progress,
+    on_progress_accepts_file_edit_events,
+)
 from nanobot.utils.prompt_templates import render_template
 from nanobot.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
@@ -820,16 +823,25 @@ class AgentRunner:
             return prep_error + hint, event, (
                 RuntimeError(prep_error) if spec.fail_on_tool_error else None
             )
-        file_edit_tracker = prepare_file_edit_tracker(
-            call_id=tool_call.id,
-            tool_name=tool_call.name,
-            tool=tool,
-            workspace=spec.workspace,
-            params=params if isinstance(params, dict) else None,
+        emit_file_edit_events = (
+            spec.progress_callback is not None
+            and on_progress_accepts_file_edit_events(spec.progress_callback)
         )
-        if file_edit_tracker is not None and spec.progress_callback is not None:
+        progress_callback = spec.progress_callback if emit_file_edit_events else None
+        file_edit_tracker = (
+            prepare_file_edit_tracker(
+                call_id=tool_call.id,
+                tool_name=tool_call.name,
+                tool=tool,
+                workspace=spec.workspace,
+                params=params if isinstance(params, dict) else None,
+            )
+            if progress_callback is not None
+            else None
+        )
+        if file_edit_tracker is not None and progress_callback is not None:
             await invoke_file_edit_progress(
-                spec.progress_callback,
+                progress_callback,
                 [build_file_edit_start_event(
                     file_edit_tracker,
                     params if isinstance(params, dict) else None,
@@ -843,9 +855,9 @@ class AgentRunner:
         except asyncio.CancelledError:
             raise
         except BaseException as exc:
-            if file_edit_tracker is not None and spec.progress_callback is not None:
+            if file_edit_tracker is not None and progress_callback is not None:
                 await invoke_file_edit_progress(
-                    spec.progress_callback,
+                    progress_callback,
                     [build_file_edit_error_event(file_edit_tracker, str(exc))],
                 )
             event = {
@@ -869,9 +881,9 @@ class AgentRunner:
             return payload, event, None
 
         if isinstance(result, str) and result.startswith("Error"):
-            if file_edit_tracker is not None and spec.progress_callback is not None:
+            if file_edit_tracker is not None and progress_callback is not None:
                 await invoke_file_edit_progress(
-                    spec.progress_callback,
+                    progress_callback,
                     [build_file_edit_error_event(file_edit_tracker, result)],
                 )
             event = {
@@ -892,9 +904,9 @@ class AgentRunner:
                 return result + hint, event, RuntimeError(result)
             return result + hint, event, None
 
-        if file_edit_tracker is not None and spec.progress_callback is not None:
+        if file_edit_tracker is not None and progress_callback is not None:
             await invoke_file_edit_progress(
-                spec.progress_callback,
+                progress_callback,
                 [build_file_edit_end_event(file_edit_tracker)],
             )
 
