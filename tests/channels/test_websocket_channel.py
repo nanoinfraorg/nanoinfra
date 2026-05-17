@@ -371,6 +371,55 @@ async def test_send_progress_includes_structured_tool_events() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_file_edit_progress_uses_file_edit_event() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-1",
+        content="",
+        metadata={
+            "_progress": True,
+            "_file_edit_events": [
+                {
+                    "version": 1,
+                    "phase": "start",
+                    "call_id": "call-1",
+                    "tool": "write_file",
+                    "path": "src/app.py",
+                    "added": 12,
+                    "deleted": 2,
+                    "approximate": True,
+                    "status": "editing",
+                }
+            ],
+        },
+    ))
+
+    payload = json.loads(mock_ws.send.await_args.args[0])
+    assert payload == {
+        "event": "file_edit",
+        "chat_id": "chat-1",
+        "edits": [
+            {
+                "version": 1,
+                "phase": "start",
+                "call_id": "call-1",
+                "tool": "write_file",
+                "path": "src/app.py",
+                "added": 12,
+                "deleted": 2,
+                "approximate": True,
+                "status": "editing",
+            }
+        ],
+    }
+
+
+@pytest.mark.asyncio
 async def test_send_progress_includes_agent_ui_blob() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
@@ -759,6 +808,25 @@ async def test_send_session_updated_emits_session_updated_event() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_session_updated_includes_scope_when_present() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-1",
+        content="",
+        metadata={"_session_updated": True, "_session_update_scope": "metadata"},
+    ))
+
+    mock_ws.send.assert_awaited_once()
+    body = json.loads(mock_ws.send.await_args.args[0])
+    assert body == {"event": "session_updated", "chat_id": "chat-1", "scope": "metadata"}
+
+
+@pytest.mark.asyncio
 async def test_send_non_connection_closed_exception_is_raised() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)
@@ -946,7 +1014,12 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         providers = {provider["name"]: provider for provider in body["providers"]}
         assert providers["openai"]["configured"] is True
         assert providers["openai"]["api_key_hint"] == "secr••••-key"
+        assert providers["azure_openai"]["api_key_required"] is True
         assert providers["openrouter"]["configured"] is False
+        assert providers["openrouter"]["api_key_required"] is True
+        assert providers["atomic_chat"]["configured"] is False
+        assert providers["atomic_chat"]["api_key_required"] is False
+        assert providers["atomic_chat"]["default_api_base"] == "http://localhost:1337/v1"
         assert body["agent"]["has_api_key"] is True
         assert body["web_search"]["provider"] == "brave"
         assert body["web_search"]["api_key_hint"] == "brav••••cret"
@@ -969,10 +1042,24 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert provider_rows["openrouter"]["configured"] is True
         assert "sk-or-test" not in provider_updated.text
 
+        local_provider_updated = await _http_get(
+            "http://127.0.0.1:"
+            f"{port}/api/settings/provider/update?provider=atomic_chat"
+            "&api_base=http%3A%2F%2Flocalhost%3A1337%2Fv1",
+            headers={"Authorization": "Bearer tok"},
+        )
+        assert local_provider_updated.status_code == 200
+        local_provider_body = local_provider_updated.json()
+        local_provider_rows = {
+            provider["name"]: provider for provider in local_provider_body["providers"]
+        }
+        assert local_provider_rows["atomic_chat"]["configured"] is True
+        assert "localhost:1337" in local_provider_updated.text
+
         updated = await _http_get(
             "http://127.0.0.1:"
-            f"{port}/api/settings/update?model=openrouter/test"
-            "&provider=openrouter",
+            f"{port}/api/settings/update?model=atomic_chat/test"
+            "&provider=atomic_chat",
             headers={"Authorization": "Bearer tok"},
         )
         assert updated.status_code == 200
@@ -992,10 +1079,11 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert search_body["web_search"]["base_url"] == "https://search.example.com"
 
         saved = load_config(config_path)
-        assert saved.agents.defaults.model == "openrouter/test"
-        assert saved.agents.defaults.provider == "openrouter"
+        assert saved.agents.defaults.model == "atomic_chat/test"
+        assert saved.agents.defaults.provider == "atomic_chat"
         assert saved.providers.openrouter.api_key == "sk-or-test"
         assert saved.providers.openrouter.api_base == "https://openrouter.ai/api/v1"
+        assert saved.providers.atomic_chat.api_base == "http://localhost:1337/v1"
         assert saved.tools.web.search.provider == "searxng"
         assert saved.tools.web.search.api_key == ""
         assert saved.tools.web.search.base_url == "https://search.example.com"

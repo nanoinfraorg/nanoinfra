@@ -42,6 +42,62 @@ def test_replay_delta_and_turn_end(tmp_path, monkeypatch) -> None:
     assert msgs[1]["latencyMs"] == 42
 
 
+def test_replay_file_edit_event_creates_file_activity(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    key = "websocket:t-file"
+    for ev in (
+        {"event": "user", "chat_id": "t-file", "text": "edit"},
+        {
+            "event": "message",
+            "chat_id": "t-file",
+            "text": 'write_file({"path":"foo.txt"})',
+            "kind": "tool_hint",
+        },
+        {
+            "event": "file_edit",
+            "chat_id": "t-file",
+            "edits": [
+                {
+                    "version": 1,
+                    "call_id": "call-write",
+                    "tool": "write_file",
+                    "path": "foo.txt",
+                    "phase": "end",
+                    "added": 2,
+                    "deleted": 1,
+                    "approximate": False,
+                    "status": "done",
+                },
+            ],
+        },
+    ):
+        append_transcript_object(key, ev)
+
+    msgs = replay_transcript_to_ui_messages(read_transcript_lines(key))
+
+    assert len(msgs) == 3
+    assert msgs[1]["kind"] == "trace"
+    assert msgs[1]["traces"] == ['write_file({"path":"foo.txt"})']
+    assert "fileEdits" not in msgs[1]
+    assert msgs[2]["kind"] == "trace"
+    assert msgs[2]["traces"] == []
+    assert msgs[2]["fileEdits"] == [
+        {
+            "version": 1,
+            "call_id": "call-write",
+            "tool": "write_file",
+            "path": "foo.txt",
+            "phase": "end",
+            "added": 2,
+            "deleted": 1,
+            "approximate": False,
+            "status": "done",
+        },
+    ]
+    assert msgs[2]["activitySegmentId"]
+    assert msgs[2]["activitySegmentId"] != msgs[1]["activitySegmentId"]
+
+
 def test_build_response_schema(monkeypatch, tmp_path) -> None:
     from nanobot.utils.webui_transcript import build_webui_thread_response
 

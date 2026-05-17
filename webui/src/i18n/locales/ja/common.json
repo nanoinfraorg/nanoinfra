@@ -303,7 +303,8 @@
       },
       "goalStateCloseAria": "目標を閉じる"
     },
-    "scrollToBottom": "一番下へスクロール"
+    "scrollToBottom": "一番下へスクロール",
+    "loadEarlier": "以前のメッセージを読み込む"
   },
   "message": {
     "streaming": "生成中",

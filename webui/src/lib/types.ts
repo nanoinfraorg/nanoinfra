@@ -40,6 +40,10 @@ export interface UIMessage {
   /** For trace rows: each individual hint line, so consecutive hints can
    * render as a single collapsible group. */
   traces?: string[];
+  /** Activity rows: explicit file edits emitted by edit tools. */
+  fileEdits?: UIFileEdit[];
+  /** Activity rows created during the same agent phase share one collapsible block. */
+  activitySegmentId?: string;
   /** User turn: optimistic blob URLs for preview. Replay: placeholder chips. */
   images?: UIImage[];
   /** Signed or local UI-renderable media attachments. */
@@ -80,6 +84,20 @@ export interface ToolProgressEvent {
   embeds?: unknown[];
 }
 
+export interface UIFileEdit {
+  version?: number;
+  call_id: string;
+  tool: string;
+  path: string;
+  phase?: "start" | "end" | "error" | string;
+  added: number;
+  deleted: number;
+  approximate?: boolean;
+  status: "editing" | "done" | "error";
+  binary?: boolean;
+  error?: string;
+}
+
 export interface ChatSummary {
   /** Server-side session key, e.g. ``websocket:abcd-...``. */
   key: string;
@@ -110,6 +128,7 @@ export interface SettingsPayload {
     name: string;
     label: string;
     configured: boolean;
+    api_key_required?: boolean;
     api_key_hint?: string | null;
     api_base?: string | null;
     default_api_base?: string | null;
@@ -183,6 +202,11 @@ export type InboundEvent =
       agent_ui?: AgentUIBlob;
     }
   | {
+      event: "file_edit";
+      chat_id: string;
+      edits: UIFileEdit[];
+    }
+  | {
       event: "delta";
       chat_id: string;
       text: string;
@@ -229,7 +253,7 @@ export type InboundEvent =
       chat_id: string;
       goal_state: GoalStateWsPayload;
     }
-  | { event: "session_updated"; chat_id: string }
+  | { event: "session_updated"; chat_id: string; scope?: "metadata" | "thread" | string }
   | { event: "error"; chat_id?: string; detail?: string };
 
 /** Base64-encoded image attached to an outbound ``message`` envelope.

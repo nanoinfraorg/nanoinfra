@@ -303,7 +303,8 @@
       },
       "goalStateCloseAria": "關閉目標"
     },
-    "scrollToBottom": "捲動到底部"
+    "scrollToBottom": "捲動到底部",
+    "loadEarlier": "載入更早訊息"
   },
   "message": {
     "streaming": "串流輸出中",

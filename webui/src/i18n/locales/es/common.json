@@ -303,7 +303,8 @@
       },
       "goalStateCloseAria": "Cerrar objetivo"
     },
-    "scrollToBottom": "Desplazarse al final"
+    "scrollToBottom": "Desplazarse al final",
+    "loadEarlier": "Cargar mensajes anteriores"
   },
   "message": {
     "streaming": "transmitiendo",

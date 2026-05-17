@@ -1170,6 +1170,7 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
             self.model = "test-model"
             self.provider = kwargs.get("provider", object())
             self.tools = {}
+            seen["agent"] = self
 
         async def process_direct(self, *_args, **_kwargs):
             return OutboundMessage(
@@ -1218,6 +1219,11 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
     assert isinstance(cron, _FakeCron)
     assert cron.on_job is not None
 
+    runtime_provider = object()
+    agent = seen["agent"]
+    agent.provider = runtime_provider
+    agent.model = "runtime-model"
+
     job = CronJob(
         id="cron-1",
         name="stretch",
@@ -1233,8 +1239,8 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
 
     assert response == "Time to stretch."
     assert seen["response"] == "Time to stretch."
-    assert seen["provider"] is provider
-    assert seen["model"] == "test-model"
+    assert seen["provider"] is runtime_provider
+    assert seen["model"] == "runtime-model"
     assert seen["task_context"] == (
         "The scheduled time has arrived. Deliver this reminder to the user now, "
         "as a brief and natural message in their language. Speak directly to them — "
@@ -1542,6 +1548,9 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
             self.provider = object()
             self.dream = _FakeDream()
             self.sessions = _FakeSessionManager()
+
+        def llm_runtime(self) -> None:
+            return None
 
         async def run(self) -> None:
             await asyncio.Event().wait()

@@ -396,7 +396,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         name="vllm",
         keywords=("vllm",),
         env_key="HOSTED_VLLM_API_KEY",
-        display_name="vLLM/Local",
+        display_name="vLLM",
         backend="openai_compat",
         is_local=True,
     ),

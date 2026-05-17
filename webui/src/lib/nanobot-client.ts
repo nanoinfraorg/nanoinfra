@@ -54,7 +54,8 @@ type Unsubscribe = () => void;
 type EventHandler = (ev: InboundEvent) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
 type RuntimeModelHandler = (modelName: string | null, modelPreset?: string | null) => void;
-type SessionUpdateHandler = (chatId: string) => void;
+type SessionUpdateScope = "metadata" | "thread" | string;
+type SessionUpdateHandler = (chatId: string, scope?: SessionUpdateScope) => void;
 
 /** Structured connection-level errors surfaced to the UI.
  *
@@ -364,7 +365,7 @@ export class NanobotClient {
     }
 
     if (parsed.event === "session_updated") {
-      this.emitSessionUpdate(parsed.chat_id);
+      this.emitSessionUpdate(parsed.chat_id, parsed.scope);
       return;
     }
 
@@ -382,9 +383,9 @@ export class NanobotClient {
     }
   }
 
-  private emitSessionUpdate(chatId: string): void {
+  private emitSessionUpdate(chatId: string, scope?: SessionUpdateScope): void {
     for (const handler of this.sessionUpdateHandlers) {
-      handler(chatId);
+      handler(chatId, scope);
     }
   }
 

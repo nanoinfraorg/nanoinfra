@@ -167,8 +167,9 @@ export function ThreadShell({
 
   useEffect(() => {
     if (!chatId) return;
-    return client.onSessionUpdate((updatedChatId) => {
+    return client.onSessionUpdate((updatedChatId, scope) => {
       if (updatedChatId !== chatId) return;
+      if (scope === "metadata") return;
       pendingCanonicalHydrateRef.current.add(chatId);
       refreshHistory();
     });
@@ -389,6 +390,7 @@ export function ThreadShell({
         composer={composer}
         scrollToBottomSignal={scrollToBottomSignal}
         conversationKey={historyKey}
+        showScrollToBottomButton={!!session}
       />
     </section>
   );

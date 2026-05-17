@@ -968,8 +968,7 @@ def _run_gateway(
     hb_cfg = config.gateway.heartbeat
     heartbeat = HeartbeatService(
         workspace=config.workspace_path,
-        provider=agent.provider,
-        model=agent.model,
+        llm_runtime=agent.llm_runtime,
         on_execute=on_heartbeat_execute,
         on_notify=on_heartbeat_notify,
         interval_s=hb_cfg.interval_s,

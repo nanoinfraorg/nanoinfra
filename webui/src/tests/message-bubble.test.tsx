@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { MessageBubble } from "@/components/MessageBubble";
@@ -131,7 +131,9 @@ describe("MessageBubble", () => {
 
     expect(screen.getByText("Thinking…")).toBeInTheDocument();
     expect(screen.getByText(/Step 1: parse intent\./)).toBeInTheDocument();
-    expect(container.querySelector(".reasoning-sheen-stripe")).toBeInTheDocument();
+    expect(container.querySelector(".reasoning-sheen-stripe")).not.toBeInTheDocument();
+    expect(screen.getByText("Thinking…")).toHaveClass("streaming-text-sheen");
+    expect(screen.getByText("Thinking…")).toHaveAttribute("data-sheen-text", "Thinking…");
     expect(screen.getByRole("button", { name: /thinking/i }).parentElement).not.toHaveClass("mb-2");
   });
 
@@ -175,6 +177,47 @@ describe("MessageBubble", () => {
     });
     expect(container.textContent).not.toContain("###");
     expect(screen.getByText("Body line.")).toBeInTheDocument();
+  });
+
+  it("renders inline file paths as compact file references", async () => {
+    await import("@/components/MarkdownTextRenderer");
+    const message: UIMessage = {
+      id: "a-file-path",
+      role: "assistant",
+      content:
+        "改动在 `webui/src/components/MarkdownTextRenderer.tsx` 和 `/Users/renxubin/.nanobot/workspace/minecraft-fps/index.html`。",
+      createdAt: Date.now(),
+    };
+
+    try {
+      render(<MessageBubble message={message} />);
+
+      const references = await screen.findAllByTestId("inline-file-path");
+      expect(references).toHaveLength(2);
+      expect(references[0].parentElement).not.toHaveClass("translate-y-[0.08em]");
+      expect(references[0].parentElement).toHaveClass("align-[0.14em]");
+      expect(references[0]).toHaveTextContent("MarkdownTextRenderer.tsx");
+      expect(references[0]).not.toHaveTextContent("webui/src/components");
+      expect(screen.getByText("index.html")).toBeInTheDocument();
+      expect(references[1]).not.toHaveTextContent("/Users/renxubin");
+      expect(references[1]).not.toHaveAttribute("title");
+      expect(references[1]).toHaveAttribute(
+        "aria-label",
+        "/Users/renxubin/.nanobot/workspace/minecraft-fps/index.html",
+      );
+
+      vi.useFakeTimers();
+      fireEvent.pointerMove(references[1].parentElement!);
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+      });
+      const tooltip = screen.getByRole("tooltip");
+      expect(tooltip).toHaveTextContent(
+        "/Users/renxubin/.nanobot/workspace/minecraft-fps/index.html",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders assistant image media as a larger generated result", () => {
