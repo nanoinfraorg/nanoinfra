@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AgentActivityCluster } from "@/components/thread/AgentActivityCluster";
@@ -70,6 +70,25 @@ function setScrollGeometry(
       writable: true,
     },
   });
+}
+
+function installReducedMotion() {
+  const original = window.matchMedia;
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: () => ({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }),
+  });
+  return () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: original,
+    });
+  };
 }
 
 describe("AgentActivityCluster", () => {
@@ -199,6 +218,119 @@ describe("AgentActivityCluster", () => {
       expect(scrollport.scrollTop).toBe(100);
     } finally {
       raf.restore();
+    }
+  });
+
+  it("renders file edit totals and a compact expanded file list", async () => {
+    const restoreMotion = installReducedMotion();
+    try {
+      render(
+        <AgentActivityCluster
+          messages={activityMessages("", {
+            id: "t2",
+            role: "tool",
+            kind: "trace",
+            content: "edit_file()",
+            traces: ["edit_file()"],
+            fileEdits: [{
+              call_id: "call-edit",
+              tool: "edit_file",
+              path: "src/app.tsx",
+              phase: "end",
+              added: 12,
+              deleted: 3,
+              approximate: false,
+              status: "done",
+            }],
+            createdAt: 3,
+          })}
+          isTurnStreaming={false}
+          hasBodyBelow={false}
+        />,
+      );
+
+      expect(screen.getByRole("button", { name: /edited app\.tsx/i })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /edited app\.tsx/i }));
+
+      expect(screen.queryByText("Edited files")).not.toBeInTheDocument();
+      expect(screen.queryByText("Edited")).not.toBeInTheDocument();
+      const fileRef = screen.getByTestId("activity-file-reference");
+      expect(fileRef).toHaveTextContent("src/app.tsx");
+      expect(fileRef).toHaveAttribute("aria-label", "src/app.tsx");
+      await waitFor(() => {
+        expect(screen.getAllByText("+12").length).toBeGreaterThan(0);
+        expect(screen.getAllByText("-3").length).toBeGreaterThan(0);
+      });
+    } finally {
+      restoreMotion();
+    }
+  });
+
+  it("merges repeated edits for the same path and lets successful edits win over failures", async () => {
+    const restoreMotion = installReducedMotion();
+    try {
+      render(
+        <AgentActivityCluster
+          messages={activityMessages("", {
+            id: "t2",
+            role: "tool",
+            kind: "trace",
+            content: "edit_file()",
+            traces: ["edit_file()"],
+            fileEdits: [
+              {
+                call_id: "call-edit-1",
+                tool: "edit_file",
+                path: "minecraft-fps/index.html",
+                phase: "end",
+                added: 2,
+                deleted: 1,
+                approximate: false,
+                status: "done",
+              },
+              {
+                call_id: "call-edit-2",
+                tool: "edit_file",
+                path: "minecraft-fps/index.html",
+                phase: "error",
+                added: 0,
+                deleted: 0,
+                approximate: false,
+                status: "error",
+                error: "patch failed",
+              },
+              {
+                call_id: "call-edit-3",
+                tool: "edit_file",
+                path: "minecraft-fps/index.html",
+                phase: "end",
+                added: 6,
+                deleted: 6,
+                approximate: false,
+                status: "done",
+              },
+            ],
+            createdAt: 3,
+          })}
+          isTurnStreaming={false}
+          hasBodyBelow={false}
+        />,
+      );
+
+      expect(screen.getByRole("button", { name: /edited index\.html/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /failed index\.html/i })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /edited index\.html/i }));
+
+      const fileRefs = screen.getAllByTestId("activity-file-reference");
+      expect(fileRefs).toHaveLength(1);
+      expect(fileRefs[0]).toHaveTextContent("minecraft-fps/index.html");
+      expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getAllByText("+8").length).toBeGreaterThan(0);
+        expect(screen.getAllByText("-7").length).toBeGreaterThan(0);
+      });
+    } finally {
+      restoreMotion();
     }
   });
 });

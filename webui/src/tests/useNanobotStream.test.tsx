@@ -308,6 +308,173 @@ describe("useNanobotStream", () => {
     );
   });
 
+  it("renders live file_edit events as their own activity trace", () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-file-edit", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-file-edit", {
+        event: "message",
+        chat_id: "chat-file-edit",
+        text: 'write_file({"path":"foo.txt"})',
+        kind: "tool_hint",
+      });
+      fake.emit("chat-file-edit", {
+        event: "file_edit",
+        chat_id: "chat-file-edit",
+        edits: [{
+          call_id: "call-write",
+          tool: "write_file",
+          path: "foo.txt",
+          phase: "start",
+          added: 1,
+          deleted: 0,
+          approximate: true,
+          status: "editing",
+        }],
+      });
+      fake.emit("chat-file-edit", {
+        event: "file_edit",
+        chat_id: "chat-file-edit",
+        edits: [{
+          call_id: "call-write",
+          tool: "write_file",
+          path: "foo.txt",
+          phase: "end",
+          added: 3,
+          deleted: 1,
+          approximate: false,
+          status: "done",
+        }],
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[0]).toMatchObject({
+      role: "tool",
+      kind: "trace",
+      traces: ['write_file({"path":"foo.txt"})'],
+    });
+    expect(result.current.messages[1]).toMatchObject({
+      role: "tool",
+      kind: "trace",
+      fileEdits: [{
+        call_id: "call-write",
+        status: "done",
+        added: 3,
+        deleted: 1,
+        approximate: false,
+      }],
+    });
+    expect(result.current.messages[1].activitySegmentId).toBeTruthy();
+    expect(result.current.messages[1].activitySegmentId).not.toBe(
+      result.current.messages[0].activitySegmentId,
+    );
+  });
+
+  it("starts a new assistant bubble for deltas after stream_end and activity", async () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-stream-segments", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-stream-segments", {
+        event: "delta",
+        chat_id: "chat-stream-segments",
+        text: "I created the files.",
+      });
+      fake.emit("chat-stream-segments", {
+        event: "stream_end",
+        chat_id: "chat-stream-segments",
+      });
+      fake.emit("chat-stream-segments", {
+        event: "message",
+        chat_id: "chat-stream-segments",
+        text: 'write_file({"path":"minecraft-fps/options.txt"})',
+        kind: "tool_hint",
+      });
+      fake.emit("chat-stream-segments", {
+        event: "delta",
+        chat_id: "chat-stream-segments",
+        text: "Now I will summarize the edits.",
+      });
+    });
+
+    await flushStreamFrame();
+
+    expect(result.current.messages).toHaveLength(3);
+    expect(result.current.messages[0]).toMatchObject({
+      role: "assistant",
+      content: "I created the files.",
+    });
+    expect(result.current.messages[1]).toMatchObject({
+      role: "tool",
+      kind: "trace",
+      traces: ['write_file({"path":"minecraft-fps/options.txt"})'],
+    });
+    expect(result.current.messages[2]).toMatchObject({
+      role: "assistant",
+      content: "Now I will summarize the edits.",
+    });
+  });
+
+  it("opens a new activity segment for reasoning after file edit activity", async () => {
+    const fake = fakeClient();
+    const { result } = renderHook(() => useNanobotStream("chat-file-segments", EMPTY_MESSAGES), {
+      wrapper: wrap(fake.client),
+    });
+
+    act(() => {
+      fake.emit("chat-file-segments", {
+        event: "reasoning_delta",
+        chat_id: "chat-file-segments",
+        text: "Plan.",
+      });
+      fake.emit("chat-file-segments", {
+        event: "reasoning_end",
+        chat_id: "chat-file-segments",
+      });
+      fake.emit("chat-file-segments", {
+        event: "message",
+        chat_id: "chat-file-segments",
+        text: 'edit_file({"path":"foo.txt"})',
+        kind: "tool_hint",
+      });
+      fake.emit("chat-file-segments", {
+        event: "file_edit",
+        chat_id: "chat-file-segments",
+        edits: [{
+          call_id: "call-edit",
+          tool: "edit_file",
+          path: "foo.txt",
+          phase: "start",
+          added: 1,
+          deleted: 1,
+          approximate: true,
+          status: "editing",
+        }],
+      });
+      fake.emit("chat-file-segments", {
+        event: "reasoning_delta",
+        chat_id: "chat-file-segments",
+        text: "Review result.",
+      });
+    });
+
+    await flushStreamFrame();
+
+    expect(result.current.messages).toHaveLength(4);
+    const firstSegment = result.current.messages[0].activitySegmentId;
+    expect(firstSegment).toBeTruthy();
+    expect(result.current.messages[1].activitySegmentId).toBe(firstSegment);
+    expect(result.current.messages[2].activitySegmentId).toBeTruthy();
+    expect(result.current.messages[2].activitySegmentId).not.toBe(firstSegment);
+    expect(result.current.messages[3].activitySegmentId).toBe(firstSegment);
+  });
+
   it("accumulates reasoning_delta chunks on a placeholder until reasoning_end", async () => {
     const fake = fakeClient();
     const { result } = renderHook(() => useNanobotStream("chat-r", EMPTY_MESSAGES), {

@@ -42,16 +42,37 @@ export function buildDisplayUnits(messages: UIMessage[]): DisplayUnit[] {
     const m = messages[i];
     if (isAgentActivityMember(m)) {
       const cluster: UIMessage[] = [];
-      while (i < messages.length && isAgentActivityMember(messages[i])) {
-        cluster.push(messages[i]);
+      let segmentId: string | undefined = m.activitySegmentId;
+      let clusterHasFileEdits = hasFileEdits(m);
+      while (
+        i < messages.length
+        && isAgentActivityMember(messages[i])
+        && canJoinActivityCluster(segmentId, clusterHasFileEdits, messages[i])
+      ) {
+        const current = messages[i];
+        if (!segmentId && current.activitySegmentId) {
+          segmentId = current.activitySegmentId;
+        }
+        clusterHasFileEdits = clusterHasFileEdits || hasFileEdits(current);
+        cluster.push(current);
         i += 1;
       }
       out.push({ type: "cluster", messages: cluster });
       continue;
     }
     const previous = out[out.length - 1];
-    if (previous?.type === "cluster" && assistantHasInlineReasoning(m)) {
+    if (
+      previous?.type === "cluster"
+      && assistantHasInlineReasoning(m)
+      && canFoldInlineReasoning(previous.messages, m)
+    ) {
       previous.messages.push(reasoningOnlyMessageFromAnswer(m));
+      out.push({ type: "single", message: stripInlineReasoning(m) });
+      i += 1;
+      continue;
+    }
+    if (assistantHasInlineReasoning(m)) {
+      out.push({ type: "cluster", messages: [reasoningOnlyMessageFromAnswer(m)] });
       out.push({ type: "single", message: stripInlineReasoning(m) });
       i += 1;
       continue;
@@ -60,6 +81,36 @@ export function buildDisplayUnits(messages: UIMessage[]): DisplayUnit[] {
     i += 1;
   }
   return out;
+}
+
+function clusterSegmentId(messages: UIMessage[]): string | undefined {
+  return messages.find((message) => message.activitySegmentId)?.activitySegmentId;
+}
+
+function hasFileEdits(message: UIMessage): boolean {
+  return !!message.fileEdits?.length;
+}
+
+function clusterHasFileEdits(messages: UIMessage[]): boolean {
+  return messages.some(hasFileEdits);
+}
+
+function canJoinActivityCluster(
+  clusterSegmentId: string | undefined,
+  clusterIncludesFileEdits: boolean,
+  message: UIMessage,
+): boolean {
+  const messageHasFileEdits = hasFileEdits(message);
+  if (!clusterIncludesFileEdits && !messageHasFileEdits) return true;
+  if (!clusterSegmentId || !message.activitySegmentId) return true;
+  return clusterSegmentId === message.activitySegmentId;
+}
+
+function canFoldInlineReasoning(cluster: UIMessage[], message: UIMessage): boolean {
+  if (!clusterHasFileEdits(cluster) && !hasFileEdits(message)) return true;
+  const segmentId = clusterSegmentId(cluster);
+  if (!segmentId || !message.activitySegmentId) return true;
+  return segmentId === message.activitySegmentId;
 }
 
 function assistantHasInlineReasoning(message: UIMessage): boolean {
@@ -80,6 +131,7 @@ function reasoningOnlyMessageFromAnswer(message: UIMessage): UIMessage {
     reasoning: message.reasoning,
     reasoningStreaming: message.reasoningStreaming,
     isStreaming: message.reasoningStreaming,
+    activitySegmentId: message.activitySegmentId,
   };
 }
 
@@ -116,6 +168,10 @@ export function ThreadMessages({
   const { t } = useTranslation();
   const units = useMemo(() => buildDisplayUnits(messages), [messages]);
   const copyFlags = useMemo(() => assistantCopyFlags(units), [units]);
+  const liveActivityClusterIndex = useMemo(
+    () => isStreaming ? currentActivityClusterIndex(units) : -1,
+    [isStreaming, units],
+  );
 
   return (
     <div className="flex w-full flex-col">
@@ -150,7 +206,7 @@ export function ThreadMessages({
             {unit.type === "cluster" ? (
               <AgentActivityCluster
                 messages={unit.messages}
-                isTurnStreaming={isStreaming}
+                isTurnStreaming={index === liveActivityClusterIndex}
                 hasBodyBelow={hasBodyBelow}
               />
             ) : (
@@ -168,6 +224,11 @@ export function ThreadMessages({
       })}
     </div>
   );
+}
+
+function currentActivityClusterIndex(units: DisplayUnit[]): number {
+  const last = units.length - 1;
+  return units[last]?.type === "cluster" ? last : -1;
 }
 
 function unitKey(unit: DisplayUnit, index: number): string {
