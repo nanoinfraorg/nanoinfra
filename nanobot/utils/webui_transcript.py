@@ -99,11 +99,17 @@ def tool_trace_lines_from_events(events: Any) -> list[str]:
     if not isinstance(events, list):
         return []
     lines: list[str] = []
+    seen: set[str] = set()
     for event in events:
         if not event or not isinstance(event, dict):
             continue
-        if event.get("phase") != "start":
+        if event.get("phase") not in {"start", "end", "error"}:
             continue
+        call_id = event.get("call_id")
+        if call_id is not None and call_id in seen:
+            continue
+        if call_id is not None:
+            seen.add(call_id)
         t = _format_tool_call_trace(event)
         if t:
             lines.append(t)
