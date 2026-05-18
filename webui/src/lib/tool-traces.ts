@@ -39,12 +39,24 @@ export function formatToolCallTrace(call: unknown): string | null {
   return `${name}()`;
 }
 
+const VALID_PHASES = new Set(["start", "end", "error"]);
+
 export function toolTraceLinesFromEvents(events: unknown): string[] {
   if (!Array.isArray(events)) return [];
+  const seen = new Set<string>();
   return events
     .filter((event) => {
       if (!event || typeof event !== "object") return false;
-      return (event as { phase?: unknown }).phase === "start";
+      const phase = (event as { phase?: unknown }).phase;
+      if (!(phase && typeof phase === "string" && VALID_PHASES.has(phase))) {
+        return false;
+      }
+      const callId = (event as { call_id?: unknown }).call_id;
+      if (callId && typeof callId === "string") {
+        if (seen.has(callId)) return false;
+        seen.add(callId);
+      }
+      return true;
     })
     .map(formatToolCallTrace)
     .filter((trace): trace is string => !!trace);
