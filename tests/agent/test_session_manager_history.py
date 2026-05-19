@@ -43,6 +43,19 @@ def test_list_sessions_includes_metadata_title(tmp_path):
     assert rows[0]["title"] == "自动生成标题"
 
 
+def test_list_sessions_includes_user_preview(tmp_path):
+    manager = SessionManager(tmp_path)
+    session = manager.get_or_create("websocket:chat-preview")
+    session.add_message("user", "帮我总结一下 OpenAI 的最新硬件计划")
+    session.add_message("assistant", "可以，我会先查最新消息。")
+    manager.save(session)
+
+    rows = manager.list_sessions()
+
+    assert rows[0]["key"] == "websocket:chat-preview"
+    assert rows[0]["preview"] == "帮我总结一下 OpenAI 的最新硬件计划"
+
+
 # --- Original regression test (from PR 2075) ---
 
 def test_get_history_drops_orphan_tool_results_when_window_cuts_tool_calls():

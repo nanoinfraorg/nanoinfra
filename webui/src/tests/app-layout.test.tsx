@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ChatSummary } from "@/lib/types";
 
@@ -8,6 +8,7 @@ const refreshSpy = vi.fn();
 const createChatSpy = vi.fn().mockResolvedValue("chat-1");
 const deleteChatSpy = vi.fn();
 const toggleThemeSpy = vi.fn();
+const updateUrlSpy = vi.fn();
 let mockSessions: ChatSummary[] = [];
 
 vi.mock("@/hooks/useSessions", async (importOriginal) => {
@@ -32,12 +33,18 @@ vi.mock("@/hooks/useSessions", async (importOriginal) => {
   };
 });
 
-vi.mock("@/hooks/useTheme", () => ({
-  useTheme: () => ({
-    theme: "light" as const,
-    toggle: toggleThemeSpy,
-  }),
-}));
+vi.mock("@/hooks/useTheme", async () => {
+  const React = await import("react");
+  return {
+    ThemeProvider: ({ children }: { children: React.ReactNode }) =>
+      React.createElement(React.Fragment, null, children),
+    useTheme: () => ({
+      theme: "light" as const,
+      toggle: toggleThemeSpy,
+    }),
+    useThemeValue: () => "light" as const,
+  };
+});
 
 vi.mock("@/lib/bootstrap", () => ({
   fetchBootstrap: vi.fn().mockResolvedValue({
@@ -57,28 +64,37 @@ vi.mock("@/lib/nanobot-client", () => {
     defaultChatId: string | null = null;
     connect = connectSpy;
     onStatus = () => () => {};
+    onRuntimeModelUpdate = () => () => {};
     onError = () => () => {};
     onChat = () => () => {};
     sendMessage = vi.fn();
     newChat = vi.fn();
     attach = vi.fn();
     close = vi.fn();
-    updateUrl = vi.fn();
+    updateUrl = updateUrlSpy;
   }
 
   return { NanobotClient: MockClient };
 });
 
+import { deriveWsUrl, fetchBootstrap } from "@/lib/bootstrap";
 import App from "@/App";
 
 describe("App layout", () => {
   beforeEach(() => {
     mockSessions = [];
     connectSpy.mockClear();
+    updateUrlSpy.mockClear();
     refreshSpy.mockReset();
     createChatSpy.mockClear();
     deleteChatSpy.mockReset();
     toggleThemeSpy.mockReset();
+    vi.mocked(fetchBootstrap).mockReset().mockResolvedValue({
+      token: "tok",
+      ws_path: "/",
+      expires_in: 300,
+    });
+    vi.mocked(deriveWsUrl).mockReset().mockReturnValue("ws://test");
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -86,6 +102,10 @@ describe("App layout", () => {
         status: 404,
       }),
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("keeps sidebar layout out of the main thread width contract", async () => {
@@ -191,7 +211,58 @@ describe("App layout", () => {
                   name: "openrouter",
                   label: "OpenRouter",
                   configured: false,
+                  api_key_required: true,
                   default_api_base: "https://openrouter.ai/api/v1",
+                },
+                {
+                  name: "ant_ling",
+                  label: "Ant Ling",
+                  configured: false,
+                  api_key_required: true,
+                  default_api_base: "https://api.ant-ling.com/v1",
+                },
+                {
+                  name: "azure_openai",
+                  label: "Azure OpenAI",
+                  configured: false,
+                  api_key_required: true,
+                },
+                {
+                  name: "huggingface",
+                  label: "Hugging Face",
+                  configured: false,
+                  api_key_required: true,
+                },
+                {
+                  name: "siliconflow",
+                  label: "SiliconFlow",
+                  configured: false,
+                  api_key_required: true,
+                },
+                {
+                  name: "volcengine",
+                  label: "VolcEngine",
+                  configured: false,
+                  api_key_required: true,
+                },
+                {
+                  name: "byteplus",
+                  label: "BytePlus",
+                  configured: false,
+                  api_key_required: true,
+                },
+                {
+                  name: "qianfan",
+                  label: "Qianfan",
+                  configured: false,
+                  api_key_required: true,
+                },
+                {
+                  name: "atomic_chat",
+                  label: "Atomic Chat",
+                  configured: false,
+                  api_key_required: false,
+                  default_api_base: "http://localhost:1337/v1",
                 },
               ],
               web_search: {
@@ -237,6 +308,7 @@ describe("App layout", () => {
     expect(screen.getByRole("tab", { name: "LLM" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Web Search" })).toBeInTheDocument();
     expect(screen.getByText("OpenRouter")).toBeInTheDocument();
+    expect(screen.getByText("Ant Ling")).toBeInTheDocument();
     expect(screen.getAllByText("Not configured").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByText("OpenAI"));
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
@@ -247,6 +319,11 @@ describe("App layout", () => {
     fireEvent.click(screen.getByText("OpenAI"));
     expect(screen.getByText("open••••-key")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("unsaved-openai-key")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Ant Ling"));
+    expect(screen.getByDisplayValue("https://api.ant-ling.com/v1")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Atomic Chat"));
+    expect(screen.getByDisplayValue("http://localhost:1337/v1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
 
     fireEvent.click(screen.getByRole("tab", { name: "Web Search" }));
     expect(screen.getByText("Search provider")).toBeInTheDocument();
@@ -264,7 +341,7 @@ describe("App layout", () => {
     expect(screen.queryByDisplayValue("unsaved-brave-key")).not.toBeInTheDocument();
   });
 
-  it("returns from settings to an available chat instead of the blank start page", async () => {
+  it("returns from settings to the blank start page when no session was active", async () => {
     mockSessions = [
       {
         key: "websocket:chat-a",
@@ -329,10 +406,8 @@ describe("App layout", () => {
     expect(await screen.findByRole("heading", { name: "General" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
 
-    await waitFor(() => expect(document.title).toBe("First chat · nanobot"));
-    const restoredSidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    fireEvent.click(within(restoredSidebar).getByRole("button", { name: /^Second chat$/ }));
-    await waitFor(() => expect(document.title).toBe("Second chat · nanobot"));
+    await waitFor(() => expect(document.title).toBe("nanobot"));
+    expect(screen.getByText("What can I do for you?")).toBeInTheDocument();
   });
 
   it("filters sidebar sessions through the lightweight search row", async () => {
@@ -343,6 +418,7 @@ describe("App layout", () => {
         chatId: "chat-alpha",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        title: "Q2 roadmap",
         preview: "Project planning notes",
       },
       {
@@ -359,15 +435,22 @@ describe("App layout", () => {
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    expect(within(sidebar).getByText("Project planning notes")).toBeInTheDocument();
+    expect(within(sidebar).getByText("Q2 roadmap")).toBeInTheDocument();
     expect(within(sidebar).getByText("Travel ideas")).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Search chats" }), {
-      target: { value: "travel" },
+      target: { value: "planning" },
     });
 
-    expect(within(sidebar).queryByText("Project planning notes")).not.toBeInTheDocument();
-    expect(within(sidebar).getByText("Travel ideas")).toBeInTheDocument();
+    expect(within(sidebar).getByText("Q2 roadmap")).toBeInTheDocument();
+    expect(within(sidebar).queryByText("Travel ideas")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search chats" }), {
+      target: { value: "road q2" },
+    });
+
+    expect(within(sidebar).getByText("Q2 roadmap")).toBeInTheDocument();
+    expect(within(sidebar).queryByText("Travel ideas")).not.toBeInTheDocument();
   });
 
   it("opens a blank start page without creating an empty chat", async () => {
@@ -418,5 +501,37 @@ describe("App layout", () => {
     expect(within(sidebar).getByRole("button", { name: "Settings" })).toBeInTheDocument();
 
     expect(within(sidebar).getByText("Existing chat")).toBeInTheDocument();
+  });
+
+  it("refreshes the bootstrap token before REST settings auth expires", async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetchBootstrap)
+      .mockResolvedValueOnce({
+        token: "tok-1",
+        ws_path: "/",
+        expires_in: 30,
+      })
+      .mockResolvedValueOnce({
+        token: "tok-2",
+        ws_path: "/",
+        expires_in: 300,
+      });
+    vi.mocked(deriveWsUrl).mockImplementation(
+      (_wsPath: string, token: string) => `ws://test?token=${token}`,
+    );
+
+    const { unmount } = render(<App />);
+    await act(async () => {});
+
+    expect(connectSpy).toHaveBeenCalled();
+    expect(fetchBootstrap).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(fetchBootstrap).toHaveBeenCalledTimes(2);
+    expect(updateUrlSpy).toHaveBeenCalledWith("ws://test?token=tok-2");
+    unmount();
   });
 });

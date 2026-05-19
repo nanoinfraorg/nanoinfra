@@ -1,17 +1,21 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+
+import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import {
   Activity,
   ArrowUp,
   BookOpen,
   Check,
   ChevronDown,
+  ChevronUp,
   CircleHelp,
   History,
   ImageIcon,
@@ -21,6 +25,7 @@ import {
   Sparkles,
   Square,
   SquarePen,
+  Target,
   Undo2,
   X,
   type LucideIcon,
@@ -36,7 +41,7 @@ import {
 } from "@/hooks/useAttachedImages";
 import { useClipboardAndDrop } from "@/hooks/useClipboardAndDrop";
 import type { SendImage, SendOptions } from "@/hooks/useNanobotStream";
-import type { SlashCommand } from "@/lib/types";
+import type { SlashCommand, GoalStateWsPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /** ``<input accept>``: aligned with the server's MIME whitelist. SVG is
@@ -60,6 +65,10 @@ interface ThreadComposerProps {
   imageMode?: boolean;
   onImageModeChange?: (enabled: boolean) => void;
   onStop?: () => void;
+  /** Unix seconds from server; turn elapsed timer above input while set. */
+  runStartedAt?: number | null;
+  /** Sustained objective for this chat (WebSocket ``goal_state``). */
+  goalState?: GoalStateWsPayload;
 }
 
 const COMMAND_ICONS: Record<string, LucideIcon> = {
@@ -77,6 +86,17 @@ const COMMAND_ICONS: Record<string, LucideIcon> = {
 type ImageAspectRatio = "auto" | "1:1" | "3:4" | "9:16" | "4:3" | "16:9";
 
 const IMAGE_ASPECT_RATIOS: ImageAspectRatio[] = ["auto", "1:1", "3:4", "9:16", "4:3", "16:9"];
+const SLASH_PALETTE_GAP_PX = 8;
+const SLASH_PALETTE_MAX_HEIGHT_PX = 288;
+const SLASH_PALETTE_MIN_HEIGHT_PX = 144;
+const SLASH_PALETTE_CHROME_PX = 64;
+
+type SlashPalettePlacement = "above" | "below";
+
+interface SlashPaletteLayout {
+  placement: SlashPalettePlacement;
+  maxHeight: number;
+}
 
 function slashCommandI18nKey(command: string): string {
   return command.replace(/^\//, "").replace(/-/g, "_");
@@ -96,6 +116,253 @@ function scrollNearestOverflowParent(target: EventTarget | null, deltaY: number)
   }
 }
 
+function getVisibleBounds(el: HTMLElement): { top: number; bottom: number } {
+  let top = 0;
+  let bottom = window.innerHeight;
+  let parent = el.parentElement;
+
+  while (parent) {
+    const style = window.getComputedStyle(parent);
+    if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) {
+      const rect = parent.getBoundingClientRect();
+      top = Math.max(top, rect.top);
+      bottom = Math.min(bottom, rect.bottom);
+    }
+    parent = parent.parentElement;
+  }
+
+  return { top, bottom };
+}
+
+function goalStateStripPreview(
+  goal: GoalStateWsPayload | undefined,
+  t: (key: string) => string,
+): string | null {
+  if (!goal?.active) return null;
+  const summary = goal.ui_summary?.trim();
+  if (summary) return summary;
+  const obj = goal.objective?.trim();
+  if (obj) return obj.length > 72 ? `${obj.slice(0, 72)}…` : obj;
+  return t("thread.composer.goalStateFallback");
+}
+
+const GOAL_PANEL_VIEWPORT_TOP_PAD = 20;
+const GOAL_PANEL_GAP_ABOVE_STRIP_PX = 10;
+const GOAL_PANEL_MIN_HEIGHT_PX = 112;
+const GOAL_PANEL_MAX_VIEWPORT_RATIO = 0.62;
+
+function measureGoalPanelMaxCssHeight(stripTopY: number): number {
+  const spaceAboveStrip =
+    stripTopY - GOAL_PANEL_VIEWPORT_TOP_PAD - GOAL_PANEL_GAP_ABOVE_STRIP_PX;
+  return Math.min(
+    Math.max(spaceAboveStrip, GOAL_PANEL_MIN_HEIGHT_PX),
+    Math.floor(window.innerHeight * GOAL_PANEL_MAX_VIEWPORT_RATIO),
+  );
+}
+
+function buildGoalMarkdownBody(summary: string, objective: string): string {
+  const s = summary.trim();
+  const o = objective.trim();
+  if (s && o) return `${s}\n\n---\n\n${o}`;
+  return o || s;
+}
+
+function RunElapsedStrip({
+  startedAt,
+  goalState,
+}: {
+  startedAt: number | null;
+  goalState?: GoalStateWsPayload;
+}) {
+  const { t } = useTranslation();
+  const [goalPanelOpen, setGoalPanelOpen] = useState(false);
+  const [, setTick] = useState(0);
+  const stripWrapperRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const expandToggleRef = useRef<HTMLButtonElement>(null);
+  const [panelMaxPx, setPanelMaxPx] = useState(280);
+
+  useEffect(() => {
+    if (startedAt == null) return;
+    const id = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [startedAt]);
+
+  const showTimer = startedAt != null;
+  const stripLabel = goalStateStripPreview(goalState, t);
+  const showGoal = !!stripLabel?.trim();
+  if (!showTimer && !showGoal) return null;
+
+  const objectiveFull = goalState?.objective?.trim() ?? "";
+  const summaryFull = goalState?.ui_summary?.trim() ?? "";
+  const canExpandGoal = !!(goalState?.active && (objectiveFull || summaryFull));
+
+  const markdownBody =
+    objectiveFull || summaryFull
+      ? buildGoalMarkdownBody(summaryFull, objectiveFull)
+      : "";
+
+  useLayoutEffect(() => {
+    if (!goalPanelOpen) return;
+
+    function relayout(): void {
+      const el = stripWrapperRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      setPanelMaxPx(measureGoalPanelMaxCssHeight(top));
+    }
+
+    relayout();
+
+    preloadMarkdownText();
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => relayout())
+        : null;
+    if (stripWrapperRef.current && ro) {
+      ro.observe(stripWrapperRef.current);
+    }
+    window.addEventListener("resize", relayout);
+    window.addEventListener("scroll", relayout, true);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", relayout);
+      window.removeEventListener("scroll", relayout, true);
+    };
+  }, [goalPanelOpen]);
+
+  useEffect(() => {
+    if (!goalPanelOpen) return;
+
+    function onPointerDown(ev: MouseEvent): void {
+      const target = ev.target as Node | null;
+      if (!target) return;
+      if (panelRef.current?.contains(target)) return;
+      if (expandToggleRef.current?.contains(target)) return;
+      setGoalPanelOpen(false);
+    }
+
+    function onKey(ev: KeyboardEvent): void {
+      if (ev.key === "Escape") setGoalPanelOpen(false);
+    }
+
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [goalPanelOpen]);
+
+  const elapsed =
+    startedAt != null ? Math.max(0, Math.floor(Date.now() / 1000 - startedAt)) : 0;
+  const m = Math.floor(elapsed / 60);
+  const sec = elapsed % 60;
+  const shortElapsed = m > 0 ? `${m}:${sec.toString().padStart(2, "0")}` : `${sec}s`;
+  const timerTitle = showTimer
+    ? t("thread.composer.runRuntimeTitle", { elapsed: shortElapsed })
+    : null;
+
+  const ariaParts = [timerTitle, showGoal ? stripLabel : null].filter(Boolean);
+  const ariaLabel = ariaParts.join(" · ");
+
+  return (
+    <div ref={stripWrapperRef} className="relative z-30">
+      {goalPanelOpen && canExpandGoal && markdownBody ? (
+        <div
+          ref={panelRef}
+          id="nanobot-goal-panel-root"
+          role="dialog"
+          aria-modal="false"
+          aria-labelledby="nanobot-goal-panel-title"
+          tabIndex={-1}
+          className={cn(
+            "absolute bottom-[calc(100%+8px)] left-3 right-3 z-[50] flex max-w-none flex-col overflow-hidden",
+            "rounded-2xl border border-black/[0.08] bg-card shadow-[0_12px_40px_rgba(15,23,42,0.14)]",
+            "backdrop-blur-sm dark:border-white/[0.1] dark:shadow-[0_16px_48px_rgba(0,0,0,0.45)]",
+          )}
+          style={{ maxHeight: `${Math.round(panelMaxPx)}px` }}
+        >
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-black/[0.06] px-3 py-2 dark:border-white/[0.08]">
+            <h2
+              id="nanobot-goal-panel-title"
+              className="min-w-0 truncate text-[13px] font-semibold tracking-tight text-foreground"
+            >
+              {t("thread.composer.goalStateSheetTitle")}
+            </h2>
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                "text-muted-foreground transition-colors hover:bg-muted/65 hover:text-foreground",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              )}
+              aria-label={t("thread.composer.goalStateCloseAria")}
+              onClick={() => setGoalPanelOpen(false)}
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+          <div
+            id="nanobot-goal-panel-scroll"
+            className="min-h-0 flex-1 overflow-y-auto scrollbar-thin px-3 pb-3 pt-2"
+          >
+            <MarkdownText className="max-w-none text-[13.5px] leading-relaxed text-foreground/90">
+              {markdownBody}
+            </MarkdownText>
+          </div>
+        </div>
+      ) : null}
+      <div
+        className="flex min-h-[36px] items-center gap-2 border-b border-black/[0.04] px-3 py-2 dark:border-white/[0.06]"
+        role="status"
+        aria-label={ariaLabel}
+      >
+        {showTimer ? (
+          <Activity className="h-4 w-4 shrink-0 text-primary/80" aria-hidden />
+        ) : (
+          <Target className="h-4 w-4 shrink-0 text-primary/75" aria-hidden />
+        )}
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[12px] font-medium text-foreground/75">
+          {timerTitle ? <span className="shrink-0">{timerTitle}</span> : null}
+          {timerTitle && showGoal ? (
+            <span className="shrink-0 text-muted-foreground/45" aria-hidden>
+              ·
+            </span>
+          ) : null}
+          {showGoal ? (
+            <span className="truncate">
+              {t("thread.composer.goalStateStrip", { label: stripLabel })}
+            </span>
+          ) : null}
+        </span>
+        {canExpandGoal ? (
+          <button
+            ref={expandToggleRef}
+            type="button"
+            className={cn(
+              "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+              "text-muted-foreground transition-colors hover:bg-muted/55 hover:text-foreground",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            )}
+            aria-expanded={goalPanelOpen}
+            aria-controls={goalPanelOpen ? "nanobot-goal-panel-root" : undefined}
+            aria-label={t("thread.composer.goalStateExpandAria")}
+            title={t("thread.composer.goalStateExpandAria")}
+            onClick={() => setGoalPanelOpen((o) => !o)}
+          >
+            {goalPanelOpen ? (
+              <ChevronDown className="h-4 w-4" aria-hidden />
+            ) : (
+              <ChevronUp className="h-4 w-4" aria-hidden />
+            )}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function ThreadComposer({
   onSend,
   disabled,
@@ -107,6 +374,8 @@ export function ThreadComposer({
   imageMode: controlledImageMode,
   onImageModeChange,
   onStop,
+  runStartedAt = null,
+  goalState,
 }: ThreadComposerProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
@@ -117,6 +386,7 @@ export function ThreadComposer({
   const [imageAspectRatio, setImageAspectRatio] = useState<ImageAspectRatio>("auto");
   const [aspectMenuOpen, setAspectMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const aspectControlRef = useRef<HTMLDivElement>(null);
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -221,6 +491,10 @@ export function ThreadComposer({
   }, [slashCommands, slashQuery, t]);
 
   const showSlashMenu = filteredSlashCommands.length > 0;
+  const [slashPaletteLayout, setSlashPaletteLayout] = useState<SlashPaletteLayout>({
+    placement: "above",
+    maxHeight: SLASH_PALETTE_MAX_HEIGHT_PX,
+  });
 
   useEffect(() => {
     setSelectedCommandIndex(0);
@@ -231,6 +505,56 @@ export function ThreadComposer({
       setSelectedCommandIndex(0);
     }
   }, [filteredSlashCommands.length, selectedCommandIndex]);
+
+  useEffect(() => {
+    if (!showSlashMenu) return;
+
+    const dismissOnPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && formRef.current?.contains(target)) return;
+      setSlashMenuDismissed(true);
+    };
+
+    document.addEventListener("pointerdown", dismissOnPointerDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOnPointerDown, true);
+    };
+  }, [showSlashMenu]);
+
+  useLayoutEffect(() => {
+    if (!showSlashMenu) return;
+
+    const updateLayout = () => {
+      const form = formRef.current;
+      if (!form) return;
+      const rect = form.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return;
+
+      const bounds = getVisibleBounds(form);
+      const spaceAbove = Math.max(0, rect.top - bounds.top - SLASH_PALETTE_GAP_PX);
+      const spaceBelow = Math.max(0, bounds.bottom - rect.bottom - SLASH_PALETTE_GAP_PX);
+      const placement: SlashPalettePlacement =
+        spaceAbove >= SLASH_PALETTE_MIN_HEIGHT_PX || spaceAbove >= spaceBelow
+          ? "above"
+          : "below";
+      const available = placement === "above" ? spaceAbove : spaceBelow;
+      const maxHeight = Math.min(SLASH_PALETTE_MAX_HEIGHT_PX, available);
+
+      setSlashPaletteLayout((current) =>
+        current.placement === placement && current.maxHeight === maxHeight
+          ? current
+          : { placement, maxHeight },
+      );
+    };
+
+    updateLayout();
+    window.addEventListener("resize", updateLayout);
+    document.addEventListener("scroll", updateLayout, true);
+    return () => {
+      window.removeEventListener("resize", updateLayout);
+      document.removeEventListener("scroll", updateLayout, true);
+    };
+  }, [filteredSlashCommands.length, showSlashMenu]);
 
   useEffect(() => {
     if (!aspectMenuOpen) return;
@@ -398,6 +722,7 @@ export function ThreadComposer({
 
   return (
     <form
+      ref={formRef}
       onSubmit={(e) => {
         e.preventDefault();
         submit();
@@ -412,6 +737,7 @@ export function ThreadComposer({
         <SlashCommandPalette
           commands={filteredSlashCommands}
           selectedIndex={selectedCommandIndex}
+          layout={slashPaletteLayout}
           isHero={isHero}
           onHover={setSelectedCommandIndex}
           onChoose={chooseSlashCommand}
@@ -426,6 +752,8 @@ export function ThreadComposer({
           "focus-within:ring-1 focus-within:ring-foreground/8",
           disabled && "opacity-60",
           isDragging && "ring-2 ring-primary/40 motion-reduce:ring-0 motion-reduce:border-primary",
+          goalState?.active &&
+            "goal-shell-glow ring-1 ring-sky-400/35 motion-reduce:ring-sky-400/25 dark:ring-sky-400/45",
         )}
       >
         {images.length > 0 ? (
@@ -455,6 +783,9 @@ export function ThreadComposer({
               />
             ))}
           </div>
+        ) : null}
+        {runStartedAt != null || goalState?.active ? (
+          <RunElapsedStrip startedAt={runStartedAt} goalState={goalState} />
         ) : null}
         <textarea
           ref={textareaRef}
@@ -634,6 +965,7 @@ export function ThreadComposer({
 interface SlashCommandPaletteProps {
   commands: SlashCommand[];
   selectedIndex: number;
+  layout: SlashPaletteLayout;
   isHero: boolean;
   onHover: (index: number) => void;
   onChoose: (command: SlashCommand) => void;
@@ -695,17 +1027,24 @@ function ImageAspectMenu({
 function SlashCommandPalette({
   commands,
   selectedIndex,
+  layout,
   isHero,
   onHover,
   onChoose,
 }: SlashCommandPaletteProps) {
   const { t } = useTranslation();
+  const listMaxHeight = Math.max(
+    0,
+    layout.maxHeight - SLASH_PALETTE_CHROME_PX,
+  );
   return (
     <div
       role="listbox"
       aria-label={t("thread.composer.slash.ariaLabel")}
+      style={{ maxHeight: layout.maxHeight }}
       className={cn(
-        "absolute bottom-full left-1/2 z-30 mb-2 max-h-[22rem] w-[calc(100%-0.5rem)] -translate-x-1/2 overflow-hidden rounded-[18px] border",
+        "absolute left-1/2 z-30 w-[calc(100%-0.5rem)] -translate-x-1/2 overflow-hidden rounded-[18px] border",
+        layout.placement === "above" ? "bottom-full mb-2" : "top-full mt-2",
         "border-border/65 bg-popover p-1.5 text-popover-foreground shadow-[0_18px_55px_rgba(15,23,42,0.18)]",
         "dark:border-white/10 dark:shadow-[0_22px_55px_rgba(0,0,0,0.45)]",
         isHero ? "max-w-[58rem]" : "max-w-[49.5rem]",
@@ -714,7 +1053,7 @@ function SlashCommandPalette({
       <div className="px-2 pb-1 pt-1 text-[11px] font-medium tracking-[0.08em] text-muted-foreground/70">
         {t("thread.composer.slash.label")}
       </div>
-      <div className="max-h-[18rem] overflow-y-auto pr-0.5">
+      <div className="overflow-y-auto pr-0.5" style={{ maxHeight: listMaxHeight }}>
         {commands.map((command, index) => {
           const Icon = COMMAND_ICONS[command.icon] ?? CircleHelp;
           const selected = index === selectedIndex;

@@ -22,6 +22,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
+from nanobot.utils.helpers import safe_filename
 from nanobot.utils.logging_bridge import redirect_lib_logging
 
 FEISHU_AVAILABLE = importlib.util.find_spec("lark_oapi") is not None
@@ -258,6 +259,7 @@ class FeishuConfig(Base):
     reply_to_message: bool = False  # If True, bot replies quote the user's original message
     streaming: bool = True
     domain: Literal["feishu", "lark"] = "feishu"  # Set to "lark" for international Lark
+    topic_isolation: bool = True  # If True, each topic in group chat gets its own session (isolation)
 
 
 _STREAM_ELEMENT_ID = "streaming_md"
@@ -361,6 +363,18 @@ class FeishuChannel(BaseChannel):
             builder,
             "register_p2_im_chat_access_event_bot_p2p_chat_entered_v1",
             self._on_bot_p2p_chat_entered,
+        )
+        # Silence "processor not found" errors when bots are added/removed from groups.
+        # These events carry no actionable data for the agent.
+        builder = self._register_optional_event(
+            builder,
+            "register_p2_im_chat_member_bot_added_v1",
+            lambda _: None,
+        )
+        builder = self._register_optional_event(
+            builder,
+            "register_p2_im_chat_member_bot_deleted_v1",
+            lambda _: None,
         )
         event_handler = builder.build()
 
@@ -1031,6 +1045,19 @@ class FeishuChannel(BaseChannel):
             self.logger.exception("Error downloading {} {}", resource_type, file_key)
             return None, None
 
+    @staticmethod
+    def _safe_media_filename(filename: str | None, fallback: str) -> str:
+        """Return a local-only filename for downloaded Feishu media."""
+        candidate = filename or fallback
+        # Feishu/Lark filenames come from message metadata. Treat both POSIX
+        # and Windows separators as path boundaries before applying the shared
+        # filename sanitizer so downloads cannot escape the channel media dir.
+        candidate = os.path.basename(candidate.replace("\\", "/"))
+        candidate = safe_filename(candidate)
+        if candidate in ("", ".", ".."):
+            return safe_filename(fallback) or uuid.uuid4().hex
+        return candidate
+
     async def _download_and_save_media(
         self, msg_type: str, content_json: dict, message_id: str | None = None
     ) -> tuple[str | None, str]:
@@ -1044,15 +1071,17 @@ class FeishuChannel(BaseChannel):
         media_dir = get_media_dir("feishu")
 
         data, filename = None, None
+        fallback_filename = uuid.uuid4().hex
 
         if msg_type == "image":
             image_key = content_json.get("image_key")
             if image_key and message_id:
+                fallback_filename = f"{image_key[:16]}.jpg"
                 data, filename = await loop.run_in_executor(
                     None, self._download_image_sync, message_id, image_key
                 )
                 if not filename:
-                    filename = f"{image_key[:16]}.jpg"
+                    filename = fallback_filename
 
         elif msg_type in ("audio", "file", "media"):
             file_key = content_json.get("file_key")
@@ -1063,6 +1092,7 @@ class FeishuChannel(BaseChannel):
                 self.logger.warning("{} message missing message_id", msg_type)
                 return None, f"[{msg_type}: missing message_id]"
 
+            fallback_filename = file_key[:16]
             data, filename = await loop.run_in_executor(
                 None, self._download_file_sync, message_id, file_key, msg_type
             )
@@ -1072,7 +1102,7 @@ class FeishuChannel(BaseChannel):
                 return None, f"[{msg_type}: download failed]"
 
             if not filename:
-                filename = file_key[:16]
+                filename = fallback_filename
 
             # Feishu voice messages are opus in OGG container.
             # Use .ogg extension for better Whisper compatibility.
@@ -1081,6 +1111,7 @@ class FeishuChannel(BaseChannel):
                     filename = f"{filename}.ogg"
 
         if data and filename:
+            filename = self._safe_media_filename(filename, fallback_filename)
             file_path = media_dir / filename
             file_path.write_bytes(data)
             path_str = str(file_path)
@@ -1668,9 +1699,6 @@ class FeishuChannel(BaseChannel):
             chat_type = message.chat_type
             msg_type = message.message_type
 
-            if not self.is_allowed(sender_id):
-                return
-
             if chat_type == "group" and not self._is_group_message_for_bot(message):
                 self.logger.debug("skipping group message (not mentioned)")
                 return
@@ -1683,6 +1711,20 @@ class FeishuChannel(BaseChannel):
             # Trim cache
             while len(self._processed_message_ids) > 1000:
                 self._processed_message_ids.popitem(last=False)
+
+            # Early permission check — avoid side effects for unauthorized users.
+            # Group chats are silently ignored; DMs get a pairing code.
+            if not self.is_allowed(sender_id):
+                if chat_type == "p2p":
+                    # content="" because the pairing reply is generated by
+                    # BaseChannel._handle_message, not from the original message.
+                    await self._handle_message(
+                        sender_id=sender_id,
+                        chat_id=sender_id,
+                        content="",
+                        is_dm=True,
+                    )
+                return
 
             # Add reaction (non-blocking — tracked background task)
             task = asyncio.create_task(
@@ -1770,12 +1812,15 @@ class FeishuChannel(BaseChannel):
             if not content and not media_paths:
                 return
 
-            # Build topic-scoped session key for conversation isolation.
-            # Group chat: each topic gets its own session via root_id (replies
-            # inside a topic) or message_id (top-level messages start a new topic).
+            # Build session key for conversation isolation.
+            # If topic_isolation is True: each topic gets its own session via root_id/message_id.
+            # If topic_isolation is False: all messages in group share the same session.
             # Private chat: no override — same behavior as Telegram/Slack.
             if chat_type == "group":
-                session_key = f"feishu:{chat_id}:{root_id or message_id}"
+                if self.config.topic_isolation:
+                    session_key = f"feishu:{chat_id}:{root_id or message_id}"
+                else:
+                    session_key = f"feishu:{chat_id}"
             else:
                 session_key = None
 
@@ -1795,6 +1840,7 @@ class FeishuChannel(BaseChannel):
                     "thread_id": thread_id,
                 },
                 session_key=session_key,
+                is_dm=chat_type == "p2p",
             )
 
         except Exception:

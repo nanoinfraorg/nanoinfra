@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from pydantic import Field
+
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.schema import (
     ArraySchema,
@@ -13,11 +15,11 @@ from nanobot.agent.tools.schema import (
     tool_parameters_schema,
 )
 from nanobot.config.paths import get_media_dir
-from nanobot.config.schema import ImageGenerationToolConfig
+from nanobot.config.schema import Base
 from nanobot.providers.image_generation import (
-    AIHubMixImageGenerationClient,
     ImageGenerationError,
-    OpenRouterImageGenerationClient,
+    ImageGenerationProvider,
+    get_image_gen_provider,
 )
 from nanobot.utils.artifacts import (
     ArtifactError,
@@ -28,6 +30,17 @@ from nanobot.utils.helpers import detect_image_mime
 
 if TYPE_CHECKING:
     from nanobot.config.schema import ProviderConfig
+
+
+class ImageGenerationToolConfig(Base):
+    """Image generation tool configuration."""
+    enabled: bool = False
+    provider: str = "openrouter"
+    model: str = "openai/gpt-5.4-image-2"
+    default_aspect_ratio: str = "1:1"
+    default_image_size: str = "1K"
+    max_images_per_turn: int = Field(default=4, ge=1, le=8)
+    save_dir: str = "generated"
 
 
 @tool_parameters(
@@ -56,6 +69,24 @@ if TYPE_CHECKING:
 )
 class ImageGenerationTool(Tool):
     """Generate persistent image artifacts through the configured image provider."""
+
+    config_key = "image_generation"
+
+    @classmethod
+    def config_cls(cls):
+        return ImageGenerationToolConfig
+
+    @classmethod
+    def enabled(cls, ctx: Any) -> bool:
+        return ctx.config.image_generation.enabled
+
+    @classmethod
+    def create(cls, ctx: Any) -> Tool:
+        return cls(
+            workspace=ctx.workspace,
+            config=ctx.config.image_generation,
+            provider_configs=ctx.image_generation_provider_configs,
+        )
 
     def __init__(
         self,
@@ -86,27 +117,24 @@ class ImageGenerationTool(Tool):
     def _provider_config(self) -> ProviderConfig | None:
         return self.provider_configs.get(self.config.provider)
 
-    def _provider_client(self) -> OpenRouterImageGenerationClient | AIHubMixImageGenerationClient | None:
+    def _provider_client(self) -> ImageGenerationProvider | None:
         provider = self._provider_config()
+        cls = get_image_gen_provider(self.config.provider)
+        if cls is None:
+            return None
         kwargs = {
             "api_key": provider.api_key if provider else None,
             "api_base": provider.api_base if provider else None,
             "extra_headers": provider.extra_headers if provider else None,
             "extra_body": provider.extra_body if provider else None,
         }
-        if self.config.provider == "openrouter":
-            return OpenRouterImageGenerationClient(**kwargs)
-        if self.config.provider == "aihubmix":
-            return AIHubMixImageGenerationClient(**kwargs)
-        return None
+        return cls(**kwargs)
 
     def _missing_api_key_error(self) -> str:
-        provider = self.config.provider
-        if provider == "openrouter":
-            return "Error: OpenRouter API key is not configured. Set providers.openrouter.apiKey."
-        if provider == "aihubmix":
-            return "Error: AIHubMix API key is not configured. Set providers.aihubmix.apiKey."
-        return f"Error: {provider} API key is not configured."
+        cls = get_image_gen_provider(self.config.provider)
+        if cls and cls.missing_key_message:
+            return f"Error: {cls.missing_key_message}"
+        return f"Error: {self.config.provider} API key is not configured."
 
     def _resolve_reference_image(self, value: str) -> str:
         raw_path = Path(value).expanduser()
