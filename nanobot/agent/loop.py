@@ -36,17 +36,17 @@ from nanobot.session.goal_state import (
     runner_wall_llm_timeout_s,
 )
 from nanobot.session.manager import Session, SessionManager
+from nanobot.session.webui_turns import (
+    WebuiTurnCoordinator,
+    build_bus_progress_callback,
+    mark_webui_session,
+)
 from nanobot.utils.document import extract_documents
 from nanobot.utils.helpers import image_placeholder_text
 from nanobot.utils.helpers import truncate_text as truncate_text_fn
 from nanobot.utils.image_generation_intent import image_generation_prompt
 from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
-from nanobot.utils.webui_turn_helpers import (
-    WebuiTurnCoordinator,
-    build_bus_progress_callback,
-    mark_webui_session,
-)
 
 if TYPE_CHECKING:
     from nanobot.config.schema import (

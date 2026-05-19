@@ -120,5 +120,3 @@ def generated_image_tool_result(artifacts: list[dict[str, Any]]) -> str:
         },
         ensure_ascii=False,
     )
-
-
