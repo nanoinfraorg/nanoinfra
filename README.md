@@ -188,35 +188,7 @@ Configure these **two parts** in your config (other options have defaults). Add 
   }
 }
 ```
-*Run NanoBot Locally* (No Cloud)
 
-Use a local model instead of a hosted API provider.
-
-| Step | What to do |
-|---|---|
-| 1 | Install [Atomic Chat](https://atomic.chat/) on your machine. |
-| 2 | Open Atomic Chat, download a model, and keep the app running (the local API is enabled by default). |
-| 3 | In Atomic Chat, copy the model ID exposed by the local API. For example, the model ID for `Qwen 3 32B` might be `qwen3-32b`. |
-| 4 | Open `~/.nanobot/config.json` and add the Atomic Chat provider settings shown below. Replace the example model ID with the one from Step 3. Merge this into your existing config instead of replacing the whole file. |
-
-Example:
-
-```json
-{
-  "providers": {
-    "atomic_chat": {
-      "apiKey": null,
-      "apiBase": "http://127.0.0.1:1337/v1"
-    }
-  },
-  "agents": {
-    "defaults": {
-      "provider": "atomic_chat",
-      "model": "qwen3-32b"
-    }
-  }
-}
-```
 **3. Chat**
 
 ```bash
@@ -225,6 +197,7 @@ nanobot agent
 
 
 - Want different LLM providers, web search, MCP, security settings, or more config options? See [Configuration](./docs/configuration.md)
+- Want to run locally? Use Atomic Chat, Ollama, LM Studio, OpenVINO Model Server, vLLM, or any OpenAI-compatible local server. See [Configuration](./docs/configuration.md)
 - Want to run nanobot in chat apps like Telegram, Discord, WeChat or Feishu? See [Chat Apps](./docs/chat-apps.md)
 - Want Docker or Linux service deployment? See [Deployment](./docs/deployment.md)
 
