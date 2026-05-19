@@ -152,6 +152,7 @@ ANTHROPIC_API_KEY="$(bw get password api/anthropic)" nanobot agent
 | `zhipu` | LLM (Zhipu GLM) | [open.bigmodel.cn](https://open.bigmodel.cn) |
 | `mimo` | LLM (MiMo) | [platform.xiaomimimo.com](https://platform.xiaomimimo.com) |
 | `longcat` | LLM (LongCat) | [longcat.chat](https://longcat.chat/platform/docs/zh/) |
+| `ant_ling` | LLM (Ant Ling / 蚂蚁百灵) | [developer.ant-ling.com](https://developer.ant-ling.com/en/docs/api-reference/openai/) |
 | `ollama` | LLM (local, Ollama) | — |
 | `lm_studio` | LLM (local, LM Studio) | — |
 | `atomic_chat` | LLM (local, [Atomic Chat](https://atomic.chat/)) | — |
@@ -445,6 +446,34 @@ Official model names include `LongCat-Flash-Chat`, `LongCat-Flash-Thinking`,
 </details>
 
 <details>
+<summary><b>Ant Ling (OpenAI-compatible)</b></summary>
+
+Ant Ling is available through nanobot's built-in OpenAI-compatible provider flow.
+The default API base points to `https://api.ant-ling.com/v1`, so you usually
+only need to set `apiKey`.
+
+```json
+{
+  "providers": {
+    "antLing": {
+      "apiKey": "${ANT_LING_API_KEY}"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "provider": "ant_ling",
+      "model": "Ling-2.6-flash"
+    }
+  }
+}
+```
+
+Official OpenAI-compatible model names include `Ling-2.6-1T`,
+`Ling-2.6-flash`, `Ling-2.5-1T`, `Ling-1T`, `Ring-2.5-1T`, and `Ring-1T`.
+
+</details>
+
+<details>
 <summary><b>Custom Provider (Any OpenAI-compatible API)</b></summary>
 
 Connects directly to any OpenAI-compatible endpoint — llama.cpp, Together AI, Fireworks, Azure OpenAI, or any self-hosted server. Model name is passed as-is.
@@ -512,6 +541,8 @@ Some OpenAI-compatible gateways expose request-body extensions such as vLLM guid
 
 </details>
 
+<a id="local-providers"></a>
+<a id="ollama-local"></a>
 <details>
 <summary><b>Ollama (local)</b></summary>
 
@@ -577,12 +608,19 @@ ollama run llama3.2
 
 </details>
 
+<a id="atomic-chat-local"></a>
 <details>
 <summary><b>Atomic Chat (local)</b></summary>
 
-[Atomic Chat](https://atomic.chat/) is a local-first desktop app that exposes an **OpenAI-compatible** HTTP API (default `http://localhost:1337/v1`). Start Atomic Chat and enable the local API server, then point nanobot at it.
+[Atomic Chat](https://atomic.chat/) is a local-first desktop app that exposes an **OpenAI-compatible** HTTP API (default `http://localhost:1337/v1`). Use it when you want to run nanobot against a model on your own machine instead of a hosted API provider.
 
-**1. Add to config** (partial — merge into `~/.nanobot/config.json`):
+**1. Start Atomic Chat**
+
+- Install [Atomic Chat](https://atomic.chat/) on your machine.
+- Open Atomic Chat, download a model, and keep the app running. The local API is enabled by default.
+- Copy the model ID exposed by the local API. For example, the model ID for `Qwen 3 32B` might be `qwen3-32b`.
+
+**2. Add to config** (partial — merge into `~/.nanobot/config.json`):
 
 ```json
 {
@@ -595,13 +633,13 @@ ollama run llama3.2
   "agents": {
     "defaults": {
       "provider": "atomic_chat",
-      "model": "your-model-id-from-atomic-chat"
+      "model": "qwen3-32b"
     }
   }
 }
 ```
 
-> **Note:** Set `apiKey` to `null` if your Atomic Chat server does not require a key. If it does, set `apiKey` (or the `ATOMIC_CHAT_API_KEY` environment variable) to the value Atomic Chat expects. The `model` string must match the model id Atomic Chat exposes on its OpenAI-compatible endpoint.
+> **Note:** Replace `qwen3-32b` with the model ID from Atomic Chat. Set `apiKey` to `null` if your Atomic Chat server does not require a key. If it does, set `apiKey` (or the `ATOMIC_CHAT_API_KEY` environment variable) to the value Atomic Chat expects.
 
 > `provider: "auto"` also works when `providers.atomic_chat.apiBase` is configured, but setting `"provider": "atomic_chat"` is the clearest option.
 
@@ -682,6 +720,7 @@ docker run -d \
 > See the [official OVMS docs](https://docs.openvino.ai/2026/model-server/ovms_docs_llm_quickstart.html) for more details.
 </details>
 
+<a id="vllm-local-openai-compatible"></a>
 <details>
 <summary><b>vLLM (local / OpenAI-compatible)</b></summary>
 
