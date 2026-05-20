@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 from nanobot.agent.tools.shell import ExecTool
-from nanobot.agent.tools.exec_session import ExecSessionManager, WriteStdinTool
+from nanobot.agent.tools.exec_session import ExecSessionManager, ListExecSessionsTool, WriteStdinTool
 
 
 def _python_command(code: str) -> str:
@@ -140,8 +140,10 @@ def test_exec_can_continue_with_stdin(tmp_path):
     initial, result = asyncio.run(run())
     assert "ready" in initial
     assert "Process running" in initial
+    assert "Elapsed:" in initial
     assert "got:ping" in result
     assert "Exit code: 0" in result
+    assert "Elapsed:" in result
 
 
 def test_write_stdin_can_close_stdin(tmp_path):
@@ -220,6 +222,29 @@ def test_write_stdin_accepts_max_output_tokens_alias(tmp_path):
     assert "Session terminated." in cleanup
 
 
+def test_write_stdin_preserves_completed_session_output_until_polled(tmp_path):
+    async def run() -> tuple[str, str]:
+        manager = ExecSessionManager()
+        exec_tool = ExecTool(working_dir=str(tmp_path), timeout=5, session_manager=manager)
+        stdin_tool = WriteStdinTool(manager=manager)
+        command = _python_command(
+            "import time; print('ready', flush=True); "
+            "time.sleep(1.0); print('done', flush=True)"
+        )
+
+        initial = await exec_tool.execute(command=command, yield_time_ms=300)
+        sid = _session_id(initial)
+        await asyncio.sleep(1.2)
+        final = await stdin_tool.execute(session_id=sid, chars="", yield_time_ms=0)
+        return initial, final
+
+    initial, final = asyncio.run(run())
+
+    assert "ready" in initial
+    assert "done" in final
+    assert "Exit code: 0" in final
+
+
 def test_exec_session_mode_reuses_exec_safety_guard(tmp_path):
     manager = ExecSessionManager()
     tool = ExecTool(
@@ -240,3 +265,35 @@ def test_write_stdin_reports_missing_session(tmp_path):
     result = asyncio.run(tool.execute(session_id="missing", chars=""))
 
     assert "exec session not found" in result
+
+
+def test_list_exec_sessions_reports_running_commands(tmp_path):
+    async def run() -> tuple[str, str, str]:
+        manager = ExecSessionManager()
+        exec_tool = ExecTool(working_dir=str(tmp_path), timeout=5, session_manager=manager)
+        list_tool = ListExecSessionsTool(manager=manager)
+        stdin_tool = WriteStdinTool(manager=manager)
+        command = _python_command(
+            "import time; print('ready', flush=True); time.sleep(5)"
+        )
+
+        initial = await exec_tool.execute(command=command, yield_time_ms=500)
+        sid = _session_id(initial)
+        listing = await list_tool.execute()
+        cleanup = await stdin_tool.execute(session_id=sid, terminate=True, yield_time_ms=0)
+        return sid, listing, cleanup
+
+    sid, listing, cleanup = asyncio.run(run())
+
+    assert sid in listing
+    assert "running" in listing
+    assert "elapsed=" in listing
+    assert "remaining=" in listing
+    assert str(tmp_path) in listing
+    assert "Session terminated." in cleanup
+
+
+def test_list_exec_sessions_reports_empty_state():
+    result = asyncio.run(ListExecSessionsTool(manager=ExecSessionManager()).execute())
+
+    assert result == "No active exec sessions."

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 
-TRACKED_FILE_EDIT_TOOLS = frozenset({"write_file", "edit_file"})
+TRACKED_FILE_EDIT_TOOLS = frozenset({"write_file", "edit_file", "apply_patch"})
 _MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024
 _LIVE_EMIT_INTERVAL_S = 0.18
 _LIVE_EMIT_LINE_STEP = 24
@@ -153,19 +153,108 @@ def prepare_file_edit_tracker(
     workspace: Path | None,
     params: dict[str, Any] | None,
 ) -> FileEditTracker | None:
+    trackers = prepare_file_edit_trackers(
+        call_id=call_id,
+        tool_name=tool_name,
+        tool=tool,
+        workspace=workspace,
+        params=params,
+    )
+    return trackers[0] if trackers else None
+
+
+def prepare_file_edit_trackers(
+    *,
+    call_id: str,
+    tool_name: str,
+    tool: Any,
+    workspace: Path | None,
+    params: dict[str, Any] | None,
+) -> list[FileEditTracker]:
     if not is_file_edit_tool(tool_name):
-        return None
+        return []
+    paths = resolve_file_edit_paths(tool_name, tool, workspace, params)
+    trackers: list[FileEditTracker] = []
+    seen: set[Path] = set()
+    for path in paths:
+        try:
+            resolved = path.resolve()
+        except Exception:
+            resolved = path
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        before = read_file_snapshot(path)
+        trackers.append(FileEditTracker(
+            call_id=str(call_id or ""),
+            tool=tool_name,
+            path=path,
+            display_path=display_file_edit_path(path, workspace),
+            before=before,
+        ))
+    return trackers
+
+
+def resolve_file_edit_paths(
+    tool_name: str,
+    tool: Any,
+    workspace: Path | None,
+    params: dict[str, Any] | None,
+) -> list[Path]:
+    if tool_name == "apply_patch":
+        return _resolve_apply_patch_paths(tool, workspace, params)
     path = resolve_file_edit_path(tool, workspace, params)
     if path is None:
-        return None
-    before = read_file_snapshot(path)
-    return FileEditTracker(
-        call_id=str(call_id or ""),
-        tool=tool_name,
-        path=path,
-        display_path=display_file_edit_path(path, workspace),
-        before=before,
-    )
+        return []
+    return [path]
+
+
+def _resolve_apply_patch_paths(
+    tool: Any,
+    workspace: Path | None,
+    params: dict[str, Any] | None,
+) -> list[Path]:
+    if not isinstance(params, dict):
+        return []
+    patch = params.get("patch")
+    if not isinstance(patch, str) or not patch.strip():
+        return []
+    try:
+        from nanobot.agent.tools.apply_patch import _parse_patch
+
+        ops = _parse_patch(patch)
+    except Exception:
+        return []
+
+    resolved: list[Path] = []
+    for op in ops:
+        for raw_path in (op.path, op.new_path):
+            if not raw_path:
+                continue
+            path = _resolve_raw_file_edit_path(tool, workspace, raw_path)
+            if path is not None:
+                resolved.append(path)
+    return resolved
+
+
+def _resolve_raw_file_edit_path(
+    tool: Any,
+    workspace: Path | None,
+    raw_path: str,
+) -> Path | None:
+    resolver = getattr(tool, "_resolve", None)
+    if callable(resolver):
+        try:
+            resolved = resolver(raw_path)
+            if isinstance(resolved, Path):
+                return resolved
+            if resolved:
+                return Path(resolved)
+        except Exception:
+            return None
+    if workspace is None:
+        return Path(raw_path).expanduser().resolve()
+    return (workspace / raw_path).expanduser().resolve()
 
 
 def build_file_edit_start_event(

@@ -9,6 +9,7 @@ from nanobot.utils.file_edit_events import (
     build_file_edit_start_event,
     line_diff_stats,
     prepare_file_edit_tracker,
+    prepare_file_edit_trackers,
     read_file_snapshot,
     StreamingFileEditTracker,
 )
@@ -79,6 +80,49 @@ def test_binary_file_is_reported_but_not_counted(tmp_path: Path) -> None:
     event = build_file_edit_end_event(tracker)
     assert event["binary"] is True
     assert (event["added"], event["deleted"]) == (0, 0)
+
+
+def test_apply_patch_prepares_trackers_for_each_touched_file(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    existing = tmp_path / "src" / "existing.py"
+    existing.write_text("old\nkeep\n", encoding="utf-8")
+    delete_me = tmp_path / "src" / "delete_me.py"
+    delete_me.write_text("gone\n", encoding="utf-8")
+
+    patch = """*** Begin Patch
+*** Add File: src/new.py
++fresh
+*** Update File: src/existing.py
+@@
+-old
++new
+ keep
+*** Delete File: src/delete_me.py
+*** End Patch"""
+
+    trackers = prepare_file_edit_trackers(
+        call_id="call-patch",
+        tool_name="apply_patch",
+        tool=None,
+        workspace=tmp_path,
+        params={"patch": patch},
+    )
+
+    assert [tracker.display_path for tracker in trackers] == [
+        "src/new.py",
+        "src/existing.py",
+        "src/delete_me.py",
+    ]
+
+    (tmp_path / "src" / "new.py").write_text("fresh\n", encoding="utf-8")
+    existing.write_text("new\nkeep\n", encoding="utf-8")
+    delete_me.unlink()
+
+    events = [build_file_edit_end_event(tracker, {"patch": patch}) for tracker in trackers]
+    by_path = {event["path"]: event for event in events}
+    assert (by_path["src/new.py"]["added"], by_path["src/new.py"]["deleted"]) == (1, 0)
+    assert (by_path["src/existing.py"]["added"], by_path["src/existing.py"]["deleted"]) == (1, 1)
+    assert (by_path["src/delete_me.py"]["added"], by_path["src/delete_me.py"]["deleted"]) == (0, 1)
 
 
 def test_oversized_write_file_end_uses_known_content_for_exact_count(tmp_path: Path) -> None:

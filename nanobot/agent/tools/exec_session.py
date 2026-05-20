@@ -25,10 +25,22 @@ class _SessionPoll:
     output: str
     done: bool
     exit_code: int | None
+    elapsed_s: float = 0.0
     timed_out: bool = False
     terminated: bool = False
     stdin_closed: bool = False
     truncated_chars: int = 0
+
+
+@dataclass(slots=True)
+class ExecSessionInfo:
+    session_id: str
+    command: str
+    cwd: str
+    elapsed_s: float
+    idle_s: float
+    remaining_s: float
+    returncode: int | None
 
 
 class _ExecSession:
@@ -37,10 +49,15 @@ class _ExecSession:
         *,
         session_id: str,
         process: asyncio.subprocess.Process,
+        command: str,
+        cwd: str,
         timeout: int,
     ) -> None:
         self.session_id = session_id
         self.process = process
+        self.command = command
+        self.cwd = cwd
+        self.started_at = time.monotonic()
         self.deadline = time.monotonic() + timeout
         self.last_access = time.monotonic()
         self._chunks: list[str] = []
@@ -122,6 +139,7 @@ class _ExecSession:
             output=output,
             done=self.process.returncode is not None,
             exit_code=self.process.returncode,
+            elapsed_s=max(0.0, time.monotonic() - self.started_at),
             timed_out=self._timed_out,
             terminated=terminated,
             stdin_closed=stdin_closed,
@@ -161,7 +179,13 @@ class ExecSessionManager:
                 raise RuntimeError(f"maximum exec sessions reached ({self.max_sessions})")
             process = await self._spawn(command, cwd, env, shell_program, login)
             session_id = uuid.uuid4().hex[:12]
-            session = _ExecSession(session_id=session_id, process=process, timeout=timeout)
+            session = _ExecSession(
+                session_id=session_id,
+                process=process,
+                command=command,
+                cwd=cwd,
+                timeout=timeout,
+            )
             self._sessions[session_id] = session
 
         poll = await session.poll(yield_time_ms, max_output_chars)
@@ -186,7 +210,7 @@ class ExecSessionManager:
         if session is None:
             raise KeyError(session_id)
 
-        if chars is not None:
+        if chars:
             error = await session.write(chars)
             if error:
                 raise RuntimeError(error)
@@ -209,13 +233,29 @@ class ExecSessionManager:
                 self._sessions.pop(session_id, None)
         return poll
 
+    async def list(self) -> list[ExecSessionInfo]:
+        async with self._lock:
+            await self._cleanup_locked()
+            now = time.monotonic()
+            return [
+                ExecSessionInfo(
+                    session_id=session_id,
+                    command=session.command,
+                    cwd=session.cwd,
+                    elapsed_s=max(0.0, now - session.started_at),
+                    idle_s=max(0.0, now - session.last_access),
+                    remaining_s=max(0.0, session.deadline - now),
+                    returncode=session.process.returncode,
+                )
+                for session_id, session in sorted(self._sessions.items())
+            ]
+
     async def _cleanup_locked(self) -> None:
         now = time.monotonic()
         stale = [
             session_id
             for session_id, session in self._sessions.items()
-            if session.process.returncode is not None
-            or now - session.last_access > self.idle_timeout
+            if now - session.last_access > self.idle_timeout
         ]
         for session_id in stale:
             session = self._sessions.pop(session_id)
@@ -291,6 +331,7 @@ def format_session_poll(session_id: str, poll: _SessionPoll) -> str:
         parts.append(f"Exit code: {poll.exit_code}")
     else:
         parts.append(f"Process running. session_id: {session_id}")
+    parts.append(f"Elapsed: {poll.elapsed_s:.1f}s")
     return "\n".join(parts) if parts else "(no output yet)"
 
 
@@ -407,3 +448,68 @@ class WriteStdinTool(Tool):
             return f"Error: exec session not found: {session_id}"
         except Exception as exc:
             return f"Error writing to exec session: {exc}"
+
+
+@tool_parameters(tool_parameters_schema())
+class ListExecSessionsTool(Tool):
+    """List active exec sessions."""
+
+    _scopes = {"core", "subagent"}
+    config_key = "exec"
+
+    @classmethod
+    def config_cls(cls):
+        from nanobot.agent.tools.shell import ExecToolConfig
+
+        return ExecToolConfig
+
+    @classmethod
+    def enabled(cls, ctx: Any) -> bool:
+        return ctx.config.exec.enable
+
+    def __init__(
+        self,
+        *,
+        manager: ExecSessionManager | None = None,
+    ) -> None:
+        self._manager = manager or DEFAULT_EXEC_SESSION_MANAGER
+
+    @classmethod
+    def create(cls, ctx: Any) -> Tool:
+        return cls()
+
+    @property
+    def name(self) -> str:
+        return "list_exec_sessions"
+
+    @property
+    def description(self) -> str:
+        return (
+            "List active long-running exec sessions, including session_id, cwd, "
+            "elapsed time, idle time, remaining timeout, and command preview. "
+            "Use this to recover a session_id before polling with write_stdin."
+        )
+
+    @property
+    def read_only(self) -> bool:
+        return True
+
+    async def execute(self, **kwargs: Any) -> str:
+        try:
+            sessions = await self._manager.list()
+            if not sessions:
+                return "No active exec sessions."
+            lines = []
+            for info in sessions:
+                command = " ".join(info.command.split())
+                if len(command) > 120:
+                    command = command[:119] + "..."
+                status = "exited" if info.returncode is not None else "running"
+                lines.append(
+                    f"{info.session_id} | {status} | elapsed={info.elapsed_s:.1f}s "
+                    f"| idle={info.idle_s:.1f}s | remaining={info.remaining_s:.1f}s "
+                    f"| cwd={info.cwd} | {command}"
+                )
+            return "\n".join(lines)
+        except Exception as exc:
+            return f"Error listing exec sessions: {exc}"
