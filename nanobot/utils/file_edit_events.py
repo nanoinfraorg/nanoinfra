@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import difflib
-import json
 import re
 import time
 from dataclasses import dataclass, field
@@ -11,7 +10,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 
-TRACKED_FILE_EDIT_TOOLS = frozenset({"write_file", "edit_file", "notebook_edit"})
+TRACKED_FILE_EDIT_TOOLS = frozenset({"write_file", "edit_file"})
 _MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024
 _LIVE_EMIT_INTERVAL_S = 0.18
 _LIVE_EMIT_LINE_STEP = 24
@@ -704,77 +703,4 @@ def _predict_after_text(
                 return before_text.replace(old_text, new_text)
             return before_text.replace(old_text, new_text, 1)
         return None
-    if tool_name == "notebook_edit":
-        return _predict_notebook_after_text(params, before_text)
     return None
-
-
-def _predict_notebook_after_text(params: dict[str, Any], before_text: str) -> str | None:
-    try:
-        nb = json.loads(before_text) if before_text.strip() else _empty_notebook()
-    except Exception:
-        return None
-    cells = nb.get("cells")
-    if not isinstance(cells, list):
-        return None
-    try:
-        cell_index = int(params.get("cell_index", 0))
-    except (TypeError, ValueError):
-        return None
-    new_source = params.get("new_source")
-    source = new_source if isinstance(new_source, str) else ""
-    cell_type = (
-        params.get("cell_type") if params.get("cell_type") in ("code", "markdown") else "code"
-    )
-    mode = (
-        params.get("edit_mode")
-        if params.get("edit_mode") in ("replace", "insert", "delete")
-        else "replace"
-    )
-    if mode == "delete":
-        if 0 <= cell_index < len(cells):
-            cells.pop(cell_index)
-        else:
-            return None
-    elif mode == "insert":
-        insert_at = min(max(cell_index + 1, 0), len(cells))
-        cells.insert(insert_at, _new_notebook_cell(source, str(cell_type)))
-    else:
-        if not (0 <= cell_index < len(cells)):
-            return None
-        cell = cells[cell_index]
-        if not isinstance(cell, dict):
-            return None
-        cell["source"] = source
-        cell["cell_type"] = cell_type
-        if cell_type == "code":
-            cell.setdefault("outputs", [])
-            cell.setdefault("execution_count", None)
-        else:
-            cell.pop("outputs", None)
-            cell.pop("execution_count", None)
-    nb["cells"] = cells
-    try:
-        return json.dumps(nb, indent=1, ensure_ascii=False)
-    except Exception:
-        return None
-
-
-def _empty_notebook() -> dict[str, Any]:
-    return {
-        "nbformat": 4,
-        "nbformat_minor": 5,
-        "metadata": {
-            "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-            "language_info": {"name": "python"},
-        },
-        "cells": [],
-    }
-
-
-def _new_notebook_cell(source: str, cell_type: str) -> dict[str, Any]:
-    cell: dict[str, Any] = {"cell_type": cell_type, "source": source, "metadata": {}}
-    if cell_type == "code":
-        cell["outputs"] = []
-        cell["execution_count"] = None
-    return cell
