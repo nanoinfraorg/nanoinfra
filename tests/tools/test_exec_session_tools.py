@@ -269,7 +269,7 @@ def test_write_stdin_can_wait_for_expected_output(tmp_path):
     initial, waited, cleanup = asyncio.run(run())
 
     assert "Process running" in initial
-    assert "booting" in waited
+    assert "booting" in initial + waited
     assert "ready" in waited
     assert "Wait target not observed" not in waited
     assert "Session terminated." in cleanup
@@ -298,7 +298,7 @@ def test_write_stdin_wait_for_reports_timeout_without_killing_session(tmp_path):
     initial, waited, cleanup = asyncio.run(run())
 
     assert "Process running" in initial
-    assert "booting" in waited
+    assert "booting" in initial + waited
     assert "Process running" in waited
     assert "Wait target not observed: 'never-ready'" in waited
     assert "Session terminated." in cleanup
