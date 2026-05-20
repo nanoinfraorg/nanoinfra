@@ -348,6 +348,11 @@ async def test_gemini_requires_api_key() -> None:
         await client.generate(prompt="draw", model="imagen-4.0-generate-001")
 
 
+def test_gemini_image_client_uses_native_api_base_by_default() -> None:
+    client = GeminiImageGenerationClient(api_key="AIza-test")
+    assert client.api_base == "https://generativelanguage.googleapis.com/v1beta"
+
+
 @pytest.mark.asyncio
 async def test_gemini_no_images_raises() -> None:
     fake = FakeClient(FakeResponse({"candidates": [{"content": {"parts": [{"text": "sorry"}]}}]}))
