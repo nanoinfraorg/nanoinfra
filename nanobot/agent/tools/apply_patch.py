@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from nanobot.agent.tools.base import tool_parameters
 from nanobot.agent.tools.filesystem import _FsTool
-from nanobot.agent.tools.schema import StringSchema, tool_parameters_schema
+from nanobot.agent.tools.schema import BooleanSchema, StringSchema, tool_parameters_schema
 
 
 PatchKind = Literal["add", "delete", "update"]
@@ -29,6 +29,15 @@ class _PatchOp:
     new_path: str | None = None
     add_lines: list[str] | None = None
     hunks: list[_Hunk] | None = None
+
+
+@dataclass(slots=True)
+class _PatchSummary:
+    action: str
+    path: str
+    added: int = 0
+    deleted: int = 0
+    new_path: str | None = None
 
 
 class _PatchError(ValueError):
@@ -63,6 +72,40 @@ def _lines_to_text(lines: list[str]) -> str:
     if not lines:
         return ""
     return "\n".join(lines) + "\n"
+
+
+def _text_line_count(text: str) -> int:
+    if not text:
+        return 0
+    return len(text.splitlines())
+
+
+def _line_diff_stats(before: str, after: str) -> tuple[int, int]:
+    before_lines = before.replace("\r\n", "\n").splitlines()
+    after_lines = after.replace("\r\n", "\n").splitlines()
+    added = 0
+    deleted = 0
+    matcher = difflib.SequenceMatcher(a=before_lines, b=after_lines, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        if tag in ("replace", "delete"):
+            deleted += i2 - i1
+        if tag in ("replace", "insert"):
+            added += j2 - j1
+    return added, deleted
+
+
+def _format_summary(summary: _PatchSummary) -> str:
+    path = (
+        f"{summary.path} -> {summary.new_path}"
+        if summary.new_path
+        else summary.path
+    )
+    stats = ""
+    if summary.added or summary.deleted:
+        stats = f" (+{summary.added}/-{summary.deleted})"
+    return f"- {summary.action} {path}{stats}"
 
 
 def _parse_patch(patch: str) -> list[_PatchOp]:
@@ -237,6 +280,10 @@ def _apply_hunks(path: str, content: str, hunks: list[_Hunk]) -> str:
             "for Add File, Update File, Delete File, and optional Move to.",
             min_length=1,
         ),
+        dry_run=BooleanSchema(
+            description="Validate and summarize the patch without writing files.",
+            default=False,
+        ),
         required=["patch"],
     )
 )
@@ -254,60 +301,97 @@ class ApplyPatchTool(_FsTool):
             "Apply a structured patch for code edits. The patch must include "
             "*** Begin Patch and *** End Patch. Supports Add File, Update File, "
             "Delete File, and Move to. Paths must be relative. Prefer this for "
-            "multi-file coding changes; use edit_file for small exact replacements."
+            "multi-file coding changes; use edit_file for small exact replacements. "
+            "Set dry_run=true to validate and preview the change without writing files."
         )
 
-    async def execute(self, patch: str, **kwargs: Any) -> str:
+    async def execute(self, patch: str, dry_run: bool = False, **kwargs: Any) -> str:
         try:
             ops = _parse_patch(patch)
             writes: dict[Path, str] = {}
             deletes: set[Path] = set()
-            touched: list[str] = []
+            summaries: list[_PatchSummary] = []
 
             for op in ops:
                 source = self._resolve(op.path)
                 if op.kind == "add":
-                    if source.exists():
+                    if source.exists() or source in writes:
                         raise _PatchError(f"file to add already exists: {op.path}")
-                    writes[source] = _lines_to_text(op.add_lines or [])
+                    new_content = _lines_to_text(op.add_lines or [])
+                    writes[source] = new_content
                     deletes.discard(source)
-                    touched.append(f"add {op.path}")
+                    summaries.append(_PatchSummary(
+                        action="add",
+                        path=op.path,
+                        added=_text_line_count(new_content),
+                    ))
                     continue
 
                 if op.kind == "delete":
-                    if not source.exists():
+                    pending_content = writes.get(source)
+                    if pending_content is None and not source.exists():
                         raise _PatchError(f"file to delete does not exist: {op.path}")
-                    if not source.is_file():
+                    if pending_content is None and not source.is_file():
                         raise _PatchError(f"path to delete is not a file: {op.path}")
+                    deleted_lines = 0
+                    if pending_content is not None:
+                        deleted_lines = _text_line_count(pending_content)
+                    else:
+                        raw = source.read_bytes()
+                        try:
+                            deleted_lines = _text_line_count(raw.decode("utf-8"))
+                        except UnicodeDecodeError:
+                            deleted_lines = 0
                     deletes.add(source)
                     writes.pop(source, None)
-                    touched.append(f"delete {op.path}")
+                    summaries.append(_PatchSummary(
+                        action="delete",
+                        path=op.path,
+                        deleted=deleted_lines,
+                    ))
                     continue
 
-                if not source.exists():
+                pending_content = writes.get(source)
+                if pending_content is None and not source.exists():
                     raise _PatchError(f"file to update does not exist: {op.path}")
-                if not source.is_file():
+                if pending_content is None and not source.is_file():
                     raise _PatchError(f"path to update is not a file: {op.path}")
-                raw = source.read_bytes()
-                try:
-                    content = raw.decode("utf-8")
-                except UnicodeDecodeError as exc:
-                    raise _PatchError(f"file to update is not UTF-8 text: {op.path}") from exc
+                if pending_content is not None:
+                    content = pending_content
+                else:
+                    raw = source.read_bytes()
+                    try:
+                        content = raw.decode("utf-8")
+                    except UnicodeDecodeError as exc:
+                        raise _PatchError(f"file to update is not UTF-8 text: {op.path}") from exc
                 uses_crlf = "\r\n" in content
                 content = content.replace("\r\n", "\n")
                 new_content = _apply_hunks(op.path, content, op.hunks or [])
+                added, deleted = _line_diff_stats(content, new_content)
                 if uses_crlf:
                     new_content = new_content.replace("\n", "\r\n")
 
                 target = self._resolve(op.new_path) if op.new_path else source
-                if op.new_path and target.exists() and target != source:
+                if op.new_path and (target.exists() or target in writes) and target != source:
                     raise _PatchError(f"move target already exists: {op.new_path}")
                 writes[target] = new_content
                 deletes.discard(target)
                 if target != source:
                     deletes.add(source)
-                action = f"move {op.path} -> {op.new_path}" if op.new_path else f"update {op.path}"
-                touched.append(action)
+                    writes.pop(source, None)
+                summaries.append(_PatchSummary(
+                    action="move" if op.new_path else "update",
+                    path=op.path,
+                    new_path=op.new_path,
+                    added=added,
+                    deleted=deleted,
+                ))
+
+            if dry_run:
+                return (
+                    "Patch dry-run succeeded:\n"
+                    + "\n".join(_format_summary(summary) for summary in summaries)
+                )
 
             backups: dict[Path, bytes | None] = {}
             for path in set(writes) | deletes:
@@ -332,7 +416,10 @@ class ApplyPatchTool(_FsTool):
 
             for path in set(writes) | deletes:
                 self._file_states.record_write(path)
-            return "Patch applied:\n" + "\n".join(f"- {item}" for item in touched)
+            return (
+                "Patch applied:\n"
+                + "\n".join(_format_summary(summary) for summary in summaries)
+            )
         except PermissionError as exc:
             return f"Error: {exc}"
         except _PatchError as exc:

@@ -40,7 +40,56 @@ def test_apply_patch_updates_multiple_hunks(tmp_path):
     ))
 
     assert "update multi.txt" in result
+    assert "(+2/-2)" in result
     assert target.read_text() == "line1\nchanged2\nline3\nchanged4\n"
+
+
+def test_apply_patch_dry_run_validates_without_writing(tmp_path):
+    target = tmp_path / "dry.txt"
+    target.write_text("before\n")
+    tool = ApplyPatchTool(workspace=tmp_path)
+
+    result = asyncio.run(tool.execute(
+        patch="""*** Begin Patch
+*** Update File: dry.txt
+@@
+-before
++after
+*** Add File: added.txt
++new
+*** End Patch
+""",
+        dry_run=True,
+    ))
+
+    assert "Patch dry-run succeeded" in result
+    assert "- update dry.txt (+1/-1)" in result
+    assert "- add added.txt (+1/-0)" in result
+    assert target.read_text() == "before\n"
+    assert not (tmp_path / "added.txt").exists()
+
+
+def test_apply_patch_applies_repeated_update_sections_sequentially(tmp_path):
+    target = tmp_path / "repeat.txt"
+    target.write_text("one\ntwo\nthree\n")
+    tool = ApplyPatchTool(workspace=tmp_path)
+
+    result = asyncio.run(tool.execute(
+        patch="""*** Begin Patch
+*** Update File: repeat.txt
+@@
+-one
++ONE
+*** Update File: repeat.txt
+@@
+-three
++THREE
+*** End Patch
+"""
+    ))
+
+    assert result.count("update repeat.txt") == 2
+    assert target.read_text() == "ONE\ntwo\nTHREE\n"
 
 
 def test_apply_patch_ignores_standard_no_newline_marker(tmp_path):

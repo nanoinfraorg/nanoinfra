@@ -219,6 +219,8 @@ def _resolve_apply_patch_paths(
     patch = params.get("patch")
     if not isinstance(patch, str) or not patch.strip():
         return []
+    if params.get("dry_run") is True:
+        return []
     try:
         from nanobot.agent.tools.apply_patch import _parse_patch
 

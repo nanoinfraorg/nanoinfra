@@ -125,6 +125,28 @@ def test_apply_patch_prepares_trackers_for_each_touched_file(tmp_path: Path) -> 
     assert (by_path["src/delete_me.py"]["added"], by_path["src/delete_me.py"]["deleted"]) == (0, 1)
 
 
+def test_apply_patch_dry_run_does_not_prepare_file_edit_trackers(tmp_path: Path) -> None:
+    (tmp_path / "file.txt").write_text("old\n", encoding="utf-8")
+
+    trackers = prepare_file_edit_trackers(
+        call_id="call-patch",
+        tool_name="apply_patch",
+        tool=None,
+        workspace=tmp_path,
+        params={
+            "dry_run": True,
+            "patch": """*** Begin Patch
+*** Update File: file.txt
+@@
+-old
++new
+*** End Patch""",
+        },
+    )
+
+    assert trackers == []
+
+
 def test_oversized_write_file_end_uses_known_content_for_exact_count(tmp_path: Path) -> None:
     target = tmp_path / "large.txt"
     params = {"path": "large.txt", "content": "x" * (2 * 1024 * 1024 + 1)}
