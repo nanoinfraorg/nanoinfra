@@ -1079,7 +1079,7 @@ async def _parse_codex_sse_images(
                 _collect_images_from_sse_event(event, images)
                 _collect_text_from_sse_event(event, text_parts)
 
-    return images, "\n".join(text_parts).strip()
+    return images, "".join(text_parts).strip()
 
 
 def _collect_images_from_sse_event(event: dict[str, Any], images: list[str]) -> None:
