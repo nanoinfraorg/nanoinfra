@@ -139,6 +139,13 @@ class TestLoadBootstrapFiles:
         for name in ContextBuilder.BOOTSTRAP_FILES:
             assert f"## {name}" in result
 
+    def test_legacy_tools_md_is_not_bootstrapped(self, tmp_path):
+        (tmp_path / "TOOLS.md").write_text("workspace tool notes", encoding="utf-8")
+        builder = _builder(tmp_path)
+        result = builder._load_bootstrap_files()
+        assert "TOOLS.md" not in result
+        assert "workspace tool notes" not in result
+
     def test_utf8_content(self, tmp_path):
         (tmp_path / "AGENTS.md").write_text("用中文回复", encoding="utf-8")
         builder = _builder(tmp_path)
@@ -176,11 +183,11 @@ class TestIsTemplateContent:
 # ---------------------------------------------------------------------------
 
 
-class TestBundledToolsTemplate:
-    def test_tools_template_balances_general_and_coding_workflows(self):
+class TestBundledToolContract:
+    def test_tool_contract_balances_general_and_coding_workflows(self):
         from importlib.resources import files as pkg_files
 
-        tpl = pkg_files("nanobot") / "templates" / "TOOLS.md"
+        tpl = pkg_files("nanobot") / "templates" / "agent" / "tool_contract.md"
         content = tpl.read_text(encoding="utf-8")
 
         assert "## General Tool Contract" in content
@@ -192,6 +199,14 @@ class TestBundledToolsTemplate:
         assert "## Messaging and Media" in content
         assert "## Scheduling and Background Work" in content
         assert "pure coding" not in content.lower()
+
+    def test_tool_contract_is_injected_without_workspace_file(self, tmp_path):
+        builder = _builder(tmp_path)
+        prompt = builder.build_system_prompt()
+
+        assert "# Tool Usage Notes" in prompt
+        assert "## General Tool Contract" in prompt
+        assert "Do not use `exec` as a universal workaround" in prompt
 
 
 # ---------------------------------------------------------------------------
