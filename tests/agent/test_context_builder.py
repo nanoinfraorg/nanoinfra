@@ -172,6 +172,29 @@ class TestIsTemplateContent:
 
 
 # ---------------------------------------------------------------------------
+# Bundled bootstrap templates
+# ---------------------------------------------------------------------------
+
+
+class TestBundledToolsTemplate:
+    def test_tools_template_balances_general_and_coding_workflows(self):
+        from importlib.resources import files as pkg_files
+
+        tpl = pkg_files("nanobot") / "templates" / "TOOLS.md"
+        content = tpl.read_text(encoding="utf-8")
+
+        assert "## General Tool Contract" in content
+        assert "Use the narrowest structured tool" in content
+        assert "Do not use `exec` as a universal workaround" in content
+        assert "## File and Coding Workflows" in content
+        assert "apply_patch" in content
+        assert "## Web and External Information" in content
+        assert "## Messaging and Media" in content
+        assert "## Scheduling and Background Work" in content
+        assert "pure coding" not in content.lower()
+
+
+# ---------------------------------------------------------------------------
 # _build_user_content
 # ---------------------------------------------------------------------------
 

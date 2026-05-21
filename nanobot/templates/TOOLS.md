@@ -1,28 +1,60 @@
 # Tool Usage Notes
 
-Tool signatures are provided automatically via function calling.
-This file documents non-obvious constraints and usage patterns.
+Tool signatures are provided automatically via function calling. This file
+documents the general tool contract and non-obvious usage patterns.
 
-## exec — Safety Limits
+## General Tool Contract
 
-- Commands have a configurable timeout (default 60s)
-- Dangerous commands are blocked (rm -rf, format, dd, shutdown, etc.)
-- Output is truncated at 10,000 characters
-- `restrictToWorkspace` config can limit file access to the workspace
+- Use the narrowest structured tool that directly matches the task.
+- Use read-only discovery before writes when state is uncertain.
+- Do not use `exec` as a universal workaround for files, search, web, messages, or schedules.
+- If a tool fails, read the error, refresh the relevant state, and retry with a different approach instead of repeating the same call.
+- After meaningful changes, verify with the smallest reliable check: re-read changed state, run targeted tests, or inspect command output.
+- Respect safety and workspace-boundary errors as real limits, not obstacles to bypass.
 
-## grep — Content Search
+## Discovery and Reading
 
-- Use `grep` to search file contents inside the workspace
-- Default behavior returns only matching file paths (`output_mode="files_with_matches"`)
-- Supports optional `glob` filtering (e.g. `glob="*.py"`) plus `context_before` / `context_after`
-- Supports `type="py"`, `type="ts"`, `type="md"` and similar shorthand filters
-- Use `fixed_strings=true` for literal keywords containing regex characters
-- Use `output_mode="files_with_matches"` to get only matching file paths
-- Use `output_mode="count"` to size a search before reading full matches
-- Use `head_limit` and `offset` to page across results
-- Prefer this over `exec` for code and history searches
-- Binary or oversized files may be skipped to keep results readable
+- Use `find_files` or `list_dir` to locate workspace paths before `read_file` when a path is uncertain.
+- Use `grep` for content search inside the workspace; prefer it over shell grep for ordinary searches.
+- `grep` defaults to `output_mode="files_with_matches"`; use `output_mode="content"` for matching lines with context.
+- Use `fixed_strings=true` for literal keywords containing regex characters.
+- Use `output_mode="count"` to size a broad search before reading full matches.
+- Use `head_limit` and `offset` to page across large result sets.
+- Binary or oversized files may be skipped to keep results readable.
 
-## cron — Scheduled Reminders
+## File and Coding Workflows
 
-- Please refer to cron skill for usage.
+- For code or config changes, the default loop is: locate (`find_files`/`grep`), inspect (`read_file`), edit (`apply_patch`), then verify (`exec` or re-read).
+- Use `apply_patch` as the default code editing tool, especially for multi-file changes, structural edits, generated code, moves, adds, or deletes.
+- Use `apply_patch dry_run=true` when the patch is uncertain and you want validation plus a change summary before writing.
+- Use `edit_file` only for small exact replacements in one file, with `old_text` copied from `read_file`; add `occurrence`, `line_hint`, or `expected_replacements` when ambiguity matters.
+- Use `write_file` for new files or intentional full-file rewrites, not routine partial edits.
+- If `apply_patch` or `edit_file` fails, re-read with `force=true`, narrow the context, and try a smaller patch rather than switching to shell `sed` or `echo`.
+
+## Process Execution
+
+- Use `exec` for tests, builds, package commands, git commands, and other process execution.
+- Prefer dedicated file/search tools over `cat`, shell `find`, shell `grep`, `sed`, or `echo` for ordinary workspace inspection and edits.
+- Use non-interactive flags such as `-y` or `--yes` when available.
+- Commands have a configurable timeout (default 60s), dangerous commands are blocked, and output is truncated.
+- For long-running or interactive commands, pass `yield_time_ms`; if the process keeps running, continue with `write_stdin`.
+- Use `write_stdin` to poll, provide stdin, close stdin, wait for expected output with `wait_for`, or terminate an existing exec session.
+- Use `list_exec_sessions` to recover active session IDs after context shifts.
+
+## Web and External Information
+
+- Use web tools when the user asks for current information, a specific URL, or information likely to have changed.
+- Use `web_search` to find sources and `web_fetch` for a specific page or result that needs closer reading.
+- Do not invent freshness-sensitive facts when tools can verify them.
+
+## Messaging and Media
+
+- Use `message` to send content or local media to the user/channel.
+- `read_file` only reads content for your analysis; it does not deliver a file to the user.
+- When sending an existing local file, attach it through the message/media mechanism instead of pasting file contents unless the user asked for text.
+
+## Scheduling and Background Work
+
+- Use `cron` for scheduled reminders or recurring jobs; do not run `nanobot cron` through `exec`.
+- For heartbeat tasks, update `HEARTBEAT.md` according to the agent instructions.
+- Do not write reminders only to memory files when the user expects an actual notification.
