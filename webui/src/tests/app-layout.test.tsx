@@ -1025,10 +1025,16 @@ describe("App layout", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     const desktopAside = container.querySelector("aside.lg\\:block") as HTMLElement;
-    await waitFor(() => expect(desktopAside.style.width).toBe("0px"));
+    await waitFor(() => expect(desktopAside.style.width).toBe("56px"));
 
     expect(screen.queryByRole("button", { name: "Start a new chat" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Toggle sidebar" }));
+    const rail = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    expect(within(rail).getByRole("button", { name: "New chat" })).toBeInTheDocument();
+    expect(within(rail).getByRole("button", { name: "Search" })).toBeInTheDocument();
+    expect(within(rail).getByRole("button", { name: "View" })).toBeInTheDocument();
+    expect(within(rail).queryByText("Existing chat")).not.toBeInTheDocument();
+
+    fireEvent.click(within(rail).getByRole("button", { name: "Toggle sidebar" }));
     await waitFor(() => expect(desktopAside.style.width).toBe("272px"));
 
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });

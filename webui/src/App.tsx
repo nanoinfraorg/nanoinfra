@@ -43,6 +43,7 @@ const SIDEBAR_STORAGE_KEY = "nanobot-webui.sidebar";
 const COMPLETED_RUNS_STORAGE_KEY = "nanobot-webui.sidebar.completed-runs.v1";
 const RESTART_STARTED_KEY = "nanobot-webui.restartStartedAt";
 const SIDEBAR_WIDTH = 272;
+const SIDEBAR_RAIL_WIDTH = 56;
 const TOKEN_REFRESH_MARGIN_MS = 30_000;
 const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
 type ShellView = "chat" | "settings";
@@ -411,6 +412,10 @@ function Shell({
     setDesktopSidebarOpen(false);
   }, []);
 
+  const openDesktopSidebar = useCallback(() => {
+    setDesktopSidebarOpen(true);
+  }, []);
+
   const closeMobileSidebar = useCallback(() => {
     setMobileSidebarOpen(false);
   }, []);
@@ -732,17 +737,19 @@ function Shell({
               "relative z-20 hidden shrink-0 overflow-hidden lg:block",
               "transition-[width] duration-300 ease-out",
             )}
-            style={{ width: desktopSidebarOpen ? SIDEBAR_WIDTH : 0 }}
+            style={{
+              width: desktopSidebarOpen ? SIDEBAR_WIDTH : SIDEBAR_RAIL_WIDTH,
+            }}
           >
             <div
-              className={cn(
-                "absolute inset-y-0 left-0 h-full overflow-hidden bg-sidebar shadow-inner-right",
-                "transition-transform duration-300 ease-out",
-                desktopSidebarOpen ? "translate-x-0" : "-translate-x-full",
-              )}
-              style={{ width: SIDEBAR_WIDTH }}
+              className="absolute inset-y-0 left-0 h-full w-full overflow-hidden bg-sidebar shadow-inner-right"
             >
-              <Sidebar {...sidebarProps} onCollapse={closeDesktopSidebar} />
+              <Sidebar
+                {...sidebarProps}
+                collapsed={!desktopSidebarOpen}
+                onCollapse={closeDesktopSidebar}
+                onExpand={openDesktopSidebar}
+              />
             </div>
           </aside>
         ) : null}
@@ -797,7 +804,7 @@ function Shell({
               onTurnEnd={onTurnEnd}
               theme={theme}
               onToggleTheme={toggle}
-              hideSidebarToggleOnDesktop={desktopSidebarOpen}
+              hideSidebarToggleOnDesktop
             />
           </div>
           {view === "settings" && (
