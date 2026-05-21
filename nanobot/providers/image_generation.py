@@ -768,6 +768,13 @@ _OPENAI_ASPECT_RATIO_SIZES = {
     "3:4": "1024x1360",
     "4:3": "1360x1024",
 }
+_OPENAI_GPT_IMAGE_ASPECT_RATIO_SIZES = {
+    "1:1": "1024x1024",
+    "16:9": "1536x1024",
+    "9:16": "1024x1536",
+    "3:4": "1024x1536",
+    "4:3": "1536x1024",
+}
 
 
 class OpenAIImageGenerationClient(ImageGenerationProvider):
@@ -825,7 +832,7 @@ class OpenAIImageGenerationClient(ImageGenerationProvider):
             body["response_format"] = "b64_json"
             body["n"] = 1
 
-        size = _openai_size(aspect_ratio, image_size)
+        size = _openai_size(clean_model, aspect_ratio, image_size)
         if size:
             body["size"] = size
 
@@ -976,14 +983,20 @@ class CodexImageGenerationClient(ImageGenerationProvider):
 
 
 def _openai_size(
+    model: str,
     aspect_ratio: str | None,
     image_size: str | None,
 ) -> str:
     """Resolve aspect ratio or image_size to an OpenAI Images API size string."""
     if image_size and "x" in image_size.lower():
         return image_size
-    if aspect_ratio and aspect_ratio in _OPENAI_ASPECT_RATIO_SIZES:
-        return _OPENAI_ASPECT_RATIO_SIZES[aspect_ratio]
+    sizes = (
+        _OPENAI_GPT_IMAGE_ASPECT_RATIO_SIZES
+        if model.startswith("gpt-image")
+        else _OPENAI_ASPECT_RATIO_SIZES
+    )
+    if aspect_ratio and aspect_ratio in sizes:
+        return sizes[aspect_ratio]
     return "1024x1024"
 
 

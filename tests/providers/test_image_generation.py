@@ -625,6 +625,19 @@ async def test_openai_aspect_ratio_to_size() -> None:
 
 
 @pytest.mark.asyncio
+async def test_openai_gpt_image_uses_supported_landscape_size() -> None:
+    fake = FakeClient(FakeResponse({"data": [{"b64_json": RAW_B64}]}))
+    client = OpenAIImageGenerationClient(
+        api_key="sk-openai-test",
+        client=fake,  # type: ignore[arg-type]
+    )
+
+    await client.generate(prompt="draw", model="gpt-image-1", aspect_ratio="16:9")
+
+    assert fake.calls[0]["json"]["size"] == "1536x1024"
+
+
+@pytest.mark.asyncio
 async def test_openai_default_size_when_no_aspect_ratio() -> None:
     fake = FakeClient(FakeResponse({"data": [{"b64_json": RAW_B64}]}))
     client = OpenAIImageGenerationClient(
