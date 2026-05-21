@@ -11,6 +11,7 @@ import secrets
 import string
 import time
 import uuid
+from collections import deque
 from collections.abc import Awaitable, Callable
 from ipaddress import ip_address
 from typing import TYPE_CHECKING, Any
@@ -463,6 +464,7 @@ class OpenAICompatProvider(LLMProvider):
         """Strip non-standard keys, normalize tool_call IDs."""
         sanitized = LLMProvider._sanitize_request_messages(messages, _ALLOWED_MSG_KEYS)
         id_map: dict[str, str] = {}
+        pending_tool_ids: dict[str, deque[str]] = {}
         force_string_content = bool(self._spec and self._spec.name == "deepseek")
 
         def map_id(value: Any) -> Any:
@@ -470,15 +472,49 @@ class OpenAICompatProvider(LLMProvider):
                 return value
             return id_map.setdefault(value, self._normalize_tool_call_id(value))
 
+        def unique_tool_id(value: Any, used_ids: set[str], idx: int) -> str:
+            if isinstance(value, str) and value:
+                base = map_id(value)
+            else:
+                base = _short_tool_id()
+            if not isinstance(base, str) or not base:
+                base = _short_tool_id()
+            if base not in used_ids:
+                return base
+            seed = value if isinstance(value, str) and value else base
+            salt = 1
+            while True:
+                candidate = self._normalize_tool_call_id(f"{seed}:{idx}:{salt}")
+                if isinstance(candidate, str) and candidate not in used_ids:
+                    return candidate
+                salt += 1
+
+        def map_tool_result_id(value: Any) -> Any:
+            if not isinstance(value, str):
+                return value
+            queue = pending_tool_ids.get(value)
+            if queue:
+                mapped = queue.popleft()
+                if not queue:
+                    pending_tool_ids.pop(value, None)
+                return mapped
+            return map_id(value)
+
         for clean in sanitized:
             if isinstance(clean.get("tool_calls"), list):
                 normalized = []
-                for tc in clean["tool_calls"]:
+                used_ids: set[str] = set()
+                for idx, tc in enumerate(clean["tool_calls"]):
                     if not isinstance(tc, dict):
                         normalized.append(tc)
                         continue
                     tc_clean = dict(tc)
-                    tc_clean["id"] = map_id(tc_clean.get("id"))
+                    raw_id = tc_clean.get("id")
+                    mapped_id = unique_tool_id(raw_id, used_ids, idx)
+                    tc_clean["id"] = mapped_id
+                    used_ids.add(mapped_id)
+                    if isinstance(raw_id, str) and raw_id:
+                        pending_tool_ids.setdefault(raw_id, deque()).append(mapped_id)
                     function = tc_clean.get("function")
                     if isinstance(function, dict):
                         function_clean = dict(function)
@@ -496,7 +532,7 @@ class OpenAICompatProvider(LLMProvider):
                     # that mix non-empty content with tool_calls.
                     clean["content"] = None
             if "tool_call_id" in clean and clean["tool_call_id"]:
-                clean["tool_call_id"] = map_id(clean["tool_call_id"])
+                clean["tool_call_id"] = map_tool_result_id(clean["tool_call_id"])
             if (
                 force_string_content
                 and not (clean.get("role") == "assistant" and clean.get("tool_calls"))

@@ -1007,6 +1007,41 @@ def test_openai_compat_keeps_tool_calls_after_consecutive_assistant_messages() -
     assert sanitized[2]["tool_call_id"] == "3ec83c30d"
 
 
+def test_openai_compat_deduplicates_duplicate_tool_call_ids_in_history() -> None:
+    with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
+        provider = OpenAICompatProvider()
+
+    sanitized = provider._sanitize_messages([
+        {"role": "user", "content": "check both files"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "ab1b45c2a",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": '{"path":"a.txt"}'},
+                },
+                {
+                    "id": "ab1b45c2a",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": '{"path":"b.txt"}'},
+                },
+            ],
+        },
+        {"role": "tool", "tool_call_id": "ab1b45c2a", "name": "read_file", "content": "a"},
+        {"role": "tool", "tool_call_id": "ab1b45c2a", "name": "read_file", "content": "b"},
+        {"role": "user", "content": "continue"},
+    ])
+
+    tool_call_ids = [tc["id"] for tc in sanitized[1]["tool_calls"]]
+    tool_result_ids = [sanitized[2]["tool_call_id"], sanitized[3]["tool_call_id"]]
+
+    assert tool_call_ids[0] == "ab1b45c2a"
+    assert len(tool_call_ids) == len(set(tool_call_ids)) == 2
+    assert tool_result_ids == tool_call_ids
+
+
 def test_openai_compat_stringifies_dict_tool_arguments() -> None:
     with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()

@@ -10,6 +10,7 @@ from nanobot.utils.file_edit_events import (
     build_file_edit_start_event,
     line_diff_stats,
     prepare_file_edit_tracker,
+    prepare_file_edit_trackers,
     read_file_snapshot,
 )
 
@@ -81,6 +82,71 @@ def test_binary_file_is_reported_but_not_counted(tmp_path: Path) -> None:
     assert (event["added"], event["deleted"]) == (0, 0)
 
 
+def test_apply_patch_prepares_trackers_for_each_touched_file(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    existing = tmp_path / "src" / "existing.py"
+    existing.write_text("old\nkeep\n", encoding="utf-8")
+    delete_me = tmp_path / "src" / "delete_me.py"
+    delete_me.write_text("gone\n", encoding="utf-8")
+
+    patch = """*** Begin Patch
+*** Add File: src/new.py
++fresh
+*** Update File: src/existing.py
+@@
+-old
++new
+ keep
+*** Delete File: src/delete_me.py
+*** End Patch"""
+
+    trackers = prepare_file_edit_trackers(
+        call_id="call-patch",
+        tool_name="apply_patch",
+        tool=None,
+        workspace=tmp_path,
+        params={"patch": patch},
+    )
+
+    assert [tracker.display_path for tracker in trackers] == [
+        "src/new.py",
+        "src/existing.py",
+        "src/delete_me.py",
+    ]
+
+    (tmp_path / "src" / "new.py").write_text("fresh\n", encoding="utf-8")
+    existing.write_text("new\nkeep\n", encoding="utf-8")
+    delete_me.unlink()
+
+    events = [build_file_edit_end_event(tracker, {"patch": patch}) for tracker in trackers]
+    by_path = {event["path"]: event for event in events}
+    assert (by_path["src/new.py"]["added"], by_path["src/new.py"]["deleted"]) == (1, 0)
+    assert (by_path["src/existing.py"]["added"], by_path["src/existing.py"]["deleted"]) == (1, 1)
+    assert (by_path["src/delete_me.py"]["added"], by_path["src/delete_me.py"]["deleted"]) == (0, 1)
+
+
+def test_apply_patch_dry_run_does_not_prepare_file_edit_trackers(tmp_path: Path) -> None:
+    (tmp_path / "file.txt").write_text("old\n", encoding="utf-8")
+
+    trackers = prepare_file_edit_trackers(
+        call_id="call-patch",
+        tool_name="apply_patch",
+        tool=None,
+        workspace=tmp_path,
+        params={
+            "dry_run": True,
+            "patch": """*** Begin Patch
+*** Update File: file.txt
+@@
+-old
++new
+*** End Patch""",
+        },
+    )
+
+    assert trackers == []
+
+
 def test_oversized_write_file_end_uses_known_content_for_exact_count(tmp_path: Path) -> None:
     target = tmp_path / "large.txt"
     params = {"path": "large.txt", "content": "x" * (2 * 1024 * 1024 + 1)}
@@ -138,6 +204,66 @@ def test_streaming_write_file_tracker_emits_live_line_counts(tmp_path: Path) -> 
     assert events[-1]["approximate"] is True
     assert events[-1]["added"] == 24
     assert events[-1]["deleted"] == 0
+
+
+def test_streaming_apply_patch_tracker_emits_live_counts_per_file(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "existing.py").write_text("old\nkeep\n", encoding="utf-8")
+    events: list[dict] = []
+
+    async def emit(batch: list[dict]) -> None:
+        events.extend(batch)
+
+    async def run() -> None:
+        tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
+        await tracker.update({
+            "index": 0,
+            "call_id": "call-patch",
+            "name": "apply_patch",
+            "arguments_delta": (
+                '{"patch":"*** Begin Patch\\n'
+                '*** Update File: src/existing.py\\n'
+                '@@\\n'
+                '-old\\n'
+                '+new\\n'
+                ' keep\\n'
+                '*** Add File: src/new.py\\n'
+                '+fresh\\n'
+            ),
+        })
+
+    asyncio.run(run())
+
+    by_path = {event["path"]: event for event in events}
+    assert by_path["src/existing.py"]["tool"] == "apply_patch"
+    assert by_path["src/existing.py"]["status"] == "editing"
+    assert by_path["src/existing.py"]["approximate"] is True
+    assert (by_path["src/existing.py"]["added"], by_path["src/existing.py"]["deleted"]) == (1, 1)
+    assert (by_path["src/new.py"]["added"], by_path["src/new.py"]["deleted"]) == (1, 0)
+
+
+def test_streaming_apply_patch_tracker_skips_dry_run(tmp_path: Path) -> None:
+    events: list[dict] = []
+
+    async def emit(batch: list[dict]) -> None:
+        events.extend(batch)
+
+    async def run() -> None:
+        tracker = StreamingFileEditTracker(workspace=tmp_path, tools={}, emit=emit)
+        await tracker.update({
+            "index": 0,
+            "call_id": "call-patch",
+            "name": "apply_patch",
+            "arguments_delta": (
+                '{"dry_run":true,"patch":"*** Begin Patch\\n'
+                '*** Add File: dry.md\\n'
+                '+preview\\n'
+            ),
+        })
+
+    asyncio.run(run())
+
+    assert events == []
 
 
 def test_streaming_write_file_tracker_emits_pending_before_path(tmp_path: Path) -> None:
