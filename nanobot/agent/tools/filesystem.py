@@ -158,6 +158,9 @@ class ReadFileTool(_FsTool):
             "Text output format: LINE_NUM|CONTENT. "
             "Images return visual content for analysis. "
             "Supports PDF, DOCX, XLSX, PPTX documents. "
+            "Use find_files/list_dir first when the path is uncertain. "
+            "Read the relevant range before editing so replacements or patches "
+            "are based on current content. "
             "Use offset and limit for large text files. "
             "Use force=true to re-read content even if unchanged. "
             "Reads exceeding ~128K chars are truncated."
@@ -384,9 +387,10 @@ class WriteFileTool(_FsTool):
     @property
     def description(self) -> str:
         return (
-            "Write content to a file. Overwrites if the file already exists; "
-            "creates parent directories as needed. "
-            "For partial edits, prefer edit_file instead."
+            "Create a new file or intentionally replace an entire file with "
+            "the provided content. Overwrites existing files and creates parent "
+            "directories as needed. For code changes or partial edits, prefer "
+            "apply_patch; use edit_file only for small exact replacements."
         )
 
     async def execute(self, path: str | None = None, content: str | None = None, **kwargs: Any) -> str:
@@ -711,10 +715,13 @@ class EditFileTool(_FsTool):
     @property
     def description(self) -> str:
         return (
-            "Edit a file by replacing old_text with new_text. "
-            "Tolerates minor whitespace/indentation differences and curly/straight quote mismatches. "
-            "If old_text matches multiple times, you must provide more context "
-            "or set occurrence/line_hint/replace_all. Shows a diff of the closest match on failure."
+            "Perform a small, exact replacement in one file by replacing "
+            "old_text with new_text. Use this for narrow text substitutions "
+            "with old_text copied from read_file. For multi-file, structural, "
+            "or generated code edits, prefer apply_patch. If old_text matches "
+            "multiple times, provide more context or set occurrence, line_hint, "
+            "replace_all, and expected_replacements. Shows closest-match "
+            "diagnostics on failure."
         )
 
     @staticmethod

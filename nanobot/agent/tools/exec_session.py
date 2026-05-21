@@ -424,11 +424,12 @@ class WriteStdinTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Write text to a running exec session and return recent output. "
-            "Use chars='' to poll without writing. Set close_stdin=true to send EOF, "
-            "or terminate=true to stop the session. Use wait_for to keep polling "
-            "until expected output appears. Sessions finish automatically when "
-            "their process exits."
+            "Interact with a running exec session created by exec with "
+            "yield_time_ms. Use chars='' to poll without writing, chars to send "
+            "stdin, close_stdin=true to send EOF, or terminate=true to stop the "
+            "process. Use wait_for with wait_timeout_ms for dev servers, test "
+            "watchers, and prompts where you need to wait for expected output. "
+            "Do not use this to start new commands; start them with exec."
         )
 
     async def execute(
@@ -561,7 +562,8 @@ class ListExecSessionsTool(Tool):
         return (
             "List active long-running exec sessions, including session_id, cwd, "
             "elapsed time, idle time, remaining timeout, and command preview. "
-            "Use this to recover a session_id before polling with write_stdin."
+            "Use this to recover a session_id after context shifts before "
+            "polling, writing stdin, or terminating with write_stdin."
         )
 
     @property

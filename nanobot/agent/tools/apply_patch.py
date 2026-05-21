@@ -298,11 +298,14 @@ class ApplyPatchTool(_FsTool):
     @property
     def description(self) -> str:
         return (
-            "Apply a structured patch for code edits. The patch must include "
+            "Default tool for code edits. Apply a structured patch with "
             "*** Begin Patch and *** End Patch. Supports Add File, Update File, "
-            "Delete File, and Move to. Paths must be relative. Prefer this for "
-            "multi-file coding changes; use edit_file for small exact replacements. "
-            "Set dry_run=true to validate and preview the change without writing files."
+            "Delete File, and Move to across one or more files. Use this for "
+            "multi-file changes, structural edits, generated code, or any edit "
+            "where a reviewable patch is clearer than an exact replacement. "
+            "Paths must be relative. Set dry_run=true to validate and preview "
+            "the change summary without writing files. Use edit_file only for "
+            "small exact replacements copied from read_file."
         )
 
     async def execute(self, patch: str, dry_run: bool = False, **kwargs: Any) -> str:
