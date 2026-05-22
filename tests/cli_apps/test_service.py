@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
-import stat
 import subprocess
 import sys
 import time
@@ -341,17 +339,22 @@ def test_run_installed_cli_uses_argv_without_shell(
 ) -> None:
     manager = _manager(tmp_path)
     _seed_catalog(manager)
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    cli = bin_dir / "cli-anything-gimp"
-    cli.write_text(
-        "#!/usr/bin/env python3\n"
-        "import sys\n"
-        "print('ARGS=' + repr(sys.argv[1:]))\n",
-        encoding="utf-8",
+    resolved = str(tmp_path / "bin" / "cli-anything-gimp")
+    monkeypatch.setattr(
+        "nanobot.cli_apps.service.shutil.which",
+        lambda entry: resolved if entry == "cli-anything-gimp" else None,
     )
-    cli.chmod(cli.stat().st_mode | stat.S_IEXEC)
-    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+
+    def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert "shell" not in kwargs or kwargs["shell"] is False
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout="ARGS=" + repr(argv[1:]),
+            stderr="",
+        )
+
+    monkeypatch.setattr("nanobot.cli_apps.service.subprocess.run", fake_run)
     manager._save_installed(
         {
             "gimp": {
