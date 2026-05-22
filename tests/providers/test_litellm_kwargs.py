@@ -441,6 +441,15 @@ def test_openrouter_spec_is_gateway() -> None:
     assert spec.default_api_base == "https://openrouter.ai/api/v1"
 
 
+def test_novita_spec_uses_openai_compatible_gateway() -> None:
+    spec = find_by_name("novita")
+    assert spec is not None
+    assert spec.is_gateway is True
+    assert spec.backend == "openai_compat"
+    assert spec.env_key == "NOVITA_API_KEY"
+    assert spec.default_api_base == "https://api.novita.ai/openai"
+
+
 def test_gemma_routes_to_gemini_provider() -> None:
     """gemma models (e.g. gemma-3-27b-it) must auto-route to Gemini when GEMINI_API_KEY is set.
     Users running gemma via the Gemini API endpoint expect automatic provider detection."""
@@ -1013,6 +1022,41 @@ def test_openai_compat_keeps_tool_calls_after_consecutive_assistant_messages() -
     assert sanitized[2]["tool_call_id"] == "3ec83c30d"
 
 
+def test_openai_compat_deduplicates_duplicate_tool_call_ids_in_history() -> None:
+    with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
+        provider = OpenAICompatProvider()
+
+    sanitized = provider._sanitize_messages([
+        {"role": "user", "content": "check both files"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "ab1b45c2a",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": '{"path":"a.txt"}'},
+                },
+                {
+                    "id": "ab1b45c2a",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": '{"path":"b.txt"}'},
+                },
+            ],
+        },
+        {"role": "tool", "tool_call_id": "ab1b45c2a", "name": "read_file", "content": "a"},
+        {"role": "tool", "tool_call_id": "ab1b45c2a", "name": "read_file", "content": "b"},
+        {"role": "user", "content": "continue"},
+    ])
+
+    tool_call_ids = [tc["id"] for tc in sanitized[1]["tool_calls"]]
+    tool_result_ids = [sanitized[2]["tool_call_id"], sanitized[3]["tool_call_id"]]
+
+    assert tool_call_ids[0] == "ab1b45c2a"
+    assert len(tool_call_ids) == len(set(tool_call_ids)) == 2
+    assert tool_result_ids == tool_call_ids
+
+
 def test_openai_compat_stringifies_dict_tool_arguments() -> None:
     with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider()
@@ -1382,12 +1426,15 @@ def test_kimi_k25_thinking_enabled() -> None:
     """kimi-k2.5 with reasoning_effort set should opt in to thinking."""
     kw = _build_kwargs_for("moonshot", "kimi-k2.5", reasoning_effort="medium")
     assert kw.get("extra_body") == {"thinking": {"type": "enabled"}}
+    # Moonshot rejects both 'reasoning_effort' and 'thinking' (#3939)
+    assert "reasoning_effort" not in kw
 
 
 def test_kimi_k25_thinking_disabled_for_minimal() -> None:
     """reasoning_effort='minimal' maps to thinking disabled for kimi-k2.5."""
     kw = _build_kwargs_for("moonshot", "kimi-k2.5", reasoning_effort="minimal")
     assert kw.get("extra_body") == {"thinking": {"type": "disabled"}}
+    assert "reasoning_effort" not in kw
 
 
 def test_kimi_k25_no_extra_body_when_reasoning_effort_none() -> None:
@@ -1397,21 +1444,36 @@ def test_kimi_k25_no_extra_body_when_reasoning_effort_none() -> None:
 
 
 def test_kimi_k25_thinking_enabled_with_openrouter_prefix() -> None:
-    """OpenRouter-style model names like moonshotai/kimi-k2.5 must trigger thinking."""
+    """OpenRouter-style model names like moonshotai/kimi-k2.5 must trigger thinking.
+
+    OR drops upstream-provider `thinking` fields, so the same intent also has
+    to go through OR's `reasoning.effort` shape (#3851 follow-up).
+    """
     kw = _build_kwargs_for("openrouter", "moonshotai/kimi-k2.5", reasoning_effort="medium")
-    assert kw.get("extra_body") == {"thinking": {"type": "enabled"}}
+    assert kw.get("extra_body") == {
+        "thinking": {"type": "enabled"},
+        "reasoning": {"effort": "medium"},
+    }
+    # Even via OR, reasoning_effort wire kwarg is dropped for kimi models
+    assert "reasoning_effort" not in kw
 
 
 def test_kimi_k26_thinking_enabled() -> None:
     """kimi-k2.6 with reasoning_effort set should opt in to thinking."""
     kw = _build_kwargs_for("moonshot", "kimi-k2.6", reasoning_effort="medium")
     assert kw.get("extra_body") == {"thinking": {"type": "enabled"}}
+    assert "reasoning_effort" not in kw
 
 
 def test_kimi_k26_thinking_enabled_with_openrouter_prefix() -> None:
-    """OpenRouter-style names like moonshotai/kimi-k2.6 must trigger thinking."""
+    """OpenRouter-style names like moonshotai/kimi-k2.6 must trigger thinking
+    via both upstream `thinking` and OR's `reasoning.effort`."""
     kw = _build_kwargs_for("openrouter", "moonshotai/kimi-k2.6", reasoning_effort="medium")
-    assert kw.get("extra_body") == {"thinking": {"type": "enabled"}}
+    assert kw.get("extra_body") == {
+        "thinking": {"type": "enabled"},
+        "reasoning": {"effort": "medium"},
+    }
+    assert "reasoning_effort" not in kw
 
 
 def test_moonshot_kimi_k26_temperature_override() -> None:
@@ -1430,6 +1492,7 @@ def test_kimi_k26_code_preview_thinking_enabled() -> None:
     """k2.6-code-preview also supports thinking; should behave like k2.5."""
     kw = _build_kwargs_for("moonshot", "k2.6-code-preview", reasoning_effort="high")
     assert kw.get("extra_body") == {"thinking": {"type": "enabled"}}
+    assert "reasoning_effort" not in kw
 
 
 def test_kimi_k2_series_no_thinking_injection() -> None:
@@ -1459,6 +1522,7 @@ def test_kimi_k25_thinking_disabled_for_none_string() -> None:
     """reasoning_effort='none' maps to thinking disabled for kimi-k2.5."""
     kw = _build_kwargs_for("moonshot", "kimi-k2.5", reasoning_effort="none")
     assert kw.get("extra_body") == {"thinking": {"type": "disabled"}}
+    assert "reasoning_effort" not in kw
 
 
 def test_dashscope_thinking_disabled_for_none_string() -> None:

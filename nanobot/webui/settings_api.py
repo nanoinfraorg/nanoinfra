@@ -73,12 +73,16 @@ def _mask_secret_hint(secret: str | None) -> str | None:
 def _provider_requires_api_key(spec: Any) -> bool:
     if spec.backend == "azure_openai":
         return True
+    if spec.is_oauth:
+        return False
     if spec.is_local or spec.is_direct:
         return False
     return True
 
 
 def _provider_configured_for_settings(spec: Any, provider_config: Any) -> bool:
+    if spec.is_oauth:
+        return True
     if _provider_requires_api_key(spec):
         return bool(provider_config.api_key)
     return bool(

@@ -130,12 +130,6 @@ class ImageGenerationTool(Tool):
         }
         return cls(**kwargs)
 
-    def _missing_api_key_error(self) -> str:
-        cls = get_image_gen_provider(self.config.provider)
-        if cls and cls.missing_key_message:
-            return f"Error: {cls.missing_key_message}"
-        return f"Error: {self.config.provider} API key is not configured."
-
     def _resolve_reference_image(self, value: str) -> str:
         raw_path = Path(value).expanduser()
         path = raw_path if raw_path.is_absolute() else self.workspace / raw_path
@@ -173,9 +167,6 @@ class ImageGenerationTool(Tool):
         client = self._provider_client()
         if client is None:
             return f"Error: unsupported image generation provider '{self.config.provider}'"
-        provider = self._provider_config()
-        if not provider or not provider.api_key:
-            return self._missing_api_key_error()
 
         requested = count or 1
         if requested > self.config.max_images_per_turn:

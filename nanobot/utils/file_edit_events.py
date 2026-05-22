@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import difflib
-import json
 import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-
-TRACKED_FILE_EDIT_TOOLS = frozenset({"write_file", "edit_file", "notebook_edit"})
+TRACKED_FILE_EDIT_TOOLS = frozenset({"write_file", "edit_file", "apply_patch"})
 _MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024
 _LIVE_EMIT_INTERVAL_S = 0.18
 _LIVE_EMIT_LINE_STEP = 24
@@ -154,19 +152,108 @@ def prepare_file_edit_tracker(
     workspace: Path | None,
     params: dict[str, Any] | None,
 ) -> FileEditTracker | None:
+    trackers = prepare_file_edit_trackers(
+        call_id=call_id,
+        tool_name=tool_name,
+        tool=tool,
+        workspace=workspace,
+        params=params,
+    )
+    return trackers[0] if trackers else None
+
+
+def prepare_file_edit_trackers(
+    *,
+    call_id: str,
+    tool_name: str,
+    tool: Any,
+    workspace: Path | None,
+    params: dict[str, Any] | None,
+) -> list[FileEditTracker]:
     if not is_file_edit_tool(tool_name):
-        return None
+        return []
+    paths = resolve_file_edit_paths(tool_name, tool, workspace, params)
+    trackers: list[FileEditTracker] = []
+    seen: set[Path] = set()
+    for path in paths:
+        try:
+            resolved = path.resolve()
+        except Exception:
+            resolved = path
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        before = read_file_snapshot(path)
+        trackers.append(FileEditTracker(
+            call_id=str(call_id or ""),
+            tool=tool_name,
+            path=path,
+            display_path=display_file_edit_path(path, workspace),
+            before=before,
+        ))
+    return trackers
+
+
+def resolve_file_edit_paths(
+    tool_name: str,
+    tool: Any,
+    workspace: Path | None,
+    params: dict[str, Any] | None,
+) -> list[Path]:
+    if tool_name == "apply_patch":
+        return _resolve_apply_patch_paths(tool, workspace, params)
     path = resolve_file_edit_path(tool, workspace, params)
     if path is None:
-        return None
-    before = read_file_snapshot(path)
-    return FileEditTracker(
-        call_id=str(call_id or ""),
-        tool=tool_name,
-        path=path,
-        display_path=display_file_edit_path(path, workspace),
-        before=before,
-    )
+        return []
+    return [path]
+
+
+def _resolve_apply_patch_paths(
+    tool: Any,
+    workspace: Path | None,
+    params: dict[str, Any] | None,
+) -> list[Path]:
+    if not isinstance(params, dict):
+        return []
+    edits = params.get("edits")
+    if not isinstance(edits, list) or not edits:
+        return []
+    if params.get("dry_run") is True:
+        return []
+
+    resolved: list[Path] = []
+    seen: set[Path] = set()
+    for edit in edits:
+        if not isinstance(edit, dict):
+            continue
+        raw_path = edit.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            continue
+        path = _resolve_raw_file_edit_path(tool, workspace, raw_path)
+        if path is not None and path not in seen:
+            seen.add(path)
+            resolved.append(path)
+    return resolved
+
+
+def _resolve_raw_file_edit_path(
+    tool: Any,
+    workspace: Path | None,
+    raw_path: str,
+) -> Path | None:
+    resolver = getattr(tool, "_resolve", None)
+    if callable(resolver):
+        try:
+            resolved = resolver(raw_path)
+            if isinstance(resolved, Path):
+                return resolved
+            if resolved:
+                return Path(resolved)
+        except Exception:
+            return None
+    if workspace is None:
+        return Path(raw_path).expanduser().resolve()
+    return (workspace / raw_path).expanduser().resolve()
 
 
 def build_file_edit_start_event(
@@ -304,6 +391,9 @@ class StreamingFileEditTracker:
             self._states[key] = state
 
         state.apply_delta(payload)
+        if state.name == "apply_patch":
+            await self._update_apply_patch(state)
+            return
         if state.name not in {"write_file", "edit_file"}:
             return
         if state.path is None:
@@ -343,10 +433,80 @@ class StreamingFileEditTracker:
             deleted=deleted,
         )])
 
+    async def _update_apply_patch(self, state: _StreamingFileEditState) -> None:
+        if _json_bool_true(state.arguments, "dry_run"):
+            return
+        tool = self._tools.get("apply_patch") if hasattr(self._tools, "get") else None
+        events: list[dict[str, Any]] = []
+        now = time.monotonic()
+
+        path_matches = list(re.finditer(r'"path"\s*:\s*"([^"]+)"', state.arguments))
+        if not path_matches:
+            return
+
+        for i, m in enumerate(path_matches):
+            raw_path = m.group(1)
+            path = _resolve_raw_file_edit_path(tool, self._workspace, raw_path)
+            if path is None:
+                continue
+
+            segment_start = m.start()
+            segment_end = path_matches[i + 1].start() if i + 1 < len(path_matches) else len(state.arguments)
+            segment = state.arguments[segment_start:segment_end]
+
+            action_match = re.search(r'"action"\s*:\s*"(replace|add|delete)"', segment)
+            action = action_match.group(1) if action_match else "replace"
+
+            old_text = _extract_json_string_prefix(segment, "old_text") or ""
+            new_text = _extract_json_string_prefix(segment, "new_text") or ""
+
+            added = _text_line_count(new_text) if action in ("replace", "add") else 0
+            deleted = _text_line_count(old_text) if action in ("replace", "delete") else 0
+            delete_file = action == "delete"
+
+            file_state = state.patch_files.get(raw_path)
+            if file_state is None:
+                tracker = FileEditTracker(
+                    call_id=state.call_id or state.key,
+                    tool="apply_patch",
+                    path=path,
+                    display_path=display_file_edit_path(path, self._workspace),
+                    before=read_file_snapshot(path),
+                )
+                file_state = _StreamingPatchFileState(tracker=tracker)
+                state.patch_files[raw_path] = file_state
+            if delete_file and added == 0 and deleted == 0 and file_state.tracker.before.countable:
+                deleted = _text_line_count(file_state.tracker.before.text or "")
+            if not file_state.should_emit(added, deleted, now):
+                continue
+            file_state.mark_emitted(added, deleted, now)
+            events.append(build_file_edit_live_event(
+                file_state.tracker,
+                added=added,
+                deleted=deleted,
+            ))
+        if events:
+            await self._emit(events)
+
     async def flush(self) -> None:
         events: list[dict[str, Any]] = []
         now = time.monotonic()
         for state in self._states.values():
+            for file_state in state.patch_files.values():
+                added, deleted = file_state.last_added, file_state.last_deleted
+                if not file_state.emitted_once:
+                    continue
+                if (
+                    file_state.last_emitted_added == added
+                    and file_state.last_emitted_deleted == deleted
+                ):
+                    continue
+                file_state.mark_emitted(added, deleted, now)
+                events.append(build_file_edit_live_event(
+                    file_state.tracker,
+                    added=added,
+                    deleted=deleted,
+                ))
             if state.tracker is None:
                 continue
             added, deleted = state.live_diff_counts()
@@ -367,12 +527,14 @@ class StreamingFileEditTracker:
 
     def apply_final_call_ids(self, final_tool_calls: list[Any]) -> None:
         """Keep final start/end events keyed to any earlier streamed placeholder."""
+        used_canonicals: set[str] = set()
         for tool_call in final_tool_calls:
             canonical = self.canonical_call_id_for(tool_call)
-            if canonical:
+            if canonical and canonical not in used_canonicals:
                 try:
                     tool_call.id = canonical
-                except Exception:
+                    used_canonicals.add(canonical)
+                except (AttributeError, TypeError):
                     pass
 
     def canonical_call_id_for(self, tool_call: Any) -> str | None:
@@ -389,6 +551,10 @@ class StreamingFileEditTracker:
         """Mark streamed edits as failed when no final tool call will run."""
         events: list[dict[str, Any]] = []
         for state in self._states.values():
+            for file_state in state.patch_files.values():
+                if any(state.matches_final_tool_call(tool_call) for tool_call in final_tool_calls):
+                    continue
+                events.append(build_file_edit_error_event(file_state.tracker, error))
             if state.tracker is None:
                 continue
             if any(state.matches_final_tool_call(tool_call) for tool_call in final_tool_calls):
@@ -493,6 +659,39 @@ class _StreamingJsonStringField:
 
 
 @dataclass(slots=True)
+class _StreamingPatchFileState:
+    tracker: FileEditTracker
+    emitted_once: bool = False
+    last_emitted_added: int = -1
+    last_emitted_deleted: int = -1
+    last_emit_at: float = 0.0
+    last_added: int = 0
+    last_deleted: int = 0
+
+    def should_emit(self, added: int, deleted: int, now: float) -> bool:
+        self.last_added = added
+        self.last_deleted = deleted
+        if not self.emitted_once:
+            return True
+        if added == self.last_emitted_added and deleted == self.last_emitted_deleted:
+            return False
+        if max(
+            abs(added - self.last_emitted_added),
+            abs(deleted - self.last_emitted_deleted),
+        ) >= _LIVE_EMIT_LINE_STEP:
+            return True
+        return now - self.last_emit_at >= _LIVE_EMIT_INTERVAL_S
+
+    def mark_emitted(self, added: int, deleted: int, now: float) -> None:
+        self.emitted_once = True
+        self.last_added = added
+        self.last_deleted = deleted
+        self.last_emitted_added = added
+        self.last_emitted_deleted = deleted
+        self.last_emit_at = now
+
+
+@dataclass(slots=True)
 class _StreamingFileEditState:
     key: str
     call_id: str = ""
@@ -509,6 +708,7 @@ class _StreamingFileEditState:
     new_text: _StreamingJsonStringField = field(
         default_factory=lambda: _StreamingJsonStringField("new_text")
     )
+    patch_files: dict[str, _StreamingPatchFileState] = field(default_factory=dict)
     emitted_once: bool = False
     last_emitted_added: int = -1
     last_emitted_deleted: int = -1
@@ -531,6 +731,7 @@ class _StreamingFileEditState:
             self.content.reset()
             self.old_text.reset()
             self.new_text.reset()
+            self.patch_files.clear()
             return
         delta = payload.get("arguments_delta")
         if isinstance(delta, str) and delta:
@@ -590,6 +791,14 @@ class _StreamingFileEditState:
         name = getattr(tool_call, "name", None)
         if name != self.name:
             return False
+        if self.name == "apply_patch":
+            arguments = getattr(tool_call, "arguments", None)
+            if not isinstance(arguments, dict):
+                return False
+            edits = arguments.get("edits")
+            if not isinstance(edits, list):
+                return False
+            return '"edits"' in self.arguments
         arguments = getattr(tool_call, "arguments", None)
         if not isinstance(arguments, dict):
             return False
@@ -610,6 +819,51 @@ def _stream_key(payload: dict[str, Any]) -> str:
     if isinstance(call_id, str) and call_id:
         return f"id:{call_id}"
     return ""
+
+
+def _json_bool_true(source: str, key: str) -> bool:
+    return re.search(rf'"{re.escape(key)}"\s*:\s*true\b', source) is not None
+
+
+def _extract_json_string_prefix(source: str, key: str) -> str | None:
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*"', source)
+    if match is None:
+        return None
+    out: list[str] = []
+    i = match.end()
+    escape = False
+    while i < len(source):
+        ch = source[i]
+        if escape:
+            escape = False
+            if ch == "n":
+                out.append("\n")
+            elif ch == "r":
+                out.append("\r")
+            elif ch == "t":
+                out.append("\t")
+            elif ch == "u":
+                digits = source[i + 1:i + 5]
+                if len(digits) < 4:
+                    break
+                try:
+                    out.append(chr(int(digits, 16)))
+                except ValueError:
+                    break
+                i += 4
+            else:
+                out.append(ch)
+            i += 1
+            continue
+        if ch == "\\":
+            escape = True
+            i += 1
+            continue
+        if ch == '"':
+            return "".join(out)
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def _extract_complete_json_string(source: str, key: str) -> str | None:
@@ -704,77 +958,4 @@ def _predict_after_text(
                 return before_text.replace(old_text, new_text)
             return before_text.replace(old_text, new_text, 1)
         return None
-    if tool_name == "notebook_edit":
-        return _predict_notebook_after_text(params, before_text)
     return None
-
-
-def _predict_notebook_after_text(params: dict[str, Any], before_text: str) -> str | None:
-    try:
-        nb = json.loads(before_text) if before_text.strip() else _empty_notebook()
-    except Exception:
-        return None
-    cells = nb.get("cells")
-    if not isinstance(cells, list):
-        return None
-    try:
-        cell_index = int(params.get("cell_index", 0))
-    except (TypeError, ValueError):
-        return None
-    new_source = params.get("new_source")
-    source = new_source if isinstance(new_source, str) else ""
-    cell_type = (
-        params.get("cell_type") if params.get("cell_type") in ("code", "markdown") else "code"
-    )
-    mode = (
-        params.get("edit_mode")
-        if params.get("edit_mode") in ("replace", "insert", "delete")
-        else "replace"
-    )
-    if mode == "delete":
-        if 0 <= cell_index < len(cells):
-            cells.pop(cell_index)
-        else:
-            return None
-    elif mode == "insert":
-        insert_at = min(max(cell_index + 1, 0), len(cells))
-        cells.insert(insert_at, _new_notebook_cell(source, str(cell_type)))
-    else:
-        if not (0 <= cell_index < len(cells)):
-            return None
-        cell = cells[cell_index]
-        if not isinstance(cell, dict):
-            return None
-        cell["source"] = source
-        cell["cell_type"] = cell_type
-        if cell_type == "code":
-            cell.setdefault("outputs", [])
-            cell.setdefault("execution_count", None)
-        else:
-            cell.pop("outputs", None)
-            cell.pop("execution_count", None)
-    nb["cells"] = cells
-    try:
-        return json.dumps(nb, indent=1, ensure_ascii=False)
-    except Exception:
-        return None
-
-
-def _empty_notebook() -> dict[str, Any]:
-    return {
-        "nbformat": 4,
-        "nbformat_minor": 5,
-        "metadata": {
-            "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-            "language_info": {"name": "python"},
-        },
-        "cells": [],
-    }
-
-
-def _new_notebook_cell(source: str, cell_type: str) -> dict[str, Any]:
-    cell: dict[str, Any] = {"cell_type": cell_type, "source": source, "metadata": {}}
-    if cell_type == "code":
-        cell["outputs"] = []
-        cell["execution_count"] = None
-    return cell

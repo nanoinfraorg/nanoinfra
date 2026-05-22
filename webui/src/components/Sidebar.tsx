@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Archive,
   ListFilter,
@@ -28,6 +28,7 @@ import type {
   SidebarSortMode,
   SidebarViewState,
 } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 interface SidebarProps {
   sessions: ChatSummary[];
@@ -44,7 +45,9 @@ interface SidebarProps {
   onToggleArchived: () => void;
   onUpdateView: (view: Partial<SidebarViewState>) => void;
   onCollapse: () => void;
+  onExpand?: () => void;
   containActionMenus?: boolean;
+  collapsed?: boolean;
   pinnedKeys?: string[];
   archivedKeys?: string[];
   titleOverrides?: Record<string, string>;
@@ -59,6 +62,8 @@ export function Sidebar(props: SidebarProps) {
   const { t } = useTranslation();
   const [menuPortalContainer, setMenuPortalContainer] =
     useState<HTMLElement | null>(null);
+  const collapsed = Boolean(props.collapsed);
+  const toggleLabel = t("thread.header.toggleSidebar");
 
   return (
     <nav
@@ -66,108 +71,189 @@ export function Sidebar(props: SidebarProps) {
       aria-label={t("sidebar.navigation")}
       className="flex h-full w-full min-w-0 flex-col border-r border-sidebar-border/60 bg-sidebar text-sidebar-foreground"
     >
-      <div className="flex items-center justify-between px-3 pb-2.5 pt-3">
-        <picture className="block min-w-0">
-          <source srcSet="/brand/nanobot_logo.webp" type="image/webp" />
+      <div
+        className={cn(
+          "flex items-center px-3 pb-2.5 pt-3",
+          collapsed ? "w-14 justify-start" : "justify-between",
+        )}
+      >
+        <button
+          type="button"
+          aria-label={collapsed ? toggleLabel : undefined}
+          aria-hidden={collapsed ? undefined : true}
+          title={collapsed ? toggleLabel : undefined}
+          onClick={collapsed ? props.onExpand : undefined}
+          tabIndex={collapsed ? 0 : -1}
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-colors",
+            collapsed
+              ? "-ml-0.5 hover:bg-sidebar-accent/75"
+              : "pointer-events-none -ml-0.5",
+          )}
+        >
           <img
-            src="/brand/nanobot_logo.png"
-            alt="nanobot"
-            className="h-6 w-auto select-none object-contain opacity-95"
+            src="/brand/nanobot_icon.png"
+            alt=""
+            className="h-8 w-8 select-none object-contain"
             draggable={false}
           />
-        </picture>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={t("sidebar.collapse")}
-          onClick={props.onCollapse}
-          className="h-7 w-7 rounded-lg text-muted-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
-        >
-          <Menu className="h-3.5 w-3.5" />
-        </Button>
+        </button>
+        {!collapsed && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={t("sidebar.collapse")}
+            onClick={props.onCollapse}
+            className="h-7 w-7 rounded-lg text-muted-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
+          >
+            <Menu className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </div>
 
-      <div className="space-y-1.5 px-2 pb-2">
-        <Button
+      <div
+        className={cn(
+          "space-y-1.5 px-2 pb-2",
+          collapsed && "flex w-14 flex-col items-center px-0",
+        )}
+      >
+        <SidebarActionButton
+          collapsed={collapsed}
+          label={t("sidebar.newChat")}
           onClick={props.onNewChat}
-          className="h-8 w-full justify-start gap-2 rounded-full px-3 text-[12.5px] font-medium text-sidebar-foreground/92 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
-          variant="ghost"
-        >
-          <SquarePen className="h-3.5 w-3.5" />
-          {t("sidebar.newChat")}
-        </Button>
-        <Button
-          type="button"
+          icon={<SquarePen className="h-4 w-4" />}
+        />
+        <SidebarActionButton
+          collapsed={collapsed}
+          label={t("sidebar.searchAria")}
           onClick={props.onOpenSearch}
-          className="h-8 w-full justify-start gap-2 rounded-full px-3 text-[12.5px] font-medium text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
-          variant="ghost"
-        >
-          <Search className="h-3.5 w-3.5" aria-hidden />
-          {t("sidebar.searchAria")}
-        </Button>
+          icon={<Search className="h-4 w-4" />}
+        />
         <SidebarViewMenu
+          compact={collapsed}
           view={props.viewState}
           onUpdateView={props.onUpdateView}
         />
         {props.archivedCount ? (
-          <Button
-            type="button"
+          <SidebarActionButton
+            collapsed={collapsed}
+            label={props.showArchived ? t("chat.hideArchived") : t("chat.showArchived")}
             onClick={props.onToggleArchived}
-            className="h-8 w-full justify-start gap-2 rounded-full px-3 text-[12.5px] font-medium text-sidebar-foreground/75 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
-            variant="ghost"
-          >
-            <Archive className="h-3.5 w-3.5" aria-hidden />
-            {props.showArchived ? t("chat.hideArchived") : t("chat.showArchived")}
-          </Button>
+            icon={<Archive className="h-4 w-4" />}
+          />
         ) : null}
       </div>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <ChatList
-          sessions={props.sessions}
-          activeKey={props.activeKey}
-          loading={props.loading}
-          emptyLabel={t("chat.noSessions")}
-          onSelect={props.onSelect}
-          onRequestDelete={props.onRequestDelete}
-          onTogglePin={props.onTogglePin}
-          onRequestRename={props.onRequestRename}
-          onToggleArchive={props.onToggleArchive}
-          pinnedKeys={props.pinnedKeys}
-          archivedKeys={props.archivedKeys}
-          titleOverrides={props.titleOverrides}
-          runningChatIds={props.runningChatIds}
-          completedChatIds={props.completedChatIds}
-          density={props.viewState?.density}
-          showPreviews={props.viewState?.show_previews}
-          showTimestamps={props.viewState?.show_timestamps}
-          sort={props.viewState?.sort}
-          showArchived={props.showArchived}
-          actionMenuPortalContainer={
-            props.containActionMenus ? menuPortalContainer : undefined
-          }
-        />
+      <div
+        className={cn(
+          "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-opacity duration-200",
+          collapsed && "pointer-events-none opacity-0",
+        )}
+      >
+        {!collapsed && (
+          <ChatList
+            sessions={props.sessions}
+            activeKey={props.activeKey}
+            loading={props.loading}
+            emptyLabel={t("chat.noSessions")}
+            onSelect={props.onSelect}
+            onRequestDelete={props.onRequestDelete}
+            onTogglePin={props.onTogglePin}
+            onRequestRename={props.onRequestRename}
+            onToggleArchive={props.onToggleArchive}
+            pinnedKeys={props.pinnedKeys}
+            archivedKeys={props.archivedKeys}
+            titleOverrides={props.titleOverrides}
+            runningChatIds={props.runningChatIds}
+            completedChatIds={props.completedChatIds}
+            density={props.viewState?.density}
+            showPreviews={props.viewState?.show_previews}
+            showTimestamps={props.viewState?.show_timestamps}
+            sort={props.viewState?.sort}
+            showArchived={props.showArchived}
+            actionMenuPortalContainer={
+              props.containActionMenus ? menuPortalContainer : undefined
+            }
+          />
+        )}
       </div>
       <Separator className="bg-sidebar-border/50" />
-      <div className="flex items-center gap-1 px-2.5 py-2.5 text-xs">
-        <Button
-          type="button"
-          variant="ghost"
+      <div
+        className={cn(
+          "flex items-center gap-1 px-2.5 py-2.5 text-xs",
+          collapsed && "w-14 flex-col px-0",
+        )}
+      >
+        <SidebarActionButton
+          collapsed={collapsed}
+          label={t("sidebar.settings")}
           onClick={props.onOpenSettings}
-          className="h-8 min-w-0 flex-1 justify-start gap-2 rounded-full px-2.5 text-[12.5px] font-medium text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
-        >
-          <Settings className="h-3.5 w-3.5" aria-hidden />
-          {t("sidebar.settings")}
-        </Button>
+          className={collapsed ? undefined : "flex-1"}
+          icon={<Settings className="h-4 w-4" />}
+        />
         <ConnectionBadge />
       </div>
     </nav>
   );
 }
 
+function SidebarActionButton({
+  collapsed,
+  label,
+  icon,
+  onClick,
+  className,
+}: {
+  collapsed: boolean;
+  label: string;
+  icon: ReactNode;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      aria-label={label}
+      title={collapsed ? label : undefined}
+      onClick={onClick}
+      className={cn(
+        "group h-8 min-w-0 gap-2 overflow-hidden rounded-full font-medium text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground",
+        "transition-[width,padding,border-radius,color,background-color] duration-300 ease-out",
+        collapsed
+          ? "w-9 justify-center gap-0 rounded-xl px-0"
+          : "w-full justify-start gap-2 px-3 text-[12.5px]",
+        className,
+      )}
+    >
+      <span
+        className={cn(
+          "flex shrink-0 items-center justify-center transition-transform duration-300 ease-out",
+          collapsed ? "translate-x-0" : "translate-x-0",
+        )}
+        aria-hidden
+      >
+        {icon}
+      </span>
+      <span
+        className={cn(
+          "min-w-0 overflow-hidden truncate whitespace-nowrap transition-[max-width,opacity,transform] duration-200 ease-out",
+          collapsed
+            ? "max-w-0 -translate-x-1 opacity-0"
+            : "max-w-[12rem] translate-x-0 opacity-100",
+        )}
+      >
+        {label}
+      </span>
+    </Button>
+  );
+}
+
 function SidebarViewMenu({
+  compact = false,
   view,
   onUpdateView,
 }: {
+  compact?: boolean;
   view?: SidebarViewState;
   onUpdateView: (view: Partial<SidebarViewState>) => void;
 }) {
@@ -182,11 +268,28 @@ function SidebarViewMenu({
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
-          className="h-8 w-full justify-start gap-2 rounded-full px-3 text-[12.5px] font-medium text-sidebar-foreground/75 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground"
+          aria-label={t("sidebar.viewOptions")}
+          title={compact ? t("sidebar.viewOptions") : undefined}
+          className={cn(
+            "h-8 min-w-0 overflow-hidden font-medium text-sidebar-foreground/75 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground",
+            "transition-[width,padding,border-radius,color,background-color] duration-300 ease-out",
+            compact
+              ? "w-9 justify-center gap-0 rounded-xl px-0"
+              : "w-full justify-start gap-2 rounded-full px-3 text-[12.5px]",
+          )}
           variant="ghost"
         >
-          <ListFilter className="h-3.5 w-3.5" aria-hidden />
-          {t("sidebar.viewOptions")}
+          <ListFilter className="h-4 w-4 shrink-0" aria-hidden />
+          <span
+            className={cn(
+              "min-w-0 overflow-hidden truncate whitespace-nowrap transition-[max-width,opacity,transform] duration-200 ease-out",
+              compact
+                ? "max-w-0 -translate-x-1 opacity-0"
+                : "max-w-[12rem] translate-x-0 opacity-100",
+            )}
+          >
+            {t("sidebar.viewOptions")}
+          </span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-52">

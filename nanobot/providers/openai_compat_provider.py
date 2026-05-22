@@ -11,6 +11,7 @@ import secrets
 import string
 import time
 import uuid
+from collections import deque
 from collections.abc import Awaitable, Callable
 from ipaddress import ip_address
 from typing import TYPE_CHECKING, Any
@@ -74,41 +75,43 @@ _THINKING_STYLE_MAP: dict[str, Any] = {
     "enable_thinking": lambda on: {"enable_thinking": on},
     "reasoning_split": lambda on: {"reasoning_split": on},
 }
+_GATEWAY_REASONING_STYLE_MAP: dict[str, Any] = {
+    "reasoning_effort": lambda effort: {"reasoning": {"effort": effort}},
+}
+_MODEL_THINKING_STYLES: dict[str, str] = {
+    **dict.fromkeys(_KIMI_THINKING_MODELS, "thinking_type"),
+    **dict.fromkeys(_MIMO_THINKING_MODELS, "thinking_type"),
+}
 
 
-def _is_kimi_thinking_model(model_name: str) -> bool:
-    """Return True if model_name refers to a Kimi thinking-capable model.
-
-    Supports two forms:
-    - Exact match: e.g. kimi-k2.5 / kimi-k2.6 in _KIMI_THINKING_MODELS
-    - Slug match:  moonshotai/kimi-k2.5 -> the part after the last "/"
-                   is checked against _KIMI_THINKING_MODELS
-
-    This covers both the native Moonshot provider (bare slug) and
-    OpenRouter-style names (``"publisher/slug"``).
-    """
-    name = model_name.lower()
-    if name in _KIMI_THINKING_MODELS:
-        return True
-    if "/" in name and name.rsplit("/", 1)[1] in _KIMI_THINKING_MODELS:
-        return True
-    return False
+def _model_slug(model_name: str) -> str:
+    return model_name.lower().rsplit("/", 1)[-1]
 
 
-def _is_mimo_thinking_model(model_name: str) -> bool:
-    """Return True if model_name refers to a MiMo thinking-capable model.
+def _model_thinking_style(model_name: str) -> str:
+    return _MODEL_THINKING_STYLES.get(_model_slug(model_name), "")
 
-    Mirrors _is_kimi_thinking_model: gateway providers (e.g. OpenRouter
-    routing ``xiaomi/mimo-v2.5-pro``) have no ``thinking_style`` on their
-    spec, so the spec-driven branch in _build_kwargs misses them. The
-    model-name path catches those cases.
-    """
-    name = model_name.lower()
-    if name in _MIMO_THINKING_MODELS:
-        return True
-    if "/" in name and name.rsplit("/", 1)[1] in _MIMO_THINKING_MODELS:
-        return True
-    return False
+
+def _thinking_styles_for(spec: ProviderSpec | None, model_name: str) -> list[str]:
+    styles: list[str] = []
+    if spec and spec.thinking_style:
+        styles.append(spec.thinking_style)
+    model_style = _model_thinking_style(model_name)
+    if model_style and model_style not in styles:
+        styles.append(model_style)
+    return styles
+
+
+def _thinking_extra_body(style: str, thinking_enabled: bool) -> dict[str, Any] | None:
+    builder = _THINKING_STYLE_MAP.get(style)
+    return builder(thinking_enabled) if builder else None
+
+
+def _gateway_reasoning_extra_body(style: str, effort: str | None) -> dict[str, Any] | None:
+    if not effort:
+        return None
+    builder = _GATEWAY_REASONING_STYLE_MAP.get(style)
+    return builder(effort) if builder else None
 
 
 def _openai_compat_timeout_s() -> float:
@@ -461,6 +464,7 @@ class OpenAICompatProvider(LLMProvider):
         """Strip non-standard keys, normalize tool_call IDs."""
         sanitized = LLMProvider._sanitize_request_messages(messages, _ALLOWED_MSG_KEYS)
         id_map: dict[str, str] = {}
+        pending_tool_ids: dict[str, deque[str]] = {}
         force_string_content = bool(self._spec and self._spec.name == "deepseek")
 
         def map_id(value: Any) -> Any:
@@ -468,15 +472,49 @@ class OpenAICompatProvider(LLMProvider):
                 return value
             return id_map.setdefault(value, self._normalize_tool_call_id(value))
 
+        def unique_tool_id(value: Any, used_ids: set[str], idx: int) -> str:
+            if isinstance(value, str) and value:
+                base = map_id(value)
+            else:
+                base = _short_tool_id()
+            if not isinstance(base, str) or not base:
+                base = _short_tool_id()
+            if base not in used_ids:
+                return base
+            seed = value if isinstance(value, str) and value else base
+            salt = 1
+            while True:
+                candidate = self._normalize_tool_call_id(f"{seed}:{idx}:{salt}")
+                if isinstance(candidate, str) and candidate not in used_ids:
+                    return candidate
+                salt += 1
+
+        def map_tool_result_id(value: Any) -> Any:
+            if not isinstance(value, str):
+                return value
+            queue = pending_tool_ids.get(value)
+            if queue:
+                mapped = queue.popleft()
+                if not queue:
+                    pending_tool_ids.pop(value, None)
+                return mapped
+            return map_id(value)
+
         for clean in sanitized:
             if isinstance(clean.get("tool_calls"), list):
                 normalized = []
-                for tc in clean["tool_calls"]:
+                used_ids: set[str] = set()
+                for idx, tc in enumerate(clean["tool_calls"]):
                     if not isinstance(tc, dict):
                         normalized.append(tc)
                         continue
                     tc_clean = dict(tc)
-                    tc_clean["id"] = map_id(tc_clean.get("id"))
+                    raw_id = tc_clean.get("id")
+                    mapped_id = unique_tool_id(raw_id, used_ids, idx)
+                    tc_clean["id"] = mapped_id
+                    used_ids.add(mapped_id)
+                    if isinstance(raw_id, str) and raw_id:
+                        pending_tool_ids.setdefault(raw_id, deque()).append(mapped_id)
                     function = tc_clean.get("function")
                     if isinstance(function, dict):
                         function_clean = dict(function)
@@ -494,7 +532,7 @@ class OpenAICompatProvider(LLMProvider):
                     # that mix non-empty content with tool_calls.
                     clean["content"] = None
             if "tool_call_id" in clean and clean["tool_call_id"]:
-                clean["tool_call_id"] = map_id(clean["tool_call_id"])
+                clean["tool_call_id"] = map_tool_result_id(clean["tool_call_id"])
             if (
                 force_string_content
                 and not (clean.get("role") == "assistant" and clean.get("tool_calls"))
@@ -581,39 +619,27 @@ class OpenAICompatProvider(LLMProvider):
         if wire_effort and semantic_effort != "none":
             kwargs["reasoning_effort"] = wire_effort
 
-        # Provider-specific thinking parameters.
-        # Only sent when reasoning_effort is explicitly configured so that
-        # the provider default is preserved otherwise.
-        # The mapping is driven by ProviderSpec.thinking_style so that adding
-        # a new provider never requires touching this function.
-        if spec and spec.thinking_style and reasoning_effort is not None:
+        # Only send thinking controls when reasoning_effort is explicit so
+        # omitting the config preserves each provider's default.
+        if reasoning_effort is not None:
             thinking_enabled = semantic_effort not in ("none", "minimal")
-            extra = _THINKING_STYLE_MAP.get(spec.thinking_style, lambda _: None)(thinking_enabled)
-            if extra:
-                kwargs.setdefault("extra_body", {}).update(extra)
+            for thinking_style in _thinking_styles_for(spec, model_name):
+                extra = _thinking_extra_body(thinking_style, thinking_enabled)
+                if extra:
+                    kwargs.setdefault("extra_body", {}).update(extra)
+            gateway_style = getattr(spec, "gateway_reasoning_style", "") if spec else ""
+            if gateway_style and _model_thinking_style(model_name):
+                extra = _gateway_reasoning_extra_body(gateway_style, semantic_effort)
+                if extra:
+                    kwargs.setdefault("extra_body", {}).update(extra)
 
-        # Model-level thinking injection for Kimi thinking-capable models.
-        # Strip any provider prefix (e.g. "moonshotai/") before the set lookup
-        # so that OpenRouter-style names like "moonshotai/kimi-k2.5" are handled
-        # identically to bare names like "kimi-k2.5".
-        if reasoning_effort is not None and _is_kimi_thinking_model(model_name):
-            thinking_enabled = semantic_effort not in ("none", "minimal")
-            kwargs.setdefault("extra_body", {}).update(
-                {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
-            )
-
-        # Model-level thinking injection for MiMo thinking-capable models.
-        # Same shape as Kimi: gateway providers (OpenRouter, etc.) lack the
-        # xiaomi_mimo spec's thinking_style, so the spec-driven branch above
-        # misses them — match by model name to catch "xiaomi/mimo-v2.5-pro"
-        # and friends. (Direct xiaomi_mimo requests are also covered here;
-        # both branches write the same payload, so the dict update is a
-        # safe no-op for already-handled cases.)
-        if reasoning_effort is not None and _is_mimo_thinking_model(model_name):
-            thinking_enabled = semantic_effort not in ("none", "minimal")
-            kwargs.setdefault("extra_body", {}).update(
-                {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
-            )
+            # Moonshot rejects requests that carry both 'reasoning_effort'
+            # and the native 'thinking' param.  We already expressed the
+            # user's intent via the provider-native shape, so drop the
+            # redundant wire-level kwarg.  Only kimi models need this —
+            # Xiaomi's API accepts both params.
+            if _model_slug(model_name) in _KIMI_THINKING_MODELS:
+                kwargs.pop("reasoning_effort", None)
 
         if tools:
             kwargs["tools"] = tools
@@ -628,8 +654,7 @@ class OpenAICompatProvider(LLMProvider):
             and semantic_effort not in ("none", "minimal")
             and (
                 (spec and spec.thinking_style)
-                or _is_kimi_thinking_model(model_name)
-                or _is_mimo_thinking_model(model_name)
+                or _model_thinking_style(model_name)
             )
         )
         implicit_deepseek_thinking = (
@@ -1096,6 +1121,15 @@ class OpenAICompatProvider(LLMProvider):
                 _accum_tc(tc, getattr(tc, "index", 0))
             if delta:
                 _accum_legacy_function_call(getattr(delta, "function_call", None))
+
+        # Some providers (e.g. Zhipu/GLM) reuse the same tool_call id for
+        # parallel tool calls in streaming mode. Deduplicate before building
+        # the response so downstream tool messages don't collide.
+        _seen_tc_ids: set[str] = set()
+        for b in tc_bufs.values():
+            if not b["id"] or b["id"] in _seen_tc_ids:
+                b["id"] = _short_tool_id()
+            _seen_tc_ids.add(b["id"])
 
         return LLMResponse(
             content="".join(content_parts) or None,
