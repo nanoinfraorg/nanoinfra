@@ -3,8 +3,9 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ThreadShell } from "@/components/thread/ThreadShell";
+import { CLI_APPS_CHANGED_EVENT } from "@/lib/cli-app-events";
 import { ClientProvider } from "@/providers/ClientProvider";
-import type { UIMessage } from "@/lib/types";
+import type { CliAppsPayload, UIMessage } from "@/lib/types";
 function makeClient() {
   const errorHandlers = new Set<(err: { kind: string }) => void>();
   const chatHandlers = new Map<string, Set<(ev: import("@/lib/types").InboundEvent) => void>>();
@@ -993,5 +994,51 @@ describe("ThreadShell", () => {
 
     await waitFor(() => expect(screen.getByText("from chat b")).toBeInTheDocument());
     expect(screen.queryByText("from chat a")).not.toBeInTheDocument();
+  });
+
+  it("updates @ CLI app suggestions when settings broadcasts an install", async () => {
+    const client = makeClient();
+    render(wrap(
+      client,
+      <ThreadShell
+        session={session("chat-cli-apps")}
+        title="Chat chat-cli-apps"
+        onToggleSidebar={() => {}}
+        onGoHome={() => {}}
+        onNewChat={() => {}}
+      />,
+    ));
+
+    const input = await screen.findByLabelText("Message input");
+    expect(screen.queryByRole("listbox", { name: "CLI Apps" })).not.toBeInTheDocument();
+
+    const payload: CliAppsPayload = {
+      apps: [{
+        name: "gimp",
+        display_name: "GIMP",
+        category: "image",
+        description: "Image editing",
+        requires: "",
+        source: "harness",
+        entry_point: "cli-anything-gimp",
+        install_supported: true,
+        installed: true,
+        available: true,
+        status: "installed",
+        logo_url: null,
+        brand_color: "#5C5543",
+        skill_installed: true,
+      }],
+      installed_count: 1,
+      catalog_updated_at: "2026-04-18",
+    };
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(CLI_APPS_CHANGED_EVENT, { detail: payload }));
+    });
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
+
+    expect(screen.getByRole("listbox", { name: "CLI Apps" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /@gimp/i })).toBeInTheDocument();
   });
 });

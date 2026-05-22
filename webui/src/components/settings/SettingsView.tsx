@@ -69,6 +69,7 @@ import {
   updateSettings,
   updateWebSearchSettings,
 } from "@/lib/api";
+import { notifyCliAppsChanged } from "@/lib/cli-app-events";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 import type {
@@ -626,6 +627,9 @@ export function SettingsView({
     try {
       const payload = await runCliAppAction(token, action, name);
       setCliApps(payload);
+      if (action !== "test") {
+        notifyCliAppsChanged(payload);
+      }
       setCliAppsMessage(payload.last_action?.message ?? null);
       setCliAppsFocusName(action === "uninstall" ? null : name);
     } catch (err) {
