@@ -19,7 +19,8 @@ from nanobot.utils.file_edit_events import (
     build_file_edit_end_event,
     build_file_edit_error_event,
     build_file_edit_start_event,
-    prepare_file_edit_tracker,
+    prepare_file_edit_tracker as _prepare_file_edit_tracker,
+    prepare_file_edit_trackers,
     StreamingFileEditTracker,
 )
 from nanobot.utils.helpers import (
@@ -58,11 +59,14 @@ _SNIP_SAFETY_BUFFER = 1024
 _MICROCOMPACT_KEEP_RECENT = 10
 _MICROCOMPACT_MIN_CHARS = 500
 _COMPACTABLE_TOOLS = frozenset({
-    "read_file", "exec", "grep",
-    "web_search", "web_fetch", "list_dir",
+    "read_file", "exec", "grep", "find_files",
+    "web_search", "web_fetch", "list_dir", "list_exec_sessions",
 })
 _BACKFILL_CONTENT = "[Tool result unavailable — call was interrupted or lost]"
 
+# Backward-compatible module attribute for tests/extensions that monkeypatch
+# the former single-file tracker hook. Runtime uses prepare_file_edit_trackers.
+prepare_file_edit_tracker = _prepare_file_edit_tracker
 
 
 @dataclass(slots=True)
@@ -857,8 +861,8 @@ class AgentRunner:
             and on_progress_accepts_file_edit_events(spec.progress_callback)
         )
         progress_callback = spec.progress_callback if emit_file_edit_events else None
-        file_edit_tracker = (
-            prepare_file_edit_tracker(
+        file_edit_trackers = (
+            prepare_file_edit_trackers(
                 call_id=tool_call.id,
                 tool_name=tool_call.name,
                 tool=tool,
@@ -868,13 +872,13 @@ class AgentRunner:
             if progress_callback is not None
             else None
         )
-        if file_edit_tracker is not None and progress_callback is not None:
+        if file_edit_trackers and progress_callback is not None:
             await invoke_file_edit_progress(
                 progress_callback,
                 [build_file_edit_start_event(
                     file_edit_tracker,
                     params if isinstance(params, dict) else None,
-                )],
+                ) for file_edit_tracker in file_edit_trackers],
             )
         try:
             if tool is not None:
@@ -884,10 +888,13 @@ class AgentRunner:
         except asyncio.CancelledError:
             raise
         except BaseException as exc:
-            if file_edit_tracker is not None and progress_callback is not None:
+            if file_edit_trackers and progress_callback is not None:
                 await invoke_file_edit_progress(
                     progress_callback,
-                    [build_file_edit_error_event(file_edit_tracker, str(exc))],
+                    [
+                        build_file_edit_error_event(file_edit_tracker, str(exc))
+                        for file_edit_tracker in file_edit_trackers
+                    ],
                 )
             event = {
                 "name": tool_call.name,
@@ -910,10 +917,13 @@ class AgentRunner:
             return payload, event, None
 
         if isinstance(result, str) and result.startswith("Error"):
-            if file_edit_tracker is not None and progress_callback is not None:
+            if file_edit_trackers and progress_callback is not None:
                 await invoke_file_edit_progress(
                     progress_callback,
-                    [build_file_edit_error_event(file_edit_tracker, result)],
+                    [
+                        build_file_edit_error_event(file_edit_tracker, result)
+                        for file_edit_tracker in file_edit_trackers
+                    ],
                 )
             event = {
                 "name": tool_call.name,
@@ -933,13 +943,13 @@ class AgentRunner:
                 return result + hint, event, RuntimeError(result)
             return result + hint, event, None
 
-        if file_edit_tracker is not None and progress_callback is not None:
+        if file_edit_trackers and progress_callback is not None:
             await invoke_file_edit_progress(
                 progress_callback,
                 [build_file_edit_end_event(
                     file_edit_tracker,
                     params if isinstance(params, dict) else None,
-                )],
+                ) for file_edit_tracker in file_edit_trackers],
             )
 
         detail = "" if result is None else str(result)

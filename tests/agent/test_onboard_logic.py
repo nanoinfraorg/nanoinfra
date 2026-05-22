@@ -346,6 +346,26 @@ class TestSyncWorkspaceTemplates:
         content = (workspace / "AGENTS.md").read_text()
         assert content == "existing content"
 
+    def test_does_not_create_tools_md(self, tmp_path):
+        """Tool contract is injected internally, not copied into user workspaces."""
+        workspace = tmp_path / "workspace"
+
+        added = sync_workspace_templates(workspace, silent=True)
+
+        assert "TOOLS.md" not in added
+        assert not (workspace / "TOOLS.md").exists()
+
+    def test_preserves_existing_tools_md_without_overwriting(self, tmp_path):
+        """Legacy user workspaces may have TOOLS.md; sync should leave it untouched."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir(parents=True)
+        tools_path = workspace / "TOOLS.md"
+        tools_path.write_text("custom tool notes", encoding="utf-8")
+
+        sync_workspace_templates(workspace, silent=True)
+
+        assert tools_path.read_text(encoding="utf-8") == "custom tool notes"
+
     def test_creates_memory_directory(self, tmp_path):
         """Should create memory directory structure."""
         workspace = tmp_path / "workspace"

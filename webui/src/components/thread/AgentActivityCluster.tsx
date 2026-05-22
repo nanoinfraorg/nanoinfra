@@ -27,6 +27,7 @@ interface ActivityCounts {
   fileCount: number;
   added: number;
   deleted: number;
+  hasDiffStats: boolean;
   hasEditingFiles: boolean;
   hasFailedFiles: boolean;
   primaryFilePath?: string;
@@ -61,6 +62,7 @@ function countActivity(messages: UIMessage[], fileEdits: FileEditSummary[]): Act
   }
   let added = 0;
   let deleted = 0;
+  let hasDiffStats = false;
   let hasEditingFiles = false;
   let failedFileCount = 0;
   let primaryFilePath: string | undefined;
@@ -77,6 +79,10 @@ function countActivity(messages: UIMessage[], fileEdits: FileEditSummary[]): Act
     if (edit.status === "error" || edit.binary) {
       continue;
     }
+    if (!hasVisibleDiffStats(edit)) {
+      continue;
+    }
+    hasDiffStats = true;
     added += edit.added;
     deleted += edit.deleted;
   }
@@ -86,6 +92,7 @@ function countActivity(messages: UIMessage[], fileEdits: FileEditSummary[]): Act
     fileCount: fileEdits.length,
     added,
     deleted,
+    hasDiffStats,
     hasEditingFiles,
     hasFailedFiles: fileEdits.length > 0 && failedFileCount === fileEdits.length,
     primaryFilePath,
@@ -120,6 +127,7 @@ export function AgentActivityCluster({
     fileCount,
     added,
     deleted,
+    hasDiffStats,
     hasEditingFiles,
     hasFailedFiles,
     primaryFilePath,
@@ -140,6 +148,7 @@ export function AgentActivityCluster({
   const headerBusy = fileCount > 0 ? hasEditingFiles : isTurnStreaming;
   const singleFilePath = fileCount === 1 ? primaryFilePath : undefined;
   const singleFileTooltipPath = fileCount === 1 ? primaryFileTooltipPath : undefined;
+  const hasVisibleActivity = reasoningSteps > 0 || toolCalls > 0 || fileCount > 0;
 
   const fileActivitySummary = fileCount > 0
     ? hasPendingFileEdit && !singleFilePath
@@ -243,6 +252,8 @@ export function AgentActivityCluster({
     autoFollowActivityRef.current = distance < ACTIVITY_SCROLL_NEAR_BOTTOM_PX;
   }, []);
 
+  if (!hasVisibleActivity) return null;
+
   return (
     <div className={cn("w-full", hasBodyBelow && "mb-2")}>
       <button
@@ -282,7 +293,7 @@ export function AgentActivityCluster({
               {summary}
             </StreamingLabelSheen>
           )}
-          {fileCount > 0 && (
+          {fileCount > 0 && hasDiffStats && (
             <span className="inline-flex min-w-0 items-center gap-1 text-muted-foreground/85">
               <DiffPair added={added} deleted={deleted} />
             </span>
@@ -435,6 +446,17 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
       summary.absolute_path = edit.absolute_path;
     }
     summary.pending = summary.pending || !!edit.pending || !edit.path;
+    if (!edit.path && edit.pending) {
+      if (active && edit.status === "editing") {
+        summary.hasActiveEditing = true;
+        summary.approximate = summary.approximate || !!edit.approximate;
+        if (!edit.binary) {
+          summary.added += edit.added;
+          summary.deleted += edit.deleted;
+        }
+      }
+      continue;
+    }
     if (active && edit.status === "editing") {
       summary.hasActiveEditing = true;
       summary.binary = summary.binary || !!edit.binary;
@@ -461,8 +483,16 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
     }
   }
 
-  return order.map((key) => {
+  return order.flatMap((key) => {
     const summary = byPath.get(key)!;
+    if (
+      !summary.path
+      && !summary.hasActiveEditing
+      && !summary.hasSuccessfulChange
+      && !summary.hasFailed
+    ) {
+      return [];
+    }
     const status: UIFileEdit["status"] = summary.hasActiveEditing
       ? "editing"
       : summary.hasSuccessfulChange
@@ -470,7 +500,7 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
         : summary.hasFailed
           ? "error"
           : "done";
-    return {
+    return [{
       key: summary.key,
       path: summary.path,
       absolute_path: summary.absolute_path,
@@ -481,8 +511,12 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
       status,
       pending: summary.pending && !summary.path,
       error: summary.error,
-    };
+    }];
   });
+}
+
+function hasVisibleDiffStats(edit: Pick<FileEditSummary, "added" | "deleted">): boolean {
+  return edit.added > 0 || edit.deleted > 0;
 }
 
 function FileEditGroup({ edits }: { edits: FileEditSummary[] }) {
@@ -500,7 +534,7 @@ function FileEditRow({ edit }: { edit: FileEditSummary }) {
   const { t } = useTranslation();
   const editing = edit.status === "editing";
   const failed = edit.status === "error";
-  const hasCountedDiff = !failed && !edit.binary;
+  const hasCountedDiff = !failed && !edit.binary && hasVisibleDiffStats(edit);
   return (
     <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-1.5 text-xs">
       <div className="flex min-w-0 items-center gap-2">

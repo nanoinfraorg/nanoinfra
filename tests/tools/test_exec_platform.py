@@ -162,7 +162,7 @@ class TestPathAppendPlatform:
         captured_cmd = None
         captured_env = {}
 
-        async def capture_spawn(cmd, cwd, env):
+        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True):
             nonlocal captured_cmd
             captured_cmd = cmd
             captured_env.update(env)
@@ -190,7 +190,7 @@ class TestPathAppendPlatform:
 
         captured_env = {}
 
-        async def capture_spawn(cmd, cwd, env):
+        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True):
             captured_env.update(env)
             return mock_proc
 

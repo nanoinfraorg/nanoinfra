@@ -271,6 +271,69 @@ describe("AgentActivityCluster", () => {
     }
   });
 
+  it("does not render zero diff counters for completed edits", () => {
+    render(
+      <AgentActivityCluster
+        messages={activityMessages("", {
+          id: "t2",
+          role: "tool",
+          kind: "trace",
+          content: "edit_file()",
+          traces: ["edit_file()"],
+          fileEdits: [{
+            call_id: "call-edit",
+            tool: "edit_file",
+            path: "src/app.tsx",
+            phase: "end",
+            added: 0,
+            deleted: 0,
+            approximate: false,
+            status: "done",
+          }],
+          createdAt: 3,
+        })}
+        isTurnStreaming={false}
+        hasBodyBelow={false}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /edited app\.tsx/i })).toBeInTheDocument();
+    expect(screen.queryByText("+0")).not.toBeInTheDocument();
+    expect(screen.queryByText("-0")).not.toBeInTheDocument();
+  });
+
+  it("drops stale pathless pending edits after the turn completes", () => {
+    render(
+      <AgentActivityCluster
+        messages={[{
+          id: "t1",
+          role: "tool",
+          kind: "trace",
+          content: "",
+          traces: [],
+          fileEdits: [{
+            call_id: "call-edit",
+            tool: "edit_file",
+            path: "",
+            phase: "start",
+            added: 98,
+            deleted: 0,
+            approximate: true,
+            status: "editing",
+            pending: true,
+          }],
+          createdAt: 1,
+        }]}
+        isTurnStreaming={false}
+        hasBodyBelow={false}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /preparing edit/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("+98")).not.toBeInTheDocument();
+    expect(screen.queryByText("0 tool calls")).not.toBeInTheDocument();
+  });
+
   it("renders pending file edit placeholders before the path is known", () => {
     render(
       <AgentActivityCluster

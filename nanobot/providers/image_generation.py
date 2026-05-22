@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import re
@@ -899,6 +900,426 @@ def _minimax_images_from_payload(payload: dict[str, Any]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# OpenAI image generation
+# ---------------------------------------------------------------------------
+
+_OPENAI_DALLE2_SUPPORTED_SIZES = {"256x256", "512x512", "1024x1024"}
+_OPENAI_DALLE3_SUPPORTED_SIZES = {"1024x1024", "1792x1024", "1024x1792"}
+_OPENAI_GPT_IMAGE_SUPPORTED_SIZES = {
+    "1024x1024",
+    "1536x1024",
+    "1024x1536",
+    "auto",
+}
+_OPENAI_DALLE2_ASPECT_RATIO_SIZES = {
+    "1:1": "1024x1024",
+    "16:9": "1024x1024",
+    "9:16": "1024x1024",
+    "3:4": "1024x1024",
+    "4:3": "1024x1024",
+}
+_OPENAI_DALLE3_ASPECT_RATIO_SIZES = {
+    "1:1": "1024x1024",
+    "16:9": "1792x1024",
+    "9:16": "1024x1792",
+    "3:4": "1024x1792",
+    "4:3": "1792x1024",
+}
+_OPENAI_GPT_IMAGE_ASPECT_RATIO_SIZES = {
+    "1:1": "1024x1024",
+    "16:9": "1536x1024",
+    "9:16": "1024x1536",
+    "3:4": "1024x1536",
+    "4:3": "1536x1024",
+}
+
+
+class OpenAIImageGenerationClient(ImageGenerationProvider):
+    """OpenAI Images API using an API key (``providers.openai.apiKey``)."""
+
+    provider_name = "openai"
+    missing_key_message = (
+        "OpenAI API key is not configured. Set providers.openai.apiKey."
+    )
+
+    def _default_base_url(self) -> str:
+        return "https://api.openai.com/v1"
+
+    @staticmethod
+    def _strip_model_prefix(model: str) -> str:
+        """Remove ``openai/`` prefix if present (OpenRouter convention)."""
+        if model.startswith("openai/") or model.startswith("openai_codex/"):
+            return model.split("/", 1)[1]
+        return model
+
+    async def generate(
+        self,
+        *,
+        prompt: str,
+        model: str,
+        reference_images: list[str] | None = None,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+    ) -> GeneratedImageResponse:
+        if not self.api_key:
+            raise ImageGenerationError(self.missing_key_message)
+
+        if reference_images:
+            logger.warning(
+                "DALL-E models do not support reference images; "
+                "ignoring {} reference image(s) for {}",
+                len(reference_images),
+                model,
+            )
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            **self.extra_headers,
+        }
+
+        clean_model = self._strip_model_prefix(model)
+        body: dict[str, Any] = {
+            "model": clean_model,
+            "prompt": prompt,
+        }
+
+        if not _openai_is_gpt_image_model(clean_model):
+            body["response_format"] = "b64_json"
+            body["n"] = 1
+
+        size = _openai_size(clean_model, aspect_ratio, image_size)
+        if size:
+            body["size"] = size
+
+        body.update(self.extra_body)
+
+        logger.info("OpenAI Images API request: POST {}/images/generations body={}", self.api_base, body)
+
+        response = await self._http_post(
+            f"{self.api_base}/images/generations",
+            headers=headers,
+            body=body,
+        )
+
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = response.text[:1000]
+            logger.error("OpenAI Images API error ({}): {}", response.status_code, detail)
+            raise ImageGenerationError(
+                f"OpenAI image generation failed (HTTP {response.status_code}): {detail}"
+            ) from exc
+
+        payload = response.json()
+        logger.info("OpenAI Images API response ({}): {}", response.status_code,
+                       {k: v for k, v in payload.items() if k != "data"})
+
+        client = self._client
+        owns_client = client is None
+        if owns_client:
+            client = httpx.AsyncClient(timeout=self.timeout)
+        try:
+            images = await _openai_images_from_payload(client, payload)
+        finally:
+            if owns_client:
+                await client.aclose()
+
+        self._require_images(images, payload)
+
+        return GeneratedImageResponse(images=images, content="", raw=payload)
+
+
+# ---------------------------------------------------------------------------
+# OpenAI Codex image generation
+# ---------------------------------------------------------------------------
+
+
+class CodexImageGenerationClient(ImageGenerationProvider):
+    """OpenAI image generation via Codex subscription OAuth.
+
+    Uses the Codex Responses API with the ``image_generation`` tool
+    (the same mechanism ChatGPT uses internally).  No API key required —
+    the Codex OAuth token from ``oauth_cli_kit`` is used instead.
+    """
+
+    provider_name = "openai_codex"
+    missing_key_message = (
+        "Codex OAuth token is unavailable. "
+        "Log in with Codex subscription first."
+    )
+
+    def _default_base_url(self) -> str:
+        return "https://chatgpt.com/backend-api"
+
+    def _codex_model(self, model: str) -> str:
+        """Strip the ``openai-codex/`` prefix if present."""
+        if model.startswith(("openai-codex/", "openai_codex/")):
+            return model.split("/", 1)[1]
+        return model
+
+    async def generate(
+        self,
+        *,
+        prompt: str,
+        model: str,
+        reference_images: list[str] | None = None,
+        aspect_ratio: str | None = None,
+        image_size: str | None = None,
+    ) -> GeneratedImageResponse:
+        try:
+            from oauth_cli_kit import get_token as get_codex_token
+        except ImportError:
+            raise ImageGenerationError(self.missing_key_message)
+
+        try:
+            token = await asyncio.to_thread(get_codex_token)
+        except Exception as exc:
+            raise ImageGenerationError(self.missing_key_message) from exc
+        if not token or not token.access:
+            raise ImageGenerationError(self.missing_key_message)
+
+        logger.info(
+            "Using Codex OAuth token for image generation (account: {})",
+            token.account_id,
+        )
+
+        if reference_images:
+            logger.warning(
+                "Codex image generation does not support reference images; "
+                "ignoring {} reference image(s)",
+                len(reference_images),
+            )
+
+        headers = {
+            "Authorization": f"Bearer {token.access}",
+            "chatgpt-account-id": token.account_id,
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "nanobot",
+            "User-Agent": "nanobot (python)",
+            "Content-Type": "application/json",
+            **self.extra_headers,
+        }
+
+        body: dict[str, Any] = {
+            "model": self._codex_model(model),
+            "instructions": "Generate an image based on the user's request.",
+            "input": [{"role": "user", "content": prompt}],
+            "tools": [{"type": "image_generation"}],
+            "tool_choice": "auto",
+            "stream": True,
+            "store": False,
+        }
+        body.update(self.extra_body)
+
+        logger.info("Codex Responses API request: POST {}/codex/responses body={}",
+                       self.api_base, {k: v for k, v in body.items() if k != "input"})
+
+        response = await self._http_post(
+            f"{self.api_base}/codex/responses",
+            headers=headers,
+            body=body,
+        )
+
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = response.text[:1000]
+            logger.error("Codex Responses API error ({}): {}", response.status_code, detail)
+            raise ImageGenerationError(
+                f"Codex image generation failed (HTTP {response.status_code}): {detail}"
+            ) from exc
+
+        images, content_text = await _parse_codex_sse_images(response)
+
+        raw = {"status": "completed"}
+        self._require_images(images, raw)
+
+        return GeneratedImageResponse(images=images, content=content_text, raw=raw)
+
+
+def _openai_size(
+    model: str,
+    aspect_ratio: str | None,
+    image_size: str | None,
+) -> str:
+    """Resolve aspect ratio or image_size to an OpenAI Images API size string."""
+    sizes, supported_sizes = _openai_size_options(model)
+    explicit_size = _normalize_openai_image_size(image_size)
+    if explicit_size and _openai_explicit_size_supported(
+        explicit_size,
+        supported_sizes=supported_sizes,
+    ):
+        return explicit_size
+    if explicit_size:
+        logger.warning(
+            "OpenAI image size '{}' is not supported by {}; using aspect ratio/default size",
+            explicit_size,
+            model,
+        )
+    if aspect_ratio and aspect_ratio in sizes:
+        return sizes[aspect_ratio]
+    return "1024x1024"
+
+
+def _openai_is_gpt_image_model(model: str) -> bool:
+    normalized = model.lower()
+    return normalized.startswith(("gpt-image", "chatgpt-image"))
+
+
+def _openai_size_options(model: str) -> tuple[dict[str, str], set[str] | None]:
+    normalized = model.lower()
+    if normalized.startswith("dall-e-2"):
+        return _OPENAI_DALLE2_ASPECT_RATIO_SIZES, _OPENAI_DALLE2_SUPPORTED_SIZES
+    if normalized.startswith("dall-e-3"):
+        return _OPENAI_DALLE3_ASPECT_RATIO_SIZES, _OPENAI_DALLE3_SUPPORTED_SIZES
+    if normalized.startswith("gpt-image-2"):
+        return _OPENAI_GPT_IMAGE_ASPECT_RATIO_SIZES, None
+    return _OPENAI_GPT_IMAGE_ASPECT_RATIO_SIZES, _OPENAI_GPT_IMAGE_SUPPORTED_SIZES
+
+
+def _normalize_openai_image_size(image_size: str | None) -> str | None:
+    if not image_size:
+        return None
+    normalized = image_size.strip().lower()
+    return normalized or None
+
+
+def _openai_explicit_size_supported(
+    size: str,
+    *,
+    supported_sizes: set[str] | None,
+) -> bool:
+    if supported_sizes is not None:
+        return size in supported_sizes
+    width, sep, height = size.partition("x")
+    return bool(sep and width.isdecimal() and height.isdecimal())
+
+
+async def _openai_images_from_payload(
+    client: httpx.AsyncClient,
+    payload: dict[str, Any],
+) -> list[str]:
+    """Extract images from OpenAI Images API response.
+
+    Handles both ``b64_json`` (preferred) and ``url`` (downloaded) formats.
+    """
+    images: list[str] = []
+    for item in payload.get("data") or []:
+        if not isinstance(item, dict):
+            continue
+        b64 = item.get("b64_json")
+        if isinstance(b64, str) and b64:
+            images.append(_b64_image_data_url(b64))
+            continue
+        url = item.get("url")
+        if isinstance(url, str) and url:
+            images.append(await _download_image_data_url(client, url))
+    return images
+
+
+def _codex_responses_images_from_payload(payload: dict[str, Any]) -> list[str]:
+    """Extract images from Codex Responses API ``image_generation_call`` output."""
+    images: list[str] = []
+    for item in payload.get("output") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != "image_generation_call":
+            continue
+        result = item.get("result")
+        if isinstance(result, str):
+            images.append(result if result.startswith("data:image/") else _b64_image_data_url(result))
+            continue
+        if isinstance(result, dict):
+            image_url = result.get("image_url") or result.get("image") or ""
+            if isinstance(image_url, str):
+                images.append(image_url if image_url.startswith("data:image/") else _b64_image_data_url(image_url))
+    return images
+
+
+async def _parse_codex_sse_images(
+    response: httpx.Response,
+) -> tuple[list[str], str]:
+    """Parse a Codex Responses API SSE stream for image generation output.
+
+    Returns ``(images, content_text)``.
+    """
+    import json as _json
+
+    images: list[str] = []
+    text_parts: list[str] = []
+
+    buffer: list[str] = []
+    async for line_bytes in response.aiter_lines():
+        line = line_bytes.strip()
+        if line == "":
+            if buffer:
+                data_lines = []
+                for bl in buffer:
+                    if bl.startswith("data:"):
+                        data_lines.append(bl[5:].strip())
+                buffer.clear()
+                if data_lines:
+                    raw = "".join(data_lines)
+                    if raw == "[DONE]":
+                        break
+                    try:
+                        event = _json.loads(raw)
+                    except Exception:
+                        continue
+                    ev_type = event.get("type", "")
+                    if ev_type in ("error", "response.failed"):
+                        logger.error("Codex SSE failure: {}", raw[:2000])
+                    _collect_images_from_sse_event(event, images)
+                    _collect_text_from_sse_event(event, text_parts)
+            continue
+        buffer.append(line)
+
+    # flush remaining
+    if buffer:
+        data_lines = [bl[5:].strip() for bl in buffer if bl.startswith("data:")]
+        raw = "".join(data_lines)
+        if raw and raw != "[DONE]":
+            try:
+                event = _json.loads(raw)
+            except Exception:
+                pass
+            else:
+                _collect_images_from_sse_event(event, images)
+                _collect_text_from_sse_event(event, text_parts)
+
+    return images, "".join(text_parts).strip()
+
+
+def _collect_images_from_sse_event(event: dict[str, Any], images: list[str]) -> None:
+    if event.get("type") != "response.output_item.done":
+        return
+    item = event.get("item") or {}
+    if item.get("type") != "image_generation_call":
+        return
+    result = item.get("result")
+    if isinstance(result, str):
+        if result.startswith("data:image/"):
+            images.append(result)
+        else:
+            images.append(_b64_image_data_url(result))
+    elif isinstance(result, dict):
+        image_url = result.get("image_url") or result.get("image") or ""
+        if isinstance(image_url, str):
+            if image_url.startswith("data:image/"):
+                images.append(image_url)
+            else:
+                images.append(_b64_image_data_url(image_url))
+
+
+def _collect_text_from_sse_event(event: dict[str, Any], text_parts: list[str]) -> None:
+    if event.get("type") == "response.output_text.delta":
+        delta = event.get("delta")
+        if isinstance(delta, str) and delta:
+            text_parts.append(delta)
+
+
+# ---------------------------------------------------------------------------
 # StepFun (阶跃星辰) image generation
 # ---------------------------------------------------------------------------
 
@@ -1025,9 +1446,11 @@ def _stepfun_images_from_payload(payload: dict[str, Any]) -> list[str]:
 # Provider registration
 # ---------------------------------------------------------------------------
 
-register_image_gen_provider(OpenRouterImageGenerationClient)
 register_image_gen_provider(AIHubMixImageGenerationClient)
+register_image_gen_provider(CodexImageGenerationClient)
 register_image_gen_provider(GeminiImageGenerationClient)
 register_image_gen_provider(OllamaImageGenerationClient)
 register_image_gen_provider(MiniMaxImageGenerationClient)
+register_image_gen_provider(OpenAIImageGenerationClient)
+register_image_gen_provider(OpenRouterImageGenerationClient)
 register_image_gen_provider(StepFunImageGenerationClient)

@@ -1055,6 +1055,7 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         }
         assert image_providers["openrouter"]["label"] == "OpenRouter"
         assert image_providers["openrouter"]["configured"] is False
+        assert image_providers["openai_codex"]["configured"] is True
         assert image_providers["gemini"]["label"] == "Gemini"
         assert body["runtime"]["config_path"] == str(config_path)
         workspace_path = body["runtime"]["workspace_path"].replace("\\", "/")
