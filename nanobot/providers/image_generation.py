@@ -219,7 +219,7 @@ class ImageGenerationProvider(ABC):
         image_size: str | None = None,
     ) -> GeneratedImageResponse: ...
 
-    def _ensure_images(self, images: list[str], data: dict[str, Any]) -> None:
+    def _require_images(self, images: list[str], data: dict[str, Any]) -> None:
         if images:
             return
         provider_error = data.get("error") if isinstance(data, dict) else None
@@ -326,7 +326,7 @@ class OpenRouterImageGenerationClient(ImageGenerationProvider):
                 if isinstance(url_value, str) and url_value.startswith("data:image/"):
                     images.append(url_value)
 
-        self._ensure_images(images, data)
+        self._require_images(images, data)
 
         return GeneratedImageResponse(
             images=images,
@@ -428,7 +428,7 @@ class AIHubMixImageGenerationClient(ImageGenerationProvider):
         payload = response.json()
         images = await _aihubmix_images_from_payload(client, payload)
 
-        self._ensure_images(images, payload)
+        self._require_images(images, payload)
 
         return GeneratedImageResponse(images=images, content="", raw=payload)
 
@@ -670,7 +670,7 @@ class GeminiImageGenerationClient(ImageGenerationProvider):
             if isinstance(b64, str) and b64:
                 images.append(f"data:{mime};base64,{b64}")
 
-        self._ensure_images(images, data)
+        self._require_images(images, data)
 
         return GeneratedImageResponse(images=images, content="", raw=data)
 
@@ -728,7 +728,7 @@ class GeminiImageGenerationClient(ImageGenerationProvider):
                     if b64:
                         images.append(f"data:{mime};base64,{b64}")
 
-        self._ensure_images(images, data)
+        self._require_images(images, data)
 
         return GeneratedImageResponse(
             images=images,
@@ -882,7 +882,7 @@ class MiniMaxImageGenerationClient(ImageGenerationProvider):
         payload = response.json()
         images = _minimax_images_from_payload(payload)
 
-        self._ensure_images(images, payload)
+        self._require_images(images, payload)
 
         return GeneratedImageResponse(images=images, content="", raw=payload)
 
@@ -1408,7 +1408,7 @@ class StepFunImageGenerationClient(ImageGenerationProvider):
         payload = response.json()
         images = _stepfun_images_from_payload(payload)
 
-        self._ensure_images(images, payload)
+        self._require_images(images, payload)
 
         return GeneratedImageResponse(images=images, content="", raw=payload)
 
