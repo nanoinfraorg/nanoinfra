@@ -761,12 +761,27 @@ def _minimax_images_from_payload(payload: dict[str, Any]) -> list[str]:
 # OpenAI image generation
 # ---------------------------------------------------------------------------
 
-_OPENAI_ASPECT_RATIO_SIZES = {
+_OPENAI_DALLE2_SUPPORTED_SIZES = {"256x256", "512x512", "1024x1024"}
+_OPENAI_DALLE3_SUPPORTED_SIZES = {"1024x1024", "1792x1024", "1024x1792"}
+_OPENAI_GPT_IMAGE_SUPPORTED_SIZES = {
+    "1024x1024",
+    "1536x1024",
+    "1024x1536",
+    "auto",
+}
+_OPENAI_DALLE2_ASPECT_RATIO_SIZES = {
+    "1:1": "1024x1024",
+    "16:9": "1024x1024",
+    "9:16": "1024x1024",
+    "3:4": "1024x1024",
+    "4:3": "1024x1024",
+}
+_OPENAI_DALLE3_ASPECT_RATIO_SIZES = {
     "1:1": "1024x1024",
     "16:9": "1792x1024",
     "9:16": "1024x1792",
-    "3:4": "1024x1360",
-    "4:3": "1360x1024",
+    "3:4": "1024x1792",
+    "4:3": "1792x1024",
 }
 _OPENAI_GPT_IMAGE_ASPECT_RATIO_SIZES = {
     "1:1": "1024x1024",
@@ -827,8 +842,7 @@ class OpenAIImageGenerationClient(ImageGenerationProvider):
             "prompt": prompt,
         }
 
-        # gpt-image-* models don't support response_format or n
-        if not clean_model.startswith("gpt-image"):
+        if not _openai_is_gpt_image_model(clean_model):
             body["response_format"] = "b64_json"
             body["n"] = 1
 
@@ -988,16 +1002,56 @@ def _openai_size(
     image_size: str | None,
 ) -> str:
     """Resolve aspect ratio or image_size to an OpenAI Images API size string."""
-    if image_size and "x" in image_size.lower():
-        return image_size
-    sizes = (
-        _OPENAI_GPT_IMAGE_ASPECT_RATIO_SIZES
-        if model.startswith("gpt-image")
-        else _OPENAI_ASPECT_RATIO_SIZES
-    )
+    sizes, supported_sizes = _openai_size_options(model)
+    explicit_size = _normalize_openai_image_size(image_size)
+    if explicit_size and _openai_explicit_size_supported(
+        explicit_size,
+        supported_sizes=supported_sizes,
+    ):
+        return explicit_size
+    if explicit_size:
+        logger.warning(
+            "OpenAI image size '{}' is not supported by {}; using aspect ratio/default size",
+            explicit_size,
+            model,
+        )
     if aspect_ratio and aspect_ratio in sizes:
         return sizes[aspect_ratio]
     return "1024x1024"
+
+
+def _openai_is_gpt_image_model(model: str) -> bool:
+    normalized = model.lower()
+    return normalized.startswith(("gpt-image", "chatgpt-image"))
+
+
+def _openai_size_options(model: str) -> tuple[dict[str, str], set[str] | None]:
+    normalized = model.lower()
+    if normalized.startswith("dall-e-2"):
+        return _OPENAI_DALLE2_ASPECT_RATIO_SIZES, _OPENAI_DALLE2_SUPPORTED_SIZES
+    if normalized.startswith("dall-e-3"):
+        return _OPENAI_DALLE3_ASPECT_RATIO_SIZES, _OPENAI_DALLE3_SUPPORTED_SIZES
+    if normalized.startswith("gpt-image-2"):
+        return _OPENAI_GPT_IMAGE_ASPECT_RATIO_SIZES, None
+    return _OPENAI_GPT_IMAGE_ASPECT_RATIO_SIZES, _OPENAI_GPT_IMAGE_SUPPORTED_SIZES
+
+
+def _normalize_openai_image_size(image_size: str | None) -> str | None:
+    if not image_size:
+        return None
+    normalized = image_size.strip().lower()
+    return normalized or None
+
+
+def _openai_explicit_size_supported(
+    size: str,
+    *,
+    supported_sizes: set[str] | None,
+) -> bool:
+    if supported_sizes is not None:
+        return size in supported_sizes
+    width, sep, height = size.partition("x")
+    return bool(sep and width.isdecimal() and height.isdecimal())
 
 
 async def _openai_images_from_payload(

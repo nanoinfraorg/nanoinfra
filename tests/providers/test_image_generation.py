@@ -625,6 +625,34 @@ async def test_openai_aspect_ratio_to_size() -> None:
 
 
 @pytest.mark.asyncio
+async def test_openai_dalle3_uses_supported_orientation_sizes() -> None:
+    fake = FakeClient(FakeResponse({"data": [{"b64_json": RAW_B64}]}))
+    client = OpenAIImageGenerationClient(
+        api_key="sk-openai-test",
+        client=fake,  # type: ignore[arg-type]
+    )
+
+    await client.generate(prompt="draw", model="dall-e-3", aspect_ratio="3:4")
+    await client.generate(prompt="draw", model="dall-e-3", aspect_ratio="4:3")
+
+    assert fake.calls[0]["json"]["size"] == "1024x1792"
+    assert fake.calls[1]["json"]["size"] == "1792x1024"
+
+
+@pytest.mark.asyncio
+async def test_openai_dalle2_uses_square_size_for_non_square_ratios() -> None:
+    fake = FakeClient(FakeResponse({"data": [{"b64_json": RAW_B64}]}))
+    client = OpenAIImageGenerationClient(
+        api_key="sk-openai-test",
+        client=fake,  # type: ignore[arg-type]
+    )
+
+    await client.generate(prompt="draw", model="dall-e-2", aspect_ratio="16:9")
+
+    assert fake.calls[0]["json"]["size"] == "1024x1024"
+
+
+@pytest.mark.asyncio
 async def test_openai_gpt_image_uses_supported_landscape_size() -> None:
     fake = FakeClient(FakeResponse({"data": [{"b64_json": RAW_B64}]}))
     client = OpenAIImageGenerationClient(
@@ -635,6 +663,21 @@ async def test_openai_gpt_image_uses_supported_landscape_size() -> None:
     await client.generate(prompt="draw", model="gpt-image-1", aspect_ratio="16:9")
 
     assert fake.calls[0]["json"]["size"] == "1536x1024"
+
+
+@pytest.mark.asyncio
+async def test_openai_gpt_image_uses_supported_orientation_sizes() -> None:
+    fake = FakeClient(FakeResponse({"data": [{"b64_json": RAW_B64}]}))
+    client = OpenAIImageGenerationClient(
+        api_key="sk-openai-test",
+        client=fake,  # type: ignore[arg-type]
+    )
+
+    await client.generate(prompt="draw", model="gpt-image-1", aspect_ratio="3:4")
+    await client.generate(prompt="draw", model="gpt-image-1", aspect_ratio="4:3")
+
+    assert fake.calls[0]["json"]["size"] == "1024x1536"
+    assert fake.calls[1]["json"]["size"] == "1536x1024"
 
 
 @pytest.mark.asyncio
@@ -649,6 +692,25 @@ async def test_openai_default_size_when_no_aspect_ratio() -> None:
 
     body = fake.calls[0]["json"]
     assert body["size"] == "1024x1024"
+
+
+@pytest.mark.asyncio
+async def test_openai_ignores_explicit_size_unsupported_by_model_family() -> None:
+    fake = FakeClient(FakeResponse({"data": [{"b64_json": RAW_B64}]}))
+    client = OpenAIImageGenerationClient(
+        api_key="sk-openai-test",
+        client=fake,  # type: ignore[arg-type]
+    )
+
+    await client.generate(
+        prompt="draw",
+        model="dall-e-3",
+        aspect_ratio="16:9",
+        image_size="1536x1024",
+    )
+
+    body = fake.calls[0]["json"]
+    assert body["size"] == "1792x1024"
 
 
 @pytest.mark.asyncio
