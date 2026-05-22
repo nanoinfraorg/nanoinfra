@@ -34,7 +34,7 @@ from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.command.builtin import builtin_command_palette
-from nanobot.config.paths import get_media_dir
+from nanobot.config.paths import get_media_dir, get_workspace_path
 from nanobot.config.schema import Base
 from nanobot.session.goal_state import goal_state_ws_blob
 from nanobot.session.webui_turns import websocket_turn_wall_started_at
@@ -425,6 +425,16 @@ _MEDIA_ALLOWED_MIMES: frozenset[str] = frozenset({
     "video/webm",
     "video/quicktime",
 })
+_MARKDOWN_LOCAL_IMAGE_RE = re.compile(
+    r"!\[([^\]]*)\]\((<[^>]+>|[^)\s]+)(\s+(?:\"[^\"]*\"|'[^']*'))?\)"
+)
+_INLINE_MARKDOWN_IMAGE_EXTS: frozenset[str] = frozenset({
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+})
 
 
 def _issue_route_secret_matches(headers: Any, configured_secret: str) -> bool:
@@ -454,6 +464,7 @@ class WebSocketChannel(BaseChannel):
         *,
         session_manager: "SessionManager | None" = None,
         static_dist_path: Path | None = None,
+        workspace_path: Path | None = None,
         runtime_model_name: Callable[[], str | None] | None = None,
     ):
         if isinstance(config, dict):
@@ -476,8 +487,14 @@ class WebSocketChannel(BaseChannel):
         self._static_dist_path: Path | None = (
             static_dist_path.resolve() if static_dist_path is not None else None
         )
+        self._workspace_path = (
+            Path(workspace_path).expanduser()
+            if workspace_path is not None
+            else get_workspace_path()
+        ).resolve(strict=False)
         self._runtime_model_name = runtime_model_name
         self._settings_restart_sections: set[str] = set()
+        self._stream_text_buffers: dict[tuple[str, str], list[str]] = {}
         # Process-local secret used to HMAC-sign media URLs. The signed URL is
         # the capability — anyone who holds a valid URL can fetch that one
         # file, nothing else. The secret regenerates on restart so links
@@ -961,6 +978,7 @@ class WebSocketChannel(BaseChannel):
         data = build_webui_thread_response(
             decoded_key,
             augment_user_media=self._augment_transcript_user_media,
+            augment_assistant_text=self._rewrite_local_markdown_images,
         )
         if data is None:
             return _http_error(404, "webui thread not found")
@@ -1098,6 +1116,46 @@ class WebSocketChannel(BaseChannel):
         if signed is None:
             return None
         return {"url": signed, "name": path.name}
+
+    def _markdown_image_url_for_local_path(self, raw_url: str) -> str | None:
+        url = raw_url.strip()
+        if url.startswith("<") and url.endswith(">"):
+            url = url[1:-1].strip()
+        if not url or url.startswith(("/api/media/", "#")):
+            return None
+        parsed = urlparse(url)
+        if parsed.scheme or parsed.netloc:
+            return None
+        if parsed.query or parsed.fragment:
+            return None
+        path_text = unquote(url)
+        if Path(path_text).suffix.lower() not in _INLINE_MARKDOWN_IMAGE_EXTS:
+            return None
+        candidate = Path(path_text).expanduser()
+        if not candidate.is_absolute():
+            candidate = self._workspace_path / candidate
+        try:
+            resolved = candidate.resolve(strict=False)
+            resolved.relative_to(self._workspace_path)
+        except (OSError, ValueError):
+            return None
+        if not resolved.is_file():
+            return None
+        signed = self._sign_or_stage_media_path(resolved)
+        return signed["url"] if signed else None
+
+    def _rewrite_local_markdown_images(self, text: str) -> str:
+        if "![" not in text:
+            return text
+
+        def replace(match: re.Match[str]) -> str:
+            signed_url = self._markdown_image_url_for_local_path(match.group(2))
+            if not signed_url:
+                return match.group(0)
+            title = match.group(3) or ""
+            return f"![{match.group(1)}]({signed_url}{title})"
+
+        return _MARKDOWN_LOCAL_IMAGE_RE.sub(replace, text)
 
     def _handle_media_fetch(self, sig: str, payload: str) -> Response:
         """Serve a single media file previously signed via
@@ -1584,10 +1642,11 @@ class WebSocketChannel(BaseChannel):
                 await self._safe_send_to(connection, raw, label=" ")
             return
         text = msg.content
+        wire_text = self._rewrite_local_markdown_images(text)
         payload: dict[str, Any] = {
             "event": "message",
             "chat_id": msg.chat_id,
-            "text": text,
+            "text": wire_text,
         }
         if msg.media:
             payload["media"] = msg.media
@@ -1615,7 +1674,9 @@ class WebSocketChannel(BaseChannel):
             payload["kind"] = "tool_hint"
         elif msg.metadata.get("_progress"):
             payload["kind"] = "progress"
-        self._try_append_webui_transcript(msg.chat_id, payload)
+        transcript_payload = dict(payload)
+        transcript_payload["text"] = text
+        self._try_append_webui_transcript(msg.chat_id, transcript_payload)
         raw = json.dumps(payload, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" ")
@@ -1680,14 +1741,20 @@ class WebSocketChannel(BaseChannel):
         if not conns:
             return
         meta = metadata or {}
+        stream_key = (chat_id, str(meta.get("_stream_id") or ""))
         if meta.get("_stream_end"):
             body: dict[str, Any] = {"event": "stream_end", "chat_id": chat_id}
+            full_text = "".join(self._stream_text_buffers.pop(stream_key, []))
+            rewritten = self._rewrite_local_markdown_images(full_text)
+            if rewritten != full_text:
+                body["text"] = rewritten
         else:
             body = {
                 "event": "delta",
                 "chat_id": chat_id,
                 "text": delta,
             }
+            self._stream_text_buffers.setdefault(stream_key, []).append(delta)
         if meta.get("_stream_id") is not None:
             body["stream_id"] = meta["_stream_id"]
         self._try_append_webui_transcript(chat_id, body)

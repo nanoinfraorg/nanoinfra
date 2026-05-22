@@ -185,6 +185,7 @@ def replay_transcript_to_ui_messages(
     lines: list[dict[str, Any]],
     *,
     augment_user_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
+    augment_assistant_text: Callable[[str], str] | None = None,
 ) -> list[dict[str, Any]]:
     """Fold JSONL records into ``UIMessage``-shaped dicts for the WebUI.
 
@@ -626,7 +627,14 @@ def replay_transcript_to_ui_messages(
             buffer_parts = []
             continue
 
-    for m in messages:
+    for i, m in enumerate(messages):
+        if (
+            augment_assistant_text is not None
+            and m.get("role") == "assistant"
+            and m.get("kind") != "trace"
+            and isinstance(m.get("content"), str)
+        ):
+            messages[i] = {**m, "content": augment_assistant_text(m["content"])}
         m.pop("isStreaming", None)
         m.pop("reasoningStreaming", None)
     return messages
@@ -636,12 +644,17 @@ def build_webui_thread_response(
     session_key: str,
     *,
     augment_user_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
+    augment_assistant_text: Callable[[str], str] | None = None,
 ) -> dict[str, Any] | None:
     """Return a payload compatible with ``WebuiThreadPersistedPayload``."""
     lines = read_transcript_lines(session_key)
     if not lines:
         return None
-    msgs = replay_transcript_to_ui_messages(lines, augment_user_media=augment_user_media)
+    msgs = replay_transcript_to_ui_messages(
+        lines,
+        augment_user_media=augment_user_media,
+        augment_assistant_text=augment_assistant_text,
+    )
     return {
         "schemaVersion": WEBUI_TRANSCRIPT_SCHEMA_VERSION,
         "sessionKey": session_key,

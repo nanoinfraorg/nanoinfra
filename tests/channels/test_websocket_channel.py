@@ -481,6 +481,38 @@ async def test_send_delta_emits_delta_and_stream_end() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_delta_stream_end_rewrites_local_markdown_image(monkeypatch, tmp_path) -> None:
+    bus = MagicMock()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "diagram.png").write_bytes(b"\x89PNG\r\n\x1a\nimage")
+    media = tmp_path / "media"
+
+    def fake_media_dir(channel: str | None = None):
+        path = media / channel if channel else media
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    monkeypatch.setattr("nanobot.channels.websocket.get_media_dir", fake_media_dir)
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"], "streaming": True},
+        bus,
+        workspace_path=workspace,
+    )
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send_delta("chat-1", "![Diagram](", {"_stream_delta": True, "_stream_id": "sid"})
+    await channel.send_delta("chat-1", "diagram.png)", {"_stream_delta": True, "_stream_id": "sid"})
+    await channel.send_delta("chat-1", "", {"_stream_end": True, "_stream_id": "sid"})
+
+    assert mock_ws.send.await_count == 3
+    final = json.loads(mock_ws.send.call_args_list[2][0][0])
+    assert final["event"] == "stream_end"
+    assert final["text"].startswith("![Diagram](/api/media/")
+
+
+@pytest.mark.asyncio
 async def test_send_reasoning_delta_emits_streaming_frame() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus)

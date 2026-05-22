@@ -378,6 +378,7 @@ export type InboundEvent =
       event: "stream_end";
       chat_id: string;
       stream_id?: string;
+      text?: string;
     }
   | {
       event: "reasoning_delta";
