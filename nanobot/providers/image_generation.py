@@ -1489,11 +1489,8 @@ class ZhipuImageGenerationClient(ImageGenerationProvider):
             raise ImageGenerationError(self.missing_key_message)
 
         if reference_images:
-            logger.warning(
-                "Zhipu image generation does not support reference images; "
-                "ignoring {} reference image(s) for {}",
-                len(reference_images),
-                model,
+            raise ImageGenerationError(
+                "Zhipu image generation does not support reference images"
             )
 
         headers = {
@@ -1517,7 +1514,33 @@ class ZhipuImageGenerationClient(ImageGenerationProvider):
         url = f"{self.api_base}/images/generations"
 
         client = self._client or httpx.AsyncClient(timeout=self.timeout)
-        owns_client = self._client is None
+        try:
+            return await self._generate_with_client(
+                client,
+                prompt=prompt,
+                model=model,
+                aspect_ratio=aspect_ratio,
+                image_size=image_size,
+                headers=headers,
+                body=body,
+                url=url,
+            )
+        finally:
+            if self._client is None:
+                await client.aclose()
+
+    async def _generate_with_client(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        prompt: str,
+        model: str,
+        aspect_ratio: str | None,
+        image_size: str | None,
+        headers: dict[str, str],
+        body: dict[str, Any],
+        url: str,
+    ) -> GeneratedImageResponse:
         try:
             response = await self._http_post(url, headers=headers, body=body, client=client)
         except httpx.TimeoutException as exc:
@@ -1536,10 +1559,7 @@ class ZhipuImageGenerationClient(ImageGenerationProvider):
 
         self._require_images(images, payload)
 
-        result = GeneratedImageResponse(images=images, content="", raw=payload)
-        if owns_client:
-            await client.aclose()
-        return result
+        return GeneratedImageResponse(images=images, content="", raw=payload)
 
 
 def _zhipu_size(
