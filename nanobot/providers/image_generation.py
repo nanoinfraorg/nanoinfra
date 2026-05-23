@@ -1504,7 +1504,6 @@ class ZhipuImageGenerationClient(ImageGenerationProvider):
             "prompt": prompt,
         }
 
-        # Resolve size
         size = _zhipu_size(aspect_ratio, image_size)
         if size:
             body["size"] = size
@@ -1517,10 +1516,6 @@ class ZhipuImageGenerationClient(ImageGenerationProvider):
         try:
             return await self._generate_with_client(
                 client,
-                prompt=prompt,
-                model=model,
-                aspect_ratio=aspect_ratio,
-                image_size=image_size,
                 headers=headers,
                 body=body,
                 url=url,
@@ -1533,10 +1528,6 @@ class ZhipuImageGenerationClient(ImageGenerationProvider):
         self,
         client: httpx.AsyncClient,
         *,
-        prompt: str,
-        model: str,
-        aspect_ratio: str | None,
-        image_size: str | None,
         headers: dict[str, str],
         body: dict[str, Any],
         url: str,

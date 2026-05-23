@@ -172,16 +172,7 @@ async def test_generate_image_tool_allows_ollama_without_api_key(
 
 
 @pytest.mark.asyncio
-async def test_generate_image_tool_allows_zhipu_without_api_key(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    set_config_path(tmp_path / "config.json")
-    FakeImageClient.instances = []
-    monkeypatch.setattr(
-        "nanobot.agent.tools.image_generation.get_image_gen_provider",
-        lambda name: FakeImageClient if name == "zhipu" else None,
-    )
+async def test_generate_image_tool_reports_missing_zhipu_key(tmp_path: Path) -> None:
     tool = ImageGenerationTool(
         workspace=tmp_path,
         config=ImageGenerationToolConfig(
@@ -194,14 +185,7 @@ async def test_generate_image_tool_allows_zhipu_without_api_key(
 
     result = await tool.execute(prompt="draw a cat")
 
-    payload = json.loads(result)
-    assert len(payload["artifacts"]) == 1
-
-    fake = FakeImageClient.instances[0]
-    assert fake.kwargs["api_key"] is None
-    assert fake.kwargs["api_base"] == "https://open.bigmodel.cn/api/paas/v4"
-    assert fake.calls[0]["aspect_ratio"] == "1:1"
-    assert fake.calls[0]["image_size"] == "1K"
+    assert result.startswith("Error: Zhipu API key is not configured")
 
 
 @pytest.mark.asyncio
