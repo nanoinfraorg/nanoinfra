@@ -619,6 +619,7 @@
     "agentActivityLiveSummary": "Working… · {{reasoning}} steps · {{tools}} tool calls",
     "agentActivityLiveToolsOnly": "Working… · {{tools}} tool calls",
     "activityThinkingFor": "Thinking for {{duration}}",
+    "activityThought": "Thought",
     "activityThoughtFor": "Thought for {{duration}}",
     "cliActivityRunningOne": "Using @{{name}}",
     "cliActivityRanOne": "Used @{{name}}",

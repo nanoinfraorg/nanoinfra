@@ -623,6 +623,7 @@
     "copiedReply": "返信をコピーしました",
     "turnLatencyTitle": "応答時間（全行程）",
     "activityThinkingFor": "{{duration}}考えています",
+    "activityThought": "思考しました",
     "activityThoughtFor": "{{duration}}考えました",
     "cliActivityRunningOne": "@{{name}} を使用中",
     "cliActivityRanOne": "@{{name}} を使用しました",

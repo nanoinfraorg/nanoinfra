@@ -340,6 +340,44 @@ describe("AgentActivityCluster", () => {
     }
   });
 
+  it("uses persisted turn latency for completed history instead of replay timestamps", () => {
+    render(
+      <AgentActivityCluster
+        messages={[{
+          id: "r-history",
+          role: "assistant",
+          content: "",
+          reasoning: "historical thought",
+          createdAt: 1,
+        }]}
+        isTurnStreaming={false}
+        hasBodyBelow
+        turnLatencyMs={12_400}
+      />,
+    );
+
+    expect(screen.getByText("Thought for 12s")).toBeInTheDocument();
+  });
+
+  it("omits the duration when completed history has no reliable timing", () => {
+    render(
+      <AgentActivityCluster
+        messages={[{
+          id: "r-old-history",
+          role: "assistant",
+          content: "",
+          reasoning: "old historical thought",
+          createdAt: 1,
+        }]}
+        isTurnStreaming={false}
+        hasBodyBelow
+      />,
+    );
+
+    expect(screen.getByText("Thought")).toBeInTheDocument();
+    expect(screen.queryByText("Thought for 0s")).not.toBeInTheDocument();
+  });
+
   it("renders file edit totals and a compact expanded file list", async () => {
     const restoreMotion = installReducedMotion();
     try {

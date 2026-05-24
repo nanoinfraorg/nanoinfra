@@ -173,6 +173,8 @@ interface AgentActivityClusterProps {
   /** True while the session turn is still running (drives “Working…” copy + header sheen). */
   isTurnStreaming: boolean;
   hasBodyBelow: boolean;
+  /** Persisted end-to-end turn latency from the assistant answer, used for history replay. */
+  turnLatencyMs?: number;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
 }
@@ -185,6 +187,7 @@ export function AgentActivityCluster({
   messages,
   isTurnStreaming,
   hasBodyBelow,
+  turnLatencyMs,
   cliApps = [],
   mcpPresets = [],
 }: AgentActivityClusterProps) {
@@ -242,12 +245,15 @@ export function AgentActivityCluster({
   const singleFilePath = fileCount === 1 ? primaryFilePath : undefined;
   const singleFileTooltipPath = fileCount === 1 ? primaryFileTooltipPath : undefined;
   const hasVisibleActivity = reasoningSteps > 0 || toolCalls > 0 || cliCount > 0 || mcpCount > 0 || fileCount > 0;
-  const activityDuration = formatActivityDuration(activityDurationMs(messages, isTurnStreaming, now));
+  const durationMs = activityDurationMs(messages, isTurnStreaming, now, turnLatencyMs);
+  const activityDuration = formatActivityDuration(durationMs);
   const thoughtLabel = isTurnStreaming
     ? t("message.activityThinkingFor", {
         duration: activityDuration,
         defaultValue: "Thinking for {{duration}}",
       })
+    : durationMs <= 0
+      ? t("message.activityThought", { defaultValue: "Thought" })
     : t("message.activityThoughtFor", {
         duration: activityDuration,
         defaultValue: "Thought for {{duration}}",
@@ -500,7 +506,15 @@ function shortFileName(path: string): string {
   return path.split(/[\\/]/).pop() || path;
 }
 
-function activityDurationMs(messages: UIMessage[], active: boolean, now: number): number {
+function activityDurationMs(
+  messages: UIMessage[],
+  active: boolean,
+  now: number,
+  completedLatencyMs?: number,
+): number {
+  if (!active && Number.isFinite(completedLatencyMs) && completedLatencyMs! >= 0) {
+    return Math.round(completedLatencyMs!);
+  }
   const timestamps = messages
     .map((message) => message.createdAt)
     .filter((value) => Number.isFinite(value));
@@ -513,7 +527,7 @@ function activityDurationMs(messages: UIMessage[], active: boolean, now: number)
 }
 
 function formatActivityDuration(ms: number): string {
-  const seconds = Math.max(0, Math.round(ms / 1000));
+  const seconds = ms > 0 && ms < 1000 ? 1 : Math.max(0, Math.round(ms / 1000));
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;

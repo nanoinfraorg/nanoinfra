@@ -623,6 +623,7 @@
     "copiedReply": "Respuesta copiada",
     "turnLatencyTitle": "Tiempo de respuesta (extremo a extremo)",
     "activityThinkingFor": "Pensando durante {{duration}}",
+    "activityThought": "Pensamiento completado",
     "activityThoughtFor": "Pensó durante {{duration}}",
     "cliActivityRunningOne": "Usando @{{name}}",
     "cliActivityRanOne": "Usó @{{name}}",

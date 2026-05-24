@@ -619,6 +619,7 @@
     "agentActivityLiveSummary": "进行中… · {{reasoning}} 步 · {{tools}} 次工具调用",
     "agentActivityLiveToolsOnly": "进行中… · {{tools}} 次工具调用",
     "activityThinkingFor": "思考中 {{duration}}",
+    "activityThought": "已思考",
     "activityThoughtFor": "思考了 {{duration}}",
     "cliActivityRunningOne": "正在使用 @{{name}}",
     "cliActivityRanOne": "已使用 @{{name}}",

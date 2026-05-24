@@ -623,6 +623,7 @@
     "copiedReply": "已複製回覆",
     "turnLatencyTitle": "本輪耗時（端到端）",
     "activityThinkingFor": "思考中，已 {{duration}}",
+    "activityThought": "已思考",
     "activityThoughtFor": "已思考 {{duration}}",
     "cliActivityRunningOne": "正在使用 @{{name}}",
     "cliActivityRanOne": "已使用 @{{name}}",
