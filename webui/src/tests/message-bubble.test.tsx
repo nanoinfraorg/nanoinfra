@@ -319,6 +319,7 @@ describe("MessageBubble", () => {
       expect(references[0].parentElement).not.toHaveClass("translate-y-[0.08em]");
       expect(references[0].parentElement).toHaveClass("align-baseline");
       expect(references[0].parentElement).toHaveClass("leading-[inherit]");
+      expect(references[0]).toHaveClass("items-baseline");
       expect(references[0]).toHaveTextContent("MarkdownTextRenderer.tsx");
       expect(references[0]).not.toHaveTextContent("webui/src/components");
       expect(screen.getByText("index.html")).toBeInTheDocument();
