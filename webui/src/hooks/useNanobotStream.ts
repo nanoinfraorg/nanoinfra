@@ -13,6 +13,7 @@ import type {
   InboundEvent,
   OutboundCliAppMention,
   OutboundImageGeneration,
+  OutboundMcpPresetMention,
   OutboundMedia,
   GoalStateWsPayload,
   UIImage,
@@ -313,6 +314,7 @@ export interface SendImage {
 export interface SendOptions {
   imageGeneration?: OutboundImageGeneration;
   cliApps?: OutboundCliAppMention[];
+  mcpPresets?: OutboundMcpPresetMention[];
 }
 
 export function useNanobotStream(
@@ -891,6 +893,7 @@ export function useNanobotStream(
             createdAt: Date.now(),
             ...(previews ? { images: previews } : {}),
             ...(options?.cliApps?.length ? { cliApps: options.cliApps } : {}),
+            ...(options?.mcpPresets?.length ? { mcpPresets: options.mcpPresets } : {}),
           },
         ];
       });

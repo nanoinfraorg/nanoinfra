@@ -12,7 +12,6 @@ const SETTINGS_NAV_KEYS = [
   "overview",
   "appearance",
   "models",
-  "providers",
   "image",
   "web",
   "runtime",

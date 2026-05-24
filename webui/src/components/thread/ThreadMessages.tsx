@@ -6,7 +6,7 @@ import {
   AgentActivityCluster,
   isAgentActivityMember,
 } from "@/components/thread/AgentActivityCluster";
-import type { CliAppInfo, UIMessage } from "@/lib/types";
+import type { CliAppInfo, McpPresetInfo, UIMessage } from "@/lib/types";
 
 interface ThreadMessagesProps {
   messages: UIMessage[];
@@ -15,6 +15,7 @@ interface ThreadMessagesProps {
   hiddenMessageCount?: number;
   onLoadEarlier?: () => void;
   cliApps?: CliAppInfo[];
+  mcpPresets?: McpPresetInfo[];
 }
 
 export type DisplayUnit =
@@ -166,6 +167,7 @@ export function ThreadMessages({
   hiddenMessageCount = 0,
   onLoadEarlier,
   cliApps = [],
+  mcpPresets = [],
 }: ThreadMessagesProps) {
   const { t } = useTranslation();
   const units = useMemo(() => buildDisplayUnits(messages), [messages]);
@@ -211,6 +213,7 @@ export function ThreadMessages({
                 isTurnStreaming={index === liveActivityClusterIndex}
                 hasBodyBelow={hasBodyBelow}
                 cliApps={cliApps}
+                mcpPresets={mcpPresets}
               />
             ) : (
               <MessageBubble
@@ -221,6 +224,7 @@ export function ThreadMessages({
                     : true
                 }
                 cliApps={cliApps}
+                mcpPresets={mcpPresets}
               />
             )}
           </div>

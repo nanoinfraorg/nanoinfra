@@ -1010,7 +1010,7 @@ describe("ThreadShell", () => {
     ));
 
     const input = await screen.findByLabelText("Message input");
-    expect(screen.queryByRole("listbox", { name: "CLI Apps" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "Apps and MCP" })).not.toBeInTheDocument();
 
     const payload: CliAppsPayload = {
       apps: [{
@@ -1038,7 +1038,7 @@ describe("ThreadShell", () => {
     });
     fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
 
-    expect(screen.getByRole("listbox", { name: "CLI Apps" })).toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "Apps and MCP" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /@gimp/i })).toBeInTheDocument();
   });
 });

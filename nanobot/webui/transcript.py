@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
+from urllib.parse import unquote, urlparse
 
 from loguru import logger
 
@@ -16,6 +18,61 @@ from nanobot.session.manager import SessionManager
 
 WEBUI_TRANSCRIPT_SCHEMA_VERSION = 3
 _MAX_TRANSCRIPT_FILE_BYTES = 8 * 1024 * 1024
+_MARKDOWN_LOCAL_IMAGE_RE = re.compile(
+    r"!\[([^\]]*)\]\((<[^>]+>|[^)\s]+)(\s+(?:\"[^\"]*\"|'[^']*'))?\)"
+)
+_INLINE_MARKDOWN_IMAGE_EXTS: frozenset[str] = frozenset({
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+})
+
+
+def rewrite_local_markdown_images(
+    text: str,
+    *,
+    workspace_path: Path,
+    sign_path: Callable[[Path], Mapping[str, Any] | None],
+) -> str:
+    """Rewrite markdown image paths inside the workspace to signed WebUI media URLs."""
+    if "![" not in text:
+        return text
+
+    def resolve_url(raw_url: str) -> str | None:
+        url = raw_url.strip()
+        if url.startswith("<") and url.endswith(">"):
+            url = url[1:-1].strip()
+        if not url or url.startswith(("/api/media/", "#")):
+            return None
+        parsed = urlparse(url)
+        if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
+            return None
+        path_text = unquote(url)
+        if Path(path_text).suffix.lower() not in _INLINE_MARKDOWN_IMAGE_EXTS:
+            return None
+        candidate = Path(path_text).expanduser()
+        if not candidate.is_absolute():
+            candidate = workspace_path / candidate
+        try:
+            resolved = candidate.resolve(strict=False)
+            resolved.relative_to(workspace_path)
+        except (OSError, ValueError):
+            return None
+        if not resolved.is_file():
+            return None
+        signed = sign_path(resolved)
+        return str(signed.get("url")) if signed and signed.get("url") else None
+
+    def replace(match: re.Match[str]) -> str:
+        signed_url = resolve_url(match.group(2))
+        if not signed_url:
+            return match.group(0)
+        title = match.group(3) or ""
+        return f"![{match.group(1)}]({signed_url}{title})"
+
+    return _MARKDOWN_LOCAL_IMAGE_RE.sub(replace, text)
 
 
 def webui_transcript_path(session_key: str) -> Path:
@@ -458,6 +515,11 @@ def replay_transcript_to_ui_messages(
             cli_apps = rec.get("cli_apps")
             if isinstance(cli_apps, list) and cli_apps:
                 row["cliApps"] = [dict(app) for app in cli_apps if isinstance(app, dict)]
+            mcp_presets = rec.get("mcp_presets")
+            if isinstance(mcp_presets, list) and mcp_presets:
+                row["mcpPresets"] = [
+                    dict(preset) for preset in mcp_presets if isinstance(preset, dict)
+                ]
             messages.append(row)
             continue
 

@@ -30,6 +30,7 @@ from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
+from nanobot.agent.tools.mcp import request_mcp_reload
 from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
@@ -46,6 +47,7 @@ from nanobot.utils.media_decode import (
 from nanobot.utils.subagent_channel_display import scrub_subagent_messages_for_channel
 from nanobot.webui.settings_api import (
     WebUISettingsError,
+    create_model_configuration,
     settings_payload,
     update_agent_settings,
     update_image_generation_settings,
@@ -57,12 +59,32 @@ from nanobot.webui.cli_apps_api import (
     cli_apps_payload,
     normalize_cli_app_mentions,
 )
+from nanobot.webui.mcp_presets_api import (
+    mcp_presets_settings_action,
+    normalize_mcp_preset_mentions,
+)
 from nanobot.webui.sidebar_state import (
     read_webui_sidebar_state,
     write_webui_sidebar_state,
 )
 from nanobot.webui.thread_disk import delete_webui_thread
-from nanobot.webui.transcript import append_transcript_object, build_webui_thread_response
+from nanobot.webui.transcript import (
+    append_transcript_object,
+    build_webui_thread_response,
+    rewrite_local_markdown_images,
+)
+
+_MCP_PRESET_ACTIONS_BY_PATH = {
+    "/api/settings/mcp-presets/enable": "enable",
+    "/api/settings/mcp-presets/remove": "remove",
+    "/api/settings/mcp-presets/test": "test",
+    "/api/settings/mcp-presets/custom": "custom",
+    "/api/settings/mcp-presets/import": "import",
+    "/api/settings/mcp-presets/import-cursor": "import-cursor",
+    "/api/settings/mcp-presets/tools": "tools",
+}
+_MCP_VALUES_HEADER = "X-Nanobot-MCP-Values"
+_MCP_VALUES_HEADER_MAX_BYTES = 64 * 1024
 
 if TYPE_CHECKING:
     from nanobot.session.manager import SessionManager
@@ -231,6 +253,34 @@ def _normalize_http_path(path_with_query: str) -> str:
 
 def _parse_query(path_with_query: str) -> dict[str, list[str]]:
     return _parse_request_path(path_with_query)[1]
+
+
+def _parse_mcp_settings_query(request: WsRequest) -> dict[str, list[str]]:
+    query = _parse_query(request.path)
+    raw = request.headers.get(_MCP_VALUES_HEADER)
+    if not raw:
+        return query
+    if len(raw.encode("utf-8")) > _MCP_VALUES_HEADER_MAX_BYTES:
+        raise WebUISettingsError("MCP settings payload is too large")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise WebUISettingsError("invalid MCP settings payload") from exc
+    if not isinstance(payload, dict):
+        raise WebUISettingsError("MCP settings payload must be a JSON object")
+    merged = {key: list(values) for key, values in query.items()}
+    for key, value in payload.items():
+        if not isinstance(key, str) or not key:
+            raise WebUISettingsError("MCP settings payload contains an invalid key")
+        if value is None:
+            continue
+        if isinstance(value, str):
+            text = value.strip()
+        else:
+            text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        if text:
+            merged[key] = [text]
+    return merged
 
 
 def _query_first(query: dict[str, list[str]], key: str) -> str | None:
@@ -425,18 +475,6 @@ _MEDIA_ALLOWED_MIMES: frozenset[str] = frozenset({
     "video/webm",
     "video/quicktime",
 })
-_MARKDOWN_LOCAL_IMAGE_RE = re.compile(
-    r"!\[([^\]]*)\]\((<[^>]+>|[^)\s]+)(\s+(?:\"[^\"]*\"|'[^']*'))?\)"
-)
-_INLINE_MARKDOWN_IMAGE_EXTS: frozenset[str] = frozenset({
-    ".png",
-    ".jpg",
-    ".jpeg",
-    ".webp",
-    ".gif",
-})
-
-
 def _issue_route_secret_matches(headers: Any, configured_secret: str) -> bool:
     """Return True if the token-issue HTTP request carries credentials matching ``token_issue_secret``."""
     if not configured_secret:
@@ -666,6 +704,9 @@ class WebSocketChannel(BaseChannel):
         if got == "/api/settings/update":
             return self._handle_settings_update(request)
 
+        if got == "/api/settings/model-configurations/create":
+            return self._handle_settings_model_configuration_create(request)
+
         if got == "/api/settings/provider/update":
             return self._handle_settings_provider_update(request)
 
@@ -689,6 +730,13 @@ class WebSocketChannel(BaseChannel):
 
         if got == "/api/settings/cli-apps/test":
             return await self._handle_settings_cli_apps_action(request, "test")
+
+        if got == "/api/settings/mcp-presets":
+            return await self._handle_settings_mcp_presets(request)
+
+        mcp_action = _MCP_PRESET_ACTIONS_BY_PATH.get(got)
+        if mcp_action is not None:
+            return await self._handle_settings_mcp_presets(request, mcp_action)
 
         m = re.match(r"^/api/sessions/([^/]+)/messages$", got)
         if m:
@@ -881,6 +929,16 @@ class WebSocketChannel(BaseChannel):
             self._with_settings_restart_state(payload, section="runtime")
         )
 
+    def _handle_settings_model_configuration_create(self, request: WsRequest) -> Response:
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        query = _parse_query(request.path)
+        try:
+            payload = create_model_configuration(query)
+        except WebUISettingsError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(self._with_settings_restart_state(payload))
+
     def _handle_settings_provider_update(self, request: WsRequest) -> Response:
         if not self._check_api_token(request):
             return _http_error(401, "Unauthorized")
@@ -936,6 +994,31 @@ class WebSocketChannel(BaseChannel):
                 self.logger.exception("CLI Apps action '{}' failed", action)
             return _http_error(status, message)
         return _http_json_response(payload)
+
+    async def _handle_settings_mcp_presets(
+        self,
+        request: WsRequest,
+        action: str | None = None,
+    ) -> Response:
+        if not self._check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        try:
+            payload = await mcp_presets_settings_action(
+                action,
+                _parse_mcp_settings_query(request),
+                reload_mcp=lambda: request_mcp_reload(self.bus),
+            )
+        except Exception as e:
+            status = getattr(e, "status", 500)
+            message = getattr(e, "message", str(e))
+            if status >= 500:
+                self.logger.exception("MCP preset action '{}' failed", action or "list")
+            return _http_error(status, message)
+        if action is None:
+            return _http_json_response(payload)
+        return _http_json_response(
+            self._with_settings_restart_state(payload, section="runtime")
+        )
 
     @staticmethod
     def _is_websocket_channel_session_key(key: str) -> bool:
@@ -1028,6 +1111,9 @@ class WebSocketChannel(BaseChannel):
             cli_apps = meta.get("cli_apps")
             if isinstance(cli_apps, list) and cli_apps:
                 user_obj["cli_apps"] = cli_apps
+            mcp_presets = meta.get("mcp_presets")
+            if isinstance(mcp_presets, list) and mcp_presets:
+                user_obj["mcp_presets"] = mcp_presets
             self._try_append_webui_transcript(chat_id, user_obj)
         await super()._handle_message(
             sender_id,
@@ -1117,45 +1203,12 @@ class WebSocketChannel(BaseChannel):
             return None
         return {"url": signed, "name": path.name}
 
-    def _markdown_image_url_for_local_path(self, raw_url: str) -> str | None:
-        url = raw_url.strip()
-        if url.startswith("<") and url.endswith(">"):
-            url = url[1:-1].strip()
-        if not url or url.startswith(("/api/media/", "#")):
-            return None
-        parsed = urlparse(url)
-        if parsed.scheme or parsed.netloc:
-            return None
-        if parsed.query or parsed.fragment:
-            return None
-        path_text = unquote(url)
-        if Path(path_text).suffix.lower() not in _INLINE_MARKDOWN_IMAGE_EXTS:
-            return None
-        candidate = Path(path_text).expanduser()
-        if not candidate.is_absolute():
-            candidate = self._workspace_path / candidate
-        try:
-            resolved = candidate.resolve(strict=False)
-            resolved.relative_to(self._workspace_path)
-        except (OSError, ValueError):
-            return None
-        if not resolved.is_file():
-            return None
-        signed = self._sign_or_stage_media_path(resolved)
-        return signed["url"] if signed else None
-
     def _rewrite_local_markdown_images(self, text: str) -> str:
-        if "![" not in text:
-            return text
-
-        def replace(match: re.Match[str]) -> str:
-            signed_url = self._markdown_image_url_for_local_path(match.group(2))
-            if not signed_url:
-                return match.group(0)
-            title = match.group(3) or ""
-            return f"![{match.group(1)}]({signed_url}{title})"
-
-        return _MARKDOWN_LOCAL_IMAGE_RE.sub(replace, text)
+        return rewrite_local_markdown_images(
+            text,
+            workspace_path=self._workspace_path,
+            sign_path=self._sign_or_stage_media_path,
+        )
 
     def _handle_media_fetch(self, sig: str, payload: str) -> Response:
         """Serve a single media file previously signed via
@@ -1531,6 +1584,9 @@ class WebSocketChannel(BaseChannel):
             cli_apps = normalize_cli_app_mentions(envelope.get("cli_apps"))
             if cli_apps:
                 metadata["cli_apps"] = cli_apps
+            mcp_presets = normalize_mcp_preset_mentions(envelope.get("mcp_presets"))
+            if mcp_presets:
+                metadata["mcp_presets"] = mcp_presets
             image_generation = envelope.get("image_generation")
             if isinstance(image_generation, dict) and image_generation.get("enabled") is True:
                 aspect_ratio = image_generation.get("aspect_ratio")

@@ -92,6 +92,7 @@ FallbackCandidate = str | InlineFallbackConfig
 class ModelPresetConfig(Base):
     """A named set of model + generation parameters for quick switching."""
 
+    label: str | None = None
     model: str
     provider: str = "auto"
     max_tokens: int = 8192
@@ -254,6 +255,7 @@ class MCPServerConfig(Base):
     command: str = ""  # Stdio: command to run (e.g. "npx")
     args: list[str] = Field(default_factory=list)  # Stdio: command arguments
     env: dict[str, str] = Field(default_factory=dict)  # Stdio: extra env vars
+    cwd: str = ""  # Stdio: working directory for MCP server runtime artifacts
     url: str = ""  # HTTP/SSE: endpoint URL
     headers: dict[str, str] = Field(default_factory=dict)  # HTTP/SSE: custom headers
     tool_timeout: int = 30  # seconds before a tool call is cancelled

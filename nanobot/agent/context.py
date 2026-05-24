@@ -10,6 +10,10 @@ from typing import Any, Mapping, Sequence
 
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
+from nanobot.agent.tools import mcp as mcp_tools
+from nanobot.agent.tools.registry import ToolRegistry
+from nanobot.bus.events import InboundMessage
+from nanobot.cli_apps import utils as cli_app_utils
 from nanobot.session.goal_state import goal_state_runtime_lines
 from nanobot.utils.helpers import (
     current_time_str,
@@ -17,6 +21,32 @@ from nanobot.utils.helpers import (
     truncate_text,
 )
 from nanobot.utils.prompt_templates import render_template
+
+
+def session_extra(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Return persisted kwargs for turn-attached capabilities."""
+    return cli_app_utils.session_extra(metadata) | mcp_tools.session_extra(metadata)
+
+
+def runtime_lines(state: Any, msg: Any, workspace: Path, *, skip: bool = False) -> list[str]:
+    """Return model-visible runtime annotations for turn-attached capabilities."""
+    return [
+        *cli_app_utils.runtime_lines(msg, workspace, skip=skip),
+        *mcp_tools.runtime_lines(
+            msg,
+            configured_server_names=set(state._mcp_servers),
+            connected_server_names=set(state._mcp_stacks),
+            skip=skip,
+        ),
+    ]
+
+
+async def connect_mcp(state: Any, tools: ToolRegistry) -> None:
+    await mcp_tools.connect_missing_servers(state, tools)
+
+
+async def handle_runtime_control(state: Any, msg: InboundMessage, tools: ToolRegistry) -> bool:
+    return await mcp_tools.handle_runtime_control(state, msg, tools)
 
 
 class ContextBuilder:

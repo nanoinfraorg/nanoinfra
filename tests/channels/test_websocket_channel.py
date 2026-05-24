@@ -1188,6 +1188,30 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         )
         assert bad_preset.status_code == 400
 
+        created_preset = await _http_get(
+            "http://127.0.0.1:"
+            f"{port}/api/settings/model-configurations/create"
+            "?label=Fast%20writing&provider=openai&model=openai%2Fgpt-4.1-mini",
+            headers={"Authorization": "Bearer tok"},
+        )
+        assert created_preset.status_code == 200
+        created_body = created_preset.json()
+        assert created_body["agent"]["model_preset"] == "fast-writing"
+        assert created_body["agent"]["model"] == "openai/gpt-4.1-mini"
+        created_presets = {
+            preset["name"]: preset for preset in created_body["model_presets"]
+        }
+        assert created_presets["fast-writing"]["label"] == "Fast writing"
+        assert created_presets["fast-writing"]["provider"] == "openai"
+
+        duplicate_preset = await _http_get(
+            "http://127.0.0.1:"
+            f"{port}/api/settings/model-configurations/create"
+            "?label=Fast%20writing&provider=openai&model=openai%2Fgpt-4.1-mini",
+            headers={"Authorization": "Bearer tok"},
+        )
+        assert duplicate_preset.status_code == 409
+
         search_updated = await _http_get(
             "http://127.0.0.1:"
             f"{port}/api/settings/web-search/update?provider=searxng"
@@ -1255,7 +1279,10 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         saved = load_config(config_path)
         assert saved.agents.defaults.model == "atomic_chat/test"
         assert saved.agents.defaults.provider == "atomic_chat"
-        assert saved.agents.defaults.model_preset == "deep"
+        assert saved.agents.defaults.model_preset == "fast-writing"
+        assert saved.model_presets["fast-writing"].label == "Fast writing"
+        assert saved.model_presets["fast-writing"].model == "openai/gpt-4.1-mini"
+        assert saved.model_presets["fast-writing"].provider == "openai"
         assert saved.agents.defaults.timezone == "Asia/Shanghai"
         assert saved.agents.defaults.bot_name == "Nano"
         assert saved.agents.defaults.bot_icon == "N"
