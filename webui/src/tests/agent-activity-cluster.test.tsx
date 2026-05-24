@@ -334,6 +334,11 @@ describe("AgentActivityCluster", () => {
       const fileRef = screen.getByTestId("activity-file-reference");
       expect(fileRef).toHaveTextContent("src/app.tsx");
       expect(fileRef).toHaveAttribute("aria-label", "/Users/renxubin/project/src/app.tsx");
+      for (const diffPair of screen.getAllByTestId("activity-diff-pair")) {
+        expect(diffPair).toHaveClass("items-baseline");
+        expect(diffPair).toHaveClass("leading-[inherit]");
+        expect(diffPair.className).not.toContain("translate-y");
+      }
       await waitFor(() => {
         expect(screen.getAllByText("+12").length).toBeGreaterThan(0);
         expect(screen.getAllByText("-3").length).toBeGreaterThan(0);
