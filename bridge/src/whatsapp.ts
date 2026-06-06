@@ -29,6 +29,7 @@ export interface InboundMessage {
   content: string;
   timestamp: number;
   isGroup: boolean;
+  isForwarded?: boolean;
   wasMentioned?: boolean;
   media?: string[];
 }
@@ -80,6 +81,10 @@ export class WhatsAppClient {
     const { version } = await fetchLatestBaileysVersion();
 
     console.log(`Using Baileys version: ${version.join('.')}`);
+
+    // Record startup time — messages older than this will be ignored
+    // to avoid replaying history on reconnect
+    const startupTimestamp = Math.floor(Date.now() / 1000);
 
     // Create socket following OpenClaw's pattern
     this.sock = makeWASocket({
@@ -145,6 +150,10 @@ export class WhatsAppClient {
         if (msg.key.fromMe) continue;
         if (msg.key.remoteJid === 'status@broadcast') continue;
 
+        // Drop messages older than startup time (avoid replaying history on reconnect)
+        const msgTimestamp = msg.messageTimestamp as number;
+        if (msgTimestamp && msgTimestamp < startupTimestamp) continue;
+
         const unwrapped = baileysExtractMessageContent(msg.message);
         if (!unwrapped) continue;
 
@@ -169,7 +178,29 @@ export class WhatsAppClient {
           fallbackContent = '[Voice Message]';
           const path = await this.downloadMedia(msg, unwrapped.audioMessage.mimetype ?? undefined);
           if (path) mediaPaths.push(path);
+        } else if (unwrapped.contactMessage) {
+          // Single shared contact
+          const displayName = unwrapped.contactMessage.displayName || '';
+          const vcard = unwrapped.contactMessage.vcard || '';
+          fallbackContent = `[Contact: ${displayName}]\n${vcard}`;
+        } else if (unwrapped.contactsArrayMessage) {
+          // Multiple shared contacts
+          const vcards = unwrapped.contactsArrayMessage.contacts || [];
+          const parts = vcards.map((c: any) => {
+            const name = c.displayName || '';
+            const vc = c.vcard || '';
+            return `[Contact: ${name}]\n${vc}`;
+          });
+          fallbackContent = parts.join('\n\n');
         }
+
+        // Detect forwarded messages
+        const contextInfo = msg.message?.extendedTextMessage?.contextInfo
+          || msg.message?.imageMessage?.contextInfo
+          || msg.message?.videoMessage?.contextInfo
+          || msg.message?.audioMessage?.contextInfo
+          || msg.message?.documentMessage?.contextInfo;
+        const isForwarded = contextInfo?.isForwarded || false;
 
         const finalContent = content || (mediaPaths.length === 0 ? fallbackContent : '') || '';
         if (!finalContent && mediaPaths.length === 0) continue;
@@ -184,6 +215,7 @@ export class WhatsAppClient {
           content: finalContent,
           timestamp: msg.messageTimestamp as number,
           isGroup,
+          ...(isForwarded ? { isForwarded } : {}),
           ...(isGroup ? { wasMentioned } : {}),
           ...(mediaPaths.length > 0 ? { media: mediaPaths } : {}),
         });
