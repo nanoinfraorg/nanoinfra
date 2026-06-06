@@ -1,6 +1,7 @@
 import type {
   ChatSummary,
   CliAppsPayload,
+  FilePreviewPayload,
   ImageGenerationSettingsUpdate,
   McpPresetsPayload,
   ModelConfigurationCreate,
@@ -8,9 +9,12 @@ import type {
   NetworkSafetySettingsUpdate,
   ProviderModelsPayload,
   ProviderSettingsUpdate,
+  SessionAutomationsPayload,
   SettingsPayload,
   SettingsUpdate,
   SidebarStatePayload,
+  SkillDetail,
+  SkillsPayload,
   SlashCommand,
   WebSearchSettingsUpdate,
   WorkspacesPayload,
@@ -134,6 +138,60 @@ export async function fetchWebuiThread(
   return (await res.json()) as WebuiThreadPersistedPayload;
 }
 
+export async function fetchFilePreview(
+  token: string,
+  key: string,
+  path: string,
+  base: string = "",
+): Promise<FilePreviewPayload> {
+  const query = new URLSearchParams();
+  query.set("path", path);
+  return request<FilePreviewPayload>(
+    `${base}/api/sessions/${encodeURIComponent(key)}/file-preview?${query}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchSessionAutomations(
+  token: string,
+  key: string,
+  base: string = "",
+): Promise<SessionAutomationsPayload> {
+  return request<SessionAutomationsPayload>(
+    `${base}/api/sessions/${encodeURIComponent(key)}/automations`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchSkills(
+  token: string,
+  base: string = "",
+): Promise<SkillsPayload> {
+  return request<SkillsPayload>(
+    `${base}/api/webui/skills`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchSkillDetail(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<SkillDetail> {
+  return request<SkillDetail>(
+    `${base}/api/webui/skills/${encodeURIComponent(name)}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
 export async function deleteSession(
   token: string,
   key: string,
@@ -152,6 +210,18 @@ export async function fetchSettings(
 ): Promise<SettingsPayload> {
   return request<SettingsPayload>(
     `${base}/api/settings`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchSettingsUsage(
+  token: string,
+  base: string = "",
+): Promise<NonNullable<SettingsPayload["usage"]>> {
+  return request<NonNullable<SettingsPayload["usage"]>>(
+    `${base}/api/settings/usage`,
     token,
     undefined,
     API_READ_TIMEOUT_MS,
