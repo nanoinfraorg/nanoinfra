@@ -740,7 +740,7 @@ async def connect_mcp_servers(
                         headers=cfg.headers or None,
                         event_hooks={"request": [_validate_mcp_request_url]},
                         follow_redirects=True,
-                        timeout=None,
+                        timeout=httpx.Timeout(30.0, connect=10.0),
                     )
                 )
                 read, write, _ = await server_stack.enter_async_context(
