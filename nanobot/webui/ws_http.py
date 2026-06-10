@@ -62,6 +62,7 @@ from nanobot.webui.http_utils import (
 )
 from nanobot.webui.media_gateway import WebUIMediaGateway
 from nanobot.webui.session_automations import session_automations_payload
+from nanobot.webui.session_list_index import list_webui_sessions
 from nanobot.webui.sidebar_state import (
     read_webui_sidebar_state,
     write_webui_sidebar_state,
@@ -323,7 +324,7 @@ class GatewayHTTPHandler:
             return _http_error(401, "Unauthorized")
         if self.session_manager is None:
             return _http_error(503, "session manager unavailable")
-        sessions = self.session_manager.list_sessions()
+        sessions = list_webui_sessions(self.session_manager)
         from nanobot.session.webui_turns import websocket_turn_wall_started_at
 
         cleaned = []

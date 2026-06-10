@@ -2618,15 +2618,16 @@ def test_parse_envelope_rejects_legacy_and_garbage() -> None:
     assert _parse_envelope('{"type":123}') is None
 
 
-def test_sessions_list_includes_active_run_started_at() -> None:
+def test_sessions_list_includes_active_run_started_at(monkeypatch) -> None:
     from websockets.datastructures import Headers
     from websockets.http11 import Request
 
     from nanobot.session import webui_turns as wth
+    from nanobot.webui import ws_http as ws_http_module
 
     bus = MagicMock()
     session_manager = MagicMock()
-    session_manager.list_sessions.return_value = [
+    sessions = [
         {
             "key": "websocket:chat-1",
             "created_at": "2026-05-19T10:00:00Z",
@@ -2641,6 +2642,7 @@ def test_sessions_list_includes_active_run_started_at() -> None:
             "updated_at": "2026-05-19T10:01:00Z",
         },
     ]
+    monkeypatch.setattr(ws_http_module, "list_webui_sessions", lambda _session_manager: sessions)
     channel = WebSocketChannel(
         {"enabled": True, "allowFrom": ["*"]},
         bus,
