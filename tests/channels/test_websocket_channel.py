@@ -2618,15 +2618,16 @@ def test_parse_envelope_rejects_legacy_and_garbage() -> None:
     assert _parse_envelope('{"type":123}') is None
 
 
-def test_sessions_list_includes_active_run_started_at() -> None:
+def test_sessions_list_includes_active_run_started_at(monkeypatch) -> None:
     from websockets.datastructures import Headers
     from websockets.http11 import Request
 
     from nanobot.session import webui_turns as wth
+    from nanobot.webui import ws_http as ws_http_module
 
     bus = MagicMock()
     session_manager = MagicMock()
-    session_manager.list_sessions.return_value = [
+    sessions = [
         {
             "key": "websocket:chat-1",
             "created_at": "2026-05-19T10:00:00Z",
@@ -2641,6 +2642,7 @@ def test_sessions_list_includes_active_run_started_at() -> None:
             "updated_at": "2026-05-19T10:01:00Z",
         },
     ]
+    monkeypatch.setattr(ws_http_module, "list_webui_sessions", lambda _session_manager: sessions)
     channel = WebSocketChannel(
         {"enabled": True, "allowFrom": ["*"]},
         bus,
@@ -2716,6 +2718,45 @@ def test_handle_webui_thread_get_returns_json(tmp_path, monkeypatch) -> None:
     assert len(body["messages"]) == 1
     assert body["messages"][0]["role"] == "user"
     assert body["messages"][0]["content"] == "hi"
+
+
+def test_handle_webui_thread_get_accepts_pagination_query(tmp_path, monkeypatch) -> None:
+    from urllib.parse import quote
+
+    from websockets.datastructures import Headers
+    from websockets.http11 import Request
+
+    from nanobot.webui.transcript import append_transcript_object
+
+    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    key = "websocket:paged-route"
+    for idx in range(1, 4):
+        append_transcript_object(
+            key,
+            {"event": "user", "chat_id": "paged-route", "text": f"q{idx}"},
+        )
+        append_transcript_object(
+            key,
+            {"event": "message", "chat_id": "paged-route", "text": f"a{idx}"},
+        )
+        append_transcript_object(key, {"event": "turn_end", "chat_id": "paged-route"})
+
+    bus = MagicMock()
+    channel = _ch(bus)
+    channel.gateway.tokens.api_tokens["tok"] = time.monotonic() + 300.0
+    enc = quote(key, safe="")
+    req = Request(
+        f"/api/sessions/{enc}/webui-thread?limit=2&direction=latest",
+        Headers([("Authorization", "Bearer tok")]),
+    )
+
+    resp = channel.gateway.http._handle_webui_thread_get(req, enc)
+
+    assert resp.status_code == 200
+    body = json.loads(resp.body.decode())
+    assert [message["content"] for message in body["messages"]] == ["q3", "a3"]
+    assert body["page"]["has_more_before"] is True
+    assert body["page"]["before_cursor"]
 
 
 def test_handle_file_preview_returns_workspace_file(tmp_path) -> None:

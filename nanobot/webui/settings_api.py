@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from nanobot import __version__
 from nanobot.audio.transcription import resolve_transcription_config
 from nanobot.audio.transcription_registry import (
     resolve_transcription_provider,
@@ -33,8 +34,6 @@ from nanobot.webui.workspaces import (
     read_webui_default_access_mode,
     write_webui_default_access_mode,
 )
-
-from nanobot import __version__
 
 QueryParams = dict[str, list[str]]
 RuntimeSurface = Literal["browser", "native"]
