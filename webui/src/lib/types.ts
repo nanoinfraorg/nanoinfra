@@ -480,10 +480,14 @@ export interface SettingsPayload {
     mcp_server_count: number;
     exec_enabled: boolean;
     exec_sandbox?: string | null;
+    exec_path_prepend_set: boolean;
     exec_path_append_set: boolean;
   };
   requires_restart: boolean;
   restart_required_sections?: Array<"runtime" | "browser" | "image">;
+  version?: {
+    current: string;
+  };
 }
 
 export interface AppPackageRef {

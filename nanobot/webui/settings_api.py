@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from nanobot import __version__
 from nanobot.audio.transcription import resolve_transcription_config
 from nanobot.audio.transcription_registry import (
     resolve_transcription_provider,
@@ -36,6 +37,13 @@ from nanobot.webui.workspaces import (
 
 QueryParams = dict[str, list[str]]
 RuntimeSurface = Literal["browser", "native"]
+
+
+def _version_payload() -> dict[str, Any]:
+    """Return version info for the settings payload."""
+    return {
+        "current": __version__,
+    }
 
 _RUNTIME_CAPABILITIES = {
     "can_restart_engine": False,
@@ -801,9 +809,11 @@ def settings_payload(
             "mcp_server_count": len(config.tools.mcp_servers),
             "exec_enabled": exec_config.enable,
             "exec_sandbox": exec_config.sandbox or None,
+            "exec_path_prepend_set": bool(exec_config.path_prepend),
             "exec_path_append_set": bool(exec_config.path_append),
         },
         "requires_restart": requires_restart,
+        "version": _version_payload(),
     }
     return decorate_settings_payload(
         payload,
