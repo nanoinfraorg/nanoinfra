@@ -14,6 +14,7 @@ from typing import Any, Callable, Coroutine, Literal
 from filelock import FileLock
 from loguru import logger
 
+from nanobot.cron.automation import is_bound_agent_job
 from nanobot.cron.types import (
     CronJob,
     CronJobState,
@@ -508,7 +509,7 @@ class CronService:
         return [
             job
             for job in self.list_jobs(include_disabled=include_disabled)
-            if job.payload.kind == "agent_turn"
+            if is_bound_agent_job(job)
             and job.payload.session_key == session_key
         ]
 
