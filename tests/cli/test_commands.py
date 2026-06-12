@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.cli.commands import app
 from nanobot.config.schema import Config
+from nanobot.cron.service import CronJobSkippedError
 from nanobot.cron.session_turns import CRON_DEFER_UNTIL_IDLE_META, CRON_TRIGGER_META
 from nanobot.cron.types import CronJob, CronPayload
 from nanobot.cron.webui_metadata import cron_proactive_delivery_metadata
@@ -1305,9 +1306,9 @@ def test_gateway_unbound_agent_cron_is_skipped(
         ),
     )
 
-    response = asyncio.run(cron.on_job(job))
+    with pytest.raises(CronJobSkippedError, match="unbound agent cron job"):
+        asyncio.run(cron.on_job(job))
 
-    assert response is None
     bus.publish_outbound.assert_not_awaited()
 
 
