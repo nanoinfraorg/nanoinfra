@@ -61,7 +61,11 @@ from nanobot.webui.http_utils import (
     safe_host_header as _safe_host_header,
 )
 from nanobot.webui.media_gateway import WebUIMediaGateway
-from nanobot.webui.session_automations import session_automations_payload
+from nanobot.webui.session_automations import (
+    serialize_automation_jobs,
+    session_automation_jobs,
+    session_automations_payload,
+)
 from nanobot.webui.session_list_index import list_webui_sessions
 from nanobot.webui.sidebar_state import (
     read_webui_sidebar_state,
@@ -142,6 +146,7 @@ class GatewayHTTPHandler:
         skills_workspace_path: Path,
         disabled_skills: set[str] | None = None,
         cron_service: CronService | None = None,
+        cron_pending_job_ids: Callable[[str], set[str]] | None = None,
         log: Any = logger,
     ) -> None:
         self.config = config
@@ -155,6 +160,7 @@ class GatewayHTTPHandler:
         self.skills_workspace_path = skills_workspace_path
         self.disabled_skills = disabled_skills or set()
         self.cron_service = cron_service
+        self.cron_pending_job_ids = cron_pending_job_ids
         self._log = log
         self._runtime_surface = runtime_surface
 
@@ -432,8 +438,15 @@ class GatewayHTTPHandler:
             return _http_error(400, "invalid session key")
         if not _is_websocket_channel_session_key(decoded_key):
             return _http_error(404, "session not found")
+        pending_job_ids: set[str] = set()
+        if self.cron_pending_job_ids is not None:
+            pending_job_ids = self.cron_pending_job_ids(decoded_key)
         return _http_json_response(
-            session_automations_payload(self.cron_service, decoded_key)
+            session_automations_payload(
+                self.cron_service,
+                decoded_key,
+                pending_job_ids=pending_job_ids,
+            )
         )
 
     def _handle_session_delete(self, request: WsRequest, key: str) -> Response:
@@ -446,6 +459,20 @@ class GatewayHTTPHandler:
             return _http_error(400, "invalid session key")
         if not _is_websocket_channel_session_key(decoded_key):
             return _http_error(404, "session not found")
+        query = _parse_query(request.path)
+        delete_automations = (_query_first(query, "delete_automations") or "").lower()
+        automation_jobs = session_automation_jobs(self.cron_service, decoded_key)
+        if automation_jobs and delete_automations not in {"1", "true", "yes"}:
+            return _http_json_response(
+                {
+                    "deleted": False,
+                    "blocked_by_automations": True,
+                    "automations": serialize_automation_jobs(automation_jobs),
+                }
+            )
+        if automation_jobs and self.cron_service is not None:
+            for job in automation_jobs:
+                self.cron_service.remove_job(job.id)
         deleted = self.session_manager.delete_session(decoded_key)
         delete_webui_thread(decoded_key)
         return _http_json_response({"deleted": bool(deleted)})

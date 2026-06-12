@@ -1,12 +1,14 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ChatSummary } from "@/lib/types";
+import i18n from "@/i18n";
+import type { ChatSummary, SessionAutomationJob } from "@/lib/types";
 
 const connectSpy = vi.fn();
 const refreshSpy = vi.fn();
 const createChatSpy = vi.fn().mockResolvedValue("chat-1");
 const deleteChatSpy = vi.fn();
+const getSessionAutomationsSpy = vi.fn<(key: string) => Promise<SessionAutomationJob[]>>();
 const toggleThemeSpy = vi.fn();
 const updateUrlSpy = vi.fn();
 const attachSpy = vi.fn();
@@ -146,9 +148,12 @@ vi.mock("@/hooks/useSessions", async (importOriginal) => {
         refresh: refreshSpy,
         createChat: createChatSpy,
         forkChat: async () => "fork-chat",
-        deleteChat: async (key: string) => {
-          await deleteChatSpy(key);
+        getSessionAutomations: getSessionAutomationsSpy,
+        deleteChat: async (key: string, options?: { deleteAutomations?: boolean }) => {
+          if (options === undefined) await deleteChatSpy(key);
+          else await deleteChatSpy(key, options);
           setSessions((prev: ChatSummary[]) => prev.filter((s) => s.key !== key));
+          return { deleted: true };
         },
       };
     },
@@ -210,13 +215,15 @@ import { deriveWsUrl, fetchBootstrap } from "@/lib/bootstrap";
 import App from "@/App";
 
 describe("App layout", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     mockSessions = [];
     connectSpy.mockClear();
     updateUrlSpy.mockClear();
     refreshSpy.mockReset();
     createChatSpy.mockClear();
     deleteChatSpy.mockReset();
+    getSessionAutomationsSpy.mockReset().mockResolvedValue([]);
     toggleThemeSpy.mockReset();
     attachSpy.mockReset();
     runStatusHandlers.clear();
@@ -431,6 +438,74 @@ describe("App layout", () => {
     );
     expect(screen.queryByText("Delete this chat?")).not.toBeInTheDocument();
     expect(document.body.style.pointerEvents).not.toBe("none");
+  }, 15_000);
+
+  it("shows localized bound automations in the first delete confirmation", async () => {
+    mockSessions = [
+      {
+        key: "websocket:chat-a",
+        channel: "websocket",
+        chatId: "chat-a",
+        createdAt: "2026-04-16T10:00:00Z",
+        updatedAt: "2026-04-16T10:00:00Z",
+        preview: "First chat",
+      },
+      {
+        key: "websocket:chat-b",
+        channel: "websocket",
+        chatId: "chat-b",
+        createdAt: "2026-04-16T11:00:00Z",
+        updatedAt: "2026-04-16T11:00:00Z",
+        preview: "Second chat",
+      },
+    ];
+    getSessionAutomationsSpy.mockResolvedValue([
+      {
+        id: "job-1",
+        name: "Daily repo check",
+        enabled: true,
+        schedule: { kind: "every", every_ms: 86_400_000 },
+        payload: { message: "Check the repo" },
+        state: { next_run_at_ms: Date.UTC(2026, 3, 17, 10, 0, 0) },
+      },
+    ]);
+    await i18n.changeLanguage("zh-CN");
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "侧边栏导航" });
+    await waitFor(() =>
+      expect(
+        within(sidebar).getByRole("button", { name: /^First chat$/ }),
+      ).toBeInTheDocument(),
+    );
+
+    fireEvent.pointerDown(screen.getByLabelText(/First chat.*会话操作/), {
+      button: 0,
+    });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "删除" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Daily repo check")).toBeInTheDocument(),
+    );
+    expect(getSessionAutomationsSpy).toHaveBeenCalledWith("websocket:chat-a");
+    expect(
+      screen.getByText("这个对话有关联的自动任务。删除对话也会删除这些自动任务。"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("This chat has scheduled automations. Deleting it will also delete them."),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "删除对话和自动任务" }));
+
+    await waitFor(() =>
+      expect(deleteChatSpy).toHaveBeenCalledWith("websocket:chat-a", {
+        deleteAutomations: true,
+      }),
+    );
+    expect(deleteChatSpy).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Daily repo check")).not.toBeInTheDocument();
   }, 15_000);
 
   it("keeps the mobile session action menu inside the sidebar sheet", async () => {

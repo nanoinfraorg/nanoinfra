@@ -36,6 +36,7 @@ import { ClientProvider, useClient } from "@/providers/ClientProvider";
 import type {
   ChatSummary,
   RuntimeSurface,
+  SessionAutomationJob,
   SettingsPayload,
   WorkspaceScopePayload,
   WorkspacesPayload,
@@ -527,7 +528,15 @@ function Shell({
   const { t, i18n } = useTranslation();
   const { client, token } = useClient();
   const { theme, toggle } = useTheme();
-  const { sessions, loading, refresh, createChat, forkChat, deleteChat } = useSessions();
+  const {
+    sessions,
+    loading,
+    refresh,
+    createChat,
+    forkChat,
+    deleteChat,
+    getSessionAutomations,
+  } = useSessions();
   const { state: sidebarState, update: updateSidebarState } =
     useSidebarState(sessions, !loading);
   const initialRouteRef = useRef<ShellRoute | null>(null);
@@ -546,6 +555,7 @@ function Shell({
   const [pendingDelete, setPendingDelete] = useState<{
     key: string;
     label: string;
+    automations?: SessionAutomationJob[];
   } | null>(null);
   const [pendingRename, setPendingRename] = useState<{
     key: string;
@@ -1270,32 +1280,46 @@ function Shell({
   const onConfirmDelete = useCallback(async () => {
     if (!pendingDelete) return;
     const key = pendingDelete.key;
+    const hasAutomations = (pendingDelete.automations?.length ?? 0) > 0;
     const deletingActive = activeKey === key;
     const currentIndex = sessions.findIndex((s) => s.key === key);
     const fallbackKey = deletingActive
       ? (sessions[currentIndex + 1]?.key ?? sessions[currentIndex - 1]?.key ?? null)
       : activeKey;
-    setPendingDelete(null);
-    if (deletingActive) {
-      navigate({
-        view: "chat",
-        activeKey: fallbackKey,
-        settingsSection: "overview",
-      }, { replace: true });
-    }
     try {
-      await deleteChat(key);
-    } catch (e) {
+      const result = await deleteChat(
+        key,
+        hasAutomations ? { deleteAutomations: true } : undefined,
+      );
+      if (result.blocked_by_automations) {
+        setPendingDelete({
+          ...pendingDelete,
+          automations: result.automations ?? [],
+        });
+        return;
+      }
+      setPendingDelete(null);
       if (deletingActive) {
         navigate({
           view: "chat",
-          activeKey: key,
+          activeKey: fallbackKey,
           settingsSection: "overview",
         }, { replace: true });
       }
+    } catch (e) {
       console.error("Failed to delete session", e);
     }
   }, [pendingDelete, deleteChat, activeKey, navigate, sessions]);
+
+  const onRequestDelete = useCallback(async (key: string, label: string) => {
+    let automations: SessionAutomationJob[] = [];
+    try {
+      automations = await getSessionAutomations(key);
+    } catch {
+      // Delete remains protected by the backend block; prefetch only improves the first prompt.
+    }
+    setPendingDelete({ key, label, automations });
+  }, [getSessionAutomations]);
 
   const headerTitle = activeSession
     ? sidebarState.title_overrides[activeSession.key] ||
@@ -1333,8 +1357,7 @@ function Shell({
     loading,
     onNewChat,
     onSelect: onSelectChat,
-    onRequestDelete: (key: string, label: string) =>
-      setPendingDelete({ key, label }),
+    onRequestDelete,
     onTogglePin,
     onRequestRename,
     onToggleArchive,
@@ -1559,6 +1582,7 @@ function Shell({
         <DeleteConfirm
           open={!!pendingDelete}
           title={pendingDelete?.label ?? ""}
+          automations={pendingDelete?.automations}
           onCancel={() => setPendingDelete(null)}
           onConfirm={onConfirmDelete}
         />

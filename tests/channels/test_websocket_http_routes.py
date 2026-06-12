@@ -14,6 +14,7 @@ import pytest
 from nanobot.channels.websocket import WebSocketChannel, WebSocketConfig
 from nanobot.cron.service import CronService
 from nanobot.cron.types import CronJob, CronPayload, CronSchedule
+from nanobot.session.keys import UNIFIED_SESSION_KEY
 from nanobot.session.manager import Session, SessionManager
 from nanobot.webui.gateway_services import GatewayServices, build_gateway_services
 
@@ -29,6 +30,7 @@ def _make_handler(
     workspace_path: Path | None = None,
     runtime_model_name: Any | None = None,
     cron_service: CronService | None = None,
+    cron_pending_job_ids: Any | None = None,
 ) -> GatewayServices:
     config = WebSocketConfig.model_validate(cfg) if isinstance(cfg, dict) else cfg
     workspace = workspace_path or Path.cwd()
@@ -43,6 +45,7 @@ def _make_handler(
         runtime_surface="browser",
         runtime_capabilities_overrides=None,
         cron_service=cron_service,
+        cron_pending_job_ids=cron_pending_job_ids,
     )
 
 
@@ -55,6 +58,7 @@ def _ch(
     port: int = _PORT,
     runtime_model_name: Any | None = None,
     cron_service: CronService | None = None,
+    cron_pending_job_ids: Any | None = None,
     **extra: Any,
 ) -> WebSocketChannel:
     cfg: dict[str, Any] = {
@@ -73,6 +77,7 @@ def _ch(
         workspace_path=workspace_path,
         runtime_model_name=runtime_model_name,
         cron_service=cron_service,
+        cron_pending_job_ids=cron_pending_job_ids,
     )
     return WebSocketChannel(cfg, bus, gateway=gateway)
 
@@ -176,18 +181,30 @@ async def test_session_automations_route_filters_by_webui_session(
 ) -> None:
     cron = CronService(tmp_path / "cron" / "jobs.json")
     hourly = CronSchedule(kind="every", every_ms=3_600_000)
+    pending_job_id = ""
     for name, message, to in (
         ("Morning check", "Check the project status", "abc"),
         ("Other session", "Do not show", "other"),
     ):
-        cron.add_job(
+        job = cron.add_job(
             name=name,
             schedule=hourly,
             message=message,
-            channel="websocket",
-            to=to,
             session_key=f"websocket:{to}",
+            origin_channel="websocket",
+            origin_chat_id=to,
         )
+        if name == "Morning check":
+            pending_job_id = job.id
+    cron.add_job(
+        name="Legacy same target",
+        schedule=hourly,
+        message="Legacy job should be migrated",
+        deliver=True,
+        channel="websocket",
+        to="abc",
+        session_key="websocket:abc",
+    )
     cron.register_system_job(
         CronJob(
             id="heartbeat",
@@ -200,6 +217,7 @@ async def test_session_automations_route_filters_by_webui_session(
         bus,
         session_manager=_seed_session(tmp_path, key="websocket:abc"),
         cron_service=cron,
+        cron_pending_job_ids=lambda key: {pending_job_id} if key == "websocket:abc" else set(),
         port=29914,
     )
     server_task = asyncio.create_task(channel.start())
@@ -220,11 +238,66 @@ async def test_session_automations_route_filters_by_webui_session(
 
         assert resp.status_code == 200
         body = resp.json()
-        assert [job["name"] for job in body["jobs"]] == ["Morning check"]
+        assert [job["name"] for job in body["jobs"]] == ["Morning check", "Legacy same target"]
         job = body["jobs"][0]
         assert job["schedule"]["kind"] == "every"
         assert job["schedule"]["every_ms"] == 3_600_000
         assert job["payload"]["message"] == "Check the project status"
+        assert job["state"]["pending"] is True
+        assert body["jobs"][1]["state"]["pending"] is False
+    finally:
+        await channel.stop()
+        await server_task
+
+
+@pytest.mark.asyncio
+async def test_session_automations_route_ignores_unified_owner(
+    bus: MagicMock, tmp_path: Path
+) -> None:
+    cron = CronService(tmp_path / "cron" / "jobs.json")
+    hourly = CronSchedule(kind="every", every_ms=3_600_000)
+    cron.add_job(
+        name="Unified check",
+        schedule=hourly,
+        message="Check the shared session",
+        session_key=UNIFIED_SESSION_KEY,
+        origin_channel="websocket",
+        origin_chat_id="abc",
+    )
+    cron.add_job(
+        name="Visible chat job",
+        schedule=hourly,
+        message="Show for this chat",
+        session_key="websocket:abc",
+        origin_channel="websocket",
+        origin_chat_id="abc",
+    )
+    channel = _ch(
+        bus,
+        session_manager=_seed_session(tmp_path, key="websocket:abc"),
+        cron_service=cron,
+        port=29917,
+    )
+    server_task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        boot = await _http_get("http://127.0.0.1:29917/webui/bootstrap")
+        token = boot.json()["token"]
+        auth = {"Authorization": f"Bearer {token}"}
+
+        resp = await _http_get(
+            "http://127.0.0.1:29917/api/sessions/websocket%3Aabc/automations",
+            headers=auth,
+        )
+        assert resp.status_code == 200
+        assert [job["name"] for job in resp.json()["jobs"]] == ["Visible chat job"]
+
+        resp = await _http_get(
+            "http://127.0.0.1:29917/api/sessions/websocket%3Aother/automations",
+            headers=auth,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["jobs"] == []
     finally:
         await channel.stop()
         await server_task
@@ -654,6 +727,141 @@ async def test_session_delete_removes_file(
         assert resp.json()["deleted"] is True
         assert not path.exists()
         assert not webui_path.exists()
+    finally:
+        await channel.stop()
+        await server_task
+
+
+@pytest.mark.asyncio
+async def test_session_delete_blocks_when_bound_automation_exists(
+    bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    sm = _seed_session(tmp_path, key="websocket:doomed")
+    cron = CronService(tmp_path / "cron" / "jobs.json")
+    cron.add_job(
+        name="Daily check",
+        schedule=CronSchedule(kind="every", every_ms=86_400_000),
+        message="Check the repo",
+        session_key="websocket:doomed",
+        origin_channel="websocket",
+        origin_chat_id="doomed",
+    )
+    channel = _ch(bus, session_manager=sm, cron_service=cron, port=29915)
+    server_task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        boot = await _http_get("http://127.0.0.1:29915/webui/bootstrap")
+        token = boot.json()["token"]
+        auth = {"Authorization": f"Bearer {token}"}
+
+        path = sm._get_session_path("websocket:doomed")
+        resp = await _http_get(
+            "http://127.0.0.1:29915/api/sessions/websocket:doomed/delete",
+            headers=auth,
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["deleted"] is False
+        assert body["blocked_by_automations"] is True
+        assert [job["name"] for job in body["automations"]] == ["Daily check"]
+        assert path.exists()
+        assert cron.list_bound_cron_jobs_for_session("websocket:doomed")
+    finally:
+        await channel.stop()
+        await server_task
+
+
+@pytest.mark.asyncio
+async def test_session_delete_can_cascade_bound_automations(
+    bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    sm = _seed_session(tmp_path, key="websocket:doomed")
+    cron = CronService(tmp_path / "cron" / "jobs.json")
+    cron.add_job(
+        name="Daily check",
+        schedule=CronSchedule(kind="every", every_ms=86_400_000),
+        message="Check the repo",
+        session_key="websocket:doomed",
+        origin_channel="websocket",
+        origin_chat_id="doomed",
+    )
+    cron.add_job(
+        name="Legacy same target",
+        schedule=CronSchedule(kind="every", every_ms=86_400_000),
+        message="Legacy job remains",
+        channel="websocket",
+        to="doomed",
+    )
+    channel = _ch(bus, session_manager=sm, cron_service=cron, port=29916)
+    server_task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        boot = await _http_get("http://127.0.0.1:29916/webui/bootstrap")
+        token = boot.json()["token"]
+        auth = {"Authorization": f"Bearer {token}"}
+
+        path = sm._get_session_path("websocket:doomed")
+        resp = await _http_get(
+            "http://127.0.0.1:29916/api/sessions/websocket:doomed/delete?delete_automations=true",
+            headers=auth,
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["deleted"] is True
+        assert not path.exists()
+        assert cron.list_bound_cron_jobs_for_session("websocket:doomed") == []
+        assert cron.list_jobs(include_disabled=True) == []
+    finally:
+        await channel.stop()
+        await server_task
+
+
+@pytest.mark.asyncio
+async def test_session_delete_blocks_origin_automation_when_unified_enabled(
+    bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    sm = _seed_session(tmp_path, key="websocket:doomed")
+    cron = CronService(tmp_path / "cron" / "jobs.json")
+    cron.add_job(
+        name="Chat daily check",
+        schedule=CronSchedule(kind="every", every_ms=86_400_000),
+        message="Check this chat",
+        session_key="websocket:doomed",
+        origin_channel="websocket",
+        origin_chat_id="doomed",
+    )
+    channel = _ch(
+        bus,
+        session_manager=sm,
+        cron_service=cron,
+        port=29918,
+    )
+    server_task = asyncio.create_task(channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        boot = await _http_get("http://127.0.0.1:29918/webui/bootstrap")
+        token = boot.json()["token"]
+        auth = {"Authorization": f"Bearer {token}"}
+
+        path = sm._get_session_path("websocket:doomed")
+        resp = await _http_get(
+            "http://127.0.0.1:29918/api/sessions/websocket:doomed/delete",
+            headers=auth,
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["deleted"] is False
+        assert body["blocked_by_automations"] is True
+        assert [job["name"] for job in body["automations"]] == ["Chat daily check"]
+        assert path.exists()
+        assert [job.name for job in cron.list_bound_cron_jobs_for_session("websocket:doomed")] == [
+            "Chat daily check"
+        ]
     finally:
         await channel.stop()
         await server_task

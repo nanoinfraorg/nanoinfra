@@ -5,10 +5,8 @@ import os
 import select
 import signal
 import sys
-import uuid
 from collections.abc import Callable
 from contextlib import nullcontext, suppress
-from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -86,32 +84,6 @@ class SafeFileHistory(FileHistory):
     def store_string(self, string: str) -> None:
         super().store_string(_sanitize_surrogates(string))
 
-
-_WEBUI_TURN_META_KEY = "webui_turn_id"
-_WEBUI_MESSAGE_SOURCE_META_KEY = "_webui_message_source"
-_PROACTIVE_WEBUI_METADATA: ContextVar[dict[str, Any] | None] = ContextVar(
-    "proactive_webui_metadata",
-    default=None,
-)
-
-
-def _proactive_delivery_metadata(
-    channel: str,
-    metadata: dict[str, Any] | None,
-    *,
-    turn_seed: str,
-    source_label: str | None = None,
-) -> dict[str, Any]:
-    """Return channel metadata for a fresh proactive delivery turn."""
-    out = dict(metadata or {})
-    out.pop(_WEBUI_TURN_META_KEY, None)
-    if channel == "websocket":
-        out[_WEBUI_TURN_META_KEY] = f"{turn_seed}:{uuid.uuid4().hex}"
-        source: dict[str, str] = {"kind": "cron"}
-        if source_label:
-            source["label"] = source_label
-        out[_WEBUI_MESSAGE_SOURCE_META_KEY] = source
-    return out
 
 app = typer.Typer(
     name="nanobot",
@@ -970,12 +942,13 @@ def _run_gateway(
     health_server_enabled: bool = True,
 ) -> None:
     """Shared gateway runtime; ``open_browser_url`` opens a tab once channels are up."""
-    from nanobot.agent.tools.cron import CronTool
     from nanobot.agent.tools.message import MessageTool
     from nanobot.bus.queue import MessageBus
     from nanobot.bus.runtime_events import RuntimeEventBus
     from nanobot.channels.manager import ChannelManager
-    from nanobot.cron.service import CronService
+    from nanobot.cron.bound_runner import run_bound_cron_job
+    from nanobot.cron.service import CronJobSkippedError, CronService
+    from nanobot.cron.session_turns import is_bound_cron_job
     from nanobot.cron.types import CronJob
     from nanobot.providers.factory import build_provider_snapshot, load_provider_snapshot
     from nanobot.providers.image_generation import image_gen_provider_configs
@@ -1024,14 +997,14 @@ def _run_gateway(
         schedule_background=lambda coro: agent._schedule_background(coro),
     ).subscribe(runtime_events)
 
-    from nanobot.agent.loop import UNIFIED_SESSION_KEY
     from nanobot.bus.events import OutboundMessage
+    from nanobot.session.keys import session_key_for_channel
 
     def _channel_session_key(channel: str, chat_id: str) -> str:
-        return (
-            UNIFIED_SESSION_KEY
-            if config.agents.defaults.unified_session
-            else f"{channel}:{chat_id}"
+        return session_key_for_channel(
+            channel,
+            chat_id,
+            unified_session=config.agents.defaults.unified_session,
         )
 
     async def _deliver_to_channel(
@@ -1040,9 +1013,6 @@ def _run_gateway(
         """Publish a user-visible message and mirror it into that channel's session."""
         metadata = dict(msg.metadata or {})
         record = record or bool(metadata.pop("_record_channel_delivery", False))
-        proactive_webui_metadata = _PROACTIVE_WEBUI_METADATA.get()
-        if record and msg.channel == "websocket" and proactive_webui_metadata:
-            metadata = {**metadata, **proactive_webui_metadata}
         if metadata != (msg.metadata or {}):
             msg = OutboundMessage(
                 channel=msg.channel,
@@ -1194,73 +1164,17 @@ def _run_gateway(
                 logger.info("Heartbeat: silenced by post-run evaluation")
             return response
 
-        reminder_note = (
-            "The scheduled time has arrived. Deliver this reminder to the user now, "
-            "as a brief and natural message in their language. Speak directly to them — "
-            "do not narrate progress, summarize, include user IDs, or add status reports "
-            "like 'Done' or 'Reminded'.\n\n"
-            f"Reminder: {job.payload.message}"
+        if is_bound_cron_job(job):
+            return await run_bound_cron_job(job, agent=agent, cron=cron)
+
+        reason = "unbound agent cron job must be recreated from a chat session"
+        logger.warning(
+            "Cron: skipped unbound agent job '{}' ({}): {}",
+            job.name,
+            job.id,
+            reason,
         )
-
-        cron_tool = agent.tools.get("cron")
-        cron_token = None
-        if isinstance(cron_tool, CronTool):
-            cron_token = cron_tool.set_cron_context(True)
-
-        message_record_token = None
-        if isinstance(message_tool, MessageTool):
-            message_record_token = message_tool.set_record_channel_delivery(True)
-
-        proactive_webui_metadata = _proactive_delivery_metadata(
-            "websocket",
-            None,
-            turn_seed=f"cron:{job.id}",
-            source_label=job.name,
-        )
-        proactive_token = _PROACTIVE_WEBUI_METADATA.set(proactive_webui_metadata)
-
-        try:
-            resp = await agent.process_direct(
-                reminder_note,
-                session_key=f"cron:{job.id}",
-                channel=job.payload.channel or "cli",
-                chat_id=job.payload.to or "direct",
-                on_progress=_silent,
-            )
-        finally:
-            _PROACTIVE_WEBUI_METADATA.reset(proactive_token)
-            if isinstance(cron_tool, CronTool) and cron_token is not None:
-                cron_tool.reset_cron_context(cron_token)
-            if isinstance(message_tool, MessageTool) and message_record_token is not None:
-                message_tool.reset_record_channel_delivery(message_record_token)
-
-        response = resp.content if resp else ""
-
-        if job.payload.deliver and isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
-            return response
-
-        if job.payload.deliver and job.payload.to and response:
-            should_notify = await evaluate_response(
-                response, reminder_note, agent.provider, agent.model,
-            )
-            if should_notify:
-                proactive_metadata = _proactive_delivery_metadata(
-                    job.payload.channel or "cli",
-                    job.payload.channel_meta,
-                    turn_seed=f"cron:{job.id}",
-                    source_label=job.name,
-                )
-                await _deliver_to_channel(
-                    OutboundMessage(
-                        channel=job.payload.channel or "cli",
-                        chat_id=job.payload.to,
-                        content=response,
-                        metadata=proactive_metadata,
-                    ),
-                    record=True,
-                    session_key=job.payload.session_key,
-                )
-        return response
+        raise CronJobSkippedError(reason)
 
     cron.on_job = on_cron_job
 
@@ -1279,6 +1193,7 @@ def _run_gateway(
         session_manager=session_manager,
         cron_service=cron,
         webui_runtime_model_name=_webui_runtime_model_name,
+        webui_cron_pending_job_ids=getattr(agent, "pending_cron_job_ids_for_session", None),
         webui_static_dist=webui_static_dist,
         webui_runtime_surface=webui_runtime_surface,
         webui_runtime_capabilities=webui_runtime_capabilities,

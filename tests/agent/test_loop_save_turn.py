@@ -8,6 +8,7 @@ from nanobot.agent.context import ContextBuilder
 from nanobot.agent.loop import AgentLoop
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
+from nanobot.cron.session_turns import CRON_HISTORY_META, CRON_TRIGGER_META
 from nanobot.providers.base import LLMResponse
 from nanobot.session.goal_state import GOAL_STATE_KEY
 from nanobot.session.manager import Session, SessionManager
@@ -62,6 +63,41 @@ def test_agent_loop_llm_runtime_reflects_current_provider_and_model(tmp_path: Pa
 
     assert runtime.provider is next_provider
     assert runtime.model == "next-model"
+
+
+def test_persist_cron_turn_uses_distinct_history_marker(tmp_path: Path) -> None:
+    loop = _make_full_loop(tmp_path)
+    session = loop.sessions.get_or_create("websocket:auto")
+    prompt_ref = {"id": "cron.agent_turn.reminder", "version": 1, "sha256": "abc"}
+
+    persisted = loop._persist_user_message_early(
+        InboundMessage(
+            channel="websocket",
+            sender_id="cron",
+            chat_id="auto",
+            content="Cron job: internal prompt",
+            metadata={
+                CRON_TRIGGER_META: {
+                    "job_id": "job-1",
+                    "job_name": "Daily check",
+                    "run_id": "job-1:1",
+                    "prompt_ref": prompt_ref,
+                    "persist_content": "Scheduled cron job triggered: Daily check",
+                }
+            },
+        ),
+        session,
+    )
+
+    assert persisted is True
+    message = session.messages[-1]
+    assert message["content"] == "Scheduled cron job triggered: Daily check"
+    assert message[CRON_HISTORY_META] is True
+    assert CRON_TRIGGER_META not in message
+    assert message["cron_job_id"] == "job-1"
+    assert message["cron_job_name"] == "Daily check"
+    assert message["cron_run_id"] == "job-1:1"
+    assert message["cron_prompt_ref"] == prompt_ref
 
 
 def test_clean_generated_title_strips_reasoning_tags() -> None:
@@ -136,6 +172,31 @@ async def test_generate_webui_title_ignores_command_only_sessions(tmp_path: Path
     generated = await maybe_generate_webui_title(
         sessions=loop.sessions,
         session_key="websocket:command-title",
+        provider=loop.provider,
+        model=loop.model,
+    )
+
+    assert generated is False
+    assert WEBUI_TITLE_METADATA_KEY not in session.metadata
+    loop.provider.chat_with_retry.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_generate_webui_title_ignores_cron_internal_turns(tmp_path: Path) -> None:
+    loop = _make_full_loop(tmp_path)
+    session = loop.sessions.get_or_create("websocket:cron-title")
+    session.metadata[WEBUI_SESSION_METADATA_KEY] = True
+    session.add_message(
+        "user",
+        "Scheduled cron job triggered: 30s-test\n\nInternal reminder prompt",
+        **{CRON_HISTORY_META: True},
+    )
+    session.add_message("assistant", "提醒已经到期。")
+    loop.sessions.save(session)
+
+    generated = await maybe_generate_webui_title(
+        sessions=loop.sessions,
+        session_key="websocket:cron-title",
         provider=loop.provider,
         model=loop.model,
     )
