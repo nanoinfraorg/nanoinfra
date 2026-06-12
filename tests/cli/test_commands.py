@@ -11,11 +11,13 @@ from typer.testing import CliRunner
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.cli.commands import _proactive_delivery_metadata, app
 from nanobot.config.schema import Config
+from nanobot.cron.automation import AUTOMATION_DEFER_UNTIL_IDLE_META, AUTOMATION_TRIGGER_META
 from nanobot.cron.types import CronJob, CronPayload
 from nanobot.providers.factory import ProviderSnapshot, make_provider
 from nanobot.providers.openai_codex_provider import _strip_model_prefix
 from nanobot.providers.registry import find_by_name
 from nanobot.session.routing import SESSION_ROUTING_METADATA_KEY
+from nanobot.webui.metadata import WEBUI_MESSAGE_SOURCE_METADATA_KEY, WEBUI_TURN_METADATA_KEY
 
 runner = CliRunner()
 
@@ -23,7 +25,7 @@ runner = CliRunner()
 def test_proactive_websocket_delivery_gets_fresh_turn_id() -> None:
     metadata = {
         "webui": True,
-        "webui_turn_id": "turn-that-created-the-reminder",
+        WEBUI_TURN_METADATA_KEY: "turn-that-created-the-reminder",
         "workspace_scope": {"mode": "default"},
     }
 
@@ -36,9 +38,9 @@ def test_proactive_websocket_delivery_gets_fresh_turn_id() -> None:
 
     assert out["webui"] is True
     assert out["workspace_scope"] == {"mode": "default"}
-    assert out["webui_turn_id"].startswith("cron:drink-water:")
-    assert out["webui_turn_id"] != metadata["webui_turn_id"]
-    assert out["_webui_message_source"] == {"kind": "cron", "label": "drink water"}
+    assert out[WEBUI_TURN_METADATA_KEY].startswith("cron:drink-water:")
+    assert out[WEBUI_TURN_METADATA_KEY] != metadata[WEBUI_TURN_METADATA_KEY]
+    assert out[WEBUI_MESSAGE_SOURCE_METADATA_KEY] == {"kind": "cron", "label": "drink water"}
 
 
 def _fake_provider():
@@ -1350,7 +1352,7 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
             to="chat-1",
             channel_meta={
                 "webui": True,
-                "webui_turn_id": old_turn_id,
+                WEBUI_TURN_METADATA_KEY: old_turn_id,
                 "workspace_scope": {"mode": "default"},
             },
         ),
@@ -1365,9 +1367,9 @@ def test_gateway_cron_evaluator_receives_scheduled_reminder_context(
     assert delivered.chat_id == "chat-1"
     assert delivered.metadata["webui"] is True
     assert delivered.metadata["workspace_scope"] == {"mode": "default"}
-    assert delivered.metadata["webui_turn_id"].startswith("cron:drink-water:")
-    assert delivered.metadata["webui_turn_id"] != old_turn_id
-    assert delivered.metadata["_webui_message_source"] == {
+    assert delivered.metadata[WEBUI_TURN_METADATA_KEY].startswith("cron:drink-water:")
+    assert delivered.metadata[WEBUI_TURN_METADATA_KEY] != old_turn_id
+    assert delivered.metadata[WEBUI_MESSAGE_SOURCE_METADATA_KEY] == {
         "kind": "cron",
         "label": "drink water",
     }
@@ -1653,14 +1655,17 @@ def test_gateway_bound_cron_runs_as_session_turn(
     assert "Automation: Check repository health." in msg.content
     assert msg.metadata["webui"] is True
     assert msg.metadata["workspace_scope"]["project_path"] == str(tmp_path)
-    assert msg.metadata["_webui_message_source"] == {"kind": "cron", "label": "Repo check"}
-    trigger = msg.metadata["_automation_trigger"]
+    assert msg.metadata[WEBUI_MESSAGE_SOURCE_METADATA_KEY] == {
+        "kind": "cron",
+        "label": "Repo check",
+    }
+    trigger = msg.metadata[AUTOMATION_TRIGGER_META]
     assert trigger["job_id"] == "repo-check"
     assert trigger["job_name"] == "Repo check"
     assert trigger["persist_content"] == (
         "Scheduled automation triggered: Repo check\n\nCheck repository health."
     )
-    assert msg.metadata["_defer_until_session_idle"] is True
+    assert msg.metadata[AUTOMATION_DEFER_UNTIL_IDLE_META] is True
     statuses = [record["status"] for _run_id, record in seen["run_records"]]
     assert statuses == ["queued", "ok"]
     assert seen["run_records"][0][0] == seen["run_records"][1][0]

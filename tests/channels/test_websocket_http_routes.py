@@ -11,10 +11,10 @@ from urllib.parse import urlencode
 import httpx
 import pytest
 
-from nanobot.agent.loop import UNIFIED_SESSION_KEY
 from nanobot.channels.websocket import WebSocketChannel, WebSocketConfig
 from nanobot.cron.service import CronService
 from nanobot.cron.types import CronJob, CronPayload, CronSchedule
+from nanobot.session.keys import UNIFIED_SESSION_KEY
 from nanobot.session.manager import Session, SessionManager
 from nanobot.webui.gateway_services import GatewayServices, build_gateway_services
 

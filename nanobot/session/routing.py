@@ -7,8 +7,7 @@ from typing import Any, Mapping
 from nanobot.bus.events import InboundMessage
 from nanobot.cron.automation import is_automation_turn
 from nanobot.session.manager import Session
-
-SESSION_ROUTING_METADATA_KEY = "_routing_context"
+from nanobot.session.metadata import SESSION_ROUTING_METADATA_KEY
 
 _ROUTING_METADATA_KEYS = {
     "chat_type",

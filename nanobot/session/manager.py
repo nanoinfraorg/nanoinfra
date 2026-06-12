@@ -14,6 +14,7 @@ from typing import Any
 from loguru import logger
 
 from nanobot.config.paths import get_legacy_sessions_dir
+from nanobot.session.metadata import SESSION_ROUTING_METADATA_KEY
 from nanobot.utils.helpers import (
     ensure_dir,
     estimate_message_tokens,
@@ -36,7 +37,7 @@ _FORK_VOLATILE_METADATA_KEYS = {
     "pending_user_turn",
     "runtime_checkpoint",
     "thread_goal",
-    "_routing_context",
+    SESSION_ROUTING_METADATA_KEY,
     "title",
     "title_user_edited",
 }
