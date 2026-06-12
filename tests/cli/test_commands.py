@@ -9,14 +9,18 @@ import pytest
 from typer.testing import CliRunner
 
 from nanobot.bus.events import InboundMessage, OutboundMessage
-from nanobot.cli.commands import _proactive_delivery_metadata, app
+from nanobot.cli.commands import app
 from nanobot.config.schema import Config
 from nanobot.cron.session_turns import CRON_DEFER_UNTIL_IDLE_META, CRON_TRIGGER_META
 from nanobot.cron.types import CronJob, CronPayload
+from nanobot.cron.webui_metadata import cron_proactive_delivery_metadata
 from nanobot.providers.factory import ProviderSnapshot, make_provider
 from nanobot.providers.openai_codex_provider import _strip_model_prefix
 from nanobot.providers.registry import find_by_name
-from nanobot.webui.metadata import WEBUI_MESSAGE_SOURCE_METADATA_KEY, WEBUI_TURN_METADATA_KEY
+from nanobot.webui.metadata import (
+    WEBUI_MESSAGE_SOURCE_METADATA_KEY,
+    WEBUI_TURN_METADATA_KEY,
+)
 
 runner = CliRunner()
 
@@ -28,7 +32,7 @@ def test_proactive_websocket_delivery_gets_fresh_turn_id() -> None:
         "workspace_scope": {"mode": "default"},
     }
 
-    out = _proactive_delivery_metadata(
+    out = cron_proactive_delivery_metadata(
         "websocket",
         metadata,
         turn_seed="cron:drink-water",
