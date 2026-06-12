@@ -29,6 +29,7 @@ import {
   loadSavedSecret,
   saveSecret,
 } from "@/lib/bootstrap";
+import { displayTitle } from "@/lib/chat-groups";
 import { deriveTitle } from "@/lib/format";
 import { NanobotClient } from "@/lib/nanobot-client";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
@@ -81,6 +82,7 @@ const SETTINGS_SECTION_KEYS: SettingsSectionKey[] = [
   "appearance",
   "models",
   "image",
+  "voice",
   "browser",
   "apps",
   "skills",
@@ -525,7 +527,7 @@ function Shell({
   const { t, i18n } = useTranslation();
   const { client, token } = useClient();
   const { theme, toggle } = useTheme();
-  const { sessions, loading, refresh, createChat, deleteChat } = useSessions();
+  const { sessions, loading, refresh, createChat, forkChat, deleteChat } = useSessions();
   const { state: sidebarState, update: updateSidebarState } =
     useSidebarState(sessions, !loading);
   const initialRouteRef = useRef<ShellRoute | null>(null);
@@ -883,6 +885,33 @@ function Shell({
       return null;
     }
   }, [activeWorkspaceScope, createChat, navigate, t]);
+
+  const onForkChat = useCallback(async (
+    sourceChatId: string,
+    beforeUserIndex: number,
+  ) => {
+    try {
+      const sourceSession = sessions.find((session) => session.chatId === sourceChatId);
+      const sourceTitle = sourceSession
+        ? displayTitle(sourceSession, sidebarState.title_overrides, t("chat.newChat"))
+        : t("chat.newChat");
+      const chatId = await forkChat(
+        sourceChatId,
+        beforeUserIndex,
+        t("chat.forkTitle", { title: sourceTitle }),
+      );
+      navigate({
+        view: "chat",
+        activeKey: `websocket:${chatId}`,
+        settingsSection: "overview",
+      });
+      setMobileSidebarOpen(false);
+      return chatId;
+    } catch (e) {
+      console.error("Failed to fork chat", e);
+      return null;
+    }
+  }, [forkChat, navigate, sessions, sidebarState.title_overrides, t]);
 
   const onNewChat = useCallback(() => {
     navigate(defaultShellRoute());
@@ -1485,6 +1514,7 @@ function Shell({
                 onToggleSidebar={toggleSidebar}
                 onNewChat={onNewChat}
                 onCreateChat={onCreateChat}
+                onForkChat={onForkChat}
                 onTurnEnd={onTurnEnd}
                 theme={theme}
                 onToggleTheme={toggle}

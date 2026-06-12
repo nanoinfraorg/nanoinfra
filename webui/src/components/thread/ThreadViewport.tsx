@@ -37,10 +37,17 @@ interface ThreadViewportProps {
   showScrollToBottomButton?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
+  forkBoundaryMessageCount?: number | null;
+  hasMoreBefore?: boolean;
+  loadingOlder?: boolean;
+  userMessageOffset?: number;
+  onLoadOlder?: () => Promise<void> | void;
   onOpenFilePreview?: (path: string) => void;
+  onForkFromMessage?: (beforeUserIndex: number) => void;
 }
 
 const NEAR_BOTTOM_PX = 48;
+const NEAR_TOP_PX = 96;
 const DEFAULT_SCROLL_BUTTON_BOTTOM_PX = 192;
 const SCROLL_BUTTON_COMPOSER_GAP_PX = 16;
 export const INITIAL_HISTORY_WINDOW = 160;
@@ -69,7 +76,13 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
   showScrollToBottomButton = true,
   cliApps = [],
   mcpPresets = [],
+  forkBoundaryMessageCount = null,
+  hasMoreBefore = false,
+  loadingOlder = false,
+  userMessageOffset = 0,
+  onLoadOlder,
   onOpenFilePreview,
+  onForkFromMessage,
 }, ref) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -94,6 +107,15 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     [messages, visibleMessageCount],
   );
   const hiddenMessageCount = messages.length - visibleMessages.length;
+  const hiddenUserMessageCount =
+    userMessageOffset
+    + (hiddenMessageCount > 0
+      ? messages.slice(0, hiddenMessageCount).filter((message) => message.role === "user").length
+      : 0);
+  const visibleForkBoundaryMessageCount =
+    forkBoundaryMessageCount !== null && forkBoundaryMessageCount > hiddenMessageCount
+      ? forkBoundaryMessageCount - hiddenMessageCount
+      : null;
   const scrollButtonBottom = composerDockHeight > 0
     ? composerDockHeight + SCROLL_BUTTON_COMPOSER_GAP_PX
     : DEFAULT_SCROLL_BUTTON_BOTTOM_PX;
@@ -114,6 +136,7 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     } else if (el) {
       el.scrollTo({ top: el.scrollHeight, behavior });
     }
+    userReadingHistoryRef.current = false;
     setAtBottom(true);
   }, []);
 
@@ -147,10 +170,26 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     }
     userReadingHistoryRef.current = true;
     setAtBottom(false);
-    setVisibleMessageCount((count) =>
-      Math.min(messages.length, count + HISTORY_WINDOW_INCREMENT),
-    );
-  }, [messages.length]);
+    if (hiddenMessageCount > 0) {
+      setVisibleMessageCount((count) =>
+        Math.min(messages.length, count + HISTORY_WINDOW_INCREMENT),
+      );
+      return;
+    }
+    if (hasMoreBefore && onLoadOlder && !loadingOlder) {
+      setVisibleMessageCount((count) => count + HISTORY_WINDOW_INCREMENT);
+      void onLoadOlder();
+    }
+  }, [hasMoreBefore, hiddenMessageCount, loadingOlder, messages.length, onLoadOlder]);
+
+  const maybeLoadEarlierFromScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || !hasMessages || pendingConversationScrollRef.current) return;
+    if (!userReadingHistoryRef.current) return;
+    if (el.scrollTop > NEAR_TOP_PX) return;
+    if (hiddenMessageCount <= 0 && !hasMoreBefore) return;
+    loadEarlierMessages();
+  }, [hasMessages, hasMoreBefore, hiddenMessageCount, loadEarlierMessages]);
 
   const jumpToUserPrompt = useCallback((promptId: string) => {
     const scrollEl = scrollRef.current;
@@ -206,8 +245,17 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     restoreScrollAfterPrependRef.current = null;
     if (!el) return;
     const delta = el.scrollHeight - pending.height;
-    el.scrollTop = pending.top + delta;
-  }, [visibleMessages.length]);
+    const nextTop = pending.top + delta;
+    try {
+      el.scrollTop = nextTop;
+    } catch {
+      try {
+        el.scrollTo?.({ top: nextTop, behavior: "auto" });
+      } catch {
+        // Test DOMs can expose read-only scrollTop; browsers keep this writable.
+      }
+    }
+  }, [visibleMessages.length, messages.length]);
 
   useLayoutEffect(() => {
     const promptId = pendingPromptJumpRef.current;
@@ -259,17 +307,19 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     const el = scrollRef.current;
     if (!el) return;
 
-    const onScroll = () => {
+    const onScroll = (allowHistoryLoad = true) => {
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       const near = distance < NEAR_BOTTOM_PX;
       setAtBottom(near);
       userReadingHistoryRef.current = !near;
+      if (allowHistoryLoad && !near) maybeLoadEarlierFromScroll();
     };
 
-    onScroll();
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, []);
+    onScroll(false);
+    const handleScroll = () => onScroll(true);
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [maybeLoadEarlierFromScroll]);
 
   return (
     <div className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -290,11 +340,12 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
                 <ThreadMessages
                   messages={visibleMessages}
                   isStreaming={isStreaming}
-                  hiddenMessageCount={hiddenMessageCount}
-                  onLoadEarlier={loadEarlierMessages}
+                  hiddenUserMessageCount={hiddenUserMessageCount}
                   cliApps={cliApps}
                   mcpPresets={mcpPresets}
+                  forkBoundaryMessageCount={visibleForkBoundaryMessageCount}
                   onOpenFilePreview={onOpenFilePreview}
+                  onForkFromMessage={onForkFromMessage}
                 />
               </div>
             </div>

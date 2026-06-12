@@ -343,6 +343,7 @@ export interface SettingsPayload {
     api_key_hint?: string | null;
     api_base?: string | null;
     default_api_base?: string | null;
+    model_selectable?: boolean;
     api_type?: "auto" | "chat_completions" | "responses";
     oauth_account?: string | null;
     oauth_expires_at?: number | null;
@@ -386,6 +387,23 @@ export interface SettingsPayload {
       label: string;
       configured: boolean;
       auth_type?: "api_key" | "oauth";
+      api_key_hint?: string | null;
+      api_base?: string | null;
+      default_api_base?: string | null;
+    }>;
+  };
+  transcription?: {
+    enabled: boolean;
+    provider: string;
+    provider_configured: boolean;
+    model: string;
+    language: string | null;
+    max_duration_sec: number;
+    max_upload_mb: number;
+    providers: Array<{
+      name: string;
+      label: string;
+      configured: boolean;
       api_key_hint?: string | null;
       api_base?: string | null;
       default_api_base?: string | null;
@@ -462,10 +480,14 @@ export interface SettingsPayload {
     mcp_server_count: number;
     exec_enabled: boolean;
     exec_sandbox?: string | null;
+    exec_path_prepend_set: boolean;
     exec_path_append_set: boolean;
   };
   requires_restart: boolean;
   restart_required_sections?: Array<"runtime" | "browser" | "image">;
+  version?: {
+    current: string;
+  };
 }
 
 export interface AppPackageRef {
@@ -680,6 +702,15 @@ export interface ImageGenerationSettingsUpdate {
   maxImagesPerTurn: number;
 }
 
+export interface TranscriptionSettingsUpdate {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  language: string;
+  maxDurationSec: number;
+  maxUploadMb: number;
+}
+
 export interface SlashCommand {
   command: string;
   title: string;
@@ -782,6 +813,13 @@ export type InboundEvent =
       scope?: "metadata" | "thread" | string;
       workspace_scope?: WorkspaceScopePayload;
     }
+  | { event: "transcription_result"; request_id: string; text: string }
+  | {
+      event: "transcription_error";
+      request_id?: string;
+      detail?: string;
+      provider?: string;
+    }
   | { event: "error"; chat_id?: string; detail?: string; reason?: string };
 
 /** Base64-encoded image attached to an outbound ``message`` envelope.
@@ -823,11 +861,21 @@ export interface OutboundMcpPresetMention {
 }
 
 /** Response shape for ``GET .../webui-thread`` (server-built transcript replay). */
+export interface WebuiThreadPagePayload {
+  before_cursor?: string | null;
+  has_more_before?: boolean;
+  loaded_message_count?: number;
+  total_known_message_count?: number;
+  user_message_offset?: number;
+}
+
 export interface WebuiThreadPersistedPayload {
   schemaVersion: number;
   sessionKey?: string;
   savedAt?: string;
   messages: UIMessage[];
+  fork_boundary_message_count?: number;
+  page?: WebuiThreadPagePayload;
   workspace_scope?: WorkspaceScopePayload;
 }
 
@@ -843,8 +891,10 @@ export interface FilePreviewPayload {
 
 export type Outbound =
   | { type: "new_chat"; workspace_scope?: WorkspaceScopePayload }
+  | { type: "fork_chat"; source_chat_id: string; before_user_index: number; title?: string }
   | { type: "attach"; chat_id: string }
   | { type: "set_workspace_scope"; chat_id: string; workspace_scope: WorkspaceScopePayload }
+  | { type: "transcribe_audio"; request_id: string; data_url: string; duration_ms?: number }
   | {
       type: "message";
       chat_id: string;

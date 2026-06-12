@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   Activity,
+  ArrowUpCircle,
   Bot,
   Brain,
   Check,
@@ -22,6 +23,7 @@ import {
   Database,
   Eye,
   EyeOff,
+  ExternalLink,
   Gem,
   Globe2,
   Grid3X3,
@@ -31,6 +33,7 @@ import {
   Layers,
   Loader2,
   LogOut,
+  Mic,
   Moon,
   PlayCircle,
   Plus,
@@ -74,6 +77,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  checkVersion,
   createModelConfiguration,
   fetchSettings,
   fetchSettingsUsage,
@@ -92,6 +96,7 @@ import {
   updateNetworkSafetySettings,
   updateProviderSettings,
   updateSettings,
+  updateTranscriptionSettings,
   updateWebSearchSettings,
 } from "@/lib/api";
 import { notifyCliAppsChanged } from "@/lib/cli-app-events";
@@ -115,6 +120,7 @@ import type {
   ProviderModelsPayload,
   SettingsPayload,
   SkillSummary,
+  TranscriptionSettingsUpdate,
   WebSearchSettingsUpdate,
   WebuiDefaultAccessMode,
 } from "@/lib/types";
@@ -124,6 +130,7 @@ export type SettingsSectionKey =
   | "appearance"
   | "models"
   | "image"
+  | "voice"
   | "browser"
   | "apps"
   | "skills"
@@ -367,6 +374,26 @@ const DEFAULT_IMAGE_GENERATION_FORM: ImageGenerationSettingsUpdate = {
   maxImagesPerTurn: 4,
 };
 
+const DEFAULT_TRANSCRIPTION_FORM: TranscriptionSettingsUpdate = {
+  enabled: true,
+  provider: "groq",
+  model: "",
+  language: "",
+  maxDurationSec: 120,
+  maxUploadMb: 25,
+};
+
+const DEFAULT_TRANSCRIPTION_SETTINGS: NonNullable<SettingsPayload["transcription"]> = {
+  enabled: true,
+  provider: "groq",
+  provider_configured: false,
+  model: "whisper-large-v3",
+  language: null,
+  max_duration_sec: 120,
+  max_upload_mb: 25,
+  providers: [],
+};
+
 const DEFAULT_NETWORK_SAFETY_FORM: NetworkSafetySettingsUpdate = {
   webuiAllowLocalServiceAccess: true,
   webuiDefaultAccessMode: "default",
@@ -416,6 +443,18 @@ function imageGenerationFormFromPayload(payload: SettingsPayload): ImageGenerati
     defaultAspectRatio: payload.image_generation.default_aspect_ratio,
     defaultImageSize: payload.image_generation.default_image_size,
     maxImagesPerTurn: payload.image_generation.max_images_per_turn,
+  };
+}
+
+function transcriptionFormFromPayload(payload: SettingsPayload): TranscriptionSettingsUpdate {
+  const transcription = payload.transcription ?? DEFAULT_TRANSCRIPTION_SETTINGS;
+  return {
+    enabled: transcription.enabled,
+    provider: transcription.provider,
+    model: transcription.model,
+    language: transcription.language ?? "",
+    maxDurationSec: transcription.max_duration_sec,
+    maxUploadMb: transcription.max_upload_mb,
   };
 }
 
@@ -479,6 +518,7 @@ export function SettingsView({
   const [providerSaving, setProviderSaving] = useState<string | null>(null);
   const [webSearchSaving, setWebSearchSaving] = useState(false);
   const [imageGenerationSaving, setImageGenerationSaving] = useState(false);
+  const [transcriptionSaving, setTranscriptionSaving] = useState(false);
   const [networkSafetySaving, setNetworkSafetySaving] = useState(false);
   const [hostEngineApplying, setHostEngineApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -510,6 +550,9 @@ export function SettingsView({
       initialSettings
         ? imageGenerationFormFromPayload(initialSettings)
         : DEFAULT_IMAGE_GENERATION_FORM,
+  );
+  const [transcriptionForm, setTranscriptionForm] = useState<TranscriptionSettingsUpdate>(
+    () => initialSettings ? transcriptionFormFromPayload(initialSettings) : DEFAULT_TRANSCRIPTION_FORM,
   );
   const [networkSafetyForm, setNetworkSafetyForm] = useState<NetworkSafetySettingsUpdate>(() =>
     initialSettings ? networkSafetyFormFromPayload(initialSettings) : DEFAULT_NETWORK_SAFETY_FORM,
@@ -543,6 +586,7 @@ export function SettingsView({
     setForm(agentDraftFromPayload(payload));
     setWebSearchForm((prev) => webSearchFormFromPayload(payload, prev));
     setImageGenerationForm(imageGenerationFormFromPayload(payload));
+    setTranscriptionForm(transcriptionFormFromPayload(payload));
     setNetworkSafetyForm(networkSafetyFormFromPayload(payload));
     if (payload.restart_required_sections) {
       setPendingRestartSections(pendingRestartSectionsFromPayload(payload));
@@ -711,6 +755,19 @@ export function SettingsView({
     );
   }, [imageGenerationForm, settings]);
 
+  const transcriptionDirty = useMemo(() => {
+    if (!settings) return false;
+    const transcription = settings.transcription ?? DEFAULT_TRANSCRIPTION_SETTINGS;
+    return (
+      transcriptionForm.enabled !== transcription.enabled ||
+      transcriptionForm.provider !== transcription.provider ||
+      transcriptionForm.model !== transcription.model ||
+      transcriptionForm.language !== (transcription.language ?? "") ||
+      transcriptionForm.maxDurationSec !== transcription.max_duration_sec ||
+      transcriptionForm.maxUploadMb !== transcription.max_upload_mb
+    );
+  }, [settings, transcriptionForm]);
+
   const networkSafetyDirty = useMemo(() => {
     if (!settings) return false;
     const currentLocalServiceAccess =
@@ -725,7 +782,7 @@ export function SettingsView({
   const configuredModelProviderOptions = useMemo(
     () =>
       settings?.providers
-        .filter((provider) => provider.configured)
+        .filter((provider) => provider.configured && provider.model_selectable !== false)
         .map((provider) => ({ name: provider.name, label: provider.label })) ?? [],
     [settings],
   );
@@ -910,6 +967,24 @@ export function SettingsView({
       setError((err as Error).message);
     } finally {
       setImageGenerationSaving(false);
+    }
+  };
+
+  const saveTranscriptionSettings = async () => {
+    if (!settings || !transcriptionDirty || transcriptionSaving) return;
+    setTranscriptionSaving(true);
+    try {
+      const payload = await updateTranscriptionSettings(token, transcriptionForm);
+      applyPayload(payload);
+      if (payload.requires_restart) {
+        setPendingRestartSections((prev) => ({ ...prev, browser: true }));
+      }
+      await maybeRestartHostEngine(payload);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setTranscriptionSaving(false);
     }
   };
 
@@ -1333,6 +1408,22 @@ export function SettingsView({
             requiresRestartPending={pendingRestartSections.image}
           />
         );
+      case "voice":
+        return (
+          <TranscriptionSettings
+            settings={settings}
+            form={transcriptionForm}
+            dirty={transcriptionDirty}
+            saving={transcriptionSaving}
+            onChangeForm={setTranscriptionForm}
+            onSave={saveTranscriptionSettings}
+            onOpenProviders={() => selectSection("models")}
+            showBrandLogos={localPrefs.brandLogos}
+            onRestart={restartViaSettingsSurface}
+            isRestarting={isRestarting || hostEngineApplying}
+            requiresRestartPending={pendingRestartSections.browser}
+          />
+        );
       case "browser":
         return (
           <WebSettings
@@ -1523,6 +1614,7 @@ const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fal
   { key: "appearance", icon: Palette, fallback: "Appearance" },
   { key: "models", icon: SlidersHorizontal, fallback: "Models" },
   { key: "image", icon: ImageIcon, fallback: "Image" },
+  { key: "voice", icon: Mic, fallback: "Voice" },
   { key: "browser", icon: Globe2, fallback: "Web" },
   { key: "runtime", icon: Server, fallback: "System" },
   { key: "advanced", icon: ShieldCheck, fallback: "Security" },
@@ -1642,11 +1734,38 @@ function OverviewSettings({
   const webStatus = settings.web.enable
     ? tx("settings.values.enabled", "Enabled")
     : tx("settings.values.disabled", "Disabled");
+  const webSearchProvider =
+    settings.web_search.providers.find((provider) => provider.name === settings.web_search.provider) ??
+    settings.web_search.providers[0];
+  const webSearchProviderLabel = providerDisplayLabel(
+    settings.web_search.providers,
+    settings.web_search.provider,
+  );
+  const webSearchCredentialStatus =
+    webSearchProvider?.credential === "none"
+      ? tx("settings.byok.webSearch.noCredentialRequired", "No key required")
+      : webSearchProvider?.credential === "base_url"
+        ? settings.web_search.base_url
+          ? tx("settings.values.configured", "Configured")
+          : tx("settings.values.notConfigured", "Not configured")
+        : settings.web_search.api_key_hint
+          ? tx("settings.values.configured", "Configured")
+          : tx("settings.values.notConfigured", "Not configured");
+  const webCaption = `${webSearchProviderLabel} · ${webSearchCredentialStatus}`;
   const imageStatus = settings.image_generation.enabled
     ? tx("settings.values.enabled", "Enabled")
     : tx("settings.values.disabled", "Disabled");
   const imageCaption = `${providerDisplayLabel(settings.image_generation.providers, settings.image_generation.provider)} · ${
     settings.image_generation.provider_configured
+      ? tx("settings.values.configured", "Configured")
+      : tx("settings.values.notConfigured", "Not configured")
+  }`;
+  const transcription = settings.transcription ?? DEFAULT_TRANSCRIPTION_SETTINGS;
+  const voiceStatus = transcription.enabled
+    ? tx("settings.values.enabled", "Enabled")
+    : tx("settings.values.disabled", "Disabled");
+  const voiceCaption = `${providerDisplayLabel(transcription.providers, transcription.provider)} · ${
+    transcription.provider_configured
       ? tx("settings.values.configured", "Configured")
       : tx("settings.values.notConfigured", "Not configured")
   }`;
@@ -1666,7 +1785,7 @@ function OverviewSettings({
   return (
     <div className="space-y-7">
       <section>
-        <TokenUsageHeatmap usage={settings.usage} />
+        <TokenUsageHeatmap usage={settings.usage} timeZone={settings.agent.timezone} />
       </section>
 
       <section>
@@ -1691,8 +1810,8 @@ function OverviewSettings({
             icon={Globe2}
             valueLogoProvider={settings.web_search.provider}
             title={tx("settings.overview.webSearch", "Web search")}
-            value={providerDisplayLabel(settings.web_search.providers, settings.web_search.provider)}
-            caption={webStatus}
+            value={webStatus}
+            caption={webCaption}
             showBrandLogos={showBrandLogos}
             onClick={() => onSelectSection("browser")}
           />
@@ -1704,6 +1823,15 @@ function OverviewSettings({
             caption={imageCaption}
             showBrandLogos={showBrandLogos}
             onClick={() => onSelectSection("image")}
+          />
+          <OverviewListRow
+            icon={Mic}
+            valueLogoProvider={transcription.provider}
+            title={tx("settings.overview.voiceInput", "Voice input")}
+            value={voiceStatus}
+            caption={voiceCaption}
+            showBrandLogos={showBrandLogos}
+            onClick={() => onSelectSection("voice")}
           />
         </SettingsGroup>
       </section>
@@ -1727,6 +1855,104 @@ function OverviewSettings({
           />
         </SettingsGroup>
       </section>
+
+      <section>
+        <SettingsSectionTitle>{tx("settings.sections.about", "About")}</SettingsSectionTitle>
+        <SettingsGroup>
+          <VersionCheckRow currentVersion={settings.version?.current} />
+        </SettingsGroup>
+      </section>
+    </div>
+  );
+}
+
+function VersionCheckRow({ currentVersion }: { currentVersion?: string }) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const { token } = useClient();
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<
+    | { type: "up-to-date" }
+    | { type: "update"; latestVersion: string; pypiUrl?: string }
+    | { type: "error"; message: string }
+    | null
+  >(null);
+
+  const handleCheck = async () => {
+    setChecking(true);
+    setResult(null);
+    try {
+      const res = await checkVersion(token);
+      if (res.updateAvailable) {
+        setResult({
+          type: "update",
+          latestVersion: res.updateAvailable.latestVersion,
+          pypiUrl: res.updateAvailable.pypiUrl,
+        });
+      } else {
+        setResult({ type: "up-to-date" });
+      }
+    } catch (err) {
+      setResult({ type: "error", message: (err as Error).message });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-[62px] flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+      <div className="min-w-0">
+        <div className="text-[14px] font-medium leading-5 text-foreground">
+          {tx("settings.about.version", "Version")}
+        </div>
+        <div className="mt-0.5 text-[12px] leading-5 text-muted-foreground">
+          {currentVersion ? `v${currentVersion}` : "nanobot"}
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void handleCheck()}
+          disabled={checking}
+          className="rounded-full"
+        >
+          {checking ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+          ) : (
+            <ArrowUpCircle className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+          )}
+          {checking
+            ? tx("settings.about.checking", "Checking...")
+            : tx("settings.about.checkForUpdates", "Check for updates")}
+        </Button>
+        {result?.type === "up-to-date" ? (
+          <span className="inline-flex items-center gap-1.5 text-[12px] text-emerald-600 dark:text-emerald-300">
+            <Check className="h-3 w-3" aria-hidden />
+            {tx("settings.about.upToDate", "You're up to date")}
+          </span>
+        ) : null}
+        {result?.type === "update" ? (
+          <span className="inline-flex items-center gap-1.5 text-[12px] text-blue-600 dark:text-blue-300">
+            <ArrowUpCircle className="h-3 w-3" aria-hidden />
+            {tx("settings.about.updateAvailable", "Update available")}{result.latestVersion && ` v${result.latestVersion}`}
+            {result.pypiUrl ? (
+              <a
+                href={result.pypiUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-0.5 underline-offset-2 hover:underline"
+              >
+                PyPI
+                <ExternalLink className="h-2.5 w-2.5" aria-hidden />
+              </a>
+            ) : null}
+          </span>
+        ) : null}
+        {result?.type === "error" ? (
+          <span className="text-[12px] text-destructive">{result.message}</span>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -2651,6 +2877,137 @@ function ImageGenerationSettings({
         </SettingsGroup>
       </section>
     </div>
+  );
+}
+
+function TranscriptionSettings({
+  settings,
+  form,
+  dirty,
+  saving,
+  onChangeForm,
+  onSave,
+  onOpenProviders,
+  showBrandLogos,
+  onRestart,
+  isRestarting,
+  requiresRestartPending,
+}: {
+  settings: SettingsPayload;
+  form: TranscriptionSettingsUpdate;
+  dirty: boolean;
+  saving: boolean;
+  onChangeForm: Dispatch<SetStateAction<TranscriptionSettingsUpdate>>;
+  onSave: () => void;
+  onOpenProviders: () => void;
+  showBrandLogos: boolean;
+  onRestart?: () => void;
+  isRestarting?: boolean;
+  requiresRestartPending: boolean;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const transcription = settings.transcription ?? DEFAULT_TRANSCRIPTION_SETTINGS;
+  const selectedProvider =
+    transcription.providers.find((provider) => provider.name === form.provider) ??
+    transcription.providers[0];
+  const providerConfigured = !!selectedProvider?.configured;
+
+  return (
+    <section>
+      <SettingsSectionTitle>{tx("settings.sections.voiceInput", "Voice input")}</SettingsSectionTitle>
+      <SettingsGroup>
+        <SettingsRow
+          title={tx("settings.rows.transcription", "Transcription")}
+          description={tx("settings.help.transcription", "Transcribe microphone input before sending it. Chat channel voice messages use the same settings.")}
+        >
+          <ToggleButton
+            checked={form.enabled}
+            onChange={(enabled) => onChangeForm((prev) => ({ ...prev, enabled }))}
+            ariaLabel={tx("settings.rows.transcription", "Transcription")}
+            label={form.enabled ? tx("settings.values.on", "On") : tx("settings.values.off", "Off")}
+          />
+        </SettingsRow>
+        <SettingsRow
+          title={tx("settings.rows.transcriptionProvider", "Provider")}
+          description={tx("settings.help.transcriptionProvider", "Uses the matching provider credentials from Providers.")}
+        >
+          <ProviderPicker
+            providers={transcription.providers}
+            value={form.provider}
+            emptyLabel={tx("settings.voice.selectProvider", "Select provider")}
+            showProviderLogos={showBrandLogos}
+            onChange={(provider) => onChangeForm((prev) => ({ ...prev, provider }))}
+          />
+        </SettingsRow>
+        <SettingsRow
+          title={tx("settings.rows.transcriptionProviderStatus", "Provider status")}
+          description={tx("settings.help.transcriptionProviderStatus", "API keys stay under providers, not in transcription settings.")}
+        >
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <StatusPill tone={providerConfigured ? "success" : "neutral"}>
+              {providerConfigured
+                ? tx("settings.values.configured", "Configured")
+                : tx("settings.values.notConfigured", "Not configured")}
+            </StatusPill>
+            {!providerConfigured ? (
+              <Button size="sm" variant="outline" onClick={onOpenProviders} className="rounded-full">
+                {tx("settings.voice.configureProvider", "Configure provider")}
+              </Button>
+            ) : null}
+          </div>
+        </SettingsRow>
+        <SettingsRow
+          title={tx("settings.rows.transcriptionModel", "Model")}
+          description={tx("settings.help.transcriptionModel", "Leave as the resolved default unless your provider needs a custom model id.")}
+        >
+          <Input
+            value={form.model}
+            onChange={(event) => onChangeForm((prev) => ({ ...prev, model: event.target.value }))}
+            className="h-8 w-[min(300px,70vw)] rounded-full text-[13px]"
+          />
+        </SettingsRow>
+        <SettingsRow
+          title={tx("settings.rows.transcriptionLanguage", "Language")}
+          description={tx("settings.help.transcriptionLanguage", "Optional ISO-639 hint such as en, zh, ja, or ko.")}
+        >
+          <Input
+            value={form.language}
+            onChange={(event) => onChangeForm((prev) => ({ ...prev, language: event.target.value }))}
+            placeholder={tx("settings.voice.languageAuto", "Auto")}
+            className="h-8 w-[min(180px,60vw)] rounded-full text-[13px]"
+          />
+        </SettingsRow>
+        <SettingsRow title={tx("settings.rows.voiceLimits", "Limits")}>
+          <div className="flex flex-wrap justify-end gap-2">
+            <NumberInput
+              value={form.maxDurationSec}
+              min={1}
+              max={600}
+              suffix="s"
+              onChange={(maxDurationSec) => onChangeForm((prev) => ({ ...prev, maxDurationSec }))}
+            />
+            <NumberInput
+              value={form.maxUploadMb}
+              min={1}
+              max={100}
+              suffix="MB"
+              onChange={(maxUploadMb) => onChangeForm((prev) => ({ ...prev, maxUploadMb }))}
+            />
+          </div>
+        </SettingsRow>
+        <RestartSettingsFooter
+          dirty={dirty}
+          saving={saving}
+          pendingRestart={requiresRestartPending}
+          dirtyMessage={tx("settings.status.restartAfterSaving", "Save changes, then restart when ready.")}
+          pendingMessage={tx("settings.status.savedRestartApply", "Saved. Restart when ready.")}
+          onSave={onSave}
+          onRestart={onRestart}
+          isRestarting={isRestarting}
+        />
+      </SettingsGroup>
+    </section>
   );
 }
 
@@ -4989,6 +5346,7 @@ const PROVIDER_ICONS: Record<string, LucideIcon> = {
   ant_ling: Sparkles,
   azure_openai: Cloud,
   bedrock: Database,
+  bocha: Search,
   brave: Search,
   duckduckgo: Search,
   exa: Search,

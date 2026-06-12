@@ -125,6 +125,7 @@ function baseSettingsPayload() {
       mcp_server_count: 0,
       exec_enabled: true,
       exec_sandbox: null,
+      exec_path_prepend_set: false,
       exec_path_append_set: false,
     },
     requires_restart: false,
@@ -144,6 +145,7 @@ vi.mock("@/hooks/useSessions", async (importOriginal) => {
         error: null,
         refresh: refreshSpy,
         createChat: createChatSpy,
+        forkChat: async () => "fork-chat",
         deleteChat: async (key: string) => {
           await deleteChatSpy(key);
           setSessions((prev: ChatSummary[]) => prev.filter((s) => s.key !== key));
@@ -1022,6 +1024,7 @@ describe("App layout", () => {
                 mcp_server_count: 0,
                 exec_enabled: true,
                 exec_sandbox: null,
+                exec_path_prepend_set: false,
                 exec_path_append_set: false,
               },
               requires_restart: false,
@@ -1172,13 +1175,13 @@ describe("App layout", () => {
 
   it("restores the settings section from the URL hash after a page reload", async () => {
     mockFetchRoutes({ "/api/settings": baseSettingsPayload() });
-    window.history.replaceState(null, "", "/#/settings?section=models");
+    window.history.replaceState(null, "", "/#/settings?section=voice");
 
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
-    expect(await screen.findByRole("heading", { name: "Models" })).toBeInTheDocument();
-    expect(window.location.hash).toBe("#/settings?section=models");
+    expect(await screen.findByRole("heading", { name: "Voice input" })).toBeInTheDocument();
+    expect(window.location.hash).toBe("#/settings?section=voice");
   });
 
   it("updates the URL hash when switching settings sections", async () => {
@@ -1197,6 +1200,11 @@ describe("App layout", () => {
 
     expect(await screen.findByRole("heading", { name: "Models" })).toBeInTheDocument();
     expect(window.location.hash).toBe("#/settings?section=models");
+
+    fireEvent.click(within(settingsNav).getByRole("button", { name: "Voice" }));
+
+    expect(await screen.findByRole("heading", { name: "Voice input" })).toBeInTheDocument();
+    expect(window.location.hash).toBe("#/settings?section=voice");
   });
 
   it("opens Apps from the main sidebar without replacing the sidebar", async () => {
@@ -1343,6 +1351,7 @@ describe("App layout", () => {
                 mcp_server_count: 0,
                 exec_enabled: true,
                 exec_sandbox: null,
+                exec_path_prepend_set: false,
                 exec_path_append_set: false,
               },
               requires_restart: false,
