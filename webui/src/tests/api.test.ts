@@ -4,6 +4,7 @@ import {
   createModelConfiguration,
   deleteSession,
   fetchFilePreview,
+  fetchAutomations,
   fetchCliApps,
   fetchInstalledCliApps,
   fetchMcpPresets,
@@ -20,6 +21,7 @@ import {
   listSlashCommands,
   loginProviderOAuth,
   logoutProviderOAuth,
+  runAutomationAction,
   runCliAppAction,
   runMcpPresetAction,
   saveCustomMcpServer,
@@ -93,6 +95,28 @@ describe("webui API helpers", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "/api/sessions/websocket%3Achat-1/automations",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("fetches workspace automations", async () => {
+    await fetchAutomations("tok");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/webui/automations",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("serializes workspace automation actions", async () => {
+    await runAutomationAction("tok", "disable", "job 1/2");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/webui/automations/disable?id=job+1%2F2",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
