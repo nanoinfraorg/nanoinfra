@@ -1,4 +1,7 @@
-![nanobot README cover](./images/readme-cover.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./images/readme-cover-dark.png">
+  <img alt="nanobot README cover" src="./images/readme-cover-light.png">
+</picture>
 
 <div align="center">
   <p>
