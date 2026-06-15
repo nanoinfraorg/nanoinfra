@@ -570,7 +570,7 @@
         "ok": "Completed",
         "error": "Error",
         "skipped": "Skipped",
-        "recent": "Recent runs",
+        "recent": "Last result",
         "statusWithDuration": "{{status}} · {{duration}}"
       },
       "meta": {
