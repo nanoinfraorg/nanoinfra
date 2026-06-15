@@ -497,7 +497,9 @@
         "schedule": "计划",
         "next": "下次",
         "last": "上次",
-        "origin": "关联会话"
+        "origin": "关联会话",
+        "created": "创建于",
+        "updated": "更新于"
       },
       "runNow": "立即运行",
       "pause": "暂停",
@@ -571,6 +573,7 @@
         "error": "错误",
         "skipped": "已跳过",
         "recent": "最近结果",
+        "timeline": "运行记录",
         "statusWithDuration": "{{status}} · {{duration}}"
       },
       "meta": {
