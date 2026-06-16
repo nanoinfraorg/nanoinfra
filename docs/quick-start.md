@@ -23,7 +23,7 @@ Pick one install method.
 **One-command setup:**
 
 ```bash
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.sh)"
+curl -fsSL https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.sh | sh
 ```
 
 On Windows PowerShell:
@@ -37,7 +37,7 @@ The default command installs or upgrades `nanobot-ai` from PyPI, then starts `na
 To preview the plan without changing your environment, pass `--dry-run`; combine it with `--dev` when you want to preview the main-branch install.
 
 ```bash
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.sh)" -- --dry-run
+curl -fsSL https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.sh | sh -s -- --dry-run
 ```
 
 ```powershell
@@ -47,7 +47,7 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts
 To install the current `main` branch instead, pass `--dev`:
 
 ```bash
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.sh)" -- --dev
+curl -fsSL https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.sh | sh -s -- --dev
 ```
 
 ```powershell
