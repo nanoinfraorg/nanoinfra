@@ -296,6 +296,324 @@ class FeishuConfig(Base):
     topic_isolation: bool = True  # If True, each topic in group chat gets its own session (isolation)
 
 
+# =============================================================================
+# QR scan-to-create onboarding
+#
+# Device-code flow: user scans a QR code with the Feishu/Lark mobile app and
+# the platform creates a fully configured bot application automatically.
+# Called by the CLI onboard wizard during `nanobot --wizard`.
+# =============================================================================
+
+_ONBOARD_ACCOUNTS_URLS = {
+    "feishu": "https://accounts.feishu.cn",
+    "lark": "https://accounts.larksuite.com",
+}
+_ONBOARD_OPEN_URLS = {
+    "feishu": "https://open.feishu.cn",
+    "lark": "https://open.larksuite.com",
+}
+_REGISTRATION_PATH = "/oauth/v1/app/registration"
+_ONBOARD_REQUEST_TIMEOUT_S = 10
+
+
+def _accounts_base_url(domain: str) -> str:
+    return _ONBOARD_ACCOUNTS_URLS.get(domain, _ONBOARD_ACCOUNTS_URLS["feishu"])
+
+
+def _onboard_open_base_url(domain: str) -> str:
+    return _ONBOARD_OPEN_URLS.get(domain, _ONBOARD_OPEN_URLS["feishu"])
+
+
+def _post_registration(base_url: str, body: dict[str, str]) -> dict:
+    """POST form-encoded data to the registration endpoint, return parsed JSON.
+
+    The registration endpoint returns JSON even on HTTP errors (e.g. poll
+    returns authorization_pending as a 400). We always parse the body.
+    """
+    import httpx
+
+    url = f"{base_url}{_REGISTRATION_PATH}"
+    resp = httpx.post(
+        url,
+        data=body,
+        timeout=_ONBOARD_REQUEST_TIMEOUT_S,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        return resp.json()
+    except json.JSONDecodeError:
+        resp.raise_for_status()
+        return {}
+
+
+def _init_registration(domain: str = "feishu") -> None:
+    """Verify the environment supports client_secret auth. Raises RuntimeError if not."""
+    base_url = _accounts_base_url(domain)
+    res = _post_registration(base_url, {"action": "init"})
+    methods = res.get("supported_auth_methods") or []
+    if "client_secret" not in methods:
+        raise RuntimeError(
+            f"Feishu / Lark registration does not support client_secret auth. "
+            f"Supported: {methods}"
+        )
+
+
+def _begin_registration(domain: str = "feishu") -> dict:
+    """Start the device-code flow. Returns device_code, qr_url, user_code, interval, expire_in."""
+    base_url = _accounts_base_url(domain)
+    res = _post_registration(base_url, {
+        "action": "begin",
+        "archetype": "PersonalAgent",
+        "auth_method": "client_secret",
+        "request_user_info": "open_id",
+    })
+    device_code = res.get("device_code")
+    if not device_code:
+        raise RuntimeError("Feishu / Lark registration did not return a device_code")
+    qr_url = res.get("verification_uri_complete", "")
+    if "?" in qr_url:
+        qr_url += "&from=nanobot&tp=nanobot"
+    else:
+        qr_url += "?from=nanobot&tp=nanobot"
+    return {
+        "device_code": device_code,
+        "qr_url": qr_url,
+        "user_code": res.get("user_code", ""),
+        "interval": res.get("interval") or 5,
+        "expire_in": res.get("expire_in") or 600,
+    }
+
+
+def _poll_registration(
+    *,
+    device_code: str,
+    interval: int,
+    expire_in: int,
+    domain: str = "feishu",
+) -> dict | None:
+    """Poll until the user scans the QR code, or timeout/denial.
+
+    Returns dict with app_id, app_secret, domain, open_id on success, None on failure.
+    """
+    deadline = time.monotonic() + expire_in
+    current_domain = domain
+    domain_switched = False
+    poll_count = 0
+
+    while time.monotonic() < deadline:
+        base_url = _accounts_base_url(current_domain)
+        try:
+            res = _post_registration(base_url, {
+                "action": "poll",
+                "device_code": device_code,
+                "tp": "ob_app",
+            })
+        except Exception:
+            time.sleep(interval)
+            continue
+
+        poll_count += 1
+        if poll_count == 1:
+            print("Fetching configuration results...", end="", flush=True)
+        elif poll_count % 6 == 0:
+            print(".", end="", flush=True)
+
+        # Domain auto-detection: if the user's tenant is on Lark, switch automatically
+        user_info = res.get("user_info") or {}
+        tenant_brand = user_info.get("tenant_brand")
+        if tenant_brand == "lark" and not domain_switched:
+            current_domain = "lark"
+            domain_switched = True
+
+        # Success
+        if res.get("client_id") and res.get("client_secret"):
+            if poll_count > 0:
+                print()
+            return {
+                "app_id": res["client_id"],
+                "app_secret": res["client_secret"],
+                "domain": current_domain,
+                "open_id": user_info.get("open_id"),
+            }
+
+        # Terminal errors
+        error = res.get("error", "")
+        if error in ("access_denied", "expired_token"):
+            if poll_count > 0:
+                print()
+            from loguru import logger
+
+            logger.warning("[Feishu onboard] Registration {}", error)
+            return None
+
+        # authorization_pending or unknown — keep polling
+        time.sleep(interval)
+
+    if poll_count > 0:
+        print()
+    print(f"[Warning] Poll timed out after {expire_in}s")
+    return None
+
+
+def _build_onboard_client(app_id: str, app_secret: str, domain: str) -> Any:
+    """Build a lark Client for the given credentials and domain."""
+    lark, feishu_domain, lark_domain = _load_lark_runtime()
+    sdk_domain = lark_domain if domain == "lark" else feishu_domain
+    return (
+        lark.Client.builder()
+        .app_id(app_id)
+        .app_secret(app_secret)
+        .domain(sdk_domain)
+        .log_level(lark.LogLevel.WARNING)
+        .build()
+    )
+
+
+def _parse_bot_response(data: dict) -> dict | None:
+    """Parse /bot/v3/info response. Returns dict with bot_name, bot_open_id or None."""
+    if data.get("code") != 0:
+        return None
+    bot = data.get("bot") or data.get("data", {}).get("bot") or {}
+    return {
+        "bot_name": bot.get("app_name") or bot.get("bot_name"),
+        "bot_open_id": bot.get("open_id"),
+    }
+
+
+def _probe_bot_sdk(app_id: str, app_secret: str, domain: str) -> dict | None:
+    """Probe bot info using lark_oapi SDK."""
+    try:
+        lark, _feishu_domain, _lark_domain = _load_lark_runtime()
+        client = _build_onboard_client(app_id, app_secret, domain)
+        req = (
+            lark.BaseRequest.builder()
+            .http_method(lark.HttpMethod.GET)
+            .uri("/open-apis/bot/v3/info")
+            .token_types({lark.AccessTokenType.TENANT})
+            .build()
+        )
+        resp = client.request(req)
+        raw = getattr(getattr(resp, "raw", None), "content", None)
+        if raw is None:
+            return None
+        return _parse_bot_response(json.loads(raw))
+    except Exception:
+        return None
+
+
+def _probe_bot_http(app_id: str, app_secret: str, domain: str) -> dict | None:
+    """Fallback probe using raw HTTP (when lark_oapi is not installed or fails)."""
+    import httpx
+
+    base_url = _onboard_open_base_url(domain)
+    try:
+        token_resp = httpx.post(
+            f"{base_url}/open-apis/auth/v3/tenant_access_token/internal",
+            json={"app_id": app_id, "app_secret": app_secret},
+            timeout=_ONBOARD_REQUEST_TIMEOUT_S,
+        )
+        token_data = token_resp.json()
+        access_token = token_data.get("tenant_access_token")
+        if not access_token:
+            return None
+
+        bot_resp = httpx.get(
+            f"{base_url}/open-apis/bot/v3/info",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=_ONBOARD_REQUEST_TIMEOUT_S,
+        )
+        return _parse_bot_response(bot_resp.json())
+    except Exception:
+        return None
+
+
+def probe_bot(app_id: str, app_secret: str, domain: str) -> dict | None:
+    """Verify bot connectivity via /open-apis/bot/v3/info.
+
+    Returns {"bot_name": ..., "bot_open_id": ...} on success, None on failure.
+    """
+    if FEISHU_AVAILABLE:
+        return _probe_bot_sdk(app_id, app_secret, domain)
+    return _probe_bot_http(app_id, app_secret, domain)
+
+
+def qr_register(
+    *,
+    initial_domain: str = "feishu",
+    timeout_seconds: int = 600,
+) -> dict | None:
+    """Run the Feishu / Lark scan-to-create QR registration flow.
+
+    Returns on success:
+        {
+            "app_id": str,
+            "app_secret": str,
+            "domain": "feishu" | "lark",
+            "open_id": str | None,
+            "bot_name": str | None,
+            "bot_open_id": str | None,
+        }
+
+    Returns None on expected failures (network, auth denied, timeout).
+    Unexpected errors (bugs, protocol regressions) propagate to the caller.
+    """
+    try:
+        return _qr_register_inner(
+            initial_domain=initial_domain, timeout_seconds=timeout_seconds
+        )
+    except (RuntimeError, OSError, json.JSONDecodeError) as exc:
+        print(f"[Warning] Registration failed: {exc}")
+        return None
+
+
+def _print_qr_code(url: str) -> None:
+    """Print QR code as ASCII art if qrcode package is available, otherwise print URL."""
+    try:
+        import qrcode as qr_lib
+
+        qr = qr_lib.QRCode(border=1)
+        qr.add_data(url)
+        qr.make(fit=True)
+        qr.print_ascii(invert=True)
+        print("Scan the QR code with Feishu / Lark on your phone to authorize.\n")
+    except ImportError:
+        print(f"\nLogin URL: {url}\n")
+
+
+def _qr_register_inner(
+    *,
+    initial_domain: str,
+    timeout_seconds: int,
+) -> dict | None:
+    """Run init → begin → poll → probe. Raises on network/protocol errors."""
+    print("Connecting to Feishu / Lark...", end="", flush=True)
+    _init_registration(initial_domain)
+    begin = _begin_registration(initial_domain)
+    print(" done.")
+
+    _print_qr_code(begin["qr_url"])
+
+    result = _poll_registration(
+        device_code=begin["device_code"],
+        interval=begin["interval"],
+        expire_in=min(begin["expire_in"], timeout_seconds),
+        domain=initial_domain,
+    )
+    if not result:
+        return None
+
+    # Probe bot — best-effort, don't fail the registration
+    bot_info = probe_bot(result["app_id"], result["app_secret"], result["domain"])
+    if bot_info:
+        result["bot_name"] = bot_info.get("bot_name")
+        result["bot_open_id"] = bot_info.get("bot_open_id")
+    else:
+        result["bot_name"] = None
+        result["bot_open_id"] = None
+
+    return result
+
+
 _STREAM_ELEMENT_ID = "streaming_md"
 
 
@@ -345,6 +663,74 @@ class FeishuChannel(BaseChannel):
         self._background_tasks: set[asyncio.Task] = set()
         self._reaction_ids: dict[str, str] = {}  # message_id → reaction_id
 
+    # ------------------------------------------------------------------
+    # QR login — writes credentials directly to config.json
+    # ------------------------------------------------------------------
+
+    async def login(self, force: bool = False) -> bool:
+        """Perform QR code scan-to-create login for Feishu/Lark.
+
+        Uses the Feishu device-code registration flow to create a new bot
+        application automatically.  Opens a URL for the user to authorize
+        with the Feishu or Lark mobile app.
+
+        On success, writes ``appId``, ``appSecret``, and ``domain`` to
+        ``channels.feishu`` in ``config.json`` and sets ``enabled: true``.
+
+        Args:
+            force: If True, clear existing credentials and force re-authentication.
+
+        Returns True on success.
+        """
+        if force:
+            self.config.app_id = ""
+            self.config.app_secret = ""
+
+        if self.config.app_id and self.config.app_secret:
+            print("Feishu / Lark is already authenticated.")
+            print("Use --force to re-authenticate with a new bot.")
+            print()
+            return True
+
+        print("--- Feishu / Lark QR Login ---")
+        print("Open the URL below in Feishu / Lark on your phone to authorize.")
+        print("The platform will create a new bot application automatically.")
+
+        result = qr_register(initial_domain=self.config.domain or "feishu")
+        if not result:
+            self.logger.error(
+                "QR registration failed. "
+                "Run 'nanobot channels login feishu --force' to retry."
+            )
+            return False
+
+        self.config.app_id = result["app_id"]
+        self.config.app_secret = result["app_secret"]
+        self.config.domain = result.get("domain", "feishu")
+
+        bot_name = result.get("bot_name")
+        if bot_name:
+            print(f"\nBot created: {bot_name}")
+        print(f"App ID: {result['app_id']}")
+        print(f"Domain: {self.config.domain}")
+
+        # Write credentials back to config.json
+        from nanobot.config.loader import load_config, save_config
+
+        full_config = load_config()
+        feishu_cfg = getattr(full_config.channels, "feishu", None) or {}
+        if isinstance(feishu_cfg, dict):
+            feishu_cfg["appId"] = result["app_id"]
+            feishu_cfg["appSecret"] = result["app_secret"]
+            feishu_cfg["domain"] = result.get("domain", "feishu")
+            feishu_cfg["enabled"] = True
+            setattr(full_config.channels, "feishu", feishu_cfg)
+        save_config(full_config)
+
+        print(f"\nCredentials saved to ~/.nanobot/config.json (feishu enabled)")
+        print("Login successful!")
+        return True
+
     @staticmethod
     def _register_optional_event(builder: Any, method_name: str, handler: Any) -> Any:
         """Register an event handler only when the SDK supports it."""
@@ -358,7 +744,10 @@ class FeishuChannel(BaseChannel):
             return
 
         if not self.config.app_id or not self.config.app_secret:
-            self.logger.error("app_id and app_secret not configured")
+            self.logger.error(
+                "app_id and app_secret not configured. "
+                "Run 'nanobot channels login feishu' to set up via QR code."
+            )
             return
 
         lark, feishu_domain, lark_domain = await asyncio.to_thread(_load_lark_runtime)
