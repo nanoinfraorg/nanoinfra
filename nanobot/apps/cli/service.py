@@ -510,9 +510,9 @@ class CliAppManager:
                     apps_by_name[key] = entry
         return list(apps_by_name.values()), max(updated_values) if updated_values else None
 
-    def catalog_cache_fresh(self) -> bool:
+    def catalog_cache_fresh(self, *, include_optional: bool = False) -> bool:
         for source, _url, _raw_base, required in _CATALOG_SOURCES:
-            if not required:
+            if not required and not include_optional:
                 continue
             data, cached_at = self._cached_registry(self._cache_path(source))
             if data is None or _now() - cached_at >= self.runtime.catalog_ttl_seconds:

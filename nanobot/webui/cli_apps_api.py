@@ -34,7 +34,7 @@ def _start_catalog_refresh() -> bool:
         if _catalog_refresh_running:
             return True
         if now - _catalog_refresh_last_started < _CATALOG_REFRESH_RETRY_SECONDS:
-            return True
+            return False
         _catalog_refresh_running = True
         _catalog_refresh_last_started = now
 
@@ -113,9 +113,9 @@ def cli_apps_payload(*, installed_only: bool = False) -> dict[str, Any]:
     if installed_only:
         return manager.installed_payload()
     payload = manager.payload(cache_only=True)
-    refresh_pending = not manager.catalog_cache_fresh()
-    if refresh_pending:
-        _start_catalog_refresh()
+    refresh_pending = False
+    if not manager.catalog_cache_fresh(include_optional=True):
+        refresh_pending = _start_catalog_refresh()
     if not payload["apps"]:
         installed = manager.installed_payload()
         if installed["apps"]:
