@@ -474,16 +474,20 @@ def onboard(
             loaded.agents.defaults.workspace = workspace
         return loaded
 
+    def _refresh_existing_config() -> Config:
+        refreshed = _apply_workspace_override(load_config(config_path))
+        save_config(refreshed, config_path)
+        console.print(
+            f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)"
+        )
+        return refreshed
+
     # Create or update config
     if config_path.exists():
         if use_wizard:
             config = _apply_workspace_override(load_config(config_path))
         elif default_fallback or default_refresh_without_prompt:
-            config = _apply_workspace_override(load_config(config_path))
-            save_config(config, config_path)
-            console.print(
-                f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)"
-            )
+            config = _refresh_existing_config()
         else:
             console.print(f"[yellow]Config already exists at {config_path}[/yellow]")
             console.print(
@@ -497,11 +501,7 @@ def onboard(
                 save_config(config, config_path)
                 console.print(f"[green]✓[/green] Config reset to defaults at {config_path}")
             else:
-                config = _apply_workspace_override(load_config(config_path))
-                save_config(config, config_path)
-                console.print(
-                    f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)"
-                )
+                config = _refresh_existing_config()
     else:
         config = _apply_workspace_override(Config())
         # In wizard mode, don't save yet - the wizard will handle saving if should_save=True
