@@ -301,16 +301,11 @@ class FeishuConfig(Base):
 #
 # Device-code flow: user scans a QR code with the Feishu/Lark mobile app and
 # the platform creates a fully configured bot application automatically.
-# Called by the CLI onboard wizard during `nanobot --wizard`.
 # =============================================================================
 
 _ONBOARD_ACCOUNTS_URLS = {
     "feishu": "https://accounts.feishu.cn",
     "lark": "https://accounts.larksuite.com",
-}
-_ONBOARD_OPEN_URLS = {
-    "feishu": "https://open.feishu.cn",
-    "lark": "https://open.larksuite.com",
 }
 _REGISTRATION_PATH = "/oauth/v1/app/registration"
 _ONBOARD_REQUEST_TIMEOUT_S = 10
@@ -318,10 +313,6 @@ _ONBOARD_REQUEST_TIMEOUT_S = 10
 
 def _accounts_base_url(domain: str) -> str:
     return _ONBOARD_ACCOUNTS_URLS.get(domain, _ONBOARD_ACCOUNTS_URLS["feishu"])
-
-
-def _onboard_open_base_url(domain: str) -> str:
-    return _ONBOARD_OPEN_URLS.get(domain, _ONBOARD_OPEN_URLS["feishu"])
 
 
 def _post_registration(base_url: str, body: dict[str, str]) -> dict:
@@ -359,7 +350,7 @@ def _init_registration(domain: str = "feishu") -> None:
 
 
 def _begin_registration(domain: str = "feishu") -> dict:
-    """Start the device-code flow. Returns device_code, qr_url, user_code, interval, expire_in."""
+    """Start the device-code flow. Returns device_code, qr_url, interval, expire_in."""
     base_url = _accounts_base_url(domain)
     res = _post_registration(base_url, {
         "action": "begin",
@@ -380,7 +371,6 @@ def _begin_registration(domain: str = "feishu") -> dict:
     return {
         "device_code": device_code,
         "qr_url": qr_url,
-        "user_code": res.get("user_code", ""),
         "interval": res.get("interval") or 5,
         "expire_in": res.get("expire_in") or 600,
     }
@@ -395,11 +385,10 @@ def _poll_registration(
 ) -> dict | None:
     """Poll until the user scans the QR code, or timeout/denial.
 
-    Returns dict with app_id, app_secret, domain, open_id on success, None on failure.
+    Returns dict with app_id, app_secret, domain on success, None on failure.
     """
     deadline = time.monotonic() + expire_in
     current_domain = domain
-    domain_switched = False
     poll_count = 0
 
     while time.monotonic() < deadline:
@@ -423,9 +412,8 @@ def _poll_registration(
         # Domain auto-detection: if the user's tenant is on Lark, switch automatically
         user_info = res.get("user_info") or {}
         tenant_brand = user_info.get("tenant_brand")
-        if tenant_brand == "lark" and not domain_switched:
+        if tenant_brand == "lark":
             current_domain = "lark"
-            domain_switched = True
 
         # Success
         if res.get("client_id") and res.get("client_secret"):
@@ -435,7 +423,6 @@ def _poll_registration(
                 "app_id": res["client_id"],
                 "app_secret": res["client_secret"],
                 "domain": current_domain,
-                "open_id": user_info.get("open_id"),
             }
 
         # Terminal errors
@@ -457,92 +444,9 @@ def _poll_registration(
     return None
 
 
-def _build_onboard_client(app_id: str, app_secret: str, domain: str) -> Any:
-    """Build a lark Client for the given credentials and domain."""
-    lark, feishu_domain, lark_domain = _load_lark_runtime()
-    sdk_domain = lark_domain if domain == "lark" else feishu_domain
-    return (
-        lark.Client.builder()
-        .app_id(app_id)
-        .app_secret(app_secret)
-        .domain(sdk_domain)
-        .log_level(lark.LogLevel.WARNING)
-        .build()
-    )
-
-
-def _parse_bot_response(data: dict) -> dict | None:
-    """Parse /bot/v3/info response. Returns dict with bot_name, bot_open_id or None."""
-    if data.get("code") != 0:
-        return None
-    bot = data.get("bot") or data.get("data", {}).get("bot") or {}
-    return {
-        "bot_name": bot.get("app_name") or bot.get("bot_name"),
-        "bot_open_id": bot.get("open_id"),
-    }
-
-
-def _probe_bot_sdk(app_id: str, app_secret: str, domain: str) -> dict | None:
-    """Probe bot info using lark_oapi SDK."""
-    try:
-        lark, _feishu_domain, _lark_domain = _load_lark_runtime()
-        client = _build_onboard_client(app_id, app_secret, domain)
-        req = (
-            lark.BaseRequest.builder()
-            .http_method(lark.HttpMethod.GET)
-            .uri("/open-apis/bot/v3/info")
-            .token_types({lark.AccessTokenType.TENANT})
-            .build()
-        )
-        resp = client.request(req)
-        raw = getattr(getattr(resp, "raw", None), "content", None)
-        if raw is None:
-            return None
-        return _parse_bot_response(json.loads(raw))
-    except Exception:
-        return None
-
-
-def _probe_bot_http(app_id: str, app_secret: str, domain: str) -> dict | None:
-    """Fallback probe using raw HTTP (when lark_oapi is not installed or fails)."""
-    import httpx
-
-    base_url = _onboard_open_base_url(domain)
-    try:
-        token_resp = httpx.post(
-            f"{base_url}/open-apis/auth/v3/tenant_access_token/internal",
-            json={"app_id": app_id, "app_secret": app_secret},
-            timeout=_ONBOARD_REQUEST_TIMEOUT_S,
-        )
-        token_data = token_resp.json()
-        access_token = token_data.get("tenant_access_token")
-        if not access_token:
-            return None
-
-        bot_resp = httpx.get(
-            f"{base_url}/open-apis/bot/v3/info",
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=_ONBOARD_REQUEST_TIMEOUT_S,
-        )
-        return _parse_bot_response(bot_resp.json())
-    except Exception:
-        return None
-
-
-def probe_bot(app_id: str, app_secret: str, domain: str) -> dict | None:
-    """Verify bot connectivity via /open-apis/bot/v3/info.
-
-    Returns {"bot_name": ..., "bot_open_id": ...} on success, None on failure.
-    """
-    if FEISHU_AVAILABLE:
-        return _probe_bot_sdk(app_id, app_secret, domain)
-    return _probe_bot_http(app_id, app_secret, domain)
-
-
 def qr_register(
     *,
     initial_domain: str = "feishu",
-    timeout_seconds: int = 600,
 ) -> dict | None:
     """Run the Feishu / Lark scan-to-create QR registration flow.
 
@@ -551,18 +455,13 @@ def qr_register(
             "app_id": str,
             "app_secret": str,
             "domain": "feishu" | "lark",
-            "open_id": str | None,
-            "bot_name": str | None,
-            "bot_open_id": str | None,
         }
 
     Returns None on expected failures (network, auth denied, timeout).
     Unexpected errors (bugs, protocol regressions) propagate to the caller.
     """
     try:
-        return _qr_register_inner(
-            initial_domain=initial_domain, timeout_seconds=timeout_seconds
-        )
+        return _qr_register_inner(initial_domain=initial_domain)
     except (RuntimeError, OSError, json.JSONDecodeError) as exc:
         print(f"[Warning] Registration failed: {exc}")
         return None
@@ -585,9 +484,8 @@ def _print_qr_code(url: str) -> None:
 def _qr_register_inner(
     *,
     initial_domain: str,
-    timeout_seconds: int,
 ) -> dict | None:
-    """Run init → begin → poll → probe. Raises on network/protocol errors."""
+    """Run init → begin → poll. Raises on network/protocol errors."""
     print("Connecting to Feishu / Lark...", end="", flush=True)
     _init_registration(initial_domain)
     begin = _begin_registration(initial_domain)
@@ -598,21 +496,9 @@ def _qr_register_inner(
     result = _poll_registration(
         device_code=begin["device_code"],
         interval=begin["interval"],
-        expire_in=min(begin["expire_in"], timeout_seconds),
+        expire_in=begin["expire_in"],
         domain=initial_domain,
     )
-    if not result:
-        return None
-
-    # Probe bot — best-effort, don't fail the registration
-    bot_info = probe_bot(result["app_id"], result["app_secret"], result["domain"])
-    if bot_info:
-        result["bot_name"] = bot_info.get("bot_name")
-        result["bot_open_id"] = bot_info.get("bot_open_id")
-    else:
-        result["bot_name"] = None
-        result["bot_open_id"] = None
-
     return result
 
 
@@ -710,9 +596,6 @@ class FeishuChannel(BaseChannel):
         self.config.app_secret = result["app_secret"]
         self.config.domain = result.get("domain", "feishu")
 
-        bot_name = result.get("bot_name")
-        if bot_name:
-            print(f"\nBot created: {bot_name}")
         print(f"App ID: {result['app_id']}")
         print(f"Domain: {self.config.domain}")
 

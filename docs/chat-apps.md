@@ -44,7 +44,7 @@ If `nanobot channels status` does not show the channel as enabled, the config sn
 | **Discord** | Bot token + Message Content intent |
 | **WhatsApp** | QR code scan (`nanobot channels login whatsapp`) |
 | **WeChat (Weixin)** | QR code scan (`nanobot channels login weixin`) |
-| **Feishu** | App ID + App Secret |
+| **Feishu** | QR code scan (`nanobot channels login feishu`) or App ID + App Secret |
 | **DingTalk** | App Key + App Secret |
 | **Slack** | Bot token + App-Level token |
 | **Matrix** | Homeserver URL + Access token |
@@ -342,6 +342,19 @@ nanobot gateway
 <summary><b>Feishu</b></summary>
 
 Uses **WebSocket** long connection — no public IP required.
+
+**Quick setup: QR login**
+
+```bash
+nanobot channels login feishu
+# Use --force to create/sign in with a new bot
+```
+
+Open the printed URL or scan the QR code with Feishu/Lark on your phone. nanobot writes `appId`, `appSecret`, `domain`, and `enabled` under `channels.feishu` in the active config file. Use `--config <path>` to update a non-default config.
+
+If QR login is unavailable for your account, use manual setup below.
+
+**Manual setup**
 
 **1. Create a Feishu bot**
 - Visit [Feishu Open Platform](https://open.feishu.cn/app)

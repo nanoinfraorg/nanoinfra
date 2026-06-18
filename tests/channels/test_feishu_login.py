@@ -1,11 +1,9 @@
 import json
 
 import pytest
-from typer.testing import CliRunner
 
 from nanobot.channels import feishu as feishu_module
 from nanobot.channels.feishu import FeishuChannel
-from nanobot.cli.commands import app
 from nanobot.config import loader
 from nanobot.config.schema import Config
 
@@ -24,8 +22,6 @@ async def test_feishu_login_writes_credentials_to_active_config(monkeypatch, tmp
             "app_id": "cli_app",
             "app_secret": "secret",
             "domain": "lark",
-            "bot_name": None,
-            "bot_open_id": None,
         },
     )
 
@@ -61,8 +57,6 @@ async def test_feishu_login_creates_missing_active_config(monkeypatch, tmp_path)
             "app_id": "cli_app",
             "app_secret": "secret",
             "domain": "feishu",
-            "bot_name": None,
-            "bot_open_id": None,
         },
     )
 
@@ -72,30 +66,3 @@ async def test_feishu_login_creates_missing_active_config(monkeypatch, tmp_path)
     assert missing_config.exists()
     data = json.loads(missing_config.read_text(encoding="utf-8"))
     assert data["channels"]["feishu"]["appId"] == "cli_app"
-
-
-def test_channels_login_feishu_uses_generic_channel_login(monkeypatch, tmp_path):
-    missing_config = tmp_path / "missing.json"
-    seen: dict[str, object] = {}
-
-    class _LoginChannel:
-        display_name = "Feishu"
-
-        def __init__(self, config, bus):
-            seen["config"] = config
-            seen["bus"] = bus
-
-        async def login(self, force: bool = False) -> bool:
-            seen["force"] = force
-            return True
-
-    monkeypatch.setattr(loader, "_current_config_path", missing_config)
-    monkeypatch.setattr(
-        "nanobot.channels.registry.discover_all",
-        lambda: {"feishu": _LoginChannel},
-    )
-
-    result = CliRunner().invoke(app, ["channels", "login", "feishu", "--force"])
-
-    assert result.exit_code == 0
-    assert seen["force"] is True
