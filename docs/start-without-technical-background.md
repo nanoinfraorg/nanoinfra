@@ -145,16 +145,16 @@ Use `python3 -m nanobot --version` or `py -m nanobot --version` if that is the P
 The one-command installer starts this for you after installation. If you installed manually, run:
 
 ```bash
-nanobot onboard --wizard
+nanobot onboard
 ```
 
 If `nanobot` is not found, run:
 
 ```bash
-python -m nanobot onboard --wizard
+python -m nanobot onboard
 ```
 
-Use `python3 -m nanobot onboard --wizard` or `py -m nanobot onboard --wizard` if that is the Python command that worked in step 2.
+Use `python3 -m nanobot onboard` or `py -m nanobot onboard` if that is the Python command that worked in step 2.
 
 The wizard is a terminal menu. It is not a graphical app, but it lets you choose options instead of hand-editing every JSON field.
 
@@ -162,6 +162,7 @@ You will see a menu like this:
 
 ```text
 > What would you like to configure?
+  [Q] Quick Start (recommended)
   [P] LLM Provider
   [M] Model Presets
   [C] Chat Channel
@@ -184,27 +185,17 @@ Move through the wizard like this:
 | A field you do not need | Keep the shown default or leave it blank, then press `Enter`. |
 | A back option | Choose it to return to the previous menu. |
 
-For the first setup, only configure the model provider and one model preset.
+For the first setup, choose `[Q] Quick Start (recommended)`. It asks for the model provider, API key, model ID, and optionally one chat channel. The other menu items are advanced settings.
 
 If you are following the OpenRouter example:
 
-1. Choose `[P] LLM Provider`.
-2. Select OpenRouter.
-3. Paste your OpenRouter API key.
-4. Keep the default `apiBase`, or leave it blank if the wizard shows no default. Only change it if OpenRouter or your deployment guide explicitly tells you to set one.
-5. Return to the main menu.
-6. Choose `[M] Model Presets`.
-7. Add or edit a preset named `primary`.
-8. Set:
-
-```text
-label: Primary
-provider: openrouter
-model: anthropic/claude-sonnet-4.5
-maxTokens: 4096
-contextWindowTokens: 65536
-temperature: 0.1
-```
+1. Choose `[Q] Quick Start (recommended)`.
+2. Choose `WebUI only (recommended)` unless you already have a Telegram, Feishu/Lark, Slack, or Discord bot token ready.
+3. Select OpenRouter.
+4. Paste your OpenRouter API key.
+5. Enter a model ID, for example `anthropic/claude-sonnet-4.5`.
+6. Review the Quick Start summary.
+7. Choose `[S] Save and Exit`.
 
 If OpenRouter says your account cannot use that model, use another OpenRouter model ID that your account can access.
 
@@ -215,9 +206,7 @@ If you are using another provider, use the same wizard choices but substitute th
 | Provider menu | The provider that owns your API key or endpoint. |
 | API key | The key from that provider, or leave it blank only if the provider does not use one. |
 | `apiBase` | Leave blank unless the provider docs, proxy docs, or local server docs give you a URL. |
-| Preset `provider` | The nanobot provider name, such as the one shown in [`provider-cookbook.md`](./provider-cookbook.md). |
-| Preset `model` | A model ID that provider can actually serve. |
-| Preset name | `primary` is fine for the first setup. |
+| Model ID | A model ID that provider can actually serve. |
 
 Then choose `[S] Save and Exit`.
 
@@ -260,11 +249,13 @@ Merge them into one object:
 }
 ```
 
-Notice the comma after the `providers` block. JSON needs commas between sibling sections, but not after the last section. If this feels hard, use `nanobot onboard --wizard` whenever possible.
+Notice the comma after the `providers` block. JSON needs commas between sibling sections, but not after the last section. If this feels hard, use `nanobot onboard` whenever possible.
 
 ## 6. Manual Config Fallback
 
 Use this only if the wizard is unavailable or you prefer opening the file yourself.
+
+Run `nanobot onboard --defaults` first if `~/.nanobot/config.json` does not exist yet.
 
 Use one of these commands:
 

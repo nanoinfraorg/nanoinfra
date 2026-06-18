@@ -432,15 +432,33 @@ def main(
 # ============================================================================
 
 
+def _onboard_can_prompt() -> bool:
+    """Return True when onboard can safely show interactive prompts."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
 @app.command()
 def onboard(
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
-    wizard: bool = typer.Option(False, "--wizard", help="Use interactive wizard"),
+    wizard: bool = typer.Option(False, "--wizard", help="Use interactive wizard (default)"),
+    defaults: bool = typer.Option(
+        False,
+        "--defaults",
+        help="Create or refresh the default config without the wizard",
+    ),
 ):
     """Initialize nanobot configuration and workspace."""
     from nanobot.config.loader import get_config_path, load_config, save_config, set_config_path
     from nanobot.config.schema import Config
+
+    wants_wizard = wizard or not defaults
+    use_wizard = wants_wizard and not defaults and _onboard_can_prompt()
+    default_fallback = wants_wizard and not use_wizard and not defaults
+    if default_fallback:
+        console.print(
+            "[yellow]No interactive terminal detected; using --defaults setup instead.[/yellow]"
+        )
 
     if config:
         config_path = Path(config).expanduser().resolve()
@@ -456,8 +474,14 @@ def onboard(
 
     # Create or update config
     if config_path.exists():
-        if wizard:
+        if use_wizard:
             config = _apply_workspace_override(load_config(config_path))
+        elif default_fallback:
+            config = _apply_workspace_override(load_config(config_path))
+            save_config(config, config_path)
+            console.print(
+                f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)"
+            )
         else:
             console.print(f"[yellow]Config already exists at {config_path}[/yellow]")
             console.print(
@@ -479,12 +503,12 @@ def onboard(
     else:
         config = _apply_workspace_override(Config())
         # In wizard mode, don't save yet - the wizard will handle saving if should_save=True
-        if not wizard:
+        if not use_wizard:
             save_config(config, config_path)
             console.print(f"[green]✓[/green] Created config at {config_path}")
 
     # Run interactive wizard if enabled
-    if wizard:
+    if use_wizard:
         from nanobot.cli.onboard import run_onboard
 
         try:
@@ -518,7 +542,7 @@ def onboard(
 
     console.print(f"\n{__logo__} nanobot is ready!")
     console.print("\nNext steps:")
-    if wizard:
+    if use_wizard:
         console.print(f"  1. Chat: [cyan]{agent_cmd}[/cyan]")
         console.print(f"  2. Start gateway: [cyan]{gateway_cmd}[/cyan]")
     else:

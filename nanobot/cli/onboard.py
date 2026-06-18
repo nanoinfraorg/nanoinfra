@@ -53,6 +53,47 @@ _BACK_PRESSED = object()  # Sentinel value for back navigation
 # offer existing presets as choices (e.g. AgentDefaults.model_preset).
 _MODEL_PRESET_CACHE: set[str] = set()
 
+_QUICK_START_TARGETS = {
+    "WebUI only (recommended)": "websocket",
+    "Telegram": "telegram",
+    "Feishu / Lark": "feishu",
+    "Slack": "slack",
+    "Discord": "discord",
+}
+
+_QUICK_START_PROVIDER_CHOICES = {
+    "OpenRouter": "openrouter",
+    "Anthropic": "anthropic",
+    "OpenAI": "openai",
+    "DeepSeek": "deepseek",
+    "DashScope": "dashscope",
+    "Gemini": "gemini",
+    "Ollama (local)": "ollama",
+    "Custom OpenAI-compatible": "custom",
+}
+
+_QUICK_START_CHANNEL_FIELDS = {
+    "telegram": (("token", "Telegram bot token from BotFather"),),
+    "feishu": (
+        ("app_id", "Feishu/Lark App ID"),
+        ("app_secret", "Feishu/Lark App Secret"),
+    ),
+    "slack": (
+        ("bot_token", "Slack bot token (xoxb-...)"),
+        ("app_token", "Slack app token (xapp-...)"),
+    ),
+    "discord": (("token", "Discord bot token"),),
+}
+
+_QUICK_START_STEPS = ("Entry point", "AI provider", "Channel", "Review")
+
+# Low-contrast terminal palette inspired by JetBrains Darcula/Islands.
+_UI_ACCENT = "#6B9BFA"
+_UI_BORDER = "#4E5254"
+_UI_TEXT = "#A9B7C6"
+_UI_MUTED = "#80868B"
+_UI_SUCCESS = "#6AAB73"
+
 
 def _get_questionary():
     """Return questionary or raise a clear error when wizard deps are unavailable."""
@@ -156,8 +197,8 @@ def _select_with_back(
 
     # Style
     style = Style.from_dict({
-        "selected": "fg:green bold",
-        "question": "fg:cyan",
+        "selected": f"fg:{_UI_ACCENT} bold",
+        "question": f"fg:{_UI_TEXT}",
     })
 
     app = Application(layout=layout, key_bindings=bindings, style=style)
@@ -353,7 +394,7 @@ def _get_constraint_hint(field_info) -> str:
 def _show_config_panel(display_name: str, model: BaseModel, fields: list) -> None:
     """Display current configuration as a rich table."""
     table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_column("Field", style="cyan")
+    table.add_column("Field", style=_UI_ACCENT)
     table.add_column("Value")
 
     for fname, field_info in fields:
@@ -362,7 +403,7 @@ def _show_config_panel(display_name: str, model: BaseModel, fields: list) -> Non
         formatted = _format_value(value, rich=True, field_name=fname)
         table.add_row(display, formatted)
 
-    console.print(Panel(table, title=f"[bold]{display_name}[/bold]", border_style="blue"))
+    console.print(Panel(table, title=f"[bold {_UI_TEXT}]{display_name}[/]", border_style=_UI_BORDER))
 
 
 def _show_main_menu_header() -> None:
@@ -370,11 +411,22 @@ def _show_main_menu_header() -> None:
     from nanobot import __logo__, __version__
 
     console.print()
-    # Use Align.CENTER for the single line of text
-    from rich.align import Align
-
+    body = Table.grid(expand=True)
+    body.add_column(ratio=1)
+    body.add_row(f"{__logo__} [bold {_UI_TEXT}]nanobot[/] [{_UI_MUTED}]v{__version__}[/]")
+    body.add_row(
+        f"[{_UI_ACCENT}]Quick Start configures a model and enables WebUI by default.[/]"
+    )
+    body.add_row(
+        f"[{_UI_MUTED}]Chat channels and advanced settings stay available when you need them.[/]"
+    )
     console.print(
-        Align.center(f"{__logo__} [bold cyan]nanobot[{__version__}][/bold cyan]")
+        Panel(
+            body,
+            title=f"[bold {_UI_TEXT}]Setup Wizard[/]",
+            border_style=_UI_BORDER,
+            padding=(1, 2),
+        )
     )
     console.print()
 
@@ -384,10 +436,15 @@ def _show_section_header(title: str, subtitle: str = "") -> None:
     console.print()
     if subtitle:
         console.print(
-            Panel(f"[dim]{subtitle}[/dim]", title=f"[bold]{title}[/bold]", border_style="blue")
+            Panel(
+                f"[{_UI_MUTED}]{subtitle}[/]",
+                title=f"[bold {_UI_TEXT}]{title}[/]",
+                border_style=_UI_BORDER,
+                padding=(1, 2),
+            )
         )
     else:
-        console.print(Panel("", title=f"[bold]{title}[/bold]", border_style="blue"))
+        console.print(Panel("", title=f"[bold {_UI_TEXT}]{title}[/]", border_style=_UI_BORDER))
 
 
 # --- Input Handlers ---
@@ -548,7 +605,10 @@ def _input_context_window_with_recommendation(
         context_limit = get_model_context_limit(model_name, provider)
 
         if context_limit:
-            console.print(f"[green]+ Recommended context window: {format_token_count(context_limit)} tokens[/green]")
+            console.print(
+                f"[{_UI_SUCCESS}]+ Recommended context window: "
+                f"{format_token_count(context_limit)} tokens[/]"
+            )
             return context_limit
         else:
             console.print("[yellow]! Could not fetch model info, please enter manually[/yellow]")
@@ -708,8 +768,8 @@ def _configure_pydantic_model(
 ) -> BaseModel | None:
     """Configure a Pydantic model interactively.
 
-    Returns the updated model only when the user explicitly selects "Done".
-    Back and cancel actions discard the section draft.
+    Returns the updated model when the user selects "Done" or navigates back.
+    Cancel actions discard the section draft.
     """
     skip_fields = skip_fields or set()
     working_model = model.model_copy(deep=True)
@@ -747,7 +807,9 @@ def _configure_pydantic_model(
             "Select field to configure:", choices, default=default_choice
         )
 
-        if answer is _BACK_PRESSED or answer is None:
+        if answer is _BACK_PRESSED:
+            return working_model
+        if answer is None:
             return None
         if answer == "[Done]":
             return working_model
@@ -849,7 +911,10 @@ def _try_auto_fill_context_window(model: BaseModel, new_model_name: str) -> None
 
     if context_limit:
         setattr(model, "context_window_tokens", context_limit)
-        console.print(f"[green]+ Auto-filled context window: {format_token_count(context_limit)} tokens[/green]")
+        console.print(
+            f"[{_UI_SUCCESS}]+ Auto-filled context window: "
+            f"{format_token_count(context_limit)} tokens[/]"
+        )
     else:
         console.print("[dim](i) Could not auto-fill context window (model not in database)[/dim]")
 
@@ -1215,11 +1280,11 @@ def _print_summary_panel(rows: list[tuple[str, str]], title: str) -> None:
     if not rows:
         return
     table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_column("Setting", style="cyan")
+    table.add_column("Setting", style=_UI_ACCENT)
     table.add_column("Value")
     for field, value in rows:
         table.add_row(field, value)
-    console.print(Panel(table, title=f"[bold]{title}[/bold]", border_style="blue"))
+    console.print(Panel(table, title=f"[bold {_UI_TEXT}]{title}[/]", border_style=_UI_BORDER))
 
 
 def _show_summary(config: Config) -> None:
@@ -1230,7 +1295,11 @@ def _show_summary(config: Config) -> None:
     provider_rows = []
     for name, display in _get_provider_names().items():
         provider = getattr(config.providers, name, None)
-        status = "[green]configured[/green]" if (provider and provider.api_key) else "[dim]not configured[/dim]"
+        status = (
+            f"[{_UI_SUCCESS}]configured[/]"
+            if (provider and provider.api_key)
+            else f"[{_UI_MUTED}]not configured[/]"
+        )
         provider_rows.append((display, status))
     _print_summary_panel(provider_rows, "LLM Providers")
 
@@ -1244,9 +1313,9 @@ def _show_summary(config: Config) -> None:
                 if isinstance(channel, dict)
                 else getattr(channel, "enabled", False)
             )
-            status = "[green]enabled[/green]" if enabled else "[dim]disabled[/dim]"
+            status = f"[{_UI_SUCCESS}]enabled[/]" if enabled else f"[{_UI_MUTED}]disabled[/]"
         else:
-            status = "[dim]not configured[/dim]"
+            status = f"[{_UI_MUTED}]not configured[/]"
         channel_rows.append((display, status))
     _print_summary_panel(channel_rows, "Chat Channels")
 
@@ -1272,6 +1341,162 @@ def _show_summary(config: Config) -> None:
 def _pause() -> None:
     """Pause for user acknowledgement before clearing the screen."""
     _get_questionary().text("Press Enter to continue...", default="").ask()
+
+
+# --- Quick Start ---
+
+
+def _quick_start_model_default(config: Config, provider_name: str) -> str:
+    """Return a low-risk default only when the existing model likely still fits."""
+    current = config.resolve_preset()
+    if provider_name in {"openrouter", "anthropic"}:
+        return current.model
+    return ""
+
+
+def _show_quick_start_progress(active_step: int) -> None:
+    """Render a compact step tracker for Quick Start."""
+    parts = []
+    for idx, label in enumerate(_QUICK_START_STEPS, 1):
+        if idx < active_step:
+            parts.append(f"[{_UI_SUCCESS}]{idx}. {label}[/]")
+        elif idx == active_step:
+            parts.append(f"[bold {_UI_ACCENT}]{idx}. {label}[/]")
+        else:
+            parts.append(f"[{_UI_MUTED}]{idx}. {label}[/]")
+    console.print("  " + "  ->  ".join(parts))
+    console.print()
+
+
+def _configure_quick_start_provider(config: Config) -> bool:
+    """Configure the minimum needed provider + primary model preset."""
+    _show_quick_start_progress(2)
+    answer = _select_with_back(
+        "Choose your AI provider:",
+        list(_QUICK_START_PROVIDER_CHOICES),
+        default="OpenRouter",
+    )
+    if answer is _BACK_PRESSED or answer is None:
+        return False
+
+    assert isinstance(answer, str)
+    provider_name = _QUICK_START_PROVIDER_CHOICES[answer]
+    provider_config = getattr(config.providers, provider_name, None)
+    if provider_config is None:
+        console.print(f"[red]Unknown provider: {provider_name}[/red]")
+        return False
+
+    _display, _is_gateway, is_local, default_api_base = _get_provider_info().get(
+        provider_name, (provider_name, False, False, "")
+    )
+    if default_api_base and not provider_config.api_base:
+        provider_config.api_base = default_api_base
+
+    if not is_local:
+        api_key = _input_with_existing(
+            "API key (leave blank only if this provider does not use one)",
+            provider_config.api_key,
+            "str",
+        )
+        if api_key is not None:
+            provider_config.api_key = api_key or None
+
+    if provider_name == "custom" or is_local:
+        api_base = _input_with_existing(
+            "API base URL",
+            provider_config.api_base,
+            "str",
+        )
+        if api_base is not None:
+            provider_config.api_base = api_base or None
+
+    model = _input_model_with_autocomplete(
+        "Model ID",
+        _quick_start_model_default(config, provider_name),
+        provider_name,
+    )
+    if model is None:
+        return False
+    model = model.strip()
+    if not model:
+        console.print("[yellow]! Model ID is required for Quick Start[/yellow]")
+        return False
+
+    config.model_presets["primary"] = ModelPresetConfig(
+        label="Primary",
+        model=model,
+        provider=provider_name,
+    )
+    config.agents.defaults.model_preset = "primary"
+    _sync_preset_cache(config)
+    return True
+
+
+def _configure_quick_start_channel(config: Config, channel_name: str | None) -> bool:
+    """Enable one common channel with only the fields needed to connect."""
+    _show_quick_start_progress(3)
+    if channel_name is None:
+        return True
+
+    config_cls = _get_channel_config_class(channel_name)
+    if config_cls is None:
+        console.print(f"[red]No configuration class found for {channel_name}[/red]")
+        return False
+
+    current = getattr(config.channels, channel_name, None) or {}
+    model = config_cls.model_validate(current)
+    if channel_name == "websocket":
+        console.print("[dim]WebUI uses the built-in local WebSocket channel. No token is needed now.[/dim]")
+    for field_name, prompt in _QUICK_START_CHANNEL_FIELDS.get(channel_name, ()):
+        value = _input_with_existing(prompt, getattr(model, field_name, ""), "str")
+        if value is not None:
+            setattr(model, field_name, value)
+
+    if hasattr(model, "enabled"):
+        setattr(model, "enabled", True)
+    setattr(config.channels, channel_name, model.model_dump(by_alias=True, exclude_none=True))
+    return True
+
+
+def _show_quick_start_summary(config: Config, channel_name: str | None) -> None:
+    """Show the small summary users need before returning to the menu."""
+    _show_quick_start_progress(4)
+    preset = config.model_presets.get("primary")
+    rows = [
+        ("Provider", preset.provider if preset else "[not set]"),
+        ("Model", preset.model if preset else "[not set]"),
+        ("Entry point", "WebUI" if channel_name in {None, "websocket"} else channel_name),
+        ("Next", "Save, then run `nanobot gateway`"),
+    ]
+    _print_summary_panel(rows, "Quick Start")
+
+
+def _configure_quick_start(config: Config) -> None:
+    """First-run path: model + optional chat channel, with advanced settings hidden."""
+    console.clear()
+    _show_section_header(
+        "Quick Start",
+        "Set up one AI model and optionally one chat channel. Advanced settings stay unchanged.",
+    )
+    _show_quick_start_progress(1)
+    answer = _select_with_back(
+        "How do you want to use nanobot first?",
+        list(_QUICK_START_TARGETS) + ["<- Back"],
+        default="WebUI only (recommended)",
+    )
+    if answer is _BACK_PRESSED or answer is None or answer == "<- Back":
+        return
+
+    assert isinstance(answer, str)
+    channel_name = _QUICK_START_TARGETS[answer]
+    if not _configure_quick_start_provider(config):
+        _pause()
+        return
+    if not _configure_quick_start_channel(config, channel_name):
+        _pause()
+        return
+    _show_quick_start_summary(config, channel_name)
+    _pause()
 
 
 # --- Main Entry Point ---
@@ -1336,6 +1561,7 @@ def run_onboard(initial_config: Config | None = None) -> OnboardResult:
             answer = _get_questionary().select(
                 "What would you like to configure?",
                 choices=[
+                    "[Q] Quick Start (recommended)",
                     "[P] LLM Provider",
                     "[M] Model Presets",
                     "[C] Chat Channel",
@@ -1363,6 +1589,7 @@ def run_onboard(initial_config: Config | None = None) -> OnboardResult:
             continue
 
         _menu_dispatch = {
+            "[Q] Quick Start (recommended)": lambda: _configure_quick_start(config),
             "[P] LLM Provider": lambda: _configure_providers(config),
             "[M] Model Presets": lambda: _configure_model_presets(config),
             "[C] Chat Channel": lambda: _configure_channels(config),

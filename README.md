@@ -234,7 +234,7 @@ Windows PowerShell:
 irm https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.ps1 | iex
 ```
 
-The default command installs or upgrades `nanobot-ai` from PyPI, then starts `nanobot onboard --wizard`. It avoids system-wide pip installs by using an active virtual environment, `uv`, `pipx`, or a managed venv under `~/.nanobot/venv`. If you finish the wizard and save the config, skip the manual initialize/configure steps below and go straight to **Test one message**.
+The default command installs or upgrades `nanobot-ai` from PyPI, then starts `nanobot onboard`. It avoids system-wide pip installs by using an active virtual environment, `uv`, `pipx`, or a managed venv under `~/.nanobot/venv`. If you finish the wizard and save the config, skip the manual initialize/configure steps below and go straight to **Test one message**.
 
 To preview the plan without changing your environment, pass `--dry-run`; combine it with `--dev` when you want to preview the main-branch install.
 
@@ -296,13 +296,13 @@ Skip this step if the one-command setup already started the wizard and you saved
 nanobot onboard
 ```
 
-Use `nanobot onboard --wizard` if you prefer an interactive setup.
+Use `nanobot onboard --defaults` if you want the old non-interactive default config.
 
 **2. Configure** (`~/.nanobot/config.json`)
 
 Skip this step if you already configured provider and model settings in the wizard.
 
-`nanobot onboard` creates `~/.nanobot/config.json` and `~/.nanobot/workspace/`. Configure these **two parts** in the config file. Add or merge the following blocks into the existing file instead of replacing the whole file.
+`nanobot onboard --defaults` creates `~/.nanobot/config.json` and `~/.nanobot/workspace/`. Configure these **two parts** in the config file. Add or merge the following blocks into the existing file instead of replacing the whole file.
 
 The example below uses [OpenRouter](https://openrouter.ai/keys) only so the JSON has concrete names. Provider examples are recipes, not rankings or endorsements. If you use another provider, replace the provider config key, API key, preset provider name, and model ID together.
 
