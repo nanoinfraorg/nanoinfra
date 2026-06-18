@@ -54,7 +54,8 @@ _BACK_PRESSED = object()  # Sentinel value for back navigation
 _MODEL_PRESET_CACHE: set[str] = set()
 
 _QUICK_START_TARGETS = {
-    "No chat channel yet (recommended)": None,
+    "WebUI / local browser (recommended)": "websocket",
+    "No chat channel yet": None,
     "Telegram": "telegram",
     "Feishu / Lark": "feishu",
     "Slack": "slack",
@@ -414,7 +415,7 @@ def _show_main_menu_header() -> None:
     body = Table.grid(expand=True)
     body.add_column(ratio=1)
     body.add_row(f"{__logo__} [bold {_UI_TEXT}]nanobot[/] [{_UI_MUTED}]v{__version__}[/]")
-    body.add_row(f"[{_UI_ACCENT}]Quick Start configures one AI model first.[/]")
+    body.add_row(f"[{_UI_ACCENT}]Quick Start configures one AI model and one entry point.[/]")
     body.add_row(
         f"[{_UI_MUTED}]WebUI, chat channels, and advanced settings stay available when you need them.[/]"
     )
@@ -1443,6 +1444,19 @@ def _configure_quick_start_channel(config: Config, channel_name: str | None) -> 
 
     current = getattr(config.channels, channel_name, None) or {}
     model = config_cls.model_validate(current)
+    if channel_name == "websocket":
+        enable = _input_bool("Enable WebSocket channel for local WebUI", True)
+        if not enable:
+            console.print("[yellow]! WebSocket channel was not enabled[/yellow]")
+            return False
+        if hasattr(model, "enabled"):
+            setattr(model, "enabled", True)
+        updated = _configure_pydantic_model(model, "WebSocket")
+        if updated is None:
+            return False
+        setattr(config.channels, channel_name, updated.model_dump(by_alias=True, exclude_none=True))
+        return True
+
     required_fields = _QUICK_START_CHANNEL_FIELDS.get(channel_name, ())
     for field_name, prompt in required_fields:
         value = _input_with_existing(prompt, getattr(model, field_name, ""), "str")
@@ -1472,9 +1486,15 @@ def _show_quick_start_summary(config: Config, channel_name: str | None) -> None:
         ("Provider", preset.provider if preset else "[not set]"),
         ("Model", preset.model if preset else "[not set]"),
         ("Entry point", "Not enabled yet" if channel_name is None else channel_name),
-        ("Next", "Save, then run `nanobot agent -m \"Hello!\"`"),
-        ("WebUI", "Use [C] Chat Channel -> WebSocket when you are ready"),
+        (
+            "Next",
+            "Save, then run `nanobot gateway`"
+            if channel_name
+            else "Save, then run `nanobot agent -m \"Hello!\"`",
+        ),
     ]
+    if channel_name == "websocket":
+        rows.append(("WebUI", "Open http://127.0.0.1:8765 after the gateway starts"))
     _print_summary_panel(rows, "Quick Start")
 
 
@@ -1489,7 +1509,7 @@ def _configure_quick_start(config: Config) -> None:
     answer = _select_with_back(
         "How do you want to use nanobot first?",
         list(_QUICK_START_TARGETS) + ["<- Back"],
-        default="No chat channel yet (recommended)",
+        default="WebUI / local browser (recommended)",
     )
     if answer is _BACK_PRESSED or answer is None or answer == "<- Back":
         return

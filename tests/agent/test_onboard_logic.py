@@ -926,18 +926,25 @@ class TestMainMenuUpdate:
         assert telegram["enabled"] is True
         assert telegram["token"] == "123:abc"
 
-    def test_quick_start_recommended_path_does_not_enable_channel(self, monkeypatch):
-        """The recommended Quick Start target should leave chat surfaces as explicit opt-ins."""
+    def test_quick_start_webui_opens_websocket_config(self, monkeypatch):
+        """The recommended WebUI path should explicitly route through WebSocket config."""
         config = Config()
-        selections = iter(["No chat channel yet (recommended)", "OpenRouter"])
+        selections = iter(["WebUI / local browser (recommended)", "OpenRouter"])
 
         def fake_select_with_back(*_args, **_kwargs):
             return next(selections)
+
+        def fake_configure(model, display_name):
+            assert display_name == "WebSocket"
+            assert model.enabled is True
+            return model
 
         monkeypatch.setattr(onboard_wizard.console, "clear", lambda: None)
         monkeypatch.setattr(onboard_wizard, "_show_section_header", lambda *a, **kw: None)
         monkeypatch.setattr(onboard_wizard, "_select_with_back", fake_select_with_back)
         monkeypatch.setattr(onboard_wizard, "_input_with_existing", lambda *a, **kw: "sk-or-test")
+        monkeypatch.setattr(onboard_wizard, "_input_bool", lambda *a, **kw: True)
+        monkeypatch.setattr(onboard_wizard, "_configure_pydantic_model", fake_configure)
         monkeypatch.setattr(
             onboard_wizard,
             "_input_model_with_autocomplete",
@@ -948,7 +955,9 @@ class TestMainMenuUpdate:
 
         onboard_wizard._configure_quick_start(config)
 
-        assert getattr(config.channels, "websocket", None) is None
+        websocket = getattr(config.channels, "websocket")
+        assert websocket["enabled"] is True
+        assert websocket["websocketRequiresToken"] is True
         assert config.agents.defaults.model_preset == "primary"
 
     def test_quick_start_channel_requires_token_before_enable(self, monkeypatch):
