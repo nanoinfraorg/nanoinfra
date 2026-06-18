@@ -695,22 +695,31 @@ export function SettingsView({
   useEffect(() => {
     if (activeSection !== "apps") return;
     let cancelled = false;
-    setCliAppsLoading(true);
-    fetchCliApps(token)
-      .then((payload) => {
-        if (!cancelled) {
+    let retry: number | null = null;
+    const loadCliApps = (showLoading: boolean) => {
+      if (showLoading) setCliAppsLoading(true);
+      fetchCliApps(token)
+        .then((payload) => {
+          if (cancelled) return;
+          if (payload.catalog_refresh_pending) {
+            retry = window.setTimeout(() => loadCliApps(false), 2000);
+            if (payload.apps.length === 0) return;
+          }
           setCliApps(payload);
           setCliAppsError(null);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setCliAppsError((err as Error).message);
-      })
-      .finally(() => {
-        if (!cancelled) setCliAppsLoading(false);
-      });
+          setCliAppsLoading(false);
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            setCliAppsError((err as Error).message);
+            setCliAppsLoading(false);
+          }
+        });
+    };
+    loadCliApps(true);
     return () => {
       cancelled = true;
+      if (retry !== null) window.clearTimeout(retry);
     };
   }, [activeSection, token]);
 

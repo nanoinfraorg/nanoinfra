@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+import threading
+import time
 from typing import Any
 
 from nanobot.apps.cli import CliAppError, CliAppManager, CliAppsRuntimeConfig
@@ -19,6 +21,39 @@ _CLI_APP_ATTACHMENT_KEYS = (
     "logo_url",
     "brand_color",
 )
+_CATALOG_REFRESH_RETRY_SECONDS = 60.0
+_catalog_refresh_lock = threading.Lock()
+_catalog_refresh_running = False
+_catalog_refresh_last_started = 0.0
+
+
+def _start_catalog_refresh() -> bool:
+    global _catalog_refresh_last_started, _catalog_refresh_running
+    now = time.monotonic()
+    with _catalog_refresh_lock:
+        if _catalog_refresh_running:
+            return True
+        if now - _catalog_refresh_last_started < _CATALOG_REFRESH_RETRY_SECONDS:
+            return True
+        _catalog_refresh_running = True
+        _catalog_refresh_last_started = now
+
+    def refresh() -> None:
+        global _catalog_refresh_running
+        try:
+            _manager().catalog(force_refresh=True)
+        except Exception:
+            pass
+        finally:
+            with _catalog_refresh_lock:
+                _catalog_refresh_running = False
+
+    threading.Thread(
+        target=refresh,
+        name="nanobot-cli-app-catalog-refresh",
+        daemon=True,
+    ).start()
+    return True
 
 
 def _clip_ws_string(value: Any, limit: int = 240) -> str | None:
@@ -77,7 +112,16 @@ def cli_apps_payload(*, installed_only: bool = False) -> dict[str, Any]:
     manager = _manager()
     if installed_only:
         return manager.installed_payload()
-    return manager.payload()
+    payload = manager.payload(cache_only=True)
+    refresh_pending = not manager.catalog_cache_fresh()
+    if refresh_pending:
+        _start_catalog_refresh()
+    if not payload["apps"]:
+        installed = manager.installed_payload()
+        if installed["apps"]:
+            payload = installed
+    payload["catalog_refresh_pending"] = refresh_pending
+    return payload
 
 
 def cli_apps_action(action: str, query: QueryParams) -> dict[str, Any]:
