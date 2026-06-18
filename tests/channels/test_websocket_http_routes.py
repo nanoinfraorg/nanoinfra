@@ -415,9 +415,8 @@ async def test_cli_apps_routes_require_token_and_return_payload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "nanobot.webui.settings_routes.cli_apps_payload",
-        lambda: {
+    async def payload(*, installed_only: bool = False) -> dict[str, Any]:
+        return {
             "apps": [
                 {
                     "name": "gimp",
@@ -438,7 +437,11 @@ async def test_cli_apps_routes_require_token_and_return_payload(
             ],
             "installed_count": 0,
             "catalog_updated_at": "2026-04-18",
-        },
+        }
+
+    monkeypatch.setattr(
+        "nanobot.webui.settings_routes.cli_apps_payload",
+        payload,
     )
     monkeypatch.setattr(
         "nanobot.webui.settings_routes.cli_apps_action",
@@ -487,7 +490,8 @@ async def test_cli_apps_catalog_does_not_block_other_webui_http_routes(
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    async def slow_payload() -> dict[str, Any]:
+    async def slow_payload(*, installed_only: bool = False) -> dict[str, Any]:
+        assert installed_only is False
         entered.set()
         with suppress(asyncio.TimeoutError):
             await asyncio.wait_for(release.wait(), 2.0)
@@ -532,7 +536,7 @@ async def test_cli_apps_route_supports_installed_only_payload(
 ) -> None:
     calls: list[bool] = []
 
-    def payload(*, installed_only: bool = False) -> dict[str, Any]:
+    async def payload(*, installed_only: bool = False) -> dict[str, Any]:
         calls.append(installed_only)
         return {"apps": [], "installed_count": 0, "catalog_updated_at": None}
 
