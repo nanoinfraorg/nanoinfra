@@ -22,7 +22,7 @@ from nanobot.cli.onboard import (
     _input_text,
     run_onboard,
 )
-from nanobot.config.schema import Config
+from nanobot.config.schema import Config, ModelPresetConfig
 from nanobot.utils.helpers import sync_workspace_templates
 
 
@@ -903,7 +903,11 @@ class TestMainMenuUpdate:
     def test_quick_start_configures_primary_preset_and_telegram(self, monkeypatch):
         """Quick Start should set only the minimum provider, model and channel fields."""
         config = Config()
-        selections = iter(["Telegram", "OpenRouter"])
+        selections = iter([
+            onboard_wizard._QUICK_START_CUSTOM_CHOICE,
+            "Telegram",
+            "OpenRouter",
+        ])
 
         def fake_select_with_back(*_args, **_kwargs):
             return next(selections)
@@ -938,10 +942,14 @@ class TestMainMenuUpdate:
         assert telegram["enabled"] is True
         assert telegram["token"] == "123:abc"
 
-    def test_quick_start_webui_opens_websocket_config(self, monkeypatch):
-        """The recommended WebUI path should explicitly route through WebSocket config."""
+    def test_quick_start_custom_webui_opens_websocket_config(self, monkeypatch):
+        """The custom WebUI path should still expose WebSocket settings."""
         config = Config()
-        selections = iter(["WebUI / local browser (recommended)", "OpenRouter"])
+        selections = iter([
+            onboard_wizard._QUICK_START_CUSTOM_CHOICE,
+            "WebUI / local browser (recommended)",
+            "OpenRouter",
+        ])
 
         def fake_select_with_back(*_args, **_kwargs):
             return next(selections)
@@ -971,6 +979,63 @@ class TestMainMenuUpdate:
         assert websocket["enabled"] is True
         assert websocket["websocketRequiresToken"] is True
         assert config.agents.defaults.model_preset == "primary"
+
+    def test_quick_start_recommended_webui_skips_advanced_prompts(self, monkeypatch):
+        """The beginner path should only ask for the API key and use safe defaults."""
+        config = Config()
+
+        def fail_model_input(*_args, **_kwargs):
+            raise AssertionError("recommended Quick Start should not ask for a model ID")
+
+        def fail_websocket_config(*_args, **_kwargs):
+            raise AssertionError("recommended Quick Start should not open WebSocket settings")
+
+        monkeypatch.setattr(onboard_wizard.console, "clear", lambda: None)
+        monkeypatch.setattr(onboard_wizard, "_show_section_header", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            onboard_wizard,
+            "_select_with_back",
+            lambda *_args, **_kwargs: onboard_wizard._QUICK_START_RECOMMENDED_CHOICE,
+        )
+        monkeypatch.setattr(onboard_wizard, "_input_with_existing", lambda *a, **kw: "sk-or-test")
+        monkeypatch.setattr(onboard_wizard, "_input_model_with_autocomplete", fail_model_input)
+        monkeypatch.setattr(onboard_wizard, "_configure_pydantic_model", fail_websocket_config)
+        monkeypatch.setattr(onboard_wizard, "_print_summary_panel", lambda *a, **kw: None)
+        monkeypatch.setattr(onboard_wizard, "_pause", lambda: None)
+
+        onboard_wizard._configure_quick_start(config)
+
+        assert config.providers.openrouter.api_key == "sk-or-test"
+        assert config.providers.openrouter.api_base == "https://openrouter.ai/api/v1"
+        assert config.agents.defaults.model_preset == "primary"
+        assert config.model_presets["primary"].provider == "openrouter"
+        assert config.model_presets["primary"].model == onboard_wizard._QUICK_START_RECOMMENDED_MODEL
+        websocket = getattr(config.channels, "websocket")
+        assert websocket["enabled"] is True
+        assert websocket["websocketRequiresToken"] is True
+
+    def test_quick_start_summary_calls_out_missing_api_key(self, monkeypatch):
+        """Quick Start summary should not tell users to run gateway before adding a key."""
+        config = Config()
+        config.model_presets["primary"] = ModelPresetConfig(
+            model=onboard_wizard._QUICK_START_RECOMMENDED_MODEL,
+            provider="openrouter",
+        )
+
+        captured: dict[str, list[tuple[str, str]]] = {}
+
+        monkeypatch.setattr(onboard_wizard, "_show_quick_start_progress", lambda *_args: None)
+        monkeypatch.setattr(
+            onboard_wizard,
+            "_print_summary_panel",
+            lambda rows, _title: captured.setdefault("rows", rows),
+        )
+
+        onboard_wizard._show_quick_start_summary(config, "websocket")
+
+        rows = dict(captured["rows"])
+        assert rows["API key"] == "add later"
+        assert "add your API key" in rows["Next"]
 
     def test_quick_start_channel_requires_token_before_enable(self, monkeypatch):
         """Quick Start should not enable token-based channels with blank credentials."""

@@ -64,6 +64,10 @@ _QUICK_START_TARGETS = {
     "Slack": "slack",
     "Discord": "discord",
 }
+_QUICK_START_RECOMMENDED_CHOICE = "Recommended: local WebUI"
+_QUICK_START_CUSTOM_CHOICE = "Choose provider and entry point"
+_QUICK_START_RECOMMENDED_PROVIDER = "openrouter"
+_QUICK_START_RECOMMENDED_MODEL = "anthropic/claude-sonnet-4.5"
 
 _QUICK_START_CHANNEL_FIELDS = {
     "telegram": (("token", "Telegram bot token from BotFather"),),
@@ -78,7 +82,7 @@ _QUICK_START_CHANNEL_FIELDS = {
     "discord": (("token", "Discord bot token"),),
 }
 
-_QUICK_START_STEPS = ("Entry point", "AI provider", "Channel", "Review")
+_QUICK_START_STEPS = ("Setup", "AI provider", "Entry point", "Review")
 
 # Low-contrast terminal palette inspired by JetBrains Darcula/Islands.
 _UI_ACCENT = "#6B9BFA"
@@ -1425,6 +1429,17 @@ def _quick_start_model_default(config: Config, provider_name: str) -> str:
     return ""
 
 
+def _set_primary_quick_start_preset(config: Config, provider_name: str, model: str) -> None:
+    """Store the primary preset used by Quick Start."""
+    config.model_presets["primary"] = ModelPresetConfig(
+        label="Primary",
+        model=model,
+        provider=provider_name,
+    )
+    config.agents.defaults.model_preset = "primary"
+    _sync_preset_cache(config)
+
+
 def _show_quick_start_progress(active_step: int) -> None:
     """Render a compact step tracker for Quick Start."""
     parts = []
@@ -1494,13 +1509,54 @@ def _configure_quick_start_provider(config: Config) -> bool:
         console.print("[yellow]! Model ID is required for Quick Start[/yellow]")
         return False
 
-    config.model_presets["primary"] = ModelPresetConfig(
-        label="Primary",
-        model=model,
-        provider=provider_name,
+    _set_primary_quick_start_preset(config, provider_name, model)
+    return True
+
+
+def _configure_recommended_provider(config: Config) -> bool:
+    """Configure the beginner path provider with one API-key prompt."""
+    _show_quick_start_progress(2)
+    provider_name = _QUICK_START_RECOMMENDED_PROVIDER
+    provider_config = getattr(config.providers, provider_name, None)
+    if provider_config is None:
+        console.print(f"[red]Unknown provider: {provider_name}[/red]")
+        return False
+
+    _display, _is_gateway, _is_local, default_api_base = _get_provider_info().get(
+        provider_name, (provider_name, False, False, "")
     )
-    config.agents.defaults.model_preset = "primary"
-    _sync_preset_cache(config)
+    if default_api_base and not provider_config.api_base:
+        provider_config.api_base = default_api_base
+
+    api_key = _input_with_existing(
+        "OpenRouter API key (get one at https://openrouter.ai/keys; Enter to add later)",
+        provider_config.api_key,
+        "str",
+    )
+    if api_key is not None:
+        provider_config.api_key = api_key or None
+
+    _set_primary_quick_start_preset(
+        config,
+        provider_name,
+        _QUICK_START_RECOMMENDED_MODEL,
+    )
+    return True
+
+
+def _enable_quick_start_websocket_defaults(config: Config) -> bool:
+    """Enable local WebUI with the default WebSocket settings."""
+    _show_quick_start_progress(3)
+    config_cls = _get_channel_config_class("websocket")
+    if config_cls is None:
+        console.print("[red]No configuration class found for websocket[/red]")
+        return False
+
+    current = getattr(config.channels, "websocket", None) or {}
+    model = config_cls.model_validate(current)
+    if hasattr(model, "enabled"):
+        setattr(model, "enabled", True)
+    setattr(config.channels, "websocket", model.model_dump(by_alias=True, exclude_none=True))
     return True
 
 
@@ -1560,17 +1616,39 @@ def _show_quick_start_summary(config: Config, channel_name: str | None) -> None:
     """Show the small summary users need before returning to the menu."""
     _show_quick_start_progress(4)
     preset = config.model_presets.get("primary")
+    api_key_status = None
+    if preset:
+        provider_config = getattr(config.providers, preset.provider, None)
+        _display, _is_gateway, is_local, _api_base = _get_provider_info().get(
+            preset.provider, (preset.provider, False, False, "")
+        )
+        if not is_local:
+            api_key_status = (
+                "configured"
+                if provider_config and provider_config.api_key
+                else "add later"
+            )
+
+    next_step = (
+        "Save, then run `nanobot gateway`"
+        if channel_name
+        else "Save, then run `nanobot agent -m \"Hello!\"`"
+    )
+    if api_key_status == "add later":
+        next_step = (
+            "Save, add your API key to config, then run `nanobot gateway`"
+            if channel_name
+            else "Save, add your API key to config, then run `nanobot agent -m \"Hello!\"`"
+        )
+
     rows = [
         ("Provider", preset.provider if preset else "[not set]"),
         ("Model", preset.model if preset else "[not set]"),
         ("Entry point", "Not enabled yet" if channel_name is None else channel_name),
-        (
-            "Next",
-            "Save, then run `nanobot gateway`"
-            if channel_name
-            else "Save, then run `nanobot agent -m \"Hello!\"`",
-        ),
+        ("Next", next_step),
     ]
+    if api_key_status:
+        rows.insert(2, ("API key", api_key_status))
     if channel_name == "websocket":
         rows.append(("WebUI", "Open http://127.0.0.1:8765 after the gateway starts"))
     _print_summary_panel(rows, "Quick Start")
@@ -1581,9 +1659,33 @@ def _configure_quick_start(config: Config) -> None:
     console.clear()
     _show_section_header(
         "Quick Start",
-        "Set up one AI model and optionally one chat channel. Advanced settings stay unchanged.",
+        "Start with the local browser UI, or choose each detail yourself.",
     )
     _show_quick_start_progress(1)
+    answer = _select_with_back(
+        "Choose setup:",
+        [_QUICK_START_RECOMMENDED_CHOICE, _QUICK_START_CUSTOM_CHOICE, "<- Back"],
+        default=_QUICK_START_RECOMMENDED_CHOICE,
+    )
+    if answer is _BACK_PRESSED or answer is None or answer == "<- Back":
+        return
+
+    assert isinstance(answer, str)
+
+    if answer == _QUICK_START_RECOMMENDED_CHOICE:
+        if not _configure_recommended_provider(config):
+            _pause()
+            return
+        if not _enable_quick_start_websocket_defaults(config):
+            _pause()
+            return
+        _show_quick_start_summary(config, "websocket")
+        _pause()
+        return
+
+    if answer != _QUICK_START_CUSTOM_CHOICE:
+        return
+
     answer = _select_with_back(
         "How do you want to use nanobot first?",
         list(_QUICK_START_TARGETS) + ["<- Back"],

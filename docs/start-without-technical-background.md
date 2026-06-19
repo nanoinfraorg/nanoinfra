@@ -62,7 +62,7 @@ If `python3` works but `python` does not, replace `python` with `python3` in the
 
 ## 3. Get a Provider API Key
 
-nanobot does not create AI accounts or API keys for you. Use an AI provider account, company endpoint, subscription endpoint, or local model server that you already control. The steps below use OpenRouter only as a concrete example so the commands and wizard choices have real names; it is not a ranking, default choice, or endorsement.
+nanobot does not create AI accounts or API keys for you. Use an AI provider account, company endpoint, subscription endpoint, or local model server that you already control. The steps below use OpenRouter because it is the recommended beginner path in the wizard; it is not a ranking or endorsement.
 
 If you use another provider, keep the same shape but replace the provider name, API key, and model ID with values from that provider. [`provider-cookbook.md`](./provider-cookbook.md) has copyable snippets for several common patterns.
 
@@ -185,21 +185,19 @@ Move through the wizard like this:
 | A field you do not need | Keep the shown default or leave it blank, then press `Enter`. |
 | A back option | Choose it to return to the previous menu. |
 
-For the first setup, choose `[Q] Quick Start (recommended)`. It asks for the model provider, API key, model ID, and optionally one chat channel. The other menu items are advanced settings.
+For the first setup, choose `[Q] Quick Start (recommended)`. It has a recommended path for a local browser UI and an advanced path where you can choose every detail yourself. The other main menu items are advanced settings.
 
 If you are following the OpenRouter example:
 
 1. Choose `[Q] Quick Start (recommended)`.
-2. Choose `No chat channel yet` unless you already want to configure WebUI, Telegram, WeChat, WhatsApp, Feishu/Lark, Slack, or Discord now.
-3. Select OpenRouter.
-4. Paste your OpenRouter API key.
-5. Enter a model ID, for example `anthropic/claude-sonnet-4.5`.
-6. Review the Quick Start summary.
-7. Choose `[S] Save and Exit`.
+2. Choose `Recommended: local WebUI`.
+3. Paste your OpenRouter API key, or press `Enter` and add it to the config file later.
+4. Review the Quick Start summary.
+5. Choose `[S] Save and Exit`.
 
-If you choose `WebUI / local browser`, the wizard will open the WebSocket settings before it enables WebUI.
+The recommended path enables the local WebUI with default WebSocket settings and uses a built-in model choice. You do not need to choose a model ID for the first run.
 
-If OpenRouter says your account cannot use that model, use another OpenRouter model ID that your account can access.
+If OpenRouter later says your account cannot use the built-in model choice, return to the wizard, choose `[Q] Quick Start (recommended)`, then choose `Choose provider and entry point` and enter another OpenRouter model ID that your account can access.
 
 If you are using another provider, use the same wizard choices but substitute that provider's values:
 
