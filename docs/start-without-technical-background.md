@@ -2,23 +2,20 @@
 
 This page is for you if you have never used a terminal, edited a JSON file, or configured an AI model before.
 
-The goal is small: get one local nanobot reply. Do not connect Telegram, Discord, WebUI, Docker, local models, or deployment yet. Those are easier after the first reply works.
+The goal is small: get one local nanobot reply in your browser. Do not connect Telegram, Discord, Docker, local models, or deployment yet. Those are easier after the first reply works.
 
 ## What You Are Setting Up
 
-You will see these words during setup:
+You only need these words for Quick Start:
 
 | Word | Plain meaning |
 |---|---|
 | Terminal | A text window where you paste commands and press Enter. |
 | Command | One line of text you run in the terminal. |
 | API key | A password-like token from an AI provider. Do not share it publicly. |
-| Provider | The service that owns the API key or local model endpoint. |
-| Model | The AI model ID that the provider can run. |
 | Config file | The settings file nanobot reads when it starts. |
 | Wizard | An interactive terminal menu that edits the config file for you. |
-| Model preset | A named model choice in the config file. |
-| `apiBase` | The HTTP address of a provider endpoint. Leave it blank unless your provider, proxy, or local server tells you to set one. |
+| Browser UI | The local web page where you chat with nanobot. |
 
 ## 1. Open a Terminal
 
@@ -63,8 +60,6 @@ If `python3` works but `python` does not, replace `python` with `python3` in the
 ## 3. Get a Provider API Key
 
 nanobot does not create AI accounts or API keys for you. Use an AI provider account, company endpoint, subscription endpoint, or local model server that you already control. The steps below use OpenRouter because it is the recommended beginner path in the wizard; it is not a ranking or endorsement.
-
-If you use another provider, keep the same shape but replace the provider name, API key, and model ID with values from that provider. [`provider-cookbook.md`](./provider-cookbook.md) has copyable snippets for several common patterns.
 
 For the example path:
 
@@ -161,12 +156,10 @@ The wizard is a terminal menu. It is not a graphical app, but it lets you choose
 You will see a menu like this:
 
 ```text
-> What would you like to configure?
+> What would you like to do?
   [Q] Quick Start (API key only)
   [A] Advanced Settings
-  [V] View Configuration Summary
-  [S] Save and Exit
-  [X] Exit Without Saving
+  [X] Exit
 ```
 
 Move through the wizard like this:
@@ -174,33 +167,20 @@ Move through the wizard like this:
 | When you see | Do this |
 |---|---|
 | A menu | Use the arrow keys to highlight an option, then press `Enter`. |
-| A text field | Type or paste the value, then press `Enter`. |
-| A field you do not need | Keep the shown default or leave it blank, then press `Enter`. |
-| A back option | Choose it to return to the previous menu. |
+| The OpenRouter API key field | Paste the key, then press `Enter`. |
+| A back option in Advanced Settings | Choose it to return to the previous menu. |
 
-For the first setup, choose `[Q] Quick Start (API key only)`. It configures the recommended local browser UI and model choice for you. Use `Advanced Settings` later only if you need a different provider, model, channel, gateway, or tool setup.
+For the first setup, choose `[Q] Quick Start (API key only)`. It configures the recommended local browser UI and default AI settings for you. Use `Advanced Settings` later only if you need a different provider, chat app, or tool setup.
 
 If you are following the OpenRouter example:
 
 1. Choose `[Q] Quick Start (API key only)`.
-2. Paste your OpenRouter API key, or press `Enter` and add it to the config file later.
-3. Review the Quick Start summary.
-4. Choose `[S] Save and Exit`.
+2. Paste your OpenRouter API key.
+3. Review the Quick Start summary. The wizard saves and exits when Quick Start finishes.
 
-The recommended path enables the local WebUI with default WebSocket settings and uses a built-in model choice. You do not need to choose a model ID for the first run.
+The recommended path enables the local WebUI and default AI settings. You do not need to choose a model, endpoint, or chat channel for the first run.
 
-If OpenRouter later says your account cannot use the built-in model choice, return to the wizard, choose `Advanced Settings`, then edit `Model Presets` and enter another OpenRouter model ID that your account can access.
-
-If you already know that you need another provider, choose `Advanced Settings` instead of Quick Start and enter that provider's values:
-
-| Wizard field | What to enter |
-|---|---|
-| Provider menu | The provider that owns your API key or endpoint. |
-| API key | The key from that provider, or leave it blank only if the provider does not use one. |
-| `apiBase` | Leave blank unless the provider docs, proxy docs, or local server docs give you a URL. |
-| Model ID | A model ID that provider can actually serve. |
-
-Then choose `[S] Save and Exit`.
+If you already know that you need another provider, choose `Advanced Settings` instead of Quick Start. [`provider-cookbook.md`](./provider-cookbook.md) has copyable examples for several common provider setups. After you change advanced settings, a save option appears in the main menu. Choose `[S] Save and Exit`.
 
 The wizard creates or updates:
 
@@ -209,7 +189,9 @@ The wizard creates or updates:
 | `~/.nanobot/config.json` | Settings file. |
 | `~/.nanobot/workspace/` | Working folder for memory, sessions, and generated files. |
 
-## How to Merge JSON Snippets
+If Quick Start finished successfully, skip to [Send the First Message](#7-send-the-first-message). The next two sections are only for manual setup.
+
+## Manual Setup: How to Merge JSON Snippets
 
 Most docs examples are snippets, not whole files. Your `config.json` has one outer `{ ... }`. Add new top-level sections such as `providers`, `modelPresets`, `agents`, or `channels` inside that same outer object.
 
@@ -243,7 +225,7 @@ Merge them into one object:
 
 Notice the comma after the `providers` block. JSON needs commas between sibling sections, but not after the last section. If this feels hard, use `nanobot onboard` whenever possible.
 
-## 6. Manual Config Fallback
+## 6. Manual Setup: Config Fallback
 
 Use this only if the wizard is unavailable or you prefer opening the file yourself.
 
@@ -292,6 +274,11 @@ If this is a brand-new install and you have not configured anything else yet, re
     "defaults": {
       "modelPreset": "primary"
     }
+  },
+  "channels": {
+    "websocket": {
+      "enabled": true
+    }
   }
 }
 ```
@@ -314,15 +301,19 @@ This should show the config file path, workspace path, and the active model or p
 
 It is normal for most providers to say `not set`. Only the provider you selected for the active preset needs to look configured.
 
-Run:
+Start the local browser UI:
 
 ```bash
-nanobot agent -m "Hello!"
+nanobot gateway
 ```
 
-If that works, nanobot is installed and can call the model.
+Leave that terminal open, then open `http://127.0.0.1:8765` in your browser and send:
 
-You should see a normal assistant reply in the terminal. The exact words will differ, but it should look like this shape:
+```text
+Hello!
+```
+
+If that works, nanobot is installed and can call the model. You should see a normal assistant reply in the browser. The exact words will differ, but it should look like this shape:
 
 ```text
 Hello! How can I help you today?
@@ -331,12 +322,12 @@ Hello! How can I help you today?
 If `nanobot` is not found, run:
 
 ```bash
-python -m nanobot agent -m "Hello!"
+python -m nanobot gateway
 ```
 
-Use `python3 -m nanobot agent -m "Hello!"` or `py -m nanobot agent -m "Hello!"` if that is the Python command that worked in step 2.
+Use `python3 -m nanobot gateway` or `py -m nanobot gateway` if that is the Python command that worked in step 2.
 
-Once this works, nanobot can help with its own next setup step. Run `nanobot agent`, ask it to read these docs and update your current config for one specific goal, then run `/restart` when nanobot tells you the config is ready. For example, ask it to enable the browser UI, add one provider preset, or configure one chat app.
+Once this works, nanobot can help with its own next setup step. In the browser UI, ask it to read these docs and update your current config for one specific goal, then run `/restart` when nanobot tells you the config is ready. For example, ask it to add one provider preset or configure one chat app.
 
 ## 8. If Something Fails
 
@@ -346,7 +337,7 @@ Do not change many things at once. Check the exact error:
 |---|---|
 | `JSON parse error` | The config file has a missing comma, extra comma, or mismatched brace. Copy the example again. |
 | `401`, `unauthorized`, or `invalid API key` | The API key is wrong, expired, has extra spaces, or was pasted under the wrong provider. |
-| `model not found` | The model ID is not available through the selected provider or your account cannot use it. |
+| `model not found` | Your account cannot use the default model. Return to `nanobot onboard`, choose `Advanced Settings`, then edit `Model Presets`. |
 | `nanobot: command not found` | The install worked in Python, but your shell cannot find the script. Use `python -m nanobot ...`, `python3 -m nanobot ...`, or `py -m nanobot ...`, matching the Python command that worked earlier. |
 | No response after editing config | Restart the command. Long-running processes read config when they start. |
 
@@ -357,7 +348,7 @@ For a fuller diagnosis path, see [`troubleshooting.md`](./troubleshooting.md).
 Skip these until the first local message works:
 
 - `apiBase`: hosted built-in providers often already have default endpoints. You only need `apiBase` for local models, proxies, custom OpenAI-compatible providers, or special regional/subscription endpoints.
-- WebUI and chat apps: first prove `nanobot agent -m "Hello!"`.
+- chat apps: first prove the local browser UI can answer.
 - fallback models: useful later, but not needed for the first reply.
 - Langfuse: useful for observability, but not needed for first setup.
 
@@ -365,22 +356,15 @@ Skip these until the first local message works:
 
 After the first reply works, choose only one next goal. Keep the terminal that runs `nanobot gateway` open whenever you use the WebUI or a chat app.
 
-### Open the Browser UI
+### Open the Browser UI Again
 
-1. Add this snippet to `~/.nanobot/config.json`. Merge it into the existing file instead of replacing the whole file:
-
-```json
-{ "channels": { "websocket": { "enabled": true } } }
-```
-
-2. Run:
+Run:
 
 ```bash
 nanobot gateway
 ```
 
-3. Leave that terminal open.
-4. Open `http://127.0.0.1:8765` in your browser.
+Leave that terminal open, then open `http://127.0.0.1:8765` in your browser.
 
 To stop the WebUI later, return to the gateway terminal and press `Ctrl+C`.
 
@@ -413,7 +397,7 @@ When you ask for help, include:
 - the command you ran;
 - `nanobot --version`;
 - `nanobot status`;
-- whether `nanobot agent -m "Hello!"` works;
+- whether the browser UI can answer `Hello!`;
 - the exact error text;
 - a config snippet with API keys and tokens removed.
 

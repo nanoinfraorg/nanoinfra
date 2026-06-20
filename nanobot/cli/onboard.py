@@ -388,9 +388,9 @@ def _show_main_menu_header() -> None:
     body = Table.grid(expand=True)
     body.add_column(ratio=1)
     body.add_row(f"{__logo__} [bold {_UI_TEXT}]nanobot[/] [{_UI_MUTED}]v{__version__}[/]")
-    body.add_row(f"[{_UI_ACCENT}]Quick Start only needs an API key.[/]")
+    body.add_row(f"[{_UI_ACCENT}]Quick Start only needs an OpenRouter API key.[/]")
     body.add_row(
-        f"[{_UI_MUTED}]Provider, channel, model, and gateway settings stay in Advanced.[/]"
+        f"[{_UI_MUTED}]Use Advanced later for other providers or chat apps.[/]"
     )
     console.print(
         Panel(
@@ -1377,9 +1377,9 @@ def _show_summary(config: Config) -> None:
     _pause()
 
 
-def _pause() -> None:
+def _pause(message: str = "Press Enter to continue...") -> None:
     """Pause for user acknowledgement before clearing the screen."""
-    _get_questionary().text("Press Enter to continue...", default="").ask()
+    _get_questionary().text(message, default="").ask()
 
 
 # --- Quick Start ---
@@ -1422,16 +1422,19 @@ def _configure_recommended_provider(config: Config) -> bool:
     _display, _is_gateway, _is_local, default_api_base = _get_provider_info().get(
         provider_name, (provider_name, False, False, "")
     )
-    if default_api_base and not provider_config.api_base:
-        provider_config.api_base = default_api_base
 
     api_key = _input_with_existing(
-        "OpenRouter API key (get one at https://openrouter.ai/keys; Enter to add later)",
+        "OpenRouter API key (get one at https://openrouter.ai/keys)",
         provider_config.api_key,
         "str",
     )
     if api_key is not None:
-        provider_config.api_key = api_key or None
+        provider_config.api_key = api_key.strip() or None
+    if not provider_config.api_key:
+        console.print("[yellow]! OpenRouter API key is required for Quick Start[/yellow]")
+        return False
+    if default_api_base and not provider_config.api_base:
+        provider_config.api_base = default_api_base
 
     _set_primary_quick_start_preset(
         config,
@@ -1457,49 +1460,35 @@ def _enable_quick_start_websocket_defaults(config: Config) -> bool:
     return True
 
 
-def _show_quick_start_summary(config: Config, channel_name: str | None) -> None:
+def _show_quick_start_summary(config: Config) -> None:
     """Show the small summary users need before returning to the menu."""
     _show_quick_start_progress(3)
     preset = config.model_presets.get("primary")
-    api_key_status = None
+    provider_label = "AI provider"
+    has_api_key = True
     if preset:
         provider_config = getattr(config.providers, preset.provider, None)
-        _display, _is_gateway, is_local, _api_base = _get_provider_info().get(
+        provider_label, _is_gateway, is_local, _api_base = _get_provider_info().get(
             preset.provider, (preset.provider, False, False, "")
         )
-        if not is_local:
-            api_key_status = (
-                "configured"
-                if provider_config and provider_config.api_key
-                else "add later"
-            )
+        has_api_key = is_local or bool(provider_config and provider_config.api_key)
 
-    next_step = (
-        "Save, then run `nanobot gateway`"
-        if channel_name
-        else "Save, then run `nanobot agent -m \"Hello!\"`"
-    )
-    if api_key_status == "add later":
-        next_step = (
-            "Save, add your API key to config, then run `nanobot gateway`"
-            if channel_name
-            else "Save, add your API key to config, then run `nanobot agent -m \"Hello!\"`"
-        )
+    start_command = "`nanobot gateway`"
+    next_step = f"Run {start_command}"
+    status = "Ready"
+    if not has_api_key:
+        status = f"{provider_label} API key missing"
+        next_step = f"Add your {provider_label} API key, then run {start_command}"
 
     rows = [
-        ("Provider", preset.provider if preset else "[not set]"),
-        ("Model", preset.model if preset else "[not set]"),
-        ("Entry point", "Not enabled yet" if channel_name is None else channel_name),
+        ("Status", status),
         ("Next", next_step),
+        ("Open", "http://127.0.0.1:8765"),
     ]
-    if api_key_status:
-        rows.insert(2, ("API key", api_key_status))
-    if channel_name == "websocket":
-        rows.append(("WebUI", "Open http://127.0.0.1:8765 after the gateway starts"))
     _print_summary_panel(rows, "Quick Start")
 
 
-def _configure_quick_start(config: Config) -> None:
+def _configure_quick_start(config: Config) -> bool:
     """First-run path: API key + local WebUI, with advanced settings hidden."""
     console.clear()
     _show_section_header(
@@ -1508,12 +1497,13 @@ def _configure_quick_start(config: Config) -> None:
     )
     if not _configure_recommended_provider(config):
         _pause()
-        return
+        return False
     if not _enable_quick_start_websocket_defaults(config):
         _pause()
-        return
-    _show_quick_start_summary(config, "websocket")
-    _pause()
+        return False
+    _show_quick_start_summary(config)
+    _pause("Press Enter to save and exit...")
+    return True
 
 
 # --- Main Entry Point ---
@@ -1547,6 +1537,19 @@ def _prompt_main_menu_exit(has_unsaved_changes: bool) -> str:
     return "resume"
 
 
+def _get_main_menu_choices(has_unsaved_changes: bool) -> list[str]:
+    """Return the top-level choices, keeping save actions hidden until needed."""
+    choices = [
+        "[Q] Quick Start (API key only)",
+        "[A] Advanced Settings",
+    ]
+    if has_unsaved_changes:
+        choices.extend(["[S] Save and Exit", "[X] Exit Without Saving"])
+    else:
+        choices.append("[X] Exit")
+    return choices
+
+
 def _configure_advanced_settings(config: Config) -> None:
     """Show lower-frequency setup options behind one advanced menu."""
     last_choice: str | None = None
@@ -1568,6 +1571,7 @@ def _configure_advanced_settings(config: Config) -> None:
                     "[I] API Server",
                     "[G] Gateway",
                     "[T] Tools",
+                    "[V] View Configuration Summary",
                     "<- Back",
                 ],
                 default=last_choice,
@@ -1588,6 +1592,7 @@ def _configure_advanced_settings(config: Config) -> None:
             "[I] API Server": lambda: _configure_general_settings(config, "API Server"),
             "[G] Gateway": lambda: _configure_general_settings(config, "Gateway"),
             "[T] Tools": lambda: _configure_general_settings(config, "Tools"),
+            "[V] View Configuration Summary": lambda: _show_summary(config),
         }
         action_fn = _advanced_dispatch.get(answer)
         if action_fn:
@@ -1624,14 +1629,8 @@ def run_onboard(initial_config: Config | None = None) -> OnboardResult:
 
         try:
             answer = _get_questionary().select(
-                "What would you like to configure?",
-                choices=[
-                    "[Q] Quick Start (API key only)",
-                    "[A] Advanced Settings",
-                    "[V] View Configuration Summary",
-                    "[S] Save and Exit",
-                    "[X] Exit Without Saving",
-                ],
+                "What would you like to do?",
+                choices=_get_main_menu_choices(_has_unsaved_changes(original_config, config)),
                 default=last_main_choice,
                 qmark=">",
             ).ask()
@@ -1646,15 +1645,18 @@ def run_onboard(initial_config: Config | None = None) -> OnboardResult:
                 return OnboardResult(config=original_config, should_save=False)
             continue
 
+        if answer == "[Q] Quick Start (API key only)":
+            if _configure_quick_start(config):
+                return OnboardResult(config=config, should_save=True)
+            continue
+
         _menu_dispatch = {
-            "[Q] Quick Start (API key only)": lambda: _configure_quick_start(config),
             "[A] Advanced Settings": lambda: _configure_advanced_settings(config),
-            "[V] View Configuration Summary": lambda: _show_summary(config),
         }
 
         if answer == "[S] Save and Exit":
             return OnboardResult(config=config, should_save=True)
-        if answer == "[X] Exit Without Saving":
+        if answer in {"[X] Exit", "[X] Exit Without Saving"}:
             return OnboardResult(config=original_config, should_save=False)
 
         action_fn = _menu_dispatch.get(answer)

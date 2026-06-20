@@ -858,13 +858,29 @@ class TestApiServerRegistration:
 class TestMainMenuUpdate:
     """Tests for main menu including new Channel Common and API Server items."""
 
+    def test_main_menu_hides_save_actions_until_needed(self):
+        """The first screen should not show save or summary actions before edits."""
+        from nanobot.cli.onboard import _get_main_menu_choices
+
+        clean_choices = _get_main_menu_choices(False)
+        dirty_choices = _get_main_menu_choices(True)
+
+        assert clean_choices == [
+            "[Q] Quick Start (API key only)",
+            "[A] Advanced Settings",
+            "[X] Exit",
+        ]
+        assert "[S] Save and Exit" not in clean_choices
+        assert "[V] View Configuration Summary" not in clean_choices
+        assert "[S] Save and Exit" in dirty_choices
+        assert "[X] Exit Without Saving" in dirty_choices
+
     def test_run_onboard_quick_start_edit(self, monkeypatch):
         """run_onboard should route [Q] to Quick Start."""
         initial_config = Config()
 
         responses = iter([
             "[Q] Quick Start (API key only)",
-            "[S] Save and Exit",
         ])
 
         class FakePrompt:
@@ -879,6 +895,7 @@ class TestMainMenuUpdate:
 
         def fake_quick_start(config):
             config.agents.defaults.bot_name = "quickbot"
+            return True
 
         monkeypatch.setattr(onboard_wizard, "_show_main_menu_header", lambda: None)
         monkeypatch.setattr(onboard_wizard, "questionary", SimpleNamespace(select=fake_select))
@@ -899,16 +916,19 @@ class TestMainMenuUpdate:
         def fail_websocket_config(*_args, **_kwargs):
             raise AssertionError("recommended Quick Start should not open WebSocket settings")
 
+        pause_messages: list[str] = []
+
         monkeypatch.setattr(onboard_wizard.console, "clear", lambda: None)
         monkeypatch.setattr(onboard_wizard, "_show_section_header", lambda *a, **kw: None)
         monkeypatch.setattr(onboard_wizard, "_input_with_existing", lambda *a, **kw: "sk-or-test")
         monkeypatch.setattr(onboard_wizard, "_input_model_with_autocomplete", fail_model_input)
         monkeypatch.setattr(onboard_wizard, "_configure_pydantic_model", fail_websocket_config)
         monkeypatch.setattr(onboard_wizard, "_print_summary_panel", lambda *a, **kw: None)
-        monkeypatch.setattr(onboard_wizard, "_pause", lambda: None)
+        monkeypatch.setattr(onboard_wizard, "_pause", lambda message="": pause_messages.append(message))
 
-        onboard_wizard._configure_quick_start(config)
+        assert onboard_wizard._configure_quick_start(config) is True
 
+        assert pause_messages == ["Press Enter to save and exit..."]
         assert config.providers.openrouter.api_key == "sk-or-test"
         assert config.providers.openrouter.api_base == "https://openrouter.ai/api/v1"
         assert config.agents.defaults.model_preset == "primary"
@@ -917,6 +937,19 @@ class TestMainMenuUpdate:
         websocket = getattr(config.channels, "websocket")
         assert websocket["enabled"] is True
         assert websocket["websocketRequiresToken"] is True
+
+    def test_quick_start_requires_api_key_before_setting_defaults(self, monkeypatch):
+        """Quick Start should not create a ready-looking config without an API key."""
+        config = Config()
+
+        monkeypatch.setattr(onboard_wizard, "_show_quick_start_progress", lambda *_args: None)
+        monkeypatch.setattr(onboard_wizard, "_input_with_existing", lambda *a, **kw: "")
+
+        assert onboard_wizard._configure_recommended_provider(config) is False
+
+        assert config.providers.openrouter.api_key is None
+        assert config.providers.openrouter.api_base is None
+        assert "primary" not in config.model_presets
 
     def test_quick_start_summary_calls_out_missing_api_key(self, monkeypatch):
         """Quick Start summary should not tell users to run gateway before adding a key."""
@@ -935,11 +968,18 @@ class TestMainMenuUpdate:
             lambda rows, _title: captured.setdefault("rows", rows),
         )
 
-        onboard_wizard._show_quick_start_summary(config, "websocket")
+        onboard_wizard._show_quick_start_summary(config)
 
+        labels = [label for label, _value in captured["rows"]]
         rows = dict(captured["rows"])
-        assert rows["API key"] == "add later"
-        assert "add your API key" in rows["Next"]
+        assert rows["Status"] == "OpenRouter API key missing"
+        assert "API key" in rows["Next"]
+        assert "nanobot gateway" in rows["Next"]
+        assert labels.index("Next") < labels.index("Open")
+        assert "Model" not in rows
+        assert "Entry point" not in rows
+        assert "API key" not in rows
+        assert "Defaults" not in rows
 
     def test_configure_login_channel_defaults_to_login(self, monkeypatch):
         """The channel wizard should start login before exposing advanced fields."""
@@ -1088,13 +1128,15 @@ class TestMainMenuUpdate:
         assert result.config.api.port == 9999
 
     def test_view_summary_calls_pause(self, monkeypatch):
-        """[V] View Summary should pause before returning to main menu."""
+        """Advanced [V] View Summary should pause before returning to the menu."""
         initial_config = Config()
         pause_called = {"n": 0}
 
         responses = iter([
+            "[A] Advanced Settings",
             "[V] View Configuration Summary",
-            "[S] Save and Exit",
+            KeyboardInterrupt(),
+            "[X] Exit",
         ])
 
         class FakePrompt:
@@ -1123,7 +1165,7 @@ class TestMainMenuUpdate:
 
         result = run_onboard(initial_config=initial_config)
 
-        assert result.should_save is True
+        assert result.should_save is False
         assert pause_called["n"] == 1
 
 
