@@ -729,6 +729,10 @@ class AgentLoop:
         hook: AgentHook = loop_hook
         per_call = _per_call_hooks.get()
         extra_hooks = None
+        # NOTE: SDK callers always go through run() → process_direct(ephemeral=False),
+        # so per_call hooks are intentionally excluded from ephemeral turns. If a future
+        # caller sets the contextvar and then calls process_direct(ephemeral=True), the
+        # hooks will correctly NOT fire (ephemeral guard takes precedence).
         if not ephemeral:
             extra_hooks = per_call if per_call is not None else self._extra_hooks
         if extra_hooks:
