@@ -162,15 +162,8 @@ You will see a menu like this:
 
 ```text
 > What would you like to configure?
-  [Q] Quick Start (recommended)
-  [P] LLM Provider
-  [M] Model Presets
-  [C] Chat Channel
-  [H] Channel Common
-  [A] Agent Settings
-  [I] API Server
-  [G] Gateway
-  [T] Tools
+  [Q] Quick Start (API key only)
+  [A] Advanced Settings
   [V] View Configuration Summary
   [S] Save and Exit
   [X] Exit Without Saving
@@ -185,21 +178,20 @@ Move through the wizard like this:
 | A field you do not need | Keep the shown default or leave it blank, then press `Enter`. |
 | A back option | Choose it to return to the previous menu. |
 
-For the first setup, choose `[Q] Quick Start (recommended)`. It has a recommended path for a local browser UI and an advanced path where you can choose every detail yourself. The other main menu items are advanced settings.
+For the first setup, choose `[Q] Quick Start (API key only)`. It configures the recommended local browser UI and model choice for you. Use `Advanced Settings` later only if you need a different provider, model, channel, gateway, or tool setup.
 
 If you are following the OpenRouter example:
 
-1. Choose `[Q] Quick Start (recommended)`.
-2. Choose `Recommended: local WebUI`.
-3. Paste your OpenRouter API key, or press `Enter` and add it to the config file later.
-4. Review the Quick Start summary.
-5. Choose `[S] Save and Exit`.
+1. Choose `[Q] Quick Start (API key only)`.
+2. Paste your OpenRouter API key, or press `Enter` and add it to the config file later.
+3. Review the Quick Start summary.
+4. Choose `[S] Save and Exit`.
 
 The recommended path enables the local WebUI with default WebSocket settings and uses a built-in model choice. You do not need to choose a model ID for the first run.
 
-If OpenRouter later says your account cannot use the built-in model choice, return to the wizard, choose `[Q] Quick Start (recommended)`, then choose `Choose provider and entry point` and enter another OpenRouter model ID that your account can access.
+If OpenRouter later says your account cannot use the built-in model choice, return to the wizard, choose `Advanced Settings`, then edit `Model Presets` and enter another OpenRouter model ID that your account can access.
 
-If you are using another provider, use the same wizard choices but substitute that provider's values:
+If you already know that you need another provider, choose `Advanced Settings` instead of Quick Start and enter that provider's values:
 
 | Wizard field | What to enter |
 |---|---|

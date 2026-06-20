@@ -54,35 +54,10 @@ _BACK_PRESSED = object()  # Sentinel value for back navigation
 # offer existing presets as choices (e.g. AgentDefaults.model_preset).
 _MODEL_PRESET_CACHE: set[str] = set()
 
-_QUICK_START_TARGETS = {
-    "WebUI / local browser (recommended)": "websocket",
-    "No chat channel yet": None,
-    "Telegram": "telegram",
-    "WeChat": "weixin",
-    "WhatsApp": "whatsapp",
-    "Feishu / Lark": "feishu",
-    "Slack": "slack",
-    "Discord": "discord",
-}
-_QUICK_START_RECOMMENDED_CHOICE = "Recommended: local WebUI"
-_QUICK_START_CUSTOM_CHOICE = "Choose provider and entry point"
 _QUICK_START_RECOMMENDED_PROVIDER = "openrouter"
 _QUICK_START_RECOMMENDED_MODEL = "anthropic/claude-sonnet-4.5"
 
-_QUICK_START_CHANNEL_FIELDS = {
-    "telegram": (("token", "Telegram bot token from BotFather"),),
-    "feishu": (
-        ("app_id", "Feishu/Lark App ID"),
-        ("app_secret", "Feishu/Lark App Secret"),
-    ),
-    "slack": (
-        ("bot_token", "Slack bot token (xoxb-...)"),
-        ("app_token", "Slack app token (xapp-...)"),
-    ),
-    "discord": (("token", "Discord bot token"),),
-}
-
-_QUICK_START_STEPS = ("Setup", "AI provider", "Entry point", "Review")
+_QUICK_START_STEPS = ("API key", "WebUI", "Review")
 
 # Low-contrast terminal palette inspired by JetBrains Darcula/Islands.
 _UI_ACCENT = "#6B9BFA"
@@ -413,9 +388,9 @@ def _show_main_menu_header() -> None:
     body = Table.grid(expand=True)
     body.add_column(ratio=1)
     body.add_row(f"{__logo__} [bold {_UI_TEXT}]nanobot[/] [{_UI_MUTED}]v{__version__}[/]")
-    body.add_row(f"[{_UI_ACCENT}]Quick Start configures one AI model and one entry point.[/]")
+    body.add_row(f"[{_UI_ACCENT}]Quick Start only needs an API key.[/]")
     body.add_row(
-        f"[{_UI_MUTED}]WebUI, chat channels, and advanced settings stay available when you need them.[/]"
+        f"[{_UI_MUTED}]Provider, channel, model, and gateway settings stay in Advanced.[/]"
     )
     console.print(
         Panel(
@@ -1052,17 +1027,6 @@ def _get_provider_names() -> dict[str, str]:
     return {name: data[0] for name, data in info.items() if name}
 
 
-def _get_quick_start_provider_choices() -> dict[str, str]:
-    """Return display-name -> provider key choices for chat-capable providers."""
-    from nanobot.providers.registry import PROVIDERS
-
-    return {
-        spec.display_name or spec.name: spec.name
-        for spec in PROVIDERS
-        if not spec.is_oauth and not spec.is_transcription_only
-    }
-
-
 def _configure_provider(config: Config, provider_name: str) -> None:
     """Configure a single LLM provider."""
     provider_config = getattr(config.providers, provider_name, None)
@@ -1421,14 +1385,6 @@ def _pause() -> None:
 # --- Quick Start ---
 
 
-def _quick_start_model_default(config: Config, provider_name: str) -> str:
-    """Return a low-risk default only when the existing model likely still fits."""
-    current = config.resolve_preset()
-    if provider_name in {"openrouter", "anthropic"}:
-        return current.model
-    return ""
-
-
 def _set_primary_quick_start_preset(config: Config, provider_name: str, model: str) -> None:
     """Store the primary preset used by Quick Start."""
     config.model_presets["primary"] = ModelPresetConfig(
@@ -1454,68 +1410,9 @@ def _show_quick_start_progress(active_step: int) -> None:
     console.print()
 
 
-def _configure_quick_start_provider(config: Config) -> bool:
-    """Configure the minimum needed provider + primary model preset."""
-    _show_quick_start_progress(2)
-    provider_choices = _get_quick_start_provider_choices()
-    answer = _select_with_back(
-        "Choose your AI provider:",
-        list(provider_choices),
-        default="OpenRouter",
-    )
-    if answer is _BACK_PRESSED or answer is None:
-        return False
-
-    assert isinstance(answer, str)
-    provider_name = provider_choices[answer]
-    provider_config = getattr(config.providers, provider_name, None)
-    if provider_config is None:
-        console.print(f"[red]Unknown provider: {provider_name}[/red]")
-        return False
-
-    _display, _is_gateway, is_local, default_api_base = _get_provider_info().get(
-        provider_name, (provider_name, False, False, "")
-    )
-    if default_api_base and not provider_config.api_base:
-        provider_config.api_base = default_api_base
-
-    if not is_local:
-        api_key = _input_with_existing(
-            "API key (leave blank only if this provider does not use one)",
-            provider_config.api_key,
-            "str",
-        )
-        if api_key is not None:
-            provider_config.api_key = api_key or None
-
-    if provider_name == "custom" or is_local:
-        api_base = _input_with_existing(
-            "API base URL",
-            provider_config.api_base,
-            "str",
-        )
-        if api_base is not None:
-            provider_config.api_base = api_base or None
-
-    model = _input_model_with_autocomplete(
-        "Model ID",
-        _quick_start_model_default(config, provider_name),
-        provider_name,
-    )
-    if model is None:
-        return False
-    model = model.strip()
-    if not model:
-        console.print("[yellow]! Model ID is required for Quick Start[/yellow]")
-        return False
-
-    _set_primary_quick_start_preset(config, provider_name, model)
-    return True
-
-
 def _configure_recommended_provider(config: Config) -> bool:
     """Configure the beginner path provider with one API-key prompt."""
-    _show_quick_start_progress(2)
+    _show_quick_start_progress(1)
     provider_name = _QUICK_START_RECOMMENDED_PROVIDER
     provider_config = getattr(config.providers, provider_name, None)
     if provider_config is None:
@@ -1546,7 +1443,7 @@ def _configure_recommended_provider(config: Config) -> bool:
 
 def _enable_quick_start_websocket_defaults(config: Config) -> bool:
     """Enable local WebUI with the default WebSocket settings."""
-    _show_quick_start_progress(3)
+    _show_quick_start_progress(2)
     config_cls = _get_channel_config_class("websocket")
     if config_cls is None:
         console.print("[red]No configuration class found for websocket[/red]")
@@ -1560,61 +1457,9 @@ def _enable_quick_start_websocket_defaults(config: Config) -> bool:
     return True
 
 
-def _configure_quick_start_channel(config: Config, channel_name: str | None) -> bool:
-    """Enable one common channel with only the fields needed to connect."""
-    _show_quick_start_progress(3)
-    if channel_name is None:
-        return True
-
-    config_cls = _get_channel_config_class(channel_name)
-    if config_cls is None:
-        console.print(f"[red]No configuration class found for {channel_name}[/red]")
-        return False
-
-    current = getattr(config.channels, channel_name, None) or {}
-    model = config_cls.model_validate(current)
-    if channel_name == "websocket":
-        enable = _input_bool("Enable WebSocket channel for local WebUI", True)
-        if not enable:
-            console.print("[yellow]! WebSocket channel was not enabled[/yellow]")
-            return False
-        if hasattr(model, "enabled"):
-            setattr(model, "enabled", True)
-        updated = _configure_pydantic_model(model, "WebSocket")
-        if updated is None:
-            return False
-        setattr(config.channels, channel_name, updated.model_dump(by_alias=True, exclude_none=True))
-        return True
-
-    channel_cls = _get_channel_class(channel_name)
-    display_name = _get_channel_names().get(channel_name, channel_name)
-    if _channel_supports_login(channel_cls):
-        return _run_channel_login(config, channel_name, model, display_name)
-
-    required_fields = _QUICK_START_CHANNEL_FIELDS.get(channel_name, ())
-    for field_name, prompt in required_fields:
-        value = _input_with_existing(prompt, getattr(model, field_name, ""), "str")
-        if value is not None:
-            setattr(model, field_name, value)
-
-    missing = [
-        prompt
-        for field_name, prompt in required_fields
-        if not str(getattr(model, field_name, "") or "").strip()
-    ]
-    if missing:
-        console.print(f"[yellow]! {missing[0]} is required; channel was not enabled[/yellow]")
-        return False
-
-    if hasattr(model, "enabled"):
-        setattr(model, "enabled", True)
-    setattr(config.channels, channel_name, model.model_dump(by_alias=True, exclude_none=True))
-    return True
-
-
 def _show_quick_start_summary(config: Config, channel_name: str | None) -> None:
     """Show the small summary users need before returning to the menu."""
-    _show_quick_start_progress(4)
+    _show_quick_start_progress(3)
     preset = config.model_presets.get("primary")
     api_key_status = None
     if preset:
@@ -1655,54 +1500,19 @@ def _show_quick_start_summary(config: Config, channel_name: str | None) -> None:
 
 
 def _configure_quick_start(config: Config) -> None:
-    """First-run path: model + optional chat channel, with advanced settings hidden."""
+    """First-run path: API key + local WebUI, with advanced settings hidden."""
     console.clear()
     _show_section_header(
         "Quick Start",
-        "Start with the local browser UI, or choose each detail yourself.",
+        "Paste one API key. nanobot will use recommended local WebUI defaults.",
     )
-    _show_quick_start_progress(1)
-    answer = _select_with_back(
-        "Choose setup:",
-        [_QUICK_START_RECOMMENDED_CHOICE, _QUICK_START_CUSTOM_CHOICE, "<- Back"],
-        default=_QUICK_START_RECOMMENDED_CHOICE,
-    )
-    if answer is _BACK_PRESSED or answer is None or answer == "<- Back":
-        return
-
-    assert isinstance(answer, str)
-
-    if answer == _QUICK_START_RECOMMENDED_CHOICE:
-        if not _configure_recommended_provider(config):
-            _pause()
-            return
-        if not _enable_quick_start_websocket_defaults(config):
-            _pause()
-            return
-        _show_quick_start_summary(config, "websocket")
+    if not _configure_recommended_provider(config):
         _pause()
         return
-
-    if answer != _QUICK_START_CUSTOM_CHOICE:
-        return
-
-    answer = _select_with_back(
-        "How do you want to use nanobot first?",
-        list(_QUICK_START_TARGETS) + ["<- Back"],
-        default="WebUI / local browser (recommended)",
-    )
-    if answer is _BACK_PRESSED or answer is None or answer == "<- Back":
-        return
-
-    assert isinstance(answer, str)
-    channel_name = _QUICK_START_TARGETS[answer]
-    if not _configure_quick_start_provider(config):
+    if not _enable_quick_start_websocket_defaults(config):
         _pause()
         return
-    if not _configure_quick_start_channel(config, channel_name):
-        _pause()
-        return
-    _show_quick_start_summary(config, channel_name)
+    _show_quick_start_summary(config, "websocket")
     _pause()
 
 
@@ -1737,6 +1547,54 @@ def _prompt_main_menu_exit(has_unsaved_changes: bool) -> str:
     return "resume"
 
 
+def _configure_advanced_settings(config: Config) -> None:
+    """Show lower-frequency setup options behind one advanced menu."""
+    last_choice: str | None = None
+    while True:
+        try:
+            console.clear()
+            _show_section_header(
+                "Advanced Settings",
+                "Use these when the default API-key setup is not enough.",
+            )
+            answer = _get_questionary().select(
+                "What would you like to configure?",
+                choices=[
+                    "[P] LLM Provider",
+                    "[M] Model Presets",
+                    "[C] Chat Channel",
+                    "[H] Channel Common",
+                    "[A] Agent Settings",
+                    "[I] API Server",
+                    "[G] Gateway",
+                    "[T] Tools",
+                    "<- Back",
+                ],
+                default=last_choice,
+                qmark=">",
+            ).ask()
+        except KeyboardInterrupt:
+            break
+
+        if answer is None or answer == "<- Back":
+            break
+
+        _advanced_dispatch = {
+            "[P] LLM Provider": lambda: _configure_providers(config),
+            "[M] Model Presets": lambda: _configure_model_presets(config),
+            "[C] Chat Channel": lambda: _configure_channels(config),
+            "[H] Channel Common": lambda: _configure_general_settings(config, "Channel Common"),
+            "[A] Agent Settings": lambda: _configure_general_settings(config, "Agent Settings"),
+            "[I] API Server": lambda: _configure_general_settings(config, "API Server"),
+            "[G] Gateway": lambda: _configure_general_settings(config, "Gateway"),
+            "[T] Tools": lambda: _configure_general_settings(config, "Tools"),
+        }
+        action_fn = _advanced_dispatch.get(answer)
+        if action_fn:
+            last_choice = answer
+            action_fn()
+
+
 def run_onboard(initial_config: Config | None = None) -> OnboardResult:
     """Run the interactive onboarding questionnaire.
 
@@ -1768,15 +1626,8 @@ def run_onboard(initial_config: Config | None = None) -> OnboardResult:
             answer = _get_questionary().select(
                 "What would you like to configure?",
                 choices=[
-                    "[Q] Quick Start (recommended)",
-                    "[P] LLM Provider",
-                    "[M] Model Presets",
-                    "[C] Chat Channel",
-                    "[H] Channel Common",
-                    "[A] Agent Settings",
-                    "[I] API Server",
-                    "[G] Gateway",
-                    "[T] Tools",
+                    "[Q] Quick Start (API key only)",
+                    "[A] Advanced Settings",
                     "[V] View Configuration Summary",
                     "[S] Save and Exit",
                     "[X] Exit Without Saving",
@@ -1796,15 +1647,8 @@ def run_onboard(initial_config: Config | None = None) -> OnboardResult:
             continue
 
         _menu_dispatch = {
-            "[Q] Quick Start (recommended)": lambda: _configure_quick_start(config),
-            "[P] LLM Provider": lambda: _configure_providers(config),
-            "[M] Model Presets": lambda: _configure_model_presets(config),
-            "[C] Chat Channel": lambda: _configure_channels(config),
-            "[H] Channel Common": lambda: _configure_general_settings(config, "Channel Common"),
-            "[A] Agent Settings": lambda: _configure_general_settings(config, "Agent Settings"),
-            "[I] API Server": lambda: _configure_general_settings(config, "API Server"),
-            "[G] Gateway": lambda: _configure_general_settings(config, "Gateway"),
-            "[T] Tools": lambda: _configure_general_settings(config, "Tools"),
+            "[Q] Quick Start (API key only)": lambda: _configure_quick_start(config),
+            "[A] Advanced Settings": lambda: _configure_advanced_settings(config),
             "[V] View Configuration Summary": lambda: _show_summary(config),
         }
 

@@ -417,18 +417,6 @@ class TestProviderChannelInfo:
             assert isinstance(value, tuple)
             assert len(value) == 4  # (display_name, needs_api_key, needs_api_base, env_var)
 
-    def test_quick_start_provider_choices_cover_chat_registry(self):
-        from nanobot.cli.onboard import _get_quick_start_provider_choices
-
-        choices = _get_quick_start_provider_choices()
-
-        assert choices["OpenRouter"] == "openrouter"
-        assert choices["Moonshot"] == "moonshot"
-        assert choices["NVIDIA NIM"] == "nvidia"
-        assert "OpenAI Codex" not in choices
-        assert "Github Copilot" not in choices
-        assert "AssemblyAI" not in choices
-
 
 class _SimpleDraftModel(BaseModel):
     api_key: str = ""
@@ -523,6 +511,7 @@ class TestRunOnboardExitBehavior:
 
         responses = iter(
             [
+                "[A] Advanced Settings",
                 "[A] Agent Settings",
                 KeyboardInterrupt(),
                 "[X] Exit Without Saving",
@@ -874,7 +863,7 @@ class TestMainMenuUpdate:
         initial_config = Config()
 
         responses = iter([
-            "[Q] Quick Start (recommended)",
+            "[Q] Quick Start (API key only)",
             "[S] Save and Exit",
         ])
 
@@ -900,86 +889,6 @@ class TestMainMenuUpdate:
         assert result.should_save is True
         assert result.config.agents.defaults.bot_name == "quickbot"
 
-    def test_quick_start_configures_primary_preset_and_telegram(self, monkeypatch):
-        """Quick Start should set only the minimum provider, model and channel fields."""
-        config = Config()
-        selections = iter([
-            onboard_wizard._QUICK_START_CUSTOM_CHOICE,
-            "Telegram",
-            "OpenRouter",
-        ])
-
-        def fake_select_with_back(*_args, **_kwargs):
-            return next(selections)
-
-        def fake_input(prompt, *_args, **_kwargs):
-            if "API key" in prompt:
-                return "sk-or-test"
-            if "Telegram bot token" in prompt:
-                return "123:abc"
-            raise AssertionError(prompt)
-
-        monkeypatch.setattr(onboard_wizard.console, "clear", lambda: None)
-        monkeypatch.setattr(onboard_wizard, "_show_section_header", lambda *a, **kw: None)
-        monkeypatch.setattr(onboard_wizard, "_select_with_back", fake_select_with_back)
-        monkeypatch.setattr(onboard_wizard, "_input_with_existing", fake_input)
-        monkeypatch.setattr(
-            onboard_wizard,
-            "_input_model_with_autocomplete",
-            lambda *_args, **_kwargs: "anthropic/claude-sonnet-4.5",
-        )
-        monkeypatch.setattr(onboard_wizard, "_print_summary_panel", lambda *a, **kw: None)
-        monkeypatch.setattr(onboard_wizard, "_pause", lambda: None)
-
-        onboard_wizard._configure_quick_start(config)
-
-        assert config.providers.openrouter.api_key == "sk-or-test"
-        assert config.providers.openrouter.api_base == "https://openrouter.ai/api/v1"
-        assert config.agents.defaults.model_preset == "primary"
-        assert config.model_presets["primary"].provider == "openrouter"
-        assert config.model_presets["primary"].model == "anthropic/claude-sonnet-4.5"
-        telegram = getattr(config.channels, "telegram")
-        assert telegram["enabled"] is True
-        assert telegram["token"] == "123:abc"
-
-    def test_quick_start_custom_webui_opens_websocket_config(self, monkeypatch):
-        """The custom WebUI path should still expose WebSocket settings."""
-        config = Config()
-        selections = iter([
-            onboard_wizard._QUICK_START_CUSTOM_CHOICE,
-            "WebUI / local browser (recommended)",
-            "OpenRouter",
-        ])
-
-        def fake_select_with_back(*_args, **_kwargs):
-            return next(selections)
-
-        def fake_configure(model, display_name):
-            assert display_name == "WebSocket"
-            assert model.enabled is True
-            return model
-
-        monkeypatch.setattr(onboard_wizard.console, "clear", lambda: None)
-        monkeypatch.setattr(onboard_wizard, "_show_section_header", lambda *a, **kw: None)
-        monkeypatch.setattr(onboard_wizard, "_select_with_back", fake_select_with_back)
-        monkeypatch.setattr(onboard_wizard, "_input_with_existing", lambda *a, **kw: "sk-or-test")
-        monkeypatch.setattr(onboard_wizard, "_input_bool", lambda *a, **kw: True)
-        monkeypatch.setattr(onboard_wizard, "_configure_pydantic_model", fake_configure)
-        monkeypatch.setattr(
-            onboard_wizard,
-            "_input_model_with_autocomplete",
-            lambda *_args, **_kwargs: "anthropic/claude-sonnet-4.5",
-        )
-        monkeypatch.setattr(onboard_wizard, "_print_summary_panel", lambda *a, **kw: None)
-        monkeypatch.setattr(onboard_wizard, "_pause", lambda: None)
-
-        onboard_wizard._configure_quick_start(config)
-
-        websocket = getattr(config.channels, "websocket")
-        assert websocket["enabled"] is True
-        assert websocket["websocketRequiresToken"] is True
-        assert config.agents.defaults.model_preset == "primary"
-
     def test_quick_start_recommended_webui_skips_advanced_prompts(self, monkeypatch):
         """The beginner path should only ask for the API key and use safe defaults."""
         config = Config()
@@ -992,11 +901,6 @@ class TestMainMenuUpdate:
 
         monkeypatch.setattr(onboard_wizard.console, "clear", lambda: None)
         monkeypatch.setattr(onboard_wizard, "_show_section_header", lambda *a, **kw: None)
-        monkeypatch.setattr(
-            onboard_wizard,
-            "_select_with_back",
-            lambda *_args, **_kwargs: onboard_wizard._QUICK_START_RECOMMENDED_CHOICE,
-        )
         monkeypatch.setattr(onboard_wizard, "_input_with_existing", lambda *a, **kw: "sk-or-test")
         monkeypatch.setattr(onboard_wizard, "_input_model_with_autocomplete", fail_model_input)
         monkeypatch.setattr(onboard_wizard, "_configure_pydantic_model", fail_websocket_config)
@@ -1036,68 +940,6 @@ class TestMainMenuUpdate:
         rows = dict(captured["rows"])
         assert rows["API key"] == "add later"
         assert "add your API key" in rows["Next"]
-
-    def test_quick_start_channel_requires_token_before_enable(self, monkeypatch):
-        """Quick Start should not enable token-based channels with blank credentials."""
-        config = Config()
-
-        monkeypatch.setattr(onboard_wizard, "_show_quick_start_progress", lambda *_args: None)
-        monkeypatch.setattr(onboard_wizard, "_input_with_existing", lambda *a, **kw: "")
-
-        assert onboard_wizard._configure_quick_start_channel(config, "telegram") is False
-        assert getattr(config.channels, "telegram", None) is None
-
-    def test_quick_start_login_channel_runs_login_without_fields(self, monkeypatch):
-        """Quick Start should use interactive login for channels that support it."""
-        from nanobot.channels.base import BaseChannel
-
-        config = Config()
-        calls: dict[str, Any] = {}
-
-        class LoginConfig(BaseModel):
-            enabled: bool = False
-            token: str = ""
-
-        class LoginChannel(BaseChannel):
-            name = "loginchat"
-            display_name = "Login Chat"
-
-            async def login(self, force: bool = False) -> bool:
-                calls["force"] = force
-                calls["enabled_during_login"] = self.config.enabled
-                return True
-
-            async def start(self) -> None:
-                pass
-
-            async def stop(self) -> None:
-                pass
-
-            async def send(self, msg) -> None:
-                pass
-
-        def fail_input(*_args, **_kwargs):
-            raise AssertionError("Quick Start should not ask for manual channel fields")
-
-        monkeypatch.setattr(onboard_wizard, "_show_quick_start_progress", lambda *_args: None)
-        monkeypatch.setattr(
-            onboard_wizard,
-            "_get_channel_config_class",
-            lambda channel: LoginConfig if channel == "loginchat" else None,
-        )
-        monkeypatch.setattr(
-            onboard_wizard,
-            "_get_channel_class",
-            lambda channel: LoginChannel if channel == "loginchat" else None,
-        )
-        monkeypatch.setattr(onboard_wizard, "_get_channel_names", lambda: {"loginchat": "Login Chat"})
-        monkeypatch.setattr(onboard_wizard, "_input_with_existing", fail_input)
-
-        assert onboard_wizard._configure_quick_start_channel(config, "loginchat") is True
-
-        loginchat = getattr(config.channels, "loginchat")
-        assert loginchat["enabled"] is True
-        assert calls == {"force": False, "enabled_during_login": True}
 
     def test_configure_login_channel_defaults_to_login(self, monkeypatch):
         """The channel wizard should start login before exposing advanced fields."""
@@ -1154,7 +996,7 @@ class TestMainMenuUpdate:
         assert calls == {"force": False}
 
     def test_main_menu_dispatch_includes_channel_common(self):
-        """Main menu dispatch should route [H] to Channel Common."""
+        """Advanced menu dispatch should route [H] to Channel Common."""
 
         # We verify by checking the dispatch table is set up correctly
         # The menu items are defined inline in run_onboard, so we test
@@ -1166,7 +1008,7 @@ class TestMainMenuUpdate:
         assert "Channel Common" in _SETTINGS_SETTER
 
     def test_main_menu_dispatch_includes_api_server(self):
-        """Main menu dispatch should route [I] to API Server."""
+        """Advanced menu dispatch should route [I] to API Server."""
         from nanobot.cli.onboard import _SETTINGS_GETTER, _SETTINGS_SECTIONS, _SETTINGS_SETTER
 
         assert "API Server" in _SETTINGS_SECTIONS
@@ -1174,10 +1016,11 @@ class TestMainMenuUpdate:
         assert "API Server" in _SETTINGS_SETTER
 
     def test_run_onboard_channel_common_edit(self, monkeypatch):
-        """run_onboard should handle [H] Channel Common correctly."""
+        """run_onboard should handle [H] Channel Common through Advanced Settings."""
         initial_config = Config()
 
         responses = iter([
+            "[A] Advanced Settings",
             "[H] Channel Common",
             KeyboardInterrupt(),
             "[S] Save and Exit",
@@ -1209,10 +1052,11 @@ class TestMainMenuUpdate:
         assert result.config.channels.send_tool_hints is True
 
     def test_run_onboard_api_server_edit(self, monkeypatch):
-        """run_onboard should handle [I] API Server correctly."""
+        """run_onboard should handle [I] API Server through Advanced Settings."""
         initial_config = Config()
 
         responses = iter([
+            "[A] Advanced Settings",
             "[I] API Server",
             KeyboardInterrupt(),
             "[S] Save and Exit",
@@ -1552,13 +1396,15 @@ class TestModelPresetWizard:
         assert callable(_configure_model_presets)
 
     def test_run_onboard_model_presets_edit(self, monkeypatch):
-        """run_onboard should handle [M] Model Presets correctly."""
+        """run_onboard should handle [M] Model Presets through Advanced Settings."""
         from nanobot.config.schema import ModelPresetConfig
 
         initial_config = Config()
 
         responses = iter([
+            "[A] Advanced Settings",
             "[M] Model Presets",
+            KeyboardInterrupt(),
             "[S] Save and Exit",
         ])
 
