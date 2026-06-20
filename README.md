@@ -304,15 +304,16 @@ Skip this step if you already configured provider and model settings in the wiza
 
 `nanobot onboard --defaults` creates `~/.nanobot/config.json` and `~/.nanobot/workspace/`. Configure these **two parts** in the config file. Add or merge the following blocks into the existing file instead of replacing the whole file.
 
-The example below uses [DeepSeek](https://platform.deepseek.com/api_keys) only so the JSON has concrete names and the compact path does not depend on OpenRouter. Provider examples are recipes, not rankings or endorsements. If you use another provider, replace the provider config key, API key, preset provider name, and model ID together.
+The example below uses a generic OpenAI-compatible `custom` provider so the compact path does not recommend one hosted service. Provider examples are recipes, not rankings or endorsements. For copyable provider-specific setup, see [Provider Cookbook](./docs/provider-cookbook.md).
 
 *Set your API key*:
 
 ```json
 {
   "providers": {
-    "deepseek": {
-      "apiKey": "your-deepseek-api-key"
+    "custom": {
+      "apiKey": "your-api-key",
+      "apiBase": "https://api.example.com/v1"
     }
   }
 }
@@ -325,8 +326,8 @@ The example below uses [DeepSeek](https://platform.deepseek.com/api_keys) only s
   "modelPresets": {
     "primary": {
       "label": "Primary",
-      "provider": "deepseek",
-      "model": "deepseek-v4-flash",
+      "provider": "custom",
+      "model": "model-id-from-your-provider",
       "maxTokens": 8192,
       "contextWindowTokens": 65536,
       "temperature": 0.1

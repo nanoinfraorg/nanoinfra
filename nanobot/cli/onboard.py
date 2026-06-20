@@ -54,8 +54,9 @@ _BACK_PRESSED = object()  # Sentinel value for back navigation
 # offer existing presets as choices (e.g. AgentDefaults.model_preset).
 _MODEL_PRESET_CACHE: set[str] = set()
 
-_QUICK_START_RECOMMENDED_PROVIDER = "deepseek"
-_QUICK_START_RECOMMENDED_MODEL = "deepseek-v4-flash"
+_QUICK_START_DEFAULT_MODELS = {
+    "deepseek": "deepseek-v4-flash",
+}
 
 _QUICK_START_STEPS = ("API key", "WebUI", "Review")
 
@@ -388,7 +389,7 @@ def _show_main_menu_header() -> None:
     body = Table.grid(expand=True)
     body.add_column(ratio=1)
     body.add_row(f"{__logo__} [bold {_UI_TEXT}]nanobot[/] [{_UI_MUTED}]v{__version__}[/]")
-    body.add_row(f"[{_UI_ACCENT}]Quick Start only needs a DeepSeek API key.[/]")
+    body.add_row(f"[{_UI_ACCENT}]Quick Start starts with one API key.[/]")
     body.add_row(
         f"[{_UI_MUTED}]Use Advanced later for other providers or chat apps.[/]"
     )
@@ -1410,36 +1411,126 @@ def _show_quick_start_progress(active_step: int) -> None:
     console.print()
 
 
-def _configure_recommended_provider(config: Config) -> bool:
-    """Configure the beginner path provider with one API-key prompt."""
+def _detect_quick_start_provider_from_key(api_key: str) -> str | None:
+    """Return a provider when the API key prefix identifies exactly one provider."""
+    from nanobot.providers.registry import PROVIDERS
+
+    matches = [
+        spec.name
+        for spec in PROVIDERS
+        if spec.detect_by_key_prefix
+        and api_key.startswith(spec.detect_by_key_prefix)
+        and not spec.is_oauth
+        and not spec.is_transcription_only
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _detect_quick_start_provider_from_base(api_base: str) -> str | None:
+    """Return a provider when the user-provided base URL matches registry metadata."""
+    from nanobot.providers.registry import PROVIDERS
+
+    normalized = api_base.rstrip("/").lower()
+    for spec in PROVIDERS:
+        if spec.is_oauth or spec.is_transcription_only:
+            continue
+        default_base = spec.default_api_base.rstrip("/").lower()
+        if default_base and (normalized == default_base or normalized.startswith(default_base + "/")):
+            return spec.name
+        keyword = spec.detect_by_base_keyword.lower()
+        if keyword and keyword in normalized:
+            return spec.name
+    return None
+
+
+def _models_url(api_base: str) -> str:
+    """Return the OpenAI-compatible models endpoint for a base URL."""
+    return f"{api_base.rstrip('/')}/models"
+
+
+def _fetch_first_quick_start_model(api_base: str, api_key: str) -> str | None:
+    """Fetch the first model ID from a user-approved OpenAI-compatible base URL."""
+    import httpx
+
+    try:
+        response = httpx.get(
+            _models_url(api_base),
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=8.0,
+            follow_redirects=True,
+        )
+    except httpx.HTTPError:
+        return None
+    if response.status_code != 200:
+        return None
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return None
+    for item in data:
+        if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"].strip():
+            return item["id"].strip()
+    return None
+
+
+def _configure_quick_start_provider(config: Config) -> bool:
+    """Configure the beginner path from one API key plus base URL fallback."""
     _show_quick_start_progress(1)
-    provider_name = _QUICK_START_RECOMMENDED_PROVIDER
+
+    api_key = _input_text("API key", "", "str")
+    if api_key is None:
+        return False
+    api_key = api_key.strip()
+    if not api_key:
+        console.print("[yellow]! API key is required for Quick Start[/yellow]")
+        return False
+
+    provider_name = _detect_quick_start_provider_from_key(api_key)
+    provider_info = _get_provider_info()
+    api_base = ""
+    if provider_name:
+        _display, _is_gateway, _is_local, api_base = provider_info.get(
+            provider_name, (provider_name, False, False, "")
+        )
+    else:
+        base_answer = _input_text(
+            "Provider base URL (only this URL will be tested)",
+            "",
+            "str",
+        )
+        if base_answer is None:
+            return False
+        api_base = base_answer.strip().rstrip("/")
+        if not api_base:
+            console.print("[yellow]! Provider base URL is required when the key is not recognized[/yellow]")
+            return False
+        provider_name = _detect_quick_start_provider_from_base(api_base) or "custom"
+
     provider_config = getattr(config.providers, provider_name, None)
     if provider_config is None:
         console.print(f"[red]Unknown provider: {provider_name}[/red]")
         return False
 
-    _display, _is_gateway, _is_local, default_api_base = _get_provider_info().get(
-        provider_name, (provider_name, False, False, "")
-    )
+    provider_config.api_key = api_key
+    if api_base and not provider_config.api_base:
+        provider_config.api_base = api_base
 
-    api_key = _input_with_existing(
-        "DeepSeek API key (get one at https://platform.deepseek.com/api_keys)",
-        provider_config.api_key,
-        "str",
-    )
-    if api_key is not None:
-        provider_config.api_key = api_key.strip() or None
-    if not provider_config.api_key:
-        console.print("[yellow]! DeepSeek API key is required for Quick Start[/yellow]")
+    model = _QUICK_START_DEFAULT_MODELS.get(provider_name)
+    if not model and provider_config.api_base:
+        model = _fetch_first_quick_start_model(provider_config.api_base, api_key)
+    if not model:
+        model = _input_model_with_autocomplete("Model ID", "", provider_name)
+    if not model or not model.strip():
+        console.print("[yellow]! Model ID is required for Quick Start[/yellow]")
         return False
-    if default_api_base and not provider_config.api_base:
-        provider_config.api_base = default_api_base
 
     _set_primary_quick_start_preset(
         config,
         provider_name,
-        _QUICK_START_RECOMMENDED_MODEL,
+        model.strip(),
     )
     return True
 
@@ -1495,7 +1586,7 @@ def _configure_quick_start(config: Config) -> bool:
         "Quick Start",
         "Paste one API key. nanobot will use recommended local WebUI defaults.",
     )
-    if not _configure_recommended_provider(config):
+    if not _configure_quick_start_provider(config):
         _pause()
         return False
     if not _enable_quick_start_websocket_defaults(config):
@@ -1540,7 +1631,7 @@ def _prompt_main_menu_exit(has_unsaved_changes: bool) -> str:
 def _get_main_menu_choices(has_unsaved_changes: bool) -> list[str]:
     """Return the top-level choices, keeping save actions hidden until needed."""
     choices = [
-        "[Q] Quick Start (API key only)",
+        "[Q] Quick Start (API key first)",
         "[A] Advanced Settings",
     ]
     if has_unsaved_changes:
@@ -1645,7 +1736,7 @@ def run_onboard(initial_config: Config | None = None) -> OnboardResult:
                 return OnboardResult(config=original_config, should_save=False)
             continue
 
-        if answer == "[Q] Quick Start (API key only)":
+        if answer == "[Q] Quick Start (API key first)":
             if _configure_quick_start(config):
                 return OnboardResult(config=config, should_save=True)
             continue

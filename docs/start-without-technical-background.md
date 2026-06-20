@@ -59,15 +59,14 @@ If `python3` works but `python` does not, replace `python` with `python3` in the
 
 ## 3. Get a Provider API Key
 
-nanobot does not create AI accounts or API keys for you. Use an AI provider account, company endpoint, subscription endpoint, or local model server that you already control. The steps below use DeepSeek because it is the recommended beginner path in the wizard and avoids making OpenRouter a first-run dependency; it is not a ranking or endorsement.
+nanobot does not create AI accounts or API keys for you. Use an AI provider account, company endpoint, subscription endpoint, or local model server that you already control. If the provider has an OpenAI-compatible base URL in its docs, keep that nearby too.
 
-For the example path:
+For the setup path:
 
-1. Open [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys).
+1. Open your provider's API key page.
 2. Create or copy an API key.
 3. Keep the key private.
-
-Keep the key nearby because the setup wizard will ask you to paste it.
+4. Keep the provider's base URL nearby if the provider docs show one.
 
 ## 4. Install nanobot
 
@@ -157,7 +156,7 @@ You will see a menu like this:
 
 ```text
 > What would you like to do?
-  [Q] Quick Start (API key only)
+  [Q] Quick Start (API key first)
   [A] Advanced Settings
   [X] Exit
 ```
@@ -167,18 +166,18 @@ Move through the wizard like this:
 | When you see | Do this |
 |---|---|
 | A menu | Use the arrow keys to highlight an option, then press `Enter`. |
-| The DeepSeek API key field | Paste the key, then press `Enter`. |
+| The API key field | Paste the key, then press `Enter`. |
+| A base URL field | Paste the provider base URL from its docs, then press `Enter`. |
 | A back option in Advanced Settings | Choose it to return to the previous menu. |
 
-For the first setup, choose `[Q] Quick Start (API key only)`. It configures the recommended local browser UI and default AI settings for you. Use `Advanced Settings` later only if you need a different provider, chat app, or tool setup.
+For the first setup, choose `[Q] Quick Start (API key first)`. It configures the recommended local browser UI and default AI settings for you. Use `Advanced Settings` later only if you need a different provider, chat app, or tool setup.
 
-If you are following the DeepSeek example:
+1. Choose `[Q] Quick Start (API key first)`.
+2. Paste your API key.
+3. If nanobot cannot recognize the key, paste the provider base URL from that provider's docs.
+4. Review the Quick Start summary. The wizard saves and exits when Quick Start finishes.
 
-1. Choose `[Q] Quick Start (API key only)`.
-2. Paste your DeepSeek API key.
-3. Review the Quick Start summary. The wizard saves and exits when Quick Start finishes.
-
-The recommended path enables the local WebUI and default AI settings. You do not need to choose a model, endpoint, or chat channel for the first run.
+The recommended path enables the local WebUI and default AI settings. You do not need to choose a chat channel for the first run.
 
 If you already know that you need another provider, choose `Advanced Settings` instead of Quick Start. [`provider-cookbook.md`](./provider-cookbook.md) has copyable examples for several common provider setups. After you change advanced settings, a save option appears in the main menu. Choose `[S] Save and Exit`.
 
@@ -211,8 +210,9 @@ Merge them into one object:
 ```json
 {
   "providers": {
-    "deepseek": {
-      "apiKey": "your-deepseek-api-key"
+    "custom": {
+      "apiKey": "your-api-key",
+      "apiBase": "https://api.example.com/v1"
     }
   },
   "channels": {
@@ -256,15 +256,16 @@ If this is a brand-new install and you have not configured anything else yet, re
 ```json
 {
   "providers": {
-    "deepseek": {
-      "apiKey": "your-deepseek-api-key"
+    "custom": {
+      "apiKey": "your-api-key",
+      "apiBase": "https://api.example.com/v1"
     }
   },
   "modelPresets": {
     "primary": {
       "label": "Primary",
-      "provider": "deepseek",
-      "model": "deepseek-v4-flash",
+      "provider": "custom",
+      "model": "model-id-from-your-provider",
       "maxTokens": 4096,
       "contextWindowTokens": 65536,
       "temperature": 0.1
@@ -283,9 +284,9 @@ If this is a brand-new install and you have not configured anything else yet, re
 }
 ```
 
-Replace `your-deepseek-api-key` with your real DeepSeek key.
+Replace `your-api-key`, `https://api.example.com/v1`, and `model-id-from-your-provider` with values from your provider.
 
-If you use another provider, replace `deepseek`, `your-deepseek-api-key`, and the `model` value with that provider's values. If the provider needs `apiBase`, add it under that provider's config block.
+For copyable provider-specific examples, use [`provider-cookbook.md`](./provider-cookbook.md).
 
 Save the file.
 
