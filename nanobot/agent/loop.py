@@ -127,8 +127,9 @@ class TurnContext:
     pending_summary: str | None = None
 
     ephemeral: bool = False
+    run_extra_hooks_for_ephemeral: bool = False
+    hooks: list[AgentHook] = field(default_factory=list)
     tools: ToolRegistry | None = None
-    extra_hooks: list[AgentHook] | None = None
 
     turn_wall_started_at: float = field(default_factory=time.time)
     visible_run_started_at: float | None = None
@@ -693,8 +694,9 @@ class AgentLoop:
         session_key: str | None = None,
         pending_queue: asyncio.Queue | None = None,
         ephemeral: bool = False,
+        run_extra_hooks_for_ephemeral: bool = False,
+        hooks: list[AgentHook] | None = None,
         tools: ToolRegistry | None = None,
-        extra_hooks: list[AgentHook] | None = None,
     ) -> tuple[str | None, list[str], list[dict], str, bool]:
         """Run the agent iteration loop.
 
@@ -720,10 +722,10 @@ class AgentLoop:
             set_tool_context=self._set_tool_context,
             on_iteration=lambda iteration: setattr(self, "_current_iteration", iteration),
         )
+        run_hooks = [*self._extra_hooks, *(hooks or [])]
         hook: AgentHook = loop_hook
-        turn_hooks = extra_hooks if extra_hooks is not None else self._extra_hooks
-        if not ephemeral and turn_hooks:
-            hook = CompositeHook([loop_hook] + turn_hooks)
+        if run_hooks and (not ephemeral or run_extra_hooks_for_ephemeral):
+            hook = CompositeHook([loop_hook, *run_hooks])
 
         async def _checkpoint(payload: dict[str, Any]) -> None:
             if session is None:
@@ -1241,8 +1243,9 @@ class AgentLoop:
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         pending_queue: asyncio.Queue | None = None,
         ephemeral: bool = False,
+        run_extra_hooks_for_ephemeral: bool = False,
+        hooks: list[AgentHook] | None = None,
         tools: ToolRegistry | None = None,
-        extra_hooks: list[AgentHook] | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
         self._refresh_provider_snapshot()
@@ -1274,8 +1277,9 @@ class AgentLoop:
             on_stream_end=on_stream_end,
             pending_queue=pending_queue,
             ephemeral=ephemeral,
+            run_extra_hooks_for_ephemeral=run_extra_hooks_for_ephemeral,
+            hooks=list(hooks or []),
             tools=tools,
-            extra_hooks=extra_hooks,
         )
 
         while ctx.state is not TurnState.DONE:
@@ -1501,8 +1505,9 @@ class AgentLoop:
             session_key=ctx.session_key,
             pending_queue=ctx.pending_queue,
             ephemeral=ctx.ephemeral,
+            run_extra_hooks_for_ephemeral=ctx.run_extra_hooks_for_ephemeral,
+            hooks=ctx.hooks,
             tools=ctx.tools,
-            extra_hooks=ctx.extra_hooks,
         )
         final_content, tools_used, all_msgs, stop_reason, had_injections = result
         ctx.final_content = final_content
@@ -1811,14 +1816,16 @@ class AgentLoop:
         session_key: str = "cli:direct",
         channel: str = "cli",
         chat_id: str = "direct",
+        sender_id: str = "user",
         media: list[str] | None = None,
         on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         ephemeral: bool = False,
+        _run_extra_hooks_for_ephemeral: bool = False,
+        hooks: list[AgentHook] | None = None,
         tools: ToolRegistry | None = None,
         persist_user_message: bool = True,
-        extra_hooks: list[AgentHook] | None = None,
     ) -> OutboundMessage | None:
         """Process a message directly and return the outbound payload."""
         await self._connect_mcp()
@@ -1826,7 +1833,7 @@ class AgentLoop:
         if not persist_user_message:
             metadata[turn_continuation.SKIP_USER_PERSIST_META] = True
         msg = InboundMessage(
-            channel=channel, sender_id="user", chat_id=chat_id,
+            channel=channel, sender_id=sender_id, chat_id=chat_id,
             content=content, media=media or [], metadata=metadata,
         )
         # Share the dispatch lock so direct calls serialize with bus turns.
@@ -1840,10 +1847,12 @@ class AgentLoop:
                     "on_stream_end": on_stream_end,
                     "ephemeral": ephemeral,
                 }
+                if _run_extra_hooks_for_ephemeral:
+                    kwargs["run_extra_hooks_for_ephemeral"] = True
+                if hooks is not None:
+                    kwargs["hooks"] = hooks
                 if tools is not None:
                     kwargs["tools"] = tools
-                if extra_hooks is not None:
-                    kwargs["extra_hooks"] = extra_hooks
                 return await self._process_message(
                     msg,
                     **kwargs,
