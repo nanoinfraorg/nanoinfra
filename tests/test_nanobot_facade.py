@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -282,6 +283,60 @@ async def test_run_user_hooks_still_fire_alongside_capture(tmp_path):
     bot._loop.process_direct = fake_process_direct
     await bot.run("x", hooks=[UserHook()])
     assert seen_iterations == [7]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_run_hooks_are_isolated_per_call(tmp_path):
+    from nanobot.agent.hook import AgentHook, AgentHookContext
+    from nanobot.bus.events import OutboundMessage
+    from nanobot.providers.base import ToolCallRequest
+
+    config_path = _write_config(tmp_path)
+    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+
+    seen_by_hook: dict[str, list[str]] = {"alpha": [], "beta": []}
+
+    class UserHook(AgentHook):
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def after_iteration(self, context: AgentHookContext) -> None:
+            seen_by_hook[self.name].append(context.messages[0]["content"])
+
+    started = 0
+    both_started = asyncio.Event()
+
+    async def fake_process_direct(message, *, session_key):
+        nonlocal started
+        from nanobot.agent.loop import _per_call_hooks
+
+        started += 1
+        if started == 2:
+            both_started.set()
+        await both_started.wait()
+
+        extras = _per_call_hooks.get() or []
+        messages = [{"role": "user", "content": message}]
+        ctx = AgentHookContext(iteration=0, messages=messages)
+        ctx.tool_calls = [
+            ToolCallRequest(id=f"call-{message}", name=f"tool_{message}", arguments={})
+        ]
+        for h in extras:
+            await h.after_iteration(ctx)
+        return OutboundMessage(channel="cli", chat_id="direct", content=f"done {message}")
+
+    bot._loop.process_direct = fake_process_direct
+
+    alpha, beta = await asyncio.gather(
+        bot.run("alpha", hooks=[UserHook("alpha")]),
+        bot.run("beta", hooks=[UserHook("beta")]),
+    )
+
+    assert alpha.content == "done alpha"
+    assert beta.content == "done beta"
+    assert alpha.tools_used == ["tool_alpha"]
+    assert beta.tools_used == ["tool_beta"]
+    assert seen_by_hook == {"alpha": ["alpha"], "beta": ["beta"]}
 
 
 @pytest.mark.asyncio
