@@ -842,6 +842,12 @@ async def connect_mcp_servers(
                     logger.debug(
                         "MCP server '{}': prompts not supported or failed: {}", name, e
                     )
+            else:
+                logger.info(
+                    "MCP server '{}': skipping resource/prompt registration "
+                    "(enabledTools does not include '*' — only tools allowed)",
+                    name,
+                )
 
             logger.info(
                 "MCP server '{}': connected, {} capabilities registered", name, registered_count
