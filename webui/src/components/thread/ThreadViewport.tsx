@@ -127,7 +127,9 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
   const pendingConversationScrollRef = useRef(true);
   const pendingPromptJumpRef = useRef<string | null>(null);
   const scrollFrameIdsRef = useRef<number[]>([]);
+  const programmaticPromptScrollTopRef = useRef<number | null>(null);
   const handledLatestPromptSignalRef = useRef(0);
+  const activeTurnPromptRef = useRef<string | null>(null);
   const restoreScrollAfterPrependRef =
     useRef<{ height: number; top: number } | null>(null);
   /** User scrolled away from the bottom; do not auto-yank until they return or we reset (new chat / send). */
@@ -167,6 +169,10 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     scrollFrameIdsRef.current = [];
   }, []);
 
+  const markProgrammaticPromptScroll = useCallback((top: number) => {
+    programmaticPromptScrollTopRef.current = top;
+  }, []);
+
   const scrollToBottomNow = useCallback((smooth = false) => {
     const el = scrollRef.current;
     const marker = bottomRef.current;
@@ -196,6 +202,7 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     const target = findPromptElement(el, promptId);
     if (!target) return false;
     const top = Math.max(0, promptTop(el, target) - 16);
+    markProgrammaticPromptScroll(top);
     try {
       el.scrollTo?.({ top, behavior: "auto" });
       el.scrollTop = top;
@@ -207,10 +214,10 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
       }
     }
     const near = el.scrollHeight - top - el.clientHeight < NEAR_BOTTOM_PX;
-    userReadingHistoryRef.current = !near;
+    userReadingHistoryRef.current = false;
     setAtBottom(near);
     return true;
-  }, []);
+  }, [markProgrammaticPromptScroll]);
 
   const scrollToBottom = useCallback(
     (smooth = false, frames = 1, options?: { force?: boolean }) => {
@@ -245,6 +252,7 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
       };
     }
     userReadingHistoryRef.current = true;
+    activeTurnPromptRef.current = null;
     setAtBottom(false);
     if (hiddenMessageCount > 0) {
       setVisibleMessageCount((count) =>
@@ -277,6 +285,7 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     if (index < 0) return;
     pendingPromptJumpRef.current = promptId;
     userReadingHistoryRef.current = true;
+    activeTurnPromptRef.current = null;
     setAtBottom(false);
     setVisibleMessageCount((count) => Math.max(count, messages.length - index));
   }, [messages]);
@@ -360,7 +369,8 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     if (!latest || latest.role !== "user") return;
     handledLatestPromptSignalRef.current = scrollToLatestUserPromptSignal;
     cancelScheduledBottomScroll();
-    scrollToPromptTopNow(latest.id);
+    activeTurnPromptRef.current = latest.id;
+    if (!scrollToPromptTopNow(latest.id)) activeTurnPromptRef.current = null;
   }, [
     cancelScheduledBottomScroll,
     messages,
@@ -373,9 +383,25 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     lastConversationKeyRef.current = conversationKey;
     pendingConversationScrollRef.current = true;
     userReadingHistoryRef.current = false;
+    activeTurnPromptRef.current = null;
     setAtBottom(true);
     setVisibleMessageCount(INITIAL_HISTORY_WINDOW);
   }, [conversationKey]);
+
+  useLayoutEffect(() => {
+    const promptId = activeTurnPromptRef.current;
+    if (!promptId || userReadingHistoryRef.current) return;
+    const promptIndex = messages.findIndex((message) => message.id === promptId);
+    if (promptIndex < 0) {
+      activeTurnPromptRef.current = null;
+      return;
+    }
+    const hasAgentOutput = messages
+      .slice(promptIndex + 1)
+      .some((message) => message.role !== "user");
+    if (!hasAgentOutput) return;
+    scrollToBottom(false, isStreaming ? 3 : 1);
+  }, [isStreaming, messages, scrollToBottom]);
 
   useLayoutEffect(() => {
     const pending = restoreScrollAfterPrependRef.current;
@@ -438,8 +464,18 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
     const onScroll = (allowHistoryLoad = true) => {
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
       const near = distance < NEAR_BOTTOM_PX;
+      const programmaticPromptTop = programmaticPromptScrollTopRef.current;
+      const programmatic =
+        programmaticPromptTop !== null && Math.abs(el.scrollTop - programmaticPromptTop) < 2;
       setAtBottom(near);
+      if (programmatic) {
+        programmaticPromptScrollTopRef.current = null;
+        if (near) userReadingHistoryRef.current = false;
+        return;
+      }
+      programmaticPromptScrollTopRef.current = null;
       userReadingHistoryRef.current = !near;
+      if (!near) activeTurnPromptRef.current = null;
       if (allowHistoryLoad && !near) maybeLoadEarlierFromScroll();
     };
 
