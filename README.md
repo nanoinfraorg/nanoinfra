@@ -110,7 +110,7 @@
 - **2026-05-03** ⚙️ Predictable shell allow-list behavior, isolated chats mid-reply, cleaner interactive retries.
 - **2026-05-02** 🐈 LongCat support, smarter token sizing hints, clearer bundled upgrade guidance.
 - **2026-05-01** ☁️ Native AWS Bedrock provider, tighter helper handoffs and scoped session files.
-- **2026-04-30** 💬 Feishu threads that honor replies and topics, WhatsApp bridge refresh on source edits.
+- **2026-04-30** 💬 Feishu threads that honor replies and topics, WhatsApp channel refresh on source edits.
 - **2026-04-29** 🚀 Released **v0.1.5.post3** — Smarter threads on Feishu, Discord, Slack, and Teams; **DeepSeek-V4**; Hugging Face & Olostep; choices, `/history`, and steadier long chats. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.5.post3) for details.
 - **2026-04-28** 🌐 Olostep web search, Hugging Face provider, safer workspace-tool interruptions.
 - **2026-04-27** 💬 `/history` command, smarter session replay caps, smoother Discord / Slack threads.
