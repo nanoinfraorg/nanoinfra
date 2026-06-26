@@ -1963,7 +1963,9 @@ The gateway can run a protected heartbeat cron job that periodically checks `HEA
 }
 ```
 
-If `HEARTBEAT.md` has tasks under `## Active Tasks`, the agent executes them and delivers useful results to the most recently active chat target. If the file has no active tasks, the heartbeat is skipped silently.
+If `HEARTBEAT.md` has tasks under `## Active Tasks`, the agent executes them and sends only useful/actionable results to the most recently active chat target. If the file has no active tasks, or the result is routine with nothing useful to report, the heartbeat is skipped silently.
+
+This is intentionally different from user-created cron jobs. A cron job created with the `cron` tool runs as a scheduled turn in its origin chat/session and normally delivers the result back to that channel. Use `HEARTBEAT.md` for recurring background checks that should not notify the user on every run.
 
 The heartbeat job is backed by the same cron service as user-created reminders. It is stored under the active workspace (`<workspace>/cron/jobs.json`) and shows up in `cron(action="list")` as `heartbeat`, but it is system-managed and cannot be removed with the `cron` tool. Disable it through config and restart the gateway if you do not want periodic heartbeat checks.
 
