@@ -110,7 +110,6 @@ File operations have path traversal protection, but:
 - Consider using a firewall to restrict outbound connections if needed
 
 **WhatsApp:**
-- The WhatsApp channel uses neonize directly from Python; there is no local Node.js bridge port.
 - Keep the neonize session database under `~/.nanobot/whatsapp-auth` secure (mode 0700).
 - Use `nanobot channels login whatsapp --force` to remove and recreate the local session database when rotating linked devices.
 
