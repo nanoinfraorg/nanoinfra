@@ -494,6 +494,7 @@ export function ThreadShell({
     return client.onSessionUpdate((updatedChatId, scope) => {
       if (updatedChatId !== chatId) return;
       if (scope === "metadata") return;
+      viewportRef.current?.cancelAutoScroll();
       pendingCanonicalHydrateRef.current.add(chatId);
       refreshHistory();
     });

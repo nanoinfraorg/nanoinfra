@@ -182,6 +182,7 @@ source = ["nanobot"]
 omit = ["tests/*", "**/tests/*"]
 
 [tool.coverage.report]
+fail_under = 75
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
