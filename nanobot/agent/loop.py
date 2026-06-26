@@ -1183,7 +1183,6 @@ class AgentLoop:
         _hist_kwargs: dict[str, Any] = {
             "max_messages": self._max_messages,
             "max_tokens": self._replay_token_budget(),
-            "include_timestamps": True,
             "extend_to_user": is_subagent,
         }
         history = session.get_history(**_hist_kwargs)
@@ -1462,7 +1461,6 @@ class AgentLoop:
         _hist_kwargs: dict[str, Any] = {
             "max_messages": self._max_messages,
             "max_tokens": self._replay_token_budget(),
-            "include_timestamps": True,
             "extend_to_user": False,
         }
         ctx.history = ctx.session.get_history(**_hist_kwargs)
