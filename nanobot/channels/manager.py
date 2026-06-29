@@ -12,6 +12,16 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from nanobot.bus.events import OutboundMessage
+from nanobot.bus.outbound_events import (
+    ProgressEvent,
+    RetryWaitEvent,
+    RuntimeModelUpdatedEvent,
+    StreamDeltaEvent,
+    StreamedResponseEvent,
+    StreamEndEvent,
+    outbound_event_from_message,
+    replace_outbound_event,
+)
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import Config
@@ -266,7 +276,7 @@ class ChannelManager:
 
     def _should_suppress_outbound(self, msg: OutboundMessage) -> bool:
         metadata = msg.metadata or {}
-        if metadata.get("_progress"):
+        if isinstance(outbound_event_from_message(msg), ProgressEvent):
             return False
         fingerprint = self._fingerprint_content(msg.content)
         if not fingerprint:
@@ -305,57 +315,59 @@ class ChannelManager:
                         timeout=1.0
                     )
 
-                if (
-                    msg.metadata.get("_reasoning_delta")
-                    or msg.metadata.get("_reasoning_end")
-                    or msg.metadata.get("_reasoning")
+                event = outbound_event_from_message(msg)
+                progress_event = event if isinstance(event, ProgressEvent) else None
+                if progress_event and (
+                    progress_event.reasoning_delta
+                    or progress_event.reasoning_end
+                    or progress_event.reasoning
                 ):
                     # Reasoning rides its own plugin channel: only delivered
                     # when the destination channel opts in via ``show_reasoning``
                     # and overrides the streaming primitives. Channels without
                     # a low-emphasis UI affordance keep the base no-op and the
-                    # content silently drops here. ``_reasoning`` (one-shot)
-                    # is accepted for backward compatibility with hooks that
-                    # haven't migrated to delta/end yet.
+                    # content silently drops here.
                     channel = self.channels.get(msg.channel)
                     if channel is not None and channel.show_reasoning:
                         await self._send_with_retry(channel, msg)
                     continue
 
-                if msg.metadata.get("_progress"):
-                    if msg.metadata.get("_tool_hint") and not self._should_send_progress(
+                if progress_event:
+                    if progress_event.tool_hint and not self._should_send_progress(
                         msg.channel, tool_hint=True,
                     ):
                         continue
-                    if not msg.metadata.get("_tool_hint") and not self._should_send_progress(
+                    if not progress_event.tool_hint and not self._should_send_progress(
                         msg.channel, tool_hint=False,
                     ):
                         continue
 
-                if msg.metadata.get("_retry_wait"):
+                if isinstance(event, RetryWaitEvent):
                     continue
 
                 if (
-                    msg.metadata.get("_runtime_model_updated")
+                    isinstance(event, RuntimeModelUpdatedEvent)
                     and msg.channel == "websocket"
                     and "websocket" not in self.channels
                 ):
                     continue
 
-                # Coalesce consecutive _stream_delta messages for the same (channel, chat_id)
+                # Coalesce consecutive stream delta messages for the same (channel, chat_id)
                 # to reduce API calls and improve streaming latency
-                if msg.metadata.get("_stream_delta") and not msg.metadata.get("_stream_end"):
+                if isinstance(event, StreamDeltaEvent):
                     msg, extra_pending = self._coalesce_stream_deltas(msg)
                     pending.extend(extra_pending)
+                    event = outbound_event_from_message(msg)
 
                 channel = self.channels.get(msg.channel)
                 if channel:
                     # Duplicate suppression is scoped to a known source message
                     # so repeated content from separate turns is still delivered.
                     if (
-                        not msg.metadata.get("_stream_delta")
-                        and not msg.metadata.get("_stream_end")
-                        and not msg.metadata.get("_streamed")
+                        not isinstance(
+                            event,
+                            StreamDeltaEvent | StreamEndEvent | StreamedResponseEvent,
+                        )
                     ):
                         if self._should_suppress_outbound(msg):
                             logger.info("Suppressing duplicate outbound message to {}:{}", msg.channel, msg.chat_id)
@@ -372,31 +384,53 @@ class ChannelManager:
     @staticmethod
     async def _send_once(channel: BaseChannel, msg: OutboundMessage) -> None:
         """Send one outbound message without retry policy."""
-        if msg.metadata.get("_reasoning_end"):
-            await channel.send_reasoning_end(msg.chat_id, msg.metadata)
-        elif msg.metadata.get("_reasoning_delta"):
-            await channel.send_reasoning_delta(msg.chat_id, msg.content, msg.metadata)
-        elif msg.metadata.get("_reasoning"):
-            # Back-compat: one-shot reasoning. BaseChannel translates this
-            # to a single delta + end pair so plugins only implement the
-            # streaming primitives.
+        event = outbound_event_from_message(msg)
+        if isinstance(event, ProgressEvent) and event.reasoning_end:
+            await channel.send_reasoning_end(
+                msg.chat_id,
+                msg.metadata,
+                stream_id=event.stream_id,
+            )
+        elif isinstance(event, ProgressEvent) and event.reasoning_delta:
+            await channel.send_reasoning_delta(
+                msg.chat_id,
+                msg.content,
+                msg.metadata,
+                stream_id=event.stream_id,
+            )
+        elif isinstance(event, ProgressEvent) and event.reasoning:
+            # BaseChannel translates one-shot reasoning to a single delta +
+            # end pair so plugins only implement the streaming primitives.
             await channel.send_reasoning(msg)
-        elif msg.metadata.get("_file_edit_events"):
-            edits = msg.metadata.get("_file_edit_events")
+        elif isinstance(event, ProgressEvent) and event.file_edit_events:
             await channel.send_file_edit_events(
                 msg.chat_id,
-                edits if isinstance(edits, list) else [],
+                event.file_edit_events,
                 msg.metadata,
             )
-        elif msg.metadata.get("_stream_delta") or msg.metadata.get("_stream_end"):
-            await channel.send_delta(msg.chat_id, msg.content, msg.metadata)
-        elif not msg.metadata.get("_streamed"):
+        elif isinstance(event, StreamDeltaEvent):
+            await channel.send_delta(
+                msg.chat_id,
+                msg.content,
+                msg.metadata,
+                stream_id=event.stream_id,
+            )
+        elif isinstance(event, StreamEndEvent):
+            await channel.send_delta(
+                msg.chat_id,
+                msg.content,
+                msg.metadata,
+                stream_id=event.stream_id,
+                stream_end=True,
+                resuming=event.resuming,
+            )
+        elif not isinstance(event, StreamedResponseEvent):
             await channel.send(msg)
 
     def _coalesce_stream_deltas(
         self, first_msg: OutboundMessage
     ) -> tuple[OutboundMessage, list[OutboundMessage]]:
-        """Merge consecutive _stream_delta messages for the same (channel, chat_id, _stream_id).
+        """Merge consecutive stream deltas for the same (channel, chat_id, stream_id).
 
         This reduces the number of API calls when the queue has accumulated multiple
         deltas, which happens when LLM generates faster than the channel can process.
@@ -404,10 +438,15 @@ class ChannelManager:
         Returns:
             tuple of (merged_message, list_of_non_matching_messages)
         """
-        first_metadata = first_msg.metadata or {}
-        target_key = (first_msg.channel, first_msg.chat_id, first_metadata.get("_stream_id"))
+        first_event = outbound_event_from_message(first_msg)
+        first_stream_id = first_event.stream_id if isinstance(first_event, StreamDeltaEvent) else None
+        target_key = (first_msg.channel, first_msg.chat_id, first_stream_id)
         combined_content = first_msg.content
-        final_metadata = dict(first_msg.metadata or {})
+        final_event: StreamDeltaEvent | StreamEndEvent = (
+            first_event
+            if isinstance(first_event, StreamDeltaEvent)
+            else StreamDeltaEvent(stream_id=first_stream_id)
+        )
         non_matching: list[OutboundMessage] = []
 
         # Only merge consecutive deltas. As soon as we hit any other message,
@@ -419,21 +458,29 @@ class ChannelManager:
                 break
 
             # Check if this message belongs to the same stream
-            next_metadata = next_msg.metadata or {}
+            next_event = outbound_event_from_message(next_msg)
+            next_stream_id = (
+                next_event.stream_id
+                if isinstance(next_event, StreamDeltaEvent | StreamEndEvent)
+                else None
+            )
             same_target = (
                 next_msg.channel,
                 next_msg.chat_id,
-                next_metadata.get("_stream_id"),
+                next_stream_id,
             ) == target_key
-            is_delta = next_metadata.get("_stream_delta")
-            is_end = next_metadata.get("_stream_end")
+            is_delta = isinstance(next_event, StreamDeltaEvent)
+            is_end = isinstance(next_event, StreamEndEvent)
 
-            if same_target and is_delta and not final_metadata.get("_stream_end"):
+            if same_target and (is_delta or (is_end and next_msg.content)):
                 # Accumulate content
                 combined_content += next_msg.content
-                # If we see _stream_end, remember it and stop coalescing this stream
-                if is_end:
-                    final_metadata["_stream_end"] = True
+                # If we see stream_end, remember it and stop coalescing this stream
+                if isinstance(next_event, StreamEndEvent):
+                    final_event = StreamEndEvent(
+                        stream_id=next_stream_id,
+                        resuming=next_event.resuming,
+                    )
                     # Stream ended - stop coalescing this stream
                     break
             else:
@@ -441,12 +488,7 @@ class ChannelManager:
                 non_matching.append(next_msg)
                 break
 
-        merged = OutboundMessage(
-            channel=first_msg.channel,
-            chat_id=first_msg.chat_id,
-            content=combined_content,
-            metadata=final_metadata,
-        )
+        merged = replace_outbound_event(first_msg, final_event, content=combined_content)
         return merged, non_matching
 
     async def _send_with_retry(self, channel: BaseChannel, msg: OutboundMessage) -> None:

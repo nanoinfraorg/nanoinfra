@@ -10,6 +10,7 @@ pytest.importorskip("discord")
 import discord
 
 from nanobot.bus.events import OutboundMessage
+from nanobot.bus.outbound_events import ProgressEvent
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.discord import (
     MAX_MESSAGE_LEN,
@@ -718,9 +719,9 @@ async def test_send_delta_streams_by_editing_message(monkeypatch) -> None:
     times = iter([1.0, 3.0, 5.0])
     monkeypatch.setattr("nanobot.channels.discord.time.monotonic", lambda: next(times, 5.0))
 
-    await owner.send_delta("123", "hel", {"_stream_delta": True, "_stream_id": "s1"})
-    await owner.send_delta("123", "lo", {"_stream_delta": True, "_stream_id": "s1"})
-    await owner.send_delta("123", "", {"_stream_end": True, "_stream_id": "s1"})
+    await owner.send_delta("123", "hel", stream_id="s1")
+    await owner.send_delta("123", "lo", stream_id="s1")
+    await owner.send_delta("123", "", stream_id="s1", stream_end=True)
 
     assert target.sent_payloads[0] == {"content": "hel"}
     assert target.sent_messages[0].edits == [{"content": "hello"}, {"content": "hello"}]
@@ -745,9 +746,9 @@ async def test_send_delta_stream_end_splits_oversized_reply(monkeypatch) -> None
     times = iter([1.0, 3.0])
     monkeypatch.setattr("nanobot.channels.discord.time.monotonic", lambda: next(times, 3.0))
 
-    await owner.send_delta("123", prefix, {"_stream_delta": True, "_stream_id": "s1"})
-    await owner.send_delta("123", suffix, {"_stream_delta": True, "_stream_id": "s1"})
-    await owner.send_delta("123", "", {"_stream_end": True, "_stream_id": "s1"})
+    await owner.send_delta("123", prefix, stream_id="s1")
+    await owner.send_delta("123", suffix, stream_id="s1")
+    await owner.send_delta("123", "", stream_id="s1", stream_end=True)
 
     assert target.sent_payloads == [{"content": prefix}, {"content": chunks[1]}]
     assert target.sent_messages[0].edits == [{"content": chunks[0]}, {"content": chunks[0]}]
@@ -1073,7 +1074,7 @@ async def test_send_stops_typing_after_send() -> None:
             channel="discord",
             chat_id="123",
             content="progress",
-            metadata={"_progress": True},
+            event=ProgressEvent(content="progress"),
         )
     )
 

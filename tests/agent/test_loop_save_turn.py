@@ -8,6 +8,13 @@ import pytest
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.loop import AgentLoop
 from nanobot.bus.events import InboundMessage
+from nanobot.bus.outbound_events import (
+    GoalStatusEvent,
+    StreamDeltaEvent,
+    StreamedResponseEvent,
+    StreamEndEvent,
+    TurnEndEvent,
+)
 from nanobot.bus.queue import MessageBus
 from nanobot.cron.session_turns import CRON_HISTORY_META, CRON_TRIGGER_META
 from nanobot.providers.base import LLMResponse
@@ -765,7 +772,6 @@ async def test_internal_continuation_preserves_streaming_route_metadata(
             "_wants_stream": True,
             "message_id": "om_001",
             "origin_message_id": "root_001",
-            "_stream_id": "old-stream",
         },
     ))
 
@@ -775,23 +781,23 @@ async def test_internal_continuation_preserves_streaming_route_metadata(
     assert queued.metadata["_wants_stream"] is True
     assert queued.metadata["message_id"] == "om_001"
     assert queued.metadata["origin_message_id"] == "root_001"
-    assert "_stream_id" not in queued.metadata
 
     await loop._dispatch(queued)
 
     outbound = []
     while loop.bus.outbound_size:
         outbound.append(await loop.bus.consume_outbound())
-    deltas = [m for m in outbound if m.metadata.get("_stream_delta")]
-    ends = [m for m in outbound if m.metadata.get("_stream_end")]
-    streamed_markers = [m for m in outbound if m.metadata.get("_streamed")]
+    deltas = [m for m in outbound if isinstance(m.event, StreamDeltaEvent)]
+    ends = [m for m in outbound if isinstance(m.event, StreamEndEvent)]
+    streamed_markers = [m for m in outbound if isinstance(m.event, StreamedResponseEvent)]
 
     assert [m.content for m in deltas] == ["done"]
     assert len(ends) == 1
-    assert ends[0].metadata["_resuming"] is False
+    assert isinstance(ends[0].event, StreamEndEvent)
+    assert ends[0].event.resuming is False
     assert ends[0].metadata["message_id"] == "om_001"
     assert ends[0].metadata["origin_message_id"] == "root_001"
-    assert isinstance(ends[0].metadata.get("_stream_id"), str)
+    assert isinstance(ends[0].event.stream_id, str)
     assert streamed_markers and streamed_markers[-1].content == "done"
 
 
@@ -842,10 +848,10 @@ async def test_websocket_internal_continuation_keeps_single_visible_run(
     first_outbound = []
     while loop.bus.outbound_size:
         first_outbound.append(await loop.bus.consume_outbound())
-    first_statuses = [m.metadata for m in first_outbound if m.metadata.get("_goal_status")]
-    assert [m["goal_status"] for m in first_statuses] == ["running"]
-    assert not [m for m in first_outbound if m.metadata.get("_turn_end")]
-    started_at = first_statuses[0]["started_at"]
+    first_statuses = [m.event for m in first_outbound if isinstance(m.event, GoalStatusEvent)]
+    assert [m.status for m in first_statuses] == ["running"]
+    assert not [m for m in first_outbound if isinstance(m.event, TurnEndEvent)]
+    started_at = first_statuses[0].started_at
 
     queued = await asyncio.wait_for(loop.bus.consume_inbound(), timeout=0.5)
     assert queued.metadata[INTERNAL_CONTINUATION_META] is True
@@ -856,12 +862,13 @@ async def test_websocket_internal_continuation_keeps_single_visible_run(
     second_outbound = []
     while loop.bus.outbound_size:
         second_outbound.append(await loop.bus.consume_outbound())
-    second_statuses = [m.metadata for m in second_outbound if m.metadata.get("_goal_status")]
-    assert [m["goal_status"] for m in second_statuses] == ["running", "idle"]
-    assert second_statuses[0]["started_at"] == started_at
-    turn_end = [m for m in second_outbound if m.metadata.get("_turn_end")]
+    second_statuses = [m.event for m in second_outbound if isinstance(m.event, GoalStatusEvent)]
+    assert [m.status for m in second_statuses] == ["running", "idle"]
+    assert second_statuses[0].started_at == started_at
+    turn_end = [m for m in second_outbound if isinstance(m.event, TurnEndEvent)]
     assert len(turn_end) == 1
-    assert isinstance(turn_end[0].metadata.get("latency_ms"), int)
+    assert isinstance(turn_end[0].event, TurnEndEvent)
+    assert isinstance(turn_end[0].event.latency_ms, int)
 
 
 @pytest.mark.asyncio

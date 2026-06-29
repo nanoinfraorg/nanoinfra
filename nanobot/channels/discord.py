@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import Field
 
 from nanobot.bus.events import OutboundMessage
+from nanobot.bus.outbound_events import ProgressEvent
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.command.builtin import build_help_text
@@ -458,7 +459,7 @@ class DiscordChannel(BaseChannel):
             self.logger.warning("client not ready; dropping outbound message")
             return
 
-        is_progress = bool((msg.metadata or {}).get("_progress"))
+        is_progress = isinstance(msg.event, ProgressEvent)
 
         try:
             await client.send_outbound(msg)
@@ -471,7 +472,14 @@ class DiscordChannel(BaseChannel):
                 await self._clear_reactions(msg.chat_id)
 
     async def send_delta(
-        self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None
+        self,
+        chat_id: str,
+        delta: str,
+        metadata: dict[str, Any] | None = None,
+        *,
+        stream_id: str | None = None,
+        stream_end: bool = False,
+        resuming: bool = False,
     ) -> None:
         """Progressive Discord delivery: send once, then edit until the stream ends."""
         client = self._client
@@ -479,10 +487,7 @@ class DiscordChannel(BaseChannel):
             self.logger.warning("client not ready; dropping stream delta")
             return
 
-        meta = metadata or {}
-        stream_id = meta.get("_stream_id")
-
-        if meta.get("_stream_end"):
+        if stream_end:
             buf = self._stream_bufs.get(chat_id)
             if not buf or buf.message is None or not buf.text:
                 return

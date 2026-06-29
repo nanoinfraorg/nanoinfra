@@ -12,6 +12,7 @@ except ImportError:
     pytest.skip("Telegram dependencies not installed (python-telegram-bot)", allow_module_level=True)
 
 from nanobot.bus.events import OutboundMessage
+from nanobot.bus.outbound_events import ProgressEvent
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.telegram import (
     TELEGRAM_REPLY_CONTEXT_MAX_LEN,
@@ -604,7 +605,7 @@ async def test_send_delta_stream_end_raises_and_keeps_buffer_on_failure() -> Non
     channel._stream_bufs["123"] = _StreamBuf(text="hello", message_id=7, last_edit=0.0)
 
     with pytest.raises(RuntimeError, match="boom"):
-        await channel.send_delta("123", "", {"_stream_end": True})
+        await channel.send_delta("123", "", stream_end=True)
 
     assert "123" in channel._stream_bufs
 
@@ -621,7 +622,7 @@ async def test_send_delta_stream_end_treats_not_modified_as_success() -> None:
     channel._app.bot.edit_message_text = AsyncMock(side_effect=BadRequest("Message is not modified"))
     channel._stream_bufs["123"] = _StreamBuf(text="hello", message_id=7, last_edit=0.0, stream_id="s:0")
 
-    await channel.send_delta("123", "", {"_stream_end": True, "_stream_id": "s:0"})
+    await channel.send_delta("123", "", stream_id="s:0", stream_end=True)
 
     assert "123" not in channel._stream_bufs
 
@@ -642,7 +643,7 @@ async def test_send_delta_stream_end_does_not_fallback_on_network_timeout() -> N
     channel._stream_bufs["123"] = _StreamBuf(text="hello", message_id=7, last_edit=0.0)
 
     with pytest.raises(TimedOut, match="network timeout"):
-        await channel.send_delta("123", "", {"_stream_end": True})
+        await channel.send_delta("123", "", stream_end=True)
 
     # Every call to edit_message_text must have used parse_mode="HTML" —
     # no plain-text fallback call should have been made.
@@ -666,7 +667,7 @@ async def test_send_delta_stream_end_does_not_fallback_on_network_error() -> Non
     channel._stream_bufs["123"] = _StreamBuf(text="hello", message_id=7, last_edit=0.0)
 
     with pytest.raises(NetworkError, match="connection reset"):
-        await channel.send_delta("123", "", {"_stream_end": True})
+        await channel.send_delta("123", "", stream_end=True)
 
     # Every call to edit_message_text must have used parse_mode="HTML" —
     # no plain-text fallback call should have been made.
@@ -693,7 +694,7 @@ async def test_send_delta_stream_end_falls_back_on_bad_request() -> None:
     )
     channel._stream_bufs["123"] = _StreamBuf(text="hello <bad>", message_id=7, last_edit=0.0)
 
-    await channel.send_delta("123", "", {"_stream_end": True})
+    await channel.send_delta("123", "", stream_end=True)
 
     # edit_message_text should have been called twice: once for HTML, once for plain fallback
     assert channel._app.bot.edit_message_text.call_count == 2
@@ -724,7 +725,7 @@ async def test_send_delta_stream_end_splits_oversized_reply() -> None:
     oversized = "x" * (4000 + 500)
     channel._stream_bufs["123"] = _StreamBuf(text=oversized, message_id=7, last_edit=0.0)
 
-    await channel.send_delta("123", "", {"_stream_end": True})
+    await channel.send_delta("123", "", stream_end=True)
 
     channel._app.bot.edit_message_text.assert_called_once()
     edit_text = channel._app.bot.edit_message_text.call_args.kwargs.get("text", "")
@@ -762,7 +763,7 @@ async def test_send_delta_stream_end_html_expansion_does_not_overflow() -> None:
 
     channel._stream_bufs["123"] = _StreamBuf(text=markdown_text, message_id=7, last_edit=0.0)
 
-    await channel.send_delta("123", "", {"_stream_end": True})
+    await channel.send_delta("123", "", stream_end=True)
 
     channel._app.bot.edit_message_text.assert_called_once()
     edit_text = channel._app.bot.edit_message_text.call_args.kwargs.get("text", "")
@@ -789,7 +790,7 @@ async def test_send_delta_stream_end_splits_long_code_block_before_html_renderin
     raw_text = "```python\n" + ("print(\"line\")\n" * 450) + "```\nDone"
     channel._stream_bufs["123"] = _StreamBuf(text=raw_text, message_id=7, last_edit=0.0)
 
-    await channel.send_delta("123", "", {"_stream_end": True})
+    await channel.send_delta("123", "", stream_end=True)
 
     html_chunks = [
         channel._app.bot.edit_message_text.call_args.kwargs.get("text", ""),
@@ -819,7 +820,7 @@ async def test_send_delta_new_stream_id_replaces_stale_buffer() -> None:
         stream_id="old:0",
     )
 
-    await channel.send_delta("123", "world", {"_stream_delta": True, "_stream_id": "new:0"})
+    await channel.send_delta("123", "world", stream_id="new:0")
 
     buf = channel._stream_bufs["123"]
     assert buf.text == "world"
@@ -839,7 +840,7 @@ async def test_send_delta_incremental_edit_treats_not_modified_as_success() -> N
     channel._stream_bufs["123"] = _StreamBuf(text="hello", message_id=7, last_edit=0.0, stream_id="s:0")
     channel._app.bot.edit_message_text = AsyncMock(side_effect=BadRequest("Message is not modified"))
 
-    await channel.send_delta("123", "", {"_stream_delta": True, "_stream_id": "s:0"})
+    await channel.send_delta("123", "", stream_id="s:0")
 
     assert channel._stream_bufs["123"].last_edit > 0.0
 
@@ -864,7 +865,7 @@ async def test_send_delta_incremental_edit_splits_oversized_buffer() -> None:
         text=oversized, message_id=7, last_edit=0.0, stream_id="s:0"
     )
 
-    await channel.send_delta("123", "y", {"_stream_delta": True, "_stream_id": "s:0"})
+    await channel.send_delta("123", "y", stream_id="s:0")
 
     channel._app.bot.edit_message_text.assert_called_once()
     edit_text = channel._app.bot.edit_message_text.call_args.kwargs.get("text", "")
@@ -888,7 +889,8 @@ async def test_send_delta_initial_send_keeps_message_in_thread() -> None:
     await channel.send_delta(
         "123",
         "hello",
-        {"_stream_delta": True, "_stream_id": "s:0", "message_thread_id": 42},
+        {"message_thread_id": 42},
+        stream_id="s:0",
     )
 
     assert channel._app.bot.sent_messages[0]["message_thread_id"] == 42
@@ -962,7 +964,8 @@ async def test_send_progress_keeps_message_in_topic() -> None:
             channel="telegram",
             chat_id="123",
             content="hello",
-            metadata={"_progress": True, "message_thread_id": 42},
+            event=ProgressEvent(content="hello"),
+            metadata={"message_thread_id": 42},
         )
     )
 
