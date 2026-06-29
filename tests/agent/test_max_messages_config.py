@@ -11,20 +11,31 @@ from nanobot.agent.loop import AgentLoop
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMResponse
-from nanobot.session.manager import DEFAULT_REPLAY_MAX_MESSAGES, Session
+from nanobot.providers.factory import ProviderSnapshot
+from nanobot.session.manager import (
+    DEFAULT_REPLAY_MAX_MESSAGES,
+    Session,
+    replay_max_messages_for_context,
+)
 
 DEFAULT_MAX_MESSAGES = DEFAULT_REPLAY_MAX_MESSAGES
 
 
-def _make_loop(tmp_path: Path, max_messages: int = DEFAULT_MAX_MESSAGES) -> AgentLoop:
+def _make_loop(
+    tmp_path: Path,
+    max_messages: int = 0,
+    context_window_tokens: int = 200_000,
+) -> AgentLoop:
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
+    provider.generation.max_tokens = 4096
     return AgentLoop(
         bus=MessageBus(),
         provider=provider,
         workspace=tmp_path,
         model="test-model",
         max_messages=max_messages,
+        context_window_tokens=context_window_tokens,
     )
 
 
@@ -51,23 +62,56 @@ def _tool_round(call_id: str) -> list[dict]:
 
 
 class TestMaxMessagesInit:
-    """Verify AgentLoop stores the config value correctly."""
+    """Verify AgentLoop derives the internal replay cap correctly."""
 
-    def test_default_is_builtin_limit(self, tmp_path: Path) -> None:
+    def test_context_formula(self) -> None:
+        assert replay_max_messages_for_context(8_000) == 120
+        assert replay_max_messages_for_context(32_768) == 327
+        assert replay_max_messages_for_context(200_000) == DEFAULT_MAX_MESSAGES
+
+    def test_default_for_200k_context_reaches_file_cap(self, tmp_path: Path) -> None:
         loop = _make_loop(tmp_path)
         assert loop._max_messages == DEFAULT_MAX_MESSAGES
+
+    def test_default_scales_with_context_window(self, tmp_path: Path) -> None:
+        loop = _make_loop(tmp_path, context_window_tokens=32_768)
+        assert loop._max_messages == 327
 
     def test_positive_value_stored(self, tmp_path: Path) -> None:
         loop = _make_loop(tmp_path, max_messages=25)
         assert loop._max_messages == 25
 
-    def test_zero_uses_builtin_limit(self, tmp_path: Path) -> None:
+    def test_zero_uses_context_derived_limit(self, tmp_path: Path) -> None:
         loop = _make_loop(tmp_path, max_messages=0)
         assert loop._max_messages == DEFAULT_MAX_MESSAGES
 
     def test_negative_treated_as_builtin_limit(self, tmp_path: Path) -> None:
         """Negative values should not produce negative slicing."""
         loop = _make_loop(tmp_path, max_messages=-5)
+        assert loop._max_messages == DEFAULT_MAX_MESSAGES
+
+    def test_provider_refresh_resyncs_context_derived_limit(self, tmp_path: Path) -> None:
+        old_provider = MagicMock()
+        old_provider.get_default_model.return_value = "old-model"
+        old_provider.generation.max_tokens = 4096
+        new_provider = MagicMock()
+        new_provider.generation.max_tokens = 4096
+        loop = AgentLoop(
+            bus=MessageBus(),
+            provider=old_provider,
+            workspace=tmp_path,
+            model="old-model",
+            context_window_tokens=32_768,
+            provider_snapshot_loader=lambda: ProviderSnapshot(
+                provider=new_provider,
+                model="new-model",
+                context_window_tokens=200_000,
+                signature=("new-model",),
+            ),
+        )
+
+        assert loop._max_messages == 327
+        loop._refresh_provider_snapshot()
         assert loop._max_messages == DEFAULT_MAX_MESSAGES
 
 
