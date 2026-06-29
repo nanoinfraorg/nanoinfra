@@ -205,7 +205,6 @@ class AgentLoop:
         timezone: str | None = None,
         session_ttl_minutes: int = 0,
         consolidation_ratio: float = 0.5,
-        max_messages: int = 0,
         hooks: list[AgentHook] | None = None,
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
@@ -296,12 +295,7 @@ class AgentLoop:
             llm_wall_timeout_for_session=lambda sk: runner_wall_llm_timeout_s(self.sessions, sk),
         )
         self._unified_session = unified_session
-        self._explicit_max_messages = max_messages > 0
-        self._max_messages = (
-            max_messages
-            if self._explicit_max_messages
-            else replay_max_messages_for_context(self.context_window_tokens)
-        )
+        self._max_messages = replay_max_messages_for_context(self.context_window_tokens)
         self._running = False
         self._mcp_servers = mcp_servers or {}
         self._mcp_stacks: dict[str, AsyncExitStack] = {}
@@ -444,8 +438,7 @@ class AgentLoop:
         logger.info("Runtime model switched for next turn: {} -> {}", old_model, model)
 
     def _sync_replay_max_messages(self) -> None:
-        if not self._explicit_max_messages:
-            self._max_messages = replay_max_messages_for_context(self.context_window_tokens)
+        self._max_messages = replay_max_messages_for_context(self.context_window_tokens)
 
     def _refresh_provider_snapshot(self) -> None:
         if self._provider_snapshot_loader is None:

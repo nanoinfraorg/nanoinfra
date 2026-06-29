@@ -156,12 +156,12 @@ def _migrate_config(data: dict) -> dict:
     agents = data.get("agents", {})
     defaults = agents.get("defaults", {}) if isinstance(agents, dict) else {}
     if isinstance(defaults, dict):
-        legacy_max_message_keys = [
-            key for key in ("maxMessages", "max_messages") if key in defaults
-        ]
-        if legacy_max_message_keys:
-            for key in legacy_max_message_keys:
-                defaults.pop(key, None)
+        had_legacy_max_messages = (
+            "maxMessages" in defaults or "max_messages" in defaults
+        )
+        defaults.pop("maxMessages", None)
+        defaults.pop("max_messages", None)
+        if had_legacy_max_messages:
             # TODO(next version): Remove this legacy cleanup branch; the schema
             # will silently ignore this field once the warning grace period ends.
             logger.warning(
