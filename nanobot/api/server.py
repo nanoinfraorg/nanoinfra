@@ -421,14 +421,9 @@ def create_app(
             return await handler(request)
         auth = request.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
-            return web.json_response(
-                {"error": "Missing Authorization header. Use: Bearer <api_key>"},
-                status=401,
-            )
+            return _error_json(401, "Missing Authorization header. Use: Bearer <api_key>")
         if not hmac.compare_digest(auth[len("Bearer "):], api_key):
-            return web.json_response(
-                {"error": "Invalid API key"}, status=401,
-            )
+            return _error_json(401, "Invalid API key")
         return await handler(request)
 
     app.middlewares.append(auth_middleware)

@@ -1561,10 +1561,16 @@ def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -
         async def close_mcp(self) -> None:
             return None
 
-    def _fake_create_app(agent_loop, model_name: str, request_timeout: float):
+    def _fake_create_app(
+        agent_loop,
+        model_name: str,
+        request_timeout: float,
+        api_key: str = "",
+    ):
         seen["agent_loop"] = agent_loop
         seen["model_name"] = model_name
         seen["request_timeout"] = request_timeout
+        seen["api_key"] = api_key
         return _FakeApiApp()
 
     def _fake_run_app(api_app, host: str, port: int, print):
@@ -2507,6 +2513,7 @@ def test_serve_uses_api_config_defaults_and_workspace_override(
     assert seen["host"] == "127.0.0.2"
     assert seen["port"] == 18900
     assert seen["request_timeout"] == 45.0
+    assert seen["api_key"] == ""
 
 
 def test_serve_cli_options_override_api_config(monkeypatch, tmp_path: Path) -> None:
@@ -2538,6 +2545,35 @@ def test_serve_cli_options_override_api_config(monkeypatch, tmp_path: Path) -> N
     assert seen["host"] == "127.0.0.1"
     assert seen["port"] == 18901
     assert seen["request_timeout"] == 46.0
+    assert seen["api_key"] == ""
+
+
+def test_serve_passes_configured_api_key(monkeypatch, tmp_path: Path) -> None:
+    config_file = _write_instance_config(tmp_path)
+    config = Config()
+    config.api.api_key = " secret "
+    seen: dict[str, object] = {}
+
+    _patch_serve_runtime(monkeypatch, config, seen)
+
+    result = runner.invoke(app, ["serve", "--config", str(config_file)])
+
+    assert result.exit_code == 0
+    assert seen["api_key"] == "secret"
+
+
+def test_serve_rejects_wildcard_host_without_api_key(monkeypatch, tmp_path: Path) -> None:
+    config_file = _write_instance_config(tmp_path)
+    config = Config()
+    seen: dict[str, object] = {}
+
+    _patch_serve_runtime(monkeypatch, config, seen)
+
+    result = runner.invoke(app, ["serve", "--config", str(config_file), "--host", "0.0.0.0"])
+
+    assert result.exit_code == 1
+    assert "api_key is not set" in result.stdout
+    assert "api_app" not in seen
 
 
 def test_channels_login_requires_channel_name() -> None:

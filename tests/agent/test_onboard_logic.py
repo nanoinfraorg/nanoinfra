@@ -853,10 +853,11 @@ class TestApiServerRegistration:
         config = Config()
         from nanobot.config.schema import ApiConfig
 
-        new_api = ApiConfig(host="0.0.0.0", port=9999)
+        new_api = ApiConfig(host="0.0.0.0", port=9999, api_key="secret")
         _SETTINGS_SETTER["API Server"](config, new_api)
         assert config.api.host == "0.0.0.0"
         assert config.api.port == 9999
+        assert config.api.api_key == "secret"
 
 
 class TestMainMenuUpdate:
