@@ -491,8 +491,8 @@ class ExecTool(Tool):
             program = shell_program or default_program
             program_name = PureWindowsPath(program).name.lower()
             if program_name in ("cmd", "cmd.exe"):
-                return await asyncio.create_subprocess_shell(
-                    command,
+                return await asyncio.create_subprocess_exec(
+                    program, "/c", command,
                     stdin=stdin,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,

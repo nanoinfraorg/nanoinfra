@@ -175,21 +175,22 @@ class TestSpawnWindows:
         assert kwargs["env"] == env
 
     @pytest.mark.asyncio
-    async def test_explicit_cmd_shell_uses_create_subprocess_shell(self):
-        """Explicit shell='cmd' should use create_subprocess_shell."""
+    async def test_explicit_cmd_shell_uses_cmd_c(self):
+        """Explicit shell='cmd' should launch the resolved cmd.exe with /c."""
         env = {"COMSPEC": r"C:\Windows\system32\cmd.exe", "PATH": ""}
         with (
             patch("nanobot.agent.tools.shell._IS_WINDOWS", True),
-            patch("asyncio.create_subprocess_shell", new_callable=AsyncMock) as mock_shell,
+            patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
         ):
-            mock_shell.return_value = AsyncMock()
+            mock_exec.return_value = AsyncMock()
             await ExecTool._spawn(
                 "dir", r"C:\work", env,
                 shell_program=r"C:\Windows\system32\cmd.exe",
             )
 
-        mock_shell.assert_called_once()
-        kwargs = mock_shell.call_args[1]
+        args = mock_exec.call_args[0]
+        assert args[:3] == (r"C:\Windows\system32\cmd.exe", "/c", "dir")
+        kwargs = mock_exec.call_args[1]
         assert kwargs["cwd"] == r"C:\work"
 
     @pytest.mark.asyncio
@@ -644,22 +645,23 @@ class TestResolveShellWindows:
 
     @pytest.mark.asyncio
     async def test_shell_cmd_accepted(self):
-        """shell='cmd' should use create_subprocess_shell."""
+        """shell='cmd' should use the resolved cmd.exe with /c."""
         mock_proc = AsyncMock()
         mock_proc.communicate.return_value = (b"hello\n", b"")
         mock_proc.returncode = 0
 
         with (
             patch("nanobot.agent.tools.shell._IS_WINDOWS", True),
-            patch("asyncio.create_subprocess_shell", new_callable=AsyncMock) as mock_shell,
+            patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec,
             patch.object(ExecTool, "_guard_command", return_value=None),
         ):
-            mock_shell.return_value = mock_proc
+            mock_exec.return_value = mock_proc
             tool = ExecTool()
             result = await tool.execute(command="echo hello", shell="cmd")
 
         assert "hello" in result
-        mock_shell.assert_called_once()
+        args = mock_exec.call_args[0]
+        assert args[1:3] == ("/c", "echo hello")
 
     @pytest.mark.asyncio
     async def test_shell_bash_rejected_on_windows(self):
