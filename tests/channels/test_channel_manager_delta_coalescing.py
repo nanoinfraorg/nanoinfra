@@ -343,7 +343,7 @@ class TestProgressFiltering:
         assert send_mock.await_args_list[0].args[0].content == "final answer"
 
     @pytest.mark.asyncio
-    async def test_metadata_only_progress_flag_is_not_runtime_progress(self, manager, bus):
+    async def test_legacy_progress_flag_uses_runtime_progress_filter(self, manager, bus):
         manager.channels["mock"].send_progress = False
         await bus.publish_outbound(OutboundMessage(
             channel="mock",
@@ -365,11 +365,7 @@ class TestProgressFiltering:
             except asyncio.CancelledError:
                 pass
 
-        send_mock = manager.channels["mock"]._send_mock
-        assert send_mock.await_count == 1
-        sent = send_mock.await_args_list[0].args[0]
-        assert sent.content == "legacy progress-shaped message"
-        assert sent.event is None
+        assert manager.channels["mock"]._send_mock.await_count == 0
 
     @pytest.mark.asyncio
     async def test_channel_override_can_enable_tool_hints(self, manager, bus):
