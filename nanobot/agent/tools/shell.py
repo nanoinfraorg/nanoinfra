@@ -90,9 +90,13 @@ class _PreparedCommand:
         ),
         shell=StringSchema(
             (
-                "Optional shell binary to launch. Windows: powershell, pwsh, cmd."
+                "Override the Windows shell only when needed. Omit to use "
+                "PowerShell by default (pwsh when available, else powershell). "
+                "Pass 'cmd' only for cmd.exe syntax or cmd built-ins."
                 if _IS_WINDOWS
-                else "Optional shell binary to launch. Unix: sh, bash, zsh."
+                else "Override the Unix shell only when needed. Omit to use "
+                "bash by default. Pass 'sh' for POSIX sh or 'zsh' for "
+                "zsh-specific syntax."
             ),
             nullable=True,
         ),

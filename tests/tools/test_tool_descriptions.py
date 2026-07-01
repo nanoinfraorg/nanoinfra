@@ -63,10 +63,14 @@ def test_exec_tool_shell_guidance_matches_platform() -> None:
 
     shell_parameter = ExecTool().parameters["properties"]["shell"]["description"].lower()
     if sys.platform == "win32":
+        assert "override the windows shell only when needed" in shell_parameter
+        assert "omit to use powershell by default" in shell_parameter
         assert "powershell" in shell_parameter
         assert "cmd" in shell_parameter
         assert "unix" not in shell_parameter
     else:
+        assert "override the unix shell only when needed" in shell_parameter
+        assert "omit to use bash by default" in shell_parameter
         assert "unix" in shell_parameter
         assert "powershell" not in shell_parameter
         assert "cmd" not in shell_parameter
