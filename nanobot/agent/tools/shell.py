@@ -89,7 +89,11 @@ class _PreparedCommand:
             maximum=600,
         ),
         shell=StringSchema(
-            "Optional shell binary to launch. Unix: sh, bash, zsh. Windows: powershell, pwsh, cmd.",
+            (
+                "Optional shell binary to launch. Windows: powershell, pwsh, cmd."
+                if _IS_WINDOWS
+                else "Optional shell binary to launch. Unix: sh, bash, zsh."
+            ),
             nullable=True,
         ),
         login=BooleanSchema(
@@ -227,6 +231,13 @@ class ExecTool(Tool):
 
     @property
     def description(self) -> str:
+        platform_note = (
+            "On Windows, use PowerShell syntax by default; pass shell='cmd' "
+            "only for cmd-specific commands. "
+            if _IS_WINDOWS
+            else "On Unix, commands run through bash by default; pass shell='sh' "
+            "or shell='zsh' when needed. "
+        )
         return (
             "Execute a shell command and return its output. "
             "Use this for tests, builds, package commands, git commands, and "
@@ -234,8 +245,7 @@ class ExecTool(Tool):
             "inspection and apply_patch/write_file/edit_file for file changes "
             "instead of cat, shell find/grep, echo, or sed. "
             "Use -y or --yes flags to avoid interactive prompts. "
-            "On Windows, use PowerShell syntax by default; pass shell='cmd' "
-            "only for cmd-specific commands. "
+            f"{platform_note}"
             "For long-running or interactive commands, pass yield_time_ms; "
             "if the command keeps running, exec returns a session_id that can "
             "be polled or written to with write_stdin. Output is truncated at "
