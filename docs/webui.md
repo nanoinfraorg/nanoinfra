@@ -15,14 +15,14 @@ First confirm your provider and model can answer:
 nanobot agent -m "Hello!"
 ```
 
-Then merge the WebSocket channel into your existing `~/.nanobot/config.json`.
-Set `tokenIssueSecret` to the password you will enter in the WebUI login form:
+The local WebSocket channel is enabled by default because it serves the bundled
+WebUI. To require a browser login password, merge `tokenIssueSecret` into your
+existing `~/.nanobot/config.json`:
 
 ```json
 {
   "channels": {
     "websocket": {
-      "enabled": true,
       "tokenIssueSecret": "your-webui-password",
       "websocketRequiresToken": true
     }
@@ -94,9 +94,20 @@ for provider setup and output behavior.
 ## Apps
 
 Open Apps from the sidebar or settings navigation to manage integrations that
-nanobot can call from a chat. CLI Apps install local adapters that nanobot runs
-on your machine; they do not modify the native apps themselves. MCP presets add
-predefined MCP server configurations.
+nanobot can call from a chat. Nanobot features can enable built-in channels and
+optional capabilities such as `bedrock` or `documents`. CLI Apps install local
+adapters that nanobot runs on your machine; they do not modify the native apps
+themselves. MCP presets add predefined MCP server configurations.
+
+Enabling a Nanobot feature may install Python packages into the environment
+running nanobot. By default, the WebUI can install missing packages only when
+you open it on the same machine as nanobot. If you open the WebUI from another
+device, a domain name, a tunnel, or a reverse proxy, package install is blocked
+unless you explicitly allow it with `tools.webuiAllowRemotePackageInstall`.
+
+Optional feature installs use your existing pip download settings. If PyPI is
+slow or unavailable from your network, configure pip or set `PIP_INDEX_URL`
+before starting nanobot.
 
 Some MCP presets connect to hosted keyless endpoints. For example, the Firecrawl
 preset uses Firecrawl's hosted MCP endpoint for search, scrape, crawl, and
@@ -187,7 +198,6 @@ channel to all interfaces and set a token or token issue secret:
 {
   "channels": {
     "websocket": {
-      "enabled": true,
       "host": "0.0.0.0",
       "port": 8765,
       "tokenIssueSecret": "your-secret-here"
@@ -201,12 +211,36 @@ The gateway refuses to start with `host` set to `"0.0.0.0"` unless `token` or
 `http://<your-ip>:8765` from the other device and enter the secret in the login
 form.
 
+Remote WebUI clients can view Apps and toggle already-installed features with a
+valid token, but they cannot install missing Python packages by default. To allow
+trusted remote admins to install optional feature dependencies from the WebUI,
+opt in explicitly:
+
+```json
+{
+  "tools": {
+    "webuiAllowRemotePackageInstall": true
+  }
+}
+```
+
+Use this only for a private deployment where every authenticated WebUI user is
+trusted to change the Python environment that nanobot runs in. If you publish
+the WebUI through Nginx, Caddy, Cloudflare Tunnel, or a similar service, treat it
+as remote access and leave package installs disabled unless that is intentional.
+
+Optional feature installs use pip's configured package index, including
+`PIP_INDEX_URL`.
+
+Leave remote package installs disabled when the WebUI is exposed beyond a
+private, trusted network.
+
 ## Troubleshooting
 
 If the page does not open, check these in order:
 
 1. `nanobot agent -m "Hello!"` works in the same Python environment.
-2. The WebSocket channel is enabled in `~/.nanobot/config.json`.
+2. `~/.nanobot/config.json` does not explicitly set `channels.websocket.enabled` to `false`.
 3. `nanobot gateway` is still running.
 4. You are opening port `8765`, not the gateway health port.
 5. LAN access uses `host: "0.0.0.0"` and a token or token issue secret.

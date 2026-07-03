@@ -38,6 +38,14 @@ _log_handler_id = logger.add(
     filter=lambda record: record["extra"].setdefault("channel", "-") or True,
 )
 
+
+def _set_nanobot_logs(enabled: bool) -> None:
+    if enabled:
+        logger.enable("nanobot")
+    else:
+        logger.disable("nanobot")
+
+
 from prompt_toolkit import PromptSession, print_formatted_text  # noqa: E402
 from prompt_toolkit.application import run_in_terminal  # noqa: E402
 from prompt_toolkit.formatted_text import ANSI, HTML  # noqa: E402
@@ -45,10 +53,12 @@ from prompt_toolkit.history import FileHistory  # noqa: E402
 from prompt_toolkit.patch_stdout import patch_stdout  # noqa: E402
 from rich.console import Console  # noqa: E402
 from rich.markdown import Markdown  # noqa: E402
+from rich.markup import escape  # noqa: E402
 from rich.table import Table  # noqa: E402
 from rich.text import Text  # noqa: E402
 
 from nanobot import __logo__, __version__  # noqa: E402
+from nanobot import optional_features as feature_support  # noqa: E402
 from nanobot.agent.loop import AgentLoop  # noqa: E402
 from nanobot.bus.outbound_events import (  # noqa: E402
     ProgressEvent,
@@ -686,6 +696,33 @@ def _onboard_plugins(config_path: Path) -> None:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
+def _print_enable_options(
+    extras: dict[str, list[str] | None],
+    builtin_channels: set[str],
+    plugin_channels: dict[str, Any],
+    config: Config,
+) -> None:
+    table = Table(title="Available Features")
+    table.add_column("Name", style="cyan")
+    table.add_column("Type")
+    table.add_column("Enabled")
+
+    for item in sorted(builtin_channels | set(plugin_channels) | set(extras)):
+        is_channel = item in builtin_channels or item in plugin_channels
+        enabled = (
+            feature_support.channel_enabled(config, item)
+            if is_channel
+            else feature_support.extra_installed(item, extras[item])
+        )
+        table.add_row(
+            item,
+            "channel" if is_channel else "feature",
+            "[green]yes[/green]" if enabled else "[dim]no[/dim]",
+        )
+
+    console.print(table)
+
+
 def _model_display(config: Config) -> tuple[str, str]:
     """Return (resolved_model_name, preset_tag) for display strings."""
     resolved = config.resolve_preset()
@@ -811,20 +848,15 @@ def serve(
     try:
         from aiohttp import web  # noqa: F401
     except ImportError:
-        console.print("[red]aiohttp is required. Install with: pip install 'nanobot-ai[api]'[/red]")
+        console.print("[red]aiohttp is required. Install with: nanobot plugins enable api[/red]")
         raise typer.Exit(1)
-
-    from loguru import logger
 
     from nanobot.api.server import create_app
     from nanobot.bus.queue import MessageBus
     from nanobot.providers.image_generation import image_gen_provider_configs
     from nanobot.session.manager import SessionManager
 
-    if verbose:
-        logger.enable("nanobot")
-    else:
-        logger.disable("nanobot")
+    _set_nanobot_logs(verbose)
 
     runtime_config = _load_runtime_config(config, workspace)
     api_cfg = runtime_config.api
@@ -1392,8 +1424,6 @@ def agent(
     logs: bool = typer.Option(False, "--logs/--no-logs", help="Show nanobot runtime logs during chat"),
 ):
     """Interact with the agent directly."""
-    from loguru import logger
-
     from nanobot.bus.queue import MessageBus
     from nanobot.cron.service import CronService
     from nanobot.providers.image_generation import image_gen_provider_configs
@@ -1411,10 +1441,7 @@ def agent(
     cron_store_path = config.workspace_path / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
 
-    if logs:
-        logger.enable("nanobot")
-    else:
-        logger.disable("nanobot")
+    _set_nanobot_logs(logs)
 
     try:
         agent_loop = AgentLoop.from_config(
@@ -1728,42 +1755,80 @@ def channels_login(
 # Plugin Commands
 # ============================================================================
 
-plugins_app = typer.Typer(help="Manage channel plugins")
+plugins_app = typer.Typer(help="Manage optional nanobot features")
 app.add_typer(plugins_app, name="plugins")
 
 
 @plugins_app.command("list")
-def plugins_list():
-    """List all discovered channels (built-in and plugins)."""
-    from nanobot.channels.registry import discover_all, discover_channel_names
-    from nanobot.config.loader import load_config
+def plugins_list(
+    config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+):
+    """List optional nanobot features."""
+    from nanobot.channels.registry import discover_channel_names, discover_plugins
+    from nanobot.config.loader import load_config, set_config_path
 
-    config = load_config()
-    builtin_names = set(discover_channel_names())
-    all_channels = discover_all()
+    resolved_config_path = Path(config_path).expanduser().resolve() if config_path else None
+    if resolved_config_path is not None:
+        set_config_path(resolved_config_path)
 
-    table = Table(title="Channel Plugins")
-    table.add_column("Name", style="cyan")
-    table.add_column("Source", style="magenta")
-    table.add_column("Enabled")
+    _print_enable_options(
+        feature_support.optional_dependency_groups(),
+        set(discover_channel_names()),
+        discover_plugins(),
+        load_config(resolved_config_path),
+    )
 
-    for name in sorted(all_channels):
-        cls = all_channels[name]
-        source = "builtin" if name in builtin_names else "plugin"
-        section = getattr(config.channels, name, None)
-        if section is None:
-            enabled = False
-        elif isinstance(section, dict):
-            enabled = section.get("enabled", False)
-        else:
-            enabled = getattr(section, "enabled", False)
-        table.add_row(
-            cls.display_name,
-            source,
-            "[green]yes[/green]" if enabled else "[dim]no[/dim]",
+
+@plugins_app.command("enable")
+def plugins_enable(
+    name: str = typer.Argument(..., help="Feature name (e.g. weixin, matrix, pdf)"),
+    config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    logs: bool = typer.Option(False, "--logs/--no-logs", help="Show optional package install logs"),
+):
+    """Enable a nanobot feature."""
+    from nanobot.config.loader import get_config_path, set_config_path
+
+    resolved_config_path = Path(config_path).expanduser().resolve() if config_path else None
+    if resolved_config_path is not None:
+        set_config_path(resolved_config_path)
+    resolved_config_path = resolved_config_path or get_config_path()
+    _set_nanobot_logs(logs)
+
+    try:
+        payload = feature_support.enable_optional_feature(
+            name,
+            config_path=resolved_config_path,
+            runner=feature_support.run_install_command,
         )
+    except feature_support.OptionalFeatureError as exc:
+        console.print(f"[red]{escape(exc.message)}[/red]")
+        raise typer.Exit(1) from exc
 
-    console.print(table)
+    message = payload.get("last_action", {}).get("message") or f"Enabled feature '{name}'"
+    console.print(f"[green]{escape(message)}[/green]")
+
+
+@plugins_app.command("disable")
+def plugins_disable(
+    name: str = typer.Argument(..., help="Channel name (e.g. telegram, matrix, slack)"),
+    config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+):
+    """Disable a nanobot channel feature."""
+    from nanobot.config.loader import get_config_path, set_config_path
+
+    resolved_config_path = Path(config_path).expanduser().resolve() if config_path else None
+    if resolved_config_path is not None:
+        set_config_path(resolved_config_path)
+    resolved_config_path = resolved_config_path or get_config_path()
+
+    try:
+        payload = feature_support.disable_optional_feature(name, config_path=resolved_config_path)
+    except feature_support.OptionalFeatureError as exc:
+        console.print(f"[red]{escape(exc.message)}[/red]")
+        raise typer.Exit(1) from exc
+
+    message = payload.get("last_action", {}).get("message") or f"Disabled channel '{name}'"
+    console.print(f"[green]{escape(message)}[/green] in {resolved_config_path}")
 
 
 # ============================================================================
