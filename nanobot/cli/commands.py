@@ -1537,6 +1537,13 @@ def _run_gateway(
                 if productive:
                     store.set_last_dream_cursor(last_cursor)
                     logger.info("Dream cron job completed, cursor advanced to {}", last_cursor)
+                    if store.git.is_initialized():
+                        msg = build_dream_commit_message(
+                            "dream: periodic memory consolidation", diff_body,
+                        )
+                        sha = store.git.auto_commit(msg)
+                        if sha:
+                            logger.info("Dream commit: {}", sha)
                 elif MemoryStore.dream_run_completed(resp):
                     logger.info(
                         "Dream cron job completed with no memory changes; "
@@ -1557,13 +1564,6 @@ def _run_gateway(
                     source="dream",
                     timezone_name=config.agents.defaults.timezone,
                 )
-                if store.git.is_initialized():
-                    msg = build_dream_commit_message(
-                        "dream: periodic memory consolidation", diff_body,
-                    )
-                    sha = store.git.auto_commit(msg)
-                    if sha:
-                        logger.info("Dream commit: {}", sha)
                 store.compact_history()
                 prune_dream_sessions(agent.sessions.sessions_dir)
             return None
