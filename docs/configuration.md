@@ -298,7 +298,7 @@ Tracing covers the providers that go through nanobot's OpenAI-compatible client 
 | `ovms` | LLM (local, OpenVINO Model Server) | [docs.openvino.ai](https://docs.openvino.ai/2026/model-server/ovms_docs_llm_quickstart.html) |
 | `vllm` | LLM (local, any OpenAI-compatible server) | — |
 | `nvidia` | LLM (NVIDIA NIM) | [build.nvidia.com](https://build.nvidia.com/) |
-| `openai_codex` | LLM (Codex, OAuth) | `nanobot provider login openai-codex` |
+| `openai_codex` | LLM (Codex, OAuth) | `nanobot provider login openai-codex --set-main` |
 | `github_copilot` | LLM (GitHub Copilot, OAuth) | `nanobot provider login github-copilot` |
 | `qianfan` | LLM (Baidu Qianfan) | [cloud.baidu.com](https://cloud.baidu.com/doc/qianfan/s/Hmh4suq26) |
 
@@ -660,61 +660,19 @@ nanobot agent -m "Reply with one short sentence."
 <details>
 <summary><b>OpenAI Codex (OAuth)</b></summary>
 
-Codex uses OAuth instead of API keys. Requires a ChatGPT Plus or Pro account. `nanobot provider login` stores the OAuth session outside config. A `providers.openai_codex` block is optional and is only needed for provider-specific settings such as a proxy.
+Codex uses OAuth instead of API keys and requires a ChatGPT Plus or Pro account. Authenticate it and make the current flagship model the active agent model with one command:
 
-**1. Login:**
 ```bash
-nanobot provider login openai-codex
+nanobot provider login openai-codex --set-main
 ```
 
-If the machine running nanobot cannot open a graphical browser, copy the printed URL into a real browser. For remote SSH login, open the URL locally, then paste the final `http://localhost:1455/auth/callback?...` redirect URL back into the terminal when prompted.
+Then run:
 
-**2. Optional proxy** (merge into `~/.nanobot/config.json` if Codex OAuth or Codex API traffic must use a proxy):
-
-```json
-{
-  "providers": {
-    "openai_codex": {
-      "proxy": "http://127.0.0.1:7890"
-    }
-  }
-}
-```
-
-The proxy applies to Codex OAuth token refresh, interactive token exchange, and Codex Responses API requests. It does not affect other providers; configure `proxy` separately on each supported provider that needs it.
-
-**3. Set model** (merge into `~/.nanobot/config.json`):
-```json
-{
-  "modelPresets": {
-    "codex": {
-      "provider": "openai_codex",
-      "model": "gpt-5.1-codex",
-      "reasoningEffort": "high"
-    }
-  },
-  "agents": {
-    "defaults": {
-      "modelPreset": "codex"
-    }
-  }
-}
-```
-
-Use `reasoningEffort` in the preset to send a Codex reasoning effort such as `"low"`, `"medium"`, `"high"`, or another value supported by the selected model. When `provider` is explicitly `openai_codex`, the model name does not need the `openai-codex/` prefix.
-
-**4. Chat:**
 ```bash
 nanobot agent -m "Hello!"
-
-# Target a specific workspace/config locally
-nanobot agent -c ~/.nanobot-telegram/config.json -m "Hello!"
-
-# One-off workspace override on top of that config
-nanobot agent -c ~/.nanobot-telegram/config.json -w /tmp/nanobot-telegram-test -m "Hello!"
 ```
 
-> Docker users: use `docker run -it` for interactive OAuth login.
+For proxy, remote/headless login, model-name, or config-key errors, see [`troubleshooting.md`](./troubleshooting.md#provider-and-model-problems).
 
 </details>
 

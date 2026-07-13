@@ -286,8 +286,8 @@ remain accepted as no-op compatibility aliases.
 
 | Command | Description |
 |---|---|
-| `nanobot provider login openai-codex` | Authenticate OpenAI Codex provider |
-| `nanobot provider login github-copilot` | Authenticate GitHub Copilot provider |
+| `nanobot provider login openai-codex --set-main` | Authenticate Codex and select its current default model |
+| `nanobot provider login github-copilot --set-main` | Authenticate GitHub Copilot and select its current default model |
 | `nanobot provider logout openai-codex` | Remove OpenAI Codex OAuth state |
 | `nanobot provider logout github-copilot` | Remove GitHub Copilot OAuth state |
 
