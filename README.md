@@ -82,11 +82,11 @@ Highlights:
 
 ## Recent Updates
 
-- **2026-06-21** Python SDK runtime controls, optional Keenable key, cleaner run hooks.
-- **2026-06-20** Telegram rich messages, safer SDK concurrency, smoother Quick Start.
-- **2026-06-19** Firecrawl app, OpenAI image edits, safer session deletion.
-- **2026-06-18** Feishu recovery, Keenable search, Mistral polish, workspace-aware git.
-- **2026-06-17** Default idle auto-compact, clearer `/dream`, macOS installer fixes.
+- **2026-07-12** Explicit `/goal` activation, safer runtime and workspace access.
+- **2026-07-11** Syntax-highlighted previews and diffs, queued prompts, safer edits.
+- **2026-07-10** Stable model routing, multiline CLI input, new automation guide.
+- **2026-07-09** Live file-edit diffs, safer localhost setup, Matrix image fixes.
+- **2026-07-08** Safer WebUI/API setup, onboard refresh, responsive prompt rail.
 
 For older updates, see the [release archive](./docs/release-archive.md) or [GitHub releases](https://github.com/HKUDS/nanobot/releases).
 
