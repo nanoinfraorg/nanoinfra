@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  configureChannel,
   createModelConfiguration,
   deleteSession,
   fetchFilePreview,
   fetchAutomations,
+  fetchApiService,
   fetchCliApps,
   fetchInstalledCliApps,
   fetchMcpPresets,
@@ -28,6 +30,11 @@ import {
   runCliAppAction,
   runMcpPresetAction,
   saveCustomMcpServer,
+  startApiService,
+  stopApiService,
+  cancelChannelConnect,
+  pollChannelConnect,
+  startChannelConnect,
   updateAutomation,
   updateSidebarState,
   updateImageGenerationSettings,
@@ -37,6 +44,7 @@ import {
   updateProviderSettings,
   updateSettings,
   updateWebSearchSettings,
+  validateChannel,
 } from "@/lib/api";
 
 describe("webui API helpers", () => {
@@ -110,6 +118,82 @@ describe("webui API helpers", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "/api/webui/automations",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("validates channel settings with form values", async () => {
+    await validateChannel(
+      "tok",
+      "slack",
+      { "channels.slack.botToken": "xoxb-test" },
+      { instanceId: "default" },
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/channels/validate?name=slack&instance_id=default",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer tok",
+          "X-Nanobot-Channel-Values": JSON.stringify({
+            "channels.slack.botToken": "xoxb-test",
+          }),
+        }),
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("configures channels through the WebSocket HTTP shim", async () => {
+    await configureChannel(
+      "tok",
+      "discord",
+      { "channels.discord.token": "saved-secret" },
+      { enable: true },
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/channels/configure?name=discord&enable=true",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer tok",
+          "X-Nanobot-Channel-Values": JSON.stringify({
+            "channels.discord.token": "saved-secret",
+          }),
+        }),
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("serializes channel QR connect helpers", async () => {
+    await startChannelConnect("tok", "weixin", { force: true });
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/api/settings/channels/weixin/connect/start?force=true",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+
+    await pollChannelConnect("tok", "weixin", "session+/=");
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/api/settings/channels/weixin/connect/poll?session_id=session%2B%2F%3D",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+
+    await cancelChannelConnect("tok", "weixin", "session+/=");
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/api/settings/channels/weixin/connect/cancel?session_id=session%2B%2F%3D",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
@@ -475,6 +559,44 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
+    );
+  });
+
+  it("manages the API service capability", async () => {
+    await fetchApiService("tok");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/api-service",
+      expect.objectContaining({ headers: { Authorization: "Bearer tok" } }),
+    );
+
+    await startApiService("tok", { host: "127.0.0.1", port: 8900, timeout: 120 });
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/api-service/start?host=127.0.0.1&port=8900&timeout=120",
+      expect.objectContaining({ headers: { Authorization: "Bearer tok" } }),
+    );
+
+    await startApiService(
+      "tok",
+      { host: "0.0.0.0", port: 8900, timeout: 120, apiKey: "secret-token" },
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/api-service/start?host=0.0.0.0&port=8900&timeout=120",
+      expect.objectContaining({
+        headers: {
+          Authorization: "Bearer tok",
+          "X-Nanobot-API-Service-Values": JSON.stringify({ api_key: "secret-token" }),
+        },
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("secret-token"),
+      expect.anything(),
+    );
+
+    await stopApiService("tok");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/api-service/stop",
+      expect.objectContaining({ headers: { Authorization: "Bearer tok" } }),
     );
   });
 
