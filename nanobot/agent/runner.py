@@ -806,11 +806,17 @@ class AgentRunner:
         else:
             coro = spec.runtime.provider.chat_with_retry(**kwargs)
 
-        # Streaming requests already have provider-level idle timeouts
-        # (NANOBOT_STREAM_IDLE_TIMEOUT_S). Do not also apply the outer wall-clock
-        # LLM timeout here, or healthy long reasoning streams can be killed just
-        # because total elapsed time exceeded NANOBOT_LLM_TIMEOUT_S.
-        outer_timeout_s = None if (wants_streaming or wants_progress_streaming) else timeout_s
+        # Streaming requests also have provider-level idle timeouts
+        # (NANOBOT_STREAM_IDLE_TIMEOUT_S), but a stream that keeps producing
+        # very slow deltas can still run forever. Use a more generous wall-clock
+        # timeout for streaming while preserving NANOBOT_LLM_TIMEOUT_S=0 as an
+        # opt-out for all LLM wall-clock timeouts.
+        is_streaming_request = wants_streaming or wants_progress_streaming
+        outer_timeout_s = (
+            max(300.0, timeout_s * 2)
+            if is_streaming_request and timeout_s is not None
+            else timeout_s
+        )
         try:
             response = (
                 await coro if outer_timeout_s is None
