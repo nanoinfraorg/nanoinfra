@@ -9,7 +9,7 @@ import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import { ThreadHeader } from "@/components/thread/ThreadHeader";
 import { StreamErrorNotice } from "@/components/thread/StreamErrorNotice";
 import { ThreadViewport, type ThreadViewportHandle } from "@/components/thread/ThreadViewport";
-import { useNanobotStream, type SendImage, type SendOptions } from "@/hooks/useNanobotStream";
+import { useNanobotStream, type SendAttachment, type SendOptions } from "@/hooks/useNanobotStream";
 import { useSessionHistory } from "@/hooks/useSessions";
 import {
   fetchInstalledCliApps,
@@ -212,7 +212,7 @@ function randomHeroGreetingKey(): (typeof HERO_GREETING_KEYS)[number] {
 
 interface PendingFirstMessage {
   content: string;
-  images?: SendImage[];
+  images?: SendAttachment[];
   options?: SendOptions;
 }
 
@@ -311,7 +311,7 @@ export function ThreadShell({
     version: historyVersion,
     forkBoundaryMessageCount,
   } = useSessionHistory(historyKey);
-  const { client, modelName, token } = useClient();
+  const { client, ingressLimits, modelName, token } = useClient();
   const [booting, setBooting] = useState(false);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const cliApps = useInstalledSettingItems({
@@ -589,7 +589,7 @@ export function ThreadShell({
   }, [token]);
 
   const handleWelcomeSend = useCallback(
-    async (content: string, images?: SendImage[], options?: SendOptions) => {
+    async (content: string, images?: SendAttachment[], options?: SendOptions) => {
       if (booting) return;
       setBooting(true);
       pendingFirstRef.current = { content, images, options: withWorkspaceScope(options) };
@@ -607,7 +607,7 @@ export function ThreadShell({
   );
 
   const handleThreadSend = useCallback(
-    (content: string, images?: SendImage[], options?: SendOptions) => {
+    (content: string, images?: SendAttachment[], options?: SendOptions) => {
       setScrollToLatestUserPromptSignal((value) => value + 1);
       send(content, images, withWorkspaceScope(options));
     },
@@ -754,6 +754,7 @@ export function ThreadShell({
           onWorkspaceScopeChange={onWorkspaceScopeChange}
           pendingQueueKey={chatId}
           transcriptionProvider={settingsSnapshot?.transcription?.provider}
+          ingressLimits={ingressLimits}
         />
       ) : (
         <ThreadComposer
@@ -785,6 +786,7 @@ export function ThreadShell({
           workspaceError={workspaceError}
           onWorkspaceScopeChange={onWorkspaceScopeChange}
           transcriptionProvider={settingsSnapshot?.transcription?.provider}
+          ingressLimits={ingressLimits}
         />
       )}
     </>

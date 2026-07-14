@@ -204,7 +204,12 @@ async def test_bootstrap_returns_token_for_localhost(
     bus: MagicMock, tmp_path: Path
 ) -> None:
     sm = _seed_session(tmp_path)
-    channel = _ch(bus, session_manager=sm, port=29901)
+    channel = _ch(
+        bus,
+        session_manager=sm,
+        port=29901,
+        maxMessageBytes=1_048_576,
+    )
     server_task = asyncio.create_task(channel.start())
     await asyncio.sleep(0.3)
     try:
@@ -217,6 +222,19 @@ async def test_bootstrap_returns_token_for_localhost(
         assert body["ws_path"] == "/"
         assert body["ws_url"] == "ws://127.0.0.1:29901/"
         assert body["expires_in"] > 0
+        assert body["limits"] == {
+            "transport": {
+                "max_frame_bytes": 1_048_576,
+                "envelope_reserve_bytes": 65_536,
+            },
+            "message": {"max_text_bytes": 65_536},
+            "attachments": {
+                "max_count": 4,
+                "max_file_bytes": 6_291_456,
+                "max_total_bytes": 25_165_824,
+            },
+        }
+        assert "max_message_bytes" not in body
         assert isinstance(body.get("model_name"), str)
     finally:
         await channel.stop()
@@ -2422,7 +2440,7 @@ async def test_webui_thread_resigns_assistant_media_urls(
     def fake_media_dir(channel: str | None = None) -> Path:
         return websocket_media if channel == "websocket" else media_root
 
-    monkeypatch.setattr("nanobot.channels.websocket.get_media_dir", fake_media_dir)
+    monkeypatch.setattr("nanobot.webui.media_gateway.get_media_dir", fake_media_dir)
 
     append_transcript_object(
         "websocket:video-replay",

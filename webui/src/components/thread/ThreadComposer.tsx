@@ -27,6 +27,7 @@ import {
   ChevronUp,
   CircleHelp,
   CornerDownRight,
+  FileText,
   GripVertical,
   History,
   ImageIcon,
@@ -58,15 +59,17 @@ import {
   WorkspaceProjectPicker,
 } from "@/components/thread/WorkspaceControls";
 import {
+  ACCEPT_ATTR,
+  MAX_ATTACHMENTS_PER_MESSAGE,
   useAttachedImages,
   type AttachedImage,
   type AttachmentError,
-  MAX_IMAGES_PER_MESSAGE,
+  type AttachmentKind,
   type RestoredReadyImage,
 } from "@/hooks/useAttachedImages";
 import { useClipboardAndDrop } from "@/hooks/useClipboardAndDrop";
 import { useLogoFallback } from "@/hooks/useLogoFallback";
-import type { SendImage, SendOptions } from "@/hooks/useNanobotStream";
+import type { SendAttachment, SendOptions } from "@/hooks/useNanobotStream";
 import { useVoiceRecorder, type VoiceRecorderErrorKey } from "@/hooks/useVoiceRecorder";
 import type {
   CliAppInfo,
@@ -76,6 +79,7 @@ import type {
   OutboundMcpPresetMention,
   SlashCommand,
   SkillSummary,
+  WebUIIngressLimits,
   WorkspaceScopePayload,
   WorkspacesPayload,
 } from "@/lib/types";
@@ -86,9 +90,6 @@ import {
 } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
 
-/** ``<input accept>``: aligned with the server's MIME whitelist. SVG is
- * deliberately excluded to avoid an embedded-script XSS surface. */
-const ACCEPT_ATTR = "image/png,image/jpeg,image/webp,image/gif";
 const VOICE_SHORTCUT_CODE = "KeyD";
 const VOICE_SHORTCUT_ARIA = "Control+Shift+D";
 type VoiceShortcutPlatform = "apple" | "chromeos" | "linux" | "other" | "windows";
@@ -143,6 +144,10 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function utf8Bytes(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
 function isVoiceShortcutDown(event: KeyboardEvent): boolean {
   return (
     event.code === VOICE_SHORTCUT_CODE
@@ -192,7 +197,7 @@ function getVoiceShortcutLabel(): string {
 }
 
 interface ThreadComposerProps {
-  onSend: (content: string, images?: SendImage[], options?: SendOptions) => void;
+  onSend: (content: string, images?: SendAttachment[], options?: SendOptions) => void;
   disabled?: boolean;
   placeholder?: string;
   isStreaming?: boolean;
@@ -220,6 +225,7 @@ interface ThreadComposerProps {
   onWorkspaceScopeChange?: (scope: WorkspaceScopePayload) => void;
   pendingQueueKey?: string | null;
   transcriptionProvider?: string | null;
+  ingressLimits?: WebUIIngressLimits | null;
 }
 
 const COMMAND_ICONS: Record<string, LucideIcon> = {
@@ -301,6 +307,7 @@ interface QueuedPrompt {
 interface QueuedPromptImage {
   dataUrl: string;
   name?: string;
+  kind?: AttachmentKind;
 }
 
 interface CliAppMentionQuery {
@@ -367,16 +374,22 @@ function normalizeQueuedPrompt(item: unknown, index: number): QueuedPrompt | nul
     ? record.images.flatMap((image) => {
         if (!image || typeof image !== "object") return [];
         const candidate = image as Partial<QueuedPromptImage>;
-        if (typeof candidate.dataUrl !== "string" || !candidate.dataUrl.startsWith("data:image/")) {
+        if (typeof candidate.dataUrl !== "string" || !candidate.dataUrl.startsWith("data:")) {
           return [];
         }
+        const kind = candidate.kind === "file" || candidate.kind === "image"
+          ? candidate.kind
+          : candidate.dataUrl.startsWith("data:image/")
+            ? "image"
+            : "file";
         return [{
           dataUrl: candidate.dataUrl,
+          kind,
           ...(typeof candidate.name === "string" && candidate.name.trim()
             ? { name: candidate.name.trim() }
             : {}),
         }];
-      }).slice(0, MAX_IMAGES_PER_MESSAGE)
+      }).slice(0, MAX_ATTACHMENTS_PER_MESSAGE)
     : [];
   if (!text && images.length === 0) return null;
   const id = typeof record.id === "string" && record.id.trim()
@@ -413,7 +426,7 @@ function storeQueuedPrompts(storageKey: string, prompts: QueuedPrompt[]): void {
         prompts.slice(0, QUEUED_PROMPTS_LIMIT).map((prompt) => ({
           id: prompt.id,
           text: prompt.text.slice(0, QUEUED_PROMPT_MAX_CHARS),
-          ...(prompt.images?.length ? { images: prompt.images.slice(0, MAX_IMAGES_PER_MESSAGE) } : {}),
+          ...(prompt.images?.length ? { images: prompt.images.slice(0, MAX_ATTACHMENTS_PER_MESSAGE) } : {}),
         })),
       ),
     );
@@ -427,11 +440,12 @@ function readyImagesToQueuedImages(
 ): QueuedPromptImage[] {
   return images.map((img) => ({
     dataUrl: img.dataUrl,
+    kind: img.kind,
     name: img.file.name,
   }));
 }
 
-function queuedImagesToSendImages(images?: QueuedPromptImage[]): SendImage[] | undefined {
+function queuedImagesToSendImages(images?: QueuedPromptImage[]): SendAttachment[] | undefined {
   if (!images?.length) return undefined;
   return images.map((img) => ({
     media: {
@@ -439,6 +453,7 @@ function queuedImagesToSendImages(images?: QueuedPromptImage[]): SendImage[] | u
       ...(img.name ? { name: img.name } : {}),
     },
     preview: {
+      kind: img.kind ?? (img.dataUrl.startsWith("data:image/") ? "image" : "file"),
       url: img.dataUrl,
       ...(img.name ? { name: img.name } : {}),
     },
@@ -448,7 +463,7 @@ function queuedImagesToSendImages(images?: QueuedPromptImage[]): SendImage[] | u
 function queuedPromptLabel(prompt: QueuedPrompt): string {
   const text = prompt.text.trim();
   if (text) return text;
-  return prompt.images?.map((img) => img.name).filter(Boolean).join(", ") || "Image attachment";
+  return prompt.images?.map((img) => img.name).filter(Boolean).join(", ") || "File attachment";
 }
 
 function suppressNativeDragPreview(dataTransfer: DataTransfer): void {
@@ -837,6 +852,7 @@ export function ThreadComposer({
   onWorkspaceScopeChange,
   pendingQueueKey = null,
   transcriptionProvider = null,
+  ingressLimits = null,
 }: ThreadComposerProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
@@ -892,15 +908,37 @@ export function ThreadComposer({
     ? t("thread.composer.placeholderStreaming")
     : placeholder ?? t("thread.composer.placeholderThread");
 
+  const maxAttachments = ingressLimits?.attachments.max_count
+    ?? MAX_ATTACHMENTS_PER_MESSAGE;
+  const maxTextBytes = ingressLimits?.message.max_text_bytes ?? 64 * 1024;
   const { images, enqueue, remove, clear, restoreReadyImages, encoding, full } =
-    useAttachedImages();
+    useAttachedImages({ ingressLimits });
 
   const formatRejection = useCallback(
     (reason: AttachmentError): string => {
       const key = `thread.composer.imageRejected.${reason}`;
-      return t(key, { max: MAX_IMAGES_PER_MESSAGE });
+      const fallback = reason === "too_many_attachments"
+        ? `Max ${maxAttachments} attachments per message`
+        : reason === "empty_file"
+          ? "Empty files cannot be attached"
+          : reason === "total_too_large"
+            ? "Attachments are too large together — remove some or use smaller files"
+            : reason === "transport_too_large"
+              ? "This attachment would exceed the gateway transport limit"
+              : reason === "too_large"
+                ? "File is too large"
+                : "Unsupported file type";
+      return t(key, { max: maxAttachments, defaultValue: fallback });
     },
-    [t],
+    [maxAttachments, t],
+  );
+
+  const textTooLargeMessage = useCallback(
+    () => t("thread.composer.textTooLarge", {
+      max: formatBytes(maxTextBytes),
+      defaultValue: `Message text is too large (max ${formatBytes(maxTextBytes)})`,
+    }),
+    [maxTextBytes, t],
   );
 
   const addFiles = useCallback(
@@ -1411,6 +1449,10 @@ export function ThreadComposer({
   const queueGuidancePrompt = useCallback(() => {
     const text = value.trim();
     if (!canQueueGuidance || (!text && readyImages.length === 0)) return;
+    if (utf8Bytes(text) > maxTextBytes) {
+      setInlineError(textTooLargeMessage());
+      return;
+    }
     const queuedImages = readyImagesToQueuedImages(readyImages);
     queuedPromptCounterRef.current += 1;
     const id = `queued-prompt-${Date.now()}-${queuedPromptCounterRef.current}`;
@@ -1425,7 +1467,7 @@ export function ThreadComposer({
     ]);
     clear();
     clearComposerText();
-  }, [canQueueGuidance, clear, clearComposerText, readyImages, value]);
+  }, [canQueueGuidance, clear, clearComposerText, maxTextBytes, readyImages, textTooLargeMessage, value]);
 
   const removeQueuedPrompt = useCallback((id: string) => {
     secondEnterPromptIdRef.current = null;
@@ -1526,18 +1568,22 @@ export function ThreadComposer({
     if (!canSend) return;
     const trimmed = value.trim();
     const content = trimmed;
-    // Share the same normalized ``data:`` URL with both the wire payload and
-    // the optimistic bubble preview: data URLs are self-contained (no blob
-    // lifetime, safe under React StrictMode double-mount) and keep the
-    // bubble in sync with whatever the backend actually sees.
-    const payload: SendImage[] | undefined =
+    if (utf8Bytes(content) > maxTextBytes) {
+      setInlineError(textTooLargeMessage());
+      return;
+    }
+    // Share the same ``data:`` URL with both the wire payload and the
+    // optimistic bubble preview: data URLs are self-contained (no blob
+    // lifetime, safe under React StrictMode double-mount) and keep the bubble
+    // in sync with whatever the backend actually sees.
+    const payload: SendAttachment[] | undefined =
       readyImages.length > 0
         ? readyImages.map((img) => ({
             media: {
               data_url: img.dataUrl,
               name: img.file.name,
             },
-            preview: { url: img.dataUrl, name: img.file.name },
+            preview: { kind: img.kind, url: img.dataUrl, name: img.file.name },
           }))
         : undefined;
     const attachedCliApps = activeCliMentionApps.map(cliAppMentionPayload);
@@ -1594,12 +1640,14 @@ export function ThreadComposer({
     clearComposerText,
     handleStop,
     isStreaming,
+    maxTextBytes,
     modelNeedsSetup,
     onModelBadgeClick,
     onSend,
     onStop,
     readyImages,
     slashCommands,
+    textTooLargeMessage,
     value,
   ]);
 
@@ -2673,7 +2721,7 @@ function AttachmentChip({
       data-testid="composer-chip"
     >
       <div className="relative h-10 w-10 overflow-hidden rounded-md bg-background">
-        {image.previewUrl ? (
+        {image.kind === "image" && image.previewUrl ? (
           <img
             src={image.previewUrl}
             alt=""
@@ -2684,7 +2732,11 @@ function AttachmentChip({
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
-            <ImageIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
+            {image.kind === "image" ? (
+              <ImageIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
+            ) : (
+              <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
+            )}
           </div>
         )}
         {image.status === "encoding" ? (

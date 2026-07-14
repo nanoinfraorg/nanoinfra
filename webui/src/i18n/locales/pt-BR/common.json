@@ -1034,12 +1034,17 @@
       "encoding": "Codificando…",
       "remove": "Remover anexo",
       "normalizedSizeHint": "{{orig}} → {{current}} (auto)",
+      "textTooLarge": "O texto da mensagem é grande demais (máximo de {{max}})",
       "imageRejected": {
         "unsupported_type": "Tipo de arquivo não compatível",
+        "empty_file": "Arquivos vazios não podem ser anexados",
+        "too_many_attachments": "Máx. de {{max}} anexos por mensagem",
         "too_many_images": "Máx. de {{max}} imagens por mensagem",
         "magic_mismatch": "O arquivo não parece uma imagem real",
         "decode_failed": "Não foi possível decodificar esta imagem",
         "too_large": "A imagem é grande demais — tente uma menor",
+        "total_too_large": "Os anexos são grandes demais em conjunto — remova alguns ou use arquivos menores",
+        "transport_too_large": "Este anexo excederia o limite de transporte do gateway",
         "io": "Não foi possível ler este arquivo"
       },
       "workspace": {
