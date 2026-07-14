@@ -43,8 +43,8 @@ import type {
 
 interface MessageBubbleProps {
   message: UIMessage;
-  /** When false, hide the assistant reply copy button (mid-turn text before more agent activity). Default true. */
-  showAssistantCopyAction?: boolean;
+  /** When false, hide this message's copy button. Default true. */
+  showCopyAction?: boolean;
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
   onOpenFilePreview?: (path: string) => void;
@@ -71,6 +71,59 @@ function ForkArrowIcon({ className }: { className?: string }) {
   );
 }
 
+function MessageCopyButton({ content }: { content: string }) {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+  const copyResetRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyResetRef.current !== null) {
+        window.clearTimeout(copyResetRef.current);
+      }
+    };
+  }, []);
+
+  const onCopy = useCallback(() => {
+    void copyTextToClipboard(content).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      if (copyResetRef.current !== null) {
+        window.clearTimeout(copyResetRef.current);
+      }
+      copyResetRef.current = window.setTimeout(() => {
+        setCopied(false);
+        copyResetRef.current = null;
+      }, 1_500);
+    });
+  }, [content]);
+
+  const label = copied ? t("message.copiedReply") : t("message.copyReply");
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onCopy}
+          aria-label={label}
+          className={cn(
+            "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+            "transition-colors hover:bg-muted/55 hover:text-foreground",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          )}
+        >
+          {copied ? (
+            <Check className="h-4 w-4" aria-hidden />
+          ) : (
+            <Copy className="h-4 w-4" aria-hidden />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" align="center">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 /**
  * Render a single message. Following agent-chat-ui: user turns are a rounded
  * "pill" right-aligned with a muted fill; assistant turns render as bare
@@ -82,15 +135,13 @@ function ForkArrowIcon({ className }: { className?: string }) {
  */
 export function MessageBubble({
   message,
-  showAssistantCopyAction = true,
+  showCopyAction = true,
   cliApps = [],
   mcpPresets = [],
   onOpenFilePreview,
   onForkFromHere,
 }: MessageBubbleProps) {
   const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const copyResetRef = useRef<number | null>(null);
   const baseAnim = "animate-in fade-in-0 slide-in-from-bottom-1 duration-300";
   const mentionCliApps = useMemo(
     () => mergeCliMentionApps(cliApps, message.cliApps),
@@ -100,28 +151,6 @@ export function MessageBubble({
     () => mergeMcpMentionPresets(mcpPresets, message.mcpPresets),
     [mcpPresets, message.mcpPresets],
   );
-
-  useEffect(() => {
-    return () => {
-      if (copyResetRef.current !== null) {
-        window.clearTimeout(copyResetRef.current);
-      }
-    };
-  }, []);
-
-  const onCopyAssistantReply = useCallback(() => {
-    void copyTextToClipboard(message.content).then((ok) => {
-      if (!ok) return;
-      setCopied(true);
-      if (copyResetRef.current !== null) {
-        window.clearTimeout(copyResetRef.current);
-      }
-      copyResetRef.current = window.setTimeout(() => {
-        setCopied(false);
-        copyResetRef.current = null;
-      }, 1_500);
-    });
-  }, [message.content]);
 
   if (message.kind === "trace") {
     return <TraceGroup message={message} animClass={baseAnim} />;
@@ -158,6 +187,13 @@ export function MessageBubble({
             />
           </p>
         ) : null}
+        {hasText && showCopyAction ? (
+          <TooltipProvider delayDuration={220} skipDelayDuration={80}>
+            <div className="flex min-h-8 items-center justify-end text-muted-foreground">
+              <MessageCopyButton content={message.content} />
+            </div>
+          </TooltipProvider>
+        ) : null}
       </div>
     );
   }
@@ -179,9 +215,8 @@ export function MessageBubble({
   const automationTriggeredLabel = t("message.automationTriggered");
 
   const showAssistantActions = message.role === "assistant" && !message.isStreaming && !empty;
-  const showCopyButton = showAssistantCopyAction && showAssistantActions;
+  const showCopyButton = showCopyAction && showAssistantActions;
   const showForkButton = showAssistantActions && !!onForkFromHere;
-  const copyReplyLabel = copied ? t("message.copiedReply") : t("message.copyReply");
   const forkLabel = t("message.forkFromHere");
   const latencyMs = message.latencyMs;
   const showLatencyFooter =
@@ -221,27 +256,7 @@ export function MessageBubble({
             <TooltipProvider delayDuration={220} skipDelayDuration={80}>
               <div className="mt-2 flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
                 {showCopyButton ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={onCopyAssistantReply}
-                        aria-label={copyReplyLabel}
-                        className={cn(
-                          "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                          "transition-colors hover:bg-muted/55 hover:text-foreground",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        )}
-                      >
-                        {copied ? (
-                          <Check className="h-4 w-4" aria-hidden />
-                        ) : (
-                          <Copy className="h-4 w-4" aria-hidden />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" align="center">{copyReplyLabel}</TooltipContent>
-                  </Tooltip>
+                  <MessageCopyButton content={message.content} />
                 ) : null}
                 {showForkButton ? (
                   <Tooltip>

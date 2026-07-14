@@ -76,7 +76,35 @@ describe("MessageBubble", () => {
 
     expect(row).toHaveClass("ml-auto", "flex");
     expect(pill).toHaveClass("ml-auto", "w-fit", "rounded-[18px]");
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Fork" })).not.toBeInTheDocument();
+  });
+
+  it("copies user messages from the shared message action", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const message: UIMessage = {
+      id: "u-copy",
+      role: "user",
+      content: "Copy this user prompt.",
+      createdAt: Date.now(),
+    };
+
+    try {
+      render(<MessageBubble message={message} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+
+      expect(writeText).toHaveBeenCalledWith("Copy this user prompt.");
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument(),
+      );
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
   });
 
   it("renders fork control in completed assistant action rows", () => {
@@ -279,7 +307,7 @@ describe("MessageBubble", () => {
     expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
   });
 
-  it("does not show copy when showAssistantCopyAction is false", () => {
+  it("does not show copy when showCopyAction is false", () => {
     const message: UIMessage = {
       id: "a-mid",
       role: "assistant",
@@ -287,7 +315,7 @@ describe("MessageBubble", () => {
       createdAt: Date.now(),
     };
 
-    render(<MessageBubble message={message} showAssistantCopyAction={false} />);
+    render(<MessageBubble message={message} showCopyAction={false} />);
 
     expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
   });

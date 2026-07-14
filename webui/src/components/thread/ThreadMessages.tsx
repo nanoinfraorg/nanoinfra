@@ -109,7 +109,7 @@ export function ThreadMessages({
               ) : (
                 <MessageBubble
                   message={unit.message}
-                  showAssistantCopyAction={
+                  showCopyAction={
                     unit.message.role === "assistant"
                       ? copyFlags[index]
                       : true
