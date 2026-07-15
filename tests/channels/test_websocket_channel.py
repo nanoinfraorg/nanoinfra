@@ -393,14 +393,23 @@ async def test_webui_message_envelope_marks_inbound_metadata(bus: MagicMock) -> 
     assert msg.metadata["webui_turn_id"] == "turn-1"
     assert msg.metadata["_wants_stream"] is True
     lines = read_transcript_lines("websocket:chat-1")
-    assert lines == [{
+    assert len(lines) == 1
+    assert {key: lines[0].get(key) for key in (
+        "event",
+        "chat_id",
+        "text",
+        "turn_id",
+        "turn_phase",
+        "turn_seq",
+    )} == {
         "event": "user",
         "chat_id": "chat-1",
         "text": "hello",
         "turn_id": "turn-1",
         "turn_phase": "user",
         "turn_seq": 1,
-    }]
+    }
+    assert isinstance(lines[0].get("created_at_ms"), int)
 
 
 @pytest.mark.asyncio
@@ -2702,6 +2711,7 @@ async def test_webui_message_envelope_appends_user_transcript(
     assert isinstance(line.get("turn_id"), str)
     assert line.get("turn_phase") == "user"
     assert line.get("turn_seq") == 1
+    assert isinstance(line.get("created_at_ms"), int)
     inbound = bus.publish_inbound.await_args.args[0]
     assert inbound.chat_id == "source"
     assert inbound.content == "round1"

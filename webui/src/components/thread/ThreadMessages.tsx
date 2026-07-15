@@ -104,6 +104,7 @@ export function ThreadMessages({
                   isTurnStreaming={liveActivityClusterIndices.has(index)}
                   hasBodyBelow={hasBodyBelow}
                   turnLatencyMs={unit.turnLatencyMs}
+                  startedAtMs={unit.startedAtMs}
                   cliApps={cliApps}
                   mcpPresets={mcpPresets}
                   onOpenFilePreview={onOpenFilePreview}
