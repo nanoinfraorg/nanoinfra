@@ -268,6 +268,14 @@ def test_onboard_fresh_install(mock_paths):
     assert mock_ws.call_args.args == (expected_workspace,)
 
 
+def test_onboard_recommends_webui(mock_paths):
+    """Default onboarding should recommend the guided WebUI launcher."""
+    result = runner.invoke(app, ["onboard"])
+
+    assert result.exit_code == 0
+    assert "✓ nanobot is ready. Run: nanobot webui" in result.stdout
+
+
 def test_onboard_existing_config_refresh(mock_paths):
     """Config exists, user declines overwrite — should refresh (load-merge-save)."""
     config_file, workspace_dir, _ = mock_paths
@@ -413,7 +421,7 @@ def test_onboard_uses_explicit_config_and_workspace_paths(tmp_path, monkeypatch)
     compact_output = stripped_output.replace("\n", "")
     resolved_config = str(config_path.resolve())
     assert resolved_config in compact_output
-    assert f"--config {resolved_config}" in compact_output
+    assert f'nanobot webui -c "{resolved_config}"' in result.stdout
 
 
 def test_onboard_wizard_preserves_explicit_config_in_next_steps(tmp_path, monkeypatch):
@@ -434,11 +442,8 @@ def test_onboard_wizard_preserves_explicit_config_in_next_steps(tmp_path, monkey
     )
 
     assert result.exit_code == 0
-    stripped_output = _strip_ansi(result.stdout)
-    compact_output = stripped_output.replace("\n", "")
     resolved_config = str(config_path.resolve())
-    assert f'nanobot agent -m "Hello!" --config {resolved_config}' in compact_output
-    assert f"nanobot gateway --config {resolved_config}" in compact_output
+    assert f'nanobot webui -c "{resolved_config}"' in result.stdout
 
 
 def test_config_matches_github_copilot_codex_with_hyphen_prefix():

@@ -643,6 +643,7 @@ def onboard(
     from nanobot.config.loader import get_config_path, load_config, save_config, set_config_path
     from nanobot.config.schema import Config
 
+    explicit_config = config is not None
     if config:
         config_path = Path(config).expanduser().resolve()
         set_config_path(config_path)
@@ -716,24 +717,11 @@ def onboard(
 
     sync_workspace_templates(workspace_path)
 
-    agent_cmd = 'nanobot agent -m "Hello!"'
-    gateway_cmd = "nanobot gateway"
-    if config:
-        agent_cmd += f" --config {config_path}"
-        gateway_cmd += f" --config {config_path}"
+    webui_cmd = "nanobot webui"
+    if explicit_config:
+        webui_cmd += f' -c "{config_path}"'
 
-    console.print(f"\n{__logo__} nanobot is ready!")
-    console.print("\nNext steps:")
-    if wizard:
-        console.print(f"  1. Chat: [cyan]{agent_cmd}[/cyan]")
-        console.print(f"  2. Start gateway: [cyan]{gateway_cmd}[/cyan]")
-    else:
-        console.print(f"  1. Add your API key to [cyan]{config_path}[/cyan]")
-        console.print("     Get one at: https://openrouter.ai/keys")
-        console.print(f"  2. Chat: [cyan]{agent_cmd}[/cyan]")
-    console.print(
-        "\n[dim]Want Telegram/WhatsApp? See: https://github.com/HKUDS/nanobot#-chat-apps[/dim]"
-    )
+    typer.echo(f"\n✓ nanobot is ready. Run: {webui_cmd}")
 
 
 def _onboard_plugins(config_path: Path) -> None:
