@@ -278,6 +278,16 @@ class BaseChannel(ABC):
         """Return default config for onboard. Override in plugins to auto-populate config.json."""
         return {"enabled": False}
 
+    @classmethod
+    def refresh_feature_metadata(
+        cls,
+        config_path: Path,
+        *,
+        instance_id: str = "default",
+    ) -> bool:
+        """Refresh persisted display metadata after an explicit settings action."""
+        return False
+
     @property
     def is_running(self) -> bool:
         """Check if the channel is running."""

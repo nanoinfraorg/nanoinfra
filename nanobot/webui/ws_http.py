@@ -169,6 +169,7 @@ class GatewayHTTPHandler:
         cron_pending_job_ids: Callable[[str], set[str]] | None = None,
         local_trigger_pending_ids: Callable[[str], set[str]] | None = None,
         channel_feature_action: Callable[..., Any] | None = None,
+        channel_runtime_status: Callable[[], dict[str, Any]] | None = None,
         log: Any = logger,
     ) -> None:
         self.config = config
@@ -203,6 +204,7 @@ class GatewayHTTPHandler:
             runtime_surface=runtime_surface,
             runtime_capabilities=self._capabilities,
             channel_feature_action=channel_feature_action,
+            channel_runtime_status=channel_runtime_status,
         )
 
     def workspace_controls_available(self, connection: Any) -> bool:

@@ -24,7 +24,7 @@ def _python_command(code: str) -> str:
 
 
 def _waiting_shell_command(initial: str, *, delayed: str | None = None) -> str:
-    """Print deterministic output, then wait in the shell itself for stdin.
+    """Print deterministic output, optionally gated by stdin, then keep waiting.
 
     Long-lived Python children keep inherited pipes open after their parent
     shell is terminated on Windows. These tests exercise exec-session control,
@@ -36,13 +36,13 @@ def _waiting_shell_command(initial: str, *, delayed: str | None = None) -> str:
 
         parts = [f"Write-Output {quote(initial)}"]
         if delayed is not None:
-            parts.extend(("Start-Sleep -Milliseconds 100", f"Write-Output {quote(delayed)}"))
+            parts.extend(("$null = [Console]::In.ReadLine()", f"Write-Output {quote(delayed)}"))
         parts.append("$null = [Console]::In.ReadLine()")
         return "; ".join(parts)
 
     parts = [f"printf '%s\\n' {shlex.quote(initial)}"]
     if delayed is not None:
-        parts.extend(("sleep 0.1", f"printf '%s\\n' {shlex.quote(delayed)}"))
+        parts.extend(("IFS= read -r _", f"printf '%s\\n' {shlex.quote(delayed)}"))
     parts.append("IFS= read -r _")
     return "; ".join(parts)
 
@@ -309,6 +309,7 @@ def test_write_stdin_can_wait_for_expected_output(tmp_path):
         sid = _session_id(initial)
         waited = await stdin_tool.execute(
             session_id=sid,
+            chars="\n",
             wait_for="ready",
             wait_timeout_ms=1000,
             yield_time_ms=0,

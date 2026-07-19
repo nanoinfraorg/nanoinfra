@@ -16,7 +16,7 @@ a focused setup path for one platform, start with a guide:
 | Email | [Build an Email AI Agent with nanobot](./guides/email-ai-agent.md) |
 | Mattermost | [Build a Mattermost AI Agent with nanobot](./guides/mattermost-ai-agent.md) |
 
-Want to build your own channel? See the [Channel Plugin Guide](./channel-plugin-guide.md).
+Want to build your own channel? See the [Channel Package Guide](./channel-package-guide.md).
 
 Before configuring a chat app, make sure the local CLI path works:
 

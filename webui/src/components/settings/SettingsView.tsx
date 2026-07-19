@@ -61,14 +61,16 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { channelUiPresentation } from "@/channel-plugins/registry";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { SkillsCatalogSettings } from "@/components/settings/SkillsCatalogSettings";
 import { TokenUsageHeatmap } from "@/components/settings/TokenUsageHeatmap";
 import { ToggleButton } from "@/components/settings/ToggleButton";
 import {
-  channelDisplayName,
+  channelIsRunning,
   channelMatchesFilter,
   channelSearchText,
+  localizedChannelDisplayName,
   type ChannelFilter,
 } from "@/components/settings/channels/ChannelIdentity";
 import {
@@ -746,23 +748,37 @@ export function SettingsView({
   useEffect(() => {
     if (!["channels", "models", "browser", "runtime"].includes(activeSection)) return;
     let cancelled = false;
-    setNanobotFeaturesLoading(true);
-    fetchNanobotFeatures(token)
-      .then((payload) => {
+    const refresh = async (showLoading = false) => {
+      if (showLoading) setNanobotFeaturesLoading(true);
+      try {
+        const payload = await fetchNanobotFeatures(token);
         if (!cancelled) {
           setNanobotFeatures(payload);
           setNanobotFeaturesError(null);
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         const message = (err as Error).message;
         if (!cancelled && message !== "HTTP 404") setNanobotFeaturesError(message);
-      })
-      .finally(() => {
-        if (!cancelled) setNanobotFeaturesLoading(false);
-      });
+      } finally {
+        if (!cancelled && showLoading) setNanobotFeaturesLoading(false);
+      }
+    };
+    void refresh(true);
+    const interval = activeSection === "channels"
+      ? window.setInterval(() => void refresh(false), 5000)
+      : null;
+    const refreshOnFocus = () => {
+      if (activeSection === "channels" && document.visibilityState !== "hidden") {
+        void refresh(false);
+      }
+    };
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnFocus);
     return () => {
       cancelled = true;
+      if (interval !== null) window.clearInterval(interval);
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshOnFocus);
     };
   }, [activeSection, token]);
 
@@ -4890,22 +4906,9 @@ const AUTOMATION_SEARCH_FIELDS = new Set<AutomationSearchField>([
   "status",
 ]);
 
-const AUTOMATION_CHANNEL_LABELS: Record<string, string> = {
+const HOST_AUTOMATION_CHANNEL_LABELS: Record<string, string> = {
   api: "API",
   cli: "CLI",
-  dingtalk: "DingTalk",
-  discord: "Discord",
-  email: "Email",
-  feishu: "Feishu",
-  matrix: "Matrix",
-  msteams: "Microsoft Teams",
-  qq: "QQ",
-  slack: "Slack",
-  telegram: "Telegram",
-  wechat: "WeChat",
-  wecom: "WeCom",
-  weixin: "WeChat",
-  whatsapp: "WhatsApp",
 };
 
 function parseAutomationSearchQuery(query: string): AutomationSearchToken[] {
@@ -4974,7 +4977,7 @@ function automationOriginSearchParts(job: SessionAutomationJob): Array<string | 
     origin.title,
     origin.preview,
     origin.channel,
-    AUTOMATION_CHANNEL_LABELS[channel],
+    automationChannelDisplayName(channel),
   ];
 }
 
@@ -5111,9 +5114,15 @@ function automationChannelLabel(
   tx: (key: string, fallback: string, values?: Record<string, unknown>) => string,
 ): string {
   const key = channel.trim().toLowerCase();
-  return AUTOMATION_CHANNEL_LABELS[key]
-    ? tx(`settings.automations.channels.${key}`, AUTOMATION_CHANNEL_LABELS[key])
+  const displayName = automationChannelDisplayName(key);
+  return displayName
+    ? tx(`settings.automations.channels.${key}`, displayName)
     : channel;
+}
+
+function automationChannelDisplayName(channel: string): string | undefined {
+  const key = channel.trim().toLowerCase();
+  return channelUiPresentation(key)?.displayName ?? HOST_AUTOMATION_CHANNEL_LABELS[key];
 }
 
 function formatAutomationSchedule(
@@ -5331,8 +5340,6 @@ function RestartRequiredNotice({
   );
 }
 
-const HIDDEN_WEBUI_CHANNELS = new Set(["mochat"]);
-
 function ChannelsSettings({
   token,
   nanobotFeatures,
@@ -5376,17 +5383,19 @@ function ChannelsSettings({
   const [compactDetailOpen, setCompactDetailOpen] = useState(false);
   const allChannels = (nanobotFeatures?.features ?? [])
     .filter((feature) => feature.type === "channel")
-    .filter((feature) => !HIDDEN_WEBUI_CHANNELS.has(feature.name))
-    .filter((feature) => !normalizedQuery || channelSearchText(feature).includes(normalizedQuery))
+    .filter((feature) => feature.settings_visible !== false)
+    .filter((feature) => !normalizedQuery || channelSearchText(feature, t).includes(normalizedQuery))
     .sort((left, right) => {
       const rank = Number(!left.ready) - Number(!right.ready);
-      return rank || channelDisplayName(left).localeCompare(channelDisplayName(right));
+      return rank || localizedChannelDisplayName(left, t).localeCompare(
+        localizedChannelDisplayName(right, t),
+      );
     });
   const channels = allChannels.filter((feature) => channelMatchesFilter(feature, filter));
   const [selectedChannelName, setSelectedChannelName] = useState<string | null>(null);
   const selectedChannel =
     channels.find((feature) => feature.name === selectedChannelName) ?? channels[0] ?? null;
-  const enabledCount = allChannels.filter((feature) => feature.enabled).length;
+  const enabledCount = allChannels.filter(channelIsRunning).length;
   const offCount = Math.max(0, allChannels.length - enabledCount);
   const filterOptions: Array<{ value: ChannelFilter; label: string; count: number }> = [
     { value: "all", label: tx("settings.channels.filterAll", "All"), count: allChannels.length },

@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Moon, PanelLeft, ShieldCheck, Sun, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { channelUiPresentation } from "@/channel-plugins/registry";
 import { DeleteConfirm } from "@/components/DeleteConfirm";
 import { RenameChatDialog } from "@/components/RenameChatDialog";
 import { Sidebar } from "@/components/Sidebar";
@@ -93,106 +94,6 @@ type ShellRoute = {
   view: ShellView;
   activeKey: string | null;
   settingsSection: SettingsSectionKey;
-};
-
-type PairingChannelPresentation = {
-  label: string;
-  initials: string;
-  color: string;
-  logoUrl?: string;
-};
-
-const PAIRING_CHANNEL_PRESENTATION: Record<string, PairingChannelPresentation> = {
-  dingtalk: {
-    label: "DingTalk",
-    initials: "DT",
-    color: "#FF6A00",
-    logoUrl: "https://www.dingtalk.com/favicon.ico",
-  },
-  discord: {
-    label: "Discord",
-    initials: "DC",
-    color: "#5865F2",
-    logoUrl: "https://discord.com/favicon.ico",
-  },
-  email: {
-    label: "Email",
-    initials: "EM",
-    color: "#EA4335",
-    logoUrl: "https://gmail.com/favicon.ico",
-  },
-  feishu: {
-    label: "Feishu",
-    initials: "FS",
-    color: "#3370FF",
-    logoUrl: "https://www.feishu.cn/favicon.ico",
-  },
-  lark: {
-    label: "Lark",
-    initials: "LK",
-    color: "#3370FF",
-    logoUrl: "https://www.larksuite.com/favicon.ico",
-  },
-  matrix: {
-    label: "Matrix",
-    initials: "M",
-    color: "#111827",
-    logoUrl: "https://matrix.org/favicon.ico",
-  },
-  msteams: {
-    label: "Microsoft Teams",
-    initials: "MT",
-    color: "#6264A7",
-    logoUrl: "https://www.microsoft.com/favicon.ico",
-  },
-  napcat: {
-    label: "NapCat",
-    initials: "NC",
-    color: "#7C3AED",
-    logoUrl: "https://napneko.github.io/favicon.ico",
-  },
-  qq: {
-    label: "QQ",
-    initials: "QQ",
-    color: "#12B7F5",
-    logoUrl: "https://im.qq.com/favicon.ico",
-  },
-  signal: {
-    label: "Signal",
-    initials: "SG",
-    color: "#3A76F0",
-    logoUrl: "https://signal.org/favicon.ico",
-  },
-  slack: {
-    label: "Slack",
-    initials: "SL",
-    color: "#611F69",
-    logoUrl: "https://slack.com/favicon.ico",
-  },
-  telegram: {
-    label: "Telegram",
-    initials: "TG",
-    color: "#229ED9",
-    logoUrl: "https://telegram.org/favicon.ico",
-  },
-  wecom: {
-    label: "WeCom",
-    initials: "WC",
-    color: "#2F7DFF",
-    logoUrl: "https://work.weixin.qq.com/favicon.ico",
-  },
-  weixin: {
-    label: "WeChat",
-    initials: "WX",
-    color: "#07C160",
-    logoUrl: "https://weixin.qq.com/favicon.ico",
-  },
-  whatsapp: {
-    label: "WhatsApp",
-    initials: "WA",
-    color: "#25D366",
-    logoUrl: "https://www.whatsapp.com/favicon.ico",
-  },
 };
 
 const SETTINGS_SECTION_KEYS: SettingsSectionKey[] = [
@@ -624,11 +525,9 @@ function PairingCodePopup({
 }
 
 function PairingChannelBadge({ channel }: { channel: string }) {
-  const key = pairingChannelKey(channel);
-  const presentation = PAIRING_CHANNEL_PRESENTATION[key];
-  const label = presentation?.label ?? channelLabel(channel);
-  const initials = presentation?.initials ?? label.slice(0, 2).toUpperCase();
-  const color = presentation?.color ?? "#10B981";
+  const presentation = pairingChannelPresentation(channel);
+  const initials = presentation.initials;
+  const color = presentation.color;
   const logoUrls = useMemo(
     () => logoFallbackUrls(presentation?.logoUrl),
     [presentation?.logoUrl],
@@ -765,8 +664,18 @@ function pairingChannelKey(channel: string): string {
 }
 
 function channelLabel(channel: string): string {
+  return pairingChannelPresentation(channel).label;
+}
+
+function pairingChannelPresentation(channel: string) {
   const key = pairingChannelKey(channel);
-  return PAIRING_CHANNEL_PRESENTATION[key]?.label ?? channel;
+  const plugin = channelUiPresentation(key);
+  return {
+    label: plugin?.displayName ?? channel,
+    initials: plugin?.initials ?? channel.slice(0, 2).toUpperCase(),
+    color: plugin?.color ?? "#10B981",
+    logoUrl: plugin?.logoUrl,
+  };
 }
 
 function formatPairingExpiry(seconds: number | null | undefined): string {

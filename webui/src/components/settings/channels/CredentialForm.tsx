@@ -190,6 +190,7 @@ export function CredentialForm({
               <Input
                 aria-label={field.label}
                 type={inputType}
+                autoComplete={field.secret ? "off" : undefined}
                 inputMode={field.inputType === "number" ? "numeric" : undefined}
                 placeholder={
                   savedSecret

@@ -728,22 +728,24 @@ def _onboard_plugins(config_path: Path) -> None:
     """Inject default config for all discovered channels (built-in + plugins)."""
     import json
 
-    from nanobot.channels.registry import discover_all
+    from nanobot.channels.contracts import channel_default_config
+    from nanobot.channels.registry import discover_plugins
     from nanobot.config.loader import merge_missing_defaults
 
-    all_channels = discover_all()
-    if not all_channels:
+    plugins = discover_plugins()
+    if not plugins:
         return
 
     with open(config_path, encoding="utf-8") as f:
         data = json.load(f)
 
     channels = data.setdefault("channels", {})
-    for name, cls in all_channels.items():
+    for name, plugin in plugins.items():
+        defaults = channel_default_config(plugin)
         if name not in channels:
-            channels[name] = cls.default_config()
+            channels[name] = defaults
         else:
-            channels[name] = merge_missing_defaults(channels[name], cls.default_config())
+            channels[name] = merge_missing_defaults(channels[name], defaults)
 
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
@@ -751,8 +753,7 @@ def _onboard_plugins(config_path: Path) -> None:
 
 def _print_enable_options(
     extras: dict[str, list[str] | None],
-    builtin_channels: set[str],
-    plugin_channels: dict[str, Any],
+    channel_plugins: dict[str, Any],
     config: Config,
 ) -> None:
     table = Table(title="Available Features")
@@ -760,10 +761,16 @@ def _print_enable_options(
     table.add_column("Type")
     table.add_column("Enabled")
 
-    for item in sorted(builtin_channels | set(plugin_channels) | set(extras)):
-        is_channel = item in builtin_channels or item in plugin_channels
+    for item in sorted(set(channel_plugins) | set(extras)):
+        plugin = channel_plugins.get(item)
+        is_channel = plugin is not None
         enabled = (
-            feature_support.channel_enabled(config, item)
+            feature_support.channel_enabled(
+                config,
+                item,
+                plugin,
+                default_enabled=plugin.default_enabled,
+            )
             if is_channel
             else feature_support.extra_installed(item, extras[item])
         )
@@ -931,7 +938,7 @@ def _provider_setup_error(config: Config) -> str | None:
 
 def _webui_config_dict(config: Config) -> dict[str, Any]:
     """Return the current WebSocket config as a mutable alias-key dictionary."""
-    from nanobot.channels.websocket import WebSocketConfig
+    from nanobot.channels.websocket.runtime import WebSocketConfig
 
     current = getattr(config.channels, "websocket", None) or {}
     model = WebSocketConfig.model_validate(current)
@@ -939,7 +946,7 @@ def _webui_config_dict(config: Config) -> dict[str, Any]:
 
 
 def _webui_channel_enabled(config: Config) -> bool:
-    from nanobot.channels.websocket import WebSocketConfig
+    from nanobot.channels.websocket.runtime import WebSocketConfig
 
     current = getattr(config.channels, "websocket", None) or {}
     return bool(WebSocketConfig.model_validate(current).enabled)
@@ -1044,7 +1051,7 @@ def _webui_display_url(url: str) -> str:
 
 def _ensure_local_webui_channel(config: Config, *, port: int | None, yes: bool) -> tuple[bool, bool]:
     """Enable the local WebUI channel with safe localhost defaults."""
-    from nanobot.channels.websocket import WebSocketConfig
+    from nanobot.channels.websocket.runtime import WebSocketConfig
 
     current = getattr(config.channels, "websocket", None) or {}
     model = WebSocketConfig.model_validate(current)
@@ -2515,7 +2522,7 @@ def plugins_list(
     config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
     """List optional nanobot features."""
-    from nanobot.channels.registry import discover_channel_names, discover_plugins
+    from nanobot.channels.registry import discover_plugins
     from nanobot.config.loader import load_config, set_config_path
 
     resolved_config_path = Path(config_path).expanduser().resolve() if config_path else None
@@ -2524,7 +2531,6 @@ def plugins_list(
 
     _print_enable_options(
         feature_support.optional_dependency_groups(),
-        set(discover_channel_names()),
         discover_plugins(),
         load_config(resolved_config_path),
     )

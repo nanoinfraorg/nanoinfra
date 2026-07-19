@@ -129,7 +129,7 @@ pip install --upgrade nanobot-ai
 
 **Important Notes:**
 - Keep `litellm` updated to the latest version for security fixes
-- Run `pip-audit` regularly, including optional channel dependencies such as `nanobot-ai[whatsapp]`
+- Run `pip-audit` regularly after enabling the channels used in production; their manifest-declared dependencies are installed into the same environment
 - Subscribe to security advisories for nanobot and its dependencies
 
 ### 7. Production Deployment
