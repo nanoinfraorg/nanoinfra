@@ -17,6 +17,10 @@ from nanobot.triggers.local_types import LocalTrigger, TriggerDelivery
 from nanobot.webui.metadata import WEBUI_MESSAGE_SOURCE_METADATA_KEY, WEBUI_TURN_METADATA_KEY
 
 
+def _channel_is_enabled(_name: str) -> bool:
+    return True
+
+
 def _write_delivery_file(path: Path, *, trigger_id: str, delivery_id: str) -> None:
     path.write_text(
         json.dumps(
@@ -257,7 +261,12 @@ async def test_local_trigger_queue_submits_bound_inbound_message(tmp_path: Path)
         return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content="done")
 
     task = asyncio.create_task(
-        run_local_trigger_queue(store=store, submit_turn=_submit_turn, poll_interval_s=0.01)
+        run_local_trigger_queue(
+            store=store,
+            submit_turn=_submit_turn,
+            is_channel_enabled=_channel_is_enabled,
+            poll_interval_s=0.01,
+        )
     )
     try:
         for _ in range(100):
@@ -319,7 +328,7 @@ async def test_local_trigger_queue_rejects_unavailable_target_channel(tmp_path: 
         run_local_trigger_queue(
             store=store,
             submit_turn=_submit_turn,
-            is_channel_available=lambda name: name == "websocket",
+            is_channel_enabled=lambda name: name == "websocket",
             poll_interval_s=0.01,
         )
     )
@@ -369,6 +378,7 @@ async def test_local_trigger_queue_waits_for_submitted_turn_before_ack(
         run_local_trigger_queue(
             store=store,
             submit_turn=_submit_turn,
+            is_channel_enabled=_channel_is_enabled,
             poll_interval_s=0.01,
         )
     )
@@ -428,6 +438,7 @@ async def test_local_trigger_queue_requeues_when_submitted_turn_is_interrupted(
         run_local_trigger_queue(
             store=store,
             submit_turn=_submit_turn,
+            is_channel_enabled=_channel_is_enabled,
             poll_interval_s=0.01,
         )
     )
@@ -473,6 +484,7 @@ async def test_local_trigger_queue_does_not_retry_completed_agent_failure(
         run_local_trigger_queue(
             store=store,
             submit_turn=_submit_turn,
+            is_channel_enabled=_channel_is_enabled,
             poll_interval_s=0.01,
         )
     )
@@ -521,7 +533,12 @@ async def test_local_trigger_queue_recovers_processing_delivery_on_start(
 
     restarted = LocalTriggerStore(tmp_path)
     task = asyncio.create_task(
-        run_local_trigger_queue(store=restarted, submit_turn=_submit_turn, poll_interval_s=0.01)
+        run_local_trigger_queue(
+            store=restarted,
+            submit_turn=_submit_turn,
+            is_channel_enabled=_channel_is_enabled,
+            poll_interval_s=0.01,
+        )
     )
     try:
         for _ in range(100):
