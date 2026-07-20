@@ -235,7 +235,7 @@ Do not add a runtime module directly under `nanobot/channels/`, create a paralle
 
 `manifest.py` exports a typed `ChannelPlugin` whose `runtime` target is an absolute import target, such as `nanobot.channels.telegram.runtime:TelegramChannel`; using `f"{__package__}.runtime:TelegramChannel"` keeps it package-owned without repeating the package path. Discovery imports the manifest before it knows whether the optional platform dependency is installed, so `manifest.py` must not import `runtime.py` or any platform SDK. Import runtime symbols from `runtime.py` explicitly; `__init__.py` remains an inert package marker.
 
-The manifest owns the channel name, display name, setup contract, management adapter, optional connector target, optional dependency extra, capabilities, default activation, and optional WebUI entry path. The management adapter alone decides whether a channel is single-instance or multi-instance.
+The manifest owns the channel name, display name, setup contract, management adapter, optional connector target, dependency requirements, capabilities, default activation, and optional WebUI entry path. The management adapter alone decides whether a channel is single-instance or multi-instance.
 
 Interactive browser setup uses one small connector contract. Set `connector=f"{__package__}.connect:MyConnectStore"`; the target is loaded only when `/api/settings/channels/<name>/connect/{start,poll,cancel}` is called. The store exposes one async `handle(action, query)` method and keeps platform-specific parsing, sessions, and errors inside the channel package. The shared settings router only authenticates, dispatches, and applies a successful connection.
 
@@ -777,6 +777,7 @@ git clone https://github.com/HKUDS/nanobot.git
 cd nanobot
 python -m pip install -e .
 nanobot plugins list    # should show the package as "webhook"
+nanobot plugins enable webhook
 nanobot gateway         # test end-to-end
 ```
 

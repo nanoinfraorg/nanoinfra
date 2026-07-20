@@ -1499,6 +1499,63 @@ def test_plugins_enable_skips_install_when_extra_is_present(monkeypatch, tmp_pat
     assert not config_path.exists()
 
 
+def test_repository_dependency_installer_selects_all_channel_manifests(monkeypatch):
+    from scripts import install_channel_dependencies as dependencies
+
+    plugins = {
+        "second": ChannelPlugin(
+            name="second",
+            display_name="Second",
+            runtime="missing.second.runtime:SecondChannel",
+            dependencies=("second-sdk>=2",),
+        ),
+        "first": ChannelPlugin(
+            name="first",
+            display_name="First",
+            runtime="missing.first.runtime:FirstChannel",
+            dependencies=("first-sdk>=1",),
+        ),
+    }
+    prepared: list[tuple[set[str], dict[str, ChannelPlugin]]] = []
+    monkeypatch.setattr(dependencies, "discover_plugins", lambda: plugins)
+    monkeypatch.setattr(
+        dependencies,
+        "ensure_enabled_channel_dependencies",
+        lambda names, discovered: prepared.append((names, discovered)) or {},
+    )
+
+    assert dependencies.main(["--all-channels"]) == 0
+    assert prepared == [(set(plugins), plugins)]
+
+
+def test_repository_dependency_installer_rejects_unknown_channel(monkeypatch, capsys):
+    from scripts import install_channel_dependencies as dependencies
+
+    monkeypatch.setattr(dependencies, "discover_plugins", lambda: {})
+
+    assert dependencies.main(["missing"]) == 2
+    assert "Unknown channels: missing" in capsys.readouterr().err
+
+
+def test_repository_dependency_installer_propagates_install_failure(monkeypatch, capsys):
+    from scripts import install_channel_dependencies as dependencies
+
+    plugin = ChannelPlugin(
+        name="demo",
+        display_name="Demo",
+        runtime="missing.demo.runtime:DemoChannel",
+    )
+    monkeypatch.setattr(dependencies, "discover_plugins", lambda: {"demo": plugin})
+    monkeypatch.setattr(
+        dependencies,
+        "ensure_enabled_channel_dependencies",
+        lambda _names, _plugins: {"demo": "dependency install failed"},
+    )
+
+    assert dependencies.main(["demo"]) == 1
+    assert "demo: dependency install failed" in capsys.readouterr().err
+
+
 def test_plugins_disable_channel_writes_config(monkeypatch, tmp_path):
     from typer.testing import CliRunner
 
