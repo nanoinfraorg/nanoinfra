@@ -299,7 +299,8 @@ class SubagentManager:
             if workspace_scope is not None:
                 cfg = self._subagent_tools_config()
                 cfg.restrict_to_workspace = workspace_scope.restrict_to_workspace
-            tools = self._build_tools(workspace=root, tools_config=cfg)
+            # Construct from the agent workspace; the bound scope below supplies the project cwd.
+            tools = self._build_tools(tools_config=cfg)
             system_prompt = self._build_subagent_prompt(workspace=root)
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
@@ -438,14 +439,17 @@ class SubagentManager:
         """Build a focused system prompt for the subagent."""
         from nanobot.agent.skills import SkillsLoader
 
-        root = workspace or self.workspace
+        agent_workspace = self.workspace.expanduser().resolve()
+        project_workspace = workspace.expanduser().resolve() if workspace else agent_workspace
         skills_summary = SkillsLoader(
-            root,
+            self.workspace,
             disabled_skills=self.disabled_skills,
         ).build_skills_summary()
         return render_template(
             "agent/subagent_system.md",
-            workspace=str(root),
+            workspace=str(project_workspace),
+            agent_workspace=str(agent_workspace),
+            history_log=str(agent_workspace / "memory" / "history.jsonl"),
             skills_summary=skills_summary or "",
         )
 

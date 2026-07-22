@@ -51,6 +51,7 @@ class _FsTool(Tool):
         file_states: FileStates | None = None,
         restrict_to_workspace: bool | None = None,
         sandbox_restricts_workspace: bool = False,
+        extra_read_allowed_files: list[Path] | None = None,
     ):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
@@ -60,6 +61,7 @@ class _FsTool(Tool):
             *(extra_allowed_dirs or []),
             *(extra_read_allowed_dirs or []),
         ]
+        self._extra_read_allowed_files = list(extra_read_allowed_files or [])
         self._extra_write_allowed_dirs = list(extra_write_allowed_dirs or [])
         self._extra_write_allowed_files = list(extra_write_allowed_files or [])
         self._restrict_to_workspace = (
@@ -78,17 +80,21 @@ class _FsTool(Tool):
     def create(cls, ctx: Any) -> Tool:
         from nanobot.agent.skills import BUILTIN_SKILLS_DIR
 
+        agent_workspace = Path(ctx.workspace)
+        resolved_agent_workspace = agent_workspace.expanduser().resolve(strict=False)
         restrict = (
             ctx.config.restrict_to_workspace
             or ctx.config.exec.sandbox
         )
         sandbox_restricts = bool(ctx.config.exec.sandbox)
-        allowed_dir = Path(ctx.workspace) if restrict else None
-        extra_read = [BUILTIN_SKILLS_DIR]
+        allowed_dir = agent_workspace if restrict else None
+        # Agent-owned skills stay available from project scopes. History is a narrower
+        # capability: expose only the append-only log, not the surrounding memory directory.
         return cls(
-            workspace=Path(ctx.workspace),
+            workspace=agent_workspace,
             allowed_dir=allowed_dir,
-            extra_read_allowed_dirs=extra_read,
+            extra_read_allowed_dirs=[BUILTIN_SKILLS_DIR, resolved_agent_workspace / "skills"],
+            extra_read_allowed_files=[resolved_agent_workspace / "memory" / "history.jsonl"],
             file_states=ctx.file_state_store,
             restrict_to_workspace=ctx.config.restrict_to_workspace,
             sandbox_restricts_workspace=sandbox_restricts,
@@ -119,16 +125,20 @@ class _FsTool(Tool):
         extra_allowed_files: list[Path] | None,
         *,
         include_media_dir: bool,
+        extra_files_require_allowed_root: bool = False,
     ) -> Path:
         access = current_tool_workspace(
             self._workspace,
             restrict_to_workspace=self._restrict_to_workspace,
             sandbox_restricts_workspace=self._sandbox_restricts_workspace,
         )
+        allowed_root = self._effective_allowed_root(access.allowed_root)
+        if extra_files_require_allowed_root and allowed_root is None:
+            extra_allowed_files = None
         return resolve_workspace_path(
             path,
             access.project_path,
-            self._effective_allowed_root(access.allowed_root),
+            allowed_root,
             extra_allowed_dirs,
             extra_allowed_files,
             include_media_dir=include_media_dir,
@@ -138,8 +148,9 @@ class _FsTool(Tool):
         return self._resolve_with_extra(
             path,
             self._extra_read_allowed_dirs,
-            None,
+            self._extra_read_allowed_files,
             include_media_dir=True,
+            extra_files_require_allowed_root=True,
         )
 
     def _resolve_write(self, path: str) -> Path:

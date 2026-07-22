@@ -1930,6 +1930,16 @@ MCP tools are automatically discovered and registered on startup. The LLM can us
 
 For API keys, tokens, and other secrets, see [Environment Variables for Secrets](#environment-variables-for-secrets) — avoid storing them directly in `config.json`.
 
+> [!NOTE]
+> When a restricted WebUI chat selects a project outside the configured agent
+> workspace, that project becomes the normal file and shell boundary. Nanobot
+> adds capability-specific, read-only access for built-in skills, the agent
+> workspace's `skills/` directory, and the exact agent
+> `memory/history.jsonl` file. Neighboring memory/profile files and all
+> cross-workspace writes remain denied. Agent-owned `SOUL.md` and `USER.md` are
+> assembled into model context directly; this does not grant file tools broader
+> access to the agent workspace.
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `tools.restrictToWorkspace` | `false` | When `true`, enables nanobot's application-level workspace guards for workspace-aware tools. File tools resolve paths under the active workspace; selected internal roots can be added as read-only or explicitly write-enabled roots, and media uploads are read-only by default. Shell execution rejects workspace-external `working_dir` values and applies best-effort command path checks, but this is not an OS sandbox. |
