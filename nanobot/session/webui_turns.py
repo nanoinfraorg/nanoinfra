@@ -5,11 +5,13 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
+from uuid import uuid4
 
 from loguru import logger
 
+from nanobot.agent.turn_delivery import TurnRoute
 from nanobot.bus import progress as bus_progress
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.outbound_events import (
@@ -37,6 +39,7 @@ from nanobot.session.history_visibility import is_hidden_history_message
 from nanobot.session.manager import Session, SessionManager
 from nanobot.utils.helpers import strip_think, truncate_text
 from nanobot.utils.llm_runtime import LLMRuntime
+from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
 
 WEBUI_SESSION_METADATA_KEY = "webui"
 WEBUI_TITLE_METADATA_KEY = "title"
@@ -234,6 +237,40 @@ async def publish_turn_run_status(
             metadata=msg.metadata,
         ),
     )
+
+@dataclass(frozen=True)
+class WebuiTurnRoutePolicy:
+    """Expose independently dispatched late subagent turns to WebUI sessions."""
+
+    sessions: SessionManager
+
+    def __call__(
+        self,
+        msg: InboundMessage,
+        session_key: str,
+        route: TurnRoute,
+    ) -> TurnRoute:
+        """Make an independently dispatched late subagent result visible in WebUI."""
+        if (
+            msg.channel != "system"
+            or msg.sender_id != "subagent"
+            or msg.metadata.get("injected_event") != "subagent_result"
+            or route.channel != "websocket"
+        ):
+            return route
+
+        session = self.sessions.get_or_create(session_key)
+        if session.metadata.get(WEBUI_SESSION_METADATA_KEY) is not True:
+            return route
+
+        metadata = dict(route.metadata)
+        metadata.update({
+            WEBUI_SESSION_METADATA_KEY: True,
+            "_wants_stream": True,
+            WEBUI_TURN_METADATA_KEY: f"subagent:{uuid4().hex}",
+        })
+        return replace(route, metadata=metadata, publish_lifecycle=True)
+
 
 @dataclass
 class WebuiTurnCoordinator:

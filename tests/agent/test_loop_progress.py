@@ -8,6 +8,7 @@ import pytest
 
 from nanobot.agent.hooks import create_file_edit_activity_hook
 from nanobot.agent.loop import AgentLoop
+from nanobot.agent.tools.context import current_request_context
 from nanobot.agent.tools.filesystem import WriteFileTool
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.outbound_events import (
@@ -22,11 +23,12 @@ from nanobot.bus.outbound_events import (
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMResponse, ToolCallRequest
 from nanobot.providers.factory import ProviderSnapshot
-from nanobot.session.webui_turns import WebuiTurnCoordinator
+from nanobot.session.webui_turns import WebuiTurnCoordinator, WebuiTurnRoutePolicy
 from nanobot.utils.progress_events import (
     invoke_file_edit_progress,
     on_progress_accepts_file_edit_events,
 )
+from nanobot.webui.metadata import WEBUI_TURN_METADATA_KEY
 
 
 def _make_loop(tmp_path: Path) -> AgentLoop:
@@ -43,6 +45,7 @@ def _make_loop(tmp_path: Path) -> AgentLoop:
 
 
 def _attach_webui_runtime_events(loop: AgentLoop, bus: MessageBus) -> None:
+    loop.turn_delivery_factory.route_policy = WebuiTurnRoutePolicy(loop.sessions)
     coordinator = WebuiTurnCoordinator(
         bus=bus,
         sessions=loop.sessions,
@@ -347,12 +350,14 @@ class TestToolEventProgress:
             "status": "editing",
         }]
 
-        progress = await loop._build_bus_progress_callback(InboundMessage(
+        msg = InboundMessage(
             channel="telegram",
             sender_id="u1",
             chat_id="chat1",
             content="edit",
-        ))
+        )
+        progress = loop.turn_delivery_factory.create(msg, msg.session_key).progress_callback()
+        assert progress is not None
         assert on_progress_accepts_file_edit_events(progress) is True
         await invoke_file_edit_progress(progress, edit_events)
         outbound = await bus.consume_outbound()
@@ -527,6 +532,157 @@ class TestToolEventProgress:
         turn_end_msgs = [m for m in outbound if isinstance(m.event, TurnEndEvent)]
         assert len(turn_end_msgs) == 1
         assert turn_end_msgs[0].content == ""
+        provider.chat_with_retry.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_independent_late_subagent_result_gets_complete_webui_turn(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        bus = MessageBus()
+        provider = MagicMock()
+        provider.supports_progress_deltas = True
+        provider.get_default_model.return_value = "openai-codex/gpt-5.5"
+        first_request_started = asyncio.Event()
+        release_first_request = asyncio.Event()
+        requests: list[list[dict]] = []
+        request_contexts = []
+        tool_call = ToolCallRequest(id="call1", name="custom_tool", arguments={})
+        responses = iter([
+            LLMResponse(content="Checking", tool_calls=[tool_call]),
+            LLMResponse(content="The late result is ready", tool_calls=[]),
+        ])
+
+        async def chat_stream_with_retry(*, messages, on_content_delta, **kwargs):
+            requests.append([dict(message) for message in messages])
+            response = next(responses)
+            if len(requests) == 1:
+                first_request_started.set()
+                await release_first_request.wait()
+            await on_content_delta(response.content or "")
+            return response
+
+        provider.chat_stream_with_retry = chat_stream_with_retry
+        provider.chat_with_retry = AsyncMock()
+        loop = AgentLoop(
+            bus=bus,
+            provider=provider,
+            workspace=tmp_path,
+            model="openai-codex/gpt-5.5",
+        )
+        _attach_webui_runtime_events(loop, bus)
+        loop.tools.get_definitions = MagicMock(return_value=[])
+        loop.tools.prepare_call = MagicMock(return_value=(None, {}, None))
+
+        async def execute_tool(*args, **kwargs):
+            request_contexts.append(current_request_context())
+            return "ok"
+
+        loop.tools.execute = execute_tool
+        loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(  # type: ignore[method-assign]
+            return_value=False
+        )
+
+        session_key = "websocket:chat-a"
+        session = loop.sessions.get_or_create(session_key)
+        session.add_message("user", "Run this in the background")
+        session.metadata.update({"webui": True, "title": "Existing title"})
+        loop.sessions.save(session)
+        dispatch = asyncio.create_task(loop._dispatch(InboundMessage(
+            channel="system",
+            sender_id="subagent",
+            chat_id=session_key,
+            content="Background research completed",
+            session_key_override=session_key,
+            metadata={
+                "injected_event": "subagent_result",
+                "subagent_task_id": "sub-1",
+            },
+        )))
+
+        await asyncio.wait_for(first_request_started.wait(), timeout=1)
+        await loop._pending_queues[session_key].put(InboundMessage(
+            channel="websocket",
+            sender_id="user",
+            chat_id="chat-a",
+            content="Can you include the key detail?",
+            session_key_override=session_key,
+        ))
+        release_first_request.set()
+        await asyncio.wait_for(dispatch, timeout=2)
+
+        outbound = []
+        while bus.outbound_size > 0:
+            outbound.append(await bus.consume_outbound())
+
+        assert len(requests) == 2
+        assert requests[0][-1]["role"] == "user"
+        assert requests[0][-1]["content"].endswith("Background research completed")
+        assert any(
+            message.get("role") == "user"
+            and message.get("content") == "Can you include the key detail?"
+            for message in requests[1]
+        )
+        assert len(request_contexts) == 1
+        request_ctx = request_contexts[0]
+        assert request_ctx is not None
+        assert request_ctx.metadata == {
+            "injected_event": "subagent_result",
+            "subagent_task_id": "sub-1",
+        }
+        statuses = [
+            message.event.status
+            for message in outbound
+            if isinstance(message.event, GoalStatusEvent)
+        ]
+        assert statuses == ["running", "idle"]
+        assert [
+            message.content
+            for message in outbound
+            if isinstance(message.event, StreamDeltaEvent)
+        ] == ["Checking", "The late result is ready"]
+        assert any(isinstance(message.event, ProgressEvent) for message in outbound)
+        assert len([
+            message for message in outbound if isinstance(message.event, TurnEndEvent)
+        ]) == 1
+        assert len([
+            message for message in outbound
+            if isinstance(message.event, StreamedResponseEvent)
+        ]) == 1
+        visible_events = [
+            message
+            for message in outbound
+            if isinstance(
+                message.event,
+                GoalStatusEvent
+                | ProgressEvent
+                | StreamDeltaEvent
+                | StreamEndEvent
+                | StreamedResponseEvent
+                | TurnEndEvent,
+            )
+        ]
+        assert visible_events
+        turn_ids = {
+            message.metadata.get(WEBUI_TURN_METADATA_KEY)
+            for message in visible_events
+        }
+        assert len(turn_ids) == 1
+        turn_id = turn_ids.pop()
+        assert isinstance(turn_id, str)
+        assert turn_id.startswith("subagent:")
+        assert all(
+            (message.channel, message.chat_id) == ("websocket", "chat-a")
+            and message.metadata.get("webui") is True
+            and message.metadata.get("_wants_stream") is True
+            and set(message.metadata) <= {
+                "webui",
+                "_wants_stream",
+                WEBUI_TURN_METADATA_KEY,
+                "latency_ms",
+            }
+            for message in visible_events
+        )
         provider.chat_with_retry.assert_not_awaited()
 
     @pytest.mark.asyncio

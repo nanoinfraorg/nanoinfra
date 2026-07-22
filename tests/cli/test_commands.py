@@ -13,6 +13,7 @@ import pytest
 from typer.testing import CliRunner
 
 from nanobot.agent.memory import MemoryStore
+from nanobot.agent.turn_delivery import TurnDeliveryFactory
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.cli import commands as cli_commands
 from nanobot.cli.commands import app
@@ -24,6 +25,7 @@ from nanobot.cron.webui_metadata import cron_proactive_delivery_metadata
 from nanobot.providers.factory import ProviderSnapshot, make_provider, provider_signature
 from nanobot.providers.openai_codex_provider import _strip_model_prefix
 from nanobot.providers.registry import find_by_name
+from nanobot.session.webui_turns import WebuiTurnRoutePolicy
 from nanobot.webui.metadata import (
     WEBUI_MESSAGE_SOURCE_METADATA_KEY,
     WEBUI_TURN_METADATA_KEY,
@@ -2790,6 +2792,11 @@ def test_gateway_local_trigger_queue_submits_agent_turns(
     assert kwargs["submit_turn"] is agent.submit_local_trigger_turn
     assert kwargs["is_channel_enabled"]("websocket") is True
     assert kwargs["is_channel_enabled"]("telegram") is False
+    turn_delivery_factory = agent_kwargs["turn_delivery_factory"]
+    assert isinstance(turn_delivery_factory, TurnDeliveryFactory)
+    assert turn_delivery_factory.bus is bus
+    assert isinstance(turn_delivery_factory.route_policy, WebuiTurnRoutePolicy)
+    assert turn_delivery_factory.route_policy.sessions is agent.sessions
 
 
 def test_gateway_workspace_override_does_not_migrate_legacy_cron(

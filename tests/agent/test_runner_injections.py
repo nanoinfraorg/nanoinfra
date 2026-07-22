@@ -689,6 +689,8 @@ async def test_waiting_dispatch_does_not_replace_active_pending_queue(tmp_path):
     from nanobot.bus.events import InboundMessage
 
     loop = _make_loop(tmp_path)
+    route_policy = MagicMock(side_effect=lambda _msg, _key, route: route)
+    loop.turn_delivery_factory.route_policy = route_policy
     session_key = "cli:c"
     lock = loop._session_locks.setdefault(session_key, asyncio.Lock())
     await lock.acquire()
@@ -712,10 +714,12 @@ async def test_waiting_dispatch_does_not_replace_active_pending_queue(tmp_path):
         await asyncio.wait_for(waiting_at_lock.wait(), timeout=2.0)
 
     assert loop._pending_queues[session_key] is active_pending
+    route_policy.assert_not_called()
 
     waiting.cancel()
     with pytest.raises(asyncio.CancelledError):
         await waiting
+    route_policy.assert_not_called()
     lock.release()
 
 
@@ -744,6 +748,44 @@ async def test_followup_routed_to_pending_queue(tmp_path):
     assert loop._dispatch.await_count == 0
     assert queued_msg.content == "follow-up"
     assert queued_msg.session_key == UNIFIED_SESSION_KEY
+
+
+@pytest.mark.asyncio
+async def test_mid_turn_subagent_result_does_not_resolve_a_new_turn_route(tmp_path):
+    """Injected results stay inside the active turn instead of opening a side turn."""
+    from nanobot.bus.events import InboundMessage
+
+    loop = _make_loop(tmp_path)
+    loop._dispatch = AsyncMock()  # type: ignore[method-assign]
+    route_policy = MagicMock(side_effect=lambda _msg, _key, route: route)
+    loop.turn_delivery_factory.route_policy = route_policy
+
+    session_key = "websocket:chat-1"
+    pending = asyncio.Queue(maxsize=20)
+    loop._pending_queues[session_key] = pending
+
+    run_task = asyncio.create_task(loop.run())
+    msg = InboundMessage(
+        channel="system",
+        sender_id="subagent",
+        chat_id=session_key,
+        content="background result",
+        metadata={
+            "injected_event": "subagent_result",
+            "subagent_task_id": "sub-1",
+        },
+        session_key_override=session_key,
+    )
+    await loop.bus.publish_inbound(msg)
+
+    queued_msg = await asyncio.wait_for(pending.get(), timeout=2)
+
+    loop.stop()
+    await asyncio.wait_for(run_task, timeout=2)
+
+    assert queued_msg is msg
+    assert loop._dispatch.await_count == 0
+    route_policy.assert_not_called()
 
 
 @pytest.mark.asyncio
