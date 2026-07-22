@@ -97,6 +97,8 @@ import { cn } from "@/lib/utils";
 
 const VOICE_SHORTCUT_CODE = "KeyD";
 const VOICE_SHORTCUT_ARIA = "Control+Shift+D";
+const VOICE_ERROR_VISIBLE_MS = 3_500;
+const VOICE_ERROR_FADE_MS = 500;
 type VoiceShortcutPlatform = "apple" | "chromeos" | "linux" | "other" | "windows";
 
 function formatBytes(n: number): string {
@@ -819,6 +821,7 @@ export function ThreadComposer({
   const { t } = useTranslation();
   const [value, setValue] = useState("");
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const [voiceErrorFading, setVoiceErrorFading] = useState(false);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [cliAppMenuDismissed, setCliAppMenuDismissed] = useState(false);
@@ -839,6 +842,7 @@ export function ThreadComposer({
   const skipNextQueuedFlushRef = useRef(false);
   const skipQueuedPromptPersistRef = useRef(false);
   const voiceShortcutDownRef = useRef(false);
+  const voiceErrorFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isHero = variant === "hero";
   const voiceShortcutLabel = useMemo(getVoiceShortcutLabel, []);
   const queuedPromptStorageKey = useMemo(
@@ -1287,10 +1291,28 @@ export function ThreadComposer({
     resizeTextarea();
   }, [resizeTextarea]);
 
-  const clearInlineError = useCallback(() => setInlineError(null), []);
+  const clearVoiceErrorTimers = useCallback(() => {
+    if (voiceErrorFadeTimerRef.current !== null) clearTimeout(voiceErrorFadeTimerRef.current);
+    voiceErrorFadeTimerRef.current = null;
+  }, []);
+  const clearInlineError = useCallback(() => {
+    clearVoiceErrorTimers();
+    setVoiceErrorFading(false);
+    setInlineError(null);
+  }, [clearVoiceErrorTimers]);
   const setVoiceError = useCallback((key: VoiceRecorderErrorKey) => {
+    clearVoiceErrorTimers();
+    setVoiceErrorFading(false);
     setInlineError(t(`thread.composer.voiceErrors.${key}`));
-  }, [t]);
+    voiceErrorFadeTimerRef.current = setTimeout(() => {
+      setVoiceErrorFading(true);
+      voiceErrorFadeTimerRef.current = setTimeout(() => {
+        setInlineError(null);
+        setVoiceErrorFading(false);
+        voiceErrorFadeTimerRef.current = null;
+      }, VOICE_ERROR_FADE_MS);
+    }, VOICE_ERROR_VISIBLE_MS);
+  }, [clearVoiceErrorTimers, t]);
   const voiceRecorder = useVoiceRecorder({
     disabled,
     onClearError: clearInlineError,
@@ -1299,6 +1321,8 @@ export function ThreadComposer({
     onTranscribeAudio,
     wantsWav: transcriptionProvider === "xiaomi_mimo",
   });
+
+  useEffect(() => () => clearVoiceErrorTimers(), [clearVoiceErrorTimers]);
 
   useEffect(() => {
     if (!onTranscribeAudio) return;
@@ -1907,8 +1931,9 @@ export function ThreadComposer({
           <div
             role="alert"
             className={cn(
-              "mx-3 mb-1 rounded-md border border-destructive/40 bg-destructive/8 px-2.5 py-1",
-              "text-[11.5px] font-medium text-destructive",
+              "mx-3 mb-1 max-h-10 overflow-hidden rounded-md border border-destructive/40 bg-destructive/8 px-2.5 py-1",
+              "text-[11.5px] font-medium text-destructive transition-[max-height,margin,padding,opacity] duration-500 ease-out",
+              voiceErrorFading && "mb-0 max-h-0 border-transparent py-0 opacity-0",
             )}
           >
             {inlineError}
