@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool, ToolResult
-from nanobot.agent.tools.context import current_request_context
+from nanobot.agent.tools.context import current_request_context, current_request_session_key
 from nanobot.agent.tools.runtime_state import RuntimeState
 from nanobot.config_base import Base
 
@@ -76,6 +77,7 @@ class MyTool(Tool):
         "_current_iteration",  # updated by runner only
         "exec_config",  # inspect allowed (e.g. check sandbox), modify blocked
         "web_config",  # inspect allowed (e.g. check enable), modify blocked
+        "model_presets",  # config-derived catalog; changes require config reload
         "workspace_sandbox",  # read-only view of workspace enforcement level
         "request",  # current message routing metadata
     })
@@ -146,6 +148,8 @@ class MyTool(Tool):
             "max_iterations - _current_iteration = remaining iterations.\n"
             "Current routing metadata is available read-only via request.channel, "
             "request.chat_id, and request.sender_id.\n"
+            "Use model_preset for session-scoped model or context changes; direct "
+            "model/context_window_tokens writes are disabled during active sessions.\n"
             "Note: web_config and exec_config are readable but read-only.\n"
             "\n"
             "When to use:\n"
@@ -210,11 +214,11 @@ class MyTool(Tool):
             if part.lower() in self._SENSITIVE_NAMES:
                 return None, f"'{part}' is not accessible"
             try:
-                if isinstance(obj, dict):
+                if isinstance(obj, Mapping):
                     if part in obj:
                         obj = obj[part]
                     else:
-                        return None, f"'{part}' not found in dict"
+                        return None, f"'{part}' not found in mapping"
                 else:
                     obj = getattr(obj, part)
             except (KeyError, AttributeError) as e:
@@ -257,7 +261,7 @@ class MyTool(Tool):
         # SubagentManager: delegate to its _task_statuses dict
         if hasattr(val, "_task_statuses") and isinstance(val._task_statuses, dict):
             return MyTool._format_value(val._task_statuses, key)
-        if isinstance(val, dict) and val and _is_subagent_status(next(iter(val.values()))):
+        if isinstance(val, Mapping) and val and _is_subagent_status(next(iter(val.values()))):
             prefix = f"{key}: " if key else ""
             lines = [f"{prefix}{len(val)} subagent(s):"]
             for tid, st in val.items():
@@ -270,8 +274,8 @@ class MyTool(Tool):
         if isinstance(val, (str, int, float, bool, type(None))):
             r = repr(val)
             return f"{key}: {r}" if key else r
-        # Dict — small: show content; large: show keys for dot-path navigation
-        if isinstance(val, dict):
+        # Mapping — small: show content; large: show keys for dot-path navigation
+        if isinstance(val, Mapping):
             ks = list(val.keys())
             if not ks:
                 return f"{key}: {{}}" if key else "{}"
@@ -447,6 +451,23 @@ class MyTool(Tool):
         if not isinstance(value, str) or not value.strip():
             return ToolResult.error("Error: 'model_preset' must be a non-empty string")
         name = value.strip()
+        session_key = current_request_session_key()
+        if session_key:
+            try:
+                runtime = self._runtime_state.set_session_model_preset(
+                    session_key,
+                    name,
+                )
+            except (KeyError, ValueError) as exc:
+                message = str(exc.args[0]) if exc.args else str(exc)
+                punctuation = "" if message.endswith((".", "!", "?")) else "."
+                return ToolResult.error(f"Error: {message}{punctuation}")
+            self._audit("modify", f"model_preset = {name!r}")
+            return (
+                f"Set model_preset = {name!r} for the next turn; "
+                f"model will be {runtime.model!r}; "
+                f"context_window_tokens will be {runtime.context_window_tokens!r}"
+            )
         result = self._modify_free("model_preset", name)
         if isinstance(result, ToolResult) and result.is_error:
             return result if result.endswith((".", "!", "?")) else ToolResult.error(f"{result}.")
@@ -472,6 +493,11 @@ class MyTool(Tool):
             return ToolResult.error(f"Error: '{key}' must be <= {spec['max']}")
         if "min_len" in spec and len(str(value)) < spec["min_len"]:
             return ToolResult.error(f"Error: '{key}' must be at least {spec['min_len']} characters")
+        if key in {"model", "context_window_tokens"} and current_request_session_key():
+            return ToolResult.error(
+                f"Error: direct '{key}' changes are instance-wide and disabled "
+                "during an active session; use a configured model_preset"
+            )
         if key == "model":
             self._runtime_state.set_runtime_model(value)
         elif key == "context_window_tokens":
