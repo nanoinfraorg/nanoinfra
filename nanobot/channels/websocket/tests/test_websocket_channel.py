@@ -2111,6 +2111,36 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert provider_body["image_generation"]["provider_configured"] is True
         assert "sk-or-test" not in provider_updated.text
 
+        custom_provider_created = await _http_get(
+            f"http://127.0.0.1:{port}/api/settings/provider/create",
+            headers={
+                "Authorization": "Bearer tok",
+                "X-Nanobot-Provider-Values": json.dumps(
+                    {
+                        "name": "Company Gateway",
+                        "apiBase": "https://gateway.example/v1",
+                        "apiKey": "sk-company",
+                        "extraHeaders": json.dumps({"X-Tenant": "engineering"}),
+                        "extraBody": json.dumps({"service_tier": "priority"}),
+                        "extraQuery": json.dumps({"api-version": "2026-01-01"}),
+                        "proxy": "http://127.0.0.1:7890",
+                        "thinkingStyle": "enable_thinking",
+                    }
+                ),
+            },
+        )
+        assert custom_provider_created.status_code == 200
+        custom_provider_body = custom_provider_created.json()
+        custom_provider_name = custom_provider_body["created_provider"]
+        custom_provider_rows = {
+            provider["name"]: provider for provider in custom_provider_body["providers"]
+        }
+        assert custom_provider_rows[custom_provider_name]["label"] == "Company Gateway"
+        assert custom_provider_rows[custom_provider_name]["extra_headers"] == {
+            "X-Tenant": "engineering"
+        }
+        assert "sk-company" not in custom_provider_created.text
+
         local_provider_updated = await _http_get(
             "http://127.0.0.1:"
             f"{port}/api/settings/provider/update?provider=atomic_chat"
@@ -2160,8 +2190,10 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         )
         assert created_preset.status_code == 200
         created_body = created_preset.json()
-        assert created_body["agent"]["model_preset"] == "fast-writing"
-        assert created_body["agent"]["model"] == "openai/gpt-4.1-mini"
+        assert created_body["created_model_preset"] == "fast-writing"
+        assert created_body["agent"]["model_preset"] == "deep"
+        assert created_body["agent"]["model"] == "anthropic/claude-opus-4-5"
+        assert created_body["model_call_order"] == ["deep"]
         created_presets = {
             preset["name"]: preset for preset in created_body["model_presets"]
         }
@@ -2176,12 +2208,24 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         )
         assert updated_preset.status_code == 200
         updated_preset_body = updated_preset.json()
-        assert updated_preset_body["agent"]["model_preset"] == "fast-writing"
-        assert updated_preset_body["agent"]["model"] == "openai/gpt-5.5"
+        assert updated_preset_body["agent"]["model_preset"] == "deep"
+        assert updated_preset_body["agent"]["model"] == "anthropic/claude-opus-4-5"
         updated_presets = {
             preset["name"]: preset for preset in updated_preset_body["model_presets"]
         }
         assert updated_presets["fast-writing"]["label"] == "Codex"
+
+        call_order_updated = await _http_get(
+            "http://127.0.0.1:"
+            f"{port}/api/settings/model-call-order/update"
+            "?order=%5B%22fast-writing%22%2C%22deep%22%5D",
+            headers={"Authorization": "Bearer tok"},
+        )
+        assert call_order_updated.status_code == 200
+        call_order_body = call_order_updated.json()
+        assert call_order_body["agent"]["model_preset"] == "fast-writing"
+        assert call_order_body["agent"]["model"] == "openai/gpt-5.5"
+        assert call_order_body["model_call_order"] == ["fast-writing", "deep"]
 
         duplicate_preset = await _http_get(
             "http://127.0.0.1:"
@@ -2269,6 +2313,7 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert saved.agents.defaults.model == "atomic_chat/test"
         assert saved.agents.defaults.provider == "atomic_chat"
         assert saved.agents.defaults.model_preset == "fast-writing"
+        assert saved.agents.defaults.fallback_models == ["deep"]
         assert saved.model_presets["fast-writing"].label == "Codex"
         assert saved.model_presets["fast-writing"].model == "openai/gpt-5.5"
         assert saved.model_presets["fast-writing"].provider == "openai"
@@ -2279,6 +2324,10 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert saved.providers.openrouter.api_key == "sk-or-next"
         assert saved.providers.openrouter.api_base == "https://openrouter.ai/api/v1"
         assert saved.providers.atomic_chat.api_base == "http://localhost:1337/v1"
+        custom_provider = saved.providers.model_extra[custom_provider_name]
+        assert custom_provider.display_name == "Company Gateway"
+        assert custom_provider.api_base == "https://gateway.example/v1"
+        assert custom_provider.extra_body == {"service_tier": "priority"}
         assert saved.tools.web.search.provider == "searxng"
         assert saved.tools.web.search.api_key == ""
         assert saved.tools.web.search.base_url == "https://search.example.com"

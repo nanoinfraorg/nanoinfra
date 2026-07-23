@@ -4,6 +4,8 @@ import {
   configureChannel,
   completeProviderOAuth,
   createModelConfiguration,
+  createProviderSettings,
+  deleteModelConfiguration,
   deleteSession,
   fetchFilePreview,
   fetchFilePreviewAvailability,
@@ -26,6 +28,7 @@ import {
   listSlashCommands,
   loginProviderOAuth,
   logoutProviderOAuth,
+  migrateModelConfigurations,
   disableNanobotFeature,
   enableNanobotFeature,
   runAutomationAction,
@@ -40,6 +43,7 @@ import {
   updateAutomation,
   updateSidebarState,
   updateImageGenerationSettings,
+  updateModelCallOrder,
   updateModelConfiguration,
   updateMcpServerTools,
   updateNetworkSafetySettings,
@@ -340,10 +344,14 @@ describe("webui API helpers", () => {
       label: "Fast writing",
       provider: "openai",
       model: "openai/gpt-4.1-mini",
+      maxTokens: 4096,
+      contextWindowTokens: 128000,
+      temperature: 0.4,
+      reasoningEffort: "high",
     });
 
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/model-configurations/create?label=Fast+writing&provider=openai&model=openai%2Fgpt-4.1-mini",
+      "/api/settings/model-configurations/create?label=Fast+writing&provider=openai&model=openai%2Fgpt-4.1-mini&max_tokens=4096&context_window_tokens=128000&temperature=0.4&reasoning_effort=high",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
@@ -356,11 +364,45 @@ describe("webui API helpers", () => {
       label: "Codex",
       provider: "openai_codex",
       model: "openai-codex/gpt-5.5",
+      maxTokens: 8192,
       contextWindowTokens: 65536,
+      temperature: 0,
+      reasoningEffort: null,
     });
 
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/model-configurations/update?name=codex&label=Codex&provider=openai_codex&model=openai-codex%2Fgpt-5.5&context_window_tokens=65536",
+      "/api/settings/model-configurations/update?name=codex&label=Codex&provider=openai_codex&model=openai-codex%2Fgpt-5.5&max_tokens=8192&context_window_tokens=65536&temperature=0&reasoning_effort=",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("serializes model preset deletion and migration", async () => {
+    await deleteModelConfiguration("tok", "spare");
+    await migrateModelConfigurations("tok");
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "/api/settings/model-configurations/delete?name=spare",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/settings/model-configurations/migrate",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("serializes model call order as an ordered JSON array", async () => {
+    await updateModelCallOrder("tok", ["backup", "primary"]);
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/model-call-order/update?order=%5B%22backup%22%2C%22primary%22%5D",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
@@ -425,23 +467,68 @@ describe("webui API helpers", () => {
     });
 
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/provider/update?provider=openrouter&api_key=sk-or-test&api_base=https%3A%2F%2Fopenrouter.ai%2Fapi%2Fv1",
+      "/api/settings/provider/update?provider=openrouter",
       expect.objectContaining({
-        headers: { Authorization: "Bearer tok" },
+        headers: {
+          Authorization: "Bearer tok",
+          "X-Nanobot-Provider-Values": encodeURIComponent(JSON.stringify({
+            apiKey: "sk-or-test",
+            apiBase: "https://openrouter.ai/api/v1",
+          })),
+        },
       }),
     );
   });
 
-  it("serializes OAuth provider proxy updates", async () => {
+  it("serializes OAuth provider advanced settings", async () => {
     await updateProviderSettings("tok", {
       provider: "xai_grok",
       proxy: "http://127.0.0.1:7890",
+      extraBody: '{"service_tier":"priority"}',
     });
 
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/provider/update?provider=xai_grok&proxy=http%3A%2F%2F127.0.0.1%3A7890",
+      "/api/settings/provider/update?provider=xai_grok",
       expect.objectContaining({
-        headers: { Authorization: "Bearer tok" },
+        headers: {
+          Authorization: "Bearer tok",
+          "X-Nanobot-Provider-Values": encodeURIComponent(JSON.stringify({
+            proxy: "http://127.0.0.1:7890",
+            extraBody: '{"service_tier":"priority"}',
+          })),
+        },
+      }),
+    );
+  });
+
+  it("serializes custom provider creation with advanced settings", async () => {
+    await createProviderSettings("tok", {
+      name: "Company Gateway",
+      apiKey: "sk-company",
+      apiBase: "https://gateway.example/v1",
+      extraHeaders: '{"X-Tenant":"engineering"}',
+      extraBody: '{"service_tier":"priority"}',
+      extraQuery: '{"api-version":"2026-01-01"}',
+      proxy: "http://127.0.0.1:7890",
+      thinkingStyle: "enable_thinking",
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/provider/create",
+      expect.objectContaining({
+        headers: {
+          Authorization: "Bearer tok",
+          "X-Nanobot-Provider-Values": encodeURIComponent(JSON.stringify({
+            name: "Company Gateway",
+            apiKey: "sk-company",
+            apiBase: "https://gateway.example/v1",
+            extraHeaders: '{"X-Tenant":"engineering"}',
+            extraBody: '{"service_tier":"priority"}',
+            extraQuery: '{"api-version":"2026-01-01"}',
+            proxy: "http://127.0.0.1:7890",
+            thinkingStyle: "enable_thinking",
+          })),
+        },
       }),
     );
   });

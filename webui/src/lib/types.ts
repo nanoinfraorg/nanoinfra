@@ -432,9 +432,14 @@ export interface SettingsPayload {
     reasoning_effort: string | null;
     reasoning_effort_values?: string[];
   }>;
+  model_call_order: string[];
+  model_call_order_editable: boolean;
+  created_model_preset?: string;
+  created_provider?: string;
   providers: Array<{
     name: string;
     label: string;
+    is_custom?: boolean;
     configured: boolean;
     auth_type?: "api_key" | "oauth";
     api_key_required?: boolean;
@@ -448,6 +453,22 @@ export interface SettingsPayload {
     oauth_expires_at?: number | null;
     oauth_login_supported?: boolean;
     proxy?: string | null;
+    advanced_fields?: Array<
+      | "api_type"
+      | "extra_headers"
+      | "extra_body"
+      | "extra_query"
+      | "proxy"
+      | "thinking_style"
+      | "region"
+      | "profile"
+    >;
+    extra_headers?: Record<string, string> | null;
+    extra_body?: Record<string, unknown> | null;
+    extra_query?: Record<string, string> | null;
+    thinking_style?: string | null;
+    region?: string | null;
+    profile?: string | null;
   }>;
   web_search: {
     provider: string;
@@ -941,6 +962,10 @@ export interface ModelConfigurationCreate {
   label: string;
   provider: string;
   model: string;
+  maxTokens?: number;
+  contextWindowTokens?: number;
+  temperature?: number;
+  reasoningEffort?: string | null;
 }
 
 export interface ModelConfigurationUpdate {
@@ -948,15 +973,36 @@ export interface ModelConfigurationUpdate {
   label?: string;
   provider?: string;
   model?: string;
+  maxTokens?: number;
   contextWindowTokens?: number;
+  temperature?: number;
+  reasoningEffort?: string | null;
 }
 
 export interface ProviderSettingsUpdate {
   provider: string;
+  displayName?: string;
   apiKey?: string;
   apiBase?: string;
   apiType?: "auto" | "chat_completions" | "responses";
   proxy?: string;
+  extraHeaders?: string;
+  extraBody?: string;
+  extraQuery?: string;
+  thinkingStyle?: string;
+  region?: string;
+  profile?: string;
+}
+
+export interface ProviderCreationUpdate {
+  name: string;
+  apiKey?: string;
+  apiBase: string;
+  proxy?: string;
+  extraHeaders?: string;
+  extraBody?: string;
+  extraQuery?: string;
+  thinkingStyle?: string;
 }
 
 export interface WebSearchSettingsUpdate {

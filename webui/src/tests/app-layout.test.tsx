@@ -74,6 +74,8 @@ function baseSettingsPayload() {
       temperature: 0.1,
       reasoning_effort: null,
     }],
+    model_call_order: [],
+    model_call_order_editable: false,
     providers: [],
     web_search: {
       provider: "duckduckgo",
@@ -370,7 +372,10 @@ describe("App layout", () => {
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
-    expect((await screen.findAllByRole("heading", { name: "Channels" })).length).toBeGreaterThan(0);
+    expect(
+      await screen.findByRole("navigation", { name: "Settings sections" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Channels" })).not.toBeInTheDocument();
     expect(window.location.hash).toBe("#/settings?section=channels");
   });
 
@@ -1403,7 +1408,7 @@ describe("App layout", () => {
                 provider: "auto",
                 resolved_provider: "openai",
                 has_api_key: true,
-                model_preset: "default",
+                model_preset: "primary",
                 max_tokens: 8192,
                 context_window_tokens: 65536,
                 temperature: 0.1,
@@ -1415,12 +1420,13 @@ describe("App layout", () => {
               },
               model_presets: [
                 {
-                  name: "default",
-                  label: "Default",
+                  name: "primary",
+                  label: "Primary",
                   active: true,
-                  is_default: true,
+                  is_default: false,
                   model: "openai/gpt-4o",
                   provider: "auto",
+                  resolved_provider: "openai",
                   max_tokens: 8192,
                   context_window_tokens: 65536,
                   temperature: 0.1,
@@ -1439,6 +1445,8 @@ describe("App layout", () => {
                   reasoning_effort: "high",
                 },
               ],
+              model_call_order: ["primary", "deep"],
+              model_call_order_editable: true,
               providers: [
                 {
                   name: "openai",
@@ -1599,7 +1607,10 @@ describe("App layout", () => {
     expect(searchButton.compareDocumentPosition(appsButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(within(sidebar).getByRole("button", { name: "Settings" }));
 
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("navigation", { name: "Settings sections" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Overview" })).not.toBeInTheDocument();
     expect(document.title).toBe("Settings · nanobot");
     expect(screen.getByTestId("overview-logo-openai")).toBeInTheDocument();
     expect(screen.getByTestId("overview-logo-brave")).toBeInTheDocument();
@@ -1630,21 +1641,26 @@ describe("App layout", () => {
     fireEvent.pointerDown(within(settingsNav).getByRole("button", { name: "Settings: Appearance" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Models" }));
     expect(screen.queryByText("AI")).not.toBeInTheDocument();
-    expect(screen.getByText("Current configuration")).toBeInTheDocument();
-    expect(screen.queryByText("Presets")).not.toBeInTheDocument();
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Current configuration" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Add configuration" }));
-    const modelDialog = await screen.findByRole("dialog", { name: "New model configuration" });
-    expect(within(modelDialog).getByText("Save a provider and model as a one-click option.")).toBeInTheDocument();
-    fireEvent.change(within(modelDialog).getByPlaceholderText("Fast writing"), {
+    expect(screen.getByText("Model presets")).toBeInTheDocument();
+    expect(screen.queryByText("Model call order")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "New model preset" }));
+    expect(screen.queryByRole("dialog", { name: "New model preset" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("Fast writing"), {
       target: { value: "Fast writing" },
     });
-    fireEvent.change(within(modelDialog).getByPlaceholderText("openai/gpt-4.1"), {
-      target: { value: "openai/gpt-4.1-mini" },
-    });
-    expect(within(modelDialog).getByRole("button", { name: /OpenAI/ })).toBeInTheDocument();
-    expect(within(modelDialog).getByRole("button", { name: "Save" })).toBeEnabled();
-    fireEvent.click(within(modelDialog).getByRole("button", { name: "Cancel" }));
+    expect(
+      screen
+        .getAllByRole("button", { name: /OpenAI/ })
+        .some((button) => button.getAttribute("aria-haspopup") === "menu"),
+    ).toBe(true);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Select model" }));
+    fireEvent.click(await screen.findByText("openai/gpt-4o-mini"));
+    expect(screen.getByRole("button", { name: "Save preset" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("Up to date.")).not.toBeInTheDocument();
+    fireEvent.click(
+      within(screen.getByTestId("model-call-order-row-primary")).getAllByRole("button")[0],
+    );
     fireEvent.pointerDown(screen.getByRole("button", { name: /Auto/ }));
     expect(screen.getAllByTestId("provider-picker-logo-openai").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("menuitem", { name: /Auto/ }));
@@ -1655,18 +1671,20 @@ describe("App layout", () => {
     openModelPicker();
     await screen.findByText("openai/gpt-4o-mini");
     fireEvent.click(screen.getAllByText("openai/gpt-4o-mini")[0]);
-    expect(screen.getByText("Unsaved changes.").parentElement?.className).toContain(
-      "text-blue-600",
-    );
-    const updatedModelButtons = screen.getAllByRole("button", { name: /openai\/gpt-4o-mini/ });
-    fireEvent.pointerDown(updatedModelButtons[updatedModelButtons.length - 1]);
-    await screen.findByText("openai/gpt-4o");
-    fireEvent.click(screen.getAllByText("openai/gpt-4o")[0]);
-    expect(screen.getByText("OpenRouter")).toBeInTheDocument();
-    expect(screen.getByText("Ant Ling")).toBeInTheDocument();
+    expect(screen.queryByText("Unsaved changes.")).not.toBeInTheDocument();
+    expect(screen.getByText("Model providers")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add your own model provider" })).toBeInTheDocument();
+    expect(screen.queryByText("OpenRouter")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ant Ling")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Bring your own provider keys. Nanobot reads these values from the current config and only configured providers can be used in model presets.",
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("azure_openai")).not.toBeInTheDocument();
     expect(screen.getByTestId("provider-logo-openai")).toBeInTheDocument();
-    expect(screen.getByText(/Product names, logos, and brands/)).toBeInTheDocument();
-    expect(screen.getAllByText("Not configured").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Product names, logos, and brands/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Not configured")).not.toBeInTheDocument();
     const clickProviderRow = (label: string) => {
       const providerLabel = screen
         .getAllByText(label)
@@ -1674,23 +1692,33 @@ describe("App layout", () => {
       expect(providerLabel).toBeTruthy();
       fireEvent.click(providerLabel!);
     };
+    const chooseProvider = async (label: string) => {
+      fireEvent.pointerDown(
+        screen.getByRole("button", { name: "Add your own model provider" }),
+      );
+      fireEvent.click(await screen.findByRole("menuitem", { name: label }));
+    };
     clickProviderRow("OpenAI");
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.change(screen.getByPlaceholderText("Leave blank to keep the current key"), {
       target: { value: "unsaved-openai-key" },
     });
+    clickProviderRow("OpenAI");
+    await chooseProvider("OpenRouter");
     clickProviderRow("OpenRouter");
     clickProviderRow("OpenAI");
     expect(screen.getByText("open••••-key")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("unsaved-openai-key")).not.toBeInTheDocument();
-    clickProviderRow("Ant Ling");
+    clickProviderRow("OpenAI");
+    await chooseProvider("Ant Ling");
     expect(screen.getByDisplayValue("https://api.ant-ling.com/v1")).toBeInTheDocument();
-    clickProviderRow("Atomic Chat");
+    clickProviderRow("Ant Ling");
+    await chooseProvider("Atomic Chat");
     expect(screen.getByDisplayValue("http://localhost:1337/v1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save provider" })).toBeEnabled();
 
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Image" }));
-    expect(screen.getByRole("heading", { name: "Image" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Image" })).not.toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Image generation" })).toBeInTheDocument();
     expect(screen.getByText("Provider status")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "openai/gpt-5.4-image-2" })).toBeInTheDocument();
@@ -1750,7 +1778,10 @@ describe("App layout", () => {
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("navigation", { name: "Settings sections" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Overview" })).not.toBeInTheDocument();
   });
 
   it("updates the URL hash when switching settings sections", async () => {
@@ -1761,13 +1792,16 @@ describe("App layout", () => {
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
     fireEvent.click(within(sidebar).getByRole("button", { name: "Settings" }));
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("navigation", { name: "Settings sections" }),
+    ).toBeInTheDocument();
     expect(window.location.hash).toBe("#/settings");
 
     const settingsNav = screen.getByRole("navigation", { name: "Settings sections" });
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Models" }));
 
-    expect(await screen.findByRole("heading", { name: "Models" })).toBeInTheDocument();
+    expect(await screen.findByText("Model presets")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Models" })).not.toBeInTheDocument();
     expect(window.location.hash).toBe("#/settings?section=models");
 
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Voice" }));
@@ -1939,7 +1973,9 @@ describe("App layout", () => {
     await waitFor(() => expect(document.title).toBe("nanobot"));
 
     fireEvent.click(within(sidebar).getByRole("button", { name: "Settings" }));
-    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("navigation", { name: "Settings sections" }),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
 
     await waitFor(() => expect(document.title).toBe("nanobot"));

@@ -15,6 +15,7 @@ import type {
   ModelConfigurationUpdate,
   NetworkSafetySettingsUpdate,
   PairingPayload,
+  ProviderCreationUpdate,
   ProviderModelsPayload,
   ProviderOAuthCompletionResult,
   ProviderOAuthLoginResult,
@@ -54,6 +55,7 @@ function isSlashCommandLifecycle(value: unknown): value is SlashCommandLifecycle
 const CHANNEL_VALUES_HEADER = "X-Nanobot-Channel-Values";
 const API_SERVICE_VALUES_HEADER = "X-Nanobot-API-Service-Values";
 const OAUTH_CODE_HEADER = "X-Nanobot-OAuth-Code";
+const PROVIDER_VALUES_HEADER = "X-Nanobot-Provider-Values";
 
 export class ApiError extends Error {
   status: number;
@@ -767,6 +769,27 @@ export async function updateSettings(
   return request<SettingsPayload>(`${base}/api/settings/update?${query}`, token);
 }
 
+function appendModelGenerationSettings(
+  query: URLSearchParams,
+  configuration: Pick<
+    ModelConfigurationCreate,
+    "maxTokens" | "contextWindowTokens" | "temperature" | "reasoningEffort"
+  >,
+): void {
+  if (configuration.maxTokens !== undefined) {
+    query.set("max_tokens", String(configuration.maxTokens));
+  }
+  if (configuration.contextWindowTokens !== undefined) {
+    query.set("context_window_tokens", String(configuration.contextWindowTokens));
+  }
+  if (configuration.temperature !== undefined) {
+    query.set("temperature", String(configuration.temperature));
+  }
+  if (configuration.reasoningEffort !== undefined) {
+    query.set("reasoning_effort", configuration.reasoningEffort ?? "");
+  }
+}
+
 export async function createModelConfiguration(
   token: string,
   configuration: ModelConfigurationCreate,
@@ -777,6 +800,7 @@ export async function createModelConfiguration(
   query.set("label", configuration.label);
   query.set("provider", configuration.provider);
   query.set("model", configuration.model);
+  appendModelGenerationSettings(query, configuration);
   return request<SettingsPayload>(
     `${base}/api/settings/model-configurations/create?${query}`,
     token,
@@ -793,11 +817,43 @@ export async function updateModelConfiguration(
   if (configuration.label !== undefined) query.set("label", configuration.label);
   if (configuration.provider !== undefined) query.set("provider", configuration.provider);
   if (configuration.model !== undefined) query.set("model", configuration.model);
-  if (configuration.contextWindowTokens !== undefined) {
-    query.set("context_window_tokens", String(configuration.contextWindowTokens));
-  }
+  appendModelGenerationSettings(query, configuration);
   return request<SettingsPayload>(
     `${base}/api/settings/model-configurations/update?${query}`,
+    token,
+  );
+}
+
+export async function deleteModelConfiguration(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams({ name });
+  return request<SettingsPayload>(
+    `${base}/api/settings/model-configurations/delete?${query}`,
+    token,
+  );
+}
+
+export async function migrateModelConfigurations(
+  token: string,
+  base: string = "",
+): Promise<SettingsPayload> {
+  return request<SettingsPayload>(
+    `${base}/api/settings/model-configurations/migrate`,
+    token,
+  );
+}
+
+export async function updateModelCallOrder(
+  token: string,
+  order: string[],
+  base: string = "",
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams({ order: JSON.stringify(order) });
+  return request<SettingsPayload>(
+    `${base}/api/settings/model-call-order/update?${query}`,
     token,
   );
 }
@@ -807,15 +863,32 @@ export async function updateProviderSettings(
   update: ProviderSettingsUpdate,
   base: string = "",
 ): Promise<SettingsPayload> {
-  const query = new URLSearchParams();
-  query.set("provider", update.provider);
-  if (update.apiKey !== undefined) query.set("api_key", update.apiKey);
-  if (update.apiBase !== undefined) query.set("api_base", update.apiBase);
-  if (update.apiType !== undefined) query.set("api_type", update.apiType);
-  if (update.proxy !== undefined) query.set("proxy", update.proxy);
+  const { provider, ...values } = update;
+  const query = new URLSearchParams({ provider });
   return request<SettingsPayload>(
     `${base}/api/settings/provider/update?${query}`,
     token,
+    {
+      headers: {
+        [PROVIDER_VALUES_HEADER]: encodeURIComponent(JSON.stringify(values)),
+      },
+    },
+  );
+}
+
+export async function createProviderSettings(
+  token: string,
+  update: ProviderCreationUpdate,
+  base: string = "",
+): Promise<SettingsPayload> {
+  return request<SettingsPayload>(
+    `${base}/api/settings/provider/create`,
+    token,
+    {
+      headers: {
+        [PROVIDER_VALUES_HEADER]: encodeURIComponent(JSON.stringify(update)),
+      },
+    },
   );
 }
 

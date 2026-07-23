@@ -56,7 +56,11 @@ def _make_provider_core(
     if provider_name and not spec and p:
         if not p.api_base:
             raise ValueError(f"Provider '{provider_name}' requires api_base in config.")
-        spec = create_dynamic_spec(provider_name, thinking_style=(p.thinking_style or "") if p else "")
+        spec = create_dynamic_spec(
+            provider_name,
+            display_name=(p.display_name or "") if p else "",
+            thinking_style=(p.thinking_style or "") if p else "",
+        )
     if spec and spec.is_transcription_only:
         raise ValueError(f"Provider '{provider_name}' only supports transcription.")
     backend = spec.backend if spec else "openai_compat"
@@ -239,6 +243,7 @@ def provider_signature(
             fallback.reasoning_effort,
             fallback.context_window_tokens,
             getattr(fp, "proxy", None) if fp else None,
+            fp.thinking_style if fp else None,
         )
 
     provider_name = config.get_provider_name(resolved.model, preset=resolved)
@@ -259,6 +264,7 @@ def provider_signature(
         resolved.reasoning_effort,
         resolved.context_window_tokens,
         getattr(p, "proxy", None) if p else None,
+        p.thinking_style if p else None,
         tuple(_fallback_signature(fallback) for fallback in fallback_presets),
     )
 
