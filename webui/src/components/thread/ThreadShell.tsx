@@ -333,6 +333,7 @@ export function ThreadShell({
     forkBoundaryMessageCount,
   } = useSessionHistory(historyKey);
   const { client, ingressLimits, modelName, token } = useClient();
+  const [fallbackModelName, setFallbackModelName] = useState<string | null>(null);
   const [booting, setBooting] = useState(false);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const cliApps = useInstalledSettingItems({
@@ -379,6 +380,7 @@ export function ThreadShell({
     return messageCacheRef.current.get(chatId) ?? historical;
   }, [chatId, historical]);
   const handleTurnEnd = useCallback(() => {
+    setFallbackModelName(null);
     onTurnEnd?.();
   }, [onTurnEnd]);
   const {
@@ -518,6 +520,18 @@ export function ThreadShell({
       void refreshModelSettings();
     });
   }, [client, refreshModelSettings]);
+
+  useEffect(() => {
+    if (!chatId) {
+      setFallbackModelName(null);
+      return;
+    }
+    setFallbackModelName(null);
+    return client.onChat(chatId, (event) => {
+      if (event.event !== "turn_model_updated") return;
+      setFallbackModelName(event.model_name);
+    });
+  }, [chatId, client]);
 
   useEffect(() => {
     if (!chatId || loading) return;
@@ -680,6 +694,7 @@ export function ThreadShell({
 
   const handleThreadSend = useCallback(
     (content: string, images?: SendAttachment[], options?: SendOptions) => {
+      setFallbackModelName(null);
       setScrollToLatestUserPromptSignal((value) => value + 1);
       send(content, images, withWorkspaceScope(options));
     },
@@ -808,6 +823,7 @@ export function ThreadShell({
           modelProvider={modelBadge.provider}
           modelProviderLabel={modelBadge.providerLabel}
           modelNeedsSetup={modelBadge.needsSetup}
+          fallbackModelName={fallbackModelName}
           onModelBadgeClick={modelBadge.needsSetup ? onOpenModelSettings : undefined}
           variant={showHeroComposer ? "hero" : "thread"}
           slashCommands={slashCommands}
@@ -845,6 +861,7 @@ export function ThreadShell({
           modelProvider={modelBadge.provider}
           modelProviderLabel={modelBadge.providerLabel}
           modelNeedsSetup={modelBadge.needsSetup}
+          fallbackModelName={fallbackModelName}
           onModelBadgeClick={modelBadge.needsSetup ? onOpenModelSettings : undefined}
           variant="hero"
           slashCommands={slashCommands}

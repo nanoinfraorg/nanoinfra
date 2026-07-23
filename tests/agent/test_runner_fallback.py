@@ -286,6 +286,30 @@ class TestFallbackOnPrimaryError:
         assert fallback.chat_calls[0]["model"] == "fallback-a"
 
     @pytest.mark.asyncio
+    async def test_reports_the_fallback_model_before_its_request(self) -> None:
+        primary = _FakeProvider("primary", _error_response())
+        fallback = _FakeProvider("fallback", _make_response("fallback ok"))
+        fallback_models: list[str] = []
+
+        async def _observe(model: str) -> None:
+            fallback_models.append(model)
+
+        fb = FallbackProvider(
+            primary=primary,
+            fallback_presets=[_fallback("fallback-a", provider="backup")],
+            provider_factory=MagicMock(return_value=fallback),
+            fallback_model_observer=_observe,
+        )
+
+        result = await fb.chat_with_retry(
+            messages=[{"role": "user", "content": "hi"}],
+            model="primary-model",
+        )
+
+        assert result.content == "fallback ok"
+        assert fallback_models == ["fallback-a"]
+
+    @pytest.mark.asyncio
     async def test_logs_primary_error_before_fallback(self) -> None:
         primary = _FakeProvider("primary", _error_response("primary overloaded"))
         fallback = _FakeProvider("fallback", _make_response("fallback ok"))

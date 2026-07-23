@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from loguru import logger
 
+from nanobot.agent.tools.context import current_request_context
 from nanobot.agent.turn_delivery import TurnRoute
 from nanobot.bus import progress as bus_progress
 from nanobot.bus.events import InboundMessage
@@ -20,6 +21,7 @@ from nanobot.bus.outbound_events import (
     RuntimeModelUpdatedEvent,
     SessionUpdatedEvent,
     TurnEndEvent,
+    TurnModelUpdatedEvent,
     outbound_message_for_event,
 )
 from nanobot.bus.queue import MessageBus
@@ -33,6 +35,7 @@ from nanobot.bus.runtime_events import (
     TurnRunStatusChanged,
 )
 from nanobot.providers.base import LLMProvider
+from nanobot.providers.fallback_provider import FallbackModelObserver
 from nanobot.runtime_context import public_history_message
 from nanobot.session.goal_state import goal_state_ws_blob
 from nanobot.session.history_visibility import is_hidden_history_message
@@ -270,6 +273,28 @@ class WebuiTurnRoutePolicy:
             WEBUI_TURN_METADATA_KEY: f"subagent:{uuid4().hex}",
         })
         return replace(route, metadata=metadata, publish_lifecycle=True)
+
+
+def build_webui_fallback_model_observer(bus: MessageBus) -> FallbackModelObserver:
+    """Translate provider fallback choices into chat-scoped WebUI events."""
+
+    async def _publish(model: str) -> None:
+        context = current_request_context()
+        if context is None or context.channel != "websocket":
+            return
+        chat_id = str(context.chat_id or "").strip()
+        if not chat_id:
+            return
+        await bus.publish_outbound(
+            outbound_message_for_event(
+                channel=context.channel,
+                chat_id=chat_id,
+                event=TurnModelUpdatedEvent(model=model),
+                metadata=context.metadata,
+            )
+        )
+
+    return _publish
 
 
 @dataclass

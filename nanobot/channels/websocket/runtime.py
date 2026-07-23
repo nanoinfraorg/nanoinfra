@@ -26,6 +26,7 @@ from nanobot.bus.outbound_events import (
     RuntimeModelUpdatedEvent,
     SessionUpdatedEvent,
     TurnEndEvent,
+    TurnModelUpdatedEvent,
     outbound_event_from_message,
     outbound_message_for_event,
 )
@@ -319,7 +320,7 @@ class WebSocketChannel(BaseChannel):
         await self.send_goal_status(chat_id, "running", started_at=t0)
 
     async def _hydrate_after_subscribe(self, chat_id: str) -> None:
-        """Replay goal/run strip state after subscribe (same-process refresh)."""
+        """Replay persisted or actively running per-chat state after subscribe."""
         await self._maybe_push_active_goal_state(chat_id)
         await self._maybe_push_turn_run_wall_clock(chat_id)
 
@@ -805,6 +806,13 @@ class WebSocketChannel(BaseChannel):
                 self.logger.debug("no active subscribers for chat_id={}", msg.chat_id)
             else:
                 self.logger.warning("no active subscribers for chat_id={}", msg.chat_id)
+        if isinstance(event, TurnModelUpdatedEvent):
+            if conns:
+                await self.send_turn_model_updated(
+                    msg.chat_id,
+                    model_name=event.model,
+                )
+            return
         if isinstance(event, GoalStateSyncEvent):
             if conns:
                 await self.send_goal_state(msg.chat_id, event.goal_state or {"active": False})
@@ -1113,3 +1121,26 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" runtime_model_updated ")
+
+    async def send_turn_model_updated(
+        self,
+        chat_id: str,
+        *,
+        model_name: Any,
+    ) -> None:
+        """Notify one chat's subscribers which model is handling its current request."""
+        conns = list(self._subs.get(chat_id, ()))
+        if (
+            not conns
+            or not isinstance(model_name, str)
+            or not model_name.strip()
+        ):
+            return
+        body: dict[str, Any] = {
+            "event": "turn_model_updated",
+            "chat_id": chat_id,
+            "model_name": model_name.strip(),
+        }
+        raw = json.dumps(body, ensure_ascii=False)
+        for connection in conns:
+            await self._safe_send_to(connection, raw, label=" turn_model_updated ")

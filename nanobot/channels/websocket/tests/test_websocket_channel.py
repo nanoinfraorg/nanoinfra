@@ -20,6 +20,7 @@ from nanobot.bus.outbound_events import (
     RuntimeModelUpdatedEvent,
     SessionUpdatedEvent,
     TurnEndEvent,
+    TurnModelUpdatedEvent,
 )
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.websocket.runtime import (
@@ -1059,6 +1060,33 @@ async def test_send_broadcasts_runtime_model_updates() -> None:
     assert payload["event"] == "runtime_model_updated"
     assert payload["model_name"] == "openai/gpt-4.1"
     assert payload["model_preset"] == "fast"
+
+
+@pytest.mark.asyncio
+async def test_send_scopes_turn_model_updates_to_the_subscribed_chat() -> None:
+    bus = MessageBus()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    chat_one = AsyncMock()
+    chat_two = AsyncMock()
+    channel._attach(chat_one, "chat-1")
+    channel._attach(chat_two, "chat-2")
+
+    await channel.send(
+        OutboundMessage(
+            channel="websocket",
+            chat_id="chat-1",
+            content="",
+            event=TurnModelUpdatedEvent(model="deepseek/deepseek-chat"),
+        )
+    )
+
+    payload = json.loads(chat_one.send.call_args.args[0])
+    assert payload == {
+        "event": "turn_model_updated",
+        "chat_id": "chat-1",
+        "model_name": "deepseek/deepseek-chat",
+    }
+    chat_two.send.assert_not_awaited()
 
 
 @pytest.mark.asyncio

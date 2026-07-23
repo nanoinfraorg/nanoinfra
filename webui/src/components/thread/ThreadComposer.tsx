@@ -170,6 +170,7 @@ interface ThreadComposerProps {
   modelProvider?: string | null;
   modelProviderLabel?: string | null;
   modelNeedsSetup?: boolean;
+  fallbackModelName?: string | null;
   onModelBadgeClick?: () => void;
   variant?: "thread" | "hero";
   slashCommands?: SlashCommand[];
@@ -815,6 +816,7 @@ export function ThreadComposer({
   modelProvider = null,
   modelProviderLabel = null,
   modelNeedsSetup = false,
+  fallbackModelName = null,
   onModelBadgeClick,
   variant = "thread",
   slashCommands = [],
@@ -2073,6 +2075,7 @@ export function ThreadComposer({
                 provider={modelProvider}
                 providerLabel={modelProviderLabel}
                 needsSetup={modelNeedsSetup}
+                fallbackModelName={fallbackModelName}
                 isHero={isHero}
                 onClick={modelNeedsSetup ? onModelBadgeClick : undefined}
               />
@@ -2361,6 +2364,7 @@ function ComposerModelBadge({
   provider,
   providerLabel,
   needsSetup,
+  fallbackModelName,
   isHero,
   onClick,
 }: {
@@ -2368,6 +2372,7 @@ function ComposerModelBadge({
   provider?: string | null;
   providerLabel?: string | null;
   needsSetup?: boolean;
+  fallbackModelName?: string | null;
   isHero: boolean;
   onClick?: () => void;
 }) {
@@ -2381,11 +2386,12 @@ function ComposerModelBadge({
 
   return (
     <Container
-      title={title}
+      data-fallback={fallbackModelName ? "true" : undefined}
+      title={fallbackModelName || title}
       type={interactive ? "button" : undefined}
       onClick={onClick}
       className={cn(
-        "inline-flex min-w-0 items-center rounded-full border border-border/55 bg-card font-medium text-foreground/82",
+        "composer-model-badge inline-flex min-w-0 items-center rounded-full border border-border/55 bg-card font-medium text-foreground/82",
         "shadow-[0_2px_8px_rgba(15,23,42,0.045)]",
         interactive && "cursor-pointer hover:bg-accent/55 hover:text-foreground",
         needsSetup && "border-amber-500/35 bg-amber-50/70 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200",

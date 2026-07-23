@@ -14,13 +14,23 @@ const HERO_GREETING_PATTERN =
 function makeClient() {
   const errorHandlers = new Set<(err: { kind: string }) => void>();
   const chatHandlers = new Map<string, Set<(ev: import("@/lib/types").InboundEvent) => void>>();
+  const runtimeModelHandlers = new Set<
+    (modelName: string | null, modelPreset?: string | null) => void
+  >();
   const sessionUpdateHandlers = new Set<(chatId: string, scope?: string) => void>();
   const goalStateByChatId = new Map<string, import("@/lib/types").GoalStateWsPayload>();
   return {
     status: "open" as const,
     defaultChatId: null as string | null,
     onStatus: () => () => {},
-    onRuntimeModelUpdate: () => () => {},
+    onRuntimeModelUpdate: (
+      handler: (modelName: string | null, modelPreset?: string | null) => void,
+    ) => {
+      runtimeModelHandlers.add(handler);
+      return () => {
+        runtimeModelHandlers.delete(handler);
+      };
+    },
     getRunStartedAt: () => null,
     getGoalState: (chatId: string) => goalStateByChatId.get(chatId),
     onChat: (chatId: string, handler: (ev: import("@/lib/types").InboundEvent) => void) => {
@@ -54,6 +64,9 @@ function makeClient() {
         goalStateByChatId.set(chatId, ev.goal_state);
       }
       for (const h of chatHandlers.get(chatId) ?? []) h(ev);
+    },
+    _emitRuntimeModelUpdate(modelName: string | null, modelPreset?: string | null) {
+      for (const h of runtimeModelHandlers) h(modelName, modelPreset);
     },
     _emitSessionUpdate(chatId: string, scope?: string) {
       for (const h of sessionUpdateHandlers) h(chatId, scope);
@@ -409,6 +422,66 @@ describe("ThreadShell", () => {
 
     expect(await screen.findByTitle("gpt-4 · Company Proxy")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Model not configured" })).not.toBeInTheDocument();
+  });
+
+  it("highlights the configured model badge without replacing the preset label", async () => {
+    const client = makeClient();
+    render(wrap(
+      client,
+      <ThreadShell
+        session={session("fallback-model")}
+        title="Fallback model"
+        onToggleSidebar={() => {}}
+        settingsSnapshot={modelSettings("openai-codex/gpt-5.5", "openai_codex")}
+      />,
+      "openai-codex/gpt-5.5",
+    ));
+
+    expect(await screen.findByText("gpt-5.5")).toBeInTheDocument();
+    const configuredBadge = screen.getByTestId("composer-model-logo-openai_codex").parentElement;
+    expect(configuredBadge).not.toBeNull();
+    expect(configuredBadge).toHaveClass("composer-model-badge");
+    expect(configuredBadge).not.toHaveAttribute("data-fallback");
+
+    act(() => {
+      client._emitChat("fallback-model", {
+        event: "turn_model_updated",
+        chat_id: "fallback-model",
+        model_name: "deepseek/deepseek-chat",
+      });
+    });
+
+    const logo = screen.getByTestId("composer-model-logo-openai_codex");
+    const badge = logo.parentElement;
+    expect(badge).not.toBeNull();
+    expect(badge).toBe(configuredBadge);
+    expect(screen.getByText("gpt-5.5")).toBeInTheDocument();
+    expect(screen.queryByText("deepseek-chat")).not.toBeInTheDocument();
+    expect(badge).toHaveAttribute("data-fallback", "true");
+    expect(badge).toHaveAttribute(
+      "title",
+      "deepseek/deepseek-chat",
+    );
+    expect(logo).not.toHaveAttribute("data-fallback");
+
+    act(() => {
+      client._emitChat("fallback-model", {
+        event: "turn_end",
+        chat_id: "fallback-model",
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("composer-model-logo-openai_codex").parentElement,
+      ).not.toHaveAttribute("data-fallback");
+    });
+    expect(
+      screen.getByTestId("composer-model-logo-openai_codex").parentElement,
+    ).toHaveAttribute("title", "gpt-5.5 · OpenAI Codex");
+    expect(
+      screen.getByTestId("composer-model-logo-openai_codex").parentElement,
+    ).toBe(badge);
   });
 
   it("opens model settings from the unconfigured model badge", async () => {

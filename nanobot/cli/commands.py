@@ -1617,9 +1617,14 @@ def _run_gateway(
     from nanobot.cron.session_turns import is_bound_cron_job
     from nanobot.cron.types import CronJob
     from nanobot.providers.factory import build_provider_snapshot, load_provider_snapshot
+    from nanobot.providers.fallback_provider import FallbackProvider
     from nanobot.providers.image_generation import image_gen_provider_configs
     from nanobot.session.manager import SessionManager
-    from nanobot.session.webui_turns import WebuiTurnCoordinator, WebuiTurnRoutePolicy
+    from nanobot.session.webui_turns import (
+        WebuiTurnCoordinator,
+        WebuiTurnRoutePolicy,
+        build_webui_fallback_model_observer,
+    )
     from nanobot.triggers.local_runner import run_local_trigger_queue
     from nanobot.triggers.local_store import LocalTriggerStore
     from nanobot.webui.token_usage import TokenUsageHook
@@ -1651,8 +1656,18 @@ def _run_gateway(
     sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
     runtime_events = RuntimeEventBus()
+    fallback_model_observer = build_webui_fallback_model_observer(bus)
+
+    def _observe_fallback_models(snapshot):
+        if isinstance(snapshot.provider, FallbackProvider):
+            snapshot.provider.set_fallback_model_observer(fallback_model_observer)
+        return snapshot
+
+    def _load_gateway_provider_snapshot(*args: Any, **kwargs: Any):
+        return _observe_fallback_models(load_provider_snapshot(*args, **kwargs))
+
     try:
-        provider_snapshot = build_provider_snapshot(config)
+        provider_snapshot = _observe_fallback_models(build_provider_snapshot(config))
     except ValueError as exc:
         console.print(f"[red]Error: {exc}[/red]")
         raise typer.Exit(1) from exc
@@ -1696,7 +1711,7 @@ def _run_gateway(
         cron_service=cron,
         session_manager=session_manager,
         image_generation_provider_configs=image_gen_provider_configs(config),
-        provider_snapshot_loader=load_provider_snapshot,
+        provider_snapshot_loader=_load_gateway_provider_snapshot,
         preset_catalog_loader=load_model_preset_catalog,
         runtime_events=runtime_events,
         turn_delivery_factory=turn_delivery_factory,

@@ -82,6 +82,9 @@ _FALLBACK_ERROR_TOKENS = (
 )
 
 
+FallbackModelObserver = Callable[[str], Awaitable[None]]
+
+
 class FallbackProvider(LLMProvider):
     """Wrap a primary provider and transparently failover to fallback models.
 
@@ -108,10 +111,12 @@ class FallbackProvider(LLMProvider):
         primary: LLMProvider,
         fallback_presets: list[Any],
         provider_factory: Callable[[Any], LLMProvider],
+        fallback_model_observer: FallbackModelObserver | None = None,
     ):
         self._primary = primary
         self._fallback_presets = list(fallback_presets)
         self._provider_factory = provider_factory
+        self._fallback_model_observer = fallback_model_observer
         self._has_fallbacks = bool(fallback_presets)
         self._primary_failures = 0
         self._primary_tripped_at: float | None = None
@@ -126,6 +131,10 @@ class FallbackProvider(LLMProvider):
 
     def get_default_model(self) -> str:
         return self._primary.get_default_model()
+
+    def set_fallback_model_observer(self, observer: FallbackModelObserver | None) -> None:
+        """Attach a process-level observer without changing request call signatures."""
+        self._fallback_model_observer = observer
 
     @property
     def supports_progress_deltas(self) -> bool:
@@ -268,6 +277,8 @@ class FallbackProvider(LLMProvider):
                 )
                 continue
 
+            await self._notify_fallback_model(fallback_model)
+
             original_values = {
                 name: kwargs.get(name, _MISSING)
                 for name in ("model", "max_tokens", "temperature", "reasoning_effort")
@@ -314,6 +325,14 @@ class FallbackProvider(LLMProvider):
             content=f"Primary model '{primary_model}' circuit open and no fallbacks available",
             finish_reason="error",
         )
+
+    async def _notify_fallback_model(self, model: str) -> None:
+        if self._fallback_model_observer is None:
+            return
+        try:
+            await self._fallback_model_observer(model)
+        except Exception:
+            logger.exception("fallback model observer failed for '{}'", model)
 
     @staticmethod
     def _should_fallback(response: LLMResponse) -> bool:

@@ -357,6 +357,30 @@ describe("NanobotClient", () => {
     expect(handler).toHaveBeenCalledWith("openai/gpt-4.1", "fast");
   });
 
+  it("dispatches turn model updates to the active chat", () => {
+    const client = new NanobotClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const chatHandler = vi.fn();
+    client.onChat("chat-a", chatHandler);
+    client.connect();
+    lastSocket().fakeOpen();
+
+    lastSocket().fakeMessage({
+      event: "turn_model_updated",
+      chat_id: "chat-a",
+      model_name: "deepseek/deepseek-chat",
+    });
+
+    expect(chatHandler).toHaveBeenCalledWith({
+      event: "turn_model_updated",
+      chat_id: "chat-a",
+      model_name: "deepseek/deepseek-chat",
+    });
+  });
+
   it("dispatches session updates globally", () => {
     const client = new NanobotClient({
       url: "ws://test",
