@@ -25,6 +25,7 @@ from nanobot.cron.webui_metadata import cron_proactive_delivery_metadata
 from nanobot.providers.factory import ProviderSnapshot, make_provider, provider_signature
 from nanobot.providers.openai_codex_provider import _strip_model_prefix
 from nanobot.providers.registry import find_by_name
+from nanobot.providers.unconfigured_provider import UnconfiguredProvider
 from nanobot.session.webui_turns import WebuiTurnRoutePolicy
 from nanobot.webui.metadata import (
     WEBUI_MESSAGE_SOURCE_METADATA_KEY,
@@ -2023,6 +2024,7 @@ def test_webui_yes_creates_config_and_enables_local_websocket(
         "port": 18888,
         "open_browser_url": None,
         "webui_bundle_mode": "auto",
+        "unconfigured_provider_error": None,
     }
     compact_output = re.sub(r"\s+", " ", _strip_ansi(result.stdout))
     assert "bootstrap secret was generated" in compact_output
@@ -2032,19 +2034,92 @@ def test_webui_yes_creates_config_and_enables_local_websocket(
     assert "Press Ctrl+C here to stop nanobot" in compact_output
 
 
-def test_webui_yes_refuses_missing_provider_setup(monkeypatch, tmp_path: Path) -> None:
+def test_webui_yes_starts_first_run_without_provider_setup(monkeypatch, tmp_path: Path) -> None:
     config_file = tmp_path / "config.json"
+    seen: dict[str, object] = {}
 
-    def _missing_provider(_config: Config, **_kwargs) -> ProviderSnapshot:
-        raise ValueError("No API key configured for provider 'custom'.")
+    monkeypatch.setattr(
+        "nanobot.cli.commands._provider_setup_error",
+        lambda _config: "No API key configured for provider 'custom'.",
+    )
+    _patch_gateway_ports_free(monkeypatch)
+    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr(
+        "nanobot.cli.commands._run_gateway",
+        lambda config, **kwargs: seen.update(config=config, **kwargs),
+    )
 
-    monkeypatch.setattr("nanobot.providers.factory.build_provider_snapshot", _missing_provider)
+    result = runner.invoke(app, ["webui", "--config", str(config_file), "--yes", "--no-open"])
+
+    assert result.exit_code == 0
+    assert config_file.exists()
+    assert seen["unconfigured_provider_error"] == "No API key configured for provider 'custom'."
+    assert "Configure a provider and model in WebUI Settings → Models." in result.stdout
+
+
+def test_webui_missing_runtime_env_fails_before_starting_gateway(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    config_file = tmp_path / "config.json"
+    missing_env = "NANOBOT_TEST_MISSING_WEBUI_SECRET"
+    monkeypatch.delenv(missing_env, raising=False)
+    config_file.write_text(
+        json.dumps({
+            "agents": {
+                "defaults": {
+                    "provider": "ollama",
+                    "model": "ollama/qwen3",
+                }
+            },
+            "channels": {
+                "websocket": {
+                    "enabled": True,
+                    "host": "0.0.0.0",
+                    "tokenIssueSecret": f"${{{missing_env}}}",
+                }
+            },
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "nanobot.cli.commands._run_gateway",
+        lambda *_args, **_kwargs: pytest.fail("gateway must not start with unresolved config"),
+    )
+
+    result = runner.invoke(app, ["webui", "--config", str(config_file), "--yes", "--no-open"])
+
+    assert result.exit_code == 1
+    assert missing_env in result.stdout
+    assert f"${{{missing_env}}}" in config_file.read_text(encoding="utf-8")
+
+
+def test_webui_yes_still_refuses_invalid_custom_model_setup(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    config_file = tmp_path / "config.json"
+    config_file.write_text(
+        json.dumps({
+            "agents": {
+                "defaults": {
+                    "provider": "custom",
+                    "model": "custom/test-model",
+                }
+            },
+            "providers": {
+                "custom": {
+                    "displayName": "Custom",
+                }
+            },
+        }),
+        encoding="utf-8",
+    )
 
     result = runner.invoke(app, ["webui", "--config", str(config_file), "--yes"])
 
     assert result.exit_code == 1
     assert "provider/model setup is incomplete" in result.stdout
-    assert not config_file.exists()
 
 
 def test_webui_background_starts_runtime_and_opens_browser(monkeypatch, tmp_path: Path) -> None:
@@ -2775,9 +2850,11 @@ def test_gateway_bound_cron_runs_as_session_turn(
     assert msg.metadata["thread_id"] == "om_root123"
 
 
+@pytest.mark.parametrize("setup_error", [None, "No API key configured"])
 def test_gateway_local_trigger_queue_submits_agent_turns(
     monkeypatch,
     tmp_path: Path,
+    setup_error: str | None,
 ) -> None:
     config = Config()
     config.agents.defaults.workspace = str(tmp_path / "config-workspace")
@@ -2885,11 +2962,16 @@ def test_gateway_local_trigger_queue_submits_agent_turns(
         _fake_run_local_trigger_queue,
     )
 
-    cli_commands._run_gateway(config, health_server_enabled=False)
+    cli_commands._run_gateway(
+        config,
+        health_server_enabled=False,
+        unconfigured_provider_error=setup_error,
+    )
 
     agent = seen["agent"]
     agent_kwargs = seen["agent_from_config_kwargs"]
     kwargs = seen["local_trigger_queue_kwargs"]
+    assert isinstance(agent_kwargs["provider"], UnconfiguredProvider) is bool(setup_error)
     assert "local_trigger_store" in agent_kwargs
     assert kwargs["store"] is agent_kwargs["local_trigger_store"]
     assert "bus" not in kwargs

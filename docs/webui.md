@@ -17,18 +17,21 @@ Use the launcher:
 nanobot webui
 ```
 
-`nanobot webui` creates the config/workspace when needed, checks provider setup,
-offers Quick Start when the model provider is not ready, enables the local
+`nanobot webui` creates the config/workspace when needed, enables the local
 WebSocket channel after confirmation, generates a WebUI bootstrap secret when
-one is missing, starts the gateway, and opens the browser. The first-run path
-binds the WebUI to `127.0.0.1` by default, so it is not available from other
-devices on your LAN.
+one is missing, starts the gateway, and opens the browser. With a fresh config,
+it can open before a model is configured so you can finish setup in **Settings
+→ Models**. The first-run path binds the WebUI to `127.0.0.1` by default, so
+it is not available from other devices on your LAN.
 
 Run it in the background when you do not want to keep a terminal open:
 
 ```bash
 nanobot webui --background
 ```
+
+Complete first-time model setup in a foreground `nanobot webui` session before using
+`--background`.
 
 Manage the background gateway with `nanobot gateway status`, `nanobot gateway
 logs`, `nanobot gateway restart`, and `nanobot gateway stop`.
@@ -55,10 +58,10 @@ gateway health endpoint, `18790` by default, is not the browser UI.
 
 ## First 10 Minutes
 
-Use the WebUI as the primary setup surface after Quick Start:
+Use the WebUI as the primary setup surface:
 
-1. Send `Hello!` in a new topic to prove the selected model works.
-2. Open **Settings → Models** and confirm the active model preset.
+1. Open **Settings → Models** and configure a provider, credential, and active model preset.
+2. Send `Hello!` in a new topic to prove the selected model works.
 3. Start a separate topic before project work, then choose the intended workspace and access mode.
 4. Add only one capability next: a chat channel in **Settings → Channels**, a web/voice/image provider in **Settings**, or an App/MCP integration in **Apps**.
 5. Restart when the WebUI shows a restart requirement, then test that capability with the smallest possible request.
