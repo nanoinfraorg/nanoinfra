@@ -552,6 +552,51 @@ describe("NanobotClient", () => {
     });
   });
 
+  it("handles the silent system-command lifecycle without hiding concurrent events", async () => {
+    const client = new NanobotClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const chatHandler = vi.fn();
+    client.onChat("chat-x", chatHandler);
+    client.connect();
+    lastSocket().fakeOpen();
+
+    const pending = client.sendSystemCommand("chat-x", "  /model fast  ", 1_000);
+    const frame = JSON.parse(lastSocket().sent.at(-1) as string);
+    expect(frame).toMatchObject({
+      type: "message",
+      chat_id: "chat-x",
+      content: "/model fast",
+      webui: true,
+    });
+    expect(frame.turn_id).toMatch(/^webui-system:/);
+
+    lastSocket().fakeMessage({
+      event: "message",
+      chat_id: "chat-x",
+      text: "normal reply",
+      turn_id: "normal-turn",
+    });
+    lastSocket().fakeMessage({
+      event: "message",
+      chat_id: "chat-x",
+      text: "Switched model preset to fast.",
+      turn_id: frame.turn_id,
+    });
+
+    await expect(pending).resolves.toBeUndefined();
+    expect(chatHandler).toHaveBeenCalledTimes(1);
+    expect(chatHandler).toHaveBeenCalledWith(expect.objectContaining({
+      text: "normal reply",
+      turn_id: "normal-turn",
+    }));
+    const interrupted = client.sendSystemCommand("chat-x", "/model fast", 1_000);
+    lastSocket().close();
+    await expect(interrupted).rejects.toThrow("socket closed");
+  });
+
   it("sends selected assistant text as separate quoted context", () => {
     const client = new NanobotClient({
       url: "ws://test",

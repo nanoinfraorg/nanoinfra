@@ -7,6 +7,7 @@ import { FilePreviewPanel } from "@/components/FilePreviewPanel";
 import { PromptNavigator } from "@/components/thread/PromptNavigator";
 import { SessionInfoPopover } from "@/components/thread/SessionInfoPopover";
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
+import type { ModelPresetOption } from "@/components/thread/ModelPresetBadge";
 import { ThreadHeader } from "@/components/thread/ThreadHeader";
 import { StreamErrorNotice } from "@/components/thread/StreamErrorNotice";
 import { ThreadViewport, type ThreadViewportHandle } from "@/components/thread/ThreadViewport";
@@ -40,13 +41,8 @@ import type {
   WorkspaceScopePayload,
   WorkspacesPayload,
 } from "@/lib/types";
-import { normalizeLegacyLongTaskMessages } from "@/lib/thread-display-compat";
-import { scrubSubagentUiMessages } from "@/lib/subagent-channel-display";
+import { projectWebuiThreadMessages } from "@/lib/thread-display-compat";
 import { useClient } from "@/providers/ClientProvider";
-
-function projectWebuiThreadMessages(messages: UIMessage[]): UIMessage[] {
-  return scrubSubagentUiMessages(normalizeLegacyLongTaskMessages(messages));
-}
 
 type MessageShape = Pick<UIMessage, "role" | "kind" | "content">;
 
@@ -165,6 +161,7 @@ function toModelBadgeLabel(modelName: string | null): string | null {
 
 interface ModelBadgeInfo {
   label: string | null;
+  model: string | null;
   provider: string | null;
   providerLabel: string | null;
   needsSetup: boolean;
@@ -196,7 +193,7 @@ function toModelBadgeInfo(
   const model = scopedPreset
     ? preset?.model || null
     : settings?.agent.model || modelName || null;
-  const label = toModelBadgeLabel(model);
+  const label = preset?.label?.trim() || scopedPreset || toModelBadgeLabel(model);
   const rawProvider = preset?.provider
     || (!scopedPreset ? settings?.agent.provider : null)
     || null;
@@ -213,10 +210,35 @@ function toModelBadgeInfo(
   );
   return {
     label,
+    model: toModelBadgeLabel(model),
     provider,
     providerLabel: provider ? providerDisplayLabel(settings?.providers ?? [], provider) : null,
     needsSetup,
   };
+}
+
+function modelPresetOptionsFromSettings(
+  settings: SettingsPayload | null,
+): ModelPresetOption[] {
+  if (!settings) return [];
+  const order = new Map(
+    (settings.model_call_order ?? []).map((name, index) => [name.trim(), index]),
+  );
+  return settings.model_presets
+    .filter((preset) => !preset.is_default && preset.name.trim())
+    .sort((a, b) => (
+      (order.get(a.name.trim()) ?? Number.POSITIVE_INFINITY)
+      - (order.get(b.name.trim()) ?? Number.POSITIVE_INFINITY)
+    ))
+    .map((preset) => {
+      const name = preset.name.trim();
+      return {
+        name,
+        label: preset.label?.trim() || name,
+        model: preset.model,
+        provider: preset.resolved_provider || preset.provider,
+      };
+    });
 }
 
 const HERO_GREETING_KEYS = [
@@ -541,12 +563,32 @@ export function ThreadShell({
     token,
   ]);
 
-  const showHeroComposer = messages.length === 0 && !loading;
+  const showHeroComposer = displayMessages.length === 0 && !loading;
   const wasShowingHeroComposerRef = useRef(showHeroComposer);
   const sessionModelPreset = session?.modelPreset?.trim() || null;
+  const [localModelPreset, setLocalModelPreset] = useState<string | null>(null);
+  useEffect(() => {
+    setLocalModelPreset(null);
+  }, [session?.key, sessionModelPreset]);
+  const activeModelPreset = (
+    localModelPreset
+    || sessionModelPreset
+    || settings?.agent.model_preset
+    || "default"
+  );
+  const handleModelPresetChange = useCallback((name: string) => {
+    setLocalModelPreset(name);
+    if (chatId) {
+      void client.sendSystemCommand(chatId, `/model ${name}`).catch(() => {});
+    }
+  }, [chatId, client]);
+  const modelPresetOptions = useMemo(
+    () => modelPresetOptionsFromSettings(settings),
+    [settings],
+  );
   const modelBadge = useMemo(
-    () => toModelBadgeInfo(modelName, settings, sessionModelPreset),
-    [modelName, sessionModelPreset, settings],
+    () => toModelBadgeInfo(modelName, settings, activeModelPreset),
+    [activeModelPreset, modelName, settings],
   );
   const modelBadgeLabel = modelBadge.needsSetup
     ? t("thread.composer.modelNotConfigured", { defaultValue: "Model not configured" })
@@ -629,17 +671,16 @@ export function ThreadShell({
         return normalizedHistory;
       }
       if (cached && cached.length > 0) {
-        const normalizedCached = projectWebuiThreadMessages(cached);
         if (
-          normalizedHistory.length > normalizedCached.length
+          normalizedHistory.length > cached.length
           && !isStaleThreadSnapshot(prev, normalizedHistory)
         ) {
           messageCacheRef.current.set(chatId, normalizedHistory);
           appliedHistoryVersionRef.current.set(chatId, historyVersion);
           return normalizedHistory;
         }
-        if (isStaleThreadSnapshot(prev, normalizedCached)) return keepLiveMessages(prev);
-        return normalizedCached;
+        if (isStaleThreadSnapshot(prev, cached)) return keepLiveMessages(prev);
+        return cached;
       }
       if (isStaleThreadSnapshot(prev, normalizedHistory)) return keepLiveMessages(prev);
       appliedHistoryVersionRef.current.set(chatId, historyVersion);
@@ -679,7 +720,7 @@ export function ThreadShell({
     if (chatId) {
       const prev = prevChatIdForCacheRef.current;
       if (prev && prev !== chatId) {
-        messageCacheRef.current.set(prev, projectWebuiThreadMessages(messages));
+        messageCacheRef.current.set(prev, displayMessages);
         skipLayoutCacheRef.current = true;
       }
       prevChatIdForCacheRef.current = chatId;
@@ -687,13 +728,13 @@ export function ThreadShell({
       if (prevChatIdForCacheRef.current) {
         messageCacheRef.current.set(
           prevChatIdForCacheRef.current,
-          projectWebuiThreadMessages(messages),
+          displayMessages,
         );
         skipLayoutCacheRef.current = true;
       }
       prevChatIdForCacheRef.current = null;
     }
-  }, [chatId, messages]);
+  }, [chatId, displayMessages]);
 
   // Persist thread to in-memory cache after paint so ``useNanobotStream``'s chat switch
   // ``useEffect`` reset has flushed; ``skipLayoutCacheRef`` drops the first run that still
@@ -709,8 +750,8 @@ export function ThreadShell({
     if (loading) {
       return;
     }
-    messageCacheRef.current.set(chatId, projectWebuiThreadMessages(messages));
-  }, [chatId, loading, messages]);
+    messageCacheRef.current.set(chatId, displayMessages);
+  }, [chatId, displayMessages, loading]);
 
   // The landing composer queues the first message while `new_chat` is in flight.
   // Only the chat created for that send may consume it; selecting another chat
@@ -757,9 +798,12 @@ export function ThreadShell({
         setBooting(false);
         return;
       }
+      if (localModelPreset) {
+        await client.sendSystemCommand(newId, `/model ${localModelPreset}`).catch(() => {});
+      }
       setPendingFirstTargetChatId(newId);
     },
-    [booting, onCreateChat, withWorkspaceScope, workspaceScope],
+    [booting, client, localModelPreset, onCreateChat, withWorkspaceScope, workspaceScope],
   );
 
   const handleThreadSend = useCallback(
@@ -890,6 +934,10 @@ export function ThreadShell({
               : t("thread.composer.placeholderThread")
           }
           modelLabel={modelBadgeLabel}
+          modelDetail={modelBadge.model}
+          modelPreset={activeModelPreset}
+          modelPresets={modelPresetOptions}
+          onModelPresetChange={handleModelPresetChange}
           modelProvider={modelBadge.provider}
           modelProviderLabel={modelBadge.providerLabel}
           modelNeedsSetup={modelBadge.needsSetup}
@@ -928,6 +976,10 @@ export function ThreadShell({
               : t("thread.composer.placeholderHero")
           }
           modelLabel={modelBadgeLabel}
+          modelDetail={modelBadge.model}
+          modelPreset={activeModelPreset}
+          modelPresets={modelPresetOptions}
+          onModelPresetChange={handleModelPresetChange}
           modelProvider={modelBadge.provider}
           modelProviderLabel={modelBadge.providerLabel}
           modelNeedsSetup={modelBadge.needsSetup}

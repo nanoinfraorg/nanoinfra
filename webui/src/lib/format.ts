@@ -16,6 +16,25 @@ const LOW_INFORMATION_TITLE_PREVIEWS = new Set([
   "在吗",
 ]);
 
+export function isModelCommandText(text: string | null | undefined): boolean {
+  return /^\/model(?:@[A-Za-z0-9_]+)?(?:\s|$)/i.test(text?.trim() ?? "");
+}
+
+export function isModelCommandResponseText(text: string | null | undefined): boolean {
+  const normalized = text?.trim() ?? "";
+  return (
+    /^## Model\s+- Current (?:model|selection error):/.test(normalized)
+    || normalized.startsWith("Switched model preset to ")
+    || normalized.startsWith("Could not switch model preset:")
+    || normalized === "Usage: `/model [preset]`"
+  );
+}
+
+export function visibleSessionPreview(preview: string | null | undefined): string {
+  const normalized = preview?.trim() ?? "";
+  return isModelCommandText(normalized) || isModelCommandResponseText(normalized) ? "" : normalized;
+}
+
 function isLowInformationTitlePreview(text: string): boolean {
   const normalized = text.toLowerCase().replace(/[.!?。！？~～\s]+$/g, "").trim();
   return (
@@ -27,7 +46,7 @@ function isLowInformationTitlePreview(text: string): boolean {
 /** Truncate the first user message into a chat title. */
 export function deriveTitle(preview: string | undefined, fallback: string): string {
   if (!preview) return fallback;
-  const oneLine = preview.replace(/\s+/g, " ").trim();
+  const oneLine = visibleSessionPreview(preview).replace(/\s+/g, " ").trim();
   if (!oneLine) return fallback;
   if (isLowInformationTitlePreview(oneLine)) return fallback;
   return oneLine.length > 60 ? `${oneLine.slice(0, 57)}…` : oneLine;

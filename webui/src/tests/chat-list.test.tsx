@@ -23,6 +23,7 @@ describe("ChatList", () => {
       session({
         chatId: "older",
         title: "Older chat",
+        preview: "/model fast",
         updatedAt: "2026-05-21T10:00:00Z",
       }),
       session({
@@ -46,6 +47,7 @@ describe("ChatList", () => {
         onTogglePin={vi.fn()}
         onRequestRename={vi.fn()}
         onToggleArchive={vi.fn()}
+        showPreviews
       />,
     );
 
@@ -54,6 +56,7 @@ describe("ChatList", () => {
 
     expect(text.indexOf("Newest chat")).toBeLessThan(text.indexOf("Middle chat"));
     expect(text.indexOf("Middle chat")).toBeLessThan(text.indexOf("Older chat"));
+    expect(screen.queryByText("/model fast")).not.toBeInTheDocument();
   });
 
   it("shows a pin indicator for pinned chats", () => {
