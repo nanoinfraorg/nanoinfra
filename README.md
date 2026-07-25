@@ -62,7 +62,7 @@ nanobot is a self-hosted personal AI agent runtime. It can:
 
 ## Releases
 
-**Coming next: v0.3.0 - The Agency Release**
+**Latest release: [v0.3.0 - The Agency Release](https://github.com/HKUDS/nanobot/releases/tag/v0.3.0)**
 
 The Agency Release turns nanobot from a durable workbench into an agent runtime that can coordinate helpers, switch models per session, and carry authorized work through to completion.
 
@@ -71,9 +71,7 @@ The Agency Release turns nanobot from a durable workbench into an agent runtime 
 - Start from a guided WebUI setup with clearer execution controls
 - Apply configuration changes live across a more reliable provider, channel, and tool runtime
 
-[Follow the v0.3.0 release candidate](https://github.com/HKUDS/nanobot/pull/5081)
-
-**Current stable:** [v0.2.2 - The Durability Release](https://github.com/HKUDS/nanobot/releases/tag/v0.2.2)
+[Read the v0.3.0 release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.3.0)
 
 ## Open Source Partners
 
