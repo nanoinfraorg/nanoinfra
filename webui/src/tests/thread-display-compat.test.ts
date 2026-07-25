@@ -7,6 +7,21 @@ import {
 } from "@/lib/thread-display-compat";
 import type { UIMessage } from "@/lib/types";
 
+const STARTED_AT = Date.UTC(2026, 6, 25, 12, 34, 0);
+
+function message(
+  role: UIMessage["role"],
+  overrides: Partial<Omit<UIMessage, "role">> = {},
+): UIMessage {
+  return {
+    id: role,
+    role,
+    content: role,
+    createdAt: STARTED_AT,
+    ...overrides,
+  };
+}
+
 describe("normalizeLegacyLongTaskMessages", () => {
   it("maps legacy long_task rows to trace lines", () => {
     const legacy = {
@@ -23,17 +38,19 @@ describe("normalizeLegacyLongTaskMessages", () => {
   });
 
   it("removes model and silent-command turns without hiding concurrent replies", () => {
-    const message = (
-      id: string,
-      role: UIMessage["role"],
-      content: string,
-      turnId?: string,
-    ): UIMessage => ({ id, role, content, createdAt: 1, turnId });
     const visible = projectWebuiThreadMessages([
-      message("model", "user", "/model fast", "model-turn"),
-      message("model-reply", "assistant", "Switched model preset to fast.", "model-turn"),
-      message("silent", "user", "/restart", "webui-system:restart"),
-      message("reply", "assistant", "This unrelated reply stays visible.", "other-turn"),
+      message("user", { id: "model", content: "/model fast", turnId: "model-turn" }),
+      message("assistant", {
+        id: "model-reply",
+        content: "Switched model preset to fast.",
+        turnId: "model-turn",
+      }),
+      message("user", { id: "silent", content: "/restart", turnId: "webui-system:restart" }),
+      message("assistant", {
+        id: "reply",
+        content: "This unrelated reply stays visible.",
+        turnId: "other-turn",
+      }),
     ]);
 
     expect(visible.map(({ content }) => content)).toEqual([
@@ -45,5 +62,76 @@ describe("normalizeLegacyLongTaskMessages", () => {
     ]).toEqual([true, false]);
     expect(visibleSessionPreview("Switched model preset to `fast`.")).toBe("");
     expect(deriveTitle("## Model\n- Current model: `gpt-5.5`", "New chat")).toBe("New chat");
+  });
+});
+
+describe("projectWebuiThreadMessages", () => {
+  it("derives replayed completion time from the matching user turn", () => {
+    const firstOutputAt = STARTED_AT + 5_000;
+    const latencyMs = 13_000;
+    const visible = projectWebuiThreadMessages([
+      message("user", { turnId: "turn-1" }),
+      message("assistant", {
+        turnId: "turn-1",
+        createdAt: firstOutputAt,
+        latencyMs,
+      }),
+    ]);
+
+    expect(visible[1]?.completedAt).toBe(STARTED_AT + latencyMs);
+    expect(visible[1]?.completedAt).not.toBe(firstOutputAt + latencyMs);
+  });
+
+  it("preserves the exact completion time received for a live turn", () => {
+    const completedAt = STARTED_AT + 13_000;
+    const visible = projectWebuiThreadMessages([
+      message("user", { turnId: "turn-1" }),
+      message("assistant", {
+        turnId: "turn-1",
+        latencyMs: 13_000,
+        completedAt,
+        createdAt: STARTED_AT + 5_000,
+      }),
+    ]);
+
+    expect(visible[1]?.completedAt).toBe(completedAt);
+  });
+
+  it("does not borrow a timestamp from a different turn", () => {
+    const visible = projectWebuiThreadMessages([
+      message("user", { turnId: "turn-1" }),
+      message("assistant", {
+        turnId: "turn-2",
+        latencyMs: 13_000,
+        createdAt: STARTED_AT + 60_000,
+      }),
+    ]);
+
+    expect(visible[1]?.completedAt).toBeUndefined();
+  });
+
+  it("uses the nearest user start for legacy rows without turn metadata", () => {
+    const visible = projectWebuiThreadMessages([
+      message("user"),
+      message("assistant", {
+        latencyMs: 13_000,
+        createdAt: STARTED_AT + 5_000,
+      }),
+    ]);
+
+    expect(visible[1]?.completedAt).toBe(STARTED_AT + 13_000);
+  });
+
+  it("does not attach a previous user turn to proactive messages", () => {
+    const visible = projectWebuiThreadMessages([
+      message("user"),
+      message("assistant", {
+        source: { kind: "cron" },
+        latencyMs: 13_000,
+        createdAt: STARTED_AT + 26 * 60_000,
+      }),
+    ]);
+
+    expect(visible[1]?.completedAt).toBeUndefined();
   });
 });
