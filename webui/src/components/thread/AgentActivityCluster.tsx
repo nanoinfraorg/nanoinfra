@@ -40,6 +40,7 @@ import {
   isAgentActivityMember,
   isReasoningOnlyAssistant,
 } from "@/lib/activity-timeline";
+import { useFileEditDisplayMode } from "@/hooks/useFileEditDisplayMode";
 import { useLogoFallback } from "@/hooks/useLogoFallback";
 import { logoFallbackUrls } from "@/lib/provider-brand";
 import { canonicalToolTrace, formatToolCallTrace } from "@/lib/tool-traces";
@@ -144,6 +145,7 @@ export function AgentActivityCluster({
   onOpenFilePreview,
 }: AgentActivityClusterProps) {
   const { t } = useTranslation();
+  const fileEditDisplayMode = useFileEditDisplayMode();
   const pageVisible = usePageVisibility();
   const activityMessages = useMemo(() => coalesceActivityMessages(messages), [messages]);
   const fileEdits = useMemo(
@@ -305,6 +307,7 @@ export function AgentActivityCluster({
       <div className={cn("w-full", hasBodyBelow && "mb-2")}>
         <FileEditGroup
           edits={fileEdits}
+          displayMode={fileEditDisplayMode}
           onOpenFilePreview={onOpenFilePreview}
         />
       </div>
@@ -331,6 +334,7 @@ export function AgentActivityCluster({
         {fileEdits.length ? (
           <FileEditGroup
             edits={fileEdits}
+            displayMode={fileEditDisplayMode}
             onOpenFilePreview={onOpenFilePreview}
           />
         ) : null}
@@ -1031,6 +1035,7 @@ function summarizeFileEdits(edits: UIFileEdit[], active: boolean): FileEditSumma
       operation: edit.operation,
       pending: !!edit.pending && !edit.path,
       error: edit.error,
+      diff: edit.diff,
     }];
   });
 }
