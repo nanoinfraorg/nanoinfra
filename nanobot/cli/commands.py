@@ -54,6 +54,7 @@ from prompt_toolkit.history import FileHistory  # noqa: E402
 from prompt_toolkit.key_binding import KeyBindings  # noqa: E402
 from prompt_toolkit.keys import Keys  # noqa: E402
 from prompt_toolkit.patch_stdout import patch_stdout  # noqa: E402
+from pydantic import ValidationError  # noqa: E402
 from rich.console import Console  # noqa: E402
 from rich.markdown import Markdown  # noqa: E402
 from rich.markup import escape  # noqa: E402
@@ -797,9 +798,89 @@ def _model_display(config: Config) -> tuple[str, str]:
     return resolved.model, tag
 
 
+def _print_config_error(error: Exception) -> None:
+    """Render a configuration failure without exposing traceback internals."""
+    from nanobot.config.errors import ConfigLoadError
+
+    console.print(Text(str(error), style="red"))
+    if isinstance(error, ConfigLoadError):
+        command = _status_command(error.path)
+        console.print(f"[dim]Check again after editing: {escape(command)}[/dim]")
+
+
+def _print_runtime_config_validation_error(
+    error: ValidationError,
+    *,
+    config_path: Path,
+    summary: str,
+    path_prefix: tuple[str | int, ...],
+    retry_command: str,
+) -> None:
+    """Render a runtime-owned Pydantic config error without exposing input values."""
+    from nanobot.config.errors import ConfigIssue, ConfigLoadError, validation_issues
+
+    issues = tuple(
+        ConfigIssue(
+            path=(*path_prefix, *issue.path),
+            message=issue.message,
+        )
+        for issue in validation_issues(error)
+    )
+    diagnostic = ConfigLoadError(
+        config_path,
+        kind="invalid_schema",
+        summary=summary,
+        issues=issues,
+    )
+    console.print(Text(str(diagnostic), style="red"))
+    console.print(f"[dim]Fix the listed setting, then retry: {escape(retry_command)}[/dim]")
+
+
+def _status_command(config_path: Path) -> str:
+    return f'nanobot status --config "{config_path}"'
+
+
+def _print_model_setup_steps(config_path: Path) -> None:
+    """Show the shortest setup routes shared by Status and Agent startup."""
+    config_arg = f'--config "{config_path}"'
+    console.print(
+        f"  WebUI: run [cyan]nanobot webui {escape(config_arg)}[/cyan], "
+        "then open Settings → Models"
+    )
+    console.print(f"  CLI:   run [cyan]nanobot onboard --wizard {escape(config_arg)}[/cyan]")
+    console.print(f"  Check: [cyan]{escape(_status_command(config_path))}[/cyan]")
+
+
+def _print_agent_start_error(error: ValueError) -> None:
+    from nanobot.config.loader import get_config_path
+
+    console.print(Text(f"Agent cannot start: {error}", style="red"))
+    console.print("Complete provider/model setup:")
+    _print_model_setup_steps(get_config_path())
+
+
+def _load_config_for_cli(
+    config_path: Path | None = None,
+    *,
+    resolve_env: bool = False,
+) -> Config:
+    """Load CLI configuration and turn expected failures into a clean exit."""
+    from nanobot.config.errors import ConfigLoadError
+    from nanobot.config.loader import load_config, resolve_config_env_vars
+
+    try:
+        loaded = load_config(config_path)
+        if resolve_env:
+            loaded = resolve_config_env_vars(loaded)
+        return loaded
+    except ConfigLoadError as exc:
+        _print_config_error(exc)
+        raise typer.Exit(1) from exc
+
+
 def _load_runtime_config(config: str | None = None, workspace: str | None = None) -> Config:
     """Load config and optionally override the active workspace."""
-    from nanobot.config.loader import load_config, resolve_config_env_vars, set_config_path
+    from nanobot.config.loader import set_config_path
 
     config_path = None
     if config:
@@ -810,11 +891,7 @@ def _load_runtime_config(config: str | None = None, workspace: str | None = None
         set_config_path(config_path)
         console.print(f"[dim]Using config: {config_path}[/dim]")
 
-    try:
-        loaded = resolve_config_env_vars(load_config(config_path))
-    except ValueError as e:
-        console.print(f"[red]Error: {e}[/red]")
-        raise typer.Exit(1)
+    loaded = _load_config_for_cli(config_path, resolve_env=True)
     if workspace:
         loaded.agents.defaults.workspace = workspace
     return loaded
@@ -840,6 +917,7 @@ def _load_inspection_config(
     workspace: str | None = None,
 ) -> tuple[Path, Config]:
     """Load config for diagnostic commands without resolving secret env refs."""
+    from nanobot.config.errors import ConfigLoadError
     from nanobot.config.loader import get_config_path, load_config, set_config_path
 
     config_path = None
@@ -851,6 +929,9 @@ def _load_inspection_config(
     display_path = config_path or get_config_path()
     try:
         loaded = load_config(config_path)
+    except ConfigLoadError as exc:
+        _print_config_error(exc)
+        raise typer.Exit(1) from exc
     except ValueError as exc:
         console.print(f"[red]Error: {exc}[/red]")
         raise typer.Exit(1) from exc
@@ -901,21 +982,15 @@ def _resolve_webui_config_path(config: str | None) -> Path:
 
 def _load_webui_setup_config(config_path: Path) -> Config:
     """Load config for first-run mutation without resolving env-var placeholders."""
-    from nanobot.config.loader import load_config
-
-    try:
-        return load_config(config_path)
-    except ValueError as e:
-        console.print(f"[red]Error: {e}[/red]")
-        raise typer.Exit(1) from e
+    return _load_config_for_cli(config_path)
 
 
 def _provider_setup_error(config: Config) -> str | None:
-    """Return the provider setup error, or None when the current model can start."""
-    from nanobot.providers.factory import build_provider_snapshot
+    """Return a local provider/model configuration error, or None."""
+    from nanobot.providers.factory import validate_provider_setup
 
     try:
-        build_provider_snapshot(config)
+        validate_provider_setup(config)
     except ValueError as exc:
         return str(exc)
     return None
@@ -935,6 +1010,60 @@ def _webui_channel_enabled(config: Config) -> bool:
 
     current = getattr(config.channels, "websocket", None) or {}
     return bool(WebSocketConfig.model_validate(current).enabled)
+
+
+def _validate_gateway_startup(config: Config) -> str | None:
+    """Validate gateway startup and return a provider error recoverable through WebUI."""
+    from nanobot.config.loader import get_config_path
+
+    config_path = get_config_path()
+    try:
+        webui_config = _webui_config_dict(config)
+    except ValidationError as exc:
+        retry_command = f'nanobot gateway --config "{config_path}"'
+        _print_runtime_config_validation_error(
+            exc,
+            config_path=config_path,
+            summary="Gateway configuration is invalid.",
+            path_prefix=("channels", "websocket"),
+            retry_command=retry_command,
+        )
+        raise typer.Exit(1) from exc
+
+    provider_error = _provider_setup_error(config)
+    if not provider_error:
+        return None
+
+    if bool(webui_config["enabled"]):
+        console.print(
+            Text(f"Provider/model setup is incomplete: {provider_error}", style="yellow")
+        )
+        console.print(
+            "Gateway will start so you can configure a provider and model "
+            "in WebUI Settings → Models."
+        )
+        browser_url = _webui_browser_url(config)
+        webui_url = browser_url.split("/#/", 1)[0]
+        console.print(Text(f"WebUI: {webui_url}", style="cyan"))
+        if browser_url != webui_url:
+            secret_key = (
+                "tokenIssueSecret"
+                if str(webui_config.get("tokenIssueSecret") or "").strip()
+                else "token"
+            )
+            console.print(
+                Text(
+                    f"If prompted, enter the configured channels.websocket.{secret_key} "
+                    f"value (see {config_path}).",
+                    style="dim",
+                )
+            )
+        return provider_error
+
+    console.print(Text(f"Gateway cannot start: {provider_error}", style="red"))
+    console.print("Complete provider/model setup:")
+    _print_model_setup_steps(config_path)
+    raise typer.Exit(1)
 
 
 def _prepare_webui_bundle_for_gateway(
@@ -1234,14 +1363,20 @@ def _gateway_instance_command(
     return " ".join(shlex.quote(part) for part in parts)
 
 
-def _run_quick_start_for_webui(config: Config, *, yes: bool) -> Config:
+def _run_quick_start_for_webui(
+    config: Config,
+    *,
+    yes: bool,
+    config_path: Path,
+) -> Config:
     """Offer the existing Quick Start flow when provider setup is missing."""
     if yes:
         console.print(
             "[red]Error: provider/model setup is incomplete, and --yes cannot answer "
-            "provider credentials. Run `nanobot webui` interactively or "
-            "`nanobot onboard --wizard`.[/red]"
+            "provider credentials.[/red]"
         )
+        console.print("Complete provider/model setup:")
+        _print_model_setup_steps(config_path)
         raise typer.Exit(1)
 
     console.print()
@@ -1433,9 +1568,12 @@ def webui(
         setup_config.agents.defaults.workspace = workspace
 
     try:
-        resolved_setup_config = resolve_config_env_vars(setup_config.model_copy(deep=True))
+        resolved_setup_config = resolve_config_env_vars(
+            setup_config.model_copy(deep=True),
+            config_path=config_path,
+        )
     except ValueError as exc:
-        console.print(f"[red]Error: {exc}[/red]")
+        _print_config_error(exc)
         raise typer.Exit(1) from exc
 
     provider_error = _provider_setup_error(resolved_setup_config)
@@ -1451,7 +1589,11 @@ def webui(
             raise typer.Exit(1)
     elif provider_error:
         console.print(f"[dim]Provider check: {provider_error}[/dim]")
-        setup_config = _run_quick_start_for_webui(setup_config, yes=yes)
+        setup_config = _run_quick_start_for_webui(
+            setup_config,
+            yes=yes,
+            config_path=config_path,
+        )
         if workspace:
             setup_config.agents.defaults.workspace = workspace
 
@@ -1463,6 +1605,16 @@ def webui(
         )
         _warn_webui_bind_scope(setup_config)
         webui_url = _webui_browser_url(setup_config)
+    except ValidationError as exc:
+        retry_command = f'nanobot webui --config "{config_path}"'
+        _print_runtime_config_validation_error(
+            exc,
+            config_path=config_path,
+            summary="WebUI configuration is invalid.",
+            path_prefix=("channels", "websocket"),
+            retry_command=retry_command,
+        )
+        raise typer.Exit(1) from exc
     except ValueError as exc:
         console.print(f"[red]Error: invalid WebUI channel config: {exc}[/red]")
         raise typer.Exit(1) from exc
@@ -2228,6 +2380,7 @@ app.add_typer(
         log_handler_id=_log_handler_id,
         load_runtime_config=_load_runtime_config,
         run_gateway=_run_gateway,
+        validate_startup_config=_validate_gateway_startup,
         prepare_webui_bundle=lambda config, mode: _prepare_webui_bundle_for_gateway(
             config,
             mode=mode,
@@ -2254,9 +2407,16 @@ def agent(
     """Interact with the agent directly."""
     from nanobot.bus.queue import MessageBus
     from nanobot.cron.service import CronService
+    from nanobot.providers.factory import make_provider
     from nanobot.providers.image_generation import image_gen_provider_configs
 
     config = _load_runtime_config(config, workspace)
+    try:
+        provider = make_provider(config)
+    except ValueError as exc:
+        _print_agent_start_error(exc)
+        raise typer.Exit(1) from exc
+
     sync_workspace_templates(config.workspace_path)
 
     bus = MessageBus()
@@ -2274,12 +2434,13 @@ def agent(
     try:
         agent_loop = AgentLoop.from_config(
             config, bus,
+            provider=provider,
             cron_service=cron,
             image_generation_provider_configs=image_gen_provider_configs(config),
             hook_factories=[create_file_edit_activity_hook],
         )
     except ValueError as exc:
-        console.print(f"[red]Error: {exc}[/red]")
+        _print_agent_start_error(exc)
         raise typer.Exit(1) from exc
     restart_notice = consume_restart_notice_from_env()
     if restart_notice and should_show_cli_restart_notice(restart_notice, session_id):
@@ -2683,10 +2844,31 @@ def status(
     )
 
     if config_path.exists():
+        from nanobot.config.errors import ConfigLoadError
+        from nanobot.config.loader import resolve_config_env_vars, resolve_env_refs
         from nanobot.providers.registry import PROVIDERS
 
         _model, _preset_tag = _model_display(loaded)
         console.print(f"Model: {_model}{_preset_tag}")
+
+        provider_ready = False
+        try:
+            resolved = resolve_config_env_vars(
+                loaded.model_copy(deep=True),
+                config_path=config_path,
+            )
+        except ConfigLoadError as exc:
+            console.print("Agent: [red]✗ configuration is not ready[/red]")
+            _print_config_error(exc)
+        else:
+            provider_error = _provider_setup_error(resolved)
+            if provider_error:
+                console.print(Text(f"Agent: ✗ {provider_error}", style="red"))
+                console.print("Complete provider/model setup:")
+                _print_model_setup_steps(config_path)
+            else:
+                provider_ready = True
+                console.print("Agent: [green]✓ provider/model configuration is ready[/green]")
 
         # Check API keys from registry
         for spec in PROVIDERS:
@@ -2697,13 +2879,24 @@ def status(
                 console.print(f"{spec.label}: [green]✓ (OAuth)[/green]")
             elif spec.is_local:
                 # Local deployments show api_base instead of api_key
-                if p.api_base:
+                if resolve_env_refs(p.api_base or ""):
                     console.print(f"{spec.label}: [green]✓ {p.api_base}[/green]")
                 else:
                     console.print(f"{spec.label}: [dim]not set[/dim]")
             else:
-                has_key = bool(p.api_key)
+                has_key = bool(resolve_env_refs(p.api_key or ""))
                 console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}")
+
+        if provider_ready:
+            console.print()
+            console.print('Next: [cyan]nanobot agent -m "Hello!"[/cyan]')
+            console.print(
+                "[dim]Status does not call the model or verify network access and credentials.[/dim]"
+            )
+    else:
+        console.print("Agent: [red]✗ configuration file not found[/red]")
+        console.print("Create the provider/model configuration:")
+        _print_model_setup_steps(config_path)
 
 
 # ============================================================================
