@@ -82,7 +82,7 @@ from nanobot.session.model_selection import (
 )
 from nanobot.triggers.local_turns import LocalTriggerTurnCoordinator
 from nanobot.utils.cancellation import task_is_cancelling
-from nanobot.utils.document import extract_documents, reference_non_image_attachments
+from nanobot.utils.document import reference_non_image_attachments
 from nanobot.utils.helpers import image_placeholder_text
 from nanobot.utils.helpers import truncate_text as truncate_text_fn
 from nanobot.utils.llm_runtime import LLMRuntime
@@ -854,11 +854,17 @@ class AgentLoop:
 
             async def _to_user_message(pending_msg: InboundMessage) -> dict[str, Any]:
                 content = pending_msg.content
-                media = pending_msg.media if pending_msg.media else None
-                if media:
-                    content, media = self._prepare_message_media(content, media)
-                    media = media or None
-                user_content = self.context._build_user_content(content, media)
+                image_paths = pending_msg.media if pending_msg.media else None
+                if image_paths:
+                    content, image_paths = reference_non_image_attachments(
+                        content,
+                        image_paths,
+                    )
+                    image_paths = image_paths or None
+                user_content = self.context.build_user_content(
+                    content,
+                    image_paths=image_paths,
+                )
                 row: dict[str, Any] = {"role": "user", "content": user_content}
                 metadata = pending_msg.metadata if isinstance(pending_msg.metadata, dict) else {}
                 if pending_msg.channel != "system":
@@ -1478,12 +1484,15 @@ class AgentLoop:
         )
 
     async def _restore_turn(self, ctx: TurnContext) -> None:
-        """Restore checkpoint / pending user turn; extract documents."""
+        """Restore checkpoint / pending user turn; reference non-image attachments."""
         msg = ctx.msg
 
         if ctx.kind is TurnKind.USER and msg.media:
-            new_content, image_only = self._prepare_message_media(msg.content, msg.media)
-            ctx.msg = dataclasses.replace(msg, content=new_content, media=image_only)
+            new_content, image_paths = reference_non_image_attachments(
+                msg.content,
+                msg.media,
+            )
+            ctx.msg = dataclasses.replace(msg, content=new_content, media=image_paths)
             msg = ctx.msg
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
@@ -1509,16 +1518,6 @@ class AgentLoop:
             self.sessions.save(ctx.session)
         if self._restore_pending_user_turn(ctx.session):
             self.sessions.save(ctx.session)
-
-    def _prepare_message_media(self, content: str, media: list[str]) -> tuple[str, list[str]]:
-        if self._should_extract_document_text():
-            return extract_documents(content, media)
-        return reference_non_image_attachments(content, media)
-
-    def _should_extract_document_text(self) -> bool:
-        if self.channels_config is None:
-            return True
-        return self.channels_config.extract_document_text
 
     async def _compact_session(self, ctx: TurnContext) -> None:
         ctx.session, pending = self.auto_compact.prepare_session(ctx.session, ctx.session_key)
