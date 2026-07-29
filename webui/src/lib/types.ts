@@ -5,6 +5,11 @@ export type Role = "user" | "assistant" | "tool" | "system";
 export type MessageKind = "message" | "trace";
 
 export type UITurnPhase = "user" | "reasoning" | "activity" | "answer" | "complete";
+export type MessageDeliveryStatus = "sending" | "accepted" | "failed";
+export type MessageDeliveryErrorKind =
+  | "message_too_big"
+  | "workspace_scope_rejected"
+  | "turn_rejected";
 
 /** One image attached to a UIMessage.
  *
@@ -76,6 +81,10 @@ export interface UIMessage {
   turnId?: string;
   turnPhase?: UITurnPhase;
   turnSeq?: number;
+  /** Ephemeral delivery lifecycle for optimistic user messages. */
+  deliveryStatus?: MessageDeliveryStatus;
+  /** Structured rejection reason shown with a failed optimistic message. */
+  deliveryErrorKind?: MessageDeliveryErrorKind;
 }
 
 export interface UICliAppAttachment {

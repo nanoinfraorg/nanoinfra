@@ -31,7 +31,7 @@ import {
   installedMcpPresetsFromPayload,
   isMcpPresetsPayload,
 } from "@/lib/mcp-preset-events";
-import type { CanonicalRunSnapshot } from "@/lib/nanobot-client";
+import type { CanonicalRunSnapshot, StreamError } from "@/lib/nanobot-client";
 import { inferProviderFromModelName, providerDisplayLabel } from "@/lib/provider-brand";
 import type {
   ChatSummary,
@@ -222,9 +222,26 @@ function latestActiveTurnId(messages: UIMessage[]): string | null {
   }
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (message.role === "user" && message.turnId) return message.turnId;
+    if (
+      message.role === "user"
+      && message.deliveryStatus !== "failed"
+      && message.turnId
+    ) return message.turnId;
   }
   return null;
+}
+
+function hasInlineDeliveryError(
+  messages: UIMessage[],
+  error: StreamError | null,
+): boolean {
+  if (!error?.turnId) return false;
+  return messages.some((message) => (
+    message.role === "user"
+    && message.turnId === error.turnId
+    && message.deliveryStatus === "failed"
+    && message.deliveryErrorKind === error.kind
+  ));
 }
 
 function completedAssistantTurnIds(messages: UIMessage[]): string[] {
@@ -1283,7 +1300,7 @@ export function ThreadShell({
 
   const composer = (
     <>
-      {streamError ? (
+      {streamError && !hasInlineDeliveryError(messages, streamError) ? (
         <StreamErrorNotice
           error={streamError}
           onDismiss={dismissStreamError}
