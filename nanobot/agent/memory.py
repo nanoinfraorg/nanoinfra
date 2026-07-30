@@ -807,7 +807,7 @@ _HISTORY_ENTRY_HARD_CAP = 64_000      # emergency cap in append_history
 
 
 class Consolidator:
-    """Lightweight consolidation: summarizes evicted messages into history.jsonl."""
+    """Summarize compacted messages into history.jsonl."""
 
     _MAX_CONSOLIDATION_ROUNDS = 5
 
@@ -998,14 +998,9 @@ class Consolidator:
         session_key: str | None = None,
         summary_messages: list[dict[str, Any]] | None = None,
     ) -> str | None:
-        """Summarize messages via LLM and append to history.jsonl.
+        """Summarize messages and append the result to history.jsonl.
 
-        ``messages`` are the messages being archived (removed from the live
-        session); they are what gets raw-dumped if the LLM call fails.
-        ``summary_messages``, when given, lets callers include retained
-        messages in the summary without archiving them.
-
-        Returns the summary text on success, None if nothing to archive.
+        ``summary_messages`` adds context but is excluded from raw fallback.
         """
         if not messages:
             return None
@@ -1166,13 +1161,7 @@ class Consolidator:
         runtime: LLMRuntime,
         max_suffix: int = 8,
     ) -> str | None:
-        """Hard-truncate an idle session under the consolidation lock.
-
-        Used by AutoCompact so all session mutation goes through a single
-        lock-protected path.  Returns the summary text on success, ``None``
-        if the LLM failed (raw_archive fallback), or ``""`` if there was
-        nothing to archive.
-        """
+        """Archive an idle prefix and hide it from replay without deleting it."""
         lock = self.get_lock(session_key)
         async with lock:
             self.sessions.invalidate(session_key)
@@ -1192,24 +1181,21 @@ class Consolidator:
                 last_consolidated=0,
             )
             result = probe.retain_recent_legal_suffix(max_suffix, extend_to_user=True)
-            messages_to_keep = probe.messages
-            messages_to_remove = result.dropped[result.already_consolidated_count:]
+            visible_suffix = probe.messages
+            messages_to_remove = result.dropped
 
-            if not messages_to_remove and not messages_to_keep:
+            if not messages_to_remove:
                 self.sessions.save(session)
                 return ""
 
             last_active = session.updated_at
-            summary: str | None = ""
-            if messages_to_remove:
-                # Summarize the retained suffix too, but only remove/raw-dump
-                # the messages that are no longer kept in the live session.
-                summary = await self.archive(
-                    messages_to_remove,
-                    runtime=runtime,
-                    session_key=session_key,
-                    summary_messages=messages_to_summarize,
-                )
+            # The visible suffix informs the summary but stays out of raw fallback.
+            summary = await self.archive(
+                messages_to_remove,
+                runtime=runtime,
+                session_key=session_key,
+                summary_messages=messages_to_summarize,
+            )
 
             if summary and summary != "(nothing)":
                 session.metadata["_last_summary"] = {
@@ -1217,17 +1203,17 @@ class Consolidator:
                     "last_active": last_active.isoformat(),
                 }
 
-            session.messages = messages_to_keep
-            session.last_consolidated = 0
+            # Preserve history and advance only the replay boundary.
+            session.last_consolidated = len(session.messages) - len(visible_suffix)
             self.sessions.save(session)
 
-            if messages_to_remove:
-                logger.info(
-                    "Idle-session compact for {}: archived={}, kept={}, summary={}",
-                    session_key,
-                    len(messages_to_remove),
-                    len(messages_to_keep),
-                    bool(summary),
-                )
+            logger.info(
+                "Idle-session compact for {}: archived={}, visible={}, retained={}, summary={}",
+                session_key,
+                len(messages_to_remove),
+                len(visible_suffix),
+                len(session.messages),
+                bool(summary),
+            )
 
             return summary
