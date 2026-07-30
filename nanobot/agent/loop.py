@@ -1103,7 +1103,7 @@ class AgentLoop:
             return
         self._next_idle_compact_check_at = now + self._idle_compact_check_interval_s
         self.auto_compact.check_expired(
-            self._schedule_background,
+            self.schedule_background,
             self.runtime_for_session,
             active_session_keys=self._pending_queues.keys(),
         )
@@ -1336,7 +1336,7 @@ class AgentLoop:
         if errors:
             raise BaseExceptionGroup("failed to close agent resources", errors)
 
-    def _schedule_background(self, coro: Coroutine[Any, Any, Any]) -> None:
+    def schedule_background(self, coro: Coroutine[Any, Any, Any]) -> None:
         """Schedule a coroutine as a tracked background task (drained on shutdown)."""
         task = asyncio.create_task(coro)
         self._background_tasks.add(task)
@@ -1752,7 +1752,7 @@ class AgentLoop:
             session.enforce_file_cap(
                 on_archive=partial(self.context.memory.raw_archive, session_key=ctx.session_key)
             )
-            self._schedule_background(
+            self.schedule_background(
                 self.consolidator.maybe_consolidate_by_tokens(
                     session,
                     runtime=runtime,

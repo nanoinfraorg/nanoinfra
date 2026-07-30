@@ -17,6 +17,11 @@ from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.turn_delivery import TurnDeliveryFactory
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.cli import commands as cli_commands
+from nanobot.cli import gateway_runtime as cli_gateway_runtime
+from nanobot.cli import provider as provider_commands
+from nanobot.cli import terminal as cli_terminal
+from nanobot.cli import webui as cli_webui
+from nanobot.cli import webui_support as cli_webui_support
 from nanobot.cli.commands import app
 from nanobot.config.schema import Config
 from nanobot.cron.service import CronJobSkippedError
@@ -113,7 +118,7 @@ def test_gateway_signal_handler_first_signal_stops_and_second_forces() -> None:
         task = asyncio.create_task(never.wait())
         output: list[str] = []
 
-        restore = cli_commands._install_gateway_shutdown_handlers(
+        restore = cli_gateway_runtime._install_gateway_shutdown_handlers(
             loop, shutdown_event, [task], output.append,
         )
         try:
@@ -161,8 +166,8 @@ def test_interactive_tty_mode_restores_line_input(monkeypatch) -> None:
         attrs[3] &= ~(termios.ISIG | termios.ICANON | termios.ECHO)
         termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
 
-        monkeypatch.setattr(cli_commands.sys, "stdin", _Stdin())
-        cli_commands._ensure_interactive_tty_mode()
+        monkeypatch.setattr(cli_terminal.sys, "stdin", _Stdin())
+        cli_terminal._ensure_interactive_tty_mode()
 
         restored = termios.tcgetattr(slave_fd)
         assert restored[0] & termios.ICRNL
@@ -179,24 +184,24 @@ def test_webui_restores_tty_before_loading_config(monkeypatch, tmp_path: Path) -
     config_file = tmp_path / "config.json"
     config_file.write_text("{}", encoding="utf-8")
     calls: list[str] = []
-    original_resolve = cli_commands._resolve_webui_config_path
+    original_resolve = cli_webui._resolve_webui_config_path
 
     monkeypatch.setattr(
-        cli_commands,
+        cli_terminal,
         "_ensure_interactive_tty_mode",
         lambda: calls.append("tty"),
     )
     monkeypatch.setattr(
-        cli_commands,
+        cli_webui,
         "_resolve_webui_config_path",
         lambda path: calls.append("config") or original_resolve(path),
     )
     _patch_webui_provider_ready(monkeypatch)
-    monkeypatch.setattr(cli_commands, "sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr(cli_commands, "_gateway_health_ready", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(cli_commands, "_webui_endpoint_reachable", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(cli_commands, "_tcp_endpoint_reachable", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(cli_commands, "_run_gateway", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli_webui, "sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr(cli_webui, "_gateway_health_ready", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(cli_webui, "_webui_endpoint_reachable", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(cli_webui, "_tcp_endpoint_reachable", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(cli_webui, "_run_gateway", lambda *_args, **_kwargs: None)
 
     result = runner.invoke(app, ["webui", "--config", str(config_file), "--yes", "--no-open"])
 
@@ -209,11 +214,11 @@ def test_disabled_dream_cursor_only_advances_when_behind(tmp_path) -> None:
     store.append_history("first")
     store.append_history("second")
 
-    cli_commands._advance_dream_cursor_if_behind(store)
+    cli_gateway_runtime._advance_dream_cursor_if_behind(store)
     assert store.get_last_dream_cursor() == 2
 
     store.set_last_dream_cursor(10)
-    cli_commands._advance_dream_cursor_if_behind(store)
+    cli_gateway_runtime._advance_dream_cursor_if_behind(store)
     assert store.get_last_dream_cursor() == 10
 
 
@@ -225,7 +230,7 @@ def test_commit_dream_changes_skips_noop_run(tmp_path) -> None:
     store.git.auto_commit("initial")
     store.git.auto_commit = MagicMock(wraps=store.git.auto_commit)
 
-    assert cli_commands._commit_dream_changes(store) is None
+    assert cli_gateway_runtime._commit_dream_changes(store) is None
     store.git.auto_commit.assert_not_called()
 
 
@@ -238,7 +243,7 @@ def test_commit_dream_changes_commits_real_edits(tmp_path) -> None:
     store.write_memory("# Memory\n- Research notes")
     store.git.auto_commit = MagicMock(wraps=store.git.auto_commit)
 
-    sha = cli_commands._commit_dream_changes(store)
+    sha = cli_gateway_runtime._commit_dream_changes(store)
 
     assert sha is not None
     store.git.auto_commit.assert_called_once()
@@ -493,7 +498,7 @@ def test_openai_codex_oauth_default_matches_curated_flagship():
 
     assert spec is not None
     assert spec.builtin_models
-    assert cli_commands._OAUTH_PROVIDER_DEFAULT_MODELS["openai_codex"] == (
+    assert provider_commands._OAUTH_PROVIDER_DEFAULT_MODELS["openai_codex"] == (
         spec.builtin_models[0].id
     )
 
@@ -671,16 +676,28 @@ def test_provider_login_rejects_unknown_provider():
     assert "Unknown OAuth provider" in result.stdout
 
 
+def test_provider_login_openai_codex_handles_missing_oauth_symbol(monkeypatch):
+    import oauth_cli_kit
+
+    monkeypatch.delattr(oauth_cli_kit, "get_token")
+
+    result = runner.invoke(app, ["provider", "login", "openai-codex"])
+
+    assert result.exit_code == 1
+    assert "oauth_cli_kit not installed" in result.stdout
+    assert result.exception is not None
+
+
 def test_provider_login_can_set_openai_codex_as_main_provider(tmp_path):
     config_path = tmp_path / "config.json"
     called = False
-    original = cli_commands._LOGIN_HANDLERS["openai_codex"]
+    original = provider_commands._LOGIN_HANDLERS["openai_codex"]
 
     def fake_login() -> None:
         nonlocal called
         called = True
 
-    cli_commands._LOGIN_HANDLERS["openai_codex"] = fake_login
+    provider_commands._LOGIN_HANDLERS["openai_codex"] = fake_login
     try:
         result = runner.invoke(
             app,
@@ -694,7 +711,7 @@ def test_provider_login_can_set_openai_codex_as_main_provider(tmp_path):
             ],
         )
     finally:
-        cli_commands._LOGIN_HANDLERS["openai_codex"] = original
+        provider_commands._LOGIN_HANDLERS["openai_codex"] = original
 
     assert result.exit_code == 0
     assert called is True
@@ -709,8 +726,8 @@ def test_provider_login_can_set_openai_codex_as_main_provider(tmp_path):
 
 def test_provider_login_can_set_github_copilot_as_main_provider(tmp_path):
     config_path = tmp_path / "config.json"
-    original = cli_commands._LOGIN_HANDLERS["github_copilot"]
-    cli_commands._LOGIN_HANDLERS["github_copilot"] = lambda: None
+    original = provider_commands._LOGIN_HANDLERS["github_copilot"]
+    provider_commands._LOGIN_HANDLERS["github_copilot"] = lambda: None
     try:
         result = runner.invoke(
             app,
@@ -724,7 +741,7 @@ def test_provider_login_can_set_github_copilot_as_main_provider(tmp_path):
             ],
         )
     finally:
-        cli_commands._LOGIN_HANDLERS["github_copilot"] = original
+        provider_commands._LOGIN_HANDLERS["github_copilot"] = original
 
     assert result.exit_code == 0
     assert "Set github-copilot as the main provider" in result.stdout
@@ -738,8 +755,8 @@ def test_provider_login_can_set_github_copilot_as_main_provider(tmp_path):
 
 def test_provider_login_can_set_xai_grok_as_main_provider(tmp_path):
     config_path = tmp_path / "config.json"
-    original = cli_commands._LOGIN_HANDLERS["xai_grok"]
-    cli_commands._LOGIN_HANDLERS["xai_grok"] = lambda: None
+    original = provider_commands._LOGIN_HANDLERS["xai_grok"]
+    provider_commands._LOGIN_HANDLERS["xai_grok"] = lambda: None
     try:
         result = runner.invoke(
             app,
@@ -753,7 +770,7 @@ def test_provider_login_can_set_xai_grok_as_main_provider(tmp_path):
             ],
         )
     finally:
-        cli_commands._LOGIN_HANDLERS["xai_grok"] = original
+        provider_commands._LOGIN_HANDLERS["xai_grok"] = original
 
     assert result.exit_code == 0
     assert "Set xai-grok as the main provider" in result.stdout
@@ -768,8 +785,8 @@ def test_provider_login_can_set_xai_grok_as_main_provider(tmp_path):
 
 def test_provider_login_model_implies_set_main_provider(tmp_path):
     config_path = tmp_path / "config.json"
-    original = cli_commands._LOGIN_HANDLERS["github_copilot"]
-    cli_commands._LOGIN_HANDLERS["github_copilot"] = lambda: None
+    original = provider_commands._LOGIN_HANDLERS["github_copilot"]
+    provider_commands._LOGIN_HANDLERS["github_copilot"] = lambda: None
     try:
         result = runner.invoke(
             app,
@@ -784,7 +801,7 @@ def test_provider_login_model_implies_set_main_provider(tmp_path):
             ],
         )
     finally:
-        cli_commands._LOGIN_HANDLERS["github_copilot"] = original
+        provider_commands._LOGIN_HANDLERS["github_copilot"] = original
 
     assert result.exit_code == 0
     assert "Set github-copilot as the main provider" in result.stdout
@@ -1470,12 +1487,12 @@ def mock_agent_runtime(tmp_path):
 
     with patch("nanobot.config.loader.load_config", return_value=config) as mock_load_config, \
          patch("nanobot.config.loader.resolve_config_env_vars", side_effect=lambda c: c), \
-         patch("nanobot.cli.commands.sync_workspace_templates") as mock_sync_templates, \
+         patch("nanobot.cli.agent.sync_workspace_templates") as mock_sync_templates, \
          patch("nanobot.providers.factory.make_provider", return_value=_fake_provider()), \
-         patch("nanobot.cli.commands._print_agent_response") as mock_print_response, \
+         patch("nanobot.cli.terminal._print_agent_response") as mock_print_response, \
          patch("nanobot.bus.queue.MessageBus"), \
          patch("nanobot.cron.service.CronService"), \
-         patch("nanobot.cli.commands.AgentLoop.from_config") as mock_from_config:
+         patch("nanobot.cli.agent.AgentLoop.from_config") as mock_from_config:
         agent_loop = MagicMock()
         agent_loop.channels_config = None
         agent_loop.process_direct = AsyncMock(
@@ -1544,7 +1561,7 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
         lambda path: seen.__setitem__("config_path", path),
     )
     monkeypatch.setattr("nanobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.agent.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr("nanobot.providers.factory.make_provider", lambda _config: _fake_provider())
     monkeypatch.setattr("nanobot.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr("nanobot.cron.service.CronService", lambda _store: object())
@@ -1562,8 +1579,8 @@ def test_agent_config_sets_active_path(monkeypatch, tmp_path: Path) -> None:
         async def close_mcp(self) -> None:
             return None
 
-    monkeypatch.setattr("nanobot.cli.commands.AgentLoop", _FakeAgentLoop)
-    monkeypatch.setattr("nanobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("nanobot.cli.agent.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.cli.terminal._print_agent_response", lambda *_args, **_kwargs: None)
 
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
 
@@ -1582,7 +1599,7 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
 
     monkeypatch.setattr("nanobot.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("nanobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.agent.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr("nanobot.providers.factory.make_provider", lambda _config: _fake_provider())
     monkeypatch.setattr("nanobot.bus.queue.MessageBus", lambda: object())
 
@@ -1604,8 +1621,8 @@ def test_agent_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Pa
             return None
 
     monkeypatch.setattr("nanobot.cron.service.CronService", _FakeCron)
-    monkeypatch.setattr("nanobot.cli.commands.AgentLoop", _FakeAgentLoop)
-    monkeypatch.setattr("nanobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("nanobot.cli.agent.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.cli.terminal._print_agent_response", lambda *_args, **_kwargs: None)
 
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
 
@@ -1631,7 +1648,7 @@ def test_agent_workspace_override_does_not_migrate_legacy_cron(
 
     monkeypatch.setattr("nanobot.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("nanobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.agent.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr("nanobot.providers.factory.make_provider", lambda _config: _fake_provider())
     monkeypatch.setattr("nanobot.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr("nanobot.config.paths.get_cron_dir", lambda: legacy_dir)
@@ -1654,8 +1671,8 @@ def test_agent_workspace_override_does_not_migrate_legacy_cron(
             return None
 
     monkeypatch.setattr("nanobot.cron.service.CronService", _FakeCron)
-    monkeypatch.setattr("nanobot.cli.commands.AgentLoop", _FakeAgentLoop)
-    monkeypatch.setattr("nanobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("nanobot.cli.agent.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.cli.terminal._print_agent_response", lambda *_args, **_kwargs: None)
 
     result = runner.invoke(
         app,
@@ -1687,7 +1704,7 @@ def test_agent_custom_config_workspace_does_not_migrate_legacy_cron(
 
     monkeypatch.setattr("nanobot.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("nanobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.agent.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr("nanobot.providers.factory.make_provider", lambda _config: _fake_provider())
     monkeypatch.setattr("nanobot.bus.queue.MessageBus", lambda: object())
     monkeypatch.setattr("nanobot.config.paths.get_cron_dir", lambda: legacy_dir)
@@ -1710,9 +1727,9 @@ def test_agent_custom_config_workspace_does_not_migrate_legacy_cron(
             return None
 
     monkeypatch.setattr("nanobot.cron.service.CronService", _FakeCron)
-    monkeypatch.setattr("nanobot.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.cli.agent.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr(
-        "nanobot.cli.commands._print_agent_response", lambda *_args, **_kwargs: None
+        "nanobot.cli.terminal._print_agent_response", lambda *_args, **_kwargs: None
     )
 
     result = runner.invoke(app, ["agent", "-m", "hello", "-c", str(config_file)])
@@ -1774,20 +1791,20 @@ def test_heartbeat_retains_recent_messages_by_default():
     ],
 )
 def test_heartbeat_has_active_tasks(content, expected):
-    from nanobot.cli.commands import _heartbeat_has_active_tasks
+    from nanobot.cli.gateway_runtime import _heartbeat_has_active_tasks
 
     assert _heartbeat_has_active_tasks(content) is expected
 
 
 def test_heartbeat_skips_bundled_template():
-    from nanobot.cli.commands import _heartbeat_has_active_tasks
+    from nanobot.cli.gateway_runtime import _heartbeat_has_active_tasks
     from nanobot.utils.helpers import load_bundled_template
 
     assert _heartbeat_has_active_tasks(load_bundled_template("HEARTBEAT.md")) is False
 
 
 def test_heartbeat_target_skips_archived_webui_sessions():
-    from nanobot.cli.commands import _pick_heartbeat_target_from_sessions
+    from nanobot.cli.gateway_runtime import _pick_heartbeat_target_from_sessions
 
     target = _pick_heartbeat_target_from_sessions(
         enabled_channels=["websocket"],
@@ -1802,7 +1819,7 @@ def test_heartbeat_target_skips_archived_webui_sessions():
 
 
 def test_heartbeat_target_uses_last_channel_for_unified_session():
-    from nanobot.cli.commands import _pick_heartbeat_target_from_sessions
+    from nanobot.cli.gateway_runtime import _pick_heartbeat_target_from_sessions
     from nanobot.session.keys import LAST_CHANNEL_METADATA_KEY, UNIFIED_SESSION_KEY
 
     target = _pick_heartbeat_target_from_sessions(
@@ -1824,7 +1841,7 @@ def test_heartbeat_target_uses_last_channel_for_unified_session():
     ],
 )
 def test_heartbeat_target_rejects_unroutable_unified_metadata(metadata):
-    from nanobot.cli.commands import _pick_heartbeat_target_from_sessions
+    from nanobot.cli.gateway_runtime import _pick_heartbeat_target_from_sessions
     from nanobot.session.keys import UNIFIED_SESSION_KEY
 
     target = _pick_heartbeat_target_from_sessions(
@@ -1865,9 +1882,17 @@ def _patch_webui_provider_ready(monkeypatch) -> None:
 
 
 def _patch_gateway_ports_free(monkeypatch) -> None:
-    monkeypatch.setattr("nanobot.cli.commands._gateway_health_ready", lambda *_a, **_kw: False)
-    monkeypatch.setattr("nanobot.cli.commands._tcp_endpoint_reachable", lambda *_a, **_kw: False)
-    monkeypatch.setattr("nanobot.cli.commands._webui_endpoint_reachable", lambda *_a, **_kw: False)
+    monkeypatch.setattr("nanobot.cli.webui._gateway_health_ready", lambda *_a, **_kw: False)
+    monkeypatch.setattr("nanobot.cli.webui._tcp_endpoint_reachable", lambda *_a, **_kw: False)
+    monkeypatch.setattr("nanobot.cli.webui._webui_endpoint_reachable", lambda *_a, **_kw: False)
+    monkeypatch.setattr(
+        "nanobot.cli.gateway_runtime._tcp_endpoint_reachable",
+        lambda *_a, **_kw: False,
+    )
+    monkeypatch.setattr(
+        "nanobot.cli.gateway_runtime._webui_endpoint_reachable",
+        lambda *_a, **_kw: False,
+    )
 
 
 def _patch_cli_command_runtime(
@@ -1895,6 +1920,14 @@ def _patch_cli_command_runtime(
         sync_templates or (lambda _path: None),
     )
     monkeypatch.setattr(
+        "nanobot.cli.webui.sync_workspace_templates",
+        sync_templates or (lambda _path: None),
+    )
+    monkeypatch.setattr(
+        "nanobot.cli.gateway_runtime.sync_workspace_templates",
+        sync_templates or (lambda _path: None),
+    )
+    monkeypatch.setattr(
         "nanobot.providers.factory.make_provider",
         provider_factory,
     )
@@ -1907,7 +1940,7 @@ def _patch_cli_command_runtime(
         lambda _config_path=None: _test_provider_snapshot(provider_factory(config), config),
     )
     monkeypatch.setattr(
-        "nanobot.cli.commands._provider_setup_error",
+        "nanobot.cli.webui_support._provider_setup_error",
         lambda _config: None,
     )
     _patch_gateway_ports_free(monkeypatch)
@@ -2008,10 +2041,10 @@ def test_heartbeat_empty_response_still_retains_recent_messages(
         session_manager=_FakeSessionManager,
         cron_service=_FakeCron,
     )
-    monkeypatch.setattr("nanobot.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.cli.gateway_runtime.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _FakeChannelManager)
-    monkeypatch.setattr("nanobot.cli.commands.read_webui_sidebar_state", lambda: {})
-    monkeypatch.setattr("nanobot.cli.commands.evaluate_response", _unexpected_evaluator)
+    monkeypatch.setattr("nanobot.cli.gateway_runtime.read_webui_sidebar_state", lambda: {})
+    monkeypatch.setattr("nanobot.cli.gateway_runtime.evaluate_response", _unexpected_evaluator)
 
     result = runner.invoke(app, ["gateway", "--config", str(config_file)])
 
@@ -2034,7 +2067,7 @@ def test_webui_yes_creates_config_and_enables_local_websocket(
     seen: dict[str, object] = {}
     _patch_webui_provider_ready(monkeypatch)
     monkeypatch.setattr(
-        "nanobot.cli.commands.sync_workspace_templates",
+        "nanobot.cli.webui.sync_workspace_templates",
         lambda path: seen.__setitem__("templates", path),
     )
 
@@ -2042,7 +2075,7 @@ def test_webui_yes_creates_config_and_enables_local_websocket(
         seen["gateway_config"] = config
         seen["gateway_kwargs"] = kwargs
 
-    monkeypatch.setattr("nanobot.cli.commands._run_gateway", _fake_run_gateway)
+    monkeypatch.setattr("nanobot.cli.webui._run_gateway", _fake_run_gateway)
 
     result = runner.invoke(
         app,
@@ -2091,13 +2124,17 @@ def test_webui_yes_starts_first_run_without_provider_setup(monkeypatch, tmp_path
     seen: dict[str, object] = {}
 
     monkeypatch.setattr(
-        "nanobot.cli.commands._provider_setup_error",
+        "nanobot.cli.webui_support._provider_setup_error",
+        lambda _config: "No API key configured for provider 'custom'.",
+    )
+    monkeypatch.setattr(
+        "nanobot.cli.webui._provider_setup_error",
         lambda _config: "No API key configured for provider 'custom'.",
     )
     _patch_gateway_ports_free(monkeypatch)
-    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.webui.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr(
-        "nanobot.cli.commands._run_gateway",
+        "nanobot.cli.webui._run_gateway",
         lambda config, **kwargs: seen.update(config=config, **kwargs),
     )
 
@@ -2135,7 +2172,7 @@ def test_webui_missing_runtime_env_fails_before_starting_gateway(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "nanobot.cli.commands._run_gateway",
+        "nanobot.cli.webui._run_gateway",
         lambda *_args, **_kwargs: pytest.fail("gateway must not start with unresolved config"),
     )
 
@@ -2189,9 +2226,9 @@ def test_webui_background_starts_runtime_and_opens_browser(monkeypatch, tmp_path
     config_file.write_text("{}")
     seen: dict[str, object] = {}
     _patch_webui_provider_ready(monkeypatch)
-    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.webui.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr(
-        "nanobot.cli.commands._prepare_webui_bundle_for_gateway",
+        "nanobot.cli.webui._prepare_webui_bundle_for_gateway",
         lambda *_args, **_kwargs: None,
     )
 
@@ -2213,7 +2250,7 @@ def test_webui_background_starts_runtime_and_opens_browser(monkeypatch, tmp_path
 
     monkeypatch.setattr("nanobot.gateway.GatewayRuntime", _FakeRuntime)
     monkeypatch.setattr(
-        "nanobot.cli.commands._open_webui_browser",
+        "nanobot.cli.webui._open_webui_browser",
         lambda url: seen.__setitem__("opened_url", url),
     )
 
@@ -2256,7 +2293,7 @@ def test_open_webui_browser_redacts_bootstrap_secret(monkeypatch, capsys) -> Non
     url = "http://127.0.0.1:8765/#/?bootstrapSecret=super-secret"
     monkeypatch.setattr("webbrowser.open", lambda value: opened.append(value))
 
-    cli_commands._open_webui_browser(url, wait=False)
+    cli_webui_support._open_webui_browser(url, wait=False)
 
     assert opened == [url]
     output = _strip_ansi(capsys.readouterr().out)
@@ -2275,9 +2312,9 @@ def test_webui_background_restarts_when_config_changes_and_gateway_is_running(
     config_file.write_text("{}")
     seen: dict[str, object] = {}
     _patch_webui_provider_ready(monkeypatch)
-    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.webui.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr(
-        "nanobot.cli.commands._prepare_webui_bundle_for_gateway",
+        "nanobot.cli.webui._prepare_webui_bundle_for_gateway",
         lambda *_args, **_kwargs: None,
     )
 
@@ -2306,7 +2343,7 @@ def test_webui_background_restarts_when_config_changes_and_gateway_is_running(
 
     monkeypatch.setattr("nanobot.gateway.GatewayRuntime", _FakeRuntime)
     monkeypatch.setattr(
-        "nanobot.cli.commands._open_webui_browser",
+        "nanobot.cli.webui._open_webui_browser",
         lambda url: seen.__setitem__("opened_url", url),
     )
 
@@ -2347,15 +2384,15 @@ def test_webui_foreground_attaches_to_existing_managed_gateway(monkeypatch, tmp_
     config_file.write_text("{}")
     seen: dict[str, object] = {}
     _patch_webui_provider_ready(monkeypatch)
-    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("nanobot.cli.commands._gateway_health_ready", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr("nanobot.cli.commands._webui_endpoint_reachable", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("nanobot.cli.webui.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.webui._gateway_health_ready", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("nanobot.cli.webui._webui_endpoint_reachable", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(
-        "nanobot.cli.commands._open_webui_browser",
+        "nanobot.cli.webui._open_webui_browser",
         lambda url, **kwargs: seen.update({"opened_url": url, "open_kwargs": kwargs}),
     )
     monkeypatch.setattr(
-        "nanobot.cli.commands._run_gateway",
+        "nanobot.cli.webui._run_gateway",
         lambda *_args, **_kwargs: pytest.fail("existing gateway should be reused"),
     )
 
@@ -2368,7 +2405,7 @@ def test_webui_foreground_attaches_to_existing_managed_gateway(monkeypatch, tmp_
 
     monkeypatch.setattr("nanobot.gateway.GatewayRuntime", _FakeRuntime)
     monkeypatch.setattr(
-        "nanobot.cli.commands._attach_to_background_gateway",
+        "nanobot.cli.webui._attach_to_background_gateway",
         lambda runtime: seen.__setitem__("attached_runtime", runtime),
     )
 
@@ -2401,9 +2438,9 @@ def test_attach_to_background_gateway_stops_on_ctrl_c(monkeypatch, capsys) -> No
     def _interrupt(_seconds: float) -> None:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr("nanobot.cli.commands.time.sleep", _interrupt)
+    monkeypatch.setattr("nanobot.cli.webui_support.time.sleep", _interrupt)
 
-    cli_commands._attach_to_background_gateway(_FakeRuntime())
+    cli_webui_support._attach_to_background_gateway(_FakeRuntime())
 
     assert stopped is True
     output = capsys.readouterr().out
@@ -2416,12 +2453,12 @@ def test_webui_foreground_does_not_claim_unmanaged_gateway(monkeypatch, tmp_path
     config_file = tmp_path / "config.json"
     config_file.write_text("{}")
     _patch_webui_provider_ready(monkeypatch)
-    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("nanobot.cli.commands._gateway_health_ready", lambda *_args: True)
-    monkeypatch.setattr("nanobot.cli.commands._webui_endpoint_reachable", lambda *_args: True)
-    monkeypatch.setattr("nanobot.cli.commands._open_webui_browser", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("nanobot.cli.webui.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.webui._gateway_health_ready", lambda *_args: True)
+    monkeypatch.setattr("nanobot.cli.webui._webui_endpoint_reachable", lambda *_args: True)
+    monkeypatch.setattr("nanobot.cli.webui._open_webui_browser", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
-        "nanobot.cli.commands._attach_to_background_gateway",
+        "nanobot.cli.webui._attach_to_background_gateway",
         lambda _runtime: pytest.fail("unmanaged gateway must not be attached"),
     )
 
@@ -2444,12 +2481,12 @@ def test_webui_foreground_refuses_occupied_webui_port(monkeypatch, tmp_path: Pat
     config_file = tmp_path / "config.json"
     config_file.write_text("{}")
     _patch_webui_provider_ready(monkeypatch)
-    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
-    monkeypatch.setattr("nanobot.cli.commands._gateway_health_ready", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr("nanobot.cli.commands._webui_endpoint_reachable", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr("nanobot.cli.commands._tcp_endpoint_reachable", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("nanobot.cli.webui.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.webui._gateway_health_ready", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("nanobot.cli.webui._webui_endpoint_reachable", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("nanobot.cli.webui._tcp_endpoint_reachable", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(
-        "nanobot.cli.commands._run_gateway",
+        "nanobot.cli.webui._run_gateway",
         lambda *_args, **_kwargs: pytest.fail("gateway should not start on occupied ports"),
     )
 
@@ -2596,9 +2633,9 @@ def test_gateway_unbound_agent_cron_is_skipped(
 
     monkeypatch.setattr("nanobot.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("nanobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.gateway_runtime.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr("nanobot.providers.factory.make_provider", lambda _config: provider)
-    monkeypatch.setattr("nanobot.cli.commands._provider_setup_error", lambda _config: None)
+    monkeypatch.setattr("nanobot.cli.webui_support._provider_setup_error", lambda _config: None)
     _patch_gateway_ports_free(monkeypatch)
     monkeypatch.setattr(
         "nanobot.providers.factory.build_provider_snapshot",
@@ -2672,10 +2709,10 @@ def test_gateway_unbound_agent_cron_is_skipped(
         raise AssertionError("unbound cron job must not be evaluated for delivery")
 
     monkeypatch.setattr("nanobot.cron.service.CronService", _FakeCron)
-    monkeypatch.setattr("nanobot.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.cli.gateway_runtime.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _StopAfterCronSetup)
     monkeypatch.setattr(
-        "nanobot.cli.commands.evaluate_response",
+        "nanobot.cli.gateway_runtime.evaluate_response",
         _capture_evaluate_response,
     )
 
@@ -2724,9 +2761,9 @@ def test_gateway_bound_cron_runs_as_session_turn(
 
     monkeypatch.setattr("nanobot.config.loader.set_config_path", lambda _path: None)
     monkeypatch.setattr("nanobot.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.gateway_runtime.sync_workspace_templates", lambda _path: None)
     monkeypatch.setattr("nanobot.providers.factory.make_provider", lambda _config: provider)
-    monkeypatch.setattr("nanobot.cli.commands._provider_setup_error", lambda _config: None)
+    monkeypatch.setattr("nanobot.cli.webui_support._provider_setup_error", lambda _config: None)
     _patch_gateway_ports_free(monkeypatch)
     monkeypatch.setattr(
         "nanobot.providers.factory.build_provider_snapshot",
@@ -2788,9 +2825,9 @@ def test_gateway_bound_cron_runs_as_session_turn(
         raise AssertionError("bound cron must not use legacy response evaluator")
 
     monkeypatch.setattr("nanobot.cron.service.CronService", _FakeCron)
-    monkeypatch.setattr("nanobot.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.cli.gateway_runtime.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _StopAfterCronSetup)
-    monkeypatch.setattr("nanobot.cli.commands.evaluate_response", _unexpected_evaluator)
+    monkeypatch.setattr("nanobot.cli.gateway_runtime.evaluate_response", _unexpected_evaluator)
 
     result = runner.invoke(app, ["gateway", "--config", str(config_file)])
     assert isinstance(result.exception, _StopGatewayError)
@@ -2984,7 +3021,7 @@ def test_gateway_local_trigger_queue_submits_agent_turns(
             self.runtime_resolver = MagicMock()
             seen["agent"] = self
 
-        def _schedule_background(self, _coro) -> None:
+        def schedule_background(self, _coro) -> None:
             return None
 
         async def run(self) -> None:
@@ -3016,7 +3053,7 @@ def test_gateway_local_trigger_queue_submits_agent_turns(
         seen["local_trigger_queue_kwargs"] = kwargs
         raise _StopGatewayError("stop")
 
-    monkeypatch.setattr("nanobot.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.cli.gateway_runtime.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _FakeChannelManager)
     monkeypatch.setattr(
         "nanobot.triggers.local_runner.run_local_trigger_queue",
@@ -3124,7 +3161,7 @@ def test_gateway_custom_config_workspace_does_not_migrate_legacy_cron(
 
 def test_migrate_cron_store_moves_legacy_file(tmp_path: Path) -> None:
     """Legacy global jobs.json is moved into the workspace on first run."""
-    from nanobot.cli.commands import _migrate_cron_store
+    from nanobot.cli.runtime_config import _migrate_cron_store
 
     legacy_dir = tmp_path / "global" / "cron"
     legacy_dir.mkdir(parents=True)
@@ -3145,7 +3182,7 @@ def test_migrate_cron_store_moves_legacy_file(tmp_path: Path) -> None:
 
 def test_migrate_cron_store_skips_when_workspace_file_exists(tmp_path: Path) -> None:
     """Migration does not overwrite an existing workspace cron store."""
-    from nanobot.cli.commands import _migrate_cron_store
+    from nanobot.cli.runtime_config import _migrate_cron_store
 
     legacy_dir = tmp_path / "global" / "cron"
     legacy_dir.mkdir(parents=True)
@@ -3312,7 +3349,7 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
         message_bus=lambda: object(),
         session_manager=lambda _workspace: object(),
     )
-    monkeypatch.setattr("nanobot.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.cli.gateway_runtime.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _FakeChannelManager)
     monkeypatch.setattr("nanobot.cron.service.CronService", _FakeCronService)
     monkeypatch.setattr("asyncio.start_server", _fake_start_server)
@@ -3363,13 +3400,14 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
                 async def read(self, _size: int) -> bytes:
                     nonlocal started
                     started += 1
-                    if started == cli_commands._GATEWAY_HEALTH_MAX_CONNECTIONS:
+                    if started == cli_gateway_runtime._GATEWAY_HEALTH_MAX_CONNECTIONS:
                         all_started.set()
                     await release.wait()
                     return b"GET /health HTTP/1.1\r\n\r\n"
 
             active_writers = [
-                _FakeWriter() for _ in range(cli_commands._GATEWAY_HEALTH_MAX_CONNECTIONS)
+                _FakeWriter()
+                for _ in range(cli_gateway_runtime._GATEWAY_HEALTH_MAX_CONNECTIONS)
             ]
             active_tasks = [
                 asyncio.create_task(health_handler(_BlockingReader(), writer))
@@ -3394,7 +3432,11 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
             async def read(self, _size: int) -> bytes:
                 await asyncio.Event().wait()
 
-        monkeypatch.setattr(cli_commands, "_GATEWAY_HEALTH_READ_TIMEOUT_SECONDS", 0.01)
+        monkeypatch.setattr(
+            cli_gateway_runtime,
+            "_GATEWAY_HEALTH_READ_TIMEOUT_SECONDS",
+            0.01,
+        )
         timed_out_writer = _FakeWriter()
         asyncio.run(health_handler(_NeverRespondingReader(), timed_out_writer))
         assert timed_out_writer.closed is True
@@ -3485,7 +3527,7 @@ def test_gateway_shutdown_lets_agent_task_own_mcp_cleanup(
         message_bus=lambda: object(),
         session_manager=lambda _workspace: object(),
     )
-    monkeypatch.setattr("nanobot.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.cli.gateway_runtime.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _FakeChannelManager)
     monkeypatch.setattr("nanobot.cron.service.CronService", _FakeCronService)
     monkeypatch.setattr("asyncio.start_server", _fake_start_server)
@@ -3601,12 +3643,12 @@ def test_gateway_shutdown_event_exits_forever_runtime_tasks(
         message_bus=lambda: object(),
         session_manager=lambda _workspace: object(),
     )
-    monkeypatch.setattr("nanobot.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.cli.gateway_runtime.AgentLoop", _FakeAgentLoop)
     monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _FakeChannelManager)
     monkeypatch.setattr("nanobot.cron.service.CronService", _FakeCronService)
     monkeypatch.setattr("asyncio.start_server", _fake_start_server)
     monkeypatch.setattr(
-        "nanobot.cli.commands._install_gateway_shutdown_handlers",
+        "nanobot.cli.gateway_runtime._install_gateway_shutdown_handlers",
         _fake_install_shutdown_handlers,
     )
 
