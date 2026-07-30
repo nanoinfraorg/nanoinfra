@@ -651,6 +651,14 @@ describe("webui API helpers", () => {
       }),
     );
 
+    await loginProviderOAuth("tok", "openai_codex", "", true);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/provider/oauth-login?provider=openai_codex&remote_browser=true",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+
     await completeProviderOAuth("tok", "xai_grok", "flow-123");
     expect(fetch).toHaveBeenCalledWith(
       "/api/settings/provider/oauth-login/complete?provider=xai_grok&flow_id=flow-123",
@@ -671,6 +679,23 @@ describe("webui API helpers", () => {
         headers: {
           Authorization: "Bearer tok",
           "X-Nanobot-OAuth-Code": "secret",
+        },
+      }),
+    );
+
+    await completeProviderOAuth(
+      "tok",
+      "openai_codex",
+      "flow-codex",
+      "http://localhost:1455/auth/callback?code=secret&state=test",
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settings/provider/oauth-login/complete?provider=openai_codex&flow_id=flow-codex",
+      expect.objectContaining({
+        headers: {
+          Authorization: "Bearer tok",
+          "X-Nanobot-OAuth-Callback":
+            "http://localhost:1455/auth/callback?code=secret&state=test",
         },
       }),
     );
