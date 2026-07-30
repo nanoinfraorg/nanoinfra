@@ -348,6 +348,20 @@ Valid `apiType` values are exactly `auto`, `chat_completions`, and `responses`.
 
 </details>
 
+<a id="responses-state-and-compaction"></a>
+
+### Responses conversation state and compaction
+
+Providers that use the Responses API can keep reasoning context across a
+conversation, which helps with multi-step tasks. Supported providers can also
+compact long conversations automatically.
+
+nanobot preserves Responses conversation state automatically for OpenAI
+Responses, OpenAI Codex, Azure OpenAI, and compatible GitHub Copilot models.
+Native compaction is also automatic when the provider supports it. The
+threshold is derived from the active model's context window and reserved output
+headroom; no provider configuration is required.
+
 <details>
 <summary><b>Azure OpenAI</b></summary>
 

@@ -4,6 +4,7 @@ import time
 
 import pytest
 
+from nanobot.providers.base import ProviderCallContext
 from nanobot.providers.openai_compat_provider import (
     _RESPONSES_FAILURE_THRESHOLD,
     _RESPONSES_PROBE_INTERVAL_S,
@@ -26,6 +27,26 @@ def provider():
 
 def test_responses_api_available_by_default(provider):
     assert provider._should_use_responses_api("gpt-5", None) is True
+
+
+def test_direct_openai_enables_server_compaction(provider):
+    provider._extra_body = {}
+
+    body = provider._build_responses_body(
+        messages=[{"role": "user", "content": "hello"}],
+        tools=None,
+        model="gpt-5.6",
+        max_tokens=30_000,
+        temperature=0.1,
+        reasoning_effort="high",
+        tool_choice=None,
+        provider_context=ProviderCallContext(context_window_tokens=100_000),
+    )
+
+    assert body["context_management"] == [{
+        "type": "compaction",
+        "compact_threshold": 70_000,
+    }]
 
 
 def test_api_type_chat_completions_disables_responses(provider):

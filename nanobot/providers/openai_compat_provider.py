@@ -26,16 +26,24 @@ from pydantic.alias_generators import to_snake
 from nanobot.providers.base import (
     LLMProvider,
     LLMResponse,
+    ProviderCallContext,
+    ProviderConversationState,
     ToolCallRequest,
     parse_tool_arguments,
     resolve_stream_idle_timeout_s,
     tool_arguments_json_for_replay,
 )
 from nanobot.providers.openai_responses import (
+    ResponsesStreamCapture,
+    build_responses_state,
     consume_sdk_stream,
-    convert_messages,
     convert_tools,
+    is_compaction_compatibility_error,
+    is_replayable_finish_reason,
     parse_response_output,
+    prepare_responses_input,
+    resolve_compact_threshold,
+    responses_state_matches,
 )
 
 if TYPE_CHECKING:
@@ -443,6 +451,8 @@ class OpenAICompatProvider(LLMProvider):
     registry lookups needed.
     """
 
+    _native_compaction_available = True
+
     def __init__(
         self,
         api_key: str | None = None,
@@ -463,6 +473,7 @@ class OpenAICompatProvider(LLMProvider):
         self._api_type = api_type if spec and spec.name == "openai" else "auto"
         self._extra_query = extra_query or {}
         self._proxy = proxy or None
+        self._native_compaction_available = True
 
         if api_key and spec and spec.env_key:
             self._setup_env(api_key, api_base)
@@ -971,6 +982,37 @@ class OpenAICompatProvider(LLMProvider):
 
         return self._responses_circuit_allows_probe(model, reasoning_effort)
 
+    def _responses_state_provider(self) -> str:
+        spec_name = self._spec.name if self._spec is not None else "custom"
+        effective_base = self._effective_base or "https://api.openai.com/v1"
+        return f"openai_compat:{spec_name}:{effective_base.rstrip('/')}"
+
+    def _responses_state_model(self, model: str | None) -> str:
+        return self._request_model_name(model or self.default_model)
+
+    def can_resume_conversation_state(
+        self,
+        state: ProviderConversationState,
+        model: str | None = None,
+    ) -> bool:
+        return responses_state_matches(
+            state,
+            provider=self._responses_state_provider(),
+            model=self._responses_state_model(model),
+        )
+
+    def supports_native_compaction(self, model: str | None = None) -> bool:
+        """Enable server compaction only on direct OpenAI Responses endpoints."""
+        _ = model
+        if (
+            not self._native_compaction_available
+            or self._api_type == "chat_completions"
+        ):
+            return False
+        if self._spec is not None and self._spec.name != "openai":
+            return False
+        return _is_direct_openai_base(self._effective_base)
+
     def _responses_circuit_allows_probe(
         self,
         model: str | None,
@@ -1040,12 +1082,29 @@ class OpenAICompatProvider(LLMProvider):
         temperature: float,
         reasoning_effort: str | None,
         tool_choice: str | dict[str, Any] | None,
+        provider_context: ProviderCallContext | None = None,
     ) -> dict[str, Any]:
         """Build a Responses API body for direct OpenAI requests."""
         model_name = model or self.default_model
         model_name = self._request_model_name(model_name)
         sanitized_messages = self._sanitize_messages(self._sanitize_empty_content(messages))
-        instructions, input_items = convert_messages(sanitized_messages)
+        sanitized_state = (
+            provider_context.conversation_state
+            if provider_context is not None
+            else None
+        )
+        if sanitized_state is not None:
+            sanitized_state = sanitized_state.with_pending_messages(
+                self._sanitize_messages(
+                    self._sanitize_empty_content(sanitized_state.pending_messages)
+                )
+            )
+        instructions, input_items, replayed = prepare_responses_input(
+            sanitized_messages,
+            state=sanitized_state,
+            provider=self._responses_state_provider(),
+            model=model_name,
+        )
 
         body: dict[str, Any] = {
             "model": model_name,
@@ -1055,13 +1114,29 @@ class OpenAICompatProvider(LLMProvider):
             "store": False,
             "stream": False,
         }
+        compact_threshold = resolve_compact_threshold(
+            (
+                provider_context.context_window_tokens
+                if provider_context is not None
+                else None
+            ),
+            max_tokens,
+        )
+        if self.supports_native_compaction(model_name) and compact_threshold is not None:
+            body["context_management"] = [{
+                "type": "compaction",
+                "compact_threshold": compact_threshold,
+            }]
 
         if self._supports_temperature(model_name, reasoning_effort):
             body["temperature"] = temperature
 
+        if not self._supports_temperature(model_name, reasoning_effort):
+            body["include"] = ["reasoning.encrypted_content"]
         if reasoning_effort and reasoning_effort.lower() != "none":
             body["reasoning"] = {"effort": reasoning_effort}
-            body["include"] = ["reasoning.encrypted_content"]
+        if replayed and "gpt-5.6" in model_name.lower():
+            body.setdefault("reasoning", {})["context"] = "all_turns"
 
         if tools:
             body["tools"] = convert_tools(tools)
@@ -1072,6 +1147,29 @@ class OpenAICompatProvider(LLMProvider):
             body = _merge_responses_extra_body(body, extra_body)
 
         return body
+
+    async def _create_response_with_compaction_fallback(
+        self,
+        client: Any,
+        body: dict[str, Any],
+    ) -> Any:
+        """Retry Responses once without server compaction on compatibility errors."""
+        try:
+            return await client.responses.create(**body)
+        except Exception as exc:
+            if (
+                "context_management" not in body
+                or not is_compaction_compatibility_error(exc)
+            ):
+                raise
+            self._native_compaction_available = False
+            body.pop("context_management", None)
+            logger.warning(
+                "Responses server compaction unsupported; disabled for this provider instance "
+                "(status={})",
+                getattr(exc, "status_code", None),
+            )
+            return await client.responses.create(**body)
 
     # ------------------------------------------------------------------
     # Response parsing
@@ -1599,6 +1697,28 @@ class OpenAICompatProvider(LLMProvider):
     # Public API
     # ------------------------------------------------------------------
 
+    async def chat_with_context(
+        self,
+        *,
+        provider_context: ProviderCallContext,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        return await self.chat(
+            **kwargs,
+            provider_context=provider_context,
+        )
+
+    async def chat_stream_with_context(
+        self,
+        *,
+        provider_context: ProviderCallContext,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        return await self.chat_stream(
+            **kwargs,
+            provider_context=provider_context,
+        )
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -1608,6 +1728,7 @@ class OpenAICompatProvider(LLMProvider):
         temperature: float = 0.7,
         reasoning_effort: str | None = None,
         tool_choice: str | dict[str, Any] | None = None,
+        provider_context: ProviderCallContext | None = None,
     ) -> LLMResponse:
         client = await self._ensure_client()
         try:
@@ -1616,12 +1737,18 @@ class OpenAICompatProvider(LLMProvider):
                     body = self._build_responses_body(
                         messages, tools, model, max_tokens, temperature,
                         reasoning_effort, tool_choice,
+                        provider_context,
                     )
-                    responses_raw = cast(
-                        Any,
-                        await client.responses.create(**body),
+                    responses_raw = await self._create_response_with_compaction_fallback(
+                        client,
+                        body,
                     )
-                    result = parse_response_output(responses_raw)
+                    result = parse_response_output(
+                        responses_raw,
+                        state_provider=self._responses_state_provider(),
+                        state_model=str(body["model"]),
+                        state_input_items=cast(list[dict[str, Any]], body["input"]),
+                    )
                     self._record_responses_success(model, reasoning_effort)
                     return result
                 except Exception as responses_error:
@@ -1660,6 +1787,7 @@ class OpenAICompatProvider(LLMProvider):
         on_content_delta: Callable[[str], Awaitable[None]] | None = None,
         on_thinking_delta: Callable[[str], Awaitable[None]] | None = None,
         on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+        provider_context: ProviderCallContext | None = None,
     ) -> LLMResponse:
         client = await self._ensure_client()
         idle_timeout_s = resolve_stream_idle_timeout_s()
@@ -1669,11 +1797,12 @@ class OpenAICompatProvider(LLMProvider):
                     body = self._build_responses_body(
                         messages, tools, model, max_tokens, temperature,
                         reasoning_effort, tool_choice,
+                        provider_context,
                     )
                     body["stream"] = True
-                    responses_stream = cast(
-                        Any,
-                        await client.responses.create(**body),
+                    responses_stream = await self._create_response_with_compaction_fallback(
+                        client,
+                        body,
                     )
 
                     async def _timed_stream() -> AsyncIterator[Any]:
@@ -1687,6 +1816,7 @@ class OpenAICompatProvider(LLMProvider):
                             except StopAsyncIteration:
                                 break
 
+                    capture = ResponsesStreamCapture()
                     (
                         content,
                         tool_calls,
@@ -1697,15 +1827,25 @@ class OpenAICompatProvider(LLMProvider):
                         _timed_stream(),
                         on_content_delta,
                         on_tool_call_delta=on_tool_call_delta,
+                        capture=capture,
                     )
                     self._record_responses_success(model, reasoning_effort)
-                    return LLMResponse(
+                    result = LLMResponse(
                         content=content or None,
                         tool_calls=tool_calls,
                         finish_reason=finish_reason,
                         usage=usage,
                         reasoning_content=reasoning_content,
                     )
+                    if capture.completed and is_replayable_finish_reason(finish_reason):
+                        result.provider_state = build_responses_state(
+                            provider=self._responses_state_provider(),
+                            model=str(body["model"]),
+                            input_items=cast(list[dict[str, Any]], body["input"]),
+                            output_items=capture.output_items,
+                            usage=usage,
+                        )
+                    return result
                 except Exception as responses_error:
                     if self._spec and self._spec.name == "github_copilot":
                         # Copilot gateway exposes GPT-5/o-series only via /responses;
