@@ -69,7 +69,9 @@ def _response_object(value: object) -> dict[str, Any] | None:
         return object_value
     dump = getattr(value, "model_dump", None)
     if callable(dump):
-        return _as_json_object(dump())
+        dumped = _as_json_object(dump())
+        if dumped is not None:
+            return dumped
     try:
         return _as_json_object(vars(value))
     except TypeError:
@@ -444,6 +446,14 @@ def _extract_reasoning_summary_from_output(output: object) -> str | None:
     for item in _response_object_list(output):
         if item.get("type") != "reasoning":
             continue
+        content = item.get("content")
+        if isinstance(content, str) and content:
+            parts.append(content)
+        elif isinstance(content, list):
+            for block in _response_object_list(cast(list[object], content)):
+                text = block.get("text")
+                if isinstance(text, str) and text:
+                    parts.append(text)
         for summary in _response_object_list(item.get("summary")):
             if summary.get("type") == "summary_text" and summary.get("text"):
                 text = summary.get("text")
@@ -483,11 +493,9 @@ def parse_response_output(
                     if isinstance(refusal, str):
                         content_parts.append(refusal)
         elif item_type == "reasoning":
-            for s in _response_object_list(item.get("summary")):
-                if s.get("type") == "summary_text" and s.get("text"):
-                    text = s.get("text")
-                    if isinstance(text, str):
-                        reasoning_content = (reasoning_content or "") + text
+            text = _extract_reasoning_summary_from_output([item])
+            if text:
+                reasoning_content = (reasoning_content or "") + text
         elif item_type == "function_call":
             call_id = item.get("call_id") or ""
             item_id = item.get("id") or "fc_0"
@@ -532,6 +540,7 @@ async def consume_sdk_stream(
     stream: Any,
     on_content_delta: Callable[[str], Awaitable[None]] | None = None,
     on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    on_reasoning_delta: Callable[[str], Awaitable[None]] | None = None,
     capture: ResponsesStreamCapture | None = None,
 ) -> tuple[str, list[ToolCallRequest], str, dict[str, int], str | None]:
     """Consume an SDK async stream from ``client.responses.create(stream=True)``."""
@@ -542,6 +551,7 @@ async def consume_sdk_stream(
     finish_reason = "stop"
     usage: dict[str, int] = {}
     reasoning_content: str | None = None
+    streamed_reasoning = False
     refusal_seen = False
     refusal_deltas: dict[tuple[str | None, int | None], str] = {}
     emitted_refusal_text = ""
@@ -572,6 +582,19 @@ async def consume_sdk_stream(
             content += delta_text
             if on_content_delta and delta_text:
                 await on_content_delta(delta_text)
+        elif event_type == "response.reasoning_text.delta":
+            delta_text = getattr(event, "delta", "") or ""
+            if delta_text:
+                reasoning_content = (reasoning_content or "") + delta_text
+                streamed_reasoning = True
+                if on_reasoning_delta:
+                    await on_reasoning_delta(delta_text)
+        elif event_type == "response.reasoning_text.done":
+            text = getattr(event, "text", "") or ""
+            if text and not streamed_reasoning and not reasoning_content:
+                reasoning_content = text
+                if on_reasoning_delta:
+                    await on_reasoning_delta(text)
         elif event_type == "response.refusal.delta":
             refusal_seen = True
             delta_text = getattr(event, "delta", None)
@@ -689,13 +712,12 @@ async def consume_sdk_stream(
                         "completion_tokens": int(getattr(usage_obj, "output_tokens", 0) or 0),
                         "total_tokens": int(getattr(usage_obj, "total_tokens", 0) or 0),
                     }
-                for out_item in cast(list[Any], getattr(resp, "output", None) or []):
-                    if getattr(out_item, "type", None) == "reasoning":
-                        for s in cast(list[Any], getattr(out_item, "summary", None) or []):
-                            if getattr(s, "type", None) == "summary_text":
-                                text = getattr(s, "text", None)
-                                if text:
-                                    reasoning_content = (reasoning_content or "") + text
+                if not reasoning_content:
+                    reasoning_content = _extract_reasoning_summary_from_output(
+                        getattr(resp, "output", None)
+                    )
+                    if reasoning_content and on_reasoning_delta:
+                        await on_reasoning_delta(reasoning_content)
         elif event_type in {"error", "response.failed"}:
             detail = getattr(event, "error", None) or getattr(event, "message", None) or event
             raise RuntimeError(f"Response failed: {str(detail)[:500]}")
