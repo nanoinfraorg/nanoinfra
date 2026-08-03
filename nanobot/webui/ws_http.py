@@ -27,6 +27,7 @@ from nanobot.command.builtin import builtin_command_palette
 from nanobot.cron.session_turns import is_bound_cron_job
 from nanobot.cron.types import CronJob, CronSchedule
 from nanobot.runtime_context import public_history_messages
+from nanobot.security.workspace_access import WorkspaceScope
 from nanobot.triggers.local_types import LocalTrigger
 from nanobot.utils.subagent_channel_display import scrub_subagent_messages_for_channel
 from nanobot.webui.file_preview import (
@@ -37,6 +38,9 @@ from nanobot.webui.file_preview import (
 from nanobot.webui.gateway_tokens import GatewayTokenStore, token_response_payload
 from nanobot.webui.http_utils import (
     case_insensitive_header as _case_insensitive_header,
+)
+from nanobot.webui.http_utils import (
+    combined_list_header as _combined_list_header,
 )
 from nanobot.webui.http_utils import (
     host_for_url as _host_for_url,
@@ -82,7 +86,11 @@ from nanobot.webui.session_automations import (
     session_automation_jobs,
     session_automations_payload,
 )
-from nanobot.webui.session_list_index import list_webui_sessions
+from nanobot.webui.session_list_index import (
+    WEBUI_SESSION_INDEX_INTERNAL_FIELDS,
+    indexed_workspace_scope,
+    list_webui_sessions,
+)
 from nanobot.webui.sidebar_state import (
     read_webui_sidebar_state,
     write_webui_sidebar_state,
@@ -422,7 +430,10 @@ class GatewayHTTPHandler:
         if self.session_manager is None:
             return _http_error(503, "session manager unavailable")
         payload = await asyncio.to_thread(self._sessions_list_payload)
-        return _http_json_response(payload)
+        return _http_json_response(
+            payload,
+            accept_encoding=_combined_list_header(request.headers, "Accept-Encoding"),
+        )
 
     def _sessions_list_payload(self) -> dict[str, Any]:
         assert self.session_manager is not None
@@ -430,16 +441,28 @@ class GatewayHTTPHandler:
         from nanobot.session.webui_turns import websocket_turn_wall_started_at
 
         cleaned: list[dict[str, Any]] = []
+        default_scope: WorkspaceScope | None = None
         for s in sessions:
             key = s.get("key")
             if not (isinstance(key, str) and key.startswith("websocket:")):
                 continue
-            row = {k: v for k, v in s.items() if k != "path"}
+            row = {
+                k: v
+                for k, v in s.items()
+                if k != "path" and k not in WEBUI_SESSION_INDEX_INTERNAL_FIELDS
+            }
             chat_id = key.split(":", 1)[1]
             started_at = websocket_turn_wall_started_at(chat_id)
             if started_at is not None:
                 row["run_started_at"] = started_at
-            scope = self.workspaces.scope_for_session_key(key)
+            if default_scope is None:
+                default_scope = self.workspaces.default_scope()
+            scope_present, raw_scope = indexed_workspace_scope(s)
+            scope = self.workspaces.scope_for_indexed_metadata(
+                raw_scope,
+                scope_present=scope_present,
+                default_scope=default_scope,
+            )
             row["workspace_scope"] = scope.payload()
             cleaned.append(row)
         return {"sessions": cleaned}
@@ -481,17 +504,21 @@ class GatewayHTTPHandler:
         if not _is_websocket_channel_session_key(decoded_key):
             return _http_error(404, "session not found")
         scope = self.workspaces.scope_for_session_key(decoded_key)
-        session_messages: list[dict[str, Any]] | None = None
-        if self.session_manager is not None:
+
+        def load_session_messages() -> list[dict[str, Any]] | None:
+            if self.session_manager is None:
+                return None
             session_data = self.session_manager.read_session_file(decoded_key)
             raw_messages = session_data.get("messages") if isinstance(session_data, dict) else None
-            if isinstance(raw_messages, list):
-                raw_session_messages = cast(list[Any], raw_messages)
-                session_messages = [
-                    cast(dict[str, Any], raw_message)
-                    for raw_message in raw_session_messages
-                    if isinstance(raw_message, dict)
-                ]
+            if not isinstance(raw_messages, list):
+                return None
+            raw_session_messages = cast(list[Any], raw_messages)
+            return [
+                cast(dict[str, Any], raw_message)
+                for raw_message in raw_session_messages
+                if isinstance(raw_message, dict)
+            ]
+
         query = _parse_query(request.path)
         raw_limit = _query_first(query, "limit")
         limit: int | None = None
@@ -524,7 +551,7 @@ class GatewayHTTPHandler:
                 text,
                 workspace_path=scope.project_path,
             ),
-            session_messages=session_messages,
+            session_messages_loader=load_session_messages,
             active_turn_started_at=active_turn_started_at,
             active_turn_id=active_turn_id,
             active_turn_transcript_persistence_failed=(
@@ -537,7 +564,10 @@ class GatewayHTTPHandler:
         if data is None:
             return _http_error(404, "webui thread not found")
         data["workspace_scope"] = scope.payload()
-        return _http_json_response(data)
+        return _http_json_response(
+            data,
+            accept_encoding=_combined_list_header(request.headers, "Accept-Encoding"),
+        )
 
     def _handle_file_preview(self, request: WsRequest, key: str) -> Response:
         if not self.check_api_token(request):
