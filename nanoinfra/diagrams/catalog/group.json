@@ -10,7 +10,10 @@
       "id": "kubernetes",
       "label": "Kubernetes Cluster",
       "kind": "api",
-      "fields": [{ "key": "namespace", "label": "Namespace", "placeholder": "default", "kind": "text" }]
+      "fields": [
+        { "key": "namespace", "label": "Namespace", "placeholder": "default", "kind": "text" },
+        { "key": "networkPolicy", "label": "Network policy", "placeholder": "deny-all + explicit allow rules", "kind": "text" }
+      ]
     }
   ]
 }

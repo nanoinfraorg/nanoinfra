@@ -1,0 +1,35 @@
+{
+  "id": "logging",
+  "label": "Logging",
+  "category": "Observability",
+  "iconKey": "logging",
+  "providers": [
+    {
+      "id": "loki",
+      "label": "Grafana Loki",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "grafana/loki:3.1.1", "kind": "text" },
+        { "key": "retentionDays", "label": "Retention", "placeholder": "30d", "kind": "text" }
+      ]
+    },
+    {
+      "id": "elk",
+      "label": "Elasticsearch / ELK",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "docker.elastic.co/elasticsearch/elasticsearch:8.15.0", "kind": "text" },
+        { "key": "retentionDays", "label": "Retention", "placeholder": "30d", "kind": "text" }
+      ]
+    },
+    {
+      "id": "cloudwatch-logs",
+      "label": "AWS CloudWatch Logs",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "logGroup", "label": "Log group", "placeholder": "/vllm/inference", "kind": "text" }]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "id": "ingress_controller",
+  "label": "Ingress Controller",
+  "category": "Edge",
+  "iconKey": "ingress",
+  "providers": [
+    {
+      "id": "nginx-ingress",
+      "label": "nginx Ingress Controller",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "registry.k8s.io/ingress-nginx/controller:v1.11.2", "kind": "text" },
+        { "key": "tlsCert", "label": "TLS certificate", "placeholder": "cert-manager ClusterIssuer or TLS secret name", "kind": "text" },
+        { "key": "rateLimit", "label": "Rate limit", "placeholder": "100 req/s per IP", "kind": "text" }
+      ]
+    },
+    {
+      "id": "traefik",
+      "label": "Traefik",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "traefik:v3.1", "kind": "text" },
+        { "key": "tlsCert", "label": "TLS certificate", "placeholder": "cert-manager ClusterIssuer or TLS secret name", "kind": "text" },
+        { "key": "rateLimit", "label": "Rate limit", "placeholder": "100 req/s per IP", "kind": "text" }
+      ]
+    },
+    {
+      "id": "alb-ingress",
+      "label": "AWS Load Balancer Controller (ALB Ingress)",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [
+        { "key": "certificateArn", "label": "ACM certificate ARN", "kind": "text" },
+        { "key": "rateLimit", "label": "Rate limit", "placeholder": "WAF rate-based rule", "kind": "text" }
+      ]
+    }
+  ]
+}

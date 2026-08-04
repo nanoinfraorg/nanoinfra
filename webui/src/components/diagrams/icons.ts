@@ -1,4 +1,6 @@
 import {
+  Activity,
+  Archive,
   Blocks,
   Box,
   Cpu,
@@ -9,6 +11,10 @@ import {
   Group,
   HardDrive,
   KeyRound,
+  Lock,
+  Network,
+  Route,
+  ScrollText,
   Server,
   ShieldCheck,
   User,
@@ -35,6 +41,12 @@ export const COMPONENT_ICONS: Record<string, LucideIcon> = {
   cache: Gauge,
   storage: HardDrive,
   group: Group,
+  ingress: Route,
+  auth: Lock,
+  monitoring: Activity,
+  logging: ScrollText,
+  k8sService: Network,
+  backup: Archive,
 };
 
 export const DEFAULT_COMPONENT_ICON: LucideIcon = Box;
