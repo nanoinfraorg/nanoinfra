@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from nanoinfra.cron.service import CronService
     from nanoinfra.session.manager import SessionManager
     from nanoinfra.triggers.local_store import LocalTriggerStore
+    from nanoinfra.utils.llm_runtime import LLMRuntime
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,7 @@ def build_gateway_services(
     channel_feature_action: Callable[..., Any] | None = None,
     channel_runtime_status: Callable[[], dict[str, Any]] | None = None,
     skill_state_action: Callable[[set[str]], None] | None = None,
+    default_llm_runtime: Callable[[], LLMRuntime | None] | None = None,
     logger: Any = default_logger,
 ) -> GatewayServices:
     tokens = GatewayTokenStore()
@@ -103,6 +105,7 @@ def build_gateway_services(
         channel_feature_action=channel_feature_action,
         channel_runtime_status=channel_runtime_status,
         skill_state_action=skill_state_action,
+        default_llm_runtime=default_llm_runtime,
         log=logger,
     )
     return GatewayServices(

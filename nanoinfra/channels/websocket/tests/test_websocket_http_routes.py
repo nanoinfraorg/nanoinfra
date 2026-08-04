@@ -80,6 +80,7 @@ def _make_handler(
     local_trigger_pending_ids: Any | None = None,
     channel_feature_action: Any | None = None,
     channel_runtime_status: Any | None = None,
+    default_llm_runtime: Any | None = None,
 ) -> GatewayServices:
     config = WebSocketConfig.model_validate(cfg) if isinstance(cfg, dict) else cfg
     workspace = workspace_path or Path.cwd()
@@ -99,6 +100,7 @@ def _make_handler(
         local_trigger_pending_ids=local_trigger_pending_ids,
         channel_feature_action=channel_feature_action,
         channel_runtime_status=channel_runtime_status,
+        default_llm_runtime=default_llm_runtime,
     )
 
 
@@ -116,6 +118,7 @@ def _ch(
     local_trigger_pending_ids: Any | None = None,
     channel_feature_action: Any | None = None,
     channel_runtime_status: Any | None = None,
+    default_llm_runtime: Any | None = None,
     **extra: Any,
 ) -> WebSocketChannel:
     cfg: dict[str, Any] = {
@@ -139,6 +142,7 @@ def _ch(
         local_trigger_pending_ids=local_trigger_pending_ids,
         channel_feature_action=channel_feature_action,
         channel_runtime_status=channel_runtime_status,
+        default_llm_runtime=default_llm_runtime,
     )
     return InProcessHttpChannel(cfg, bus, gateway=gateway)
 
@@ -2975,6 +2979,139 @@ async def test_webui_thread_resigns_assistant_media_urls(
         fetched = await _http_get(f"http://127.0.0.1:29914{media[0]['url']}")
         assert fetched.status_code == 200
         assert fetched.content == b"video"
+    finally:
+        await channel.stop()
+        await server_task
+
+
+@pytest.mark.asyncio
+async def test_webui_thread_get_retries_missing_title(
+    bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Opening a titleless WebUI session should opportunistically (re)generate its title.
+
+    Covers the fire-and-forget gap: turn-completion title generation
+    (``_schedule_title_update_from_event``) has no retry path of its own, so a
+    session that ends up titleless stays that way forever unless something
+    else tries again -- here, simply opening/reopening the thread.
+    """
+    from nanoinfra.providers.base import GenerationSettings
+    from nanoinfra.utils.llm_runtime import LLMRuntime
+    from nanoinfra.webui.transcript import append_transcript_object
+
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
+    bus.publish_outbound = AsyncMock()
+
+    key = "websocket:titleless"
+    append_transcript_object(key, {"event": "user", "chat_id": "titleless", "text": "hi"})
+    append_transcript_object(
+        key, {"event": "message", "chat_id": "titleless", "text": "hello back"}
+    )
+
+    sm = SessionManager(tmp_path)
+    session = Session(key=key)
+    session.metadata["webui"] = True
+    session.add_message("user", "hi")
+    session.add_message("assistant", "hello back")
+    sm.save(session)
+
+    fake_provider = MagicMock()
+    fake_response = MagicMock(content="Friendly Greeting Exchange", finish_reason="stop")
+    fake_provider.chat_with_retry = AsyncMock(return_value=fake_response)
+    fake_runtime = LLMRuntime(
+        provider=fake_provider,
+        model="test-model",
+        generation=GenerationSettings(),
+        context_window_tokens=8_000,
+    )
+
+    port = _free_port()
+    channel = _ch(
+        bus,
+        session_manager=sm,
+        workspace_path=tmp_path,
+        port=port,
+        default_llm_runtime=lambda: fake_runtime,
+    )
+    server_task = asyncio.create_task(channel.start())
+    try:
+        token = channel.gateway.tokens.issue_api_token(300)
+        response = await _http_get(
+            f"http://127.0.0.1:{port}/api/sessions/{key}/webui-thread",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+
+        for _ in range(50):
+            reloaded = sm.get_or_create(key)
+            if reloaded.metadata.get("title"):
+                break
+            await asyncio.sleep(0.02)
+        else:
+            pytest.fail("title was not generated within the retry window")
+
+        assert reloaded.metadata["title"] == "Friendly Greeting Exchange"
+        fake_provider.chat_with_retry.assert_awaited_once()
+        bus.publish_outbound.assert_awaited_once()
+    finally:
+        await channel.stop()
+        await server_task
+
+
+@pytest.mark.asyncio
+async def test_webui_thread_get_skips_title_retry_when_already_titled(
+    bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from nanoinfra.providers.base import GenerationSettings
+    from nanoinfra.utils.llm_runtime import LLMRuntime
+    from nanoinfra.webui.transcript import append_transcript_object
+
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
+
+    key = "websocket:already-titled"
+    append_transcript_object(
+        key, {"event": "user", "chat_id": "already-titled", "text": "hi"}
+    )
+    append_transcript_object(
+        key, {"event": "message", "chat_id": "already-titled", "text": "hello back"}
+    )
+
+    sm = SessionManager(tmp_path)
+    session = Session(key=key)
+    session.metadata["webui"] = True
+    session.metadata["title"] = "Existing Title"
+    session.add_message("user", "hi")
+    session.add_message("assistant", "hello back")
+    sm.save(session)
+
+    fake_provider = MagicMock()
+    fake_provider.chat_with_retry = AsyncMock()
+    fake_runtime = LLMRuntime(
+        provider=fake_provider,
+        model="test-model",
+        generation=GenerationSettings(),
+        context_window_tokens=8_000,
+    )
+
+    port = _free_port()
+    channel = _ch(
+        bus,
+        session_manager=sm,
+        workspace_path=tmp_path,
+        port=port,
+        default_llm_runtime=lambda: fake_runtime,
+    )
+    server_task = asyncio.create_task(channel.start())
+    try:
+        token = channel.gateway.tokens.issue_api_token(300)
+        response = await _http_get(
+            f"http://127.0.0.1:{port}/api/sessions/{key}/webui-thread",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        await asyncio.sleep(0.05)
+        fake_provider.chat_with_retry.assert_not_awaited()
+        assert sm.get_or_create(key).metadata["title"] == "Existing Title"
     finally:
         await channel.stop()
         await server_task
