@@ -28,7 +28,10 @@ import { GroupNode } from "./GroupNode";
 import { defaultEdgeLabel } from "./edgeDefaults";
 import type { DiagramNodeData } from "./diagramTypes";
 
-const NODE_TYPES = { component: DiagramNode, group: GroupNode };
+// Named "groupBox", not "group" — React Flow's base.css ships default
+// border/color styling keyed off a literal node.type of "group"
+// (.react-flow__node-group), which would silently fight our own styling.
+const NODE_TYPES = { component: DiagramNode, groupBox: GroupNode };
 
 // Applied to every edge — both the seeded ones and any drawn by hand — so a
 // new connection never falls back to React Flow's default (unstyled, which
@@ -91,7 +94,7 @@ function findContainingGroup(
 ): Node<DiagramNodeData> | undefined {
   let best: { node: Node<DiagramNodeData>; depth: number } | undefined;
   for (const node of nodes) {
-    if (node.type !== "group") continue;
+    if (node.type !== "groupBox") continue;
     const abs = absolutePositionOf(node, byId);
     const { width, height } = groupDimensions(node);
     if (point.x < abs.x || point.x > abs.x + width || point.y < abs.y || point.y > abs.y + height) continue;
@@ -195,7 +198,7 @@ export function DiagramCanvas({
       // A group can't be dropped into itself or into one of its own
       // descendants — that would create a cycle.
       const newParent = getIntersectingNodes(draggedNode).find(
-        (n) => n.type === "group" && n.id !== draggedNode.id && !descendantIds.has(n.id),
+        (n) => n.type === "groupBox" && n.id !== draggedNode.id && !descendantIds.has(n.id),
       );
 
       if (newParent && newParent.id !== draggedNode.parentId) {

@@ -9,7 +9,7 @@ const GROUP_DEFAULT_WIDTH = 320;
 const GROUP_DEFAULT_HEIGHT = 220;
 
 function nodeDimensions(node: Node<DiagramNodeData>): { width: number; height: number } {
-  if (node.type !== "group") return { width: NODE_WIDTH, height: NODE_HEIGHT };
+  if (node.type !== "groupBox") return { width: NODE_WIDTH, height: NODE_HEIGHT };
   const styleWidth = typeof node.style?.width === "number" ? node.style.width : undefined;
   const styleHeight = typeof node.style?.height === "number" ? node.style.height : undefined;
   return {

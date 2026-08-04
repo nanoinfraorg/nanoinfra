@@ -124,7 +124,7 @@ export function DiagramsView() {
           ...prev,
           {
             id,
-            type: "group",
+            type: "groupBox",
             position: position ?? fallbackPosition(prev.length),
             style: size,
             data: { label: "New Group", componentTypeId: GROUP_COMPONENT_ID, providerId: "generic", config: {} },
@@ -172,7 +172,7 @@ export function DiagramsView() {
   const handleDeleteNode = useCallback(() => {
     if (selection?.kind !== "node" || selectedNode?.data.locked) return;
     const id = selection.id;
-    const groupBeingDeleted = selectedNode?.type === "group" ? selectedNode : undefined;
+    const groupBeingDeleted = selectedNode?.type === "groupBox" ? selectedNode : undefined;
     setNodes((prev) =>
       prev
         .filter((n) => n.id !== id)
