@@ -270,9 +270,17 @@ export function DiagramCanvas({
 
   const handleAutoLayout = useCallback(() => {
     onNodesChange(autoLayout(nodes, edges));
+    // A manually-picked side handle (left/right) is a fix for one specific,
+    // hand-placed geometry — dagre's TB layout assumes the default top/
+    // bottom flow, so a handle override left over from before auto-layout
+    // ran can end up routing straight through whatever dagre placed nearby.
+    // Auto Layout owns the whole geometry now, so it resets the handles too.
+    if (edges.some((e) => e.sourceHandle || e.targetHandle)) {
+      onEdgesChange(edges.map((e) => ({ ...e, sourceHandle: undefined, targetHandle: undefined })));
+    }
     // Let the new positions commit to the DOM before re-fitting the view.
     requestAnimationFrame(() => fitView(FIT_VIEW_OPTIONS));
-  }, [nodes, edges, onNodesChange, fitView]);
+  }, [nodes, edges, onNodesChange, onEdgesChange, fitView]);
 
   const handleInit = useCallback((instance: ReactFlowInstance<Node<DiagramNodeData>, Edge>) => {
     // React Flow's declarative `fitView` prop can fire before the flex

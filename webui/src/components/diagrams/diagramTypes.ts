@@ -23,6 +23,12 @@ export interface DiagramEdge {
   source: string;
   target: string;
   label: string;
+  // Optional — most edges use each node's default top/bottom handle. Set
+  // these (e.g. "left"/"right") to route a side-by-side connection straight
+  // across instead of forcing a detour through whatever sits between the
+  // two nodes' default handles.
+  sourceHandle?: string;
+  targetHandle?: string;
 }
 
 export interface Diagram {

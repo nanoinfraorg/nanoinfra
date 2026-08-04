@@ -1,13 +1,14 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ReactFlowProvider, type Edge, type Node } from "@xyflow/react";
-import { Check, ChevronDown, Code2, Waypoints } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, Code2, Save, Waypoints } from "lucide-react";
 
 import { ComponentPalette } from "./ComponentPalette";
 import { DiagramCanvas, type DiagramSelection } from "./DiagramCanvas";
+import { DiagramList } from "./DiagramList";
 import { EdgeInspector, EmptyInspector, NodeInspector } from "./DiagramInspector";
 import { diagramToText } from "./diagramToText";
 import { COMPONENT_TYPES, GROUP_COMPONENT_ID } from "./componentCatalog";
-import { SEED_DIAGRAM } from "./seedDiagram";
+import { createBlankDiagram, deleteDiagram, listDiagrams, loadDiagram, saveDiagram } from "./diagramStore";
 import type { Diagram, DiagramNodeData } from "./diagramTypes";
 
 type ViewMode = "visual" | "code";
@@ -30,7 +31,14 @@ function toFlowNodes(diagram: Diagram): Node<DiagramNodeData>[] {
 function toFlowEdges(diagram: Diagram): Edge[] {
   // Label/line styling is centralized in DiagramCanvas's defaultEdgeOptions
   // so both seeded and hand-drawn edges render identically.
-  return diagram.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, label: e.label }));
+  return diagram.edges.map((e) => ({
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    label: e.label,
+    sourceHandle: e.sourceHandle,
+    targetHandle: e.targetHandle,
+  }));
 }
 
 function TargetPicker({
@@ -76,18 +84,22 @@ function TargetPicker({
   );
 }
 
-/**
- * Prototype only: fake/local data, no backend calls, no persistence.
- * Validates the Visual (canvas + inspector) / Code (generated text) UX
- * before the real Component/Provider model and agent tools exist.
- */
-export function DiagramsView() {
+interface DiagramEditorProps {
+  diagram: Diagram;
+  onBack: () => void;
+  onSaved: (diagram: Diagram) => void;
+}
+
+/** Prototype only: mock/local persistence (localStorage) stands in for a future diagrams API. */
+function DiagramEditor({ diagram, onBack, onSaved }: DiagramEditorProps) {
   const [mode, setMode] = useState<ViewMode>("visual");
-  const [diagramName] = useState(SEED_DIAGRAM.name);
-  const [targets, setTargets] = useState<string[]>(SEED_DIAGRAM.targets);
-  const [nodes, setNodes] = useState<Node<DiagramNodeData>[]>(() => toFlowNodes(SEED_DIAGRAM));
-  const [edges, setEdges] = useState<Edge[]>(() => toFlowEdges(SEED_DIAGRAM));
+  const [diagramId, setDiagramId] = useState(diagram.id);
+  const [diagramName, setDiagramName] = useState(diagram.name);
+  const [targets, setTargets] = useState<string[]>(diagram.targets);
+  const [nodes, setNodes] = useState<Node<DiagramNodeData>[]>(() => toFlowNodes(diagram));
+  const [edges, setEdges] = useState<Edge[]>(() => toFlowEdges(diagram));
   const [selection, setSelection] = useState<DiagramSelection>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
   const selectedNode = useMemo(
     () => (selection?.kind === "node" ? nodes.find((n) => n.id === selection.id) ?? null : null),
@@ -100,7 +112,7 @@ export function DiagramsView() {
 
   const diagramAsData = useMemo<Diagram>(
     () => ({
-      id: "prototype",
+      id: diagramId,
       name: diagramName,
       targets,
       nodes: nodes.map((n) => ({
@@ -110,12 +122,26 @@ export function DiagramsView() {
         type: n.type as "component" | "groupBox" | undefined,
         parentId: n.parentId,
       })),
-      edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, label: String(e.label ?? "") })),
+      edges: edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        label: String(e.label ?? ""),
+        sourceHandle: e.sourceHandle ?? undefined,
+        targetHandle: e.targetHandle ?? undefined,
+      })),
     }),
-    [diagramName, targets, nodes, edges],
+    [diagramId, diagramName, targets, nodes, edges],
   );
 
   const generatedText = useMemo(() => diagramToText(diagramAsData), [diagramAsData]);
+
+  const handleSave = useCallback(() => {
+    const saved = saveDiagram(diagramAsData);
+    setDiagramId(saved.id);
+    setLastSavedAt(new Date().toLocaleTimeString());
+    onSaved(saved);
+  }, [diagramAsData, onSaved]);
 
   const handleToggleTarget = useCallback((server: string) => {
     setTargets((prev) => (prev.includes(server) ? prev.filter((s) => s !== server) : [...prev, server]));
@@ -228,11 +254,31 @@ export function DiagramsView() {
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="flex flex-col">
-          <span className="text-[14px] font-semibold text-foreground">{diagramName}</span>
-          <span className="text-[11px] text-muted-foreground">
-            {targets.length > 0 ? `Targets: ${targets.join(", ")}` : "No targets selected yet"}
-          </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Back to diagrams"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <div className="flex flex-col">
+            <input
+              value={diagramName}
+              onChange={(event) => setDiagramName(event.target.value)}
+              placeholder="Untitled diagram"
+              // Width tracks the title's own length (clamped) so it reads like
+              // editable text, not a cramped fixed-size box — the browser
+              // default (~20ch) truncated most real titles.
+              style={{ width: `${Math.min(Math.max(diagramName.length, 10), 60) + 2}ch` }}
+              className="-ml-1.5 max-w-full rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-[14px] font-semibold text-foreground outline-none hover:border-border/45 focus:border-border focus:bg-muted/70"
+            />
+            <span className="text-[11px] text-muted-foreground">
+              {targets.length > 0 ? `Targets: ${targets.join(", ")}` : "No targets selected yet"}
+              {lastSavedAt ? ` · Saved ${lastSavedAt}` : diagramId ? "" : " · Not saved yet"}
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <TargetPicker targets={targets} onToggle={handleToggleTarget} />
@@ -258,6 +304,13 @@ export function DiagramsView() {
               <Code2 className="h-3.5 w-3.5" /> Code
             </button>
           </div>
+          <button
+            type="button"
+            onClick={handleSave}
+            className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70"
+          >
+            <Save className="h-3.5 w-3.5" /> Save
+          </button>
         </div>
       </div>
 
@@ -306,7 +359,8 @@ export function DiagramsView() {
       ) : (
         <div className="min-h-0 flex-1 overflow-auto bg-background p-4">
           <div className="mb-2 text-[11px] text-muted-foreground">
-            Read-only preview generated from the visual diagram — switch back to Visual to edit.
+            Read-only preview generated from the visual diagram — switch back to Visual to edit. Includes the
+            Mermaid frontmatter title, so this text is a complete, pasteable Mermaid diagram.
           </div>
           <pre className="rounded-[14px] border border-border/45 bg-settings-surface p-4 text-[12.5px] leading-relaxed text-foreground">
             <code>{generatedText}</code>
@@ -314,5 +368,113 @@ export function DiagramsView() {
         </div>
       )}
     </div>
+  );
+}
+
+type Screen = { kind: "list" } | { kind: "editor"; diagram: Diagram };
+
+interface DiagramsViewProps {
+  // Which saved diagram (by UUID) the URL says should be open — lets a page
+  // reload or a browser back/forward land back on the same diagram instead
+  // of always dropping to the list.
+  diagramId?: string | null;
+  onDiagramIdChange?: (id: string | null, options?: { replace?: boolean }) => void;
+}
+
+/**
+ * Prototype only: fake/local data, no backend calls. Diagrams persist to
+ * localStorage (see diagramStore.ts) as a stand-in for a future diagrams
+ * API — good enough to validate the Generate / Save / Edit UX before the
+ * real Component/Provider model and agent tools exist.
+ */
+export function DiagramsView({ diagramId = null, onDiagramIdChange }: DiagramsViewProps) {
+  const [screen, setScreen] = useState<Screen>(() => {
+    const diagram = diagramId ? loadDiagram(diagramId) : null;
+    return diagram ? { kind: "editor", diagram } : { kind: "list" };
+  });
+  const [diagrams, setDiagrams] = useState(() => listDiagrams());
+
+  // Tracks the id *we* last told the caller about (via onDiagramIdChange),
+  // so the sync effect below can tell "the diagramId prop changed because
+  // something outside us navigated (back/forward, a deep link)" apart from
+  // "it changed because our own action just echoed back through the
+  // caller's state" — without this, every internal open/save/back would
+  // immediately be undone by the effect re-reading a diagramId prop that
+  // hasn't caught up yet (or, with no caller wired up at all, never will).
+  const lastEmittedIdRef = useRef(diagramId);
+
+  useEffect(() => {
+    if (diagramId === lastEmittedIdRef.current) return;
+    lastEmittedIdRef.current = diagramId;
+    const diagram = diagramId ? loadDiagram(diagramId) : null;
+    setScreen(diagram ? { kind: "editor", diagram } : { kind: "list" });
+  }, [diagramId]);
+
+  const refreshList = useCallback(() => setDiagrams(listDiagrams()), []);
+
+  const handleNew = useCallback(() => {
+    // Persisted immediately (assigning its UUID right away) instead of
+    // waiting for an explicit Save — otherwise the diagram has no id, so
+    // there's nothing to put in the URL, and a reload while still editing a
+    // brand-new diagram drops straight back to the list with it gone.
+    const diagram = saveDiagram(createBlankDiagram());
+    refreshList();
+    setScreen({ kind: "editor", diagram });
+    lastEmittedIdRef.current = diagram.id;
+    onDiagramIdChange?.(diagram.id);
+  }, [refreshList, onDiagramIdChange]);
+
+  const handleOpen = useCallback(
+    (id: string) => {
+      const diagram = loadDiagram(id);
+      if (!diagram) return;
+      setScreen({ kind: "editor", diagram });
+      lastEmittedIdRef.current = id;
+      onDiagramIdChange?.(id);
+    },
+    [onDiagramIdChange],
+  );
+
+  const handleDelete = useCallback(
+    (id: string) => {
+      deleteDiagram(id);
+      refreshList();
+    },
+    [refreshList],
+  );
+
+  const handleBack = useCallback(() => {
+    refreshList();
+    setScreen({ kind: "list" });
+    lastEmittedIdRef.current = null;
+    onDiagramIdChange?.(null);
+  }, [refreshList, onDiagramIdChange]);
+
+  const handleSaved = useCallback(
+    (diagram: Diagram) => {
+      refreshList();
+      // Re-key the editor with the assigned id so a second Save updates the
+      // same record instead of minting a new UUID on every click.
+      setScreen({ kind: "editor", diagram });
+      // Only the *first* save (assigning a fresh id) is a real navigation —
+      // the diagram becomes addressable at a URL that didn't exist before,
+      // so it's pushed, not replaced. Skipping the call on every later save
+      // (id unchanged) also avoids replacing the URL entry out from under
+      // whatever the user already pushed since (e.g. having opened a
+      // different diagram, then coming back and saving this one again).
+      if (diagram.id !== lastEmittedIdRef.current) {
+        lastEmittedIdRef.current = diagram.id;
+        onDiagramIdChange?.(diagram.id);
+      }
+    },
+    [refreshList, onDiagramIdChange],
+  );
+
+  if (screen.kind === "list") {
+    return <DiagramList diagrams={diagrams} onOpen={handleOpen} onNew={handleNew} onDelete={handleDelete} />;
+  }
+
+  return (
+    <DiagramEditor key={screen.diagram.id || "new"} diagram={screen.diagram} onBack={handleBack} onSaved={handleSaved} />
   );
 }

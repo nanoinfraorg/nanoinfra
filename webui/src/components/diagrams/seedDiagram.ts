@@ -2,7 +2,7 @@ import { GROUP_COMPONENT_ID } from "./componentCatalog";
 import type { Diagram } from "./diagramTypes";
 
 export const SEED_DIAGRAM: Diagram = {
-  id: "seed-1",
+  id: "1c6e8754-0c69-4e08-a2cc-116fdea2131c",
   name: "Example: web app with cache + replica",
   targets: ["prod-web-01"],
   nodes: [
@@ -49,7 +49,7 @@ export const SEED_DIAGRAM: Diagram = {
     {
       id: "storage-group",
       type: "groupBox",
-      position: { x: 380, y: 380 },
+      position: { x: 480, y: 620 },
       style: { width: 300, height: 420 },
       data: { label: "Storage via Isilon", componentTypeId: GROUP_COMPONENT_ID, providerId: "generic", config: {} },
     },
@@ -94,8 +94,12 @@ export const SEED_DIAGRAM: Diagram = {
     { id: "e4", source: "web", target: "db", label: "Read/Write" },
     { id: "e5", source: "web", target: "cache", label: "Cache/Session" },
     { id: "e6", source: "db", target: "replica", label: "Replicate" },
-    { id: "e7", source: "web", target: "storage-web", label: "Read/Write" },
-    { id: "e8", source: "db", target: "storage-db", label: "Read/Write" },
-    { id: "e9", source: "cache", target: "storage-cache", label: "Read/Write" },
+    // These three connect a node to something inside the storage sidebar to
+    // its right, not something below it — routing them via the side handles
+    // keeps them a straight line across instead of a detour through
+    // whatever node happens to sit between the two default top/bottom ones.
+    { id: "e7", source: "web", target: "storage-web", label: "Read/Write", sourceHandle: "right", targetHandle: "left" },
+    { id: "e8", source: "db", target: "storage-db", label: "Read/Write", sourceHandle: "right", targetHandle: "left" },
+    { id: "e9", source: "cache", target: "storage-cache", label: "Read/Write", sourceHandle: "right", targetHandle: "left" },
   ],
 };
