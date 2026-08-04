@@ -11,6 +11,7 @@
       "integration": { "type": "internal" },
       "fields": [
         { "key": "gpuModel", "label": "GPU / NPU model", "placeholder": "H100, A100, L40S, MI300X...", "kind": "text" },
+        { "key": "gpuCount", "label": "GPU / NPU count", "placeholder": "1, 4, 8...", "kind": "text" },
         { "key": "image", "label": "Image tag", "placeholder": "nvidia/cuda:12.5-runtime", "kind": "text" }
       ]
     },
@@ -21,6 +22,7 @@
       "integration": { "type": "api" },
       "fields": [
         { "key": "gpuModel", "label": "GPU / NPU model", "placeholder": "H100, A100, L40S, MI300X...", "kind": "text" },
+        { "key": "gpuCount", "label": "GPU / NPU count", "placeholder": "1, 4, 8...", "kind": "text" },
         { "key": "instanceType", "label": "Instance type", "placeholder": "g5.xlarge", "kind": "text" }
       ]
     }
