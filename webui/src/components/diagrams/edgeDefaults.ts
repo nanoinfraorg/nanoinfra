@@ -28,6 +28,8 @@ const PAIR_DEFAULTS: Record<string, string> = {
   "application->database": "Read/Write",
   "application->cache": "Cache/Session",
   "application->storage": "Read/Write",
+  "database->storage": "Read/Write",
+  "cache->storage": "Read/Write",
 };
 
 export function defaultEdgeLabel(sourceComponentTypeId: string, targetComponentTypeId: string): string {

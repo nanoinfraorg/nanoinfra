@@ -150,7 +150,13 @@ export const COMPONENT_TYPES: ComponentType[] = [
         fields: [
           { key: "image", label: "Image tag", placeholder: "nginx:1.27", kind: "text" },
           { key: "domains", label: "Domains", placeholder: "example.com, www.example.com", kind: "text" },
-          { key: "storagePath", label: "Storage path", placeholder: "/srv/websites/example", kind: "text" },
+          {
+            key: "storagePath",
+            label: "Storage path",
+            placeholder: "/srv/websites/example",
+            kind: "text",
+            linkedComponentType: "storage",
+          },
         ],
       },
       {

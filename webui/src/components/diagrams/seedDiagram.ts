@@ -1,3 +1,4 @@
+import { GROUP_COMPONENT_ID } from "./componentCatalog";
 import type { Diagram } from "./diagramTypes";
 
 export const SEED_DIAGRAM: Diagram = {
@@ -27,7 +28,7 @@ export const SEED_DIAGRAM: Diagram = {
         label: "Web Application Server",
         componentTypeId: "web_server",
         providerId: "nginx",
-        config: { image: "nginx:1.27", domains: "example.com, www.example.com", storagePath: "/srv/websites/example" },
+        config: { image: "nginx:1.27", domains: "example.com, www.example.com" },
       },
     },
     {
@@ -45,6 +46,46 @@ export const SEED_DIAGRAM: Diagram = {
       position: { x: -140, y: 640 },
       data: { label: "Read Replica", componentTypeId: "database", providerId: "postgres", config: { image: "postgres:17" } },
     },
+    {
+      id: "storage-group",
+      type: "groupBox",
+      position: { x: 380, y: 380 },
+      style: { width: 300, height: 420 },
+      data: { label: "Storage via Isilon", componentTypeId: GROUP_COMPONENT_ID, providerId: "generic", config: {} },
+    },
+    {
+      id: "storage-web",
+      parentId: "storage-group",
+      position: { x: 20, y: 50 },
+      data: {
+        label: "Storage",
+        componentTypeId: "storage",
+        providerId: "pvc",
+        config: { claimName: "nginx-pvc", size: "20Gi" },
+      },
+    },
+    {
+      id: "storage-db",
+      parentId: "storage-group",
+      position: { x: 20, y: 170 },
+      data: {
+        label: "Storage",
+        componentTypeId: "storage",
+        providerId: "pvc",
+        config: { claimName: "postgres-pvc", size: "200Gi" },
+      },
+    },
+    {
+      id: "storage-cache",
+      parentId: "storage-group",
+      position: { x: 20, y: 290 },
+      data: {
+        label: "Storage",
+        componentTypeId: "storage",
+        providerId: "pvc",
+        config: { claimName: "redis-pvc", size: "50Gi" },
+      },
+    },
   ],
   edges: [
     { id: "e1", source: "client", target: "dns", label: "HTTPS" },
@@ -53,5 +94,8 @@ export const SEED_DIAGRAM: Diagram = {
     { id: "e4", source: "web", target: "db", label: "Read/Write" },
     { id: "e5", source: "web", target: "cache", label: "Cache/Session" },
     { id: "e6", source: "db", target: "replica", label: "Replicate" },
+    { id: "e7", source: "web", target: "storage-web", label: "Read/Write" },
+    { id: "e8", source: "db", target: "storage-db", label: "Read/Write" },
+    { id: "e9", source: "cache", target: "storage-cache", label: "Read/Write" },
   ],
 };
