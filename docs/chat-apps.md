@@ -224,7 +224,7 @@ Without these dependencies, Mochat still works through HTTP polling.
 Simply send this message to nanoinfra (replace `xxx@xxx` with your real email):
 
 ```
-Read https://raw.githubusercontent.com/HKUDS/MoChat/refs/heads/main/skills/nanoinfra/skill.md and register on MoChat. My Email account is xxx@xxx Bind me as your owner and DM me on MoChat.
+Read https://raw.githubusercontent.com/HKUDS/MoChat/refs/heads/main/skills/nanobot/skill.md and register on MoChat. My Email account is xxx@xxx Bind me as your owner and DM me on MoChat.
 ```
 
 nanoinfra will automatically register, configure `~/.nanoinfra/config.json`, and connect to Mochat.

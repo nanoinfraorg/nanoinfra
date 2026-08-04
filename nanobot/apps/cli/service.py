@@ -27,8 +27,8 @@ from nanoinfra.security.workspace_policy import is_path_within
 CLI_ANYTHING_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/registry.json"
 CLI_ANYTHING_PUBLIC_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/public_registry.json"
 CLI_ANYTHING_RAW_BASE = "https://raw.githubusercontent.com/HKUDS/CLI-Anything/main"
-NANOINFRA_EXTENSION_REGISTRY_URL = "https://raw.githubusercontent.com/Re-bin/nanoinfra-extension/main/registry.json"
-NANOINFRA_EXTENSION_RAW_BASE = "https://raw.githubusercontent.com/Re-bin/nanoinfra-extension/main"
+NANOINFRA_EXTENSION_REGISTRY_URL = "https://raw.githubusercontent.com/Re-bin/nanobot-extension/main/registry.json"
+NANOINFRA_EXTENSION_RAW_BASE = "https://raw.githubusercontent.com/Re-bin/nanobot-extension/main"
 _CATALOG_SOURCES = (
     ("harness", CLI_ANYTHING_REGISTRY_URL, CLI_ANYTHING_RAW_BASE, True),
     ("public", CLI_ANYTHING_PUBLIC_REGISTRY_URL, CLI_ANYTHING_RAW_BASE, True),
@@ -575,11 +575,11 @@ class CliAppManager:
     def _manifest_source(self, app: dict[str, Any]) -> str:
         source = str(app.get("_source") or "harness")
         if source == "extensions":
-            return "nanoinfra-extension"
+            return "nanobot-extension"
         return f"cli-anything:{source}"
 
     def _trust_registry(self, app: dict[str, Any]) -> str:
-        return "nanoinfra-extension" if str(app.get("_source") or "") == "extensions" else "cli-anything"
+        return "nanobot-extension" if str(app.get("_source") or "") == "extensions" else "cli-anything"
 
     def get_app(self, name: str, *, force_refresh: bool = False) -> dict[str, Any]:
         wanted = name.lower()
