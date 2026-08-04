@@ -7,14 +7,14 @@ import { DiagramCanvas, type DiagramSelection } from "./DiagramCanvas";
 import { DiagramList } from "./DiagramList";
 import { EdgeInspector, EmptyInspector, NodeInspector } from "./DiagramInspector";
 import { diagramToText } from "./diagramToText";
-import { COMPONENT_TYPES, GROUP_COMPONENT_ID } from "./componentCatalog";
-import { createBlankDiagram, deleteDiagram, listDiagrams, loadDiagram, saveDiagram } from "./diagramStore";
-import type { Diagram, DiagramNodeData } from "./diagramTypes";
+import { ComponentCatalogProvider, useComponentCatalog } from "./useComponentCatalog";
+import { useDiagrams } from "@/hooks/useDiagrams";
+import { createBlankDiagram, type Diagram, type DiagramNodeData } from "./diagramTypes";
 
 type ViewMode = "visual" | "code";
 
-// Fake server inventory for the mock — the real list comes from the future
-// Server Management module (ssh / ansible-runner / ssm / api backends).
+// Fake server inventory — the real list comes from the future Server
+// Management module (ssh / ansible-runner / ssm / api backends).
 const FAKE_SERVERS = ["prod-web-01", "prod-web-02", "staging-01"];
 
 function toFlowNodes(diagram: Diagram): Node<DiagramNodeData>[] {
@@ -88,10 +88,11 @@ interface DiagramEditorProps {
   diagram: Diagram;
   onBack: () => void;
   onSaved: (diagram: Diagram) => void;
+  onSave: (diagram: Diagram) => Promise<Diagram>;
 }
 
-/** Prototype only: mock/local persistence (localStorage) stands in for a future diagrams API. */
-function DiagramEditor({ diagram, onBack, onSaved }: DiagramEditorProps) {
+function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps) {
+  const { componentTypes, findComponentType, groupType } = useComponentCatalog();
   const [mode, setMode] = useState<ViewMode>("visual");
   const [diagramId, setDiagramId] = useState(diagram.id);
   const [diagramName, setDiagramName] = useState(diagram.name);
@@ -100,6 +101,8 @@ function DiagramEditor({ diagram, onBack, onSaved }: DiagramEditorProps) {
   const [edges, setEdges] = useState<Edge[]>(() => toFlowEdges(diagram));
   const [selection, setSelection] = useState<DiagramSelection>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const selectedNode = useMemo(
     () => (selection?.kind === "node" ? nodes.find((n) => n.id === selection.id) ?? null : null),
@@ -134,14 +137,25 @@ function DiagramEditor({ diagram, onBack, onSaved }: DiagramEditorProps) {
     [diagramId, diagramName, targets, nodes, edges],
   );
 
-  const generatedText = useMemo(() => diagramToText(diagramAsData), [diagramAsData]);
+  const generatedText = useMemo(
+    () => diagramToText(diagramAsData, componentTypes),
+    [diagramAsData, componentTypes],
+  );
 
-  const handleSave = useCallback(() => {
-    const saved = saveDiagram(diagramAsData);
-    setDiagramId(saved.id);
-    setLastSavedAt(new Date().toLocaleTimeString());
-    onSaved(saved);
-  }, [diagramAsData, onSaved]);
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const saved = await onSave(diagramAsData);
+      setDiagramId(saved.id);
+      setLastSavedAt(new Date().toLocaleTimeString());
+      onSaved(saved);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }, [diagramAsData, onSave, onSaved]);
 
   const handleToggleTarget = useCallback((server: string) => {
     setTargets((prev) => (prev.includes(server) ? prev.filter((s) => s !== server) : [...prev, server]));
@@ -153,7 +167,7 @@ function DiagramEditor({ diagram, onBack, onSaved }: DiagramEditorProps) {
       const fallbackPosition = (offset: number) => ({ x: 120 + offset * 40, y: 80 + offset * 30 });
       const parentFields = parentId ? { parentId, extent: "parent" as const } : {};
 
-      if (componentTypeId === GROUP_COMPONENT_ID) {
+      if (groupType && componentTypeId === groupType.id) {
         // A group nested inside another group defaults smaller than its
         // parent's own default size, so it visually fits instead of
         // overflowing and overlapping siblings — the outer size is roomy
@@ -166,7 +180,7 @@ function DiagramEditor({ diagram, onBack, onSaved }: DiagramEditorProps) {
             type: "groupBox",
             position: position ?? fallbackPosition(prev.length),
             style: size,
-            data: { label: "New Group", componentTypeId: GROUP_COMPONENT_ID, providerId: "generic", config: {} },
+            data: { label: "New Group", componentTypeId: groupType.id, providerId: "generic", config: {} },
             ...parentFields,
           },
         ]);
@@ -174,7 +188,7 @@ function DiagramEditor({ diagram, onBack, onSaved }: DiagramEditorProps) {
         return;
       }
 
-      const type = COMPONENT_TYPES.find((c) => c.id === componentTypeId);
+      const type = findComponentType(componentTypeId);
       if (!type) return;
       setNodes((prev) => [
         ...prev,
@@ -193,7 +207,7 @@ function DiagramEditor({ diagram, onBack, onSaved }: DiagramEditorProps) {
       ]);
       setSelection({ kind: "node", id });
     },
-    [],
+    [groupType, findComponentType],
   );
 
   const updateSelectedNode = useCallback(
@@ -278,6 +292,9 @@ function DiagramEditor({ diagram, onBack, onSaved }: DiagramEditorProps) {
               {targets.length > 0 ? `Targets: ${targets.join(", ")}` : "No targets selected yet"}
               {lastSavedAt ? ` · Saved ${lastSavedAt}` : diagramId ? "" : " · Not saved yet"}
             </span>
+            {saveError ? (
+              <span className="text-[11px] text-destructive">Failed to save: {saveError}</span>
+            ) : null}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -306,10 +323,11 @@ function DiagramEditor({ diagram, onBack, onSaved }: DiagramEditorProps) {
           </div>
           <button
             type="button"
-            onClick={handleSave}
-            className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70"
+            onClick={() => void handleSave()}
+            disabled={saving}
+            className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <Save className="h-3.5 w-3.5" /> Save
+            <Save className="h-3.5 w-3.5" /> {saving ? "Saving…" : "Save"}
           </button>
         </div>
       </div>
@@ -371,7 +389,7 @@ function DiagramEditor({ diagram, onBack, onSaved }: DiagramEditorProps) {
   );
 }
 
-type Screen = { kind: "list" } | { kind: "editor"; diagram: Diagram };
+type Screen = { kind: "list" } | { kind: "loading" } | { kind: "editor"; diagram: Diagram };
 
 interface DiagramsViewProps {
   // Which saved diagram (by UUID) the URL says should be open — lets a page
@@ -382,17 +400,12 @@ interface DiagramsViewProps {
 }
 
 /**
- * Prototype only: fake/local data, no backend calls. Diagrams persist to
- * localStorage (see diagramStore.ts) as a stand-in for a future diagrams
- * API — good enough to validate the Generate / Save / Edit UX before the
- * real Component/Provider model and agent tools exist.
+ * Diagrams persist through `/api/webui/diagrams*` (see `nanoinfra/diagrams/`)
+ * via the `useDiagrams` hook — real, workspace-scoped storage, not a mock.
  */
 export function DiagramsView({ diagramId = null, onDiagramIdChange }: DiagramsViewProps) {
-  const [screen, setScreen] = useState<Screen>(() => {
-    const diagram = diagramId ? loadDiagram(diagramId) : null;
-    return diagram ? { kind: "editor", diagram } : { kind: "list" };
-  });
-  const [diagrams, setDiagrams] = useState(() => listDiagrams());
+  const { diagrams, load, save, remove, refresh } = useDiagrams();
+  const [screen, setScreen] = useState<Screen>(diagramId ? { kind: "loading" } : { kind: "list" });
 
   // Tracks the id *we* last told the caller about (via onDiagramIdChange),
   // so the sync effect below can tell "the diagramId prop changed because
@@ -400,59 +413,68 @@ export function DiagramsView({ diagramId = null, onDiagramIdChange }: DiagramsVi
   // "it changed because our own action just echoed back through the
   // caller's state" — without this, every internal open/save/back would
   // immediately be undone by the effect re-reading a diagramId prop that
-  // hasn't caught up yet (or, with no caller wired up at all, never will).
-  const lastEmittedIdRef = useRef(diagramId);
+  // hasn't caught up yet. Seeded with a sentinel (not `diagramId` itself) so
+  // the effect also fires once on mount to fetch the initially-requested id.
+  const lastEmittedIdRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     if (diagramId === lastEmittedIdRef.current) return;
     lastEmittedIdRef.current = diagramId;
-    const diagram = diagramId ? loadDiagram(diagramId) : null;
-    setScreen(diagram ? { kind: "editor", diagram } : { kind: "list" });
-  }, [diagramId]);
+    if (!diagramId) {
+      setScreen({ kind: "list" });
+      return;
+    }
+    let cancelled = false;
+    setScreen({ kind: "loading" });
+    void load(diagramId).then((diagram) => {
+      if (cancelled) return;
+      setScreen(diagram ? { kind: "editor", diagram } : { kind: "list" });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [diagramId, load]);
 
-  const refreshList = useCallback(() => setDiagrams(listDiagrams()), []);
-
-  const handleNew = useCallback(() => {
+  const handleNew = useCallback(async () => {
     // Persisted immediately (assigning its UUID right away) instead of
     // waiting for an explicit Save — otherwise the diagram has no id, so
     // there's nothing to put in the URL, and a reload while still editing a
     // brand-new diagram drops straight back to the list with it gone.
-    const diagram = saveDiagram(createBlankDiagram());
-    refreshList();
+    const diagram = await save(createBlankDiagram());
     setScreen({ kind: "editor", diagram });
     lastEmittedIdRef.current = diagram.id;
     onDiagramIdChange?.(diagram.id);
-  }, [refreshList, onDiagramIdChange]);
+  }, [save, onDiagramIdChange]);
 
   const handleOpen = useCallback(
-    (id: string) => {
-      const diagram = loadDiagram(id);
+    async (id: string) => {
+      const diagram = await load(id);
       if (!diagram) return;
       setScreen({ kind: "editor", diagram });
       lastEmittedIdRef.current = id;
       onDiagramIdChange?.(id);
     },
-    [onDiagramIdChange],
+    [load, onDiagramIdChange],
   );
 
   const handleDelete = useCallback(
     (id: string) => {
-      deleteDiagram(id);
-      refreshList();
+      remove(id).catch((e: unknown) => {
+        console.error("Failed to delete diagram", e);
+      });
     },
-    [refreshList],
+    [remove],
   );
 
   const handleBack = useCallback(() => {
-    refreshList();
+    void refresh();
     setScreen({ kind: "list" });
     lastEmittedIdRef.current = null;
     onDiagramIdChange?.(null);
-  }, [refreshList, onDiagramIdChange]);
+  }, [refresh, onDiagramIdChange]);
 
   const handleSaved = useCallback(
     (diagram: Diagram) => {
-      refreshList();
       // Re-key the editor with the assigned id so a second Save updates the
       // same record instead of minting a new UUID on every click.
       setScreen({ kind: "editor", diagram });
@@ -467,14 +489,26 @@ export function DiagramsView({ diagramId = null, onDiagramIdChange }: DiagramsVi
         onDiagramIdChange?.(diagram.id);
       }
     },
-    [refreshList, onDiagramIdChange],
+    [onDiagramIdChange],
   );
 
-  if (screen.kind === "list") {
-    return <DiagramList diagrams={diagrams} onOpen={handleOpen} onNew={handleNew} onDelete={handleDelete} />;
-  }
-
   return (
-    <DiagramEditor key={screen.diagram.id || "new"} diagram={screen.diagram} onBack={handleBack} onSaved={handleSaved} />
+    <ComponentCatalogProvider>
+      {screen.kind === "loading" ? (
+        <div className="flex h-full w-full items-center justify-center text-[13px] text-muted-foreground">
+          Loading…
+        </div>
+      ) : screen.kind === "list" ? (
+        <DiagramList diagrams={diagrams} onOpen={handleOpen} onNew={handleNew} onDelete={handleDelete} />
+      ) : (
+        <DiagramEditor
+          key={screen.diagram.id || "new"}
+          diagram={screen.diagram}
+          onBack={handleBack}
+          onSaved={handleSaved}
+          onSave={save}
+        />
+      )}
+    </ComponentCatalogProvider>
   );
 }

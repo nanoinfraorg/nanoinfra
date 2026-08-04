@@ -1,14 +1,15 @@
 import { Lock } from "lucide-react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
-import { COMPONENT_ICONS } from "./icons";
-import { findComponentType, findProvider } from "./componentCatalog";
+import { getComponentIcon } from "./icons";
+import { useComponentCatalog } from "./useComponentCatalog";
 import { buildFieldLegend } from "./nodeLegend";
 import type { DiagramNodeData } from "./diagramTypes";
 
 export function DiagramNode({ data, selected }: NodeProps & { data: DiagramNodeData }) {
+  const { findComponentType, findProvider } = useComponentCatalog();
   const type = findComponentType(data.componentTypeId);
-  const Icon = type ? COMPONENT_ICONS[type.iconKey] : undefined;
+  const Icon = getComponentIcon(type?.iconKey ?? "");
   const provider = findProvider(data.componentTypeId, data.providerId);
   const { legend, legendTitle, hasMore } = buildFieldLegend(provider, data.config);
 
@@ -37,11 +38,9 @@ export function DiagramNode({ data, selected }: NodeProps & { data: DiagramNodeD
         id="right"
         className="!h-2 !w-2 !border-none !bg-border"
       />
-      {Icon ? (
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-muted text-foreground">
-          <Icon className="h-4 w-4" />
-        </div>
-      ) : null}
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-muted text-foreground">
+        <Icon className="h-4 w-4" />
+      </div>
       <div className="flex min-w-0 max-w-[220px] flex-col">
         <span className="truncate text-[13px] font-medium text-foreground">{data.label}</span>
         <span className="truncate text-[11px] text-muted-foreground">{type?.label ?? data.componentTypeId}</span>

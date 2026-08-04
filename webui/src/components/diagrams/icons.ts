@@ -1,5 +1,6 @@
 import {
   Blocks,
+  Box,
   Cpu,
   Database,
   Flame,
@@ -15,9 +16,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import type { IconKey } from "./componentCatalog";
-
-export const COMPONENT_ICONS: Record<IconKey, LucideIcon> = {
+// `iconKey` is free-form server data now (see componentCatalog.ts), not a
+// closed TS union — a workspace catalog file can reference any key it
+// likes. This map only covers the keys the built-in catalog ships with;
+// getComponentIcon() falls back to a generic icon for anything else,
+// instead of rendering `<Icon />` with `Icon === undefined` (which throws).
+export const COMPONENT_ICONS: Record<string, LucideIcon> = {
   client: User,
   dns: Globe,
   loadBalancer: Waypoints,
@@ -32,3 +36,9 @@ export const COMPONENT_ICONS: Record<IconKey, LucideIcon> = {
   storage: HardDrive,
   group: Group,
 };
+
+export const DEFAULT_COMPONENT_ICON: LucideIcon = Box;
+
+export function getComponentIcon(iconKey: string): LucideIcon {
+  return COMPONENT_ICONS[iconKey] ?? DEFAULT_COMPONENT_ICON;
+}
