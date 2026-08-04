@@ -33,6 +33,7 @@ from nanoinfra.security.network import is_loopback_host
 from nanoinfra.session.keys import UNIFIED_SESSION_KEY, last_channel_from_metadata
 from nanoinfra.utils.evaluator import evaluate_response, resolve_evaluator_prompt
 from nanoinfra.utils.helpers import sync_workspace_templates
+from nanoinfra.utils.llm_runtime import LLMRuntime
 from nanoinfra.webui.build import BuildMode
 from nanoinfra.webui.sidebar_state import read_webui_sidebar_state
 
@@ -617,6 +618,9 @@ def _run_gateway(
     def _webui_runtime_model_name() -> str | None:
         return agent.model.strip() or None
 
+    def _webui_default_llm_runtime() -> LLMRuntime | None:
+        return agent.runtime_resolver.runtime
+
     def _webui_skill_state_action(disabled_skills: set[str]) -> None:
         config.agents.defaults.disabled_skills = sorted(disabled_skills)
         agent.context.skills.disabled_skills = set(disabled_skills)
@@ -637,6 +641,7 @@ def _run_gateway(
         webui_runtime_surface=webui_runtime_surface,
         webui_runtime_capabilities=webui_runtime_capabilities,
         webui_skill_state_action=_webui_skill_state_action,
+        webui_default_llm_runtime=_webui_default_llm_runtime,
     )
 
     def _pick_heartbeat_target() -> tuple[str, str]:

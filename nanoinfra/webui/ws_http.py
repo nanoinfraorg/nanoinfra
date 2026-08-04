@@ -157,6 +157,7 @@ if TYPE_CHECKING:
     from nanoinfra.cron.service import CronService
     from nanoinfra.session.manager import SessionManager
     from nanoinfra.triggers.local_store import LocalTriggerStore
+    from nanoinfra.utils.llm_runtime import LLMRuntime
 
 def _decode_api_key(raw_key: str) -> str | None:
     key = unquote(raw_key)
@@ -227,12 +228,14 @@ class GatewayHTTPHandler:
         channel_feature_action: Callable[..., Any] | None = None,
         channel_runtime_status: Callable[[], dict[str, Any]] | None = None,
         skill_state_action: Callable[[set[str]], None] | None = None,
+        default_llm_runtime: Callable[[], LLMRuntime | None] | None = None,
         log: Any = logger,
     ) -> None:
         self.config = config
         self.session_manager = session_manager
         self.static_dist_path = static_dist_path
         self.runtime_model_name = runtime_model_name
+        self.default_llm_runtime = default_llm_runtime
         self.bus = bus
         self.tokens = tokens
         self.media = media
@@ -248,6 +251,7 @@ class GatewayHTTPHandler:
         self.diagrams = DiagramStore(skills_workspace_path)
         self.skill_state_action = skill_state_action
         self._skill_install_lock = asyncio.Lock()
+        self._title_retry_in_flight: set[str] = set()
         self.cron_service = cron_service
         self.local_trigger_store = local_trigger_store
         self.cron_pending_job_ids = cron_pending_job_ids
@@ -607,10 +611,61 @@ class GatewayHTTPHandler:
         if data is None:
             return _http_error(404, "webui thread not found")
         data["workspace_scope"] = scope.payload()
+        self._maybe_retry_webui_title(decoded_key, chat_id)
         return _http_json_response(
             data,
             accept_encoding=_combined_list_header(request.headers, "Accept-Encoding"),
         )
+
+    def _maybe_retry_webui_title(self, session_key: str, chat_id: str) -> None:
+        """Opportunistically retry title generation whenever a thread is opened.
+
+        Title generation after a turn (``_schedule_title_update_from_event``)
+        is fire-and-forget, so a failure there leaves the session titleless
+        forever with nothing to retry it. ``maybe_generate_webui_title`` is
+        itself a no-op once a usable title already exists, so it's safe to
+        call again every time the WebUI opens/reopens this thread.
+        """
+        sessions = self.session_manager
+        if sessions is None or self.default_llm_runtime is None:
+            return
+        if session_key in self._title_retry_in_flight:
+            return
+        runtime = self.default_llm_runtime()
+        if runtime is None:
+            return
+        self._title_retry_in_flight.add(session_key)
+
+        async def _retry() -> None:
+            from nanoinfra.bus.outbound_events import (
+                SessionUpdatedEvent,
+                outbound_message_for_event,
+            )
+            from nanoinfra.session.webui_turns import maybe_generate_webui_title
+
+            try:
+                generated = await maybe_generate_webui_title(
+                    sessions=sessions,
+                    session_key=session_key,
+                    provider=runtime.provider,
+                    model=runtime.model,
+                )
+                if generated:
+                    await self.bus.publish_outbound(
+                        outbound_message_for_event(
+                            channel="websocket",
+                            chat_id=chat_id,
+                            event=SessionUpdatedEvent(scope="metadata"),
+                        )
+                    )
+            except Exception:
+                self._log.warning(
+                    "WebUI title retry-on-open failed for {}", session_key, exc_info=True
+                )
+            finally:
+                self._title_retry_in_flight.discard(session_key)
+
+        asyncio.create_task(_retry())
 
     def _handle_file_preview(self, request: WsRequest, key: str) -> Response:
         if not self.check_api_token(request):

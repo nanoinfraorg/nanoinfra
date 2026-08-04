@@ -614,19 +614,30 @@ class WebuiTurnCoordinator:
         async def _generate_title_and_notify(
             title_llm: LLMRuntime = title_context,
         ) -> None:
-            generated = await maybe_generate_webui_title_after_turn(
-                channel=event.context.channel,
-                metadata=event.context.metadata,
-                sessions=self.sessions,
-                session_key=event.context.session_key,
-                provider=title_llm.provider,
-                model=title_llm.model,
-            )
-            if generated:
-                await self._publish_session_metadata_updated(
+            # `schedule_background` is fire-and-forget -- nothing else awaits this
+            # task, so a failure here would otherwise be visible only as an
+            # unretrieved-task-exception warning from asyncio itself. Log it
+            # explicitly so a broken title generation isn't silently invisible.
+            try:
+                generated = await maybe_generate_webui_title_after_turn(
                     channel=event.context.channel,
-                    chat_id=event.context.chat_id,
                     metadata=event.context.metadata,
+                    sessions=self.sessions,
+                    session_key=event.context.session_key,
+                    provider=title_llm.provider,
+                    model=title_llm.model,
+                )
+                if generated:
+                    await self._publish_session_metadata_updated(
+                        channel=event.context.channel,
+                        chat_id=event.context.chat_id,
+                        metadata=event.context.metadata,
+                    )
+            except Exception:
+                logger.warning(
+                    "WebUI title generation task failed for {}",
+                    event.context.session_key,
+                    exc_info=True,
                 )
 
         self.schedule_background(_generate_title_and_notify())
