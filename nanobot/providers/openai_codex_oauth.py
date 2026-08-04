@@ -54,7 +54,7 @@ class OpenAICodexOAuthLoginFlow:
         self._submitted = False
         self._thread = threading.Thread(
             target=self._run,
-            name="nanobot-openai-codex-oauth",
+            name="nanoinfra-openai-codex-oauth",
             daemon=True,
         )
 

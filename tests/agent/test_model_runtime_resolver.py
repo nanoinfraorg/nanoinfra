@@ -3,11 +3,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from nanobot.agent.model_runtime import ModelRuntimeResolver
-from nanobot.config.schema import ModelPresetConfig
-from nanobot.providers.base import GenerationSettings
-from nanobot.providers.factory import ProviderSnapshot
-from nanobot.utils.llm_runtime import LLMRuntime, runtime_from_provider_snapshot
+from nanoinfra.agent.model_runtime import ModelRuntimeResolver
+from nanoinfra.config.schema import ModelPresetConfig
+from nanoinfra.providers.base import GenerationSettings
+from nanoinfra.providers.factory import ProviderSnapshot
+from nanoinfra.utils.llm_runtime import LLMRuntime, runtime_from_provider_snapshot
 
 
 def _provider(

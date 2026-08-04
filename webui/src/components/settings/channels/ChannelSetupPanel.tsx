@@ -50,8 +50,8 @@ import {
 import { copyTextToClipboard } from "@/lib/clipboard";
 import type {
   ChannelValidationPayload,
-  NanobotFeatureInfo,
-  NanobotFeaturesPayload,
+  NanoinfraFeatureInfo,
+  NanoinfraFeaturesPayload,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -61,7 +61,7 @@ export function ChannelCatalogRow({
   showBrandLogos,
   onSelect,
 }: {
-  feature: NanobotFeatureInfo;
+  feature: NanoinfraFeatureInfo;
   selected: boolean;
   showBrandLogos: boolean;
   onSelect: () => void;
@@ -119,12 +119,12 @@ export function ChannelSetupPanel({
   onFeaturesUpdate,
 }: {
   token: string;
-  feature: NanobotFeatureInfo;
+  feature: NanoinfraFeatureInfo;
   actionKey: string | null;
   chatAppsDocsUrl?: string;
   showBrandLogos: boolean;
   onAction: (action: "enable" | "disable", name: string) => void;
-  onFeaturesUpdate: (payload: NanobotFeaturesPayload) => void;
+  onFeaturesUpdate: (payload: NanoinfraFeaturesPayload) => void;
 }) {
   const { t, i18n } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -172,7 +172,7 @@ export function ChannelSetupPanel({
     || channelBusy
     || needsSetupBeforeEnable
     || (!feature.install_supported && !feature.installed && !feature.enabled);
-  const installSupportLabel = tx("settings.nanobotFeatures.installSupport", "Install support");
+  const installSupportLabel = tx("settings.nanoinfraFeatures.installSupport", "Install support");
   const toggleAriaLabel = t("settings.channels.toggleChannel", {
     name: displayName,
     defaultValue: "{{name}} channel",
@@ -262,12 +262,12 @@ function ChannelSetupSurface({
   onFeaturesUpdate,
 }: {
   token: string;
-  feature: NanobotFeatureInfo;
+  feature: NanoinfraFeatureInfo;
   setup: ChannelSetupPresentation;
   chatAppsDocsUrl?: string;
   connectRequestId: number;
   ConnectFlow?: ComponentType<ChannelPluginConnectFlowProps>;
-  onFeaturesUpdate: (payload: NanobotFeaturesPayload) => void;
+  onFeaturesUpdate: (payload: NanoinfraFeaturesPayload) => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -294,7 +294,7 @@ function ChannelSetupSurface({
   const requirements = channelRequirements(feature, t);
   const summary = setup.summary ?? tx(
     "settings.channels.setupSummary",
-    "Enable only turns on nanobot support. Add the platform credentials, then restart nanobot.",
+    "Enable only turns on nanoinfra support. Add the platform credentials, then restart nanoinfra.",
   );
   const [fieldValues, setFieldValues] = useState<Record<string, string>>(() =>
     defaultChannelFieldValues(editableFields, feature.config_values),
@@ -360,8 +360,8 @@ function ChannelSetupSurface({
         values,
         { enable: true },
       );
-      if (payload.nanobot_features) {
-        onFeaturesUpdate(payload.nanobot_features);
+      if (payload.nanoinfra_features) {
+        onFeaturesUpdate(payload.nanoinfra_features);
       }
       setNotice(tx("settings.channels.checkedAndEnabled", "Checked and enabled."));
     } catch (err) {

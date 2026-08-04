@@ -1,5 +1,5 @@
 {
-  "description": "Signal 메시지에서 nanobot을 사용합니다.",
+  "description": "Signal 메시지에서 nanoinfra을 사용합니다.",
   "requirements": "signal-cli HTTP 데몬, 전화번호 및 허용 목록",
   "setup": {
     "docsLabel": "Signal 설정 가이드 열기",

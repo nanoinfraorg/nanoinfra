@@ -25,7 +25,7 @@ tools:
 
 To allow the agent to set its configuration (e.g. switch models, adjust parameters), set `tools.my.allow_set: true`.
 
-Legacy `tools.myEnabled` / `tools.mySet` keys are auto-migrated on load, and rewritten in-place the next time `nanobot onboard` refreshes the config.
+Legacy `tools.myEnabled` / `tools.mySet` keys are auto-migrated on load, and rewritten in-place the next time `nanoinfra onboard` refreshes the config.
 
 Most modifications are held in memory only. `model_preset` is the exception: it is
 stored in the current session so the selection survives a restart.
@@ -95,7 +95,7 @@ my(action="set", key="model_preset", value="fast")
 You can also store custom state in your scratchpad:
 
 ```text
-my(action="set", key="current_project", value="nanobot")
+my(action="set", key="current_project", value="nanoinfra")
 my(action="set", key="user_style_preference", value="concise")
 my(action="set", key="task_complexity", value="high")
 # → These values persist into the next conversation turn

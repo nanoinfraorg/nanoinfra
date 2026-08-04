@@ -2,9 +2,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
 
 
 class _DummyChannel(BaseChannel):
@@ -60,7 +60,7 @@ def test_is_allowed_star_allows_all() -> None:
 def test_is_allowed_pairing_fallback(monkeypatch) -> None:
     channel = _DummyChannel({"allowFrom": []}, MessageBus())
     monkeypatch.setattr(
-        "nanobot.channels.base.is_approved", lambda _ch, sid: sid == "paired"
+        "nanoinfra.channels.base.is_approved", lambda _ch, sid: sid == "paired"
     )
     assert channel.is_allowed("paired") is True
     assert channel.is_allowed("unknown") is False
@@ -70,7 +70,7 @@ def test_is_allowed_pairing_fallback(monkeypatch) -> None:
 async def test_handle_message_dm_sends_pairing_code(monkeypatch) -> None:
     channel = _DummyChannel({"allowFrom": []}, MessageBus())
     monkeypatch.setattr(
-        "nanobot.channels.base.generate_code", lambda _ch, sid: "ABCD-EFGH"
+        "nanoinfra.channels.base.generate_code", lambda _ch, sid: "ABCD-EFGH"
     )
 
     await channel._handle_message(
@@ -96,7 +96,7 @@ async def test_dm_during_transient_store_failure_keeps_approvals(
     import builtins
     from pathlib import Path
 
-    from nanobot.pairing import store
+    from nanoinfra.pairing import store
 
     path = tmp_path / "pairing.json"
     monkeypatch.setattr(store, "_store_path", lambda: path)

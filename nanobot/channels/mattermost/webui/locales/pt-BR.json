@@ -1,5 +1,5 @@
 {
-  "description": "Use o nanobot em canais e DMs do Mattermost.",
+  "description": "Use o nanoinfra em canais e DMs do Mattermost.",
   "requirements": "URL do servidor Mattermost, token do bot e acesso aos canais",
   "setup": {
     "docsLabel": "Abrir guia do Mattermost",

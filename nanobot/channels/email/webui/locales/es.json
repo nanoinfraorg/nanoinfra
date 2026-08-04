@@ -1,5 +1,5 @@
 {
-  "description": "Permite que nanobot reciba y responda correos.",
+  "description": "Permite que nanoinfra reciba y responda correos.",
   "requirements": "Bandeja IMAP, envío SMTP, contraseña de app y consentimiento explícito",
   "setup": {
     "docsLabel": "Abrir guía de Email",

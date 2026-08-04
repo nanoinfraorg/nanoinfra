@@ -1,5 +1,5 @@
 {
-  "description": "Microsoft Teams 채팅에서 nanobot을 사용합니다.",
+  "description": "Microsoft Teams 채팅에서 nanoinfra을 사용합니다.",
   "requirements": "Azure 봇 앱 자격 증명 및 공개 콜백 엔드포인트",
   "setup": {
     "docsLabel": "Teams 설정 가이드 열기",

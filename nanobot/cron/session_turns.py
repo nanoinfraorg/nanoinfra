@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from nanobot.cron.types import CronJob
-from nanobot.session.automation_turns import (
+from nanoinfra.cron.types import CronJob
+from nanoinfra.session.automation_turns import (
     AutomationTurnSpec,
     automation_history_overrides_for_spec,
     automation_trigger,

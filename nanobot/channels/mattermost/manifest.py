@@ -1,8 +1,8 @@
 """Mattermost management contract."""
 
-from nanobot.channels._manifest import GROUP_POLICIES, field, required_fields
-from nanobot.channels.contracts import ChannelSetupSpec
-from nanobot.channels.plugin import ChannelPlugin
+from nanoinfra.channels._manifest import GROUP_POLICIES, field, required_fields
+from nanoinfra.channels.contracts import ChannelSetupSpec
+from nanoinfra.channels.plugin import ChannelPlugin
 
 SETUP_SPEC = ChannelSetupSpec(
     fields={

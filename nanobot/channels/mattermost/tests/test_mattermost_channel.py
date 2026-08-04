@@ -10,14 +10,14 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.mattermost.runtime import (
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.mattermost.runtime import (
     MATTERMOST_MAX_MESSAGE_LEN,
     MattermostChannel,
     MattermostConfig,
 )
-from nanobot.pairing import PAIRING_CODE_META_KEY
+from nanoinfra.pairing import PAIRING_CODE_META_KEY
 
 
 class _FakeHTTPClient:
@@ -99,7 +99,7 @@ def _make_channel(
     fake = _FakeHTTPClient()
     fake.set_get_response("/api/v4/users/me", {
         "id": "botuserid123",
-        "username": "nanobot",
+        "username": "nanoinfra",
         "email": "bot@example.com",
     })
     fake.set_post_response("/api/v4/posts", {"id": "post_new_id"})
@@ -173,7 +173,7 @@ async def test_start_identifies_bot():
             await asyncio.sleep(0.01)
 
     assert channel._self_id == "botuserid123"
-    assert channel._self_username == "nanobot"
+    assert channel._self_username == "nanoinfra"
     assert channel._self_email == "bot@example.com"
     assert not start_task.done()
     user_me_calls = [c for c in fake.get_calls[calls_before:] if "/api/v4/users/me" in c["path"]]
@@ -226,7 +226,7 @@ def test_server_url_no_trailing_slash():
 async def test_posted_event_routes_to_handle_message():
     channel, fake = _make_channel()
     channel._self_id = "botuserid123"
-    channel._self_username = "nanobot"
+    channel._self_username = "nanoinfra"
     with patch.object(channel, "_handle_message", AsyncMock()) as mock_handle:
         ws_msg = {
             "event": "posted",
@@ -305,7 +305,7 @@ async def test_posted_event_channel_type_detection():
 async def test_strip_bot_mention_from_incoming():
     channel, fake = _make_channel()
     channel._self_id = "bot_id"
-    channel._self_username = "nanobot"
+    channel._self_username = "nanoinfra"
     with patch.object(channel, "_handle_message", AsyncMock()) as mock_handle:
         with patch.object(channel, "_is_allowed", AsyncMock(return_value=True)):
             with patch.object(channel, "_should_respond_in_channel", return_value=True):
@@ -315,7 +315,7 @@ async def test_strip_bot_mention_from_incoming():
                         "channel_type": "O",
                         "post": json.dumps({
                             "id": "p1", "user_id": "u1",
-                            "channel_id": "c1", "message": "@nanobot hello there", "root_id": "",
+                            "channel_id": "c1", "message": "@nanoinfra hello there", "root_id": "",
                         }),
                     },
                     "broadcast": {},
@@ -357,9 +357,9 @@ async def test_dm_disabled():
 @pytest.mark.asyncio
 async def test_group_policy_mention():
     channel, fake = _make_channel({"groupPolicy": "mention"})
-    channel._self_username = "nanobot"
+    channel._self_username = "nanoinfra"
     assert channel._should_respond_in_channel("hello", "c1") is False
-    assert channel._should_respond_in_channel("@nanobot hello", "c1") is True
+    assert channel._should_respond_in_channel("@nanoinfra hello", "c1") is True
 
 
 @pytest.mark.asyncio
@@ -450,8 +450,8 @@ async def test_send_with_file_upload():
         "file_infos": [{"id": "file_abc", "name": "test.txt"}],
     })
 
-    with patch("nanobot.channels.mattermost.runtime.Path.exists", return_value=True):
-        with patch("nanobot.channels.mattermost.runtime.Path.read_bytes", return_value=b"data"):
+    with patch("nanoinfra.channels.mattermost.runtime.Path.exists", return_value=True):
+        with patch("nanoinfra.channels.mattermost.runtime.Path.read_bytes", return_value=b"data"):
             msg = OutboundMessage(
                 channel="mattermost",
                 chat_id="chan_1",
@@ -796,7 +796,7 @@ async def test_thread_session_key():
 async def test_top_level_mention_uses_thread_session_key():
     channel, fake = _make_channel({"replyInThread": True})
     channel._self_id = "bot_id"
-    channel._self_username = "nanobot"
+    channel._self_username = "nanoinfra"
     with patch.object(channel, "_handle_message", AsyncMock()) as mock_handle:
         with patch.object(channel, "_is_allowed", AsyncMock(return_value=True)):
             ws_msg = {
@@ -805,7 +805,7 @@ async def test_top_level_mention_uses_thread_session_key():
                     "channel_type": "O",
                     "post": json.dumps({
                         "id": "post_1", "user_id": "u1",
-                        "channel_id": "c1", "message": "@nanobot start thread",
+                        "channel_id": "c1", "message": "@nanoinfra start thread",
                         "root_id": "",
                     }),
                 },
@@ -945,7 +945,7 @@ async def test_dm_allowlist_with_username_match():
 @pytest.mark.asyncio
 async def test_dm_allowlist_accepts_pairing_approval():
     channel, fake = _make_channel({"dm": {"policy": "allowlist", "allowFrom": ["u_allowed"]}})
-    with patch("nanobot.channels.mattermost.runtime.is_approved", return_value=True):
+    with patch("nanoinfra.channels.mattermost.runtime.is_approved", return_value=True):
         assert await channel._is_allowed("u_paired", "dm_chan", "dm") is True
 
 
@@ -958,7 +958,7 @@ async def test_dm_allowlist_accepts_pairing_approval():
 async def test_denied_dm_sends_pairing_not_empty_inbound():
     channel, fake = _make_channel({"dm": {"policy": "allowlist", "allowFrom": ["u_allowed"]}})
     channel._self_id = "botuserid123"
-    channel._self_username = "nanobot"
+    channel._self_username = "nanoinfra"
 
     ws_msg = {
         "event": "posted",
@@ -994,17 +994,17 @@ async def test_denied_dm_sends_pairing_not_empty_inbound():
 
 def test_is_mentioned_exact():
     channel, fake = _make_channel({"groupPolicy": "mention"})
-    channel._self_username = "nanobot"
-    assert channel._is_mentioned("hello @nanobot how are you") is True
-    assert channel._is_mentioned("hello @nanobotty") is False
-    assert channel._is_mentioned("@nanobot_extra") is False
+    channel._self_username = "nanoinfra"
+    assert channel._is_mentioned("hello @nanoinfra how are you") is True
+    assert channel._is_mentioned("hello @nanoinfraty") is False
+    assert channel._is_mentioned("@nanoinfra_extra") is False
     assert channel._is_mentioned("plain text") is False
 
 
 def test_is_mentioned_no_username():
     channel, fake = _make_channel({"groupPolicy": "mention"})
     channel._self_username = None
-    assert channel._is_mentioned("hello @nanobot") is False
+    assert channel._is_mentioned("hello @nanoinfra") is False
 
 
 # ---------------------------------------------------------------------------
@@ -1013,7 +1013,7 @@ def test_is_mentioned_no_username():
 
 
 def test_message_splitting():
-    from nanobot.utils.helpers import split_message
+    from nanoinfra.utils.helpers import split_message
     short = "short message"
     assert split_message(short, MATTERMOST_MAX_MESSAGE_LEN) == [short]
 

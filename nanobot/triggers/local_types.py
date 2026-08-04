@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from nanobot.utils.dict_keys import get_camel_snake as _get
+from nanoinfra.utils.dict_keys import get_camel_snake as _get
 
 TriggerStatus = Literal["ok", "error"]
 

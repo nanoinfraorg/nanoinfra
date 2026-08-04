@@ -2,7 +2,7 @@
 
 import os
 
-from nanobot.utils.path import abbreviate_path
+from nanoinfra.utils.path import abbreviate_path
 
 
 class TestAbbreviatePathShort:
@@ -54,14 +54,14 @@ class TestAbbreviatePathLong:
 
 class TestAbbreviatePathWindows:
     def test_windows_drive_path(self):
-        path = "D:\\Documents\\GitHub\\nanobot\\src\\utils\\helpers.py"
+        path = "D:\\Documents\\GitHub\\nanoinfra\\src\\utils\\helpers.py"
         result = abbreviate_path(path, max_len=40)
         assert result.endswith("helpers.py")
-        assert "nanobot" in result
+        assert "nanoinfra" in result
 
     def test_windows_home(self):
         home = os.path.expanduser("~")
-        path = os.path.join(home, ".nanobot", "workspace", "log.txt")
+        path = os.path.join(home, ".nanoinfra", "workspace", "log.txt")
         result = abbreviate_path(path)
         assert result.startswith("~/")
         assert "log.txt" in result

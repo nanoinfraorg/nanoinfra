@@ -108,15 +108,15 @@ import {
   createModelConfiguration,
   createProviderSettings,
   deleteModelConfiguration,
-  disableNanobotFeature,
-  enableNanobotFeature,
+  disableNanoinfraFeature,
+  enableNanoinfraFeature,
   fetchApiService,
   fetchAutomations,
   fetchSettings,
   fetchSettingsUsage,
   fetchCliApps,
   fetchMcpPresets,
-  fetchNanobotFeatures,
+  fetchNanoinfraFeatures,
   fetchProviderModels,
   importMcpConfig,
   loginProviderOAuth,
@@ -173,8 +173,8 @@ import type {
   ImageGenerationSettingsUpdate,
   McpPresetInfo,
   McpPresetsPayload,
-  NanobotFeatureInfo,
-  NanobotFeaturesPayload,
+  NanoinfraFeatureInfo,
+  NanoinfraFeaturesPayload,
   NetworkSafetySettingsUpdate,
   ProviderModelsPayload,
   ProviderOAuthAuthorizationRequired,
@@ -637,13 +637,13 @@ export function SettingsView({
     typeof window !== "undefined" && !isLoopbackHost(window.location.hostname);
   const [settings, setSettings] = useState<SettingsPayload | null>(() => initialSettings);
   const [cliApps, setCliApps] = useState<CliAppsPayload | null>(null);
-  const [nanobotFeatures, setNanobotFeatures] = useState<NanobotFeaturesPayload | null>(null);
-  const featureCatalog = nanobotFeatures?.features ?? [];
+  const [nanoinfraFeatures, setNanoinfraFeatures] = useState<NanoinfraFeaturesPayload | null>(null);
+  const featureCatalog = nanoinfraFeatures?.features ?? [];
   const [mcpPresets, setMcpPresets] = useState<McpPresetsPayload | null>(null);
   const [automations, setAutomations] = useState<AutomationsPayload | null>(null);
   const [loading, setLoading] = useState(() => initialSettings === null);
   const [cliAppsLoading, setCliAppsLoading] = useState(true);
-  const [nanobotFeaturesLoading, setNanobotFeaturesLoading] = useState(true);
+  const [nanoinfraFeaturesLoading, setNanoinfraFeaturesLoading] = useState(true);
   const [mcpPresetsLoading, setMcpPresetsLoading] = useState(true);
   const [automationsLoading, setAutomationsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -655,8 +655,8 @@ export function SettingsView({
     useState<SettingsPayload["model_presets"][number] | null>(null);
   const modelPresetBeforeCreateRef = useRef<string | null>(null);
   const [cliAppsAction, setCliAppsAction] = useState<string | null>(null);
-  const [nanobotFeatureAction, setNanobotFeatureAction] = useState<string | null>(null);
-  const [nanobotFeatureConfirm, setNanobotFeatureConfirm] = useState<NanobotFeatureInfo | null>(null);
+  const [nanoinfraFeatureAction, setNanoinfraFeatureAction] = useState<string | null>(null);
+  const [nanoinfraFeatureConfirm, setNanoinfraFeatureConfirm] = useState<NanoinfraFeatureInfo | null>(null);
   const [mcpPresetAction, setMcpPresetAction] = useState<string | null>(null);
   const [providerSaving, setProviderSaving] = useState<string | null>(null);
   const [providerOAuthFlow, setProviderOAuthFlow] =
@@ -684,7 +684,7 @@ export function SettingsView({
   const [automationsSort, setAutomationsSort] = useState<AutomationSort>("next");
   const [cliAppsMessage, setCliAppsMessage] = useState<string | null>(null);
   const [cliAppsError, setCliAppsError] = useState<string | null>(null);
-  const [nanobotFeaturesError, setNanobotFeaturesError] = useState<string | null>(null);
+  const [nanoinfraFeaturesError, setNanoinfraFeaturesError] = useState<string | null>(null);
   const [cliAppsFocusName, setCliAppsFocusName] = useState<string | null>(null);
   const [appsKindFilter, setAppsKindFilter] = useState<AppsKindFilter>("cli");
   const [mcpMessage, setMcpMessage] = useState<string | null>(null);
@@ -916,19 +916,19 @@ export function SettingsView({
     const refresh = async (showLoading = false): Promise<void> => {
       if (refreshing) return;
       refreshing = true;
-      if (showLoading) setNanobotFeaturesLoading(true);
+      if (showLoading) setNanoinfraFeaturesLoading(true);
       try {
-        const payload = await fetchNanobotFeatures(getToken());
+        const payload = await fetchNanoinfraFeatures(getToken());
         if (!cancelled) {
-          setNanobotFeatures(payload);
-          setNanobotFeaturesError(null);
+          setNanoinfraFeatures(payload);
+          setNanoinfraFeaturesError(null);
         }
       } catch (err) {
         const message = (err as Error).message;
-        if (!cancelled && message !== "HTTP 404") setNanobotFeaturesError(message);
+        if (!cancelled && message !== "HTTP 404") setNanoinfraFeaturesError(message);
       } finally {
         refreshing = false;
-        if (!cancelled && showLoading) setNanobotFeaturesLoading(false);
+        if (!cancelled && showLoading) setNanoinfraFeaturesLoading(false);
       }
     };
     void refresh(true);
@@ -1470,23 +1470,23 @@ export function SettingsView({
       (name) => !featureCatalog.find((feature) => feature.name === name)?.installed,
     );
     if (!missing.length) return true;
-    setNanobotFeatureAction(`enable:${names.join("+")}`);
-    setNanobotFeaturesError(null);
+    setNanoinfraFeatureAction(`enable:${names.join("+")}`);
+    setNanoinfraFeaturesError(null);
     try {
-      let latest = nanobotFeatures;
+      let latest = nanoinfraFeatures;
       for (const name of missing) {
-        latest = await enableNanobotFeature(token, name);
+        latest = await enableNanoinfraFeature(token, name);
         if (latest.requires_restart) {
           setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
         }
       }
-      if (latest) setNanobotFeatures(latest);
+      if (latest) setNanoinfraFeatures(latest);
       return true;
     } catch (err) {
-      setNanobotFeaturesError((err as Error).message);
+      setNanoinfraFeaturesError((err as Error).message);
       return false;
     } finally {
-      setNanobotFeatureAction(null);
+      setNanoinfraFeatureAction(null);
     }
   };
 
@@ -1502,8 +1502,8 @@ export function SettingsView({
         ? await startApiService(token, values!)
         : await stopApiService(token);
       setApiService(payload);
-      const refreshed = await fetchNanobotFeatures(token);
-      setNanobotFeatures(refreshed);
+      const refreshed = await fetchNanoinfraFeatures(token);
+      setNanoinfraFeatures(refreshed);
       const nextSettings = await fetchSettings(token);
       applyPayload(nextSettings);
     } catch (err) {
@@ -1848,33 +1848,33 @@ export function SettingsView({
     }
   };
 
-  const handleNanobotFeatureAction = async (
+  const handleNanoinfraFeatureAction = async (
     action: "enable" | "disable",
     name: string,
     confirmed = false,
   ) => {
     const feature = featureCatalog.find((item) => item.name === name);
     if (action === "enable" && !confirmed && feature && !feature.installed && feature.install_supported) {
-      setNanobotFeaturesError(null);
-      setNanobotFeatureConfirm(feature);
+      setNanoinfraFeaturesError(null);
+      setNanoinfraFeatureConfirm(feature);
       return;
     }
     const key = `${action}:${name}`;
-    setNanobotFeatureAction(key);
-    setNanobotFeatureConfirm(null);
-    setNanobotFeaturesError(null);
+    setNanoinfraFeatureAction(key);
+    setNanoinfraFeatureConfirm(null);
+    setNanoinfraFeaturesError(null);
     try {
       const payload = action === "enable"
-        ? await enableNanobotFeature(token, name)
-        : await disableNanobotFeature(token, name);
-      setNanobotFeatures(payload);
+        ? await enableNanoinfraFeature(token, name)
+        : await disableNanoinfraFeature(token, name);
+      setNanoinfraFeatures(payload);
       if (payload.requires_restart) {
         setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
       }
     } catch (err) {
-      setNanobotFeaturesError((err as Error).message);
+      setNanoinfraFeaturesError((err as Error).message);
     } finally {
-      setNanobotFeatureAction(null);
+      setNanoinfraFeatureAction(null);
     }
   };
 
@@ -2073,9 +2073,9 @@ export function SettingsView({
             />
             <ProvidersSettings
               settings={settings}
-              nanobotFeatures={nanobotFeatures}
-              featureAction={nanobotFeatureAction}
-              capabilityError={nanobotFeaturesError}
+              nanoinfraFeatures={nanoinfraFeatures}
+              featureAction={nanoinfraFeatureAction}
+              capabilityError={nanoinfraFeaturesError}
               expandedProvider={expandedProvider}
               providerForms={providerForms}
               visibleProviderKeys={visibleProviderKeys}
@@ -2167,27 +2167,27 @@ export function SettingsView({
             isRestarting={isRestarting || hostEngineApplying}
             requiresRestartPending={pendingRestartSections.browser}
             olostepFeature={featureCatalog.find((feature) => feature.name === "olostep")}
-            olostepInstalling={nanobotFeatureAction === "enable:olostep"}
-            capabilityError={nanobotFeaturesError}
+            olostepInstalling={nanoinfraFeatureAction === "enable:olostep"}
+            capabilityError={nanoinfraFeaturesError}
           />
         );
       case "channels":
         return (
           <ChannelsSettings
             token={token}
-            nanobotFeatures={nanobotFeatures}
-            loading={nanobotFeaturesLoading}
+            nanoinfraFeatures={nanoinfraFeatures}
+            loading={nanoinfraFeaturesLoading}
             query={channelsQuery}
-            actionKey={nanobotFeatureAction}
+            actionKey={nanoinfraFeatureAction}
             chatAppsDocsUrl={settings.docs?.chat_apps_url}
             showBrandLogos={localPrefs.brandLogos}
-            error={nanobotFeaturesError}
+            error={nanoinfraFeaturesError}
             requiresRestartPending={pendingRestartSections.runtime}
             onQueryChange={setChannelsQuery}
-            onAction={handleNanobotFeatureAction}
-            onFeaturesUpdate={setNanobotFeatures}
+            onAction={handleNanoinfraFeatureAction}
+            onFeaturesUpdate={setNanoinfraFeatures}
             onDismissStatus={() => {
-              setNanobotFeaturesError(null);
+              setNanoinfraFeaturesError(null);
             }}
             onRestart={restartViaSettingsSurface}
             isRestarting={isRestarting || hostEngineApplying}
@@ -2280,9 +2280,9 @@ export function SettingsView({
             apiServiceAction={apiServiceAction}
             apiServiceError={apiServiceError}
             langfuseFeature={featureCatalog.find((feature) => feature.name === "langfuse")}
-            capabilitiesLoading={nanobotFeaturesLoading}
-            capabilityAction={nanobotFeatureAction}
-            capabilityError={nanobotFeaturesError}
+            capabilitiesLoading={nanoinfraFeaturesLoading}
+            capabilityAction={nanoinfraFeatureAction}
+            capabilityError={nanoinfraFeaturesError}
             onApiServiceAction={handleApiServiceAction}
             onInstallCapability={(name) => void installCapabilities([name])}
           />
@@ -2356,13 +2356,13 @@ export function SettingsView({
         onClose={closeProviderOAuthFlow}
       />
 
-      <NanobotFeatureInstallDialog
-        feature={nanobotFeatureConfirm}
-        installing={nanobotFeatureAction === `enable:${nanobotFeatureConfirm?.name ?? ""}`}
+      <NanoinfraFeatureInstallDialog
+        feature={nanoinfraFeatureConfirm}
+        installing={nanoinfraFeatureAction === `enable:${nanoinfraFeatureConfirm?.name ?? ""}`}
         onOpenChange={(open) => {
-          if (!open) setNanobotFeatureConfirm(null);
+          if (!open) setNanoinfraFeatureConfirm(null);
         }}
-        onConfirm={(feature) => handleNanobotFeatureAction("enable", feature.name, true)}
+        onConfirm={(feature) => handleNanoinfraFeatureAction("enable", feature.name, true)}
       />
 
       <AutomationDeleteDialog
@@ -2821,7 +2821,7 @@ function VersionCheckRow({ currentVersion }: { currentVersion?: string }) {
           {tx("settings.about.version", "Version")}
         </div>
         <div className="mt-0.5 text-[12px] leading-5 text-muted-foreground">
-          {currentVersion ? `v${currentVersion}` : "nanobot"}
+          {currentVersion ? `v${currentVersion}` : "nanoinfra"}
         </div>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-2">
@@ -4144,7 +4144,7 @@ function ProviderAdvancedOptions({
 
 function ProvidersSettings({
   settings,
-  nanobotFeatures,
+  nanoinfraFeatures,
   featureAction,
   capabilityError,
   expandedProvider,
@@ -4167,7 +4167,7 @@ function ProvidersSettings({
   isRestarting,
 }: {
   settings: SettingsPayload;
-  nanobotFeatures: NanobotFeaturesPayload | null;
+  nanoinfraFeatures: NanoinfraFeaturesPayload | null;
   featureAction: string | null;
   capabilityError: string | null;
   expandedProvider: string | null;
@@ -4272,7 +4272,7 @@ function ProvidersSettings({
         ? "azure"
         : null;
     const supportFeature = supportName
-      ? (nanobotFeatures?.features ?? []).find((feature) => feature.name === supportName)
+      ? (nanoinfraFeatures?.features ?? []).find((feature) => feature.name === supportName)
       : null;
     return (
       <div key={provider.name} className="divide-y divide-border/45">
@@ -4338,7 +4338,7 @@ function ProvidersSettings({
                         : provider.name === "openai_codex" && remoteBrowserAccess
                           ? tx(
                               "settings.oauth.codexRemoteSignInHelp",
-                              "Sign in through this browser, then paste the full localhost callback URL back into nanobot.",
+                              "Sign in through this browser, then paste the full localhost callback URL back into nanoinfra.",
                             )
                           : provider.name === "xai_grok" && remoteBrowserAccess
                           ? tx(
@@ -5147,7 +5147,7 @@ function WebSettings({
   onRestart?: () => void;
   isRestarting?: boolean;
   requiresRestartPending: boolean;
-  olostepFeature?: NanobotFeatureInfo;
+  olostepFeature?: NanoinfraFeatureInfo;
   olostepInstalling: boolean;
   capabilityError: string | null;
 }) {
@@ -5565,7 +5565,7 @@ function AutomationsSettings({
             <div className="mx-auto mt-2 max-w-[28rem] text-[12px] leading-5">
               {tx(
                 "settings.automations.emptyHint",
-                "Create one from where it should run so nanobot keeps the right context.",
+                "Create one from where it should run so nanoinfra keeps the right context.",
               )}
             </div>
           ) : null}
@@ -6259,16 +6259,16 @@ function AutomationDeleteDialog({
   );
 }
 
-function NanobotFeatureInstallDialog({
+function NanoinfraFeatureInstallDialog({
   feature,
   installing,
   onOpenChange,
   onConfirm,
 }: {
-  feature: NanobotFeatureInfo | null;
+  feature: NanoinfraFeatureInfo | null;
   installing: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (feature: NanobotFeatureInfo) => void | Promise<void>;
+  onConfirm: (feature: NanoinfraFeatureInfo) => void | Promise<void>;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
@@ -6282,12 +6282,12 @@ function NanobotFeatureInstallDialog({
       >
         <DialogHeader className="items-center space-y-0 text-center">
           <DialogTitle className="text-center text-[20px] font-semibold leading-tight tracking-[-0.02em] text-foreground">
-            {tx("settings.nanobotFeatures.installConfirmTitle", "Install support for {{name}}?", { name })}
+            {tx("settings.nanoinfraFeatures.installConfirmTitle", "Install support for {{name}}?", { name })}
           </DialogTitle>
           <DialogDescription className="mt-3 max-w-[20rem] text-center text-[14px] leading-6 text-muted-foreground">
             {tx(
-              "settings.nanobotFeatures.installConfirmDescription",
-              "nanobot will add what {{name}} needs, then turn it on. Continue?",
+              "settings.nanoinfraFeatures.installConfirmDescription",
+              "nanoinfra will add what {{name}} needs, then turn it on. Continue?",
               { name },
             )}
           </DialogDescription>
@@ -6309,7 +6309,7 @@ function NanobotFeatureInstallDialog({
             className="h-11 w-full min-w-0 !whitespace-normal rounded-full px-5 text-center text-[15px] font-semibold"
           >
             {installing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
-            {tx("settings.nanobotFeatures.installConfirmAction", "Install and enable")}
+            {tx("settings.nanoinfraFeatures.installConfirmAction", "Install and enable")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -6948,7 +6948,7 @@ function RestartRequiredNotice({
 
 function ChannelsSettings({
   token,
-  nanobotFeatures,
+  nanoinfraFeatures,
   loading,
   query,
   actionKey,
@@ -6964,7 +6964,7 @@ function ChannelsSettings({
   isRestarting,
 }: {
   token: string;
-  nanobotFeatures: NanobotFeaturesPayload | null;
+  nanoinfraFeatures: NanoinfraFeaturesPayload | null;
   loading: boolean;
   query: string;
   actionKey: string | null;
@@ -6974,7 +6974,7 @@ function ChannelsSettings({
   requiresRestartPending: boolean;
   onQueryChange: (value: string) => void;
   onAction: (action: "enable" | "disable", name: string) => void;
-  onFeaturesUpdate: (payload: NanobotFeaturesPayload) => void;
+  onFeaturesUpdate: (payload: NanoinfraFeaturesPayload) => void;
   onDismissStatus: () => void;
   onRestart?: () => void;
   isRestarting?: boolean;
@@ -6987,7 +6987,7 @@ function ChannelsSettings({
   const containerRef = useRef<HTMLDivElement>(null);
   const compactDetailTopRef = useRef<HTMLButtonElement>(null);
   const [compactDetailOpen, setCompactDetailOpen] = useState(false);
-  const allChannels = (nanobotFeatures?.features ?? [])
+  const allChannels = (nanoinfraFeatures?.features ?? [])
     .filter((feature) => feature.type === "channel")
     .filter((feature) => feature.settings_visible !== false)
     .filter((feature) => !normalizedQuery || channelSearchText(feature, t).includes(normalizedQuery))
@@ -7069,7 +7069,7 @@ function ChannelsSettings({
             <p className="max-w-[680px] text-[13px] leading-5 text-muted-foreground">
               {tx(
                 "settings.channels.description",
-                "Connect chat apps, email, and WebUI to nanobot.",
+                "Connect chat apps, email, and WebUI to nanoinfra.",
               )}
             </p>
             <div className="flex flex-wrap gap-2 text-[12px] font-medium text-muted-foreground">
@@ -7130,7 +7130,7 @@ function ChannelsSettings({
       {requiresRestartPending ? (
         <div className="mt-3 shrink-0">
           <RestartRequiredNotice
-            message={tx("settings.channels.restartRequired", "Restart nanobot to apply updated channel support.")}
+            message={tx("settings.channels.restartRequired", "Restart nanoinfra to apply updated channel support.")}
             onRestart={onRestart}
             isRestarting={isRestarting}
           />
@@ -7144,7 +7144,7 @@ function ChannelsSettings({
           splitLayout && "min-h-0 overflow-hidden",
         )}
       >
-        {loading && !nanobotFeatures ? (
+        {loading && !nanoinfraFeatures ? (
           <div className="flex h-36 items-center justify-center text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
             {tx("settings.channels.loading", "Loading Channels...")}
@@ -7319,7 +7319,7 @@ function AppsCatalogSettings({
           <p className="max-w-[680px] text-[13px] leading-5 text-muted-foreground">
             {tx(
               "settings.apps.description",
-              "Add tools to nanobot, then @ them in chat.",
+              "Add tools to nanoinfra, then @ them in chat.",
             )}
           </p>
           <span className="text-[12px] font-medium text-muted-foreground">{caption}</span>
@@ -7359,7 +7359,7 @@ function AppsCatalogSettings({
 
       {requiresRestartPending ? (
         <RestartRequiredNotice
-          message={tx("settings.apps.restartRequired", "Restart nanobot to apply updated apps and features.")}
+          message={tx("settings.apps.restartRequired", "Restart nanoinfra to apply updated apps and features.")}
           onRestart={onRestart}
           isRestarting={isRestarting}
         />
@@ -8314,7 +8314,7 @@ function RuntimeSettings({
   apiServiceLoading: boolean;
   apiServiceAction: "start" | "stop" | null;
   apiServiceError: string | null;
-  langfuseFeature?: NanobotFeatureInfo;
+  langfuseFeature?: NanoinfraFeatureInfo;
   capabilitiesLoading: boolean;
   capabilityAction: string | null;
   capabilityError: string | null;
@@ -8353,7 +8353,7 @@ function RuntimeSettings({
     timeout: settings.api?.timeout ?? 120,
     api_key_hint: settings.api?.api_key_hint,
     endpoint: `http://127.0.0.1:${settings.api?.port ?? 8900}/v1`,
-    command: "nanobot serve",
+    command: "nanoinfra serve",
   };
   const [apiHost, setApiHost] = useState(apiDefaults.host);
   const [apiPort, setApiPort] = useState(apiDefaults.port);
@@ -8423,7 +8423,7 @@ function RuntimeSettings({
             pendingRestart={requiresRestartPending}
             dirtyMessage={
               isNativeHost
-                ? tx("settings.status.hostRestartAfterSaving", "Save changes and nanobot will restart its engine.")
+                ? tx("settings.status.hostRestartAfterSaving", "Save changes and nanoinfra will restart its engine.")
                 : tx("settings.status.restartAfterSaving", "Save changes, then restart when ready.")
             }
             pendingMessage={
@@ -8644,10 +8644,10 @@ function RuntimeSettings({
             title="Langfuse"
             description={
               settings.observability?.configured
-                ? tx("settings.observability.configured", "Tracing credentials are available to nanobot.")
+                ? tx("settings.observability.configured", "Tracing credentials are available to nanoinfra.")
                 : tx(
                     "settings.observability.environment",
-                    "Set LANGFUSE_SECRET_KEY and LANGFUSE_PUBLIC_KEY, then restart nanobot.",
+                    "Set LANGFUSE_SECRET_KEY and LANGFUSE_PUBLIC_KEY, then restart nanoinfra.",
                   )
             }
           >

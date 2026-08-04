@@ -1,5 +1,5 @@
 {
-  "description": "Slack 워크스페이스에서 nanobot을 사용합니다.",
+  "description": "Slack 워크스페이스에서 nanoinfra을 사용합니다.",
   "requirements": "Slack 앱 토큰, 봇 토큰 및 워크스페이스 설치",
   "setup": {
     "docsLabel": "Slack 설정 가이드 열기",

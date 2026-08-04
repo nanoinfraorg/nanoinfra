@@ -1,5 +1,5 @@
 {
-  "description": "Sử dụng nanobot từ các cuộc trò chuyện WeChat.",
+  "description": "Sử dụng nanoinfra từ các cuộc trò chuyện WeChat.",
   "requirements": "Cài đặt kênh WeChat và gateway",
   "setup": {
     "primaryAction": "Kết nối WeChat",
@@ -26,7 +26,7 @@
   "custom": {
     "qrAlt": "Mã QR đăng nhập WeChat",
     "scanTitle": "Quét bằng WeChat",
-    "scanDescription": "Quét bằng WeChat trên điện thoại. nanobot lưu trạng thái cục bộ sau khi đăng nhập.",
+    "scanDescription": "Quét bằng WeChat trên điện thoại. nanoinfra lưu trạng thái cục bộ sau khi đăng nhập.",
     "waiting": "Đang chờ quét WeChat...",
     "connected": "WeChat đã kết nối.",
     "stopped": "Đăng nhập WeChat đã dừng.",

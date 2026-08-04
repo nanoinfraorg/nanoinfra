@@ -24,7 +24,7 @@ cron(action="add", message="Time to take a break!", every_seconds=1200)
 
 Dynamic task (agent executes each time):
 ```
-cron(action="add", message="Check HKUDS/nanobot GitHub stars and report", every_seconds=600)
+cron(action="add", message="Check bet0x/nanoinfra GitHub stars and report", every_seconds=600)
 ```
 
 One-time scheduled task (compute ISO datetime from current time):

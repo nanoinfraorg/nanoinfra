@@ -1,6 +1,6 @@
 # Architecture
 
-This page maps nanobot's runtime behavior to source files. Use it when you are debugging internals, reviewing a PR, adding a provider/channel/tool, or trying to understand where a user-visible behavior comes from.
+This page maps nanoinfra's runtime behavior to source files. Use it when you are debugging internals, reviewing a PR, adding a provider/channel/tool, or trying to understand where a user-visible behavior comes from.
 
 For the product-level mental model, read [`concepts.md`](./concepts.md) first.
 
@@ -26,12 +26,12 @@ Main files:
 
 | Area | Files |
 |---|---|
-| Message events and queue | `nanobot/bus/events.py`, `nanobot/bus/queue.py` |
-| Turn orchestration | `nanobot/agent/loop.py` |
-| Provider/tool conversation loop | `nanobot/agent/runner.py` |
-| Context construction | `nanobot/agent/context.py` |
-| Session storage and compaction | `nanobot/session/manager.py` |
-| Long-term memory and Dream | `nanobot/agent/memory.py` |
+| Message events and queue | `nanoinfra/bus/events.py`, `nanoinfra/bus/queue.py` |
+| Turn orchestration | `nanoinfra/agent/loop.py` |
+| Provider/tool conversation loop | `nanoinfra/agent/runner.py` |
+| Context construction | `nanoinfra/agent/context.py` |
+| Session storage and compaction | `nanoinfra/session/manager.py` |
+| Long-term memory and Dream | `nanoinfra/agent/memory.py` |
 
 ## Agent Loop vs Agent Runner
 
@@ -55,7 +55,7 @@ Keep this split in mind when debugging. If a problem is about channel routing, s
 
 ## Providers
 
-Provider metadata is centralized in `nanobot/providers/registry.py`. Configuration fields live in `nanobot/config/schema.py`.
+Provider metadata is centralized in `nanoinfra/providers/registry.py`. Configuration fields live in `nanoinfra/config/schema.py`.
 
 Provider selection uses:
 
@@ -65,7 +65,7 @@ Provider selection uses:
 - local provider fallback when `apiBase` is configured;
 - gateway fallback for providers that can route many model families.
 
-Provider implementations live in `nanobot/providers/`. Most hosted providers use the OpenAI-compatible implementation, while Anthropic, Azure OpenAI, AWS Bedrock, OpenAI Codex, and GitHub Copilot have specialized paths.
+Provider implementations live in `nanoinfra/providers/`. Most hosted providers use the OpenAI-compatible implementation, while Anthropic, Azure OpenAI, AWS Bedrock, OpenAI Codex, and GitHub Copilot have specialized paths.
 
 Useful docs:
 
@@ -80,16 +80,16 @@ Main files:
 
 | Area | Files |
 |---|---|
-| Base channel contract | `nanobot/channels/base.py` |
-| Channel packages | `nanobot/channels/<channel>/` |
-| Discovery and lifecycle | `nanobot/channels/manager.py` |
-| WebSocket/WebUI channel | `nanobot/channels/websocket/` |
+| Base channel contract | `nanoinfra/channels/base.py` |
+| Channel packages | `nanoinfra/channels/<channel>/` |
+| Discovery and lifecycle | `nanoinfra/channels/manager.py` |
+| WebSocket/WebUI channel | `nanoinfra/channels/websocket/` |
 
-Channels are discovered by scanning self-contained packages under `nanobot/channels/`. Add a channel by contributing one package that follows [`channel-package-guide.md`](./channel-package-guide.md).
+Channels are discovered by scanning self-contained packages under `nanoinfra/channels/`. Add a channel by contributing one package that follows [`channel-package-guide.md`](./channel-package-guide.md).
 
 ## WebUI and Gateway
 
-`nanobot gateway` starts:
+`nanoinfra gateway` starts:
 
 - enabled chat channels;
 - the WebSocket channel when configured;
@@ -104,7 +104,7 @@ The packaged WebUI is served by the WebSocket channel, not the health endpoint:
 | Health endpoint | `http://127.0.0.1:18790/health` |
 | WebUI/WebSocket | `http://127.0.0.1:8765` |
 
-WebUI source lives in `webui/`. The production build is written to `nanobot/web/dist/` and bundled into the wheel.
+WebUI source lives in `webui/`. The production build is written to `nanoinfra/web/dist/` and bundled into the wheel.
 
 Useful docs:
 
@@ -114,34 +114,34 @@ Useful docs:
 
 ## Tools
 
-Tools are discovered from `nanobot/agent/tools/` and plugin entry points.
+Tools are discovered from `nanoinfra/agent/tools/` and plugin entry points.
 
 Important files:
 
 | Tool area | Files |
 |---|---|
-| Tool base and schema | `nanobot/agent/tools/base.py`, `nanobot/agent/tools/schema.py` |
-| Discovery | `nanobot/agent/tools/registry.py` |
-| Shell execution | `nanobot/agent/tools/shell.py` |
-| Filesystem tools | `nanobot/agent/tools/filesystem.py` |
-| Web search/fetch | `nanobot/agent/tools/web.py` |
-| MCP tools | `nanobot/agent/tools/mcp.py` |
-| Cron | `nanobot/agent/tools/cron.py`, `nanobot/cron/` |
-| Image generation | `nanobot/agent/tools/image_generation.py` |
-| Runtime self-inspection | `nanobot/agent/tools/self.py` |
+| Tool base and schema | `nanoinfra/agent/tools/base.py`, `nanoinfra/agent/tools/schema.py` |
+| Discovery | `nanoinfra/agent/tools/registry.py` |
+| Shell execution | `nanoinfra/agent/tools/shell.py` |
+| Filesystem tools | `nanoinfra/agent/tools/filesystem.py` |
+| Web search/fetch | `nanoinfra/agent/tools/web.py` |
+| MCP tools | `nanoinfra/agent/tools/mcp.py` |
+| Cron | `nanoinfra/agent/tools/cron.py`, `nanoinfra/cron/` |
+| Image generation | `nanoinfra/agent/tools/image_generation.py` |
+| Runtime self-inspection | `nanoinfra/agent/tools/self.py` |
 
 Tool behavior is part of the model contract. Keep user-visible tool names, schemas, and error messages stable unless a change is intentional.
 
 ## Config and Paths
 
-The config schema lives in `nanobot/config/schema.py`. Loading and saving live in `nanobot/config/loader.py`. Runtime path helpers live in `nanobot/config/paths.py`.
+The config schema lives in `nanoinfra/config/schema.py`. Loading and saving live in `nanoinfra/config/loader.py`. Runtime path helpers live in `nanoinfra/config/paths.py`.
 
 Defaults:
 
 | Path | Default |
 |---|---|
-| Config | `~/.nanobot/config.json` |
-| Workspace | `~/.nanobot/workspace/` |
+| Config | `~/.nanoinfra/config.json` |
+| Workspace | `~/.nanoinfra/workspace/` |
 | Sessions | `<workspace>/sessions/*.jsonl` |
 | Memory | `<workspace>/memory/` |
 | Cron store | `<workspace>/cron/jobs.json` |
@@ -176,9 +176,9 @@ Session history is the near-term conversation replay. Memory is the longer-term 
 | Session JSONL files | `<workspace>/sessions/` |
 | Long-term memory | `<workspace>/memory/MEMORY.md` |
 | Consolidation source history | `<workspace>/memory/history.jsonl` |
-| Bootstrap identity files | `<workspace>/SOUL.md`, `<workspace>/USER.md`, templates under `nanobot/templates/` |
+| Bootstrap identity files | `<workspace>/SOUL.md`, `<workspace>/USER.md`, templates under `nanoinfra/templates/` |
 
-Dream is implemented in `nanobot/agent/memory.py` and scheduled by the runtime when enabled.
+Dream is implemented in `nanoinfra/agent/memory.py` and scheduled by the runtime when enabled.
 
 ## Security Boundaries
 
@@ -186,11 +186,11 @@ Security-sensitive code paths include:
 
 | Boundary | Files |
 |---|---|
-| Workspace scope | `nanobot/security/workspace_access.py`, `nanobot/security/workspace_policy.py` |
-| Shell sandboxing | `nanobot/agent/tools/shell.py` |
-| SSRF/network checks | `nanobot/security/network.py`, `nanobot/agent/tools/web.py` |
-| PTH guard and CLI startup security | `nanobot/security/` and CLI entrypoints |
-| Channel access control | channel config in `nanobot/channels/*.py` |
+| Workspace scope | `nanoinfra/security/workspace_access.py`, `nanoinfra/security/workspace_policy.py` |
+| Shell sandboxing | `nanoinfra/agent/tools/shell.py` |
+| SSRF/network checks | `nanoinfra/security/network.py`, `nanoinfra/agent/tools/web.py` |
+| PTH guard and CLI startup security | `nanoinfra/security/` and CLI entrypoints |
+| Channel access control | channel config in `nanoinfra/channels/*.py` |
 
 When changing tools, channels, file access, WebUI workspace behavior, or network fetching, treat security as part of the functional behavior and update docs if the user-facing boundary changes.
 
@@ -202,7 +202,7 @@ When changing tools, channels, file access, WebUI workspace behavior, or network
 | Channel | Export a `ChannelPlugin` descriptor, keep its runtime and optional setup surfaces in one package, and follow [`channel-package-guide.md`](./channel-package-guide.md) |
 | Tool | Implement a tool under `agent/tools/` or expose a plugin entry point |
 | MCP | Add `tools.mcpServers` config |
-| Skill | Add workspace skill files under `<workspace>/skills/` or built-in skills under `nanobot/skills/` |
+| Skill | Add workspace skill files under `<workspace>/skills/` or built-in skills under `nanoinfra/skills/` |
 
 Prefer existing registry/discovery patterns over ad hoc wiring.
 
@@ -212,7 +212,7 @@ Common checks:
 
 ```bash
 pytest tests/test_openai_api.py::test_function -v
-ruff check nanobot/
+ruff check nanoinfra/
 cd webui && bun run test
 cd webui && bun run build
 ```
@@ -221,8 +221,8 @@ Choose tests based on the changed surface:
 
 | Change | Minimum useful verification |
 |---|---|
-| Provider behavior | Provider unit tests or a mocked API path; `nanobot agent -m "Hello!"` with safe config when possible |
-| Channel behavior | Channel tests plus `nanobot gateway` startup path |
+| Provider behavior | Provider unit tests or a mocked API path; `nanoinfra agent -m "Hello!"` with safe config when possible |
+| Channel behavior | Channel tests plus `nanoinfra gateway` startup path |
 | WebUI behavior | WebUI tests/build and, for routing/settings/chat changes, browser-level verification through the gateway |
 | Tool behavior | Tool unit tests and an agent-run path when schema or model-facing behavior changes |
 | Docs | Link checks, command accuracy against CLI/schema, and `git diff --check` |

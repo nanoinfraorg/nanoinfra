@@ -1,5 +1,5 @@
 {
-  "description": "DingTalk グループから nanobot を利用します。",
+  "description": "DingTalk グループから nanoinfra を利用します。",
   "requirements": "DingTalk アプリの認証情報とゲートウェイ",
   "setup": {
     "docsLabel": "DingTalk 設定ガイドを開く",

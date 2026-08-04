@@ -13,14 +13,14 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import Field
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.outbound_events import ProgressEvent
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.command.builtin import build_help_text
-from nanobot.config.paths import get_media_dir
-from nanobot.config.schema import Base
-from nanobot.utils.helpers import safe_filename, split_message
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.outbound_events import ProgressEvent
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.command.builtin import build_help_text
+from nanoinfra.config.paths import get_media_dir
+from nanoinfra.config.schema import Base
+from nanoinfra.utils.helpers import safe_filename, split_message
 
 DISCORD_AVAILABLE = importlib.util.find_spec("discord") is not None
 if TYPE_CHECKING:
@@ -256,7 +256,7 @@ if DISCORD_AVAILABLE:
                 )
 
         async def send_outbound(self, msg: OutboundMessage) -> None:
-            """Send a nanobot outbound message using Discord transport rules."""
+            """Send a nanoinfra outbound message using Discord transport rules."""
             channel_id = int(msg.chat_id)
 
             channel = self._channel._known_channels.get(msg.chat_id) or self.get_channel(channel_id)
@@ -407,7 +407,7 @@ class DiscordChannel(BaseChannel):
     async def start(self) -> None:
         """Start the Discord client."""
         if not DISCORD_AVAILABLE:
-            self.logger.error("discord.py not installed. Run: nanobot plugins enable discord")
+            self.logger.error("discord.py not installed. Run: nanoinfra plugins enable discord")
             return
 
         if not self.config.token:

@@ -90,7 +90,7 @@ export function FilePreviewPanel({
     ? (state.error instanceof ApiError
       ? (state.error.status === 404 && /API route not found/i.test(state.error.message)
         ? t("filePreview.routeMissing", {
-          defaultValue: "File preview needs the latest gateway. Restart nanobot gateway and try again.",
+          defaultValue: "File preview needs the latest gateway. Restart nanoinfra gateway and try again.",
         })
         : state.error.message)
       : t("filePreview.failed", { defaultValue: "Could not preview this file." }))

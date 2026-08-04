@@ -8,9 +8,9 @@ from typing import Any, cast
 
 from loguru import logger
 
-from nanobot.bus.events import InboundMessage, OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.pairing import (
+from nanoinfra.bus.events import InboundMessage, OutboundMessage
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.pairing import (
     PAIRING_CODE_META_KEY,
     format_pairing_reply,
     generate_code,
@@ -23,7 +23,7 @@ class BaseChannel(ABC):
     Abstract base class for chat channel implementations.
 
     Each channel (Telegram, Discord, etc.) should implement this interface
-    to integrate with the nanobot message bus.
+    to integrate with the nanoinfra message bus.
     """
 
     name: str = "base"
@@ -48,11 +48,11 @@ class BaseChannel(ABC):
     async def transcribe_audio(self, file_path: str | Path) -> str:
         """Transcribe an audio file via Whisper (OpenAI or Groq). Returns empty string on failure."""
         try:
-            from nanobot.audio.transcription import (
+            from nanoinfra.audio.transcription import (
                 resolve_transcription_config,
                 transcribe_audio_file,
             )
-            from nanobot.config.loader import load_config
+            from nanoinfra.config.loader import load_config
 
             return await transcribe_audio_file(file_path, resolve_transcription_config(load_config()))
         except Exception:

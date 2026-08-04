@@ -8,7 +8,7 @@ from typing import Any, cast
 
 from loguru import logger
 
-from nanobot.utils.helpers import stringify_text_blocks
+from nanoinfra.utils.helpers import stringify_text_blocks
 
 _MAX_REPEAT_EXTERNAL_LOOKUPS = 2
 

@@ -1,5 +1,5 @@
 {
-  "description": "Use o nanobot em servidores e DMs do Discord.",
+  "description": "Use o nanoinfra em servidores e DMs do Discord.",
   "requirements": "Token do bot Discord, permissões e gateway",
   "setup": {
     "docsLabel": "Abrir guia do Discord",

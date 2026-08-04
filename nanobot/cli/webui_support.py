@@ -11,22 +11,22 @@ from rich.console import Console
 from rich.markup import escape
 from rich.text import Text
 
-from nanobot.cli.runtime_config import (
+from nanoinfra.cli.runtime_config import (
     _load_config_for_cli,
     _print_model_setup_steps,
     _print_runtime_config_validation_error,
     _provider_setup_error,
 )
-from nanobot.config.schema import Config
-from nanobot.security.network import is_loopback_host
-from nanobot.webui.build import (
+from nanoinfra.config.schema import Config
+from nanoinfra.security.network import is_loopback_host
+from nanoinfra.webui.build import (
     BuildMode,
     WebUIBuildError,
     ensure_webui_bundle,
 )
 
 if TYPE_CHECKING:
-    from nanobot.gateway.runtime import GatewayRuntime
+    from nanoinfra.gateway.runtime import GatewayRuntime
 
 __all__ = [
     "_attach_to_background_gateway",
@@ -64,7 +64,7 @@ def _confirm_webui_action(message: str, *, yes: bool) -> None:
     if not _cli_can_prompt():
         console.print(
             "[red]Error: WebUI setup needs confirmation. Re-run with --yes or use "
-            "`nanobot onboard --wizard`.[/red]"
+            "`nanoinfra onboard --wizard`.[/red]"
         )
         raise typer.Exit(1)
     if not typer.confirm(message, default=True):
@@ -86,8 +86,8 @@ def _webui_build_mode_for_interactive(*, yes: bool = False) -> BuildMode:
 
 
 def _resolve_webui_config_path(config: str | None) -> Path:
-    """Resolve the config path used by ``nanobot webui`` and bind loader state."""
-    from nanobot.config.loader import get_config_path, set_config_path
+    """Resolve the config path used by ``nanoinfra webui`` and bind loader state."""
+    from nanoinfra.config.loader import get_config_path, set_config_path
 
     if not config:
         return get_config_path()
@@ -104,7 +104,7 @@ def _load_webui_setup_config(config_path: Path) -> Config:
 
 def _webui_config_dict(config: Config) -> dict[str, Any]:
     """Return the current WebSocket config as a mutable alias-key dictionary."""
-    from nanobot.channels.websocket.runtime import WebSocketConfig
+    from nanoinfra.channels.websocket.runtime import WebSocketConfig
 
     current: Any = getattr(config.channels, "websocket", None) or {}
     model = WebSocketConfig.model_validate(current)
@@ -112,7 +112,7 @@ def _webui_config_dict(config: Config) -> dict[str, Any]:
 
 
 def _webui_channel_enabled(config: Config) -> bool:
-    from nanobot.channels.websocket.runtime import WebSocketConfig
+    from nanoinfra.channels.websocket.runtime import WebSocketConfig
 
     current: Any = getattr(config.channels, "websocket", None) or {}
     return bool(WebSocketConfig.model_validate(current).enabled)
@@ -120,13 +120,13 @@ def _webui_channel_enabled(config: Config) -> bool:
 
 def _validate_gateway_startup(config: Config) -> str | None:
     """Validate gateway startup and return a provider error recoverable through WebUI."""
-    from nanobot.config.loader import get_config_path
+    from nanoinfra.config.loader import get_config_path
 
     config_path = get_config_path()
     try:
         webui_config = _webui_config_dict(config)
     except ValidationError as exc:
-        retry_command = f'nanobot gateway --config "{config_path}"'
+        retry_command = f'nanoinfra gateway --config "{config_path}"'
         _print_runtime_config_validation_error(
             exc,
             config_path=config_path,
@@ -256,7 +256,7 @@ def _ensure_local_webui_channel(
     yes: bool,
 ) -> tuple[bool, bool]:
     """Enable the local WebUI channel with safe localhost defaults."""
-    from nanobot.channels.websocket.runtime import WebSocketConfig
+    from nanoinfra.channels.websocket.runtime import WebSocketConfig
 
     current: Any = getattr(config.channels, "websocket", None) or {}
     model = WebSocketConfig.model_validate(current)
@@ -341,7 +341,7 @@ def _tcp_endpoint_reachable(host: str, port: int, *, timeout_s: float = 0.25) ->
 
 
 def _gateway_health_ready(host: str, port: int, *, timeout_s: float = 0.4) -> bool:
-    """Return whether the nanobot gateway health endpoint responds OK."""
+    """Return whether the nanoinfra gateway health endpoint responds OK."""
     import json
     import urllib.error
     import urllib.request
@@ -382,7 +382,7 @@ def _print_foreground_port_conflict(
     gateway_port: int,
 ) -> None:
     console.print(
-        "[red]Error: nanobot cannot start because one of its local ports is already in use.[/red]"
+        "[red]Error: nanoinfra cannot start because one of its local ports is already in use.[/red]"
     )
     console.print(f"  WebUI: [cyan]{webui_url}[/cyan]")
     console.print(
@@ -390,9 +390,9 @@ def _print_foreground_port_conflict(
         f"[cyan]http://{_host_for_local_browser(gateway_host)}:{gateway_port}/health[/cyan]"
     )
     console.print()
-    console.print("If this is an existing nanobot instance, use it or stop it first:")
-    console.print("  [cyan]nanobot gateway status[/cyan]")
-    console.print("  [cyan]nanobot gateway stop[/cyan]")
+    console.print("If this is an existing nanoinfra instance, use it or stop it first:")
+    console.print("  [cyan]nanoinfra gateway status[/cyan]")
+    console.print("  [cyan]nanoinfra gateway stop[/cyan]")
     console.print(
         "Or choose different ports with [cyan]--port[/cyan] "
         "and [cyan]--gateway-port[/cyan]."
@@ -417,11 +417,11 @@ def _print_webui_foreground_lifecycle(*, attached: bool) -> None:
     """Explain how the browser and gateway lifecycles differ."""
     console.print()
     if attached:
-        console.print("[green]nanobot is attached to the existing gateway.[/green]")
+        console.print("[green]nanoinfra is attached to the existing gateway.[/green]")
     else:
-        console.print("[green]nanobot is running in this terminal.[/green]")
+        console.print("[green]nanoinfra is running in this terminal.[/green]")
     console.print("[dim]Closing the browser does not stop channels or automations.[/dim]")
-    console.print("[dim]Press Ctrl+C here to stop nanobot.[/dim]")
+    console.print("[dim]Press Ctrl+C here to stop nanoinfra.[/dim]")
 
 
 def _attach_to_background_gateway(runtime: "GatewayRuntime") -> None:
@@ -431,7 +431,7 @@ def _attach_to_background_gateway(runtime: "GatewayRuntime") -> None:
         while runtime.status().running:
             time.sleep(0.5)
     except KeyboardInterrupt:
-        console.print("\n[yellow]Stopping nanobot...[/yellow]")
+        console.print("\n[yellow]Stopping nanoinfra...[/yellow]")
         result = runtime.stop()
         if result.ok or result.message == "gateway_not_running":
             console.print("[green]Gateway stopped.[/green]")
@@ -451,7 +451,7 @@ def _gateway_instance_command(
     """Return a copyable gateway command for the same config/workspace instance."""
     import shlex
 
-    parts = ["nanobot", "gateway", subcommand, "--config", str(config_path)]
+    parts = ["nanoinfra", "gateway", subcommand, "--config", str(config_path)]
     if workspace:
         workspace_path = str(Path(workspace).expanduser().resolve(strict=False))
         parts.extend(["--workspace", workspace_path])
@@ -481,14 +481,14 @@ def _run_quick_start_for_webui(
     )
     _confirm_webui_action("Run Quick Start now?", yes=False)
 
-    from nanobot.cli.onboard import run_quick_start_onboard
+    from nanoinfra.cli.onboard import run_quick_start_onboard
 
     try:
         result = run_quick_start_onboard(config)
     except RuntimeError as exc:
         console.print(f"[red]Error: {exc}[/red]")
         console.print(
-            "[yellow]Run `nanobot onboard --wizard` "
+            "[yellow]Run `nanoinfra onboard --wizard` "
             "after installing wizard dependencies.[/yellow]"
         )
         raise typer.Exit(1) from exc

@@ -1,30 +1,30 @@
-# Build a Slack AI Agent with nanobot
+# Build a Slack AI Agent with nanoinfra
 
-This guide connects nanobot to Slack through Socket Mode. No public webhook URL
+This guide connects nanoinfra to Slack through Socket Mode. No public webhook URL
 is required for the first working setup.
 
 ## What this guide builds
 
 - a Slack app with Socket Mode
 - a bot token and app-level token
-- the `slack` channel enabled in nanobot
+- the `slack` channel enabled in nanoinfra
 - a DM pairing flow and mention test from an approved Slack user
 
 ## Prerequisites
 
-- A working nanobot reply:
+- A working nanoinfra reply:
 
 ```bash
-nanobot agent -m "Hello!"
+nanoinfra agent -m "Hello!"
 ```
 
 - Permission to create a Slack app in a workspace.
 
-## Install nanobot
+## Install nanoinfra
 
 ```bash
-python -m pip install nanobot-ai
-nanobot onboard --wizard
+python -m pip install nanoinfra
+nanoinfra onboard --wizard
 ```
 
 ## Enable the Slack channel
@@ -32,14 +32,14 @@ nanobot onboard --wizard
 Install the optional channel dependency:
 
 ```bash
-nanobot plugins enable slack
+nanoinfra plugins enable slack
 ```
 
 In Slack, create an app, enable Socket Mode, create an app-level token with
 `connections:write`, add bot scopes, subscribe to bot events, and install the
 app to your workspace.
 
-Merge this snippet into `~/.nanobot/config.json`:
+Merge this snippet into `~/.nanoinfra/config.json`:
 
 ```json
 {
@@ -61,11 +61,11 @@ Slack DMs are open by default. Setting `dm.policy` to `"allowlist"` with no
 `dm.allowFrom` entries makes new DM senders receive a pairing code. Approve the
 code before using the bot normally.
 
-## Run nanobot gateway
+## Run nanoinfra gateway
 
 ```bash
-nanobot channels status
-nanobot gateway
+nanoinfra channels status
+nanoinfra gateway
 ```
 
 ## Test a message
@@ -74,13 +74,13 @@ DM the Slack bot directly. It should return a pairing code. Approve it from a
 trusted local surface:
 
 ```bash
-nanobot agent -m "/pairing approve ABCD-EFGH"
+nanoinfra agent -m "/pairing approve ABCD-EFGH"
 ```
 
 Then DM the bot again, or mention it in a channel:
 
 ```text
-@nanobot Hello from Slack
+@nanoinfra Hello from Slack
 ```
 
 ## Security notes
@@ -96,7 +96,7 @@ Then DM the bot again, or mention it in a channel:
 
 - If Socket Mode fails, confirm the app-level token starts with `xapp-`.
 - If the bot cannot send files, add `files:write`, reinstall the app, and
-  restart nanobot.
+  restart nanoinfra.
 - If a DM responds normally without pairing, check that `dm.policy` is
   `"allowlist"`.
 - If channel messages are ignored, check event subscriptions and group policy.

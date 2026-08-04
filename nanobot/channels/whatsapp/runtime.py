@@ -15,11 +15,11 @@ from typing import Any, Literal, NamedTuple, cast
 
 from pydantic import Field
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.config.paths import get_media_dir, get_runtime_subdir
-from nanobot.config.schema import Base
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.config.paths import get_media_dir, get_runtime_subdir
+from nanoinfra.config.schema import Base
 
 
 class WhatsAppConfig(Base):
@@ -73,7 +73,7 @@ def _load_neonize() -> _NeonizeAPI:
         from neonize.utils.jid import build_jid
     except ImportError as exc:
         raise RuntimeError(
-            "WhatsApp dependencies not installed. Run: nanobot plugins enable whatsapp"
+            "WhatsApp dependencies not installed. Run: nanoinfra plugins enable whatsapp"
         ) from exc
 
     _NEONIZE_API = _NeonizeAPI(
@@ -289,7 +289,7 @@ class WhatsAppChannel(BaseChannel):
         if legacy_bridge_fields:
             self.logger.warning(
                 "Ignoring deprecated WhatsApp bridge config fields: {}. "
-                "Run 'nanobot channels login whatsapp' to create a neonize session.",
+                "Run 'nanoinfra channels login whatsapp' to create a neonize session.",
                 ", ".join(legacy_bridge_fields),
             )
         self._client: Any | None = None

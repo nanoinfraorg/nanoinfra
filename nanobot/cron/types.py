@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast, overload
 
-from nanobot.utils.dict_keys import get_camel_snake
+from nanoinfra.utils.dict_keys import get_camel_snake
 
 
 @overload

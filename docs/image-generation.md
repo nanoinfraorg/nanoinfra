@@ -1,6 +1,6 @@
 # Image Generation
 
-nanobot can generate and edit images through the `generate_image` tool. Enable the tool in WebUI Settings, then ask for an image normally in chat; the agent decides when to call it and can keep iterating on generated images in the same conversation.
+nanoinfra can generate and edit images through the `generate_image` tool. Enable the tool in WebUI Settings, then ask for an image normally in chat; the agent decides when to call it and can keep iterating on generated images in the same conversation.
 
 The feature is disabled by default. Open **Settings → Image**, choose a configured provider and model, enable image generation, and save. The running gateway applies the change immediately. If that screen is not available in your installed version, use the manual config below.
 
@@ -37,7 +37,7 @@ This snippet uses the current built-in image-generation default so the JSON has 
 See [Provider Notes](#provider-notes) for Custom, AIHubMix, MiniMax, Gemini, Ollama, StepFun, Zhipu, and ModelScope configuration examples.
 
 > [!TIP]
-> Prefer environment variables for API keys. nanobot resolves `${VAR_NAME}` values from the environment at startup.
+> Prefer environment variables for API keys. nanoinfra resolves `${VAR_NAME}` values from the environment at startup.
 
 ## WebUI Usage
 
@@ -60,7 +60,7 @@ The WebUI hides provider storage details from the user. The agent sees the saved
 | `tools.imageGeneration.defaultAspectRatio` | string | `"1:1"` | Default ratio when the prompt/tool call does not specify one |
 | `tools.imageGeneration.defaultImageSize` | string | `"1K"` | Default size hint, for example `1K`, `2K`, `4K`, or `1024x1024` |
 | `tools.imageGeneration.maxImagesPerTurn` | number | `4` | Maximum `count` accepted by one tool call. Valid range: `1` to `8` |
-| `tools.imageGeneration.saveDir` | string | `"generated"` | Relative directory under nanobot's media directory for generated artifacts |
+| `tools.imageGeneration.saveDir` | string | `"generated"` | Relative directory under nanoinfra's media directory for generated artifacts |
 
 Provider settings reuse normal provider config fields:
 
@@ -72,7 +72,7 @@ Provider settings reuse normal provider config fields:
 | `providers.<name>.extraBody` | Extra JSON fields merged into provider request bodies |
 | `providers.<name>.proxy` | Explicit trusted HTTP proxy for provider requests and returned image URL downloads |
 
-For providers that return image URLs, direct downloads use DNS pinning. When an explicit provider `proxy` is configured, nanobot rejects malformed URLs and locally identifiable private/internal targets on the initial URL and every redirect. Hostnames unavailable to local DNS are delegated to that trusted proxy, which owns final DNS resolution and network egress. Process-wide proxy environment variables are not used for these downloads.
+For providers that return image URLs, direct downloads use DNS pinning. When an explicit provider `proxy` is configured, nanoinfra rejects malformed URLs and locally identifiable private/internal targets on the initial URL and every redirect. Hostnames unavailable to local DNS are delegated to that trusted proxy, which owns final DNS resolution and network egress. Process-wide proxy environment variables are not used for these downloads.
 
 Both camelCase and snake_case config keys are accepted, but docs use camelCase to match `config.json`.
 
@@ -134,11 +134,11 @@ The `apiBase` is required. The provider sends requests to `{apiBase}/images/gene
 - Together AI documents `"response_format": "base64"`, so override the default.
 - Volcengine Ark Seedream models may require size hints such as `"2K"`, `"3K"`, `"4K"`, or explicit dimensions. Set `tools.imageGeneration.defaultImageSize` or `providers.custom.extraBody.size` to a value supported by the selected model.
 
-For compatibility with the default nanobot setting, custom maps `defaultImageSize: "1K"` to `1024x1024`. Other explicit size hints are passed through unchanged.
+For compatibility with the default nanoinfra setting, custom maps `defaultImageSize: "1K"` to `1024x1024`. Other explicit size hints are passed through unchanged.
 
 ### AIHubMix
 
-AIHubMix `gpt-image-2-free` is supported through AIHubMix's unified predictions API. Internally nanobot calls:
+AIHubMix `gpt-image-2-free` is supported through AIHubMix's unified predictions API. Internally nanoinfra calls:
 
 ```text
 /v1/models/openai/gpt-image-2-free/predictions
@@ -192,7 +192,7 @@ MiniMax `image-01` supports text-to-image and reference-image (subject reference
 
 ### Gemini
 
-nanobot supports two Gemini image generation model families via Google's Generative Language API:
+nanoinfra supports two Gemini image generation model families via Google's Generative Language API:
 
 | Model | Endpoint | Reference images |
 |-------|----------|-----------------|
@@ -299,7 +299,7 @@ StepPlan is StepFun's subscription tier and uses a different API base URL. The i
 
 ### Zhipu
 
-Zhipu (智谱) `glm-image` model supports text-to-image generation. The API returns temporary image URLs (valid for 30 days); nanobot downloads and re-encodes them as base64 data URLs.
+Zhipu (智谱) `glm-image` model supports text-to-image generation. The API returns temporary image URLs (valid for 30 days); nanoinfra downloads and re-encodes them as base64 data URLs.
 
 Supported aspect ratios: `1:1`, `16:9`, `9:16`, `3:4`, `4:3`. Sizes can be specified as `WIDTHxHEIGHT` (e.g. `1280x1280`, `1728x960`) or using aspect ratio presets.
 
@@ -347,11 +347,11 @@ Supported aspect ratios: `1:1`, `16:9`, `9:16`, `3:4`, `4:3`. Sizes can be speci
 
 ## Artifacts
 
-Generated images are stored under the active nanobot instance's media directory:
+Generated images are stored under the active nanoinfra instance's media directory:
 
 ```text
-~/.nanobot/media/generated/YYYY-MM-DD/img_<id>.<ext>
-~/.nanobot/media/generated/YYYY-MM-DD/img_<id>.json
+~/.nanoinfra/media/generated/YYYY-MM-DD/img_<id>.<ext>
+~/.nanoinfra/media/generated/YYYY-MM-DD/img_<id>.json
 ```
 
 For non-default config locations, the media directory is relative to the active config file's directory.
@@ -384,7 +384,7 @@ Good image prompts include:
 Example:
 
 ```text
-A minimal app icon for nanobot: friendly robot head, rounded square, soft blue and white palette, clean vector style, no text
+A minimal app icon for nanoinfra: friendly robot head, rounded square, soft blue and white palette, clean vector style, no text
 ```
 
 For edits, describe what should change and what must stay fixed:
@@ -400,6 +400,6 @@ Use the reference image. Keep the same robot and composition, change the palette
 | `generate_image` is not available | Enable image generation in **Settings → Image** and save. For manual config changes, restart the gateway |
 | Missing API key error | Configure `providers.<provider>.apiKey`; if using `${VAR_NAME}`, confirm the environment variable is visible to the gateway process |
 | `unsupported image generation provider` | Use `openrouter`, `openai`, `openai_codex`, `custom`, `aihubmix`, `minimax`, `gemini`, `ollama`, `stepfun`, `zhipu`, or `modelscope` |
-| AIHubMix says `Incorrect model ID` | Use `model: "gpt-image-2-free"`; nanobot expands it to the required `openai/gpt-image-2-free` model path internally |
+| AIHubMix says `Incorrect model ID` | Use `model: "gpt-image-2-free"`; nanoinfra expands it to the required `openai/gpt-image-2-free` model path internally |
 | Generation times out | Try a smaller/default image size, set AIHubMix `extraBody.quality` to `"low"`, or retry later |
-| Reference image rejected | Reference image paths must be inside the workspace or nanobot media directory and must be valid image files |
+| Reference image rejected | Reference image paths must be inside the workspace or nanoinfra media directory and must be valid image files |

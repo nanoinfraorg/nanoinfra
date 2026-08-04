@@ -13,8 +13,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from loguru import logger
 
-from nanobot.agent.hook import AgentHook, AgentHookContext
-from nanobot.config.paths import get_webui_dir
+from nanoinfra.agent.hook import AgentHook, AgentHookContext
+from nanoinfra.config.paths import get_webui_dir
 
 TOKEN_USAGE_SCHEMA_VERSION = 1
 _MAX_STATE_FILE_BYTES = 512 * 1024

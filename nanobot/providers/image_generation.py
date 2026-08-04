@@ -15,18 +15,18 @@ from urllib.parse import urljoin
 import httpx
 from loguru import logger
 
-from nanobot.config.schema import Config, ProviderConfig
-from nanobot.providers.registry import find_by_name
-from nanobot.security.network import (
+from nanoinfra.config.schema import Config, ProviderConfig
+from nanoinfra.providers.registry import find_by_name
+from nanoinfra.security.network import (
     PinnedDNSAsyncTransport,
     UnsafeURLRequestError,
     resolve_url_target,
 )
-from nanobot.utils.helpers import detect_image_mime
+from nanoinfra.utils.helpers import detect_image_mime
 
 _OPENROUTER_ATTRIBUTION_HEADERS = {
-    "HTTP-Referer": "https://github.com/HKUDS/nanobot",
-    "X-OpenRouter-Title": "nanobot",
+    "HTTP-Referer": "https://github.com/bet0x/nanoinfra",
+    "X-OpenRouter-Title": "nanoinfra",
     "X-OpenRouter-Categories": "cli-agent,personal-agent",
 }
 _DEFAULT_TIMEOUT_S = 120.0
@@ -1433,8 +1433,8 @@ class CodexImageGenerationClient(ImageGenerationProvider):
             "Authorization": f"Bearer {token.access}",
             "chatgpt-account-id": str(token.account_id),
             "OpenAI-Beta": "responses=experimental",
-            "originator": "nanobot",
-            "User-Agent": "nanobot (python)",
+            "originator": "nanoinfra",
+            "User-Agent": "nanoinfra (python)",
             "Content-Type": "application/json",
             **self.extra_headers,
         }

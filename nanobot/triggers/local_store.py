@@ -15,9 +15,9 @@ from typing import Any, cast
 from filelock import FileLock
 from loguru import logger
 
-from nanobot.triggers.local_types import LocalTrigger, TriggerDelivery, TriggerRunRecord
-from nanobot.utils.helpers import truncate_text
-from nanobot.utils.run_records import write_run_record as write_automation_run_record
+from nanoinfra.triggers.local_types import LocalTrigger, TriggerDelivery, TriggerRunRecord
+from nanoinfra.utils.helpers import truncate_text
+from nanoinfra.utils.run_records import write_run_record as write_automation_run_record
 
 _TRIGGER_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _MAX_RUN_HISTORY = 20

@@ -14,14 +14,14 @@ import httpx
 from loguru import logger
 from oauth_cli_kit import get_token as get_codex_token
 
-from nanobot.providers.base import (
+from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
     ProviderCallContext,
     ProviderConversationState,
     resolve_stream_idle_timeout_s,
 )
-from nanobot.providers.openai_responses import (
+from nanoinfra.providers.openai_responses import (
     ResponsesStreamCapture,
     build_responses_state,
     consume_sse_with_reasoning,
@@ -36,7 +36,7 @@ from nanobot.providers.openai_responses import (
 )
 
 DEFAULT_CODEX_URL = "https://chatgpt.com/backend-api/codex/responses"
-DEFAULT_ORIGINATOR = "nanobot"
+DEFAULT_ORIGINATOR = "nanoinfra"
 _COMPACTION_RETAINED_CHAR_BUDGET = 256_000
 
 
@@ -380,7 +380,7 @@ def _build_headers(account_id: str, token: str) -> dict[str, str]:
         "chatgpt-account-id": account_id,
         "OpenAI-Beta": "responses=experimental",
         "originator": DEFAULT_ORIGINATOR,
-        "User-Agent": "nanobot (python)",
+        "User-Agent": "nanoinfra (python)",
         "accept": "text/event-stream",
         "content-type": "application/json",
     }

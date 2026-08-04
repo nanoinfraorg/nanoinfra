@@ -3,15 +3,15 @@ x-common-config: &common-config
     context: .
     dockerfile: Dockerfile
     args:
-      NANOBOT_CHANNELS: ${NANOBOT_CHANNELS:-whatsapp}
+      NANOINFRA_CHANNELS: ${NANOINFRA_CHANNELS:-whatsapp}
   volumes:
-    - ~/.nanobot:/home/nanobot/.nanobot
+    - ~/.nanoinfra:/home/nanoinfra/.nanoinfra
   cap_drop:
     - ALL
 
 services:
-  nanobot-gateway:
-    container_name: nanobot-gateway
+  nanoinfra-gateway:
+    container_name: nanoinfra-gateway
     <<: *common-config
     command: ["gateway"]
     restart: unless-stopped
@@ -27,11 +27,11 @@ services:
           cpus: "0.25"
           memory: 256M
 
-  nanobot-api:
-    container_name: nanobot-api
+  nanoinfra-api:
+    container_name: nanoinfra-api
     <<: *common-config
     command:
-      ["serve", "--host", "0.0.0.0", "-w", "/home/nanobot/.nanobot/api-workspace"]
+      ["serve", "--host", "0.0.0.0", "-w", "/home/nanoinfra/.nanoinfra/api-workspace"]
     restart: unless-stopped
     ports:
       - 127.0.0.1:8900:8900
@@ -44,7 +44,7 @@ services:
           cpus: "0.25"
           memory: 256M
 
-  nanobot-cli:
+  nanoinfra-cli:
     <<: *common-config
     profiles:
       - cli

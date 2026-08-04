@@ -1,5 +1,5 @@
 {
-  "description": "在 Slack 工作區中使用 nanobot。",
+  "description": "在 Slack 工作區中使用 nanoinfra。",
   "requirements": "Slack 應用程式權杖、機器人權杖和工作區安裝",
   "setup": {
     "docsLabel": "開啟 Slack 設定指南",

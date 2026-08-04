@@ -8,20 +8,20 @@ from pathlib import Path
 
 from pydantic import Field
 
-from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
-from nanobot.agent.tools.context import RequestContext, ToolContext
-from nanobot.agent.tools.schema import (
+from nanoinfra.agent.tools.base import Tool, ToolResult, tool_parameters
+from nanoinfra.agent.tools.context import RequestContext, ToolContext
+from nanoinfra.agent.tools.schema import (
     ArraySchema,
     BooleanSchema,
     IntegerSchema,
     StringSchema,
     tool_parameters_schema,
 )
-from nanobot.apps.cli import CliAppError, CliAppManager, CliAppsRuntimeConfig
-from nanobot.apps.cli.utils import runtime_lines_for_request
-from nanobot.config_base import Base
-from nanobot.runtime_context import RuntimeContextBlock, wrap_runtime_context_lines
-from nanobot.security.workspace_access import current_tool_workspace
+from nanoinfra.apps.cli import CliAppError, CliAppManager, CliAppsRuntimeConfig
+from nanoinfra.apps.cli.utils import runtime_lines_for_request
+from nanoinfra.config_base import Base
+from nanoinfra.runtime_context import RuntimeContextBlock, wrap_runtime_context_lines
+from nanoinfra.security.workspace_access import current_tool_workspace
 
 
 class CliAppsToolConfig(Base):

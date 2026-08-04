@@ -1,5 +1,5 @@
 {
-  "description": "Chatea con nanobot desde Telegram.",
+  "description": "Chatea con nanoinfra desde Telegram.",
   "requirements": "Token del bot, usuarios permitidos y gateway",
   "setup": {
     "docsLabel": "Abrir guía de Telegram",

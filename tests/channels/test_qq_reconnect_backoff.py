@@ -11,8 +11,8 @@ pytest.importorskip("botpy")
 
 
 def _make_channel():
-    from nanobot.bus.queue import MessageBus
-    from nanobot.channels.qq.runtime import QQChannel, QQConfig
+    from nanoinfra.bus.queue import MessageBus
+    from nanoinfra.channels.qq.runtime import QQChannel, QQConfig
 
     bus = MessageBus()
     config = QQConfig(app_id="test_app", secret="test_secret")
@@ -20,7 +20,7 @@ def _make_channel():
 
 
 def _make_bot(channel):
-    from nanobot.channels.qq.runtime import _make_bot_class
+    from nanoinfra.channels.qq.runtime import _make_bot_class
 
     bot_cls = _make_bot_class(channel)
     bot = bot_cls.__new__(bot_cls)
@@ -68,8 +68,8 @@ async def test_bot_connect_dns_error_accounts_for_sdk_pacing():
     connection.add(session)
 
     with (
-        patch("nanobot.channels.qq.runtime.BotWebSocket") as mock_ws_cls,
-        patch("nanobot.channels.qq.runtime.time.monotonic", side_effect=lambda: clock),
+        patch("nanoinfra.channels.qq.runtime.BotWebSocket") as mock_ws_cls,
+        patch("nanoinfra.channels.qq.runtime.time.monotonic", side_effect=lambda: clock),
         patch("asyncio.sleep", side_effect=advance_clock),
     ):
         mock_client = MagicMock()
@@ -96,7 +96,7 @@ async def test_bot_connect_dns_error_no_traceback(capsys):
 
     with (
         patch(
-            "nanobot.channels.qq.runtime.BotWebSocket"
+            "nanoinfra.channels.qq.runtime.BotWebSocket"
         ) as mock_ws_cls,
         patch("asyncio.sleep", new=AsyncMock()),
     ):
@@ -124,7 +124,7 @@ async def test_bot_connect_connector_error_applies_backoff():
 
     with (
         patch(
-            "nanobot.channels.qq.runtime.BotWebSocket"
+            "nanoinfra.channels.qq.runtime.BotWebSocket"
         ) as mock_ws_cls,
         patch("asyncio.sleep", new=AsyncMock()) as mock_sleep,
     ):
@@ -141,7 +141,7 @@ async def test_bot_connect_connector_error_applies_backoff():
 
 @pytest.mark.asyncio
 async def test_bot_connect_backoff_doubles_and_caps():
-    from nanobot.channels.qq.runtime import _RECONNECT_BACKOFF_MAX
+    from nanoinfra.channels.qq.runtime import _RECONNECT_BACKOFF_MAX
 
     channel = _make_channel()
     bot = _make_bot(channel)
@@ -153,7 +153,7 @@ async def test_bot_connect_backoff_doubles_and_caps():
 
     with (
         patch(
-            "nanobot.channels.qq.runtime.BotWebSocket"
+            "nanoinfra.channels.qq.runtime.BotWebSocket"
         ) as mock_ws_cls,
         patch("asyncio.sleep", new=AsyncMock()),
     ):
@@ -179,7 +179,7 @@ async def test_bot_connect_success_resets_backoff():
     bot._ws_backoff[id(session)] = 80
     bot._ws_retry_at[id(session)] = 0.0
 
-    with patch("nanobot.channels.qq.runtime.BotWebSocket") as mock_ws_cls:
+    with patch("nanoinfra.channels.qq.runtime.BotWebSocket") as mock_ws_cls:
         mock_client = MagicMock()
         mock_client.ws_connect = AsyncMock()
         mock_ws_cls.return_value = mock_client
@@ -201,7 +201,7 @@ async def test_bot_connect_non_network_error_still_requeues():
 
     with (
         patch(
-            "nanobot.channels.qq.runtime.BotWebSocket"
+            "nanoinfra.channels.qq.runtime.BotWebSocket"
         ) as mock_ws_cls,
         patch("asyncio.sleep", new=AsyncMock()) as mock_sleep,
     ):
@@ -231,7 +231,7 @@ async def test_bot_connect_per_session_backoff_isolated():
 
     with (
         patch(
-            "nanobot.channels.qq.runtime.BotWebSocket"
+            "nanoinfra.channels.qq.runtime.BotWebSocket"
         ) as mock_ws_cls,
         patch("asyncio.sleep", new=AsyncMock()),
     ):
@@ -254,7 +254,7 @@ async def test_bot_connect_per_session_backoff_isolated():
         assert bot._ws_backoff[id(session_b)] == 10
 
 def test_is_network_error_classification():
-    from nanobot.channels.qq.runtime import _is_network_error
+    from nanoinfra.channels.qq.runtime import _is_network_error
 
     assert _is_network_error(
         aiohttp.ClientConnectorError(

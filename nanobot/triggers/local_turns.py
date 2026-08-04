@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable
 
-from nanobot.agent.automation_turns import AutomationTurnCoordinator
-from nanobot.bus.events import InboundMessage
-from nanobot.triggers.local_session_turns import local_trigger, local_trigger_delivery_id
+from nanoinfra.agent.automation_turns import AutomationTurnCoordinator
+from nanoinfra.bus.events import InboundMessage
+from nanoinfra.triggers.local_session_turns import local_trigger, local_trigger_delivery_id
 
 
 class LocalTriggerTurnCoordinator(AutomationTurnCoordinator):

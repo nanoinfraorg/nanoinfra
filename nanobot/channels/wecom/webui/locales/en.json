@@ -1,5 +1,5 @@
 {
-  "description": "Use nanobot from WeCom work chats.",
+  "description": "Use nanoinfra from WeCom work chats.",
   "requirements": "WeCom app credentials and callback settings",
   "setup": {
     "docsLabel": "Open WeCom setup",
@@ -8,7 +8,7 @@
     "summary": "WeCom needs an AI bot ID and secret from the WeCom admin console.",
     "steps": [
       "Create an AI bot in WeCom and choose API mode.",
-      "Copy the Bot ID and Secret into nanobot.",
+      "Copy the Bot ID and Secret into nanoinfra.",
       "Save and enable WeCom, then send a test message."
     ],
     "fields": {

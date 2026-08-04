@@ -11,31 +11,31 @@ from typing import Any, Callable, TypedDict
 
 from loguru import logger
 
-from nanobot.agent.hook import AgentHook, AgentHookContext
-from nanobot.agent.runner import AgentRunner, AgentRunResult, AgentRunSpec
-from nanobot.agent.tools.base import ToolResult
-from nanobot.agent.tools.context import (
+from nanoinfra.agent.hook import AgentHook, AgentHookContext
+from nanoinfra.agent.runner import AgentRunner, AgentRunResult, AgentRunSpec
+from nanoinfra.agent.tools.base import ToolResult
+from nanoinfra.agent.tools.context import (
     RequestContext,
     ToolContext,
     bind_request_context,
     reset_request_context,
 )
-from nanobot.agent.tools.exec_session import ExecSessionManager
-from nanobot.agent.tools.file_state import FileStates
-from nanobot.agent.tools.loader import ToolLoader
-from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.bus.events import InboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.config.schema import AgentDefaults, ToolsConfig
-from nanobot.providers.base import LLMProvider
-from nanobot.security.workspace_access import (
+from nanoinfra.agent.tools.exec_session import ExecSessionManager
+from nanoinfra.agent.tools.file_state import FileStates
+from nanoinfra.agent.tools.loader import ToolLoader
+from nanoinfra.agent.tools.registry import ToolRegistry
+from nanoinfra.bus.events import InboundMessage
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.config.schema import AgentDefaults, ToolsConfig
+from nanoinfra.providers.base import LLMProvider
+from nanoinfra.security.workspace_access import (
     WorkspaceScope,
     bind_workspace_scope,
     reset_workspace_scope,
     workspace_sandbox_status,
 )
-from nanobot.utils.llm_runtime import LLMRuntime
-from nanobot.utils.prompt_templates import render_template
+from nanoinfra.utils.llm_runtime import LLMRuntime
+from nanoinfra.utils.prompt_templates import render_template
 
 
 class _SubagentOrigin(TypedDict):
@@ -528,7 +528,7 @@ class SubagentManager:
 
     def _build_subagent_prompt(self, workspace: Path | None = None) -> str:
         """Build a focused system prompt for the subagent."""
-        from nanobot.agent.skills import SkillsLoader
+        from nanoinfra.agent.skills import SkillsLoader
 
         agent_workspace = self.workspace.expanduser().resolve()
         project_workspace = workspace.expanduser().resolve() if workspace else agent_workspace

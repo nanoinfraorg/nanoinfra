@@ -1,8 +1,8 @@
 # Release Archive
 
-This page keeps release and daily update history outside the README so the project homepage can stay focused on what nanobot is, what it can do, and how to start.
+This page keeps release and daily update history outside the README so the project homepage can stay focused on what nanoinfra is, what it can do, and how to start.
 
-For tagged releases, see [GitHub Releases](https://github.com/HKUDS/nanobot/releases).
+For tagged releases, see [GitHub Releases](https://github.com/bet0x/nanoinfra/releases).
 
 ## Highlights
 
@@ -35,7 +35,7 @@ For tagged releases, see [GitHub Releases](https://github.com/HKUDS/nanobot/rele
 - **2026-06-27** 🔒 Collision-safe sessions, safer shells, Neonize WhatsApp.
 - **2026-06-25** 🎛️ Thinking controls, MiMo voice input, opt-in Telegram rich messages.
 - **2026-06-24** 🌙 Kimi Coding and OpenCode, steadier reasoning and Anthropic tool calls.
-- **2026-06-22** 🚀 Released **v0.2.2** — **The Durability Release** makes nanobot sturdier for daily agent work: segmented WebUI transcripts, first-class Python SDK runtime controls, automation management, richer search/STT providers, and stronger gateway/session/provider reliability. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.2.2) for details.
+- **2026-06-22** 🚀 Released **v0.2.2** — **The Durability Release** makes nanoinfra sturdier for daily agent work: segmented WebUI transcripts, first-class Python SDK runtime controls, automation management, richer search/STT providers, and stronger gateway/session/provider reliability. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.2.2) for details.
 - **2026-06-21** 🧰 Python SDK runtime controls, optional Keenable key, cleaner run hooks.
 - **2026-06-20** 💬 Telegram rich messages, safer SDK concurrency, smoother Quick Start.
 - **2026-06-19** 🔎 Firecrawl app, OpenAI image edits, safer session deletion.
@@ -157,20 +157,20 @@ For tagged releases, see [GitHub Releases](https://github.com/HKUDS/nanobot/rele
 - **2026-02-21** 🎉 Released **v0.1.4.post1** — new providers, media support across channels, and major stability improvements. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4.post1) for details.
 - **2026-02-20** 🐦 Feishu now receives multimodal files from users. More reliable memory under the hood.
 - **2026-02-19** ✨ Slack now sends files, Discord splits long messages, and subagents work in CLI mode.
-- **2026-02-18** ⚡️ nanobot now supports VolcEngine, MCP custom auth headers, and Anthropic prompt caching.
+- **2026-02-18** ⚡️ nanoinfra now supports VolcEngine, MCP custom auth headers, and Anthropic prompt caching.
 - **2026-02-17** 🎉 Released **v0.1.4** — MCP support, progress streaming, new providers, and multiple channel improvements. Please see [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.4) for details.
-- **2026-02-16** 🦞 nanobot now integrates a [ClawHub](https://clawhub.ai) skill — search and install public agent skills.
-- **2026-02-15** 🔑 nanobot now supports OpenAI Codex provider with OAuth login support.
-- **2026-02-14** 🔌 nanobot now supports MCP! See [MCP section](./configuration.md#mcp-model-context-protocol) for details.
+- **2026-02-16** 🦞 nanoinfra now integrates a [ClawHub](https://clawhub.ai) skill — search and install public agent skills.
+- **2026-02-15** 🔑 nanoinfra now supports OpenAI Codex provider with OAuth login support.
+- **2026-02-14** 🔌 nanoinfra now supports MCP! See [MCP section](./configuration.md#mcp-model-context-protocol) for details.
 - **2026-02-13** 🎉 Released **v0.1.3.post7** — includes security hardening and multiple improvements. **Please upgrade to the latest version to address security issues**. See [release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post7) for more details.
 - **2026-02-12** 🧠 Redesigned memory system — Less code, more reliable. Join the [discussion](https://github.com/HKUDS/nanobot/discussions/566) about it!
 - **2026-02-11** ✨ Enhanced CLI experience and added MiniMax support!
 - **2026-02-10** 🎉 Released **v0.1.3.post6** with improvements! Check the updates [notes](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post6) and our [roadmap](https://github.com/HKUDS/nanobot/discussions/431).
-- **2026-02-09** 💬 Added Slack, Email, and QQ support — nanobot now supports multiple chat platforms!
+- **2026-02-09** 💬 Added Slack, Email, and QQ support — nanoinfra now supports multiple chat platforms!
 - **2026-02-08** 🔧 Refactored Providers—adding a new LLM provider now takes just 2 simple steps! Check [here](./configuration.md#providers).
 - **2026-02-07** 🚀 Released **v0.1.3.post5** with Qwen support & several key improvements! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post5) for details.
 - **2026-02-06** ✨ Added Moonshot/Kimi provider, Discord integration, and enhanced security hardening!
 - **2026-02-05** ✨ Added Feishu channel, DeepSeek provider, and enhanced scheduled tasks support!
 - **2026-02-04** 🚀 Released **v0.1.3.post4** with multi-provider & Docker support! Check [here](https://github.com/HKUDS/nanobot/releases/tag/v0.1.3.post4) for details.
 - **2026-02-03** ⚡ Integrated vLLM for local LLM support and improved natural language task scheduling!
-- **2026-02-02** 🎉 nanobot officially launched! Welcome to try 🐈 nanobot!
+- **2026-02-02** 🎉 nanoinfra officially launched! Welcome to try 🐈 nanoinfra!

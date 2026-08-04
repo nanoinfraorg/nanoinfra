@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock
 
-from nanobot.agent.tools.base import Tool, ToolResult
-from nanobot.agent.tools.filesystem import ReadFileTool
-from nanobot.agent.tools.registry import ToolRegistry
+from nanoinfra.agent.tools.base import Tool, ToolResult
+from nanoinfra.agent.tools.filesystem import ReadFileTool
+from nanoinfra.agent.tools.registry import ToolRegistry
 
 
 class _FakeTool(Tool):

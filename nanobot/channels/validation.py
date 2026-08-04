@@ -15,18 +15,18 @@ from typing import Any, cast
 
 import httpx
 
-from nanobot.channels._setup import channel_setup_spec
-from nanobot.channels.contracts import (
+from nanoinfra.channels._setup import channel_setup_spec
+from nanoinfra.channels.contracts import (
     ChannelSetupSpec,
     ChannelValidationContext,
     channel_field_value,
     channel_instance_config,
     channel_value_present,
 )
-from nanobot.channels.plugin import ChannelPlugin
-from nanobot.channels.registry import load_channel_plugin
-from nanobot.config.loader import load_config
-from nanobot.security.network import resolve_url_target
+from nanoinfra.channels.plugin import ChannelPlugin
+from nanoinfra.channels.registry import load_channel_plugin
+from nanoinfra.config.loader import load_config
+from nanoinfra.security.network import resolve_url_target
 
 CheckStatus = str
 SetupStatus = str

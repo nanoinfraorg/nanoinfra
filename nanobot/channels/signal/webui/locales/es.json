@@ -1,5 +1,5 @@
 {
-  "description": "Usa nanobot desde mensajes de Signal.",
+  "description": "Usa nanoinfra desde mensajes de Signal.",
   "requirements": "Daemon HTTP signal-cli, número de teléfono y lista permitida",
   "setup": {
     "docsLabel": "Abrir guía de Signal",

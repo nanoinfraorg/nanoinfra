@@ -6,15 +6,15 @@ import typer
 from pydantic import ValidationError
 from rich.console import Console
 
-from nanobot.cli import terminal as cli_terminal
-from nanobot.cli.gateway_runtime import _run_gateway
-from nanobot.cli.runtime_config import (
+from nanoinfra.cli import terminal as cli_terminal
+from nanoinfra.cli.gateway_runtime import _run_gateway
+from nanoinfra.cli.runtime_config import (
     _load_runtime_config,
     _print_config_error,
     _print_runtime_config_validation_error,
     _provider_setup_error,
 )
-from nanobot.cli.webui_support import (
+from nanoinfra.cli.webui_support import (
     _attach_to_background_gateway,
     _confirm_webui_action,
     _ensure_local_webui_channel,
@@ -37,8 +37,8 @@ from nanobot.cli.webui_support import (
     _webui_display_url,
     _webui_endpoint_reachable,
 )
-from nanobot.config.paths import get_workspace_path
-from nanobot.utils.helpers import sync_workspace_templates
+from nanoinfra.config.paths import get_workspace_path
+from nanoinfra.utils.helpers import sync_workspace_templates
 
 console = Console()
 
@@ -66,15 +66,15 @@ def webui(
     ),
 ) -> None:
     """Prepare the local WebUI, start the gateway, and open the browser workbench."""
-    from nanobot.config.loader import resolve_config_env_vars, save_config
-    from nanobot.gateway import GatewayRuntime, GatewayRuntimePaths, GatewayStartOptions
+    from nanoinfra.config.loader import resolve_config_env_vars, save_config
+    from nanoinfra.gateway import GatewayRuntime, GatewayRuntimePaths, GatewayStartOptions
 
     cli_terminal._ensure_interactive_tty_mode()
     config_path = _resolve_webui_config_path(config)
     created_config = not config_path.exists()
     if created_config:
         console.print(f"[yellow]No config found at {config_path}.[/yellow]")
-        _confirm_webui_action("Create a nanobot config and workspace now?", yes=yes)
+        _confirm_webui_action("Create a nanoinfra config and workspace now?", yes=yes)
 
     setup_config = _load_webui_setup_config(config_path)
     if workspace:
@@ -97,7 +97,7 @@ def webui(
         if background:
             console.print(
                 "[red]First-time WebUI setup must run in the foreground. "
-                "Run `nanobot webui` without --background.[/red]"
+                "Run `nanoinfra webui` without --background.[/red]"
             )
             raise typer.Exit(1)
     elif provider_error:
@@ -119,7 +119,7 @@ def webui(
         _warn_webui_bind_scope(setup_config)
         webui_url = _webui_browser_url(setup_config)
     except ValidationError as exc:
-        retry_command = f'nanobot webui --config "{config_path}"'
+        retry_command = f'nanoinfra webui --config "{config_path}"'
         _print_runtime_config_validation_error(
             exc,
             config_path=config_path,
@@ -212,7 +212,7 @@ def webui(
         )
         console.print("[dim]Closing the browser does not stop channels or automations.[/dim]")
         console.print(
-            "Stop nanobot: "
+            "Stop nanoinfra: "
             f"[cyan]{_gateway_instance_command('stop', config_path=config_path, workspace=workspace)}[/cyan]"
         )
         if not no_open:

@@ -10,6 +10,7 @@
 # Claude / AI assistant artifacts
 docs/superpowers/
 docs/plans/
+/plans/
 
 # webui (monorepo frontend)
 webui/node_modules/

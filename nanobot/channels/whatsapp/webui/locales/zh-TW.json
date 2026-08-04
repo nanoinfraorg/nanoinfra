@@ -1,5 +1,5 @@
 {
-  "description": "在 WhatsApp 對話中使用 nanobot。",
+  "description": "在 WhatsApp 對話中使用 nanoinfra。",
   "requirements": "WhatsApp 連接設定和閘道",
   "setup": {
     "primaryAction": "連接 WhatsApp",

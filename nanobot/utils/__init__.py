@@ -1,4 +1,4 @@
-"""Utility functions for nanobot."""
+"""Utility functions for nanoinfra."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import sys
 from importlib import import_module
 from types import ModuleType
 
-from nanobot.utils.helpers import ensure_dir
-from nanobot.utils.path import abbreviate_path
+from nanoinfra.utils.helpers import ensure_dir
+from nanoinfra.utils.path import abbreviate_path
 
 __all__ = ["ensure_dir", "abbreviate_path"]
 
@@ -30,9 +30,9 @@ class _LazyModuleAlias(ModuleType):
 
 
 _LEGACY_MODULE_ALIASES = {
-    "webui_thread_disk": "nanobot.webui.thread_disk",
-    "webui_transcript": "nanobot.webui.transcript",
-    "webui_turn_helpers": "nanobot.session.webui_turns",
+    "webui_thread_disk": "nanoinfra.webui.thread_disk",
+    "webui_transcript": "nanoinfra.webui.transcript",
+    "webui_turn_helpers": "nanoinfra.session.webui_turns",
 }
 
 for _legacy_name, _target_name in _LEGACY_MODULE_ALIASES.items():

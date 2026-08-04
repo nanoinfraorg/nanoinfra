@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from nanobot.channels.validation import validate_channel_config
-from nanobot.config.loader import save_config
-from nanobot.config.schema import Config
+from nanoinfra.channels.validation import validate_channel_config
+from nanoinfra.config.loader import save_config
+from nanoinfra.config.schema import Config
 
 
 @pytest.mark.parametrize(
@@ -32,13 +32,13 @@ def test_validate_matrix_requires_a_complete_login_method(
 ) -> None:
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
 
     result = validate_channel_config(
         "matrix",
         {
             "channels.matrix.homeserver": "https://matrix.example",
-            "channels.matrix.userId": "@nanobot:matrix.example",
+            "channels.matrix.userId": "@nanoinfra:matrix.example",
             **credentials,
         },
     )

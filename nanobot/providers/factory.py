@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from nanobot.config.schema import Config, InlineFallbackConfig, ModelPresetConfig, ProviderConfig
-from nanobot.providers.base import GenerationSettings, LLMProvider
-from nanobot.providers.fallback_provider import FallbackProvider
-from nanobot.providers.registry import ProviderSpec, create_dynamic_spec, find_by_name
+from nanoinfra.config.schema import Config, InlineFallbackConfig, ModelPresetConfig, ProviderConfig
+from nanoinfra.providers.base import GenerationSettings, LLMProvider
+from nanoinfra.providers.fallback_provider import FallbackProvider
+from nanoinfra.providers.registry import ProviderSpec, create_dynamic_spec, find_by_name
 
 
 @dataclass(frozen=True)
@@ -142,7 +142,7 @@ def _make_provider_core(
     backend = setup.backend
 
     if backend == "openai_codex":
-        from nanobot.providers.openai_codex_provider import OpenAICodexProvider
+        from nanoinfra.providers.openai_codex_provider import OpenAICodexProvider
 
         provider = OpenAICodexProvider(
             default_model=model,
@@ -150,7 +150,7 @@ def _make_provider_core(
             extra_body=p.extra_body if p else None,
         )
     elif backend == "xai_grok":
-        from nanobot.providers.xai_grok_provider import XAIGrokProvider
+        from nanoinfra.providers.xai_grok_provider import XAIGrokProvider
 
         provider = XAIGrokProvider(
             default_model=model,
@@ -158,7 +158,7 @@ def _make_provider_core(
             extra_body=p.extra_body if p else None,
         )
     elif backend == "azure_openai":
-        from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
+        from nanoinfra.providers.azure_openai_provider import AzureOpenAIProvider
 
         if p is None or p.api_base is None:
             raise RuntimeError("validated Azure provider setup is missing api_base")
@@ -168,11 +168,11 @@ def _make_provider_core(
             default_model=model,
         )
     elif backend == "github_copilot":
-        from nanobot.providers.github_copilot_provider import GitHubCopilotProvider
+        from nanoinfra.providers.github_copilot_provider import GitHubCopilotProvider
 
         provider = GitHubCopilotProvider(default_model=model)
     elif backend == "anthropic":
-        from nanobot.providers.anthropic_provider import AnthropicProvider
+        from nanoinfra.providers.anthropic_provider import AnthropicProvider
 
         provider = AnthropicProvider(
             api_key=p.api_key if p else None,
@@ -181,7 +181,7 @@ def _make_provider_core(
             extra_headers=_provider_extra_headers(spec, p),
         )
     elif backend == "bedrock":
-        from nanobot.providers.bedrock_provider import BedrockProvider
+        from nanoinfra.providers.bedrock_provider import BedrockProvider
 
         provider = BedrockProvider(
             api_key=p.api_key if p else None,
@@ -192,7 +192,7 @@ def _make_provider_core(
             extra_body=p.extra_body if p else None,
         )
     else:
-        from nanobot.providers.openai_compat_provider import OpenAICompatProvider
+        from nanoinfra.providers.openai_compat_provider import OpenAICompatProvider
 
         provider = OpenAICompatProvider(
             api_key=p.api_key if p else None,
@@ -269,7 +269,7 @@ def make_provider(
 
 def build_unconfigured_provider_snapshot(config: Config, setup_error: str) -> ProviderSnapshot:
     """Build a non-networking runtime so the WebUI can collect first-time setup."""
-    from nanobot.providers.unconfigured_provider import UnconfiguredProvider
+    from nanoinfra.providers.unconfigured_provider import UnconfiguredProvider
 
     preset = config.resolve_preset()
     provider = UnconfiguredProvider(preset.model)
@@ -371,7 +371,7 @@ def load_provider_snapshot(
     *,
     preset_name: str | None = None,
 ) -> ProviderSnapshot:
-    from nanobot.config.loader import load_config, resolve_config_env_vars
+    from nanoinfra.config.loader import load_config, resolve_config_env_vars
 
     return build_provider_snapshot(
         resolve_config_env_vars(

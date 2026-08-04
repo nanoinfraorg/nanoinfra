@@ -120,7 +120,7 @@ function markdownAttachmentKind(source: string, label: string): "image" | "video
 
 function safeHtmlNode(tagName: string, children: MarkdownAstNode[]): MarkdownAstNode {
   return {
-    type: `nanobotSafeHtml${tagName}`,
+    type: `nanoinfraSafeHtml${tagName}`,
     data: { hName: tagName },
     children,
   };
@@ -213,11 +213,11 @@ function normalizeSafeDetails(children: MarkdownAstNode[]): MarkdownAstNode[] {
       normalizeSafeDetails(children.slice(index + 1, closeIndex)),
     );
     next.push({
-      type: "nanobotSafeHtmlDetails",
+      type: "nanoinfraSafeHtmlDetails",
       data: { hName: "details" },
       children: [
         {
-          type: "nanobotSafeHtmlSummary",
+          type: "nanoinfraSafeHtmlSummary",
           data: { hName: "summary" },
           children: [safeText(open.summary)],
         },

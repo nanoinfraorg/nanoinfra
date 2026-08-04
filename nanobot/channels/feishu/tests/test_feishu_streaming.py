@@ -9,10 +9,10 @@ import pytest
 
 pytest.importorskip("lark_oapi")
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.outbound_events import ProgressEvent
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.feishu.runtime import FeishuChannel, FeishuConfig, _FeishuStreamBuf
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.outbound_events import ProgressEvent
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.feishu.runtime import FeishuChannel, FeishuConfig, _FeishuStreamBuf
 
 
 def _make_channel(streaming: bool = True, reply_to_message: bool = False) -> FeishuChannel:

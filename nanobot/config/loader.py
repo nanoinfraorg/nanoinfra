@@ -9,12 +9,12 @@ from typing import Any, cast, overload
 from pydantic import BaseModel, ValidationError
 from pydantic_settings import SettingsError
 
-from nanobot.config.errors import ConfigIssue, ConfigLoadError, validation_issues
-from nanobot.config.schema import (
+from nanoinfra.config.errors import ConfigIssue, ConfigLoadError, validation_issues
+from nanoinfra.config.schema import (
     Config,
     _resolve_tool_config_refs,  # pyright: ignore[reportPrivateUsage]
 )
-from nanobot.utils.helpers import _write_text_atomic  # pyright: ignore[reportPrivateUsage]
+from nanoinfra.utils.helpers import _write_text_atomic  # pyright: ignore[reportPrivateUsage]
 
 # Global variable to store current config path (for multi-instance support)
 _current_config_path: Path | None = None
@@ -36,7 +36,7 @@ def get_config_path() -> Path:
     """Get the configuration file path."""
     if _current_config_path:
         return _current_config_path
-    return Path.home() / ".nanobot" / "config.json"
+    return Path.home() / ".nanoinfra" / "config.json"
 
 
 def load_config(config_path: Path | None = None) -> Config:
@@ -65,7 +65,7 @@ def load_config(config_path: Path | None = None) -> Config:
                 kind="invalid_schema",
                 summary=(
                     "Environment-based configuration could not be parsed. "
-                    "Check that complex NANOBOT_* values use valid JSON."
+                    "Check that complex NANOINFRA_* values use valid JSON."
                 ),
             ) from exc
         except ValidationError as exc:
@@ -136,7 +136,7 @@ def load_config(config_path: Path | None = None) -> Config:
 
 def _apply_ssrf_whitelist(config: Config) -> None:
     """Apply SSRF whitelist from config to the network security module."""
-    from nanobot.security.network import configure_ssrf_whitelist
+    from nanoinfra.security.network import configure_ssrf_whitelist
 
     configure_ssrf_whitelist(config.tools.ssrf_whitelist)
 

@@ -15,11 +15,11 @@ from typing import Any, cast
 import httpx
 from pydantic import Field
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.config.paths import get_runtime_subdir
-from nanobot.config.schema import Base
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.config.paths import get_runtime_subdir
+from nanoinfra.config.schema import Base
 
 try:
     import socketio

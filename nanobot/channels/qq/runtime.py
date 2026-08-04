@@ -3,7 +3,7 @@
 Inbound:
 - Parse QQ botpy messages (C2C / Group)
 - Download attachments to media dir using chunked streaming write (memory-safe)
-- Publish to Nanobot bus via BaseChannel._handle_message()
+- Publish to Nanoinfra bus via BaseChannel._handle_message()
 - Content includes a clear, actionable "Received files:" list with local paths
 
 Outbound:
@@ -36,15 +36,15 @@ import aiohttp
 from loguru import logger
 from pydantic import Field
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.config.schema import Base
-from nanobot.security.network import validate_url_target
-from nanobot.utils.logging_bridge import redirect_lib_logging
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.config.schema import Base
+from nanoinfra.security.network import validate_url_target
+from nanoinfra.utils.logging_bridge import redirect_lib_logging
 
 try:
-    from nanobot.config.paths import get_media_dir
+    from nanoinfra.config.paths import get_media_dir
 except Exception:  # pragma: no cover
     get_media_dir = None  # type: ignore
 
@@ -122,7 +122,7 @@ def _make_bot_class(channel: QQChannel) -> type[Any]:
 
     class _Bot(botpy_sdk.Client):
         def __init__(self):
-            # Disable botpy's file log — nanobot uses loguru; default "botpy.log" fails on read-only fs
+            # Disable botpy's file log — nanoinfra uses loguru; default "botpy.log" fails on read-only fs
             super().__init__(  # pyright: ignore[reportUnknownMemberType]
                 intents=intents,
                 ext_handlers=False,
@@ -185,7 +185,7 @@ class QQConfig(Base):
     msg_format: Literal["plain", "markdown"] = "plain"
     ack_message: str = "⏳ Processing..."
 
-    # Optional: directory to save inbound attachments. If empty, use nanobot get_media_dir("qq").
+    # Optional: directory to save inbound attachments. If empty, use nanoinfra get_media_dir("qq").
     media_dir: str = ""
 
     # Download tuning
@@ -230,9 +230,9 @@ class QQChannel(BaseChannel):
             try:
                 root = Path(get_media_dir("qq"))
             except Exception:
-                root = Path.home() / ".nanobot" / "media" / "qq"
+                root = Path.home() / ".nanoinfra" / "media" / "qq"
         else:
-            root = Path.home() / ".nanobot" / "media" / "qq"
+            root = Path.home() / ".nanoinfra" / "media" / "qq"
 
         root.mkdir(parents=True, exist_ok=True)
         self.logger.info("media directory: {}", str(root))
@@ -242,7 +242,7 @@ class QQChannel(BaseChannel):
         """Start the QQ bot with auto-reconnect loop."""
         redirect_lib_logging("botpy", level="WARNING")
         if not QQ_AVAILABLE:
-            self.logger.error("SDK not installed. Run: nanobot plugins enable qq")
+            self.logger.error("SDK not installed. Run: nanoinfra plugins enable qq")
             return
 
         if not self.config.app_id or not self.config.secret:

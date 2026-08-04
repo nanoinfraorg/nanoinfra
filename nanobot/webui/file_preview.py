@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from nanobot.config.paths import get_media_dir
-from nanobot.security.workspace_access import WorkspaceScope
-from nanobot.security.workspace_policy import WorkspaceBoundaryError, resolve_allowed_path
+from nanoinfra.config.paths import get_media_dir
+from nanoinfra.security.workspace_access import WorkspaceScope
+from nanoinfra.security.workspace_policy import WorkspaceBoundaryError, resolve_allowed_path
 
 MAX_FILE_PREVIEW_BYTES = 384 * 1024
 

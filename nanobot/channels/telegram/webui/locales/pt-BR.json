@@ -1,5 +1,5 @@
 {
-  "description": "Converse com o nanobot pelo Telegram.",
+  "description": "Converse com o nanoinfra pelo Telegram.",
   "requirements": "Token do bot, usuários permitidos e gateway",
   "setup": {
     "docsLabel": "Abrir guia do Telegram",

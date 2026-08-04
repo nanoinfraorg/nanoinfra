@@ -357,7 +357,7 @@ function humanizeToolName(name: string): string {
 
 function isCollectedSourcePath(value: string): boolean {
   const normalized = value.replace(/\\/g, "/");
-  return normalized.includes("/.nanobot/tool-results/") || normalized.includes("/nanobot/tool-results/");
+  return normalized.includes("/.nanoinfra/tool-results/") || normalized.includes("/nanoinfra/tool-results/");
 }
 
 function truncateMiddle(value: string, maxLength: number): string {

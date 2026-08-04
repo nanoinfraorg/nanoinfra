@@ -1,6 +1,6 @@
 # Configuration
 
-Config file: `~/.nanobot/config.json`
+Config file: `~/.nanoinfra/config.json`
 
 This is the full reference. If this is your first install, start with [`quick-start.md`](./quick-start.md). If you are trying to choose a model or fix provider/model matching, use [`providers.md`](./providers.md) first and come back here for exact fields and advanced options.
 
@@ -8,12 +8,12 @@ For normal local use, prefer the WebUI before editing JSON: **Settings → Model
 
 The JSON examples below are usually partial snippets to merge into your existing config, not full replacement files. For the mental model behind config, workspace, gateway, channels, sessions, tools, and memory, see [`concepts.md`](./concepts.md).
 
-The generated `config.json` uses camelCase keys such as `apiKey` and `intervalS`. snake_case keys are also accepted for compatibility, but the docs prefer camelCase because that is what nanobot writes back to disk.
+The generated `config.json` uses camelCase keys such as `apiKey` and `intervalS`. snake_case keys are also accepted for compatibility, but the docs prefer camelCase because that is what nanoinfra writes back to disk.
 
 For setup and runtime failures, follow the diagnosis order in [`troubleshooting.md`](./troubleshooting.md) before changing multiple config areas at once.
 
 > [!NOTE]
-> If your config file is older than the current schema, run `nanobot onboard --refresh`. nanobot adds missing default fields while preserving your existing values.
+> If your config file is older than the current schema, run `nanoinfra onboard --refresh`. nanoinfra adds missing default fields while preserving your existing values.
 
 ## Configuration Guides
 
@@ -28,7 +28,7 @@ the focused guides first and come back here for exact fields and defaults.
 | Add an OpenAI-compatible provider | [`guides/configure-openai-compatible-provider.md`](./guides/configure-openai-compatible-provider.md) |
 | Add Langfuse observability | [`guides/configure-langfuse-observability.md`](./guides/configure-langfuse-observability.md) |
 | Secure a local AI agent | [`guides/secure-local-ai-agent.md`](./guides/secure-local-ai-agent.md) |
-| Deploy the gateway | [`guides/deploy-nanobot-gateway.md`](./guides/deploy-nanobot-gateway.md) |
+| Deploy the gateway | [`guides/deploy-nanoinfra-gateway.md`](./guides/deploy-nanoinfra-gateway.md) |
 
 ## Quick Jump
 
@@ -55,18 +55,18 @@ If the WebUI does not expose the option you need, start from the task below. Mos
 
 | Task | First keys to check | Verify with | Deep dive |
 |---|---|---|---|
-| Make the first model reply work | `providers.<name>.apiKey`, optional `providers.<name>.apiBase`, `modelPresets.<preset>`, `agents.defaults.modelPreset` | `nanobot status`, then `nanobot agent -m "Hello!"` | [Providers](#providers), [Model Presets](#model-presets) |
-| Add fallback models | `modelPresets.<fallback>`, `agents.defaults.fallbackModels` | `nanobot status`, then a normal agent run | [Model Fallbacks](#model-fallbacks) |
-| Keep secrets out of the config file | `${ENV_VAR}` placeholders inside any string value | Start nanobot from the same environment that sets the variable | [Environment Variables for Secrets](#environment-variables-for-secrets) |
-| Open the bundled WebUI | `channels.websocket.enabled`, optional `channels.websocket.port`, `channels.websocket.tokenIssueSecret` | `nanobot webui` | [Channel Settings](#channel-settings), [WebSocket docs](./websocket.md) |
-| Connect one chat app | `channels.<channel>.enabled`, channel credentials, optional pairing or `channels.<channel>.allowFrom` | `nanobot channels status`, then `nanobot gateway --verbose` | [Channel Settings](#channel-settings), [Chat Apps](./chat-apps.md) |
+| Make the first model reply work | `providers.<name>.apiKey`, optional `providers.<name>.apiBase`, `modelPresets.<preset>`, `agents.defaults.modelPreset` | `nanoinfra status`, then `nanoinfra agent -m "Hello!"` | [Providers](#providers), [Model Presets](#model-presets) |
+| Add fallback models | `modelPresets.<fallback>`, `agents.defaults.fallbackModels` | `nanoinfra status`, then a normal agent run | [Model Fallbacks](#model-fallbacks) |
+| Keep secrets out of the config file | `${ENV_VAR}` placeholders inside any string value | Start nanoinfra from the same environment that sets the variable | [Environment Variables for Secrets](#environment-variables-for-secrets) |
+| Open the bundled WebUI | `channels.websocket.enabled`, optional `channels.websocket.port`, `channels.websocket.tokenIssueSecret` | `nanoinfra webui` | [Channel Settings](#channel-settings), [WebSocket docs](./websocket.md) |
+| Connect one chat app | `channels.<channel>.enabled`, channel credentials, optional pairing or `channels.<channel>.allowFrom` | `nanoinfra channels status`, then `nanoinfra gateway --verbose` | [Channel Settings](#channel-settings), [Chat Apps](./chat-apps.md) |
 | Enable voice transcription | `transcription.enabled`, `transcription.provider`, matching `providers.<name>.apiKey` | Send or upload a short voice message through a configured surface | [Transcription Settings](#transcription-settings) |
 | Enable web search or fetch | `tools.web.search.*`, `tools.web.fetch.*`, optional `tools.ssrfWhitelist` | Ask a question that requires current web information, then inspect logs if needed | [Web Tools](#web-tools), [Security](#security) |
 | Enable image generation | `tools.imageGeneration.enabled`, `tools.imageGeneration.provider`, `tools.imageGeneration.model`, matching provider credentials | Enable Image Generation in the WebUI and send one image request | [Image Generation](#image-generation) |
-| Add external tools through MCP | `tools.mcpServers.<name>` | Start `nanobot gateway --verbose` and check startup/tool logs | [MCP](#mcp-model-context-protocol) |
+| Add external tools through MCP | `tools.mcpServers.<name>` | Start `nanoinfra gateway --verbose` and check startup/tool logs | [MCP](#mcp-model-context-protocol) |
 | Tighten tool and network safety | `tools.restrictToWorkspace`, `tools.exec.sandbox`, `tools.ssrfWhitelist`, `channels.*.allowFrom` | Run the same workflow through the channel or CLI you plan to expose | [Security](#security), [Pairing](#pairing) |
-| Tune request timeouts or process concurrency | `NANOBOT_LLM_TIMEOUT_S`, `NANOBOT_STREAM_IDLE_TIMEOUT_S`, `NANOBOT_MAX_CONCURRENT_REQUESTS` | Start nanobot from the same environment and inspect startup/runtime logs | [Runtime Environment Variables](#runtime-environment-variables) |
-| Run multiple isolated bots | separate `--config` and `--workspace` paths, plus distinct `gateway.port` or channel ports when processes run together | Use the same explicit paths with `nanobot status`, `agent`, `webui`, `gateway`, and `serve` | [Multiple Instances](./multiple-instances.md), [CLI Reference](./cli-reference.md) |
+| Tune request timeouts or process concurrency | `NANOINFRA_LLM_TIMEOUT_S`, `NANOINFRA_STREAM_IDLE_TIMEOUT_S`, `NANOINFRA_MAX_CONCURRENT_REQUESTS` | Start nanoinfra from the same environment and inspect startup/runtime logs | [Runtime Environment Variables](#runtime-environment-variables) |
+| Run multiple isolated bots | separate `--config` and `--workspace` paths, plus distinct `gateway.port` or channel ports when processes run together | Use the same explicit paths with `nanoinfra status`, `agent`, `webui`, `gateway`, and `serve` | [Multiple Instances](./multiple-instances.md), [CLI Reference](./cli-reference.md) |
 | Observe model calls | `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_BASE_URL` environment variables | Run one model call, then check the matching Langfuse project | [Langfuse Observability](#langfuse-observability) |
 
 ## Environment Variables for Secrets
@@ -88,10 +88,10 @@ Instead of storing secrets directly in `config.json`, you can use `${VAR_NAME}` 
 }
 ```
 
-Any string value in `config.json` can use `${VAR_NAME}`. Resolution runs once at startup, in memory only — resolved values are never written back to disk, so editing config through `nanobot onboard` or the WebUI preserves the placeholder.
+Any string value in `config.json` can use `${VAR_NAME}`. Resolution runs once at startup, in memory only — resolved values are never written back to disk, so editing config through `nanoinfra onboard` or the WebUI preserves the placeholder.
 
-If a referenced variable is unset, nanobot fails fast and reports the exact config field
-and variable name without echoing the field value. Run `nanobot status` with the same
+If a referenced variable is unset, nanoinfra fails fast and reports the exact config field
+and variable name without echoing the field value. Run `nanoinfra status` with the same
 `--config` path to inspect the problem.
 
 ### More examples
@@ -133,20 +133,20 @@ and variable name without echoing the field value. Run `nanobot status` with the
 
 ### Loading variables at startup
 
-Pick whatever fits your deployment — nanobot only reads `os.environ` at startup, so any mechanism that populates the process environment works.
+Pick whatever fits your deployment — nanoinfra only reads `os.environ` at startup, so any mechanism that populates the process environment works.
 
 **systemd** — use `EnvironmentFile=` in the service unit to load variables from a file that only the deploying user can read:
 
 ```ini
-# /etc/systemd/system/nanobot.service (excerpt)
+# /etc/systemd/system/nanoinfra.service (excerpt)
 [Service]
-EnvironmentFile=/home/youruser/nanobot_secrets.env
-User=nanobot
+EnvironmentFile=/home/youruser/nanoinfra_secrets.env
+User=nanoinfra
 ExecStart=...
 ```
 
 ```bash
-# /home/youruser/nanobot_secrets.env (mode 600, owned by youruser)
+# /home/youruser/nanoinfra_secrets.env (mode 600, owned by youruser)
 TELEGRAM_TOKEN=your-token-here
 IMAP_PASSWORD=your-password-here
 ```
@@ -154,9 +154,9 @@ IMAP_PASSWORD=your-password-here
 **Docker** — pass an env file to the locally built image (one `KEY=VALUE` per line), or use `-e KEY=value`:
 
 ```bash
-docker run --rm --env-file=./nanobot.env \
-  -v ~/.nanobot:/home/nanobot/.nanobot \
-  nanobot agent -m "Hello"
+docker run --rm --env-file=./nanoinfra.env \
+  -v ~/.nanoinfra:/home/nanoinfra/.nanoinfra \
+  nanoinfra agent -m "Hello"
 ```
 
 **direnv** — drop a `.envrc` in your working directory and run `direnv allow`:
@@ -171,58 +171,58 @@ export ANTHROPIC_API_KEY=...
 
 ```bash
 # 1Password — references in .env.tpl look like `op://Vault/Item/field`
-op run --env-file=.env.tpl -- nanobot agent
+op run --env-file=.env.tpl -- nanoinfra agent
 
 # pass (passwordstore.org)
-ANTHROPIC_API_KEY="$(pass show api/anthropic)" nanobot agent
+ANTHROPIC_API_KEY="$(pass show api/anthropic)" nanoinfra agent
 
 # Bitwarden
-ANTHROPIC_API_KEY="$(bw get password api/anthropic)" nanobot agent
+ANTHROPIC_API_KEY="$(bw get password api/anthropic)" nanoinfra agent
 ```
 
 ## Runtime Environment Variables
 
-These variables are process-level switches. Set them in the same terminal, service unit, container, or supervisor that starts nanobot.
+These variables are process-level switches. Set them in the same terminal, service unit, container, or supervisor that starts nanoinfra.
 
 ### Runtime controls
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NANOBOT_MAX_CONCURRENT_REQUESTS` | `3` | Maximum concurrently running inbound agent requests. Must be an integer; set `0` or a negative value for unlimited. |
-| `NANOBOT_LLM_TIMEOUT_S` | `300` | Wall-clock timeout, in seconds. Ordinary requests use this value; streaming requests use the greater of 300 seconds or twice this value. Set `0` to disable. Sustained-goal turns bypass this wall-clock cap. |
-| `NANOBOT_STREAM_IDLE_TIMEOUT_S` | `90` | Streaming idle timeout, in seconds, used by streaming providers. Invalid or non-positive values are ignored; values above `3600` are clamped. |
-| `NANOBOT_OPENAI_COMPAT_TIMEOUT_S` | `120` | HTTP request timeout, in seconds, for OpenAI-compatible providers. Invalid or non-positive values are ignored. |
-| `NANOBOT_WORKSPACE_SANDBOX_ENFORCED` | unset | Marks that an external workspace sandbox is already enforced. Truthy values (`1`, `true`, `yes`, `on`, `enabled`) use `NANOBOT_WORKSPACE_SANDBOX_PROVIDER` as the label; any other non-false value is treated as the provider name. |
-| `NANOBOT_WORKSPACE_SANDBOX_PROVIDER` | `unknown` | Display label for the external workspace sandbox when `NANOBOT_WORKSPACE_SANDBOX_ENFORCED` is truthy, for example `macos_app_sandbox` or `bwrap`. |
-| `NANOBOT_SANDBOX_ENFORCED` | unset | Legacy compatibility alias for `NANOBOT_WORKSPACE_SANDBOX_ENFORCED`. |
-| `NANOBOT_TMUX_SOCKET_DIR` | `${TMPDIR:-/tmp}/nanobot-tmux-sockets` | Socket directory used by the bundled `tmux` skill scripts. |
+| `NANOINFRA_MAX_CONCURRENT_REQUESTS` | `3` | Maximum concurrently running inbound agent requests. Must be an integer; set `0` or a negative value for unlimited. |
+| `NANOINFRA_LLM_TIMEOUT_S` | `300` | Wall-clock timeout, in seconds. Ordinary requests use this value; streaming requests use the greater of 300 seconds or twice this value. Set `0` to disable. Sustained-goal turns bypass this wall-clock cap. |
+| `NANOINFRA_STREAM_IDLE_TIMEOUT_S` | `90` | Streaming idle timeout, in seconds, used by streaming providers. Invalid or non-positive values are ignored; values above `3600` are clamped. |
+| `NANOINFRA_OPENAI_COMPAT_TIMEOUT_S` | `120` | HTTP request timeout, in seconds, for OpenAI-compatible providers. Invalid or non-positive values are ignored. |
+| `NANOINFRA_WORKSPACE_SANDBOX_ENFORCED` | unset | Marks that an external workspace sandbox is already enforced. Truthy values (`1`, `true`, `yes`, `on`, `enabled`) use `NANOINFRA_WORKSPACE_SANDBOX_PROVIDER` as the label; any other non-false value is treated as the provider name. |
+| `NANOINFRA_WORKSPACE_SANDBOX_PROVIDER` | `unknown` | Display label for the external workspace sandbox when `NANOINFRA_WORKSPACE_SANDBOX_ENFORCED` is truthy, for example `macos_app_sandbox` or `bwrap`. |
+| `NANOINFRA_SANDBOX_ENFORCED` | unset | Legacy compatibility alias for `NANOINFRA_WORKSPACE_SANDBOX_ENFORCED`. |
+| `NANOINFRA_TMUX_SOCKET_DIR` | `${TMPDIR:-/tmp}/nanoinfra-tmux-sockets` | Socket directory used by the bundled `tmux` skill scripts. |
 
 ### Installer, build, and WebUI development
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NANOBOT_BIN_DIR` | `$HOME/.local/bin` | Installer launcher directory on macOS/Linux. |
-| `NANOBOT_VENV` | `$HOME/.nanobot/venv` | Managed virtual environment path used by the installer fallback. |
-| `NANOBOT_SKIP_WIZARD` | unset | Set to `1` to skip automatic WebUI or wizard setup after one-command install. |
-| `NANOBOT_SKIP_WEBUI_BUILD` | unset | Set to `1` to skip bundling the WebUI during package builds. |
-| `NANOBOT_FORCE_WEBUI_BUILD` | unset | Set to `1` to rebuild the bundled WebUI even when `nanobot/web/dist/index.html` already exists. |
-| `NANOBOT_EXTRAS` | unset | Docker build argument containing comma-separated Python extras such as `bedrock`. |
-| `NANOBOT_CHANNELS` | `whatsapp` | Docker build argument containing comma-separated channels whose manifest dependencies are preinstalled. |
-| `NANOBOT_API_URL` | `http://127.0.0.1:8765` | Gateway target for the Vite WebUI dev server proxy. |
+| `NANOINFRA_BIN_DIR` | `$HOME/.local/bin` | Installer launcher directory on macOS/Linux. |
+| `NANOINFRA_VENV` | `$HOME/.nanoinfra/venv` | Managed virtual environment path used by the installer fallback. |
+| `NANOINFRA_SKIP_WIZARD` | unset | Set to `1` to skip automatic WebUI or wizard setup after one-command install. |
+| `NANOINFRA_SKIP_WEBUI_BUILD` | unset | Set to `1` to skip bundling the WebUI during package builds. |
+| `NANOINFRA_FORCE_WEBUI_BUILD` | unset | Set to `1` to rebuild the bundled WebUI even when `nanoinfra/web/dist/index.html` already exists. |
+| `NANOINFRA_EXTRAS` | unset | Docker build argument containing comma-separated Python extras such as `bedrock`. |
+| `NANOINFRA_CHANNELS` | `whatsapp` | Docker build argument containing comma-separated channels whose manifest dependencies are preinstalled. |
+| `NANOINFRA_API_URL` | `http://127.0.0.1:8765` | Gateway target for the Vite WebUI dev server proxy. |
 
-Internal variables such as `NANOBOT_RESTART_*` and `NANOBOT_PATH_*` are set by nanobot itself and are not a supported user configuration surface.
+Internal variables such as `NANOINFRA_RESTART_*` and `NANOINFRA_PATH_*` are set by nanoinfra itself and are not a supported user configuration surface.
 
 ## Langfuse Observability
 
-nanobot can trace OpenAI-compatible provider calls through Langfuse's OpenAI SDK wrapper. This is configured with environment variables, not `config.json`.
+nanoinfra can trace OpenAI-compatible provider calls through Langfuse's OpenAI SDK wrapper. This is configured with environment variables, not `config.json`.
 
-Install the optional package in the same Python environment that runs nanobot:
+Install the optional package in the same Python environment that runs nanoinfra:
 
 ```bash
-nanobot plugins enable langfuse
+nanoinfra plugins enable langfuse
 ```
 
-Set Langfuse credentials before starting `nanobot agent`, `nanobot gateway`, or `nanobot serve`:
+Set Langfuse credentials before starting `nanoinfra agent`, `nanoinfra gateway`, or `nanoinfra serve`:
 
 ```bash
 export LANGFUSE_SECRET_KEY="sk-lf-..."
@@ -238,20 +238,20 @@ $env:LANGFUSE_PUBLIC_KEY = "pk-lf-..."
 $env:LANGFUSE_BASE_URL = "https://cloud.langfuse.com"
 ```
 
-When `LANGFUSE_SECRET_KEY` is set and the `langfuse` package is installed, nanobot uses `langfuse.openai.AsyncOpenAI` for OpenAI-compatible providers so model requests are sent to Langfuse in the background. If the secret key is set but `langfuse` is missing, nanobot logs a warning and falls back to the regular OpenAI client.
+When `LANGFUSE_SECRET_KEY` is set and the `langfuse` package is installed, nanoinfra uses `langfuse.openai.AsyncOpenAI` for OpenAI-compatible providers so model requests are sent to Langfuse in the background. If the secret key is set but `langfuse` is missing, nanoinfra logs a warning and falls back to the regular OpenAI client.
 
 Use the Langfuse region or self-hosted URL that matches your project. The [Langfuse OpenAI SDK docs](https://langfuse.com/integrations/model-providers/openai-py) use `LANGFUSE_BASE_URL` for cloud regions and self-hosted instances.
 
-Tracing covers the providers that go through nanobot's OpenAI-compatible client path. Native providers that do not use that client may not produce Langfuse OpenAI-wrapper traces.
+Tracing covers the providers that go through nanoinfra's OpenAI-compatible client path. Native providers that do not use that client may not produce Langfuse OpenAI-wrapper traces.
 
 ## Providers
 
 > [!TIP]
 > - **Voice transcription**: Voice messages and WebUI microphone input use the shared top-level `transcription` settings. The default `transcription.provider` value is `"groq"`; set it to `"openai"` for OpenAI Whisper, `"openrouter"` for OpenRouter speech-to-text models, `"xiaomi_mimo"` for Xiaomi MiMo ASR, or `"assemblyai"` for AssemblyAI. API keys still live in the matching `providers.<provider>` config.
-> - **MiniMax Coding Plan**: Exclusive discount links for the nanobot community: [Overseas](https://platform.minimax.io/subscribe/coding-plan?code=9txpdXw04g&source=link) · [Mainland China](https://platform.minimaxi.com/subscribe/token-plan?code=GILTJpMTqZ&source=link)
+> - **MiniMax Coding Plan**: Exclusive discount links for the nanoinfra community: [Overseas](https://platform.minimax.io/subscribe/coding-plan?code=9txpdXw04g&source=link) · [Mainland China](https://platform.minimaxi.com/subscribe/token-plan?code=GILTJpMTqZ&source=link)
 > - **MiniMax (Mainland China)**: If your API key is from MiniMax's mainland China platform (minimaxi.com), set `"apiBase": "https://api.minimaxi.com/v1"` in your minimax provider config.
-> - **MiniMax thinking mode**: `providers.minimaxAnthropic` is the config block for `reasoningEffort` / thinking mode. MiniMax exposes that capability through its Anthropic-compatible endpoint, so nanobot keeps it as a separate provider instead of guessing MiniMax-specific thinking parameters on the generic OpenAI-compatible `minimax` endpoint. It uses the same `MINIMAX_API_KEY`. Default Anthropic-compatible base URL: `https://api.minimax.io/anthropic`; for mainland China use `https://api.minimaxi.com/anthropic`.
-> - **Kimi Coding Plan**: Use `providers.kimiCoding` with `provider: "kimi_coding"` for Kimi's dedicated Anthropic Messages API endpoint. The endpoint requires a Claude-compatible `User-Agent`; nanobot sends `claude-code/0.1.0` by default, and you can override it with `extraHeaders.User-Agent` if your account requires a different value.
+> - **MiniMax thinking mode**: `providers.minimaxAnthropic` is the config block for `reasoningEffort` / thinking mode. MiniMax exposes that capability through its Anthropic-compatible endpoint, so nanoinfra keeps it as a separate provider instead of guessing MiniMax-specific thinking parameters on the generic OpenAI-compatible `minimax` endpoint. It uses the same `MINIMAX_API_KEY`. Default Anthropic-compatible base URL: `https://api.minimax.io/anthropic`; for mainland China use `https://api.minimaxi.com/anthropic`.
+> - **Kimi Coding Plan**: Use `providers.kimiCoding` with `provider: "kimi_coding"` for Kimi's dedicated Anthropic Messages API endpoint. The endpoint requires a Claude-compatible `User-Agent`; nanoinfra sends `claude-code/0.1.0` by default, and you can override it with `extraHeaders.User-Agent` if your account requires a different value.
 > - **VolcEngine / BytePlus Coding Plan**: Subscription endpoints are configured through dedicated providers `volcengineCodingPlan` or `byteplusCodingPlan`, separate from the pay-per-use `volcengine` / `byteplus` providers.
 > - **OpenCode Zen / Go**: `providers.opencode` (canonical Zen), the legacy-compatible `providers.opencodeZen`, and `providers.opencodeGo` use the same `OPENCODE_API_KEY`, but route to different OpenCode gateways. These providers use OpenCode's OpenAI-compatible `chat/completions` endpoints; choose model IDs from that endpoint family.
 > - **Zhipu Coding Plan**: If you're on Zhipu's coding plan, set `"apiBase": "https://open.bigmodel.cn/api/coding/paas/v4"` in your zhipu provider config.
@@ -274,10 +274,10 @@ Tracing covers the providers that go through nanobot's OpenAI-compatible client 
 | `opencode_go` | LLM gateway (OpenCode Go low-cost coding models) | [opencode.ai/docs/go](https://opencode.ai/docs/go/) |
 | `huggingface` | LLM (Hugging Face Inference Providers) | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) |
 | `skywork` | LLM (Skywork / APIFree API gateway) | [apifree.ai](https://www.apifree.ai) |
-| `volcengine` | LLM (VolcEngine, pay-per-use) | [Coding Plan](https://www.volcengine.com/activity/codingplan?utm_campaign=nanobot&utm_content=nanobot&utm_medium=devrel&utm_source=OWO&utm_term=nanobot) · [volcengine.com](https://www.volcengine.com) |
-| `volcengine_coding_plan` | LLM (VolcEngine Coding Plan subscription endpoint) | [volcengine.com](https://www.volcengine.com/activity/codingplan?utm_campaign=nanobot&utm_content=nanobot&utm_medium=devrel&utm_source=OWO&utm_term=nanobot) |
-| `byteplus` | LLM (VolcEngine international, pay-per-use) | [Coding Plan](https://www.byteplus.com/en/activity/codingplan?utm_campaign=nanobot&utm_content=nanobot&utm_medium=devrel&utm_source=OWO&utm_term=nanobot) · [byteplus.com](https://www.byteplus.com) |
-| `byteplus_coding_plan` | LLM (BytePlus Coding Plan subscription endpoint) | [byteplus.com](https://www.byteplus.com/en/activity/codingplan?utm_campaign=nanobot&utm_content=nanobot&utm_medium=devrel&utm_source=OWO&utm_term=nanobot) |
+| `volcengine` | LLM (VolcEngine, pay-per-use) | [Coding Plan](https://www.volcengine.com/activity/codingplan?utm_campaign=nanoinfra&utm_content=nanoinfra&utm_medium=devrel&utm_source=OWO&utm_term=nanoinfra) · [volcengine.com](https://www.volcengine.com) |
+| `volcengine_coding_plan` | LLM (VolcEngine Coding Plan subscription endpoint) | [volcengine.com](https://www.volcengine.com/activity/codingplan?utm_campaign=nanoinfra&utm_content=nanoinfra&utm_medium=devrel&utm_source=OWO&utm_term=nanoinfra) |
+| `byteplus` | LLM (VolcEngine international, pay-per-use) | [Coding Plan](https://www.byteplus.com/en/activity/codingplan?utm_campaign=nanoinfra&utm_content=nanoinfra&utm_medium=devrel&utm_source=OWO&utm_term=nanoinfra) · [byteplus.com](https://www.byteplus.com) |
+| `byteplus_coding_plan` | LLM (BytePlus Coding Plan subscription endpoint) | [byteplus.com](https://www.byteplus.com/en/activity/codingplan?utm_campaign=nanoinfra&utm_content=nanoinfra&utm_medium=devrel&utm_source=OWO&utm_term=nanoinfra) |
 | `anthropic` | LLM (Claude direct) | [console.anthropic.com](https://console.anthropic.com) |
 | `azure_openai` | LLM (Azure OpenAI) | [portal.azure.com](https://portal.azure.com) |
 | `bedrock` | LLM (AWS Bedrock Converse, Claude/Nova/Llama/etc.) | [aws.amazon.com/bedrock](https://aws.amazon.com/bedrock/) |
@@ -293,8 +293,8 @@ Tracing covers the providers that go through nanobot's OpenAI-compatible client 
 | `novita` | LLM (Novita AI OpenAI-compatible gateway) | [novita.ai](https://novita.ai) |
 | `dashscope` | LLM (Qwen) | [dashscope.console.aliyun.com](https://dashscope.console.aliyun.com) |
 | `modelscope` | LLM (ModelScope/魔搭社区) + Image generation | [modelscope.cn](https://modelscope.cn) |
-| `moonshot` | LLM (Moonshot/Kimi) | [platform.kimi.com](https://platform.kimi.com?aff=nanobot) |
-| `kimi_coding` | LLM (Kimi Coding Plan, Anthropic Messages API) | [platform.kimi.com](https://platform.kimi.com?aff=nanobot) |
+| `moonshot` | LLM (Moonshot/Kimi) | [platform.kimi.com](https://platform.kimi.com?aff=nanoinfra) |
+| `kimi_coding` | LLM (Kimi Coding Plan, Anthropic Messages API) | [platform.kimi.com](https://platform.kimi.com?aff=nanoinfra) |
 | `zhipu` | LLM (Zhipu GLM) | [open.bigmodel.cn](https://open.bigmodel.cn) |
 | `xiaomi_mimo` | LLM (MiMo) | [platform.xiaomimimo.com](https://platform.xiaomimimo.com) |
 | `longcat` | LLM (LongCat) | [longcat.chat](https://longcat.chat/platform/docs/zh/) |
@@ -307,15 +307,15 @@ Tracing covers the providers that go through nanobot's OpenAI-compatible client 
 | `ovms` | LLM (local, OpenVINO Model Server) | [docs.openvino.ai](https://docs.openvino.ai/2026/model-server/ovms_docs_llm_quickstart.html) |
 | `vllm` | LLM (local, any OpenAI-compatible server) | — |
 | `nvidia` | LLM (NVIDIA NIM) | [build.nvidia.com](https://build.nvidia.com/) |
-| `openai_codex` | LLM (Codex, OAuth) | `nanobot provider login openai-codex --set-main` |
-| `xai_grok` | LLM (Grok, OAuth) | `nanobot provider login xai-grok --set-main` |
-| `github_copilot` | LLM (GitHub Copilot, OAuth) | `nanobot provider login github-copilot` |
+| `openai_codex` | LLM (Codex, OAuth) | `nanoinfra provider login openai-codex --set-main` |
+| `xai_grok` | LLM (Grok, OAuth) | `nanoinfra provider login xai-grok --set-main` |
+| `github_copilot` | LLM (GitHub Copilot, OAuth) | `nanoinfra provider login github-copilot` |
 | `qianfan` | LLM (Baidu Qianfan) | [cloud.baidu.com](https://cloud.baidu.com/doc/qianfan/s/Hmh4suq26) |
 
 <details>
 <summary><b>OpenAI</b></summary>
 
-By default, OpenAI uses `apiType: "auto"`: nanobot calls Chat Completions normally and routes GPT-5/o-series or explicit `reasoningEffort` requests through the Responses API when useful. You can force a specific API surface:
+By default, OpenAI uses `apiType: "auto"`: nanoinfra calls Chat Completions normally and routes GPT-5/o-series or explicit `reasoningEffort` requests through the Responses API when useful. You can force a specific API surface:
 
 ```json
 {
@@ -330,7 +330,7 @@ By default, OpenAI uses `apiType: "auto"`: nanobot calls Chat Completions normal
 
 Valid `apiType` values are exactly `auto`, `chat_completions`, and `responses`.
 
-`extraBody` follows the selected OpenAI API surface. With Chat Completions, nanobot passes it through as the SDK `extra_body` value. With Responses, configure it in Responses API body shape; nanobot merges ordinary top-level fields into the Responses request body, appends `extraBody.tools` after generated function tools, and merges `extraBody.include` without duplicates:
+`extraBody` follows the selected OpenAI API surface. With Chat Completions, nanoinfra passes it through as the SDK `extra_body` value. With Responses, configure it in Responses API body shape; nanoinfra merges ordinary top-level fields into the Responses request body, appends `extraBody.tools` after generated function tools, and merges `extraBody.include` without duplicates:
 
 ```json
 {
@@ -357,7 +357,7 @@ Providers that use the Responses API can keep reasoning context across a
 conversation, which helps with multi-step tasks. Supported providers can also
 compact long conversations automatically.
 
-nanobot preserves Responses conversation state automatically for OpenAI Responses, OpenAI Codex, Azure OpenAI, DeepSeek V4 Flash, and compatible GitHub Copilot models.
+nanoinfra preserves Responses conversation state automatically for OpenAI Responses, OpenAI Codex, Azure OpenAI, DeepSeek V4 Flash, and compatible GitHub Copilot models.
 Native compaction is also automatic when the provider supports it. The
 threshold is derived from the active model's context window and reserved output
 headroom; no provider configuration is required.
@@ -419,7 +419,7 @@ Omit `apiKey` (or leave it empty / unset). The provider falls back to [`DefaultA
 Install the optional dependency:
 
 ```bash
-nanobot plugins enable azure
+nanoinfra plugins enable azure
 ```
 
 `DefaultAzureCredential` walks this chain in order and uses the first identity that succeeds:
@@ -434,7 +434,7 @@ nanobot plugins enable azure
 
 The identity that ends up signing the request **must be assigned the `Cognitive Services OpenAI User` RBAC role** (or higher) on the Azure OpenAI resource. Without that role you will see `401`/`403` errors at the first request.
 
-> `apiBase` remains mandatory in both modes — it's your Azure resource endpoint and cannot be inferred. If neither `apiKey` is set nor `azure-identity` is installed, the provider raises a clear error pointing you at `nanobot plugins enable azure`.
+> `apiBase` remains mandatory in both modes — it's your Azure resource endpoint and cannot be inferred. If neither `apiKey` is set nor `azure-identity` is installed, the provider raises a clear error pointing you at `nanoinfra plugins enable azure`.
 
 </details>
 
@@ -481,12 +481,12 @@ This provider is for Bedrock's native Converse API, not Bedrock's OpenAI-compati
 Install Bedrock support first:
 
 ```bash
-nanobot plugins enable bedrock
+nanoinfra plugins enable bedrock
 ```
 
 > [!NOTE]
 > If you configured Bedrock before `boto3` became an optional dependency, run
-> `nanobot plugins enable bedrock` after upgrading. Otherwise the provider will
+> `nanoinfra plugins enable bedrock` after upgrading. Otherwise the provider will
 > fail when it first tries to create a Bedrock client.
 
 **1. Configure credentials**
@@ -504,7 +504,7 @@ Use the normal AWS credential chain (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KE
 }
 ```
 
-You can also set `providers.bedrock.apiKey` to a Bedrock API key; nanobot exports it as `AWS_BEARER_TOKEN_BEDROCK` for the AWS SDK.
+You can also set `providers.bedrock.apiKey` to a Bedrock API key; nanoinfra exports it as `AWS_BEARER_TOKEN_BEDROCK` for the AWS SDK.
 
 Credential options:
 
@@ -615,13 +615,13 @@ With a named AWS profile:
 
 For regional routing, use one of Bedrock's inference IDs, for example `bedrock/us.anthropic.claude-opus-4-7`, `bedrock/eu.anthropic.claude-opus-4-7`, or `bedrock/jp.anthropic.claude-opus-4-7`.
 
-Claude Opus 4.7 does not accept `temperature`, `top_p`, or `top_k`; nanobot omits `temperature` automatically for this model. If `reasoningEffort` is set to `low`, `medium`, `high`, `max`, or `adaptive`, nanobot sends Bedrock's adaptive thinking parameter.
+Claude Opus 4.7 does not accept `temperature`, `top_p`, or `top_k`; nanoinfra omits `temperature` automatically for this model. If `reasoningEffort` is set to `low`, `medium`, `high`, `max`, or `adaptive`, nanoinfra sends Bedrock's adaptive thinking parameter.
 
 Anthropic models on Bedrock can also require Anthropic use-case registration and are subject to Anthropic-supported country/region restrictions. If Claude fails with a `ValidationException` about unsupported countries or regions, try a non-Anthropic Bedrock model such as Amazon Nova to verify the provider setup.
 
 **4. Model IDs**
 
-Use Bedrock model IDs or inference profile IDs with a `bedrock/` prefix in nanobot config. nanobot removes the prefix before calling AWS.
+Use Bedrock model IDs or inference profile IDs with a `bedrock/` prefix in nanoinfra config. nanoinfra removes the prefix before calling AWS.
 
 Examples:
 
@@ -637,7 +637,7 @@ Check the Bedrock console for the exact model ID and region availability. Some m
 
 **5. Advanced model fields**
 
-Model-specific fields can be supplied with `extraBody`; nanobot merges it into Converse `additionalModelRequestFields`:
+Model-specific fields can be supplied with `extraBody`; nanoinfra merges it into Converse `additionalModelRequestFields`:
 
 ```json
 {
@@ -658,7 +658,7 @@ Model-specific fields can be supplied with `extraBody`; nanobot merges it into C
 
 Use `apiBase` only for a custom Bedrock Runtime endpoint URL, such as a VPC endpoint or proxy. It is not needed for normal AWS regions.
 
-Current scope: nanobot passes `messages`, `system`, `inferenceConfig`, `toolConfig`, and `additionalModelRequestFields`. Bedrock Prompt Management, Guardrails, `serviceTier`, and other top-level Converse options are not first-class config fields yet.
+Current scope: nanoinfra passes `messages`, `system`, `inferenceConfig`, `toolConfig`, and `additionalModelRequestFields`. Bedrock Prompt Management, Guardrails, `serviceTier`, and other top-level Converse options are not first-class config fields yet.
 
 **6. Quick checks**
 
@@ -674,7 +674,7 @@ export AWS_REGION="us-east-1"
 Then run:
 
 ```bash
-nanobot agent -m "Reply with one short sentence."
+nanoinfra agent -m "Reply with one short sentence."
 ```
 
 </details>
@@ -686,13 +686,13 @@ nanobot agent -m "Reply with one short sentence."
 Codex uses OAuth instead of API keys and requires a ChatGPT Plus or Pro account. Authenticate it and make the current flagship model the active agent model with one command:
 
 ```bash
-nanobot provider login openai-codex --set-main
+nanoinfra provider login openai-codex --set-main
 ```
 
 Then run:
 
 ```bash
-nanobot agent -m "Hello!"
+nanoinfra agent -m "Hello!"
 ```
 
 To opt in to Codex Fast mode, merge this provider setting into `config.json`:
@@ -726,8 +726,8 @@ Use an eligible X Premium / Grok subscription without putting an API key in
 `config.json`:
 
 ```bash
-nanobot provider login xai-grok --set-main
-nanobot agent -m "Hello from Grok."
+nanoinfra provider login xai-grok --set-main
+nanoinfra agent -m "Hello from Grok."
 ```
 
 The default model is `xai-grok/grok-4.5` with a 500,000-token context window.
@@ -736,12 +736,12 @@ tool only when the selected model advertises `supportsBackendSearch`. Models
 without that capability continue normally without hosted X Search. When enabled,
 searches run inside xAI's Responses API and citations arrive as inline links.
 
-This is xAI subscription OAuth, not X Developer OAuth. nanobot follows the
+This is xAI subscription OAuth, not X Developer OAuth. nanoinfra follows the
 public OAuth client and proxy contract used by
 [Grok Build](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md).
 The browser flow uses a random loopback callback and PKCE. The resulting token
 is stored in the active instance's `auth/xai.json` (normally
-`~/.nanobot/auth/xai.json`), separately from Grok Build so rotating refresh
+`~/.nanoinfra/auth/xai.json`), separately from Grok Build so rotating refresh
 tokens cannot invalidate one another.
 
 To use a provider-specific proxy, merge this into `config.json` before login:
@@ -759,7 +759,7 @@ To use a provider-specific proxy, merge this into `config.json` before login:
 The proxy applies to OAuth discovery, token exchange/refresh, model-catalog
 lookups, and subscription model requests. Because this integration depends on
 xAI's public Grok Build client contract, an upstream contract change may require
-a nanobot update.
+a nanoinfra update.
 
 </details>
 
@@ -767,24 +767,24 @@ a nanobot update.
 <details>
 <summary><b>GitHub Copilot (OAuth)</b></summary>
 
-GitHub Copilot uses OAuth instead of API keys. Requires a [GitHub account with a plan](https://github.com/features/copilot/plans) configured. No `providers.github_copilot` block is needed in `config.json`; `nanobot provider login` stores the OAuth session outside config.
+GitHub Copilot uses OAuth instead of API keys. Requires a [GitHub account with a plan](https://github.com/features/copilot/plans) configured. No `providers.github_copilot` block is needed in `config.json`; `nanoinfra provider login` stores the OAuth session outside config.
 
 For GitHub Enterprise / Copilot for Business, set the endpoint overrides you need before login:
 ```bash
-export NANOBOT_GITHUB_COPILOT_CLIENT_ID="your-enterprise-client-id"
-export NANOBOT_GITHUB_DEVICE_CODE_URL="https://ghe.example/login/device/code"
-export NANOBOT_GITHUB_ACCESS_TOKEN_URL="https://ghe.example/login/oauth/access_token"
-export NANOBOT_GITHUB_USER_URL="https://api.ghe.example/user"
-export NANOBOT_COPILOT_TOKEN_URL="https://api.ghe.example/copilot_internal/v2/token"
-export NANOBOT_COPILOT_BASE_URL="https://copilot-api.ghe.example"
+export NANOINFRA_GITHUB_COPILOT_CLIENT_ID="your-enterprise-client-id"
+export NANOINFRA_GITHUB_DEVICE_CODE_URL="https://ghe.example/login/device/code"
+export NANOINFRA_GITHUB_ACCESS_TOKEN_URL="https://ghe.example/login/oauth/access_token"
+export NANOINFRA_GITHUB_USER_URL="https://api.ghe.example/user"
+export NANOINFRA_COPILOT_TOKEN_URL="https://api.ghe.example/copilot_internal/v2/token"
+export NANOINFRA_COPILOT_BASE_URL="https://copilot-api.ghe.example"
 ```
 
 **1. Login:**
 ```bash
-nanobot provider login github-copilot
+nanoinfra provider login github-copilot
 ```
 
-**2. Set model** (merge into `~/.nanobot/config.json`):
+**2. Set model** (merge into `~/.nanoinfra/config.json`):
 ```json
 {
   "modelPresets": {
@@ -803,13 +803,13 @@ nanobot provider login github-copilot
 
 **3. Chat:**
 ```bash
-nanobot agent -m "Hello!"
+nanoinfra agent -m "Hello!"
 
 # Target a specific workspace/config locally
-nanobot agent -c ~/.nanobot-telegram/config.json -m "Hello!"
+nanoinfra agent -c ~/.nanoinfra-telegram/config.json -m "Hello!"
 
 # One-off workspace override on top of that config
-nanobot agent -c ~/.nanobot-telegram/config.json -w /tmp/nanobot-telegram-test -m "Hello!"
+nanoinfra agent -c ~/.nanoinfra-telegram/config.json -w /tmp/nanoinfra-telegram-test -m "Hello!"
 ```
 
 > Docker users: use `docker run -it` for interactive OAuth login.
@@ -819,11 +819,11 @@ nanobot agent -c ~/.nanobot-telegram/config.json -w /tmp/nanobot-telegram-test -
 <details>
 <summary><b>OpenCode Zen / Go</b></summary>
 
-OpenCode Zen and OpenCode Go are available through nanobot's built-in
+OpenCode Zen and OpenCode Go are available through nanoinfra's built-in
 OpenAI-compatible provider flow. They share the `OPENCODE_API_KEY` environment
 variable, but use separate provider keys and default base URLs:
 
-| Provider | Default API base | Model prefix accepted by nanobot |
+| Provider | Default API base | Model prefix accepted by nanoinfra |
 |----------|------------------|-----------------------------------|
 | `opencode` | `https://opencode.ai/zen/v1` | `opencode/<model-id>` |
 | `opencode_zen` | `https://opencode.ai/zen/v1` | `opencode/<model-id>` |
@@ -878,7 +878,7 @@ OpenCode Go:
 ```
 
 OpenCode's own docs list models across `responses`, `messages`,
-provider-specific model endpoints, and `chat/completions`. nanobot's OpenCode
+provider-specific model endpoints, and `chat/completions`. nanoinfra's OpenCode
 providers use the OpenAI-compatible `chat/completions` path, so pick model IDs
 from that endpoint family. The `opencode/...` and `opencode-go/...` prefixes are
 accepted for config readability and stripped before sending the request.
@@ -888,7 +888,7 @@ accepted for config readability and stripped before sending the request.
 <details>
 <summary><b>LongCat (OpenAI-compatible)</b></summary>
 
-LongCat is available through nanobot's built-in OpenAI-compatible provider flow. The default API base already points to `https://api.longcat.chat/openai/v1`, so you usually only need to set `apiKey`.
+LongCat is available through nanoinfra's built-in OpenAI-compatible provider flow. The default API base already points to `https://api.longcat.chat/openai/v1`, so you usually only need to set `apiKey`.
 
 ```json
 {
@@ -984,7 +984,7 @@ Supported models include `step-3.5-flash`, `step-3.5-flash-2603`, and `step-rout
 <details>
 <summary><b>Ant Ling (OpenAI-compatible)</b></summary>
 
-Ant Ling is available through nanobot's built-in OpenAI-compatible provider flow. The default API base points to `https://api.ant-ling.com/v1`, so you usually only need to set `apiKey`.
+Ant Ling is available through nanoinfra's built-in OpenAI-compatible provider flow. The default API base points to `https://api.ant-ling.com/v1`, so you usually only need to set `apiKey`.
 
 ```json
 {
@@ -1071,7 +1071,7 @@ Connects directly to any OpenAI-compatible endpoint — llama.cpp, Together AI, 
 >
 > In short: **chat-completions-compatible endpoint → `custom` or a named custom provider**; **Responses-compatible endpoint → `azure_openai`**; **Anthropic-compatible endpoint → `anthropic` with `apiBase`**.
 
-Some OpenAI-compatible gateways expose request-body extensions such as vLLM guided decoding or local sampling controls. Put those under `extraBody`; nanobot merges them into the chat-completions request body after its provider defaults:
+Some OpenAI-compatible gateways expose request-body extensions such as vLLM guided decoding or local sampling controls. Put those under `extraBody`; nanoinfra merges them into the chat-completions request body after its provider defaults:
 
 ```json
 {
@@ -1090,7 +1090,7 @@ Some OpenAI-compatible gateways expose request-body extensions such as vLLM guid
 }
 ```
 
-If a custom OpenAI-compatible endpoint exposes a provider-specific thinking toggle, set `thinkingStyle` so nanobot can translate `reasoningEffort` into the right request body. Supported styles are `thinking_type` (`{"thinking":{"type":"enabled"}}`), `enable_thinking` (`{"enable_thinking": true}`), and `reasoning_split` (`{"reasoning_split": true}`):
+If a custom OpenAI-compatible endpoint exposes a provider-specific thinking toggle, set `thinkingStyle` so nanoinfra can translate `reasoningEffort` into the right request body. Supported styles are `thinking_type` (`{"thinking":{"type":"enabled"}}`), `enable_thinking` (`{"enable_thinking": true}`), and `reasoning_split` (`{"reasoning_split": true}`):
 
 ```json
 {
@@ -1127,7 +1127,7 @@ Run a local model with Ollama, then add to config:
 ollama run llama3.2
 ```
 
-**2. Add to config** (partial — merge into `~/.nanobot/config.json`):
+**2. Add to config** (partial — merge into `~/.nanoinfra/config.json`):
 ```json
 {
   "providers": {
@@ -1164,7 +1164,7 @@ ollama run llama3.2
 - Load a model (e.g., Llama, Mistral, Qwen)
 - Click "Start Server" (default port: 1234)
 
-**2. Add to config** (partial — merge into `~/.nanobot/config.json`):
+**2. Add to config** (partial — merge into `~/.nanoinfra/config.json`):
 ```json
 {
   "providers": {
@@ -1195,7 +1195,7 @@ ollama run llama3.2
 <details>
 <summary><b>Atomic Chat (local)</b></summary>
 
-[Atomic Chat](https://atomic.chat/) is a local-first desktop app that exposes an **OpenAI-compatible** HTTP API (default `http://localhost:1337/v1`). This setup applies when you want to run nanobot against a model on your own machine instead of a hosted API provider.
+[Atomic Chat](https://atomic.chat/) is a local-first desktop app that exposes an **OpenAI-compatible** HTTP API (default `http://localhost:1337/v1`). This setup applies when you want to run nanoinfra against a model on your own machine instead of a hosted API provider.
 
 **1. Start Atomic Chat**
 
@@ -1203,7 +1203,7 @@ ollama run llama3.2
 - Open Atomic Chat, download a model, and keep the app running. The local API is enabled by default.
 - Copy the model ID exposed by the local API. For example, the model ID for `Qwen 3 32B` might be `qwen3-32b`.
 
-**2. Add to config** (partial — merge into `~/.nanobot/config.json`):
+**2. Add to config** (partial — merge into `~/.nanoinfra/config.json`):
 
 ```json
 {
@@ -1286,7 +1286,7 @@ docker run -d \
   --target_device GPU
 ```
 
-**3. Add to config** (partial — merge into `~/.nanobot/config.json`):
+**3. Add to config** (partial — merge into `~/.nanoinfra/config.json`):
 
 ```json
 {
@@ -1323,7 +1323,7 @@ Run your own model with vLLM or any OpenAI-compatible server, then add to config
 vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
 ```
 
-**2. Add to config** (partial — merge into `~/.nanobot/config.json`):
+**2. Add to config** (partial — merge into `~/.nanoinfra/config.json`):
 
 *Provider (set API key to null for local servers):*
 ```json
@@ -1470,7 +1470,7 @@ Preset fallback chain:
 }
 ```
 
-String entries are preset names, not raw model names. In the example above, `"deep"` means `modelPresets.deep`; nanobot will not interpret it as a provider model ID. Changing a preset updates both `/model <preset>` switching and any fallback chain that references it.
+String entries are preset names, not raw model names. In the example above, `"deep"` means `modelPresets.deep`; nanoinfra will not interpret it as a provider model ID. Changing a preset updates both `/model <preset>` switching and any fallback chain that references it.
 
 Inline fallback object:
 
@@ -1502,9 +1502,9 @@ Inline fallback object:
 
 Use inline objects only when a fallback is not worth naming as a reusable preset. `fallbackModels` belongs under `agents.defaults`, not inside individual `modelPresets` entries.
 
-Failover normally runs when the primary provider returns a fallbackable model/provider error before any answer text has been streamed. Stream-stall timeouts are the recovery exception: if the provider already emitted partial answer text and then stalls, nanobot closes the current stream segment and retries/fails over in a new segment. Typical fallback cases include timeouts, connection errors, 5xx server errors, 429 rate limits, overloads, authentication/permission failures such as invalid or expired credentials, and quota/balance exhaustion. It does not run for malformed requests, content filtering/refusals, or context-length/message-format errors.
+Failover normally runs when the primary provider returns a fallbackable model/provider error before any answer text has been streamed. Stream-stall timeouts are the recovery exception: if the provider already emitted partial answer text and then stalls, nanoinfra closes the current stream segment and retries/fails over in a new segment. Typical fallback cases include timeouts, connection errors, 5xx server errors, 429 rate limits, overloads, authentication/permission failures such as invalid or expired credentials, and quota/balance exhaustion. It does not run for malformed requests, content filtering/refusals, or context-length/message-format errors.
 
-If fallback candidates use smaller `contextWindowTokens` values, nanobot builds context using the smallest window in the active chain so every candidate can receive the same prompt.
+If fallback candidates use smaller `contextWindowTokens` values, nanoinfra builds context using the smallest window in the active chain so every candidate can receive the same prompt.
 
 ## Transcription Settings
 
@@ -1565,7 +1565,7 @@ If you are adding a new transcription provider, see [`development.md`](./develop
 
 ## Channel Settings
 
-Global settings that apply to all channels. Configure under the `channels` section in `~/.nanobot/config.json`:
+Global settings that apply to all channels. Configure under the `channels` section in `~/.nanoinfra/config.json`:
 
 ```json
 {
@@ -1622,7 +1622,7 @@ Telegram `richMessages` defaults to `false`. Enable it only to opt in to Bot API
 
 Retry is intentionally simple.
 
-When a channel `send()` raises, nanobot retries at the channel-manager layer. By default, `channels.sendMaxRetries` is `3`, and that count includes the initial send.
+When a channel `send()` raises, nanoinfra retries at the channel-manager layer. By default, `channels.sendMaxRetries` is `3`, and that count includes the initial send.
 
 - **Attempt 1**: Send immediately
 - **Attempt 2**: Retry after `1s`
@@ -1636,11 +1636,11 @@ When a channel `send()` raises, nanobot retries at the channel-manager layer. By
 >
 > Some channels may still apply small API-specific retries internally. For example, Telegram separately retries timeout and flood-control errors before surfacing a final failure to the manager.
 >
-> If a channel is completely unreachable, nanobot cannot notify the user through that same channel. Watch logs for `Failed to send to {channel} after N attempts` to spot persistent delivery failures.
+> If a channel is completely unreachable, nanoinfra cannot notify the user through that same channel. Watch logs for `Failed to send to {channel} after N attempts` to spot persistent delivery failures.
 
 ## Web Tools
 
-nanobot incorporates basic tools for accessing the web. These include searching via APIs, and fetching arbitrary web pages in Markdown format. They are enabled by default, and can be configured in `~/.nanobot/config.json` under `tools.web`.
+nanoinfra incorporates basic tools for accessing the web. These include searching via APIs, and fetching arbitrary web pages in Markdown format. They are enabled by default, and can be configured in `~/.nanoinfra/config.json` under `tools.web`.
 
 If you want to disable them, which removes both `web_search` and `web_fetch` from the tool list sent to the LLM, set `tools.web.enable` to `false`:
 
@@ -1654,7 +1654,7 @@ If you want to disable them, which removes both `web_search` and `web_fetch` fro
 }
 ```
 
-nanobot uses a shared SSRF guard for built-in web fetches and HTTP/SSE MCP connections. By default it blocks loopback, RFC1918/private ranges, CGNAT/Tailscale ranges, link-local addresses, and cloud metadata endpoints. If you need to allow trusted private ranges, explicitly exempt them from SSRF blocking with `tools.ssrfWhitelist`:
+nanoinfra uses a shared SSRF guard for built-in web fetches and HTTP/SSE MCP connections. By default it blocks loopback, RFC1918/private ranges, CGNAT/Tailscale ranges, link-local addresses, and cloud metadata endpoints. If you need to allow trusted private ranges, explicitly exempt them from SSRF blocking with `tools.ssrfWhitelist`:
 
 ```json
 {
@@ -1673,7 +1673,7 @@ HTTP/SSE MCP connections use the same process-wide proxy environment behavior as
 > ```json
 > { "tools": { "web": { "proxy": "http://127.0.0.1:7890" } } }
 > ```
-> `web_fetch` applies DNS pinning for direct connections. When an explicit `tools.web.proxy` or a process-wide proxy environment variable applies to the target URL, nanobot still validates the requested URL locally, but DNS resolution for the outbound fetch happens at the proxy; configure only trusted proxies. URLs excluded by `NO_PROXY` keep the DNS-pinned direct path unless `tools.web.proxy` is configured.
+> `web_fetch` applies DNS pinning for direct connections. When an explicit `tools.web.proxy` or a process-wide proxy environment variable applies to the target URL, nanoinfra still validates the requested URL locally, but DNS resolution for the outbound fetch happens at the proxy; configure only trusted proxies. URLs excluded by `NO_PROXY` keep the DNS-pinned direct path unless `tools.web.proxy` is configured.
 
 ### `tools.web`
 
@@ -1685,7 +1685,7 @@ HTTP/SSE MCP connections use the same process-wide proxy environment behavior as
 
 ### Web Search
 
-nanobot supports multiple web search providers. Configure in `~/.nanobot/config.json` under `tools.web.search`.
+nanoinfra supports multiple web search providers. Configure in `~/.nanoinfra/config.json` under `tools.web.search`.
 
 By default, web search uses `duckduckgo`, and it works out of the box without an API key.
 
@@ -1883,7 +1883,7 @@ Create a key at [serper.dev](https://serper.dev). You can also set `SERPER_API_K
 > { "tools": { "web": { "userAgent": "Not-A-Browser", "fetch": { "useJinaReader": false } } } }
 > ```
 
-nanobot by default uses [Jina Reader](https://jina.ai/reader/), a third-party API, to convert arbitrary pages into Markdown format for easy digestion by the LLM, with a local fallback based on [readability-lxml](https://github.com/buriy/python-readability) if the former fails.
+nanoinfra by default uses [Jina Reader](https://jina.ai/reader/), a third-party API, to convert arbitrary pages into Markdown format for easy digestion by the LLM, with a local fallback based on [readability-lxml](https://github.com/buriy/python-readability) if the former fails.
 
 If you want to always use the local conversion, you can force it using:
 
@@ -1916,7 +1916,7 @@ See [Image Generation](./image-generation.md) for WebUI usage, provider examples
 > [!TIP]
 > The config format is compatible with Claude Desktop / Cursor. You can copy MCP server configs directly from any MCP server's README.
 
-nanobot supports [MCP](https://modelcontextprotocol.io/) — connect external tool servers and use them as native agent tools.
+nanoinfra supports [MCP](https://modelcontextprotocol.io/) — connect external tool servers and use them as native agent tools.
 
 Add MCP servers to your `config.json`:
 
@@ -1980,7 +1980,7 @@ Use `enabledTools` to register only a subset of tools from an MCP server:
 }
 ```
 
-`enabledTools` accepts either the raw MCP tool name (for example `read_file`) or the wrapped nanobot tool name (for example `mcp_filesystem_write_file`).
+`enabledTools` accepts either the raw MCP tool name (for example `read_file`) or the wrapped nanoinfra tool name (for example `mcp_filesystem_write_file`).
 
 - Omit `enabledTools`, or set it to `["*"]`, to register all capabilities (tools, resources, and prompts).
 - Set `enabledTools` to `[]` to register no tools from that server. Resources and prompts are also skipped, since they have no per-name filter.
@@ -1994,13 +1994,13 @@ MCP tools are automatically discovered and registered on startup. The LLM can us
 ## Security
 
 > [!TIP]
-> For production deployments, set both `"restrictToWorkspace": true` and `"tools.exec.sandbox": "bwrap"` in your config. `restrictToWorkspace` enables nanobot's application-level workspace guards; `tools.exec.sandbox` provides process-level isolation for shell commands.
+> For production deployments, set both `"restrictToWorkspace": true` and `"tools.exec.sandbox": "bwrap"` in your config. `restrictToWorkspace` enables nanoinfra's application-level workspace guards; `tools.exec.sandbox` provides process-level isolation for shell commands.
 
 For API keys, tokens, and other secrets, see [Environment Variables for Secrets](#environment-variables-for-secrets) — avoid storing them directly in `config.json`.
 
 > [!NOTE]
 > When a restricted WebUI chat selects a project outside the configured agent
-> workspace, that project becomes the normal file and shell boundary. Nanobot
+> workspace, that project becomes the normal file and shell boundary. Nanoinfra
 > adds capability-specific, read-only access for built-in skills, the agent
 > workspace's `skills/` directory, and the exact agent
 > `memory/history.jsonl` file. Neighboring memory/profile files and all
@@ -2010,7 +2010,7 @@ For API keys, tokens, and other secrets, see [Environment Variables for Secrets]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `tools.restrictToWorkspace` | `false` | When `true`, enables nanobot's application-level workspace guards for workspace-aware tools. File tools resolve paths under the active workspace; selected internal roots can be added as read-only or explicitly write-enabled roots, and media uploads are read-only by default. Shell execution rejects workspace-external `working_dir` values and applies best-effort command path checks, but this is not an OS sandbox. |
+| `tools.restrictToWorkspace` | `false` | When `true`, enables nanoinfra's application-level workspace guards for workspace-aware tools. File tools resolve paths under the active workspace; selected internal roots can be added as read-only or explicitly write-enabled roots, and media uploads are read-only by default. Shell execution rejects workspace-external `working_dir` values and applies best-effort command path checks, but this is not an OS sandbox. |
 | `tools.exec.sandbox` | `""` | Sandbox backend for shell commands. Set to `"bwrap"` to wrap exec calls in a [bubblewrap](https://github.com/containers/bubblewrap) sandbox — the process can only see the workspace (read-write) and media directory (read-only); config files and API keys are hidden. Automatically enables workspace restriction for file tools. **Linux only** — requires `bwrap` installed (`apt install bubblewrap`; pre-installed in the Docker image). Not available on macOS or Windows (bwrap depends on Linux kernel namespaces). |
 | `tools.exec.enable` | `true` | When `false`, the shell `exec` tool is not registered at all. Use this to completely disable shell command execution. |
 | `tools.exec.timeout` | `60` | Default hard timeout in seconds for shell commands. Config values may exceed the per-call tool cap; set `0` to disable the hard timeout for trusted long-running commands. |
@@ -2018,11 +2018,11 @@ For API keys, tokens, and other secrets, see [Environment Variables for Secrets]
 | `tools.exec.pathAppend` | `""` | Extra directories to append to `PATH` when running shell commands (e.g. `/usr/sbin` for `ufw`). |
 | `tools.exec.sandboxRoBinds` | `[]` | Extra absolute paths to read-only bind into the `"bwrap"` sandbox with `--ro-bind-try`, such as `/home/user/.local/bin` or `/home/user/.cargo/bin` when those paths are also in `pathPrepend`/`pathAppend`. These roots are also accepted by the shell absolute-path guard only while bwrap is active. Bind only directories whose contents are safe for agent commands to read; paths equal to or containing the active workspace are ignored so they cannot uncover its masked parent directory. |
 | `tools.exec.sandboxRwBinds` | `[]` | Extra absolute paths to read-write bind into the `"bwrap"` sandbox with `--bind-try`, for trusted tool caches or scratch directories. Use sparingly: paths listed here are intentionally writable by shell commands inside the sandbox. Paths equal to or containing the active workspace are ignored. |
-| `tools.webuiAllowRemotePackageInstall` | `false` | When `false`, the WebUI can install missing optional packages only from a browser opened on the same machine as nanobot. Set to `true` only when a trusted remote admin is allowed to install Python packages into this nanobot environment. |
+| `tools.webuiAllowRemotePackageInstall` | `false` | When `false`, the WebUI can install missing optional packages only from a browser opened on the same machine as nanoinfra. Set to `true` only when a trusted remote admin is allowed to install Python packages into this nanoinfra environment. |
 | `tools.ssrfWhitelist` | `[]` | CIDR ranges exempted from the shared SSRF guard used by web fetches and HTTP/SSE MCP connections. Prefer exact host CIDRs such as `192.168.1.50/32`; broad ranges increase SSRF exposure. |
 | `channels.*.allowFrom` | omitted | Access control per channel. Omit to use pairing-only mode; set `["*"]` to allow everyone; or list specific user IDs. See [Pairing](#pairing) for details. |
 
-**Docker security**: The official Docker image runs as a non-root user (`nanobot`, UID 1000) with bubblewrap pre-installed. The default `docker-compose.yml` drops all Linux capabilities and keeps Docker's default AppArmor/seccomp profiles enabled. If you enable `"tools.exec.sandbox": "bwrap"` inside Docker, start Compose with `docker-compose.bwrap.yml` as an additional override so bubblewrap can create nested namespaces.
+**Docker security**: The official Docker image runs as a non-root user (`nanoinfra`, UID 1000) with bubblewrap pre-installed. The default `docker-compose.yml` drops all Linux capabilities and keeps Docker's default AppArmor/seccomp profiles enabled. If you enable `"tools.exec.sandbox": "bwrap"` inside Docker, start Compose with `docker-compose.bwrap.yml` as an additional override so bubblewrap can create nested namespaces.
 
 
 ## Pairing
@@ -2100,14 +2100,14 @@ You can find user IDs in the output of `/pairing list`.
 From the terminal:
 
 ```bash
-nanobot agent -m "/pairing list"
-nanobot agent -m "/pairing approve ABCD-EFGH"
+nanoinfra agent -m "/pairing list"
+nanoinfra agent -m "/pairing approve ABCD-EFGH"
 ```
 
 
 ## Gateway Heartbeat
 
-The gateway can run a protected heartbeat cron job that periodically checks `HEARTBEAT.md` in the active workspace. This is enabled by default when you run `nanobot gateway`.
+The gateway can run a protected heartbeat cron job that periodically checks `HEARTBEAT.md` in the active workspace. This is enabled by default when you run `nanoinfra gateway`.
 
 ```json
 {
@@ -2141,7 +2141,7 @@ The notification gate runs on a built-in system prompt. Advanced users can overr
 
 ## Subagent Concurrency
 
-By default, nanobot only allows one spawned subagent at a time. When the limit is reached, the `spawn` tool returns an error so the agent can decide to wait or rearrange its work. This protects local LLM servers from loading multiple KV caches at once. If your provider can handle more parallel work, raise the limit:
+By default, nanoinfra only allows one spawned subagent at a time. When the limit is reached, the `spawn` tool returns an error so the agent can decide to wait or rearrange its work. This protects local LLM servers from loading multiple KV caches at once. If your provider can handle more parallel work, raise the limit:
 
 ```json
 {
@@ -2173,7 +2173,7 @@ Subagents also stop immediately when one of their tools returns an execution err
 
 ## Auto Compact
 
-When a user is idle for longer than a configured threshold, nanobot **proactively** compresses the older part of the session context into a summary while keeping a recent legal suffix of live messages. This reduces token cost and first-token latency when the user returns — instead of re-processing a long stale context with an expired KV cache, the model receives a compact summary, the most recent live context, and fresh input.
+When a user is idle for longer than a configured threshold, nanoinfra **proactively** compresses the older part of the session context into a summary while keeping a recent legal suffix of live messages. This reduces token cost and first-token latency when the user returns — instead of re-processing a long stale context with an expired KV cache, the model receives a compact summary, the most recent live context, and fresh input.
 
 ```json
 {
@@ -2210,7 +2210,7 @@ How it works:
 
 Time is context. Context should be precise.
 
-By default, nanobot uses `UTC` for runtime time context. If you want the agent to think in your local time, set `agents.defaults.timezone` to a valid [IANA timezone name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones):
+By default, nanoinfra uses `UTC` for runtime time context. If you want the agent to think in your local time, set `agents.defaults.timezone` to a valid [IANA timezone name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones):
 
 ```json
 {
@@ -2230,7 +2230,7 @@ Common examples: `UTC`, `America/New_York`, `America/Los_Angeles`, `Europe/Londo
 
 ## Unified Session
 
-By default, each channel × chat ID combination gets its own session. If you use nanobot across multiple channels (e.g. Telegram + Discord + CLI) and want them to share the same conversation, enable `unifiedSession`:
+By default, each channel × chat ID combination gets its own session. If you use nanoinfra across multiple channels (e.g. Telegram + Discord + CLI) and want them to share the same conversation, enable `unifiedSession`:
 
 ```json
 {
@@ -2256,7 +2256,7 @@ When enabled, all incoming messages — regardless of which channel they arrive 
 
 ## Disabled Skills
 
-nanobot ships with built-in skills, and your workspace can also define custom skills under `skills/`. If you want to hide specific skills from the agent, set `agents.defaults.disabledSkills` to a list of skill directory names:
+nanoinfra ships with built-in skills, and your workspace can also define custom skills under `skills/`. If you want to hide specific skills from the agent, set `agents.defaults.disabledSkills` to a list of skill directory names:
 
 ```json
 {

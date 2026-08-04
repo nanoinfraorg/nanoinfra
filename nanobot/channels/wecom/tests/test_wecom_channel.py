@@ -17,10 +17,10 @@ except ImportError:
 if not WECOM_AVAILABLE:
     pytest.skip("WeCom dependencies not installed (wecom_aibot_sdk)", allow_module_level=True)
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.outbound_events import ProgressEvent
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.wecom.runtime import (
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.outbound_events import ProgressEvent
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.wecom.runtime import (
     WecomChannel,
     WecomConfig,
     _guess_wecom_media_type,
@@ -134,7 +134,7 @@ async def test_download_and_save_success() -> None:
     fake_data = b"\x89PNG\r\nfake image"
     client.download_file.return_value = (fake_data, "raw_photo.png")
 
-    with patch("nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(tempfile.gettempdir())):
+    with patch("nanoinfra.channels.wecom.runtime.get_media_dir", return_value=Path(tempfile.gettempdir())):
         path = await channel._download_and_save_media("https://example.com/img.png", "aes_key", "image", "photo.png")
 
     assert path is not None
@@ -154,7 +154,7 @@ async def test_download_and_save_oversized_rejected() -> None:
     big_data = b"\x00" * (200 * 1024 * 1024 + 1)  # 200MB + 1 byte
     client.download_file.return_value = (big_data, "big.bin")
 
-    with patch("nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(tempfile.gettempdir())):
+    with patch("nanoinfra.channels.wecom.runtime.get_media_dir", return_value=Path(tempfile.gettempdir())):
         result = await channel._download_and_save_media("https://example.com/big.bin", "key", "file", "big.bin")
 
     assert result is None
@@ -169,7 +169,7 @@ async def test_download_and_save_failure() -> None:
 
     client.download_file.return_value = (None, None)
 
-    with patch("nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(tempfile.gettempdir())):
+    with patch("nanoinfra.channels.wecom.runtime.get_media_dir", return_value=Path(tempfile.gettempdir())):
         result = await channel._download_and_save_media("https://example.com/fail.png", "key", "image")
 
     assert result is None
@@ -504,7 +504,7 @@ async def test_process_image_message() -> None:
     channel._client = client
 
     try:
-        with patch("nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(os.path.dirname(saved))):
+        with patch("nanoinfra.channels.wecom.runtime.get_media_dir", return_value=Path(os.path.dirname(saved))):
             frame = _FakeFrame(body={
                 "msgid": "msg_img_1",
                 "chatid": "chat1",
@@ -540,7 +540,7 @@ async def test_process_file_message() -> None:
     channel._client = client
 
     try:
-        with patch("nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(os.path.dirname(saved))):
+        with patch("nanoinfra.channels.wecom.runtime.get_media_dir", return_value=Path(os.path.dirname(saved))):
             frame = _FakeFrame(body={
                 "msgid": "msg_file_1",
                 "chatid": "chat1",
@@ -567,7 +567,7 @@ async def test_process_file_message_uses_sdk_filename_when_name_missing(tmp_path
     client.download_file.return_value = (b"%PDF-1.4 fake", "real_name.pdf")
     channel._client = client
 
-    with patch("nanobot.channels.wecom.runtime.get_media_dir", return_value=tmp_path):
+    with patch("nanoinfra.channels.wecom.runtime.get_media_dir", return_value=tmp_path):
         frame = _FakeFrame(body={
             "msgid": "msg_file_2", "chatid": "chat1", "from": {"userid": "user1"},
             "file": {"url": "https://example.com/x", "aeskey": "key456"},
@@ -614,7 +614,7 @@ async def test_process_mixed_message() -> None:
     channel._client = client
 
     try:
-        with patch("nanobot.channels.wecom.runtime.get_media_dir", return_value=Path(os.path.dirname(saved))):
+        with patch("nanoinfra.channels.wecom.runtime.get_media_dir", return_value=Path(os.path.dirname(saved))):
             frame = _FakeFrame(body={
                 "msgid": "msg_mixed_1",
                 "chatid": "chat1",

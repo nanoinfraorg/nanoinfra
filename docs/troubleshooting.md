@@ -7,41 +7,41 @@ Use this page to isolate where a failure lives. Start with the smallest surface 
 Run these in order:
 
 ```bash
-nanobot --version
-nanobot status
-nanobot agent -m "Hello!"
+nanoinfra --version
+nanoinfra status
+nanoinfra agent -m "Hello!"
 ```
 
 Then, only if the CLI works:
 
 ```bash
-nanobot gateway
+nanoinfra gateway
 ```
 
 This separates failures into layers:
 
 | Layer | What it proves |
 |---|---|
-| `nanobot --version` | Install and shell command discovery |
-| `nanobot status` | Config path, workspace, environment references, and active provider/model configuration |
-| `nanobot agent -m "Hello!"` | Config loading, provider/model access, workspace writes, and agent loop |
-| `nanobot gateway` | Channel startup, cron system jobs, heartbeat, WebUI/WebSocket, and health endpoint |
+| `nanoinfra --version` | Install and shell command discovery |
+| `nanoinfra status` | Config path, workspace, environment references, and active provider/model configuration |
+| `nanoinfra agent -m "Hello!"` | Config loading, provider/model access, workspace writes, and agent loop |
+| `nanoinfra gateway` | Channel startup, cron system jobs, heartbeat, WebUI/WebSocket, and health endpoint |
 
-If `nanobot agent -m "Hello!"` fails, fix that before debugging WebUI, Telegram, Discord, Docker, systemd, or any chat app.
+If `nanoinfra agent -m "Hello!"` fails, fix that before debugging WebUI, Telegram, Discord, Docker, systemd, or any chat app.
 
-`nanobot status` does not call the model. If provider/model setup is incomplete, it points to
+`nanoinfra status` does not call the model. If provider/model setup is incomplete, it points to
 WebUI **Settings → Models** or the CLI setup wizard, then prints the command to check again.
 
-## How to Read `nanobot status`
+## How to Read `nanoinfra status`
 
-`nanobot status` does not call a model. It checks the selected config and workspace,
+`nanoinfra status` does not call a model. It checks the selected config and workspace,
 resolves environment references, and validates the local settings required by the active
 provider/model without constructing a provider client.
 
 The output has this shape:
 
 ```text
-nanobot Status
+nanoinfra Status
 
 Config: /path/to/config.json ✓
 Workspace: /path/to/workspace ✓
@@ -57,13 +57,13 @@ Read it like this:
 
 | Line | Good sign | What to do if it looks wrong |
 |---|---|---|
-| `Config` | It points to the config file you meant to use and shows `✓`. | Run `nanobot onboard`, or pass `--config` to `nanobot agent`, `gateway`, or `serve` when testing a non-default instance. |
-| `Workspace` | It points to the workspace you meant to use and shows `✓`. | Run `nanobot onboard`, create the folder, fix permissions, or pass `--workspace` on commands that support it. |
+| `Config` | It points to the config file you meant to use and shows `✓`. | Run `nanoinfra onboard`, or pass `--config` to `nanoinfra agent`, `gateway`, or `serve` when testing a non-default instance. |
+| `Workspace` | It points to the workspace you meant to use and shows `✓`. | Run `nanoinfra onboard`, create the folder, fix permissions, or pass `--workspace` on commands that support it. |
 | `Model` | It shows the active model or the preset name you expect. | Set `agents.defaults.modelPreset` to the intended preset, or check `/model` if you changed models during a chat session. |
-| `Agent` | It says `provider/model configuration is ready`. | Follow the printed WebUI or CLI setup route, then run `nanobot status` again. |
+| `Agent` | It says `provider/model configuration is ready`. | Follow the printed WebUI or CLI setup route, then run `nanoinfra status` again. |
 | Provider rows | The provider used by the active preset shows `✓`, an OAuth marker, or a local URL. | Configure only the active provider first. It is normal for unused providers to say `not set`. |
 
-If `nanobot status` looks right but `nanobot agent -m "Hello!"` fails, the install and config paths are probably fine. Continue with [Provider and Model Problems](#provider-and-model-problems).
+If `nanoinfra status` looks right but `nanoinfra agent -m "Hello!"` fails, the install and config paths are probably fine. Continue with [Provider and Model Problems](#provider-and-model-problems).
 
 ## Installation Problems
 
@@ -72,15 +72,15 @@ Use the same Python command for install checks and module fallback. On macOS/Lin
 | Symptom | Check |
 |---|---|
 | `python: command not found` | Try `python3 --version` on macOS/Linux or `py --version` on Windows. Then replace `python` in docs commands with the command that worked. |
-| `curl: command not found` | The macOS/Linux one-command installer could not download the script. Install curl, or use a manual isolated install such as `uv tool install nanobot-ai` or `pipx install nanobot-ai`. |
-| `irm` is not recognized | PowerShell could not run the download helper. Use manual install: `uv tool install nanobot-ai`, `pipx install nanobot-ai`, or `py -m pip install nanobot-ai` inside an environment you control. |
+| `curl: command not found` | The macOS/Linux one-command installer could not download the script. Install curl, or use a manual isolated install such as `uv tool install nanoinfra` or `pipx install nanoinfra`. |
+| `irm` is not recognized | PowerShell could not run the download helper. Use manual install: `uv tool install nanoinfra`, `pipx install nanoinfra`, or `py -m pip install nanoinfra` inside an environment you control. |
 | Could not download `raw.githubusercontent.com` | Your network, proxy, or firewall blocked the installer script download. Use manual install from PyPI, or configure your proxy and rerun the command. |
-| `nanobot: command not found` | Use the module form, for example `python -m nanobot ...`, `python3 -m nanobot ...`, or `py -m nanobot ...`. Reinstall with the same Python command, or add that Python's scripts directory to `PATH`. |
-| `No module named nanobot` | You are running a different Python than the one used for installation. Run `python -m pip show nanobot-ai`, `python3 -m pip show nanobot-ai`, or `py -m pip show nanobot-ai`, matching the command that installed nanobot. |
+| `nanoinfra: command not found` | Use the module form, for example `python -m nanoinfra ...`, `python3 -m nanoinfra ...`, or `py -m nanoinfra ...`. Reinstall with the same Python command, or add that Python's scripts directory to `PATH`. |
+| `No module named nanoinfra` | You are running a different Python than the one used for installation. Run `python -m pip show nanoinfra`, `python3 -m pip show nanoinfra`, or `py -m pip show nanoinfra`, matching the command that installed nanoinfra. |
 | `pip is not available` | When the installer uses a virtual environment, it tries `python -m ensurepip --upgrade`. If that fails, install pip for that Python, or use a Python installer/distribution that includes pip. |
-| `externally-managed-environment` | Your system Python blocks global pip installs. Use the one-command installer, `uv tool install nanobot-ai`, `pipx install nanobot-ai`, or create a virtual environment; do not add `--break-system-packages` for nanobot. |
-| Installer chose the wrong Python | Set `PYTHON` before running the installer, such as `curl -fsSL https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.sh | PYTHON=python3 sh` or `$env:PYTHON="py"` before the PowerShell command. |
-| Editable source install does not update | From the repo root, run `python -m pip install -e .` again with the Python command used for development, then check `python -m nanobot --version` or `nanobot --version`. |
+| `externally-managed-environment` | Your system Python blocks global pip installs. Use the one-command installer, `uv tool install nanoinfra`, `pipx install nanoinfra`, or create a virtual environment; do not add `--break-system-packages` for nanoinfra. |
+| Installer chose the wrong Python | Set `PYTHON` before running the installer, such as `curl -fsSL https://raw.githubusercontent.com/bet0x/nanoinfra/main/scripts/install.sh | PYTHON=python3 sh` or `$env:PYTHON="py"` before the PowerShell command. |
+| Editable source install does not update | From the repo root, run `python -m pip install -e .` again with the Python command used for development, then check `python -m nanoinfra --version` or `nanoinfra --version`. |
 | WebUI build tools missing | They are only needed for WebUI development. Packaged installs already include the WebUI bundle. |
 
 ## Config Problems
@@ -88,21 +88,21 @@ Use the same Python command for install checks and module fallback. On macOS/Lin
 Default config path:
 
 ```text
-~/.nanobot/config.json
+~/.nanoinfra/config.json
 ```
 
 Default workspace path:
 
 ```text
-~/.nanobot/workspace/
+~/.nanoinfra/workspace/
 ```
 
-`nanobot status` reads the default config unless you pass explicit paths. Use the same `--config` and `--workspace` across status checks and runtime commands when debugging multiple instances:
+`nanoinfra status` reads the default config unless you pass explicit paths. Use the same `--config` and `--workspace` across status checks and runtime commands when debugging multiple instances:
 
 ```bash
-nanobot status --config ./bot-a/config.json --workspace ./bot-a/workspace
-nanobot agent --config ./bot-a/config.json --workspace ./bot-a/workspace -m "Hello"
-nanobot gateway --config ./bot-a/config.json --workspace ./bot-a/workspace
+nanoinfra status --config ./bot-a/config.json --workspace ./bot-a/workspace
+nanoinfra agent --config ./bot-a/config.json --workspace ./bot-a/workspace -m "Hello"
+nanoinfra gateway --config ./bot-a/config.json --workspace ./bot-a/workspace
 ```
 
 Common config mistakes:
@@ -111,30 +111,30 @@ Common config mistakes:
 |---|---|
 | JSON parse error | Validate commas, braces, and quotes. Most docs examples are partial snippets to merge. |
 | Unknown or missing provider | Use provider registry names such as `openrouter`, `anthropic`, `openai`, `ollama`, `vllm`, `lm_studio`, or define a custom OpenAI-compatible provider key under `providers` and reference that exact key from the active preset. |
-| snake_case vs camelCase confusion | Both are accepted, but docs use camelCase because nanobot writes config with aliases such as `apiKey`, `modelPresets`, `intervalS`. |
-| Environment variable error | `${VAR_NAME}` references are resolved at startup. Set the variable before running nanobot. |
-| Edited config but behavior did not change | Restart `nanobot gateway`; long-running processes read config at startup. |
+| snake_case vs camelCase confusion | Both are accepted, but docs use camelCase because nanoinfra writes config with aliases such as `apiKey`, `modelPresets`, `intervalS`. |
+| Environment variable error | `${VAR_NAME}` references are resolved at startup. Set the variable before running nanoinfra. |
+| Edited config but behavior did not change | Restart `nanoinfra gateway`; long-running processes read config at startup. |
 
 After editing config, check the shortest path to an Agent reply:
 
 ```bash
-nanobot status
+nanoinfra status
 ```
 
 To refresh missing defaults without overwriting existing settings, run:
 
 ```bash
-nanobot onboard --refresh
+nanoinfra onboard --refresh
 ```
 
-For an interactive choice between resetting and refreshing, run `nanobot onboard` and choose the option that keeps current values and merges missing defaults.
+For an interactive choice between resetting and refreshing, run `nanoinfra onboard` and choose the option that keeps current values and merges missing defaults.
 
 ## Provider and Model Problems
 
 First prove the provider in the CLI:
 
 ```bash
-nanobot agent -m "Hello!"
+nanoinfra agent -m "Hello!"
 ```
 
 Then compare your config against [`providers.md`](./providers.md).
@@ -155,10 +155,10 @@ If you need a known-good snippet instead of diagnosis, use [`provider-cookbook.m
 | Codex says a model is not supported with a ChatGPT account | Use provider `openai_codex` with a Codex model such as `openai-codex/gpt-5.6-sol`. Do not use the direct-API `openai/...` prefix with Codex OAuth. |
 | Config says `providers.openai_codex` conflicts with the built-in provider | Under `providers`, keep only the canonical `openaiCodex` settings key and remove a duplicate `openai_codex` key. A model preset's `provider` value remains `openai_codex`. |
 | xAI OAuth needs a proxy | Set `providers.xaiGrok.proxy` before login. It applies to OAuth discovery, token exchange/refresh, and Grok subscription requests. |
-| xAI login runs on a remote/headless machine | In the WebUI, finish sign-in in your local browser; if the loopback redirect cannot reach the server, copy the final URL from the address bar into the WebUI dialog. From the CLI, run `nanobot provider login xai-grok` interactively, open the printed URL elsewhere, and paste the final callback URL or authorization code when prompted. |
-| xAI returns 403 or subscription access denied | Confirm the signed-in account has an eligible X Premium / Grok subscription, then run `nanobot provider login xai-grok` again. This provider does not use an xAI API key or X Developer OAuth. |
+| xAI login runs on a remote/headless machine | In the WebUI, finish sign-in in your local browser; if the loopback redirect cannot reach the server, copy the final URL from the address bar into the WebUI dialog. From the CLI, run `nanoinfra provider login xai-grok` interactively, open the printed URL elsewhere, and paste the final callback URL or authorization code when prompted. |
+| xAI returns 403 or subscription access denied | Confirm the signed-in account has an eligible X Premium / Grok subscription, then run `nanoinfra provider login xai-grok` again. This provider does not use an xAI API key or X Developer OAuth. |
 | xAI returns 400 `invalid-argument` | Read the bounded `Response body` appended to the provider error. Hosted `x_search` is sent only when xAI's model catalog advertises `supportsBackendSearch`; the model ID `grok-4.5` itself is valid. |
-| xAI model or X Search stops working after an upstream release | The integration follows Grok Build's public OAuth/proxy client contract. Update nanobot if xAI changes that contract. |
+| xAI model or X Search stops working after an upstream release | The integration follows Grok Build's public OAuth/proxy client contract. Update nanoinfra if xAI changes that contract. |
 
 ## Langfuse Problems
 
@@ -166,8 +166,8 @@ Langfuse tracing is optional and controlled by environment variables.
 
 | Symptom | Check |
 |---|---|
-| `LANGFUSE_SECRET_KEY is set but langfuse is not installed` | Install `langfuse` in the same Python environment that runs nanobot, then restart the process. |
-| No traces appear | Set `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_BASE_URL` before starting nanobot. |
+| `LANGFUSE_SECRET_KEY is set but langfuse is not installed` | Install `langfuse` in the same Python environment that runs nanoinfra, then restart the process. |
+| No traces appear | Set `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_BASE_URL` before starting nanoinfra. |
 | Wrong Langfuse project or region | Check that the key pair and `LANGFUSE_BASE_URL` come from the same Langfuse project/region. |
 | Only some providers trace | Langfuse tracing applies to OpenAI-compatible provider calls; native providers may not use that client path. |
 
@@ -175,7 +175,7 @@ See [`configuration.md#langfuse-observability`](./configuration.md#langfuse-obse
 
 ## Gateway Problems
 
-`nanobot gateway` is required for WebUI, chat apps, heartbeat, Dream, and long-running channel connections.
+`nanoinfra gateway` is required for WebUI, chat apps, heartbeat, Dream, and long-running channel connections.
 
 Default ports:
 
@@ -183,12 +183,12 @@ Default ports:
 |---|---|
 | Gateway health endpoint | `http://127.0.0.1:18790/health` |
 | WebUI/WebSocket channel | `http://127.0.0.1:8765` |
-| OpenAI-compatible API (`nanobot serve`) | `http://127.0.0.1:8900` |
+| OpenAI-compatible API (`nanoinfra serve`) | `http://127.0.0.1:8900` |
 
 Common gateway checks:
 
 ```bash
-nanobot gateway --verbose
+nanoinfra gateway --verbose
 ```
 
 | Symptom | Check |
@@ -206,22 +206,22 @@ Before loading enabled channels, the gateway checks the dependencies declared by
 channel manifests. The CLI and WebUI normally install these dependencies when a channel is
 enabled. Installation during startup is a recovery path for an enabled config whose Python
 environment no longer has the required packages, for example after manually editing the
-config, upgrading nanobot, or recreating an isolated `uv tool`/`pipx` environment. The
+config, upgrading nanoinfra, or recreating an isolated `uv tool`/`pipx` environment. The
 gateway waits for the install so an enabled channel is not silently skipped; later starts
 skip the installation once the dependencies are present.
 
 If access to PyPI is slow in your region, configure pip to use a trusted package index. The
-installer honors the standard `PIP_INDEX_URL` environment variable, including when nanobot
+installer honors the standard `PIP_INDEX_URL` environment variable, including when nanoinfra
 itself was installed with `uv tool`:
 
 ```bash
-PIP_INDEX_URL=https://your-trusted-mirror.example/simple nanobot gateway
+PIP_INDEX_URL=https://your-trusted-mirror.example/simple nanoinfra gateway
 ```
 
-For the systemd user service created by `nanobot gateway install-service`, add a drop-in:
+For the systemd user service created by `nanoinfra gateway install-service`, add a drop-in:
 
 ```bash
-systemctl --user edit nanobot-gateway.service
+systemctl --user edit nanoinfra-gateway.service
 ```
 
 ```ini
@@ -233,7 +233,7 @@ Then reload and restart the service:
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user restart nanobot-gateway.service
+systemctl --user restart nanoinfra-gateway.service
 ```
 
 For a system-level or custom service, use `sudo systemctl edit <unit>` instead. Prefer an
@@ -259,7 +259,7 @@ Minimal config:
 Then run:
 
 ```bash
-nanobot gateway
+nanoinfra gateway
 ```
 
 Open:
@@ -277,9 +277,9 @@ See [`webui.md#lan-access`](./webui.md#lan-access) for LAN setup and [`../webui/
 Before debugging a chat app:
 
 ```bash
-nanobot agent -m "Hello!"
-nanobot channels status
-nanobot gateway
+nanoinfra agent -m "Hello!"
+nanoinfra channels status
+nanoinfra gateway
 ```
 
 Then check:
@@ -292,7 +292,7 @@ Then check:
 | Telegram rejects the token | Copy the current token from BotFather or regenerate it. |
 | Telegram receives no messages | Confirm the channel is enabled, the gateway is running, and the sender is paired or listed in `allowFrom`. |
 | Discord replies missing | Enable Message Content intent and invite the bot with the required permissions. |
-| WhatsApp or WeChat login expired | Re-run `nanobot channels login whatsapp` or `nanobot channels login weixin`. |
+| WhatsApp or WeChat login expired | Re-run `nanoinfra channels login whatsapp` or `nanoinfra channels login weixin`. |
 | Chat app works but WebUI does not | The provider and gateway are likely fine; debug the WebSocket channel separately. |
 
 See [`chat-apps.md`](./chat-apps.md) for channel-specific setup.
@@ -320,14 +320,14 @@ See [`chat-apps.md`](./chat-apps.md) for channel-specific setup.
 
 When opening an issue or asking for help, include:
 
-- install method and `nanobot --version`;
+- install method and `nanoinfra --version`;
 - operating system and Python version;
 - the command you ran;
-- relevant `nanobot status` output;
+- relevant `nanoinfra status` output;
 - sanitized config snippets, especially provider, model, channel, and tool settings;
-- gateway logs from `nanobot gateway --verbose`;
-- whether `nanobot agent -m "Hello!"` works.
+- gateway logs from `nanoinfra gateway --verbose`;
+- whether `nanoinfra agent -m "Hello!"` works.
 
 Never paste real API keys, bot tokens, OAuth tokens, or private chat IDs into public issues.
 
-If you find a docs mistake, outdated command, or confusing step, please open an issue: <https://github.com/HKUDS/nanobot/issues>.
+If you find a docs mistake, outdated command, or confusing step, please open an issue: <https://github.com/bet0x/nanoinfra/issues>.

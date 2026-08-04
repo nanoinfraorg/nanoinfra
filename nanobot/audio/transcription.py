@@ -1,9 +1,9 @@
 """Application-level audio transcription service.
 
-This module owns nanobot's transcription behavior: config resolution,
+This module owns nanoinfra's transcription behavior: config resolution,
 legacy channel fallback, upload validation, temporary-file handling, and
 dispatch to provider adapters. It deliberately does not know provider-specific
-HTTP details; those live in ``nanobot.providers.transcription``.
+HTTP details; those live in ``nanoinfra.providers.transcription``.
 """
 
 from __future__ import annotations
@@ -16,15 +16,15 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.audio.transcription_registry import (
+from nanoinfra.audio.transcription_registry import (
     get_transcription_provider,
     resolve_transcription_provider,
 )
-from nanobot.config.loader import resolve_env_refs
-from nanobot.config.paths import get_media_dir
-from nanobot.config.schema import Config, ProviderConfig
-from nanobot.providers.registry import find_by_name
-from nanobot.utils.media_decode import FileSizeExceeded, save_base64_data_url
+from nanoinfra.config.loader import resolve_env_refs
+from nanoinfra.config.paths import get_media_dir
+from nanoinfra.config.schema import Config, ProviderConfig
+from nanoinfra.providers.registry import find_by_name
+from nanoinfra.utils.media_decode import FileSizeExceeded, save_base64_data_url
 
 TranscriptionProviderName = str
 

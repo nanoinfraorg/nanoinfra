@@ -1,5 +1,5 @@
 {
-  "description": "Gunakan nanobot dari pesan Signal.",
+  "description": "Gunakan nanoinfra dari pesan Signal.",
   "requirements": "Daemon HTTP signal-cli, nomor telepon, dan daftar izin",
   "setup": {
     "docsLabel": "Buka panduan Signal",

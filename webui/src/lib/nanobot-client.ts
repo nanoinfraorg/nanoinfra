@@ -14,7 +14,7 @@ import { createHostWebSocket } from "./runtime";
  * across runtimes that don't expose a global ``WebSocket`` (tests, SSR). */
 const WS_OPEN = 1;
 const WS_CLOSING = 2;
-const HOST_SOCKET_URL_PREFIX = "nanobot-host://";
+const HOST_SOCKET_URL_PREFIX = "nanoinfra-host://";
 
 function createDefaultSocket(url: string): WebSocket {
   if (url.startsWith(HOST_SOCKET_URL_PREFIX)) {
@@ -26,8 +26,8 @@ function createDefaultSocket(url: string): WebSocket {
 /** Inbound WebSocket ``console.log`` / parse-failure ``console.warn``.
  *
  * - **Dev** (non-production bundle): **on by default** — messages appear at default log level.
- * - **Production**: off unless ``localStorage.setItem('nanobot_debug_ws','1')`` (or ``true``).
- * - **Silence anywhere**: ``localStorage.setItem('nanobot_debug_ws','0')`` (or ``false`` / ``off``).
+ * - **Production**: off unless ``localStorage.setItem('nanoinfra_debug_ws','1')`` (or ``true``).
+ * - **Silence anywhere**: ``localStorage.setItem('nanoinfra_debug_ws','0')`` (or ``false`` / ``off``).
  * Values are read on every frame; no reload needed.
  */
 function wsInboundDebugEnabled(): boolean {
@@ -35,7 +35,7 @@ function wsInboundDebugEnabled(): boolean {
   try {
     if (import.meta.env.MODE === "test") return false;
     const ls = (globalThis as unknown as { localStorage?: Storage }).localStorage;
-    const raw = ls?.getItem("nanobot_debug_ws")?.trim().toLowerCase() ?? "";
+    const raw = ls?.getItem("nanoinfra_debug_ws")?.trim().toLowerCase() ?? "";
     if (raw === "0" || raw === "false" || raw === "off" || raw === "no") {
       return false;
     }
@@ -119,7 +119,7 @@ export function isSystemCommandTurnId(value: string | null | undefined): value i
   return typeof value === "string" && value.startsWith(SYSTEM_COMMAND_TURN_PREFIX);
 }
 
-export interface NanobotClientOptions {
+export interface NanoinfraClientOptions {
   url: string;
   reconnect?: boolean;
   /** Maximum UTF-8 bytes accepted for one websocket message. */
@@ -157,7 +157,7 @@ interface PendingMessageSend {
  * ``chat_id``, and this class fans those events out to handlers registered
  * per chat. Reconnects are transparent and re-attach every known chat_id.
  */
-export class NanobotClient {
+export class NanoinfraClient {
   private socket: WebSocket | null = null;
   private statusHandlers = new Set<StatusHandler>();
   private runtimeModelHandlers = new Set<RuntimeModelHandler>();
@@ -210,7 +210,7 @@ export class NanobotClient {
   // and must not schedule a reconnect or flip status back to "reconnecting".
   private intentionallyClosed = false;
 
-  constructor(private options: NanobotClientOptions) {
+  constructor(private options: NanoinfraClientOptions) {
     this.shouldReconnect = options.reconnect ?? true;
     this.maxBackoffMs = options.maxBackoffMs ?? 15_000;
     this.maxFrameBytes = this.normalizeMaxFrameBytes(options.maxFrameBytes);
@@ -419,7 +419,7 @@ export class NanobotClient {
       if (!turnId) continue;
       fences.add(turnId);
     }
-    while (fences.size > NanobotClient.COMPLETED_TURN_FENCE_MAX) {
+    while (fences.size > NanoinfraClient.COMPLETED_TURN_FENCE_MAX) {
       const oldest = fences.values().next().value;
       if (typeof oldest !== "string") break;
       fences.delete(oldest);
@@ -901,7 +901,7 @@ export class NanobotClient {
       if (wsInboundDebugEnabled()) {
         const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
         console.warn(
-          "[nanobot ws inbound] invalid JSON",
+          "[nanoinfra ws inbound] invalid JSON",
           raw.length > 400 ? `${raw.slice(0, 400)}… (${raw.length} chars)` : raw,
         );
       }
@@ -909,7 +909,7 @@ export class NanobotClient {
     }
 
     if (wsInboundDebugEnabled()) {
-      console.log("[nanobot ws inbound]", summarizeInboundWsPayload(parsed));
+      console.log("[nanoinfra ws inbound]", summarizeInboundWsPayload(parsed));
     }
 
     if (parsed.event === "error" && !parsed.turn_id) {
@@ -1076,7 +1076,7 @@ export class NanobotClient {
       this.pendingInboundByChat.set(chatId, q);
     }
     q.push(ev);
-    const over = q.length - NanobotClient.PENDING_INBOUND_MAX;
+    const over = q.length - NanoinfraClient.PENDING_INBOUND_MAX;
     if (over > 0) {
       q.splice(0, over);
     }

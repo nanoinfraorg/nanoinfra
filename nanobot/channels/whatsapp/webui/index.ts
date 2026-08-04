@@ -9,7 +9,7 @@ export default {
     logoUrl: "https://www.whatsapp.com/favicon.ico",
     setup: {
       mode: "connect",
-      command: "nanobot channels login whatsapp",
+      command: "nanoinfra channels login whatsapp",
       docsUrl: chatAppGuideUrl("whatsapp"),
       manualFields: [
         { key: "channels.whatsapp.allowFrom" },

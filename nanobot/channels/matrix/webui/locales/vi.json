@@ -1,5 +1,5 @@
 {
-  "description": "Sử dụng nanobot từ các phòng Matrix.",
+  "description": "Sử dụng nanoinfra từ các phòng Matrix.",
   "requirements": "Homeserver, token tài khoản và quyền truy cập phòng",
   "setup": {
     "docsLabel": "Mở hướng dẫn Matrix",
@@ -7,7 +7,7 @@
     "tryIt": "Mời tài khoản Matrix vào phòng và gửi tin nhắn thử.",
     "summary": "Matrix cần tài khoản homeserver và đăng nhập bằng mật khẩu hoặc token truy cập.",
     "steps": [
-      "Tạo hoặc chọn tài khoản Matrix cho nanobot.",
+      "Tạo hoặc chọn tài khoản Matrix cho nanoinfra.",
       "Nhập homeserver, ID người dùng và mật khẩu hoặc token truy cập.",
       "Lưu và bật Matrix, mời tài khoản vào phòng rồi gửi tin nhắn thử."
     ],
@@ -18,7 +18,7 @@
       },
       "userId": {
         "label": "ID người dùng",
-        "placeholder": "@nanobot:matrix.org"
+        "placeholder": "@nanoinfra:matrix.org"
       },
       "password": {
         "label": "Mật khẩu",

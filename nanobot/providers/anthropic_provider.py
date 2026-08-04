@@ -14,7 +14,7 @@ from typing import Any, cast
 
 from loguru import logger
 
-from nanobot.providers.base import (
+from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
     ToolCallRequest,

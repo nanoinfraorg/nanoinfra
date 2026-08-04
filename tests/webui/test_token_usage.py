@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from nanobot.agent.hook import AgentHookContext
-from nanobot.webui.token_usage import (
+from nanoinfra.agent.hook import AgentHookContext
+from nanoinfra.webui.token_usage import (
     TokenUsageHook,
     record_response_token_usage,
     record_token_usage,
@@ -31,7 +31,7 @@ def test_payload_tolerates_malformed_persisted_day_keys(tmp_path, monkeypatch) -
     parsed it with an unguarded fromisoformat, failing every /api/settings and
     /api/settings/usage request until the file was fixed by hand.
     """
-    monkeypatch.setattr("nanobot.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
+    monkeypatch.setattr("nanoinfra.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
     _write_state(tmp_path, {
         "not-a-dat3": {"total_tokens": 7, "requests": 1},
         "2026-13-01": {"total_tokens": 9, "requests": 1},
@@ -51,7 +51,7 @@ def test_payload_tolerates_malformed_persisted_day_keys(tmp_path, monkeypatch) -
 
 def test_record_scrubs_malformed_day_keys(tmp_path, monkeypatch) -> None:
     """Rewrites drop malformed day keys instead of persisting them forever."""
-    monkeypatch.setattr("nanobot.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
+    monkeypatch.setattr("nanoinfra.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
     _write_state(tmp_path, {
         "not-a-dat3": {"total_tokens": 7, "requests": 1},
         "2026-06-02": {"total_tokens": 5, "requests": 1},
@@ -70,7 +70,7 @@ def test_record_scrubs_malformed_day_keys(tmp_path, monkeypatch) -> None:
 
 
 def test_record_token_usage_aggregates_by_local_day(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("nanobot.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
+    monkeypatch.setattr("nanoinfra.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
 
     record_token_usage(
         {"prompt_tokens": 100, "completion_tokens": 40, "cached_tokens": 20},
@@ -121,7 +121,7 @@ def test_record_token_usage_aggregates_by_local_day(tmp_path, monkeypatch) -> No
 
 
 def test_record_token_usage_skips_empty_usage(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("nanobot.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
+    monkeypatch.setattr("nanoinfra.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
 
     record_token_usage({"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
 
@@ -131,7 +131,7 @@ def test_record_token_usage_skips_empty_usage(tmp_path, monkeypatch) -> None:
 
 
 def test_record_token_usage_keeps_estimated_split(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("nanobot.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
+    monkeypatch.setattr("nanoinfra.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
 
     record_token_usage(
         {"prompt_tokens": 100, "completion_tokens": 25, "estimated_tokens": 125},
@@ -147,7 +147,7 @@ def test_record_token_usage_keeps_estimated_split(tmp_path, monkeypatch) -> None
 
 
 def test_record_token_usage_keeps_source_breakdown(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("nanobot.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
+    monkeypatch.setattr("nanoinfra.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
 
     record_token_usage(
         {"prompt_tokens": 100, "completion_tokens": 25},
@@ -171,8 +171,8 @@ def test_record_token_usage_keeps_source_breakdown(tmp_path, monkeypatch) -> Non
 
 
 def test_record_response_token_usage_uses_response_usage(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("nanobot.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
-    monkeypatch.setattr("nanobot.webui.token_usage._local_day", lambda *_, **__: "2026-06-03")
+    monkeypatch.setattr("nanoinfra.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
+    monkeypatch.setattr("nanoinfra.webui.token_usage._local_day", lambda *_, **__: "2026-06-03")
 
     record_response_token_usage(
         SimpleNamespace(usage={"prompt_tokens": 20, "completion_tokens": 5}),
@@ -185,8 +185,8 @@ def test_record_response_token_usage_uses_response_usage(tmp_path, monkeypatch) 
 
 @pytest.mark.asyncio
 async def test_token_usage_hook_classifies_source_from_session_key(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("nanobot.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
-    monkeypatch.setattr("nanobot.webui.token_usage._local_day", lambda *_, **__: "2026-06-03")
+    monkeypatch.setattr("nanoinfra.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
+    monkeypatch.setattr("nanoinfra.webui.token_usage._local_day", lambda *_, **__: "2026-06-03")
 
     hook = TokenUsageHook()
     await hook.after_iteration(

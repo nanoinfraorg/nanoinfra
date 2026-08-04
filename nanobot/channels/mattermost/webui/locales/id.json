@@ -1,5 +1,5 @@
 {
-  "description": "Gunakan nanobot dari channel dan DM Mattermost.",
+  "description": "Gunakan nanoinfra dari channel dan DM Mattermost.",
   "requirements": "URL server Mattermost, token bot, dan akses channel",
   "setup": {
     "docsLabel": "Buka panduan Mattermost",

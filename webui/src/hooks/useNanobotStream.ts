@@ -9,7 +9,7 @@ import {
   toolTraceLinesFromEvents,
 } from "@/lib/tool-traces";
 import { hasPendingAgentActivity } from "@/lib/activity-timeline";
-import type { StreamError } from "@/lib/nanobot-client";
+import type { StreamError } from "@/lib/nanoinfra-client";
 import { formatQuotedUserMessage } from "@/lib/user-message-quote";
 import type {
   InboundEvent,
@@ -541,7 +541,7 @@ function transitionTurnDelivery(
   return changed ? next : messages;
 }
 
-export function useNanobotStream(
+export function useNanoinfraStream(
   chatId: string | null,
   initialMessages: UIMessage[] = [],
   hasPendingToolCalls = false,

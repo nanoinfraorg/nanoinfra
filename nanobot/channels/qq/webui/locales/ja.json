@@ -1,5 +1,5 @@
 {
-  "description": "QQ チャットから nanobot を利用します。",
+  "description": "QQ チャットから nanoinfra を利用します。",
   "requirements": "QQ ボットの認証情報とゲートウェイ",
   "setup": {
     "docsLabel": "QQ 設定ガイドを開く",

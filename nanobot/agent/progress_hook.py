@@ -8,16 +8,16 @@ from typing import Any, Awaitable, Callable, cast
 
 from loguru import logger
 
-from nanobot.agent.hook import AgentHook, AgentHookContext
-from nanobot.providers.base import ToolCallRequest
-from nanobot.utils.helpers import IncrementalThinkExtractor, strip_think
-from nanobot.utils.progress_events import (
+from nanoinfra.agent.hook import AgentHook, AgentHookContext
+from nanoinfra.providers.base import ToolCallRequest
+from nanoinfra.utils.helpers import IncrementalThinkExtractor, strip_think
+from nanoinfra.utils.progress_events import (
     build_tool_event_finish_payloads,
     build_tool_event_start_payload,
     invoke_on_progress,
     on_progress_accepts_tool_events,
 )
-from nanobot.utils.tool_hints import format_tool_hints
+from nanoinfra.utils.tool_hints import format_tool_hints
 
 
 class AgentProgressHook(AgentHook):

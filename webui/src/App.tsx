@@ -36,7 +36,7 @@ import {
 } from "@/lib/bootstrap";
 import { displayTitle } from "@/lib/chat-groups";
 import { deriveTitle } from "@/lib/format";
-import { NanobotClient } from "@/lib/nanobot-client";
+import { NanoinfraClient } from "@/lib/nanoinfra-client";
 import { ClientProvider, useClient } from "@/providers/ClientProvider";
 import type {
   BootstrapResponse,
@@ -68,7 +68,7 @@ type BootState =
   | { status: "auth"; failed?: boolean }
   | {
       status: "ready";
-      client: NanobotClient;
+      client: NanoinfraClient;
       token: string;
       tokenExpiresAt: number;
       modelName: string | null;
@@ -76,11 +76,11 @@ type BootState =
       runtimeSurface: RuntimeSurface;
     };
 
-const SIDEBAR_STORAGE_KEY = "nanobot-webui.sidebar";
-const SESSION_UPDATES_STORAGE_KEY = "nanobot-webui.sidebar.session-updates.v1";
-const LEGACY_COMPLETED_RUNS_STORAGE_KEY = "nanobot-webui.sidebar.completed-runs.v1";
-const RESTART_STARTED_KEY = "nanobot-webui.restartStartedAt";
-const RESTART_ROUTE_KEY = "nanobot-webui.restartRoute";
+const SIDEBAR_STORAGE_KEY = "nanoinfra-webui.sidebar";
+const SESSION_UPDATES_STORAGE_KEY = "nanoinfra-webui.sidebar.session-updates.v1";
+const LEGACY_COMPLETED_RUNS_STORAGE_KEY = "nanoinfra-webui.sidebar.completed-runs.v1";
+const RESTART_STARTED_KEY = "nanoinfra-webui.restartStartedAt";
+const RESTART_ROUTE_KEY = "nanoinfra-webui.restartRoute";
 const RESTART_ROUTE_TTL_MS = 5 * 60 * 1000;
 const SIDEBAR_WIDTH = 272;
 const SIDEBAR_RAIL_WIDTH = 56;
@@ -726,7 +726,7 @@ export default function App() {
   const bootstrapSecretRef = useRef("");
 
   const refreshReadyClient = useCallback(
-    async (client: NanobotClient, fallbackSurface: RuntimeSurface) => {
+    async (client: NanoinfraClient, fallbackSurface: RuntimeSurface) => {
       const boot = await fetchBootstrap("", bootstrapSecretRef.current);
       const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
       const runtimeSurface = boot.runtime_surface
@@ -769,7 +769,7 @@ export default function App() {
           const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
           const runtimeSurface = toRuntimeSurface(boot.runtime_surface);
           const runtimeHost = createRuntimeHost(runtimeSurface, boot.runtime_capabilities);
-          const client = new NanobotClient({
+          const client = new NanoinfraClient({
             url,
             maxFrameBytes: boot.limits?.transport.max_frame_bytes,
             socketFactory: runtimeHost.socketFactory,

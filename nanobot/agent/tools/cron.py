@@ -8,16 +8,16 @@ from contextvars import ContextVar, Token
 from datetime import datetime
 from typing import Any
 
-from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
-from nanobot.agent.tools.context import ToolContext, current_request_context
-from nanobot.agent.tools.schema import (
+from nanoinfra.agent.tools.base import Tool, ToolResult, tool_parameters
+from nanoinfra.agent.tools.context import ToolContext, current_request_context
+from nanoinfra.agent.tools.schema import (
     IntegerSchema,
     StringSchema,
     tool_parameters_schema,
 )
-from nanobot.cron.service import CronService
-from nanobot.cron.types import CronJob, CronJobState, CronSchedule
-from nanobot.session.keys import UNIFIED_SESSION_KEY
+from nanoinfra.cron.service import CronService
+from nanoinfra.cron.types import CronJob, CronJobState, CronSchedule
+from nanoinfra.session.keys import UNIFIED_SESSION_KEY
 
 _CRON_PARAMETERS = tool_parameters_schema(
     action=StringSchema("Action to perform", enum=["add", "list", "remove"]),

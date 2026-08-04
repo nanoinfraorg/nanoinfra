@@ -121,8 +121,8 @@ describe("ChatList", () => {
         title: "Zeta task",
         updatedAt: "2026-05-20T12:00:00Z",
         workspaceScope: {
-          project_path: "/Users/me/nanobot",
-          project_name: "nanobot",
+          project_path: "/Users/me/nanoinfra",
+          project_name: "nanoinfra",
           access_mode: "restricted",
         },
       }),
@@ -131,8 +131,8 @@ describe("ChatList", () => {
         title: "Alpha task",
         updatedAt: "2026-05-20T11:00:00Z",
         workspaceScope: {
-          project_path: "/Users/me/nanobot",
-          project_name: "nanobot",
+          project_path: "/Users/me/nanoinfra",
+          project_name: "nanoinfra",
           access_mode: "restricted",
         },
       }),
@@ -141,8 +141,8 @@ describe("ChatList", () => {
         title: "Bench task",
         updatedAt: "2026-05-21T09:00:00Z",
         workspaceScope: {
-          project_path: "/Users/me/nanobot-bench",
-          project_name: "nanobot-bench",
+          project_path: "/Users/me/nanoinfra-bench",
+          project_name: "nanoinfra-bench",
           access_mode: "full",
         },
       }),
@@ -163,14 +163,14 @@ describe("ChatList", () => {
       />,
     );
 
-    const nanobotSection = screen.getByRole("region", { name: "nanobot" });
-    const nanobotText = nanobotSection.textContent ?? "";
+    const nanoinfraSection = screen.getByRole("region", { name: "nanoinfra" });
+    const nanoinfraText = nanoinfraSection.textContent ?? "";
 
-    expect(screen.getByRole("region", { name: "nanobot-bench" })).toBeInTheDocument();
-    expect(within(nanobotSection).getByText("Alpha task")).toBeInTheDocument();
-    expect(within(nanobotSection).getByText("Zeta task")).toBeInTheDocument();
-    expect(nanobotText.indexOf("Alpha task")).toBeLessThan(nanobotText.indexOf("Zeta task"));
-    expect(within(nanobotSection).getByLabelText("Agent running")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "nanoinfra-bench" })).toBeInTheDocument();
+    expect(within(nanoinfraSection).getByText("Alpha task")).toBeInTheDocument();
+    expect(within(nanoinfraSection).getByText("Zeta task")).toBeInTheDocument();
+    expect(nanoinfraText.indexOf("Alpha task")).toBeLessThan(nanoinfraText.indexOf("Zeta task"));
+    expect(within(nanoinfraSection).getByLabelText("Agent running")).toBeInTheDocument();
     expect(screen.queryByText("Today")).not.toBeInTheDocument();
   });
 
@@ -181,7 +181,7 @@ describe("ChatList", () => {
         title: "Default workspace chat",
         updatedAt: "2026-05-21T10:00:00Z",
         workspaceScope: {
-          project_path: "/Users/me/.nanobot/workspace",
+          project_path: "/Users/me/.nanoinfra/workspace",
           project_name: "workspace",
           access_mode: "restricted",
         },
@@ -191,8 +191,8 @@ describe("ChatList", () => {
         title: "Project chat",
         updatedAt: "2026-05-21T11:00:00Z",
         workspaceScope: {
-          project_path: "/Users/me/nanobot",
-          project_name: "nanobot",
+          project_path: "/Users/me/nanoinfra",
+          project_name: "nanoinfra",
           access_mode: "restricted",
         },
       }),
@@ -207,13 +207,13 @@ describe("ChatList", () => {
         onTogglePin={vi.fn()}
         onRequestRename={vi.fn()}
         onToggleArchive={vi.fn()}
-        defaultWorkspacePath="/Users/me/.nanobot/workspace"
+        defaultWorkspacePath="/Users/me/.nanoinfra/workspace"
         showTimestamps
       />,
     );
 
     expect(screen.getByText("Projects")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "nanobot" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "nanoinfra" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "workspace" })).not.toBeInTheDocument();
 
     const chatsSection = screen.getByRole("region", { name: "Topics" });
@@ -340,8 +340,8 @@ describe("ChatList", () => {
         chatId: "alpha",
         title: "Alpha task",
         workspaceScope: {
-          project_path: "/Users/me/nanobot",
-          project_name: "nanobot",
+          project_path: "/Users/me/nanoinfra",
+          project_name: "nanoinfra",
           access_mode: "restricted",
         },
       }),
@@ -359,21 +359,21 @@ describe("ChatList", () => {
         onToggleGroup={onToggleGroup}
         onRequestRenameProject={onRequestRenameProject}
         onNewChatInProject={onNewChatInProject}
-        projectNameOverrides={{ "/Users/me/nanobot": "Photos" }}
-        collapsedGroups={{ "project:/Users/me/nanobot": true }}
+        projectNameOverrides={{ "/Users/me/nanoinfra": "Photos" }}
+        collapsedGroups={{ "project:/Users/me/nanoinfra": true }}
       />,
     );
 
     const projectSection = screen.getByRole("region", { name: "Photos" });
     fireEvent.click(within(projectSection).getByRole("button", { name: "Photos" }));
 
-    expect(onToggleGroup).toHaveBeenCalledWith("project:/Users/me/nanobot");
+    expect(onToggleGroup).toHaveBeenCalledWith("project:/Users/me/nanoinfra");
     expect(within(projectSection).queryByText("Alpha task")).not.toBeInTheDocument();
 
     fireEvent.click(
       within(projectSection).getByRole("button", { name: "Start a new topic in Photos" }),
     );
-    expect(onNewChatInProject).toHaveBeenCalledWith("/Users/me/nanobot", "Photos");
+    expect(onNewChatInProject).toHaveBeenCalledWith("/Users/me/nanoinfra", "Photos");
     expect(onToggleGroup).toHaveBeenCalledTimes(1);
 
     fireEvent.pointerDown(
@@ -382,7 +382,7 @@ describe("ChatList", () => {
     );
     fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
 
-    expect(onRequestRenameProject).toHaveBeenCalledWith("/Users/me/nanobot", "Photos");
+    expect(onRequestRenameProject).toHaveBeenCalledWith("/Users/me/nanoinfra", "Photos");
   });
 
   it("hides the updated dot for the active chat", () => {
@@ -422,7 +422,7 @@ describe("ChatList", () => {
         title: `Chat ${index}`,
         updatedAt: `2026-05-21T10:${String(index).padStart(2, "0")}:00Z`,
         workspaceScope: {
-          project_path: "/Users/me/.nanobot/workspace",
+          project_path: "/Users/me/.nanoinfra/workspace",
           project_name: "workspace",
           access_mode: "restricted",
         },
@@ -438,7 +438,7 @@ describe("ChatList", () => {
       onRequestRename: vi.fn(),
       onToggleArchive: vi.fn(),
       onToggleGroup,
-      defaultWorkspacePath: "/Users/me/.nanobot/workspace",
+      defaultWorkspacePath: "/Users/me/.nanoinfra/workspace",
     };
 
     const { rerender } = render(<ChatList {...baseProps} />);

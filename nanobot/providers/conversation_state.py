@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, cast
 
-from nanobot.providers.base import (
+from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
     ProviderCallContext,

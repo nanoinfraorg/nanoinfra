@@ -1,5 +1,5 @@
 {
-  "description": "Sử dụng nanobot từ tin nhắn Signal.",
+  "description": "Sử dụng nanoinfra từ tin nhắn Signal.",
   "requirements": "Dịch vụ HTTP signal-cli, số điện thoại và danh sách cho phép",
   "setup": {
     "docsLabel": "Mở hướng dẫn Signal",

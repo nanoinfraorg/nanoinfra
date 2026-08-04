@@ -1,4 +1,4 @@
-"""OpenAI-compatible HTTP API server for a fixed nanobot session.
+"""OpenAI-compatible HTTP API server for a fixed nanoinfra session.
 
 Provides /v1/chat/completions and /v1/models endpoints.
 All requests route to a single persistent API session.
@@ -17,21 +17,21 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, cast
 from aiohttp import web
 from loguru import logger
 
-from nanobot.config.paths import get_media_dir
-from nanobot.utils.helpers import safe_filename
-from nanobot.utils.media_decode import (
+from nanoinfra.config.paths import get_media_dir
+from nanoinfra.utils.helpers import safe_filename
+from nanoinfra.utils.media_decode import (
     MAX_FILE_SIZE,
 )
-from nanobot.utils.media_decode import (
+from nanoinfra.utils.media_decode import (
     FileSizeExceeded as _FileSizeExceeded,
 )
-from nanobot.utils.media_decode import (
+from nanoinfra.utils.media_decode import (
     save_base64_data_url as _save_base64_data_url,
 )
-from nanobot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
+from nanoinfra.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
 if TYPE_CHECKING:
-    from nanobot.agent.loop import AgentLoop
+    from nanoinfra.agent.loop import AgentLoop
 
 __all__ = (
     "MAX_FILE_SIZE",
@@ -276,7 +276,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response | web.St
         "request_timeout",
         120.0,
     )
-    model_name: str = _app_value(request.app, _MODEL_NAME_KEY, "model_name", "nanobot")
+    model_name: str = _app_value(request.app, _MODEL_NAME_KEY, "model_name", "nanoinfra")
 
     stream = False
     try:
@@ -421,7 +421,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response | web.St
 
 async def handle_models(request: web.Request) -> web.Response:
     """GET /v1/models"""
-    model_name = _app_value(request.app, _MODEL_NAME_KEY, "model_name", "nanobot")
+    model_name = _app_value(request.app, _MODEL_NAME_KEY, "model_name", "nanoinfra")
     return web.json_response(
         {
             "object": "list",
@@ -430,7 +430,7 @@ async def handle_models(request: web.Request) -> web.Response:
                     "id": model_name,
                     "object": "model",
                     "created": 0,
-                    "owned_by": "nanobot",
+                    "owned_by": "nanoinfra",
                 }
             ],
         }
@@ -449,7 +449,7 @@ async def handle_health(request: web.Request) -> web.Response:
 
 def create_app(
     agent_loop: "AgentLoop",
-    model_name: str = "nanobot",
+    model_name: str = "nanoinfra",
     request_timeout: float = 120.0,
     api_key: str = "",
 ) -> web.Application:

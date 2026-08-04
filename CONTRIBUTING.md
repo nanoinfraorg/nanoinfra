@@ -1,8 +1,8 @@
-# Contributing to nanobot
+# Contributing to nanoinfra
 
 Thank you for being here.
 
-nanobot is built with a simple belief: good tools should feel calm, clear, and humane.
+nanoinfra is built with a simple belief: good tools should feel calm, clear, and humane.
 We care deeply about useful features, but we also believe in achieving more with less:
 solutions should be powerful without becoming heavy, and ambitious without becoming
 needlessly complicated.
@@ -46,7 +46,7 @@ git pull --ff-only upstream main
 git switch -c your-topic-branch
 ```
 
-Use your primary HKUDS/nanobot remote in place of `upstream` if your checkout
+Use your primary bet0x/nanoinfra remote in place of `upstream` if your checkout
 uses a different remote name.
 
 Keep unrelated local changes out of the topic branch. If your checkout already has
@@ -59,8 +59,8 @@ Keep setup boring and reliable. The goal is to get you into the code quickly:
 
 ```bash
 # Clone the repository
-git clone https://github.com/HKUDS/nanobot.git
-cd nanobot
+git clone https://github.com/bet0x/nanoinfra.git
+cd nanoinfra
 
 # Install with dev dependencies
 pip install -e ".[dev]"
@@ -69,7 +69,7 @@ pip install -e ".[dev]"
 pytest
 
 # Lint code
-ruff check nanobot/
+ruff check nanoinfra/
 
 # Format code — optional. The existing tree predates `ruff format`,
 # so running it broadly produces large unrelated diffs.
@@ -99,7 +99,7 @@ and agree that it will be licensed under the project's MIT License.
 
 ## Code Style
 
-We care about more than passing lint. We want nanobot to stay small, calm, and readable.
+We care about more than passing lint. We want nanoinfra to stay small, calm, and readable.
 
 When contributing, please aim for code that feels:
 
@@ -140,10 +140,10 @@ explicitly in the PR description so it can be discussed before merge.
 
 If you have questions, ideas, or half-formed insights, you are warmly welcome here.
 
-Please feel free to open an [issue](https://github.com/HKUDS/nanobot/issues), join the community, or simply reach out:
+Please feel free to open an [issue](https://github.com/bet0x/nanoinfra/issues), join the community, or simply reach out:
 
 - [Discord](https://discord.gg/MnCvHqpUGB)
 - [Feishu/WeChat](./COMMUNICATION.md)
 - Email: Xubin Ren (@Re-bin) — <xubinrencs@gmail.com>
 
-Thank you for spending your time and care on nanobot. We would love for more people to participate in this community, and we genuinely welcome contributions of all sizes.
+Thank you for spending your time and care on nanoinfra. We would love for more people to participate in this community, and we genuinely welcome contributions of all sizes.

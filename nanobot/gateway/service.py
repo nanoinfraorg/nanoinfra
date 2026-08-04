@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from nanobot.gateway import GatewayStartOptions, build_gateway_command
+from nanoinfra.gateway import GatewayStartOptions, build_gateway_command
 
 ServiceManagerKind = Literal["auto", "systemd", "launchd"]
 
@@ -22,7 +22,7 @@ class GatewayServiceOptions:
     """Inputs used to render one system service."""
 
     start: GatewayStartOptions
-    name: str = "nanobot-gateway"
+    name: str = "nanoinfra-gateway"
     manager: ServiceManagerKind = "auto"
     enable: bool = True
     start_now: bool = True
@@ -66,7 +66,7 @@ class GatewayServiceInstaller:
     def uninstall(
         self,
         *,
-        name: str = "nanobot-gateway",
+        name: str = "nanoinfra-gateway",
         manager: ServiceManagerKind = "auto",
         dry_run: bool = False,
     ) -> GatewayServiceResult:
@@ -87,7 +87,7 @@ class GatewayServiceInstaller:
         path = self.home / ".config" / "systemd" / "user" / unit_name
         command = build_gateway_command(options.python_executable, options.start)
         content = _systemd_unit_content(
-            description=f"Nanobot Gateway ({options.name})",
+            description=f"Nanoinfra Gateway ({options.name})",
             command=command,
             working_directory=_working_directory_text(options.start),
         )
@@ -135,8 +135,8 @@ class GatewayServiceInstaller:
         label = _launchd_label(options.name)
         path = self.home / "Library" / "LaunchAgents" / f"{label}.plist"
         log_stem = _safe_service_name(options.name)
-        stdout_path = self.home / ".nanobot" / "logs" / f"{log_stem}.launchd.log"
-        stderr_path = self.home / ".nanobot" / "logs" / f"{log_stem}.launchd.err.log"
+        stdout_path = self.home / ".nanoinfra" / "logs" / f"{log_stem}.launchd.log"
+        stderr_path = self.home / ".nanoinfra" / "logs" / f"{log_stem}.launchd.err.log"
         payload = {
             "Label": label,
             "ProgramArguments": build_gateway_command(options.python_executable, options.start),
@@ -230,17 +230,17 @@ def _systemd_unit_name(name: str) -> str:
 
 
 def _launchd_label(name: str) -> str:
-    if name.startswith("ai.nanobot."):
+    if name.startswith("ai.nanoinfra."):
         return name
-    suffix = _safe_service_name(name).removeprefix("nanobot-").replace("-", ".")
-    return f"ai.nanobot.{suffix}"
+    suffix = _safe_service_name(name).removeprefix("nanoinfra-").replace("-", ".")
+    return f"ai.nanoinfra.{suffix}"
 
 
 def _safe_service_name(name: str) -> str:
     value = name.strip().lower()
     value = re.sub(r"[^a-z0-9_.-]+", "-", value)
     value = value.strip(".-")
-    return value or "nanobot-gateway"
+    return value or "nanoinfra-gateway"
 
 
 def _launchd_domain() -> str:

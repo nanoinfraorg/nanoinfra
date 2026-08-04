@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, cast
 
-from nanobot.agent.tools.base import Tool, ToolResult
-from nanobot.agent.tools.context import ContextAware, current_request_context
+from nanoinfra.agent.tools.base import Tool, ToolResult
+from nanoinfra.agent.tools.context import ContextAware, current_request_context
 
 if TYPE_CHECKING:
-    from nanobot.runtime_context import RuntimeContextProvider
+    from nanoinfra.runtime_context import RuntimeContextProvider
 
 
 def is_tool_error_result(result: Any) -> bool:

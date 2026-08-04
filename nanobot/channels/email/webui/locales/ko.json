@@ -1,5 +1,5 @@
 {
-  "description": "nanobot이 이메일을 받고 답장하도록 합니다.",
+  "description": "nanoinfra이 이메일을 받고 답장하도록 합니다.",
   "requirements": "IMAP 받은편지함, SMTP 발신, 앱 비밀번호 및 명시적 동의",
   "setup": {
     "docsLabel": "이메일 설정 가이드 열기",

@@ -1,18 +1,18 @@
-# AI Agent Memory in nanobot
+# AI Agent Memory in nanoinfra
 
-This page explains how nanobot implements long-term AI agent memory: session
+This page explains how nanoinfra implements long-term AI agent memory: session
 history, compressed archives, durable knowledge files, Dream consolidation, and
 Git-backed memory changes.
 
-nanobot's memory is built on a simple belief: memory should feel alive, but it should not feel chaotic.
+nanoinfra's memory is built on a simple belief: memory should feel alive, but it should not feel chaotic.
 
 Good memory is not a pile of notes. It is a quiet system of attention. It notices what is worth keeping, lets go of what no longer needs the spotlight, and turns lived experience into something calm, durable, and useful.
 
-That is the shape of memory in nanobot.
+That is the shape of memory in nanoinfra.
 
 ## The Design
 
-nanobot does not treat memory as one giant file.
+nanoinfra does not treat memory as one giant file.
 
 It separates memory into layers, because different kinds of remembering deserve different tools:
 
@@ -25,11 +25,11 @@ This keeps the system light in the moment, but reflective over time.
 
 ## The Flow
 
-Memory moves through nanobot in two stages.
+Memory moves through nanoinfra in two stages.
 
 ### Stage 1: Consolidator
 
-When a conversation grows large enough to pressure the context window, nanobot does not try to carry every old message forever.
+When a conversation grows large enough to pressure the context window, nanoinfra does not try to carry every old message forever.
 
 Instead, the `Consolidator` summarizes the oldest safe slice of the conversation and appends that summary to `memory/history.jsonl`.
 
@@ -60,12 +60,12 @@ Dream reads:
 
 Then it edits the long-term files surgically in a single pass — not by rewriting everything, but by making the smallest honest change that keeps memory coherent.
 
-This is why nanobot's memory is not just archival. It is interpretive.
+This is why nanoinfra's memory is not just archival. It is interpretive.
 
 ## The Files
 
 In this page, `workspace` means the configured **agent workspace** (the default
-is `~/.nanobot/workspace/`, or the path passed with `--workspace`). Selecting a
+is `~/.nanoinfra/workspace/`, or the path passed with `--workspace`). Selecting a
 different project in the WebUI changes that chat's project context and tool
 working directory; it does not relocate the files below.
 
@@ -91,7 +91,7 @@ separate configured agent workspace when identity or memory must be isolated.
 
 These files play different roles:
 
-- `SOUL.md` remembers how nanobot should sound.
+- `SOUL.md` remembers how nanoinfra should sound.
 - `USER.md` remembers who the user is and what they prefer.
 - `MEMORY.md` remembers what remains true about the work itself.
 - `history.jsonl` remembers what happened on the way there.
@@ -100,7 +100,7 @@ These files play different roles:
 
 The old `HISTORY.md` format was pleasant for casual reading, but it was too fragile as an operational substrate.
 
-`history.jsonl` gives nanobot:
+`history.jsonl` gives nanoinfra:
 
 - stable incremental cursors
 - safer machine parsing
@@ -144,7 +144,7 @@ These commands exist for a reason: automatic memory is powerful, but users shoul
 
 ## Versioned Memory
 
-After Dream changes long-term memory files, nanobot can record that change with `GitStore`.
+After Dream changes long-term memory files, nanoinfra can record that change with `GitStore`.
 
 This gives memory a history of its own:
 
@@ -156,7 +156,7 @@ That turns memory from a silent mutation into an auditable process.
 
 ## Guiding Dream
 
-Dream decides what to keep, update, or forget using nanobot's built-in memory instructions. Most users can leave this alone.
+Dream decides what to keep, update, or forget using nanoinfra's built-in memory instructions. Most users can leave this alone.
 
 If one workspace needs a different memory style, create an editable guide:
 
@@ -172,9 +172,9 @@ workspace/prompts/dream.md
 
 Edit that file in plain Markdown. When it has content, Dream follows it for this workspace before reading the latest conversation history. You do not need to paste history into the file; Dream adds the current `## Conversation History` block automatically.
 
-To return to nanobot's default behavior, delete `prompts/dream.md` or leave it empty.
+To return to nanoinfra's default behavior, delete `prompts/dream.md` or leave it empty.
 
-Each workspace has its own guide. Changing this file does not affect other nanobot workspaces.
+Each workspace has its own guide. Changing this file does not affect other nanoinfra workspaces.
 
 ## Configuration
 

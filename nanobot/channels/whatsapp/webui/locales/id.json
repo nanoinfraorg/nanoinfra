@@ -1,5 +1,5 @@
 {
-  "description": "Gunakan nanobot dari percakapan WhatsApp.",
+  "description": "Gunakan nanoinfra dari percakapan WhatsApp.",
   "requirements": "Setup koneksi WhatsApp dan gateway",
   "setup": {
     "primaryAction": "Hubungkan WhatsApp",

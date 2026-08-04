@@ -15,10 +15,10 @@ from typing import Any, cast
 
 from loguru import logger
 
-from nanobot.config.paths import get_webui_dir
-from nanobot.security.workspace_access import WORKSPACE_SCOPE_METADATA_KEY
-from nanobot.session.history_visibility import is_hidden_history_message
-from nanobot.session.manager import (
+from nanoinfra.config.paths import get_webui_dir
+from nanoinfra.security.workspace_access import WORKSPACE_SCOPE_METADATA_KEY
+from nanoinfra.session.history_visibility import is_hidden_history_message
+from nanoinfra.session.manager import (
     _PROVIDER_STATE_RECORD_TYPE,  # pyright: ignore[reportPrivateUsage]
     _SESSION_LIST_PREVIEW_MAX_CHARS,  # pyright: ignore[reportPrivateUsage]
     _SESSION_LIST_PREVIEW_MAX_RECORDS,  # pyright: ignore[reportPrivateUsage]
@@ -28,7 +28,7 @@ from nanobot.session.manager import (
     _message_preview_text,  # pyright: ignore[reportPrivateUsage]
     _metadata_title,  # pyright: ignore[reportPrivateUsage]
 )
-from nanobot.session.model_selection import model_preset_from_metadata
+from nanoinfra.session.model_selection import model_preset_from_metadata
 
 _INDEX_VERSION = 6
 _INDEX_FILENAME = ".webui_session_index.json"

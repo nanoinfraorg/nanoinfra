@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, cast
 
-from nanobot.providers.base import tool_arguments_json_for_replay
+from nanoinfra.providers.base import tool_arguments_json_for_replay
 
 
 def _as_json_object(value: object) -> dict[str, Any] | None:
@@ -108,7 +108,7 @@ def convert_tool_output(content: Any) -> str | list[dict[str, Any]]:
     """Convert a tool result to Responses API function-call output content.
 
     The Responses API accepts text, image, and file blocks as function tool
-    output. Nanobot's file tools use Chat Completions-style ``text`` and
+    output. Nanoinfra's file tools use Chat Completions-style ``text`` and
     ``image_url`` blocks for image reads; serializing those blocks as JSON
     turns the image into inert text and can make the request unnecessarily
     large. Preserve supported multimodal blocks and strip internal metadata.

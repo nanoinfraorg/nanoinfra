@@ -1,7 +1,7 @@
 import pytest
 
-from nanobot.bus.events import InboundMessage
-from nanobot.bus.runtime_events import (
+from nanoinfra.bus.events import InboundMessage
+from nanoinfra.bus.runtime_events import (
     RuntimeEventBus,
     RuntimeEventContext,
     RuntimeEventPublisher,

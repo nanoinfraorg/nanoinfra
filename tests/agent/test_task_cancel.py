@@ -9,10 +9,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nanobot.config.schema import AgentDefaults
-from nanobot.providers.base import GenerationSettings
-from nanobot.session.keys import UNIFIED_SESSION_KEY
-from nanobot.utils.llm_runtime import LLMRuntime
+from nanoinfra.config.schema import AgentDefaults
+from nanoinfra.providers.base import GenerationSettings
+from nanoinfra.session.keys import UNIFIED_SESSION_KEY
+from nanoinfra.utils.llm_runtime import LLMRuntime
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -25,8 +25,8 @@ def _runtime(provider: MagicMock | None = None) -> LLMRuntime:
 
 def _make_loop(*, tools_config=None):
     """Create a minimal AgentLoop with mocked dependencies."""
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.bus.queue import MessageBus
+    from nanoinfra.agent.loop import AgentLoop
+    from nanoinfra.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -34,9 +34,9 @@ def _make_loop(*, tools_config=None):
     workspace = MagicMock()
     workspace.__truediv__ = MagicMock(return_value=MagicMock())
 
-    with patch("nanobot.agent.loop.ContextBuilder"), \
-         patch("nanobot.agent.loop.SessionManager"), \
-         patch("nanobot.agent.loop.SubagentManager") as mock_sub_mgr:
+    with patch("nanoinfra.agent.loop.ContextBuilder"), \
+         patch("nanoinfra.agent.loop.SessionManager"), \
+         patch("nanoinfra.agent.loop.SubagentManager") as mock_sub_mgr:
         mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=workspace, tools_config=tools_config)
     return loop, bus
@@ -45,9 +45,9 @@ def _make_loop(*, tools_config=None):
 class TestHandleStop:
     @pytest.mark.asyncio
     async def test_stop_no_active_task(self):
-        from nanobot.bus.events import InboundMessage
-        from nanobot.command.builtin import cmd_stop
-        from nanobot.command.router import CommandContext
+        from nanoinfra.bus.events import InboundMessage
+        from nanoinfra.command.builtin import cmd_stop
+        from nanoinfra.command.router import CommandContext
 
         loop, bus = _make_loop()
         msg = InboundMessage(channel="test", sender_id="u1", chat_id="c1", content="/stop")
@@ -76,7 +76,7 @@ class TestHandleStop:
 
         loop.subagents.close = close_subagents
         loop._exec_session_manager.close_all = AsyncMock()
-        with patch("nanobot.agent.loop.agent_context.close_mcp", AsyncMock()):
+        with patch("nanoinfra.agent.loop.agent_context.close_mcp", AsyncMock()):
             await loop.close_mcp()
 
         assert events == ["turn_cancelled", "resources_closed"]
@@ -100,7 +100,7 @@ class TestHandleStop:
 
         loop.subagents.close = close_subagents
         loop._exec_session_manager.close_all = AsyncMock()
-        with patch("nanobot.agent.loop.agent_context.close_mcp", AsyncMock()):
+        with patch("nanoinfra.agent.loop.agent_context.close_mcp", AsyncMock()):
             first = asyncio.create_task(loop.close_mcp())
             await entered.wait()
             second = asyncio.create_task(loop.close_mcp())
@@ -113,9 +113,9 @@ class TestHandleStop:
 
     @pytest.mark.asyncio
     async def test_stop_cancels_active_task(self):
-        from nanobot.bus.events import InboundMessage
-        from nanobot.command.builtin import cmd_stop
-        from nanobot.command.router import CommandContext
+        from nanoinfra.bus.events import InboundMessage
+        from nanoinfra.command.builtin import cmd_stop
+        from nanoinfra.command.router import CommandContext
 
         loop, bus = _make_loop()
         cancelled = asyncio.Event()
@@ -142,9 +142,9 @@ class TestHandleStop:
 
     @pytest.mark.asyncio
     async def test_stop_cancels_multiple_tasks(self):
-        from nanobot.bus.events import InboundMessage
-        from nanobot.command.builtin import cmd_stop
-        from nanobot.command.router import CommandContext
+        from nanoinfra.bus.events import InboundMessage
+        from nanoinfra.command.builtin import cmd_stop
+        from nanoinfra.command.router import CommandContext
 
         loop, bus = _make_loop()
         events = [asyncio.Event(), asyncio.Event()]
@@ -188,7 +188,7 @@ class TestDispatch:
 
         monkeypatch.setattr(bus, "consume_inbound", consume_once_then_stop)
         monkeypatch.setattr(
-            "nanobot.agent.loop.logger.warning",
+            "nanoinfra.agent.loop.logger.warning",
             lambda message, *args, **kwargs: warnings.append(message),
         )
 
@@ -198,8 +198,8 @@ class TestDispatch:
         assert any("Ignoring leaked CancelledError" in warning for warning in warnings)
 
     def test_exec_tool_not_registered_when_disabled(self):
-        from nanobot.agent.tools.shell import ExecToolConfig
-        from nanobot.config.schema import ToolsConfig
+        from nanoinfra.agent.tools.shell import ExecToolConfig
+        from nanoinfra.config.schema import ToolsConfig
 
         loop, _bus = _make_loop(tools_config=ToolsConfig(exec=ExecToolConfig(enable=False)))
 
@@ -207,7 +207,7 @@ class TestDispatch:
 
     @pytest.mark.asyncio
     async def test_dispatch_processes_and_publishes(self):
-        from nanobot.bus.events import InboundMessage, OutboundMessage
+        from nanoinfra.bus.events import InboundMessage, OutboundMessage
 
         loop, bus = _make_loop()
         msg = InboundMessage(channel="test", sender_id="u1", chat_id="c1", content="hello")
@@ -220,8 +220,8 @@ class TestDispatch:
 
     @pytest.mark.asyncio
     async def test_dispatch_streaming_preserves_message_metadata(self):
-        from nanobot.bus.events import InboundMessage
-        from nanobot.bus.outbound_events import StreamDeltaEvent, StreamEndEvent
+        from nanoinfra.bus.events import InboundMessage
+        from nanoinfra.bus.outbound_events import StreamDeltaEvent, StreamEndEvent
 
         loop, bus = _make_loop()
         msg = InboundMessage(
@@ -258,7 +258,7 @@ class TestDispatch:
 
     @pytest.mark.asyncio
     async def test_processing_lock_serializes(self):
-        from nanobot.bus.events import InboundMessage, OutboundMessage
+        from nanoinfra.bus.events import InboundMessage, OutboundMessage
 
         loop, bus = _make_loop()
         order = []
@@ -291,8 +291,8 @@ class TestDispatch:
 class TestSubagentCancellation:
     @pytest.mark.asyncio
     async def test_cancel_by_session(self):
-        from nanobot.agent.subagent import SubagentManager
-        from nanobot.bus.queue import MessageBus
+        from nanoinfra.agent.subagent import SubagentManager
+        from nanoinfra.bus.queue import MessageBus
 
         bus = MessageBus()
         mgr = SubagentManager(
@@ -321,8 +321,8 @@ class TestSubagentCancellation:
 
     @pytest.mark.asyncio
     async def test_cancel_by_session_no_tasks(self):
-        from nanobot.agent.subagent import SubagentManager
-        from nanobot.bus.queue import MessageBus
+        from nanoinfra.agent.subagent import SubagentManager
+        from nanoinfra.bus.queue import MessageBus
 
         bus = MessageBus()
         mgr = SubagentManager(
@@ -334,9 +334,9 @@ class TestSubagentCancellation:
 
     @pytest.mark.asyncio
     async def test_cancel_by_session_terminates_exec_sessions(self):
-        from nanobot.agent.subagent import SubagentManager
-        from nanobot.agent.tools.exec_session import ExecSessionManager
-        from nanobot.bus.queue import MessageBus
+        from nanoinfra.agent.subagent import SubagentManager
+        from nanoinfra.agent.tools.exec_session import ExecSessionManager
+        from nanoinfra.bus.queue import MessageBus
 
         bus = MessageBus()
         mgr = SubagentManager(
@@ -355,9 +355,9 @@ class TestSubagentCancellation:
 
     @pytest.mark.asyncio
     async def test_subagent_preserves_reasoning_fields_in_tool_turn(self, monkeypatch, tmp_path):
-        from nanobot.agent.subagent import SubagentManager
-        from nanobot.bus.queue import MessageBus
-        from nanobot.providers.base import LLMResponse, ToolCallRequest
+        from nanoinfra.agent.subagent import SubagentManager
+        from nanoinfra.bus.queue import MessageBus
+        from nanoinfra.providers.base import LLMResponse, ToolCallRequest
 
         bus = MessageBus()
         provider = MagicMock()
@@ -388,9 +388,9 @@ class TestSubagentCancellation:
         async def fake_execute(self, **kwargs):
             return "tool result"
 
-        monkeypatch.setattr("nanobot.agent.tools.filesystem.ListDirTool.execute", fake_execute)
+        monkeypatch.setattr("nanoinfra.agent.tools.filesystem.ListDirTool.execute", fake_execute)
 
-        from nanobot.agent.subagent import SubagentStatus
+        from nanoinfra.agent.subagent import SubagentStatus
         status = SubagentStatus(task_id="sub-1", label="label", task_description="do task", started_at=time.monotonic())
         await mgr._run_subagent(
             "sub-1",
@@ -411,10 +411,10 @@ class TestSubagentCancellation:
 
     @pytest.mark.asyncio
     async def test_subagent_exec_tool_not_registered_when_disabled(self, tmp_path):
-        from nanobot.agent.subagent import SubagentManager
-        from nanobot.agent.tools.shell import ExecToolConfig
-        from nanobot.bus.queue import MessageBus
-        from nanobot.config.schema import ToolsConfig
+        from nanoinfra.agent.subagent import SubagentManager
+        from nanoinfra.agent.tools.shell import ExecToolConfig
+        from nanoinfra.bus.queue import MessageBus
+        from nanoinfra.config.schema import ToolsConfig
 
         bus = MessageBus()
         provider = MagicMock()
@@ -438,7 +438,7 @@ class TestSubagentCancellation:
 
         mgr.runner.run = AsyncMock(side_effect=fake_run)
 
-        from nanobot.agent.subagent import SubagentStatus
+        from nanoinfra.agent.subagent import SubagentStatus
         status = SubagentStatus(task_id="sub-1", label="label", task_description="do task", started_at=time.monotonic())
         await mgr._run_subagent(
             "sub-1",
@@ -454,9 +454,9 @@ class TestSubagentCancellation:
 
     @pytest.mark.asyncio
     async def test_subagent_announces_error_when_tool_execution_fails(self, monkeypatch, tmp_path):
-        from nanobot.agent.subagent import SubagentManager
-        from nanobot.bus.queue import MessageBus
-        from nanobot.providers.base import LLMResponse, ToolCallRequest
+        from nanoinfra.agent.subagent import SubagentManager
+        from nanoinfra.bus.queue import MessageBus
+        from nanoinfra.providers.base import LLMResponse, ToolCallRequest
 
         bus = MessageBus()
         provider = MagicMock()
@@ -480,9 +480,9 @@ class TestSubagentCancellation:
                 return "first result"
             raise RuntimeError("boom")
 
-        monkeypatch.setattr("nanobot.agent.tools.filesystem.ListDirTool.execute", fake_execute)
+        monkeypatch.setattr("nanoinfra.agent.tools.filesystem.ListDirTool.execute", fake_execute)
 
-        from nanobot.agent.subagent import SubagentStatus
+        from nanoinfra.agent.subagent import SubagentStatus
         status = SubagentStatus(task_id="sub-1", label="label", task_description="do task", started_at=time.monotonic())
         await mgr._run_subagent(
             "sub-1",
@@ -503,9 +503,9 @@ class TestSubagentCancellation:
 
     @pytest.mark.asyncio
     async def test_cancel_by_session_cancels_running_subagent_tool(self, monkeypatch, tmp_path):
-        from nanobot.agent.subagent import SubagentManager, SubagentStatus
-        from nanobot.bus.queue import MessageBus
-        from nanobot.providers.base import LLMResponse, ToolCallRequest
+        from nanoinfra.agent.subagent import SubagentManager, SubagentStatus
+        from nanoinfra.bus.queue import MessageBus
+        from nanoinfra.providers.base import LLMResponse, ToolCallRequest
 
         bus = MessageBus()
         provider = MagicMock()
@@ -532,7 +532,7 @@ class TestSubagentCancellation:
                 cancelled.set()
                 raise
 
-        monkeypatch.setattr("nanobot.agent.tools.filesystem.ListDirTool.execute", fake_execute)
+        monkeypatch.setattr("nanoinfra.agent.tools.filesystem.ListDirTool.execute", fake_execute)
 
         task = asyncio.create_task(
             mgr._run_subagent(
@@ -559,8 +559,8 @@ class TestSubagentAnnounceSessionKey:
 
     def _make_mgr(self):
         """Create a SubagentManager with mocked deps and its bus."""
-        from nanobot.agent.subagent import SubagentManager
-        from nanobot.bus.queue import MessageBus
+        from nanoinfra.agent.subagent import SubagentManager
+        from nanoinfra.bus.queue import MessageBus
 
         bus = MessageBus()
         mgr = SubagentManager(
@@ -611,7 +611,7 @@ class TestSubagentAnnounceSessionKey:
     @pytest.mark.asyncio
     async def test_session_key_flows_through_run_subagent(self):
         """Verify session_key in origin propagates from _run_subagent to _announce_result."""
-        from nanobot.agent.subagent import SubagentStatus
+        from nanoinfra.agent.subagent import SubagentStatus
 
         mgr, bus = self._make_mgr()
 

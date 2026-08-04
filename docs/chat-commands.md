@@ -29,7 +29,7 @@ These commands work inside chat channels and interactive agent sessions:
 
 ## Pairing
 
-When someone sends a DM to the bot and isn't on the allowlist — whether it's a new user or an existing user on a new channel — nanobot automatically replies with a **pairing code** (like `ABCD-EFGH`) that expires in 10 minutes. To grant them access:
+When someone sends a DM to the bot and isn't on the allowlist — whether it's a new user or an existing user on a new channel — nanoinfra automatically replies with a **pairing code** (like `ABCD-EFGH`) that expires in 10 minutes. To grant them access:
 
 ```text
 /pairing approve ABCD-EFGH
@@ -71,15 +71,15 @@ Create the trigger from the chat where future messages should arrive:
 /trigger PR review
 ```
 
-nanobot replies with a trigger ID and a command shaped like:
+nanoinfra replies with a trigger ID and a command shaped like:
 
 ```bash
-nanobot trigger trg_8K4P2Q9X "Review PR #4502"
+nanoinfra trigger trg_8K4P2Q9X "Review PR #4502"
 ```
 
-Replace `"Review PR #4502"` with the message you want nanobot to receive. The
+Replace `"Review PR #4502"` with the message you want nanoinfra to receive. The
 trigger is bound to the session where it was created, so the message goes back
-to that same chat. Keep `nanobot gateway` running so trigger messages can be
+to that same chat. Keep `nanoinfra gateway` running so trigger messages can be
 delivered. The trigger message starts an automation turn recorded in that
 session with the message you passed to the CLI; it is not treated as a normal
 user message. If that session is already running a turn, the trigger waits
@@ -96,22 +96,22 @@ delivery is marked failed in Automations instead of retrying forever.
 For longer or generated content, omit the message argument and pipe stdin:
 
 ```bash
-printf '%s\n' "Review the latest failed CI job" | nanobot trigger trg_8K4P2Q9X
+printf '%s\n' "Review the latest failed CI job" | nanoinfra trigger trg_8K4P2Q9X
 ```
 
-If an external webhook should wake nanobot up, run your own small webhook
+If an external webhook should wake nanoinfra up, run your own small webhook
 service and have it call the trigger command after it builds the final message:
 
 ```bash
-nanobot trigger <trigger-id> "<message>"
+nanoinfra trigger <trigger-id> "<message>"
 ```
 
-If you run multiple nanobot instances, pass the same config or workspace
+If you run multiple nanoinfra instances, pass the same config or workspace
 selector used by the gateway:
 
 ```bash
-nanobot trigger --config ./bot-a/config.json trg_8K4P2Q9X "Nightly report"
-nanobot trigger --workspace ./bot-a/workspace trg_8K4P2Q9X "Nightly report"
+nanoinfra trigger --config ./bot-a/config.json trg_8K4P2Q9X "Nightly report"
+nanoinfra trigger --workspace ./bot-a/workspace trg_8K4P2Q9X "Nightly report"
 ```
 
 Manage triggers from the WebUI Automations view. You can search, pause/resume,
@@ -123,11 +123,11 @@ automations, heartbeat, and gateway delivery.
 
 ## Periodic Tasks
 
-Periodic background checks are driven by `HEARTBEAT.md` in your workspace (`~/.nanobot/workspace/HEARTBEAT.md`). When `nanobot gateway` starts, it registers a protected heartbeat cron job by default. Every 30 minutes, that job checks the file; if it finds tasks under `## Active Tasks`, the agent executes them and delivers only results that pass the notification gate to your most recently active chat channel. If there are no active tasks, or the result is routine with nothing useful to report, the heartbeat is skipped silently.
+Periodic background checks are driven by `HEARTBEAT.md` in your workspace (`~/.nanoinfra/workspace/HEARTBEAT.md`). When `nanoinfra gateway` starts, it registers a protected heartbeat cron job by default. Every 30 minutes, that job checks the file; if it finds tasks under `## Active Tasks`, the agent executes them and delivers only results that pass the notification gate to your most recently active chat channel. If there are no active tasks, or the result is routine with nothing useful to report, the heartbeat is skipped silently.
 
 Use heartbeat for recurring checks that should usually stay quiet. User-created cron jobs are different: they run as scheduled turns in the chat/session where they were created and normally deliver the result back to that channel.
 
-**Setup:** edit `~/.nanobot/workspace/HEARTBEAT.md` (created automatically by `nanobot onboard`):
+**Setup:** edit `~/.nanoinfra/workspace/HEARTBEAT.md` (created automatically by `nanoinfra onboard`):
 
 ```markdown
 ## Active Tasks
@@ -138,7 +138,7 @@ Use heartbeat for recurring checks that should usually stay quiet. User-created 
 
 The agent can also manage this file itself - ask it to "add a periodic background check" or "check this periodically but only notify me if something changes" and it will update `HEARTBEAT.md` for you. Completed tasks should be deleted from the file, not moved to another section.
 
-You can change the interval or disable the built-in heartbeat in `~/.nanobot/config.json`:
+You can change the interval or disable the built-in heartbeat in `~/.nanoinfra/config.json`:
 
 ```json
 {
@@ -153,4 +153,4 @@ You can change the interval or disable the built-in heartbeat in `~/.nanobot/con
 
 The heartbeat job is visible in `cron(action="list")` as `heartbeat`, but it is system-managed and cannot be removed with the `cron` tool. To stop it, set `gateway.heartbeat.enabled` to `false` and restart the gateway.
 
-> **Note:** The gateway must be running (`nanobot gateway`) and you must have chatted with the bot at least once so it knows which channel to deliver to.
+> **Note:** The gateway must be running (`nanoinfra gateway`) and you must have chatted with the bot at least once so it knows which channel to deliver to.

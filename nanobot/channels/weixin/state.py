@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from nanobot.channels.contracts import channel_field_value
-from nanobot.config.loader import get_config_path
+from nanoinfra.channels.contracts import channel_field_value
+from nanoinfra.config.loader import get_config_path
 
 
 def local_state_present(section: Any) -> bool:

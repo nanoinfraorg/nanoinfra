@@ -3,11 +3,11 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from nanobot.channels.telegram import validation as telegram_validation
-from nanobot.channels.telegram.manifest import SETUP_SPEC
-from nanobot.channels.validation import validate_channel_config
-from nanobot.config.loader import save_config
-from nanobot.config.schema import Config
+from nanoinfra.channels.telegram import validation as telegram_validation
+from nanoinfra.channels.telegram.manifest import SETUP_SPEC
+from nanoinfra.channels.validation import validate_channel_config
+from nanoinfra.config.loader import save_config
+from nanoinfra.config.schema import Config
 
 
 def test_telegram_setup_exposes_proxy_as_an_optional_secret() -> None:
@@ -61,7 +61,7 @@ def test_get_me_builds_http_client_with_explicit_proxy(
 def test_validate_telegram_bad_token_is_invalid(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
 
     result = validate_channel_config("telegram", {"channels.telegram.token": "not-a-token"})
 
@@ -82,7 +82,7 @@ def test_validate_telegram_rejects_denied_tokens_without_exposing_them(
         Config.model_validate({"channels": {"telegram": {"token": token}}}),
         config_path,
     )
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
 
     def raise_http_error(token_value: str, _proxy: str | None) -> dict:
         request = httpx.Request("GET", f"https://api.telegram.org/bot{token_value}/getMe")
@@ -111,7 +111,7 @@ def test_validate_telegram_keeps_transient_http_failures_retryable(
         Config.model_validate({"channels": {"telegram": {"token": token}}}),
         config_path,
     )
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
 
     def raise_http_error(token_value: str, _proxy: str | None) -> dict:
         request = httpx.Request("GET", f"https://api.telegram.org/bot{token_value}/getMe")
@@ -141,7 +141,7 @@ def test_validate_telegram_marks_proxy_transport_failures_without_exposing_proxy
         ),
         config_path,
     )
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
 
     def raise_proxy_error(_token: str, _proxy: str | None) -> dict:
         raise httpx.ProxyError("proxy credentials rejected")
@@ -169,7 +169,7 @@ def test_validate_telegram_uses_saved_proxy_without_exposing_it(
         ),
         config_path,
     )
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
     captured: dict[str, str | None] = {}
 
     def fake_get_me(token_value: str, proxy_value: str | None) -> dict:
@@ -202,7 +202,7 @@ def test_validate_telegram_resolves_saved_secret_env_refs_without_exposing_them(
         ),
         config_path,
     )
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
     captured: dict[str, str | None] = {}
 
     def fake_get_me(token_value: str, proxy_value: str | None) -> dict:
@@ -235,7 +235,7 @@ def test_validate_telegram_rejects_unset_proxy_env_ref_without_connecting(
         ),
         config_path,
     )
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
 
     def fail_get_me(*_args) -> dict:
         pytest.fail("an unresolved proxy reference must not fall back to direct access")
@@ -258,7 +258,7 @@ def test_validate_telegram_uses_proxy_submitted_with_new_token(
     proxy = "http://127.0.0.1:7890"
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
     captured: dict[str, str | None] = {}
 
     def fake_get_me(token_value: str, proxy_value: str | None) -> dict:
@@ -288,7 +288,7 @@ def test_validate_telegram_rejects_invalid_proxy_without_trying_token(
     token = "123456:abcdefghijklmnopqrstuvwxyz"
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
 
     def fail_get_me(*_args) -> dict:
         pytest.fail("invalid proxy must stop before getMe")

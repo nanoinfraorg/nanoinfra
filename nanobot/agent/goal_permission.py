@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 
 _GOAL_MUTATION_ALLOWED: ContextVar[bool] = ContextVar(
-    "nanobot_goal_mutation_allowed",
+    "nanoinfra_goal_mutation_allowed",
     default=False,
 )
 

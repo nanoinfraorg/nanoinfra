@@ -2,14 +2,14 @@ import type { ChannelUiContribution } from "@/channel-plugins/types";
 import { chatAppGuideUrl } from "@/components/settings/channels/catalog";
 
 const SLACK_SOCKET_MODE_MANIFEST = `display_information:
-  name: nanobot
+  name: nanoinfra
 features:
   app_home:
     home_tab_enabled: false
     messages_tab_enabled: true
     messages_tab_read_only_enabled: false
   bot_user:
-    display_name: nanobot
+    display_name: nanoinfra
 oauth_config:
   scopes:
     bot:

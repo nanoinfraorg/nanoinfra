@@ -1,12 +1,12 @@
-# Nanobot WebUI: Browser Workbench for Self-Hosted AI Agents
+# Nanoinfra WebUI: Browser Workbench for Self-Hosted AI Agents
 
-<!-- Meta description: Run nanobot from a browser WebUI with persistent topics, visible tool activity, workspace controls, Apps, MCP presets, Skills, settings, and Automations. -->
+<!-- Meta description: Run nanoinfra from a browser WebUI with persistent topics, visible tool activity, workspace controls, Apps, MCP presets, Skills, settings, and Automations. -->
 
-The WebUI is nanobot's browser workbench for persistent topics, visible
+The WebUI is nanoinfra's browser workbench for persistent topics, visible
 agent activity, workspace controls, Apps, Skills, settings, and Automations in
 one place.
 
-The published `nanobot-ai` wheel already includes the WebUI bundle. You only need
+The published `nanoinfra` wheel already includes the WebUI bundle. You only need
 the `webui/` source directory when you are changing the frontend itself.
 
 ## Open the WebUI
@@ -14,10 +14,10 @@ the `webui/` source directory when you are changing the frontend itself.
 Use the launcher:
 
 ```bash
-nanobot webui
+nanoinfra webui
 ```
 
-`nanobot webui` creates the config/workspace when needed, enables the local
+`nanoinfra webui` creates the config/workspace when needed, enables the local
 WebSocket channel after confirmation, generates a WebUI bootstrap secret when
 one is missing, starts the gateway, and opens the browser. With a fresh config,
 it can open before a model is configured so you can finish setup in **Settings
@@ -27,14 +27,14 @@ it is not available from other devices on your LAN.
 Run it in the background when you do not want to keep a terminal open:
 
 ```bash
-nanobot webui --background
+nanoinfra webui --background
 ```
 
-Complete first-time model setup in a foreground `nanobot webui` session before using
+Complete first-time model setup in a foreground `nanoinfra webui` session before using
 `--background`.
 
-Manage the background gateway with `nanobot gateway status`, `nanobot gateway
-logs`, `nanobot gateway restart`, and `nanobot gateway stop`.
+Manage the background gateway with `nanoinfra gateway status`, `nanoinfra gateway
+logs`, `nanoinfra gateway restart`, and `nanoinfra gateway stop`.
 
 Manual config still works. Same-machine localhost WebUI access can run without
 a browser password. Set `tokenIssueSecret` when you intentionally expose the
@@ -167,32 +167,32 @@ Test a new channel with a private DM. When a supported channel sends a pairing c
 
 ## Apps
 
-Open Apps from the sidebar to manage tools that nanobot can attach to a chat
+Open Apps from the sidebar to manage tools that nanoinfra can attach to a chat
 turn. The default **Ready** view shows only tools that can be used immediately:
 
-- **Apps** are local command-line adapters that nanobot runs on your machine.
+- **Apps** are local command-line adapters that nanoinfra runs on your machine.
   Installing an adapter does not modify the native desktop or web app it
   connects to.
 - **Integrations** are MCP servers. Presets provide known configurations, and
   the custom integration panel accepts stdio, HTTP, and SSE servers.
 
-Apps intentionally does not list nanobot runtime support packages such as
+Apps intentionally does not list nanoinfra runtime support packages such as
 `api` or `bedrock`. Those packages enable providers, servers, or channels; they
 are not tools that can be attached to a turn with `@`. Manage them from
 **System**, **Models**, or **Web**. PDF and common Office document readers are
-included in nanobot and activate automatically when a file is attached. The
-equivalent CLI for optional integrations remains `nanobot plugins`. See
+included in nanoinfra and activate automatically when a file is attached. The
+equivalent CLI for optional integrations remains `nanoinfra plugins`. See
 [`cli-reference.md`](./cli-reference.md#optional-features).
 
 Some MCP presets connect to hosted keyless endpoints. For example, the Firecrawl
 preset uses Firecrawl's hosted MCP endpoint for search, scrape, crawl, and
-extraction tools without requiring an API key. This does not replace nanobot's
+extraction tools without requiring an API key. This does not replace nanoinfra's
 built-in web search provider; mention the Firecrawl MCP preset with `@` when a
 turn needs Firecrawl's richer web data tools.
 
 The Parallel Search preset connects to the free, anonymous Parallel Search MCP
 endpoint and exposes `web_search` and `web_fetch` without requiring an API key.
-It is an optional integration and does not replace nanobot's built-in web search
+It is an optional integration and does not replace nanoinfra's built-in web search
 provider; mention `@parallel-search` when a turn should use it.
 
 After an App or integration is available, mention it from the composer with
@@ -202,13 +202,13 @@ After an App or integration is available, mention it from the composer with
 
 The Skills view shows the skill instructions available to the agent, including
 built-in skills and workspace-provided skills. Check this view when you want to
-know whether nanobot already has a focused workflow for a task before you ask it
+know whether nanoinfra already has a focused workflow for a task before you ask it
 to perform that task.
 
 ## Automations
 
 Automations are agent turns that run later in a linked topic. Create them from
-the topic or channel where they are supposed to run so nanobot keeps the
+the topic or channel where they are supposed to run so nanoinfra keeps the
 correct target context. When an automation runs, it normally delivers the
 result back to that topic.
 
@@ -220,7 +220,7 @@ There are two user-facing automation types:
 - Scheduled automations, created by the agent's cron tool, run at a time,
   interval, or cron expression.
 - Local triggers, created with `/trigger <name>`, run when you call a local
-  command such as `nanobot trigger trg_8K4P2Q9X "Review PR #4502"`.
+  command such as `nanoinfra trigger trg_8K4P2Q9X "Review PR #4502"`.
 
 For recurring background checks that should stay quiet unless there is something
 useful to report, use the protected heartbeat job by editing `HEARTBEAT.md`
@@ -241,11 +241,11 @@ Search accepts plain text and field filters such as `name:backup`,
 `status:paused`.
 
 An automation without a linked topic cannot be enabled or run from the WebUI,
-because nanobot would not know where to deliver the scheduled turn. Recreate it
+because nanoinfra would not know where to deliver the scheduled turn. Recreate it
 from the target topic or channel so the automation has complete context.
 
 Local triggers do not have a WebUI "Run now" action because each run needs a
-message. Use the copied `nanobot trigger ...` command and replace `"message"`
+message. Use the copied `nanoinfra trigger ...` command and replace `"message"`
 with the content that should be delivered.
 
 ## Settings
@@ -285,7 +285,7 @@ The gateway refuses to start with `host` set to `"0.0.0.0"` unless `token` or
 form.
 
 Remote WebUI clients with a valid token can view and use Apps. Actions that
-install missing nanobot support packages, such as adding a channel dependency,
+install missing nanoinfra support packages, such as adding a channel dependency,
 are blocked by default. To let trusted remote administrators change the Python
 environment through the WebUI, opt in explicitly:
 
@@ -298,7 +298,7 @@ environment through the WebUI, opt in explicitly:
 ```
 
 Use this only for a private deployment where every authenticated WebUI user is
-trusted to change the Python environment that nanobot runs in. If you publish
+trusted to change the Python environment that nanoinfra runs in. If you publish
 the WebUI through Nginx, Caddy, Cloudflare Tunnel, or a similar service, treat it
 as remote access and leave package installs disabled unless that is intentional.
 
@@ -312,9 +312,9 @@ private, trusted network.
 
 If the page does not open, check these in order:
 
-1. `nanobot agent -m "Hello!"` works in the same Python environment.
-2. `~/.nanobot/config.json` does not explicitly set `channels.websocket.enabled` to `false`.
-3. `nanobot gateway` is still running.
+1. `nanoinfra agent -m "Hello!"` works in the same Python environment.
+2. `~/.nanoinfra/config.json` does not explicitly set `channels.websocket.enabled` to `false`.
+3. `nanoinfra gateway` is still running.
 4. You are opening port `8765`, not the gateway health port.
 5. LAN access uses `host: "0.0.0.0"` and a token or token issue secret.
 

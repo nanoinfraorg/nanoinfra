@@ -1,25 +1,25 @@
-# nanobot Documentation
+# nanoinfra Documentation
 
 Use these docs to get a working agent first, then open a task guide only when you need the next capability. Source-level design and extension details are kept in the contributor section.
 
-Repository docs follow the current source tree and can be newer than the latest package release. For published release docs, visit [nanobot.wiki](https://nanobot.wiki/docs/latest/getting-started/nanobot-overview).
+Repository docs follow the current source tree and can be newer than the latest package release. For published release docs, visit [nanoinfra.wiki](https://nanoinfra.wiki/docs/latest/getting-started/nanoinfra-overview).
 
 ## Start Here
 
 | Your situation | Read this | You are done when... |
 |---|---|---|
 | Terminals, Python, or API keys are new to you | [Beginner walkthrough](./start-without-technical-background.md) | The browser can send `Hello!` and receive a reply |
-| You are comfortable running commands | [Install and Quick Start](./quick-start.md) | `nanobot status` is healthy and the WebUI or CLI can get one reply |
+| You are comfortable running commands | [Install and Quick Start](./quick-start.md) | `nanoinfra status` is healthy and the WebUI or CLI can get one reply |
 | Something already failed | [Troubleshooting](./troubleshooting.md) | You have isolated the problem to install, config, model, gateway, channel, or tool access |
 
 The recommended first-run path is:
 
-1. Install nanobot.
-2. Let the installer open `nanobot webui` on a fresh local desktop.
+1. Install nanoinfra.
+2. Let the installer open `nanoinfra webui` on a fresh local desktop.
 3. Configure a provider and model in **Settings → Models**.
 4. Send `Hello!` before configuring anything else.
 
-Most people do not need to edit JSON for the first run. The WebUI handles the initial provider, model, and local browser settings. SSH, headless, existing-config, and older-release installs retain `nanobot onboard --wizard` as a terminal fallback. After the WebUI opens, use **Settings** for models and built-in capabilities, **Settings → Channels** for chat apps, and **Apps** for CLI App or MCP integrations.
+Most people do not need to edit JSON for the first run. The WebUI handles the initial provider, model, and local browser settings. SSH, headless, existing-config, and older-release installs retain `nanoinfra onboard --wizard` as a terminal fallback. After the WebUI opens, use **Settings** for models and built-in capabilities, **Settings → Channels** for chat apps, and **Apps** for CLI App or MCP integrations.
 
 ## Add One Capability
 
@@ -36,14 +36,14 @@ Pick the row that matches what you want to accomplish next:
 | Generate images | [Image Generation](./image-generation.md) |
 | Schedule work or create a local trigger | [Automations](./automations.md) |
 | Understand and manage long-term memory | [Memory](./memory.md) |
-| Run nanobot continuously | [Deployment](./deployment.md) |
+| Run nanoinfra continuously | [Deployment](./deployment.md) |
 | Run separate bots or workspaces | [Multiple Instances](./multiple-instances.md) |
-| Call nanobot from Python | [Python SDK](./python-sdk.md) |
+| Call nanoinfra from Python | [Python SDK](./python-sdk.md) |
 | Expose an OpenAI-compatible endpoint | [OpenAI-Compatible API](./openai-api.md) |
 
 For shorter, outcome-focused walkthroughs, browse the [task guide index](./guides/README.md).
 
-## Operate nanobot
+## Operate nanoinfra
 
 | Need | Read |
 |---|---|
@@ -68,11 +68,11 @@ Use reference pages to look up an exact option after you know what you are tryin
 | OpenAI-compatible HTTP routes and payloads | [OpenAI-Compatible API](./openai-api.md) |
 | Runtime self-inspection and tuning | [My Tool](./my-tool.md) |
 
-Configuration examples are usually snippets to merge into `~/.nanobot/config.json`, not complete replacement files. The docs use camelCase because nanobot writes config that way. Keep real API keys, bot tokens, and passwords out of issues and public logs.
+Configuration examples are usually snippets to merge into `~/.nanoinfra/config.json`, not complete replacement files. The docs use camelCase because nanoinfra writes config that way. Keep real API keys, bot tokens, and passwords out of issues and public logs.
 
 ## Extend or Contribute
 
-These pages explain implementation and extension points. You do not need them to install or operate nanobot.
+These pages explain implementation and extension points. You do not need them to install or operate nanoinfra.
 
 | Goal | Read |
 |---|---|
@@ -81,4 +81,4 @@ These pages explain implementation and extension points. You do not need them to
 | Add a channel package | [Channel Package Guide](./channel-package-guide.md) |
 | Build the WebUI source | [WebUI Development](../webui/README.md) |
 
-If a command or screen no longer matches these docs, please [open an issue](https://github.com/HKUDS/nanobot/issues) with your nanobot version, operating system, and the page that needs correction.
+If a command or screen no longer matches these docs, please [open an issue](https://github.com/bet0x/nanoinfra/issues) with your nanoinfra version, operating system, and the page that needs correction.

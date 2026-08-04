@@ -7,8 +7,8 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from websockets.datastructures import Headers
 
-from nanobot.webui.http_utils import http_json_response
-from nanobot.webui.settings_routes import WebUISettingsRouter
+from nanoinfra.webui.http_utils import http_json_response
+from nanoinfra.webui.settings_routes import WebUISettingsRouter
 
 
 def _router(*, authorized: bool = True) -> WebUISettingsRouter:
@@ -30,10 +30,10 @@ def _router(*, authorized: bool = True) -> WebUISettingsRouter:
 @pytest.mark.parametrize(
     ("provider", "header_name", "authorization_response"),
     [
-        ("xai_grok", "X-Nanobot-OAuth-Code", "secret"),
+        ("xai_grok", "X-Nanoinfra-OAuth-Code", "secret"),
         (
             "openai_codex",
-            "X-Nanobot-OAuth-Callback",
+            "X-Nanoinfra-OAuth-Callback",
             "http://localhost:1455/auth/callback?code=secret&state=test",
         ),
     ],
@@ -55,7 +55,7 @@ async def test_oauth_completion_reads_private_response_header(
             "flow_id": "flow-123",
         }
 
-    monkeypatch.setattr("nanobot.webui.settings_routes.complete_oauth_provider", complete)
+    monkeypatch.setattr("nanoinfra.webui.settings_routes.complete_oauth_provider", complete)
     router = _router()
     request = SimpleNamespace(
         path=(
@@ -129,7 +129,7 @@ async def test_model_preset_mutation_routes(
         captured["query"] = query
         return {"routed": function_name}
 
-    monkeypatch.setattr(f"nanobot.webui.settings_routes.{function_name}", mutate)
+    monkeypatch.setattr(f"nanoinfra.webui.settings_routes.{function_name}", mutate)
     request = SimpleNamespace(path=request_path, headers=Headers())
 
     response = await _router().dispatch(None, request, route_path)

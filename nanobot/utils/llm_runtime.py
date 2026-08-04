@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
-from nanobot.providers.base import GenerationSettings, LLMProvider
+from nanoinfra.providers.base import GenerationSettings, LLMProvider
 
 if TYPE_CHECKING:
-    from nanobot.providers.factory import ProviderSnapshot
+    from nanoinfra.providers.factory import ProviderSnapshot
 
 
 @dataclass(frozen=True, slots=True)

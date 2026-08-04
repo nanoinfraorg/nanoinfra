@@ -1,5 +1,5 @@
 {
-  "description": "Telegram 채팅에서 nanobot과 대화합니다.",
+  "description": "Telegram 채팅에서 nanoinfra과 대화합니다.",
   "requirements": "봇 토큰, 허용된 사용자 및 게이트웨이",
   "setup": {
     "docsLabel": "Telegram 설정 가이드 열기",

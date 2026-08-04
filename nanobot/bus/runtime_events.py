@@ -1,6 +1,6 @@
 """Runtime event bus for agent state notifications.
 
-This bus is separate from :mod:`nanobot.bus.queue`: message bus events are
+This bus is separate from :mod:`nanoinfra.bus.queue`: message bus events are
 user/chat delivery, while runtime events are in-process state notifications
 that optional subscribers such as WebUI adapters may render.
 """
@@ -16,10 +16,10 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from nanobot.bus.events import InboundMessage
+from nanoinfra.bus.events import InboundMessage
 
 if TYPE_CHECKING:
-    from nanobot.utils.llm_runtime import LLMRuntime
+    from nanoinfra.utils.llm_runtime import LLMRuntime
 
 
 @dataclass(frozen=True)

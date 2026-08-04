@@ -1,5 +1,5 @@
 {
-  "description": "Use nanobot from Mattermost channels and DMs.",
+  "description": "Use nanoinfra from Mattermost channels and DMs.",
   "requirements": "Mattermost server URL, bot token, channel access",
   "setup": {
     "docsLabel": "Open Mattermost setup",

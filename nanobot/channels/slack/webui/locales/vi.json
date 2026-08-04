@@ -1,5 +1,5 @@
 {
-  "description": "Sử dụng nanobot trong không gian Slack.",
+  "description": "Sử dụng nanoinfra trong không gian Slack.",
   "requirements": "Token ứng dụng Slack, token bot và cài đặt vào workspace",
   "setup": {
     "docsLabel": "Mở hướng dẫn Slack",

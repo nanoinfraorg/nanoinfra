@@ -3,7 +3,7 @@
 import gzip
 import json
 
-from nanobot.webui.http_utils import http_json_response
+from nanoinfra.webui.http_utils import http_json_response
 
 
 def test_http_json_response_compresses_large_payload_when_gzip_is_accepted() -> None:

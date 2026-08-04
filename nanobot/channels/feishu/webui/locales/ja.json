@@ -1,5 +1,5 @@
 {
-  "description": "Feishu のチャットとグループから nanobot を利用します。",
+  "description": "Feishu のチャットとグループから nanoinfra を利用します。",
   "requirements": "Feishu アプリ認証情報、イベント購読、ゲートウェイ",
   "setup": {
     "primaryAction": "Feishu に接続",
@@ -9,7 +9,7 @@
     "summary": "QR コードで Feishu アプリを作成または連携し、認証情報を自動保存します。",
     "steps": [
       "接続をクリックし、スマートフォンの Feishu または Lark で QR コードを読み取ります。",
-      "アプリ接続を承認すると、nanobot が App ID と Secret を保存します。",
+      "アプリ接続を承認すると、nanoinfra が App ID と Secret を保存します。",
       "ボットに DM を送るか Feishu グループでメンションします。"
     ],
     "fields": {
@@ -64,7 +64,7 @@
     "countMany": "{{count}} 個のアシスタントを接続中",
     "qrAlt": "Feishu 接続 QR コード",
     "scanTitle": "Feishu でスキャン",
-    "scanDescription": "スマートフォンの Feishu または Lark でスキャンしてください。認可後に nanobot が設定を完了します。",
+    "scanDescription": "スマートフォンの Feishu または Lark でスキャンしてください。認可後に nanoinfra が設定を完了します。",
     "waiting": "認可を待っています...",
     "connected": "Feishu に接続しました。",
     "stopped": "接続を停止しました。",

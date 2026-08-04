@@ -131,9 +131,9 @@ class GitStore:
             )
             porcelain.commit(
                 str(self._workspace),
-                message=b"init: nanobot memory store",
-                author=b"nanobot <nanobot@dream>",
-                committer=b"nanobot <nanobot@dream>",
+                message=b"init: nanoinfra memory store",
+                author=b"nanoinfra <nanoinfra@dream>",
+                committer=b"nanoinfra <nanoinfra@dream>",
             )
             logger.info("Git store initialized at {}", self._workspace)
             return True
@@ -171,8 +171,8 @@ class GitStore:
             sha_bytes = porcelain.commit(
                 str(self._workspace),
                 message=msg_bytes,
-                author=b"nanobot <nanobot@dream>",
-                committer=b"nanobot <nanobot@dream>",
+                author=b"nanoinfra <nanoinfra@dream>",
+                committer=b"nanoinfra <nanoinfra@dream>",
             )
             if cast(object, sha_bytes) is None:
                 return None

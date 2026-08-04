@@ -12,14 +12,14 @@ from typing import TYPE_CHECKING, Any, TypeGuard, cast
 
 from loguru import logger
 
-from nanobot.agent.tools.base import Tool, ToolResult
-from nanobot.agent.tools.context import current_request_context, current_request_session_key
-from nanobot.agent.tools.runtime_state import RuntimeState
-from nanobot.config_base import Base
+from nanoinfra.agent.tools.base import Tool, ToolResult
+from nanoinfra.agent.tools.context import current_request_context, current_request_session_key
+from nanoinfra.agent.tools.runtime_state import RuntimeState
+from nanoinfra.config_base import Base
 
 if TYPE_CHECKING:
-    from nanobot.agent.subagent import SubagentStatus
-    from nanobot.agent.tools.context import ToolContext
+    from nanoinfra.agent.subagent import SubagentStatus
+    from nanoinfra.agent.tools.context import ToolContext
 
 
 class MyToolConfig(Base):
@@ -42,7 +42,7 @@ def _has_real_attr(obj: Any, key: str) -> bool:
 
 
 def _is_subagent_status(value: object) -> TypeGuard[SubagentStatus]:
-    from nanobot.agent.subagent import SubagentStatus
+    from nanoinfra.agent.subagent import SubagentStatus
 
     return isinstance(value, SubagentStatus)
 

@@ -1,6 +1,6 @@
 """Pairing store for DM sender approval.
 
-Persistent storage at ``~/.nanobot/pairing.json`` keeps approved senders
+Persistent storage at ``~/.nanoinfra/pairing.json`` keeps approved senders
 and pending pairing codes per channel.  The store is designed for
 private-assistant scale: small JSON file, simple locking, no external DB.
 """
@@ -17,8 +17,8 @@ from typing import Any, cast
 
 from loguru import logger
 
-from nanobot.config.paths import get_data_dir
-from nanobot.utils.helpers import _write_text_atomic  # pyright: ignore[reportPrivateUsage]
+from nanoinfra.config.paths import get_data_dir
+from nanoinfra.utils.helpers import _write_text_atomic  # pyright: ignore[reportPrivateUsage]
 
 # threading.Lock is used so store functions remain callable from both sync CLI
 # and async channel handlers.  At private-assistant scale (small JSON file,
@@ -282,7 +282,7 @@ def format_pairing_reply(code: str) -> str:
     return (
         "Hi there! This assistant only responds to approved users.\n\n"
         f"Your pairing code is: `{code}`\n\n"
-        "To get access, ask the owner to approve this request in the nanobot WebUI.\n"
+        "To get access, ask the owner to approve this request in the nanoinfra WebUI.\n"
         f"If the WebUI is not available, the owner can also send `/pairing approve {code}`."
     )
 

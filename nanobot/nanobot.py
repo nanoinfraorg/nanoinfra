@@ -1,4 +1,4 @@
-"""High-level programmatic interface to nanobot."""
+"""High-level programmatic interface to nanoinfra."""
 
 from __future__ import annotations
 
@@ -7,18 +7,18 @@ from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
 from typing import Any
 
-from nanobot.agent.hook import AgentHook, SDKCaptureHook
-from nanobot.agent.hooks import create_file_edit_activity_hook
-from nanobot.agent.loop import AgentLoop
-from nanobot.config.schema import Config
-from nanobot.providers.image_generation import image_gen_provider_configs
-from nanobot.sdk.clients import MemoryClient, RuntimeClient, SessionClient
-from nanobot.sdk.runtime import (
+from nanoinfra.agent.hook import AgentHook, SDKCaptureHook
+from nanoinfra.agent.hooks import create_file_edit_activity_hook
+from nanoinfra.agent.loop import AgentLoop
+from nanoinfra.config.schema import Config
+from nanoinfra.providers.image_generation import image_gen_provider_configs
+from nanoinfra.sdk.clients import MemoryClient, RuntimeClient, SessionClient
+from nanoinfra.sdk.runtime import (
     build_process_direct_kwargs,
     ensure_single_model_selector,
 )
-from nanobot.sdk.streaming import RunStream, SDKStreamEmitter, SDKStreamingHook
-from nanobot.sdk.types import (
+from nanoinfra.sdk.streaming import RunStream, SDKStreamEmitter, SDKStreamingHook
+from nanoinfra.sdk.types import (
     STREAM_EVENT_REASONING_COMPLETED,
     STREAM_EVENT_REASONING_DELTA,
     STREAM_EVENT_RUN_COMPLETED,
@@ -37,10 +37,10 @@ from nanobot.sdk.types import (
     StreamEventType,
     result_from_response,
 )
-from nanobot.utils.llm_runtime import LLMRuntime
+from nanoinfra.utils.llm_runtime import LLMRuntime
 
 __all__ = [
-    "Nanobot",
+    "Nanoinfra",
     "RunResult",
     "RunStream",
     "SessionInfo",
@@ -61,12 +61,12 @@ __all__ = [
 ]
 
 
-class Nanobot:
-    """Programmatic facade for running the nanobot agent.
+class Nanoinfra:
+    """Programmatic facade for running the nanoinfra agent.
 
     Usage::
 
-        bot = Nanobot.from_config()
+        bot = Nanoinfra.from_config()
         result = await bot.run("Summarize this repo", hooks=[MyHook()])
         print(result.content)
     """
@@ -86,17 +86,17 @@ class Nanobot:
         workspace: str | Path | None = None,
         model: str | None = None,
         model_preset: str | None = None,
-    ) -> Nanobot:
-        """Create a Nanobot instance from a config file.
+    ) -> Nanoinfra:
+        """Create a Nanoinfra instance from a config file.
 
         Args:
             config_path: Path to ``config.json``.  Defaults to
-                ``~/.nanobot/config.json``.
+                ``~/.nanoinfra/config.json``.
             workspace: Override the workspace directory from config.
             model: Override the instance default model.
             model_preset: Override the instance default model preset.
         """
-        from nanobot.config.loader import load_config, resolve_config_env_vars
+        from nanoinfra.config.loader import load_config, resolve_config_env_vars
 
         ensure_single_model_selector(model=model, model_preset=model_preset)
         resolved: Path | None = None
@@ -155,7 +155,7 @@ class Nanobot:
             ephemeral: If true, do not persist the turn or compact session history.
             attributes: Optional caller-owned request data exposed to context
                 providers and turn-hook factories. Attributes are kept separate
-                from nanobot's trusted internal message metadata.
+                from nanoinfra's trusted internal message metadata.
             hooks: Optional lifecycle hooks for this run.
             model: Override the model for this run only.
             model_preset: Override the model preset for this run only.
@@ -330,7 +330,7 @@ class Nanobot:
         """Release resources held by this instance (MCP connections, etc.)."""
         await self._loop.close_mcp()
 
-    async def __aenter__(self) -> Nanobot:
+    async def __aenter__(self) -> Nanoinfra:
         return self
 
     async def __aexit__(self, *exc: object) -> None:

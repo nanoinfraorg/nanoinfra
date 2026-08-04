@@ -1,14 +1,14 @@
 {
-  "description": "Conecta nanobot mediante un gateway NapCat.",
+  "description": "Conecta nanoinfra mediante un gateway NapCat.",
   "requirements": "Endpoint WebSocket de NapCat y token de acceso opcional",
   "setup": {
     "docsLabel": "Abrir guía de NapCat",
     "officialLabel": "Abrir documentación de NapCat",
     "tryIt": "Envía un mensaje de prueba de QQ mediante NapCat.",
-    "summary": "NapCat conecta nanobot con QQ mediante un endpoint WebSocket OneBot local o remoto.",
+    "summary": "NapCat conecta nanoinfra con QQ mediante un endpoint WebSocket OneBot local o remoto.",
     "steps": [
       "Inicia NapCat y activa un servicio Forward WebSocket.",
-      "Copia la URL WebSocket y el token opcional en nanobot.",
+      "Copia la URL WebSocket y el token opcional en nanoinfra.",
       "Guarda y activa NapCat; después envía un mensaje de prueba de QQ."
     ],
     "fields": {

@@ -18,38 +18,38 @@ from urllib.parse import unquote
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
-from nanobot.agent.tools.image_generation import request_image_generation_reload
-from nanobot.agent.tools.mcp import request_mcp_reload
-from nanobot.api.runtime import ApiRuntime, ApiStartOptions, api_runtime_paths
-from nanobot.bus.queue import MessageBus
-from nanobot.channels._setup import channel_setup_spec
-from nanobot.channels.connect import ChannelConnectError
-from nanobot.channels.contracts import (
+from nanoinfra.agent.tools.image_generation import request_image_generation_reload
+from nanoinfra.agent.tools.mcp import request_mcp_reload
+from nanoinfra.api.runtime import ApiRuntime, ApiStartOptions, api_runtime_paths
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels._setup import channel_setup_spec
+from nanoinfra.channels.connect import ChannelConnectError
+from nanoinfra.channels.contracts import (
     RouteFieldType,
     channel_instance_config,
     channel_update_instance_config,
 )
-from nanobot.channels.registry import load_channel_plugin
-from nanobot.channels.validation import validate_channel_config
-from nanobot.config.loader import get_config_path, load_config, save_config
-from nanobot.optional_features import (
+from nanoinfra.channels.registry import load_channel_plugin
+from nanoinfra.channels.validation import validate_channel_config
+from nanoinfra.config.loader import get_config_path, load_config, save_config
+from nanoinfra.optional_features import (
     OptionalFeatureError,
     extra_installed,
     optional_dependency_groups,
     with_channel_runtime_status,
 )
-from nanobot.pairing import approve_code, deny_code, list_pending
-from nanobot.webui.cli_apps_api import cli_apps_action, cli_apps_payload
-from nanobot.webui.http_utils import case_insensitive_header
-from nanobot.webui.http_utils import is_local_browser_request as _is_local_browser_request
-from nanobot.webui.http_utils import query_first as _query_first
-from nanobot.webui.mcp_presets_api import mcp_presets_settings_action
-from nanobot.webui.nanobot_features_api import (
-    nanobot_feature_instance_target,
-    nanobot_features_action,
-    nanobot_features_payload,
+from nanoinfra.pairing import approve_code, deny_code, list_pending
+from nanoinfra.webui.cli_apps_api import cli_apps_action, cli_apps_payload
+from nanoinfra.webui.http_utils import case_insensitive_header
+from nanoinfra.webui.http_utils import is_local_browser_request as _is_local_browser_request
+from nanoinfra.webui.http_utils import query_first as _query_first
+from nanoinfra.webui.mcp_presets_api import mcp_presets_settings_action
+from nanoinfra.webui.nanoinfra_features_api import (
+    nanoinfra_feature_instance_target,
+    nanoinfra_features_action,
+    nanoinfra_features_payload,
 )
-from nanobot.webui.settings_api import (
+from nanoinfra.webui.settings_api import (
     WebUISettingsError,
     complete_oauth_provider,
     create_model_configuration,
@@ -72,20 +72,20 @@ from nanobot.webui.settings_api import (
     update_transcription_settings,
     update_web_search_settings,
 )
-from nanobot.webui.version_check import check_for_update
+from nanoinfra.webui.version_check import check_for_update
 
 QueryParams = dict[str, list[str]]
 
-_MCP_VALUES_HEADER = "X-Nanobot-MCP-Values"
+_MCP_VALUES_HEADER = "X-Nanoinfra-MCP-Values"
 _MCP_VALUES_HEADER_MAX_BYTES = 64 * 1024
-_PROVIDER_VALUES_HEADER = "X-Nanobot-Provider-Values"
+_PROVIDER_VALUES_HEADER = "X-Nanoinfra-Provider-Values"
 _PROVIDER_VALUES_HEADER_MAX_BYTES = 64 * 1024
-_CHANNEL_VALUES_HEADER = "X-Nanobot-Channel-Values"
+_CHANNEL_VALUES_HEADER = "X-Nanoinfra-Channel-Values"
 _CHANNEL_VALUES_HEADER_MAX_BYTES = 64 * 1024
-_API_SERVICE_VALUES_HEADER = "X-Nanobot-API-Service-Values"
+_API_SERVICE_VALUES_HEADER = "X-Nanoinfra-API-Service-Values"
 _API_SERVICE_VALUES_HEADER_MAX_BYTES = 8 * 1024
-_OAUTH_CODE_HEADER = "X-Nanobot-OAuth-Code"
-_OAUTH_CALLBACK_HEADER = "X-Nanobot-OAuth-Callback"
+_OAUTH_CODE_HEADER = "X-Nanoinfra-OAuth-Code"
+_OAUTH_CALLBACK_HEADER = "X-Nanoinfra-OAuth-Callback"
 _OAUTH_RESPONSE_HEADER_MAX_BYTES = 8 * 1024
 
 _SKIP_FIELD = object()
@@ -196,12 +196,12 @@ class WebUISettingsRouter:
             return await self._handle_settings_cli_apps_action(request, "uninstall")
         if path == "/api/settings/cli-apps/test":
             return await self._handle_settings_cli_apps_action(request, "test")
-        if path == "/api/settings/nanobot-features":
-            return await self._handle_settings_nanobot_features(request)
-        if path == "/api/settings/nanobot-features/enable":
-            return await self._handle_settings_nanobot_features_action(connection, request, "enable")
-        if path == "/api/settings/nanobot-features/disable":
-            return await self._handle_settings_nanobot_features_action(connection, request, "disable")
+        if path == "/api/settings/nanoinfra-features":
+            return await self._handle_settings_nanoinfra_features(request)
+        if path == "/api/settings/nanoinfra-features/enable":
+            return await self._handle_settings_nanoinfra_features_action(connection, request, "enable")
+        if path == "/api/settings/nanoinfra-features/disable":
+            return await self._handle_settings_nanoinfra_features_action(connection, request, "disable")
         channel_connect = _channel_connect_route(path)
         if channel_connect is not None:
             channel_name, action = channel_connect
@@ -520,7 +520,7 @@ class WebUISettingsRouter:
             return self._unauthorized()
         try:
             await asyncio.to_thread(
-                nanobot_features_action,
+                nanoinfra_features_action,
                 "enable",
                 {"name": ["api"]},
                 allow_install=self._allow_feature_package_install(connection, request),
@@ -608,7 +608,7 @@ class WebUISettingsRouter:
             "timeout": config.api.timeout,
             "api_key_hint": self._masked_secret(config.api.api_key),
             "endpoint": f"http://{connect_host}:{config.api.port}/v1",
-            "command": "nanobot serve",
+            "command": "nanoinfra serve",
             "log_path": str(status.log_path),
         }
         if last_action:
@@ -722,17 +722,17 @@ class WebUISettingsRouter:
             return self._error_response(status, message)
         return self._json_response(payload)
 
-    async def _handle_settings_nanobot_features(self, request: WsRequest) -> Response:
+    async def _handle_settings_nanoinfra_features(self, request: WsRequest) -> Response:
         if not self._authorized(request):
             return self._unauthorized()
         try:
-            payload = await asyncio.to_thread(nanobot_features_payload)
+            payload = await asyncio.to_thread(nanoinfra_features_payload)
         except Exception:
-            self.logger.exception("failed to load nanobot features")
-            return self._error_response(500, "failed to load nanobot features")
+            self.logger.exception("failed to load nanoinfra features")
+            return self._error_response(500, "failed to load nanoinfra features")
         return self._json_response(self._with_channel_runtime_status(payload))
 
-    async def _handle_settings_nanobot_features_action(
+    async def _handle_settings_nanoinfra_features_action(
         self,
         connection: Any,
         request: WsRequest,
@@ -742,7 +742,7 @@ class WebUISettingsRouter:
             return self._unauthorized()
         try:
             payload = await asyncio.to_thread(
-                nanobot_features_action,
+                nanoinfra_features_action,
                 action,
                 self._query(request),
                 allow_install=action != "enable"
@@ -754,9 +754,9 @@ class WebUISettingsRouter:
             status = getattr(e, "status", 500)
             message = getattr(e, "message", str(e))
             if status >= 500:
-                self.logger.exception("nanobot feature action '{}' failed", action)
+                self.logger.exception("nanoinfra feature action '{}' failed", action)
             return self._error_response(status, message)
-        payload = await self._apply_nanobot_feature_runtime_change(
+        payload = await self._apply_nanoinfra_feature_runtime_change(
             action,
             self._query(request),
             payload,
@@ -773,7 +773,7 @@ class WebUISettingsRouter:
             self.logger.exception("failed to load channel runtime status")
             return payload
 
-    async def _apply_nanobot_feature_runtime_change(
+    async def _apply_nanoinfra_feature_runtime_change(
         self,
         action: str,
         query: QueryParams,
@@ -787,7 +787,7 @@ class WebUISettingsRouter:
             return payload
 
         try:
-            instance_id = nanobot_feature_instance_target(query)
+            instance_id = nanoinfra_feature_instance_target(query)
             result = self._channel_feature_action(action, name, instance_id)
             if inspect.isawaitable(result):
                 result = await result
@@ -865,9 +865,9 @@ class WebUISettingsRouter:
             "saved_keys": saved,
         }
         if not enable:
-            features = await asyncio.to_thread(nanobot_features_payload)
+            features = await asyncio.to_thread(nanoinfra_features_payload)
             features = self._with_channel_runtime_status(features)
-            payload["nanobot_features"] = self._with_restart_state(features, section="runtime")
+            payload["nanoinfra_features"] = self._with_restart_state(features, section="runtime")
             return self._json_response(payload)
 
         feature_query = {"name": [name]}
@@ -876,7 +876,7 @@ class WebUISettingsRouter:
 
         try:
             features = await asyncio.to_thread(
-                nanobot_features_action,
+                nanoinfra_features_action,
                 "enable",
                 feature_query,
                 allow_install=self._allow_feature_package_install(connection, request),
@@ -887,13 +887,13 @@ class WebUISettingsRouter:
             self.logger.exception("failed to enable channel '{}' after settings save", name)
             return self._error_response(500, f"Settings saved, but enabling {name} failed: {e}")
 
-        features = await self._apply_nanobot_feature_runtime_change(
+        features = await self._apply_nanoinfra_feature_runtime_change(
             "enable",
             feature_query,
             features,
         )
         features = self._with_channel_runtime_status(features)
-        payload["nanobot_features"] = self._with_restart_state(features, section="runtime")
+        payload["nanoinfra_features"] = self._with_restart_state(features, section="runtime")
         return self._json_response(payload)
 
     async def _handle_settings_channel_validate(self, request: WsRequest) -> Response:
@@ -1109,28 +1109,28 @@ class WebUISettingsRouter:
             target["instance_id"] = [str(payload["instance_id"])]
         try:
             features = await asyncio.to_thread(
-                nanobot_features_action,
+                nanoinfra_features_action,
                 "enable",
                 target,
                 allow_install=self._allow_feature_package_install(connection, request),
             )
         except OptionalFeatureError as exc:
             features = self._feature_runtime_fallback(
-                nanobot_features_payload(),
+                nanoinfra_features_payload(),
                 message=(
                     f"{channel_name} connected, but enabling channel support failed: "
                     f"{exc.message}"
                 ),
             )
         else:
-            features = await self._apply_nanobot_feature_runtime_change(
+            features = await self._apply_nanoinfra_feature_runtime_change(
                 "enable",
                 target,
                 features,
             )
         features = self._with_channel_runtime_status(features)
         payload = dict(payload)
-        payload["nanobot_features"] = self._with_restart_state(features, section="runtime")
+        payload["nanoinfra_features"] = self._with_restart_state(features, section="runtime")
         return payload
 
     def _allow_feature_package_install(self, connection: Any, request: WsRequest) -> bool:

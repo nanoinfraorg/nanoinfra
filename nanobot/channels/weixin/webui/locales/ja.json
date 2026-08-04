@@ -1,5 +1,5 @@
 {
-  "description": "WeChat の会話から nanobot を利用します。",
+  "description": "WeChat の会話から nanoinfra を利用します。",
   "requirements": "WeChat チャンネル設定とゲートウェイ",
   "setup": {
     "primaryAction": "WeChat に接続",
@@ -26,7 +26,7 @@
   "custom": {
     "qrAlt": "WeChat ログイン QR コード",
     "scanTitle": "WeChat でスキャン",
-    "scanDescription": "スマートフォンの WeChat でスキャンしてください。ログイン後、nanobot が状態をローカルに保存します。",
+    "scanDescription": "スマートフォンの WeChat でスキャンしてください。ログイン後、nanoinfra が状態をローカルに保存します。",
     "waiting": "WeChat のスキャンを待っています...",
     "connected": "WeChat に接続しました。",
     "stopped": "WeChat ログインを停止しました。",

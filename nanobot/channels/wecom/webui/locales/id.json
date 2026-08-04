@@ -1,5 +1,5 @@
 {
-  "description": "Gunakan nanobot dari chat kerja WeCom.",
+  "description": "Gunakan nanoinfra dari chat kerja WeCom.",
   "requirements": "Kredensial aplikasi WeCom dan pengaturan callback",
   "setup": {
     "docsLabel": "Buka panduan WeCom",
@@ -8,7 +8,7 @@
     "summary": "WeCom memerlukan ID dan secret bot AI dari konsol admin.",
     "steps": [
       "Buat bot AI di WeCom dan pilih mode API.",
-      "Salin Bot ID dan Secret ke nanobot.",
+      "Salin Bot ID dan Secret ke nanoinfra.",
       "Simpan dan aktifkan WeCom, lalu kirim pesan uji."
     ],
     "fields": {

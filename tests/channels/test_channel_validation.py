@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from nanobot.channels import validation
+from nanoinfra.channels import validation
 
 
 def test_probe_tcp_connects_to_the_validated_ip(monkeypatch: pytest.MonkeyPatch) -> None:

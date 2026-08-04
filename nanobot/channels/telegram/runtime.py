@@ -29,15 +29,15 @@ from telegram.error import BadRequest, NetworkError, TimedOut
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.outbound_events import ProgressEvent
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.command.builtin import build_help_text
-from nanobot.config.paths import get_media_dir
-from nanobot.config.schema import Base
-from nanobot.security.network import validate_url_target
-from nanobot.utils.helpers import split_message
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.outbound_events import ProgressEvent
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.command.builtin import build_help_text
+from nanoinfra.config.paths import get_media_dir
+from nanoinfra.config.schema import Base
+from nanoinfra.security.network import validate_url_target
+from nanoinfra.utils.helpers import split_message
 
 TELEGRAM_MAX_MESSAGE_LEN = 4000  # Telegram message character limit
 # Telegram's actual API limit is 4096; we split raw markdown at 4000 as a
@@ -47,7 +47,7 @@ TELEGRAM_MAX_MESSAGE_LEN = 4000  # Telegram message character limit
 TELEGRAM_HTML_MAX_LEN = 4096
 TELEGRAM_REPLY_CONTEXT_MAX_LEN = TELEGRAM_MAX_MESSAGE_LEN  # Max length for reply context in user message
 
-# python-telegram-bot exposes a six-parameter Application generic. Nanobot
+# python-telegram-bot exposes a six-parameter Application generic. Nanoinfra
 # doesn't customize its context/data/job-queue types, so keep that SDK boundary
 # explicit rather than allowing unspecialized generics to spread Unknown.
 TelegramApplication: TypeAlias = Application[Any, Any, Any, Any, Any, Any]
@@ -504,7 +504,7 @@ class TelegramChannel(BaseChannel):
 
     @staticmethod
     def _normalize_telegram_command(content: str) -> str:
-        """Map Telegram-safe command aliases back to canonical nanobot commands."""
+        """Map Telegram-safe command aliases back to canonical nanoinfra commands."""
         if not content.startswith("/"):
             return content
         if content == "/dream_log" or content.startswith("/dream_log "):
@@ -1175,7 +1175,7 @@ class TelegramChannel(BaseChannel):
             await self._send_pairing_code_if_private(sender_id, update.message, user)
             return
         await update.message.reply_text(
-            f"👋 Hi {user.first_name}! I'm nanobot.\n\n"
+            f"👋 Hi {user.first_name}! I'm nanoinfra.\n\n"
             "Send me a message and I'll respond!\n"
             "Type /help to see available commands."
         )
@@ -1387,7 +1387,7 @@ class TelegramChannel(BaseChannel):
 
     @staticmethod
     def _queue_key_for_message(message: Message) -> str:
-        """Return the final nanobot session key used for ordered Telegram ingress."""
+        """Return the final nanoinfra session key used for ordered Telegram ingress."""
         return TelegramChannel._derive_topic_session_key(message) or f"telegram:{message.chat_id}"
 
     @staticmethod

@@ -1,5 +1,5 @@
 {
-  "description": "Gunakan nanobot dari workspace Slack.",
+  "description": "Gunakan nanoinfra dari workspace Slack.",
   "requirements": "Token aplikasi Slack, token bot, dan instalasi workspace",
   "setup": {
     "docsLabel": "Buka panduan Slack",

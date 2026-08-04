@@ -1,4 +1,4 @@
-"""MCP client: connects to MCP servers and wraps their tools as native nanobot tools."""
+"""MCP client: connects to MCP servers and wraps their tools as native nanoinfra tools."""
 
 import asyncio
 import hashlib
@@ -15,30 +15,30 @@ from weakref import WeakKeyDictionary
 import httpx
 from loguru import logger
 
-from nanobot.agent.tools.base import Tool, ToolResult
-from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.bus.events import (
+from nanoinfra.agent.tools.base import Tool, ToolResult
+from nanoinfra.agent.tools.registry import ToolRegistry
+from nanoinfra.bus.events import (
     INBOUND_META_RUNTIME_CONTROL,
     RUNTIME_CONTROL_ACK,
     RUNTIME_CONTROL_MCP_RELOAD,
     InboundMessage,
 )
-from nanobot.bus.queue import MessageBus
-from nanobot.security.network import (
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.security.network import (
     PinnedDNSAsyncTransport,
     env_proxy_applies_to_url,
     httpx_env_proxy_mounts,
     resolve_url_target,
     validate_url_target,
 )
-from nanobot.utils.cancellation import task_is_cancelling
+from nanoinfra.utils.cancellation import task_is_cancelling
 
 if TYPE_CHECKING:
     from mcp import ClientSession
     from mcp.types import Prompt, Resource
     from mcp.types import Tool as MCPToolDefinition
 
-    from nanobot.config.schema import MCPServerConfig
+    from nanoinfra.config.schema import MCPServerConfig
 
 # Transient connection errors that warrant a single retry.
 # These typically happen when an MCP server restarts or a network
@@ -556,7 +556,7 @@ def _mcp_image_tool_result(text_parts: list[str], artifacts: list[dict[str, Any]
 
 
 class MCPToolWrapper(_MCPWrapperBase):
-    """Wraps a single MCP server tool as a nanobot Tool."""
+    """Wraps a single MCP server tool as a nanoinfra Tool."""
 
     _plugin_discoverable = False
 
@@ -698,7 +698,7 @@ class MCPToolWrapper(_MCPWrapperBase):
         self, data_url: str, arguments: Mapping[str, Any]
     ) -> dict[str, Any] | None:
         """Persist one image data URL as an artifact; return its metadata or None."""
-        from nanobot.utils.artifacts import ArtifactError, store_generated_image_artifact
+        from nanoinfra.utils.artifacts import ArtifactError, store_generated_image_artifact
 
         try:
             return store_generated_image_artifact(
@@ -718,7 +718,7 @@ class MCPToolWrapper(_MCPWrapperBase):
 
 
 class MCPResourceWrapper(_MCPWrapperBase):
-    """Wraps an MCP resource URI as a read-only nanobot Tool."""
+    """Wraps an MCP resource URI as a read-only nanoinfra Tool."""
 
     _plugin_discoverable = False
 
@@ -822,7 +822,7 @@ class MCPResourceWrapper(_MCPWrapperBase):
 
 
 class MCPPromptWrapper(_MCPWrapperBase):
-    """Wraps an MCP prompt as a read-only nanobot Tool."""
+    """Wraps an MCP prompt as a read-only nanoinfra Tool."""
 
     _plugin_discoverable = False
 
@@ -1296,7 +1296,7 @@ async def reload_servers(state: Any, registry: ToolRegistry) -> dict[str, Any]:
                 "requires_restart": True,
             }
         try:
-            from nanobot.config.loader import load_config, resolve_config_env_vars
+            from nanoinfra.config.loader import load_config, resolve_config_env_vars
 
             config = resolve_config_env_vars(load_config())
             next_servers = dict(config.tools.mcp_servers)
@@ -1304,7 +1304,7 @@ async def reload_servers(state: Any, registry: ToolRegistry) -> dict[str, Any]:
             logger.warning("MCP hot reload could not read config: {}", exc)
             return {
                 "ok": False,
-                "message": "Could not reload MCP config. Restart nanobot to pick up changes.",
+                "message": "Could not reload MCP config. Restart nanoinfra to pick up changes.",
                 "requires_restart": True,
                 "error": str(exc),
             }
@@ -1355,9 +1355,9 @@ async def reload_servers(state: Any, registry: ToolRegistry) -> dict[str, Any]:
         elif unchanged:
             message = "MCP config is already live."
         elif retry_missing and not added and not changed and not removed:
-            message = "MCP connections refreshed without restarting nanobot."
+            message = "MCP connections refreshed without restarting nanoinfra."
         else:
-            message = "MCP config reloaded without restarting nanobot."
+            message = "MCP config reloaded without restarting nanoinfra."
 
         logger.info(
             "MCP hot reload: added={} changed={} removed={} retried={} connected={} failed={} tools_removed={}",
@@ -1409,7 +1409,7 @@ async def request_mcp_reload(
     except asyncio.TimeoutError:
         return {
             "ok": False,
-            "message": "MCP hot reload timed out. Restart nanobot to pick up changes.",
+            "message": "MCP hot reload timed out. Restart nanoinfra to pick up changes.",
             "requires_restart": True,
         }
     return result if isinstance(cast(object, result), dict) else {
@@ -1432,7 +1432,7 @@ async def handle_runtime_control(state: Any, msg: InboundMessage, registry: Tool
         logger.exception("MCP hot reload failed")
         result = {
             "ok": False,
-            "message": "MCP hot reload failed. Restart nanobot to pick up changes.",
+            "message": "MCP hot reload failed. Restart nanoinfra to pick up changes.",
             "requires_restart": True,
             "error": str(exc),
         }

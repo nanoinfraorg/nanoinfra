@@ -4,8 +4,8 @@ from typing import Any
 
 import httpx
 
-from nanobot.channels.contracts import ChannelValidationContext
-from nanobot.channels.validation import (
+from nanoinfra.channels.contracts import ChannelValidationContext
+from nanoinfra.channels.validation import (
     check,
     http_get,
     payload,

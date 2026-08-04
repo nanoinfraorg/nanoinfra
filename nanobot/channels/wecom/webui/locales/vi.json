@@ -1,5 +1,5 @@
 {
-  "description": "Sử dụng nanobot trong các cuộc trò chuyện công việc WeCom.",
+  "description": "Sử dụng nanoinfra trong các cuộc trò chuyện công việc WeCom.",
   "requirements": "Thông tin xác thực ứng dụng WeCom và cài đặt callback",
   "setup": {
     "docsLabel": "Mở hướng dẫn WeCom",
@@ -8,7 +8,7 @@
     "summary": "WeCom cần ID và secret của bot AI từ bảng điều khiển quản trị.",
     "steps": [
       "Tạo bot AI trong WeCom và chọn chế độ API.",
-      "Sao chép Bot ID và Secret vào nanobot.",
+      "Sao chép Bot ID và Secret vào nanoinfra.",
       "Lưu và bật WeCom, sau đó gửi tin nhắn thử."
     ],
     "fields": {

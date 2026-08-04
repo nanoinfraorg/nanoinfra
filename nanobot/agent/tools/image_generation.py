@@ -9,41 +9,41 @@ from typing import TYPE_CHECKING, Any, cast
 from loguru import logger
 from pydantic import Field
 
-from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
-from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.schema import (
+from nanoinfra.agent.tools.base import Tool, ToolResult, tool_parameters
+from nanoinfra.agent.tools.registry import ToolRegistry
+from nanoinfra.agent.tools.schema import (
     ArraySchema,
     IntegerSchema,
     StringSchema,
     tool_parameters_schema,
 )
-from nanobot.bus.events import (
+from nanoinfra.bus.events import (
     INBOUND_META_RUNTIME_CONTROL,
     RUNTIME_CONTROL_ACK,
     RUNTIME_CONTROL_IMAGE_GENERATION_RELOAD,
     InboundMessage,
 )
-from nanobot.bus.queue import MessageBus
-from nanobot.config.paths import get_media_dir
-from nanobot.config_base import Base
-from nanobot.providers.image_generation import (
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.config.paths import get_media_dir
+from nanoinfra.config_base import Base
+from nanoinfra.providers.image_generation import (
     ImageGenerationError,
     ImageGenerationProvider,
     get_image_gen_provider,
     image_gen_provider_configs,
 )
-from nanobot.security.workspace_access import current_tool_workspace
-from nanobot.security.workspace_policy import WorkspaceBoundaryError, resolve_allowed_path
-from nanobot.utils.artifacts import (
+from nanoinfra.security.workspace_access import current_tool_workspace
+from nanoinfra.security.workspace_policy import WorkspaceBoundaryError, resolve_allowed_path
+from nanoinfra.utils.artifacts import (
     ArtifactError,
     generated_image_tool_result,
     store_generated_image_artifact,
 )
-from nanobot.utils.helpers import detect_image_mime
+from nanoinfra.utils.helpers import detect_image_mime
 
 if TYPE_CHECKING:
-    from nanobot.agent.tools.context import ToolContext
-    from nanobot.config.schema import ProviderConfig
+    from nanoinfra.agent.tools.context import ToolContext
+    from nanoinfra.config.schema import ProviderConfig
 
 
 class ImageGenerationToolConfig(Base):
@@ -160,7 +160,7 @@ class ImageGenerationTool(Tool):
             )
         except WorkspaceBoundaryError as exc:
             raise ImageGenerationError(
-                "reference_images must be inside the workspace or nanobot media directory"
+                "reference_images must be inside the workspace or nanoinfra media directory"
             ) from exc
         except OSError as exc:
             raise ImageGenerationError(f"reference image not found: {value}") from exc
@@ -227,7 +227,7 @@ class ImageGenerationTool(Tool):
 async def reload_image_generation_tool(state: Any, registry: ToolRegistry) -> dict[str, Any]:
     """Apply the persisted image configuration to the running agent."""
     try:
-        from nanobot.config.loader import load_config, resolve_config_env_vars
+        from nanoinfra.config.loader import load_config, resolve_config_env_vars
 
         config = resolve_config_env_vars(load_config())
         tool_config = config.tools.image_generation
@@ -266,7 +266,7 @@ async def reload_image_generation_tool(state: Any, registry: ToolRegistry) -> di
     )
     return {
         "ok": True,
-        "message": "Image generation settings applied without restarting nanobot.",
+        "message": "Image generation settings applied without restarting nanoinfra.",
         "enabled": tool_config.enabled,
         "provider": tool_config.provider,
         "model": tool_config.model,

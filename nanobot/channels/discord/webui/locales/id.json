@@ -1,5 +1,5 @@
 {
-  "description": "Gunakan nanobot dari server dan DM Discord.",
+  "description": "Gunakan nanoinfra dari server dan DM Discord.",
   "requirements": "Token bot Discord, izin, dan gateway",
   "setup": {
     "docsLabel": "Buka panduan Discord",

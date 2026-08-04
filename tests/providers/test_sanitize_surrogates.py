@@ -2,7 +2,7 @@
 
 These lock down two behaviors:
 
-1. ``nanobot.utils.helpers.sanitize_surrogates`` / ``sanitize_surrogates_deep``
+1. ``nanoinfra.utils.helpers.sanitize_surrogates`` / ``sanitize_surrogates_deep``
    produce strings that can round-trip through ``str.encode('utf-8')`` even
    when the input contains unpaired surrogates.
 
@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import pytest
 
-from nanobot.providers.base import LLMProvider
-from nanobot.utils.helpers import (
+from nanoinfra.providers.base import LLMProvider
+from nanoinfra.utils.helpers import (
     sanitize_surrogates,
     sanitize_surrogates_deep,
 )
@@ -164,7 +164,7 @@ class TestBackwardCompatReExport:
         """The CLI module continues to expose ``_sanitize_surrogates`` as a
         thin alias so existing imports (e.g. ``SafeFileHistory`` in the
         legacy tests) keep working."""
-        from nanobot.cli.commands import _sanitize_surrogates as cli_alias
+        from nanoinfra.cli.commands import _sanitize_surrogates as cli_alias
 
         assert cli_alias is sanitize_surrogates
         assert cli_alias("hello \ud83e\udd16") == "hello 🤖"

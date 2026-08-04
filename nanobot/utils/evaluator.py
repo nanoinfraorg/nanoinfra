@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from nanobot.utils.prompt_templates import render_template
-from nanobot.utils.workspace_prompts import (
+from nanoinfra.utils.prompt_templates import render_template
+from nanoinfra.utils.workspace_prompts import (
     WORKSPACE_PROMPT_MAX_CHARS,
     has_workspace_prompt_override,
     load_workspace_prompt_override,
@@ -20,7 +20,7 @@ from nanobot.utils.workspace_prompts import (
 )
 
 if TYPE_CHECKING:
-    from nanobot.providers.base import LLMProvider
+    from nanoinfra.providers.base import LLMProvider
 
 # Cap for a workspace-local heartbeat evaluator prompt override.
 EVALUATOR_PROMPT_MAX_CHARS = WORKSPACE_PROMPT_MAX_CHARS

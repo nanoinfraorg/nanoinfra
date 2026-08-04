@@ -1,5 +1,5 @@
 {
-  "description": "Utilisez nanobot sur les serveurs Discord et en messages privés.",
+  "description": "Utilisez nanoinfra sur les serveurs Discord et en messages privés.",
   "requirements": "Jeton du bot Discord, permissions et passerelle",
   "setup": {
     "docsLabel": "Ouvrir le guide Discord",

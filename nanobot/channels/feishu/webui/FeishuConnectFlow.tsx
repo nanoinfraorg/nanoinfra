@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 
 import { channelTranslator } from "@/channel-plugins/i18n";
 import { ChannelQrConnectFlow } from "@/components/settings/channels/ChannelQrConnectFlow";
-import type { NanobotFeaturesPayload } from "@/lib/types";
+import type { NanoinfraFeaturesPayload } from "@/lib/types";
 
 export function FeishuConnectFlow({
   token,
@@ -17,7 +17,7 @@ export function FeishuConnectFlow({
   mode?: "replace" | "create";
   idleLabel?: string;
   connectRequestId?: number;
-  onFeaturesUpdate: (payload: NanobotFeaturesPayload) => void;
+  onFeaturesUpdate: (payload: NanoinfraFeaturesPayload) => void;
 }) {
   const { t } = useTranslation();
   const tx = channelTranslator(t, "feishu");
@@ -34,7 +34,7 @@ export function FeishuConnectFlow({
         scanTitle: tx("custom.scanTitle", "Scan with Feishu"),
         scanDescription: tx(
           "custom.scanDescription",
-          "Use Feishu or Lark on your phone to scan this code. nanobot will finish setup automatically after authorization.",
+          "Use Feishu or Lark on your phone to scan this code. nanoinfra will finish setup automatically after authorization.",
         ),
         waiting: tx("custom.waiting", "Waiting for authorization..."),
         connected: tx("custom.connected", "Feishu is connected."),

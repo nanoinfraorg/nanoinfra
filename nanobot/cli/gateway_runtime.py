@@ -11,12 +11,12 @@ import typer
 from loguru import logger
 from rich.console import Console
 
-from nanobot import __logo__, __version__
-from nanobot.agent.hooks import create_file_edit_activity_hook
-from nanobot.agent.loop import AgentLoop
-from nanobot.cli import terminal as cli_terminal
-from nanobot.cli.runtime_config import _migrate_cron_store
-from nanobot.cli.webui_support import (
+from nanoinfra import __logo__, __version__
+from nanoinfra.agent.hooks import create_file_edit_activity_hook
+from nanoinfra.agent.loop import AgentLoop
+from nanoinfra.cli import terminal as cli_terminal
+from nanoinfra.cli.runtime_config import _migrate_cron_store
+from nanoinfra.cli.webui_support import (
     _gateway_health_bind_note,
     _gateway_health_url,
     _host_for_local_browser,
@@ -27,14 +27,14 @@ from nanobot.cli.webui_support import (
     _webui_channel_enabled,
     _webui_endpoint_reachable,
 )
-from nanobot.config.paths import is_default_workspace
-from nanobot.config.schema import Config
-from nanobot.security.network import is_loopback_host
-from nanobot.session.keys import UNIFIED_SESSION_KEY, last_channel_from_metadata
-from nanobot.utils.evaluator import evaluate_response, resolve_evaluator_prompt
-from nanobot.utils.helpers import sync_workspace_templates
-from nanobot.webui.build import BuildMode
-from nanobot.webui.sidebar_state import read_webui_sidebar_state
+from nanoinfra.config.paths import is_default_workspace
+from nanoinfra.config.schema import Config
+from nanoinfra.security.network import is_loopback_host
+from nanoinfra.session.keys import UNIFIED_SESSION_KEY, last_channel_from_metadata
+from nanoinfra.utils.evaluator import evaluate_response, resolve_evaluator_prompt
+from nanoinfra.utils.helpers import sync_workspace_templates
+from nanoinfra.webui.build import BuildMode
+from nanoinfra.webui.sidebar_state import read_webui_sidebar_state
 
 __all__ = ["_run_gateway"]
 
@@ -266,34 +266,34 @@ def _run_gateway(
     unconfigured_provider_error: str | None = None,
 ) -> None:
     """Shared gateway runtime; ``open_browser_url`` opens a tab once channels are up."""
-    from nanobot.agent.model_presets import load_model_preset_catalog
-    from nanobot.agent.tools.message import MessageTool
-    from nanobot.agent.turn_delivery import TurnDeliveryFactory
-    from nanobot.bus.queue import MessageBus
-    from nanobot.bus.runtime_events import RuntimeEventBus
-    from nanobot.channels.manager import ChannelManager
-    from nanobot.config.watcher import watch_config_file
-    from nanobot.cron.bound_runner import run_bound_cron_job
-    from nanobot.cron.service import CronJobSkippedError, CronService
-    from nanobot.cron.session_turns import is_bound_cron_job
-    from nanobot.cron.types import CronJob
-    from nanobot.providers.factory import (
+    from nanoinfra.agent.model_presets import load_model_preset_catalog
+    from nanoinfra.agent.tools.message import MessageTool
+    from nanoinfra.agent.turn_delivery import TurnDeliveryFactory
+    from nanoinfra.bus.queue import MessageBus
+    from nanoinfra.bus.runtime_events import RuntimeEventBus
+    from nanoinfra.channels.manager import ChannelManager
+    from nanoinfra.config.watcher import watch_config_file
+    from nanoinfra.cron.bound_runner import run_bound_cron_job
+    from nanoinfra.cron.service import CronJobSkippedError, CronService
+    from nanoinfra.cron.session_turns import is_bound_cron_job
+    from nanoinfra.cron.types import CronJob
+    from nanoinfra.providers.factory import (
         ProviderSnapshot,
         build_provider_snapshot,
         build_unconfigured_provider_snapshot,
         load_provider_snapshot,
     )
-    from nanobot.providers.fallback_provider import FallbackProvider
-    from nanobot.providers.image_generation import image_gen_provider_configs
-    from nanobot.session.manager import SessionManager
-    from nanobot.session.webui_turns import (
+    from nanoinfra.providers.fallback_provider import FallbackProvider
+    from nanoinfra.providers.image_generation import image_gen_provider_configs
+    from nanoinfra.session.manager import SessionManager
+    from nanoinfra.session.webui_turns import (
         WebuiTurnCoordinator,
         WebuiTurnRoutePolicy,
         build_webui_fallback_model_observer,
     )
-    from nanobot.triggers.local_runner import run_local_trigger_queue
-    from nanobot.triggers.local_store import LocalTriggerStore
-    from nanobot.webui.token_usage import TokenUsageHook
+    from nanoinfra.triggers.local_runner import run_local_trigger_queue
+    from nanoinfra.triggers.local_store import LocalTriggerStore
+    from nanoinfra.webui.token_usage import TokenUsageHook
 
     port = port if port is not None else config.gateway.port
     webui_url = _webui_browser_url(config)
@@ -313,7 +313,7 @@ def _run_gateway(
         )
         raise typer.Exit(1)
 
-    console.print(f"{__logo__} Starting nanobot gateway version {__version__} on port {port}...")
+    console.print(f"{__logo__} Starting nanoinfra gateway version {__version__} on port {port}...")
     _prepare_webui_bundle_for_gateway(
         config,
         mode=webui_bundle_mode,
@@ -354,8 +354,8 @@ def _run_gateway(
     session_manager = SessionManager(config.workspace_path)
 
     # Self-heal the gateway state file with the current PID after any restart.
-    from nanobot.config.loader import get_config_path
-    from nanobot.gateway.runtime import GatewayRuntime, GatewayRuntimePaths
+    from nanoinfra.config.loader import get_config_path
+    from nanoinfra.gateway.runtime import GatewayRuntime, GatewayRuntimePaths
 
     config_path = str(get_config_path().resolve(strict=False))
     GatewayRuntime.refresh_state_pid(
@@ -409,8 +409,8 @@ def _run_gateway(
         schedule_background=_schedule_webui_background,
     )
     webui_turn_coordinator.subscribe(runtime_events)
-    from nanobot.bus.events import OutboundMessage
-    from nanobot.session.keys import session_key_for_channel
+    from nanoinfra.bus.events import OutboundMessage
+    from nanoinfra.session.keys import session_key_for_channel
 
     def _channel_session_key(channel: str, chat_id: str) -> str:
         return session_key_for_channel(
@@ -463,7 +463,7 @@ def _run_gateway(
 
         # Dream is an internal job — run directly, not through the agent loop.
         if job.name == "dream":
-            from nanobot.agent.memory import DreamRunProgress, MemoryStore
+            from nanoinfra.agent.memory import DreamRunProgress, MemoryStore
 
             dream_session_key = MemoryStore.dream_session_key
             prune_dream_sessions = MemoryStore.prune_dream_sessions
@@ -516,7 +516,7 @@ def _run_gateway(
             except Exception:
                 logger.exception("Dream cron job failed")
             finally:
-                from nanobot.webui.token_usage import record_response_token_usage
+                from nanoinfra.webui.token_usage import record_response_token_usage
 
                 record_response_token_usage(
                     resp,
@@ -726,7 +726,7 @@ def _run_gateway(
         async with server:
             await server.serve_forever()
     # Register Dream system job (idempotent on restart)
-    from nanobot.cron.types import CronJob, CronPayload, CronSchedule
+    from nanoinfra.cron.types import CronJob, CronPayload, CronSchedule
     dream_cfg = config.agents.defaults.dream
     if dream_cfg.enabled:
         cron.register_system_job(CronJob(
@@ -804,33 +804,33 @@ def _run_gateway(
                         Path(config_path),
                         lambda: agent.invalidate_runtime_config(),
                     ),
-                    name="nanobot-config-watcher",
+                    name="nanoinfra-config-watcher",
                 ),
-                asyncio.create_task(agent.run(), name="nanobot-agent-loop"),
-                asyncio.create_task(channels.start_all(), name="nanobot-channels"),
+                asyncio.create_task(agent.run(), name="nanoinfra-agent-loop"),
+                asyncio.create_task(channels.start_all(), name="nanoinfra-channels"),
                 asyncio.create_task(
                     run_local_trigger_queue(
                         store=trigger_store,
                         submit_turn=agent.submit_local_trigger_turn,
                         is_channel_enabled=lambda name: channels.get_channel(name) is not None,
                     ),
-                    name="nanobot-local-triggers",
+                    name="nanoinfra-local-triggers",
                 ),
             ]
             if health_server_enabled:
                 tasks.append(asyncio.create_task(
                     _health_server(config.gateway.host, port),
-                    name="nanobot-health-server",
+                    name="nanoinfra-health-server",
                 ))
             if open_browser_url:
                 tasks.append(asyncio.create_task(
                     _open_browser_when_ready(),
-                    name="nanobot-open-browser",
+                    name="nanoinfra-open-browser",
                 ))
             runtime_tasks = asyncio.gather(*tasks)
             shutdown_task = asyncio.create_task(
                 shutdown_event.wait(),
-                name="nanobot-gateway-shutdown",
+                name="nanoinfra-gateway-shutdown",
             )
             done, _pending = await asyncio.wait(
                 {runtime_tasks, shutdown_task},

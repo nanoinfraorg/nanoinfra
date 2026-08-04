@@ -1,6 +1,6 @@
 {
   "displayName": "企業微信",
-  "description": "在企業微信工作對話中使用 nanobot。",
+  "description": "在企業微信工作對話中使用 nanoinfra。",
   "requirements": "企業微信應用程式憑證和回呼設定",
   "setup": {
     "docsLabel": "開啟企業微信設定指南",
@@ -9,7 +9,7 @@
     "summary": "企業微信需要管理後台中 AI 機器人的 Bot ID 和 Secret。",
     "steps": [
       "在企業微信中建立 AI 機器人並選擇 API 模式。",
-      "將 Bot ID 和 Secret 複製到 nanobot。",
+      "將 Bot ID 和 Secret 複製到 nanoinfra。",
       "儲存並啟用企業微信，然後傳送一則測試訊息。"
     ],
     "fields": {

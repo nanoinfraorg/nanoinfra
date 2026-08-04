@@ -2,7 +2,7 @@
 
 Uses ``AsyncOpenAI`` pointed at ``https://{endpoint}/openai/v1/`` which
 routes to the Responses API (``/responses``).  Reuses shared conversion
-helpers from :mod:`nanobot.providers.openai_responses`.
+helpers from :mod:`nanoinfra.providers.openai_responses`.
 
 Authentication
 --------------
@@ -14,7 +14,7 @@ Two modes are supported, selected automatically:
    falls back to :class:`azure.identity.aio.DefaultAzureCredential` and
    acquires a bearer token scoped to
    ``https://cognitiveservices.azure.com/.default``.  ``azure-identity``
-   is an optional dependency installed via ``nanobot plugins enable azure``.
+   is an optional dependency installed via ``nanoinfra plugins enable azure``.
 """
 
 from __future__ import annotations
@@ -26,13 +26,13 @@ from typing import Any, cast
 from loguru import logger
 from openai import AsyncOpenAI
 
-from nanobot.providers.base import (
+from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
     ProviderCallContext,
     ProviderConversationState,
 )
-from nanobot.providers.openai_responses import (
+from nanoinfra.providers.openai_responses import (
     ResponsesStreamCapture,
     build_responses_state,
     consume_sdk_stream,
@@ -67,7 +67,7 @@ class _AzureTokenProvider:
         except ImportError as exc:
             raise RuntimeError(
                 "Azure OpenAI AAD authentication requires the 'azure-identity' package. "
-                "Run: nanobot plugins enable azure"
+                "Run: nanoinfra plugins enable azure"
             ) from exc
 
         self._scope = scope

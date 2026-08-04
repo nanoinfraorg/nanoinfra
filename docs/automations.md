@@ -1,22 +1,22 @@
 # Automations
 
-<!-- Meta description: Create, run, and manage nanobot scheduled automations, local triggers, and heartbeat-backed background checks. -->
+<!-- Meta description: Create, run, and manage nanoinfra scheduled automations, local triggers, and heartbeat-backed background checks. -->
 
 Automations are agent turns that run later in a linked topic. Use them
-when nanobot should do work without someone actively typing: reminders,
+when nanoinfra should do work without someone actively typing: reminders,
 recurring checks, nightly summaries, CI follow-ups, local script reports, or
 webhook-driven events.
 
 Create automations from the chat channel or WebUI topic where the
-result should appear. That lets nanobot keep the right session history,
+result should appear. That lets nanoinfra keep the right session history,
 workspace, and reply target.
 
 ## Choose an Automation Type
 
 | Type | Starts from | Best for | Created with |
 |---|---|---|---|
-| Scheduled automation | Time, interval, or cron expression | Recurring reminders, scheduled summaries, one-time future tasks | Ask nanobot in the target topic to schedule it with the `cron` tool |
-| Local trigger | A local `nanobot trigger ...` command | CI jobs, webhooks, shell scripts, generated reports | `/trigger <name>` in the target topic |
+| Scheduled automation | Time, interval, or cron expression | Recurring reminders, scheduled summaries, one-time future tasks | Ask nanoinfra in the target topic to schedule it with the `cron` tool |
+| Local trigger | A local `nanoinfra trigger ...` command | CI jobs, webhooks, shell scripts, generated reports | `/trigger <name>` in the target topic |
 | Heartbeat | Protected system schedule | Quiet recurring checks that should only report useful results | Edit `<workspace>/HEARTBEAT.md` |
 
 The two user-created automation types are scheduled automations and local
@@ -25,22 +25,22 @@ protected from normal automation edits.
 
 ## Before You Create One
 
-Keep `nanobot gateway` running. The gateway owns background delivery for chat
+Keep `nanoinfra gateway` running. The gateway owns background delivery for chat
 apps, WebUI topics, scheduled automations, local triggers, heartbeat, and
 Dream jobs.
 
 Use the same workspace and config for the gateway and any process that sends
-local trigger messages. If you run multiple nanobot instances, pass the matching
-`--config` or `--workspace` option to `nanobot trigger`.
+local trigger messages. If you run multiple nanoinfra instances, pass the matching
+`--config` or `--workspace` option to `nanoinfra trigger`.
 
 Create each automation from the target topic. An automation without a linked
-topic cannot be enabled or run from the WebUI because nanobot would not know
+topic cannot be enabled or run from the WebUI because nanoinfra would not know
 where to deliver the turn.
 
 ## Scheduled Automations
 
 Scheduled automations are created by the agent's `cron` tool. In practice, ask
-nanobot from the target chat or WebUI topic:
+nanoinfra from the target chat or WebUI topic:
 
 ```text
 Every weekday at 9am, check open pull requests and summarize blockers here.
@@ -54,7 +54,7 @@ Tomorrow at 4pm, remind me to send the release notes.
 
 The cron tool supports interval schedules, cron expressions, and one-time
 scheduled tasks. Cron expressions can include an IANA timezone such as
-`America/Vancouver`; otherwise nanobot uses the runtime default timezone.
+`America/Vancouver`; otherwise nanoinfra uses the runtime default timezone.
 
 Scheduled automations normally deliver the result back to the session where they
 were created. Use them for work that should run on a predictable schedule and
@@ -66,7 +66,7 @@ report, use heartbeat instead of a user-created scheduled automation.
 ## Local Triggers
 
 Local triggers let a local script or external service send a message into a
-specific nanobot session later.
+specific nanoinfra session later.
 
 Create the trigger from the chat or WebUI topic where future messages should
 arrive:
@@ -75,30 +75,30 @@ arrive:
 /trigger PR review
 ```
 
-nanobot replies with a trigger ID and a command shaped like:
+nanoinfra replies with a trigger ID and a command shaped like:
 
 ```bash
-nanobot trigger trg_8K4P2Q9X "Review PR #4502"
+nanoinfra trigger trg_8K4P2Q9X "Review PR #4502"
 ```
 
-Replace the quoted text with the message nanobot should receive. For generated
+Replace the quoted text with the message nanoinfra should receive. For generated
 or longer content, pipe stdin:
 
 ```bash
-generate-report | nanobot trigger trg_8K4P2Q9X
+generate-report | nanoinfra trigger trg_8K4P2Q9X
 ```
 
 For multiple instances, use the same config or workspace selector as the
 gateway:
 
 ```bash
-nanobot trigger --config ./bot-a/config.json trg_8K4P2Q9X "Nightly report"
-nanobot trigger --workspace ./bot-a/workspace trg_8K4P2Q9X "Nightly report"
+nanoinfra trigger --config ./bot-a/config.json trg_8K4P2Q9X "Nightly report"
+nanoinfra trigger --workspace ./bot-a/workspace trg_8K4P2Q9X "Nightly report"
 ```
 
-nanobot does not provide a built-in public webhook receiver for local triggers.
-If GitHub, CI, or another external system should wake nanobot, run your own
-small webhook service and have it call `nanobot trigger` after it builds the
+nanoinfra does not provide a built-in public webhook receiver for local triggers.
+If GitHub, CI, or another external system should wake nanoinfra, run your own
+small webhook service and have it call `nanoinfra trigger` after it builds the
 final message.
 
 ## Heartbeat
@@ -112,7 +112,7 @@ Use heartbeat for checks such as "watch this repo for important failures" or
 a scheduled automation instead when every run should produce a visible reminder
 or report.
 
-Heartbeat is enabled by default when `nanobot gateway` starts. Configure it in
+Heartbeat is enabled by default when `nanoinfra gateway` starts. Configure it in
 [`configuration.md#gateway-heartbeat`](./configuration.md#gateway-heartbeat).
 
 ## Manage Automations
@@ -129,7 +129,7 @@ Use the WebUI Automations view to:
 - inspect protected system automations without changing them.
 
 Local triggers do not have a WebUI "Run now" action because each run needs a
-message. Copy the `nanobot trigger ...` command from the WebUI and replace
+message. Copy the `nanoinfra trigger ...` command from the WebUI and replace
 `"message"` with the content that should be delivered.
 
 ## Delivery and Reliability
@@ -169,18 +169,18 @@ For a CI follow-up, create a trigger once:
 Then have your CI or webhook adapter call:
 
 ```bash
-nanobot trigger <trigger-id> "Build failed on main. Inspect the logs and suggest the next fix."
+nanoinfra trigger <trigger-id> "Build failed on main. Inspect the logs and suggest the next fix."
 ```
 
 For a local report script:
 
 ```bash
-generate-report | nanobot trigger <trigger-id>
+generate-report | nanoinfra trigger <trigger-id>
 ```
 
 ## Troubleshooting
 
-If an automation does not run, check that `nanobot gateway` is running, the
+If an automation does not run, check that `nanoinfra gateway` is running, the
 automation is enabled, and it was created from a linked topic.
 
 If a local trigger waits forever, confirm the command uses the same workspace or
@@ -196,6 +196,6 @@ the WebUI Automations view.
 
 - [`webui.md#automations`](./webui.md#automations) for the browser management view
 - [`chat-commands.md#local-triggers`](./chat-commands.md#local-triggers) for `/trigger`
-- [`cli-reference.md#local-triggers`](./cli-reference.md#local-triggers) for `nanobot trigger`
+- [`cli-reference.md#local-triggers`](./cli-reference.md#local-triggers) for `nanoinfra trigger`
 - [`configuration.md#gateway-heartbeat`](./configuration.md#gateway-heartbeat) for heartbeat settings
 - [`guides/long-running-ai-agent.md`](./guides/long-running-ai-agent.md) for long-running agent work

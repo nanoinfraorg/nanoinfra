@@ -1,6 +1,6 @@
-# How to Use an AI Agent WebUI with nanobot
+# How to Use an AI Agent WebUI with nanoinfra
 
-nanobot includes a browser WebUI for persistent chat sessions, visible agent
+nanoinfra includes a browser WebUI for persistent chat sessions, visible agent
 activity, workspace controls, Apps, MCP presets, Skills, settings, and
 Automations.
 
@@ -20,9 +20,9 @@ workspace selection, Apps, Skills, and scheduled automations.
 ## Install
 
 ```bash
-python -m pip install nanobot-ai
-nanobot onboard --wizard
-nanobot agent -m "Hello!"
+python -m pip install nanoinfra
+nanoinfra onboard --wizard
+nanoinfra agent -m "Hello!"
 ```
 
 The published wheel already includes the WebUI bundle. You only need the
@@ -31,13 +31,13 @@ The published wheel already includes the WebUI bundle. You only need the
 ## Minimal working example
 
 ```bash
-nanobot webui
+nanoinfra webui
 ```
 
 The launcher checks setup, enables the local WebSocket channel after
 confirmation, starts the gateway, and opens the browser.
 
-When nanobot edits a file, the WebUI activity timeline can show the changed
+When nanoinfra edits a file, the WebUI activity timeline can show the changed
 line counts, a unified diff, and an **Open file** action for a read-only
 preview. File previews use the chat's current workspace access mode: restricted
 access stays inside the selected workspace, while Full Access can preview files
@@ -45,8 +45,8 @@ outside the workspace when the gateway allows it.
 
 ## Production notes
 
-- Use `nanobot webui --background` when you do not want to keep a terminal open.
-- Use `nanobot gateway status`, `logs`, `restart`, and `stop` to manage a
+- Use `nanoinfra webui --background` when you do not want to keep a terminal open.
+- Use `nanoinfra gateway status`, `logs`, `restart`, and `stop` to manage a
   background gateway.
 - If you expose the WebUI beyond localhost, set a token issue secret and review
   workspace/tool access.
@@ -63,11 +63,11 @@ outside the workspace when the gateway allows it.
 - The WebUI is served by the WebSocket channel on port `8765` by default.
 - The gateway health endpoint is separate from the browser UI.
 - If the page opens but messages fail, check provider setup with
-  `nanobot agent -m "Hello!"`.
+  `nanoinfra agent -m "Hello!"`.
 
-## Related nanobot docs
+## Related nanoinfra docs
 
-- [Nanobot WebUI](../webui.md)
+- [Nanoinfra WebUI](../webui.md)
 - [Quick Start](../quick-start.md)
 - [WebSocket protocol](../websocket.md)
 - [Configuration](../configuration.md)

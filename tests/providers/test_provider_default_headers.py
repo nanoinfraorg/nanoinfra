@@ -1,6 +1,6 @@
-from nanobot.config.schema import Config, ProviderConfig
-from nanobot.providers.factory import _provider_extra_headers, provider_signature
-from nanobot.providers.registry import find_by_name
+from nanoinfra.config.schema import Config, ProviderConfig
+from nanoinfra.providers.factory import _provider_extra_headers, provider_signature
+from nanoinfra.providers.registry import find_by_name
 
 
 def test_kimi_coding_uses_default_user_agent_header() -> None:

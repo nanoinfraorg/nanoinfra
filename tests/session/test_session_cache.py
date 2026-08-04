@@ -1,7 +1,7 @@
 import gc
 import weakref
 
-from nanobot.session.manager import SESSION_CACHE_MAX_SIZE, SessionManager
+from nanoinfra.session.manager import SESSION_CACHE_MAX_SIZE, SessionManager
 
 
 def _bounded_manager(tmp_path, limit: int) -> SessionManager:

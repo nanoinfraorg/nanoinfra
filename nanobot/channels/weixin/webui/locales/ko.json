@@ -1,5 +1,5 @@
 {
-  "description": "WeChat 대화에서 nanobot을 사용합니다.",
+  "description": "WeChat 대화에서 nanoinfra을 사용합니다.",
   "requirements": "WeChat 채널 설정 및 게이트웨이",
   "setup": {
     "primaryAction": "WeChat 연결",
@@ -26,7 +26,7 @@
   "custom": {
     "qrAlt": "WeChat 로그인 QR 코드",
     "scanTitle": "WeChat으로 스캔",
-    "scanDescription": "휴대폰 WeChat으로 스캔하세요. 로그인 후 nanobot이 계정 상태를 로컬에 저장합니다.",
+    "scanDescription": "휴대폰 WeChat으로 스캔하세요. 로그인 후 nanoinfra이 계정 상태를 로컬에 저장합니다.",
     "waiting": "WeChat 스캔을 기다리는 중...",
     "connected": "WeChat이 연결되었습니다.",
     "stopped": "WeChat 로그인이 중지되었습니다.",

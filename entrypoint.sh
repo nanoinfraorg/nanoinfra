@@ -1,5 +1,5 @@
 #!/bin/sh
-dir="$HOME/.nanobot"
+dir="$HOME/.nanoinfra"
 
 # Render deploy path (see render.yaml + render-config.json). Gated on Render's
 # automatic RENDER=true env var so local Docker/podman usage is unaffected.
@@ -26,13 +26,13 @@ fi
 # Drop privileges whenever the container starts as root. Render mounts the
 # persistent disk root-owned, and a plain `docker run` also defaults to root now,
 # so this covers both. Chown the data dir so the non-root user can write it, then
-# re-exec as nanobot. Fail closed: if the privilege drop cannot be performed,
+# re-exec as nanoinfra. Fail closed: if the privilege drop cannot be performed,
 # exit rather than run the agent as root.
 if [ "$(id -u)" = "0" ]; then
-    chown -R nanobot:nanobot "$dir" 2>/dev/null || echo "[entrypoint] warning: chown $dir failed"
-    if setpriv --reuid=nanobot --regid=nanobot --init-groups true 2>/dev/null; then
-        echo "[entrypoint] dropping privileges to nanobot via setpriv"
-        exec setpriv --reuid=nanobot --regid=nanobot --init-groups nanobot "$@"
+    chown -R nanoinfra:nanoinfra "$dir" 2>/dev/null || echo "[entrypoint] warning: chown $dir failed"
+    if setpriv --reuid=nanoinfra --regid=nanoinfra --init-groups true 2>/dev/null; then
+        echo "[entrypoint] dropping privileges to nanoinfra via setpriv"
+        exec setpriv --reuid=nanoinfra --regid=nanoinfra --init-groups nanoinfra "$@"
     fi
     echo "[entrypoint] error: started as root but setpriv privilege drop failed — refusing to run as root" >&2
     exit 1
@@ -45,11 +45,11 @@ if [ -d "$dir" ] && [ ! -w "$dir" ]; then
 Error: $dir is not writable (owned by UID $owner_uid, running as UID $(id -u)).
 
 Fix (pick one):
-  Host:   sudo chown -R 1000:1000 ~/.nanobot
+  Host:   sudo chown -R 1000:1000 ~/.nanoinfra
   Docker: docker run --user \$(id -u):\$(id -g) ...
   Podman: podman run --userns=keep-id ...
 EOF
     exit 1
 fi
 
-exec nanobot "$@"
+exec nanoinfra "$@"

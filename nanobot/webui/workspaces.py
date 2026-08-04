@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from loguru import logger
 
-from nanobot.config.paths import get_webui_dir
-from nanobot.security.workspace_access import (
+from nanoinfra.config.paths import get_webui_dir
+from nanoinfra.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScope,
     WorkspaceScopeError,
@@ -21,7 +21,7 @@ from nanobot.security.workspace_access import (
 )
 
 if TYPE_CHECKING:
-    from nanobot.session.manager import SessionManager
+    from nanoinfra.session.manager import SessionManager
 
 WEBUI_WORKSPACE_STATE_SCHEMA_VERSION = 1
 _MAX_STATE_FILE_BYTES = 128 * 1024

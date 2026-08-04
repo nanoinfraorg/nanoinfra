@@ -10,7 +10,7 @@ This folder holds plain-language prompt overrides for this workspace.
 /dream-prompt init
 ```
 
-That creates `prompts/dream.md`. Edit it in plain Markdown. Delete or empty it to return to nanobot's default memory behavior.
+That creates `prompts/dream.md`. Edit it in plain Markdown. Delete or empty it to return to nanoinfra's default memory behavior.
 
 ## Heartbeat evaluator
 

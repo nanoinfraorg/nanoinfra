@@ -1,5 +1,5 @@
 {
-  "description": "WeCom の業務チャットから nanobot を利用します。",
+  "description": "WeCom の業務チャットから nanoinfra を利用します。",
   "requirements": "WeCom アプリの認証情報とコールバック設定",
   "setup": {
     "docsLabel": "WeCom 設定ガイドを開く",
@@ -8,7 +8,7 @@
     "summary": "WeCom 管理コンソールの AI ボット ID とシークレットが必要です。",
     "steps": [
       "WeCom で AI ボットを作成し、API モードを選択します。",
-      "Bot ID と Secret を nanobot にコピーします。",
+      "Bot ID と Secret を nanoinfra にコピーします。",
       "保存して WeCom を有効にし、テストメッセージを送信します。"
     ],
     "fields": {

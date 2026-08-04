@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from agent.runner_helpers import make_run_spec
-from nanobot.agent.runner import AgentRunner
-from nanobot.agent.tools import ToolResult
-from nanobot.config.schema import AgentDefaults
-from nanobot.providers.base import LLMResponse, ToolCallRequest
+from nanoinfra.agent.runner import AgentRunner
+from nanoinfra.agent.tools import ToolResult
+from nanoinfra.config.schema import AgentDefaults
+from nanoinfra.providers.base import LLMResponse, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 

@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 import pytest
 
-from nanobot.providers.image_generation import (
+from nanoinfra.providers.image_generation import (
     AIHubMixImageGenerationClient,
     CodexImageGenerationClient,
     CustomImageGenerationClient,
@@ -112,7 +112,7 @@ def generated_image_downloads(monkeypatch) -> list[tuple[str, str | None]]:
         return PNG_DATA_URL
 
     monkeypatch.setattr(
-        "nanobot.providers.image_generation._download_image_data_url",
+        "nanoinfra.providers.image_generation._download_image_data_url",
         download,
     )
     return downloads
@@ -238,7 +238,7 @@ async def test_aihubmix_image_generation_payload_and_response() -> None:
     client = AIHubMixImageGenerationClient(
         api_key="sk-ahm-test",
         api_base="https://aihubmix.com/v1/",
-        extra_headers={"APP-Code": "nanobot"},
+        extra_headers={"APP-Code": "nanoinfra"},
         extra_body={"quality": "low"},
         client=fake,  # type: ignore[arg-type]
     )
@@ -254,7 +254,7 @@ async def test_aihubmix_image_generation_payload_and_response() -> None:
     call = fake.calls[0]
     assert call["url"] == "https://aihubmix.com/v1/models/openai/gpt-image-2-free/predictions"
     assert call["headers"]["Authorization"] == "Bearer sk-ahm-test"
-    assert call["headers"]["APP-Code"] == "nanobot"
+    assert call["headers"]["APP-Code"] == "nanoinfra"
     assert call["json"] == {
         "input": {
             "prompt": "draw a logo",
@@ -1383,7 +1383,7 @@ async def test_codex_proxy_applies_to_oauth_and_http(monkeypatch) -> None:
             )
 
     monkeypatch.setattr(
-        "nanobot.providers.image_generation.httpx.AsyncClient",
+        "nanoinfra.providers.image_generation.httpx.AsyncClient",
         FakeAsyncClient,
     )
     client = CodexImageGenerationClient(api_key=None, proxy=proxy)
@@ -1733,7 +1733,7 @@ class ModelScopeFakeClient:
 def _modelscope_fast_poll(monkeypatch) -> None:
     """Skip the real asyncio.sleep between ModelScope poll attempts."""
     monkeypatch.setattr(
-        "nanobot.providers.image_generation._MODELSCOPE_POLL_INTERVAL_S", 0.0
+        "nanoinfra.providers.image_generation._MODELSCOPE_POLL_INTERVAL_S", 0.0
     )
 
 
@@ -1918,7 +1918,7 @@ async def test_modelscope_image_generation_extra_body_passthrough() -> None:
 async def test_modelscope_image_generation_poll_timeout(monkeypatch) -> None:
     """Polling that never reaches SUCCEED/FAILED raises a timeout error."""
     monkeypatch.setattr(
-        "nanobot.providers.image_generation._MODELSCOPE_POLL_MAX_ATTEMPTS", 3
+        "nanoinfra.providers.image_generation._MODELSCOPE_POLL_MAX_ATTEMPTS", 3
     )
     submit = FakeResponse({"task_id": "t1"})
     # Always PENDING — never resolves.

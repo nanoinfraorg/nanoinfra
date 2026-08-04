@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { NanobotClient } from "@/lib/nanobot-client";
+import { NanoinfraClient } from "@/lib/nanoinfra-client";
 
 /**
- * Minimal fake WebSocket implementing the subset NanobotClient touches.
+ * Minimal fake WebSocket implementing the subset NanoinfraClient touches.
  * Every instance is retrievable via ``FakeSocket.instances`` so tests can
  * drive open/close/message lifecycles deterministically.
  */
@@ -65,13 +65,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  Reflect.deleteProperty(window, "nanobotHost");
+  Reflect.deleteProperty(window, "nanoinfraHost");
   vi.useRealTimers();
 });
 
-describe("NanobotClient", () => {
+describe("NanoinfraClient", () => {
   it("routes events to the matching chat handler", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -91,7 +91,7 @@ describe("NanobotClient", () => {
   });
 
   it("routes message acceptance acknowledgements to the matching chat handler", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -122,7 +122,7 @@ describe("NanobotClient", () => {
     const hostFactory = vi.fn(
       (url: string) => new FakeSocket(`host:${url}`) as unknown as WebSocket,
     );
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: browserFactory,
@@ -131,11 +131,11 @@ describe("NanobotClient", () => {
     client.connect();
     expect(lastSocket().url).toBe("browser:ws://test");
     client.close();
-    client.updateUrl("nanobot-host://engine/", hostFactory);
+    client.updateUrl("nanoinfra-host://engine/", hostFactory);
     client.connect();
 
-    expect(hostFactory).toHaveBeenCalledWith("nanobot-host://engine/");
-    expect(lastSocket().url).toBe("host:nanobot-host://engine/");
+    expect(hostFactory).toHaveBeenCalledWith("nanoinfra-host://engine/");
+    expect(lastSocket().url).toBe("host:nanoinfra-host://engine/");
   });
 
   it("uses the host socket bridge for native host URLs", async () => {
@@ -143,7 +143,7 @@ describe("NanobotClient", () => {
       | ((event: { id: string; type: "open" | "close" | "error"; message?: string }) => void)
       | null = null;
     const openSocket = vi.fn(async () => "host-socket-1");
-    Object.defineProperty(window, "nanobotHost", {
+    Object.defineProperty(window, "nanoinfraHost", {
       configurable: true,
       value: {
         openSocket,
@@ -155,8 +155,8 @@ describe("NanobotClient", () => {
         }),
       },
     });
-    const client = new NanobotClient({
-      url: "nanobot-host://engine/",
+    const client = new NanoinfraClient({
+      url: "nanoinfra-host://engine/",
       reconnect: false,
     });
     const status = vi.fn();
@@ -166,12 +166,12 @@ describe("NanobotClient", () => {
     await Promise.resolve();
     socketEventHandler?.({ id: "host-socket-1", type: "open" });
 
-    expect(openSocket).toHaveBeenCalledWith("nanobot-host://engine/");
+    expect(openSocket).toHaveBeenCalledWith("nanoinfra-host://engine/");
     expect(status).toHaveBeenLastCalledWith("open");
   });
 
   it("buffers chat events while no chat handler is registered and replays on subscribe", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -191,7 +191,7 @@ describe("NanobotClient", () => {
   });
 
   it("records goal_status run strip without an onChat subscriber", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -214,7 +214,7 @@ describe("NanobotClient", () => {
   });
 
   it("clears stale run strip when reconnecting after a dropped socket", async () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: true,
       maxBackoffMs: 10,
@@ -240,7 +240,7 @@ describe("NanobotClient", () => {
   });
 
   it("clears run strip when a turn_end arrives without idle", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -264,7 +264,7 @@ describe("NanobotClient", () => {
   });
 
   it("rejects a completed snapshot when a newer run is not represented", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -288,7 +288,7 @@ describe("NanobotClient", () => {
   });
 
   it("rejects a user-only snapshot for a submitted turn that has not completed", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -304,7 +304,7 @@ describe("NanobotClient", () => {
   });
 
   it("does not register injected guidance as an independently unsettled run", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -336,7 +336,7 @@ describe("NanobotClient", () => {
   });
 
   it("accepts an explicitly completed turn with no assistant row", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -362,7 +362,7 @@ describe("NanobotClient", () => {
     "attachment_rejected",
     "workspace_scope_rejected",
   ])("settles a specifically rejected outbound turn (%s)", (detail) => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -392,7 +392,7 @@ describe("NanobotClient", () => {
   });
 
   it("does not let an older rejection settle or stop a newer run", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -429,7 +429,7 @@ describe("NanobotClient", () => {
   });
 
   it("restores the previous turn clock when the newer running turn is rejected", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -469,7 +469,7 @@ describe("NanobotClient", () => {
   });
 
   it("rolls back lifecycle sends that close 1009 before server acceptance", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -496,7 +496,7 @@ describe("NanobotClient", () => {
   });
 
   it("preserves an accepted older run when a newer send closes 1009", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -543,7 +543,7 @@ describe("NanobotClient", () => {
   });
 
   it("does not roll back a lifecycle send after its acceptance ACK", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -568,7 +568,7 @@ describe("NanobotClient", () => {
   });
 
   it("preflights exact websocket frame bytes and rejects only the oversized turn", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       maxFrameBytes: 180,
@@ -594,7 +594,7 @@ describe("NanobotClient", () => {
   });
 
   it("does not attribute a fallback 1009 close across multiple unacknowledged chats", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -614,7 +614,7 @@ describe("NanobotClient", () => {
   });
 
   it("does not attribute 1009 to an unacknowledged message when another frame followed it", async () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -636,7 +636,7 @@ describe("NanobotClient", () => {
   });
 
   it("settles an unknown send absent from an idle canonical snapshot after disconnect", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -675,7 +675,7 @@ describe("NanobotClient", () => {
   });
 
   it("keeps an ACK-lost observed turn active, then settles it from an idle snapshot", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -716,7 +716,7 @@ describe("NanobotClient", () => {
   });
 
   it("settles an accepted turn that never reached running from canonical idle", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -749,7 +749,7 @@ describe("NanobotClient", () => {
   });
 
   it("does not let a pre-send idle response erase a newly accepted turn", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -782,7 +782,7 @@ describe("NanobotClient", () => {
   });
 
   it("correlates a legacy rejection only to one currently sent turn", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -811,7 +811,7 @@ describe("NanobotClient", () => {
   });
 
   it("correlates legacy lifecycle completion when exactly one turn is unsettled", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -846,7 +846,7 @@ describe("NanobotClient", () => {
   });
 
   it("does not apply an uncorrelated legacy idle to multiple unsettled turns", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -874,7 +874,7 @@ describe("NanobotClient", () => {
   });
 
   it("does not correlate a legacy scope error to an already accepted turn", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -909,7 +909,7 @@ describe("NanobotClient", () => {
   });
 
   it("does not correlate a scope-control rejection to a preceding unacknowledged message", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -936,7 +936,7 @@ describe("NanobotClient", () => {
   });
 
   it("does not correlate a new-chat scope rejection to an unrelated sent turn", async () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -963,7 +963,7 @@ describe("NanobotClient", () => {
   });
 
   it("rejects a correlated system command instead of leaving it pending", async () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -986,7 +986,7 @@ describe("NanobotClient", () => {
   });
 
   it("ignores a delayed idle event from an older turn after a new run starts", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1030,7 +1030,7 @@ describe("NanobotClient", () => {
   });
 
   it("accepts a completed snapshot that represents a delayed running frame", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1058,7 +1058,7 @@ describe("NanobotClient", () => {
   });
 
   it("preflights canonical completion without fencing or settling the turn", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1095,7 +1095,7 @@ describe("NanobotClient", () => {
   });
 
   it("clears the run cache and fences delayed frames after canonical completion", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1149,7 +1149,7 @@ describe("NanobotClient", () => {
   });
 
   it("notifies run status subscribers and replays running chats", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1180,7 +1180,7 @@ describe("NanobotClient", () => {
   });
 
   it("records goal_state per chat_id without an onChat subscriber", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1211,7 +1211,7 @@ describe("NanobotClient", () => {
   });
 
   it("records goal_state from turn_end payload when present", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1227,7 +1227,7 @@ describe("NanobotClient", () => {
   });
 
   it("buffers after unsubscribe until the chat is subscribed again", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1248,7 +1248,7 @@ describe("NanobotClient", () => {
   });
 
   it("dispatches runtime model updates globally", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1268,7 +1268,7 @@ describe("NanobotClient", () => {
   });
 
   it("dispatches turn model updates to the active chat", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1292,7 +1292,7 @@ describe("NanobotClient", () => {
   });
 
   it("dispatches session updates globally", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1325,7 +1325,7 @@ describe("NanobotClient", () => {
   });
 
   it("resolves newChat() via the server-assigned chat_id", async () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1339,7 +1339,7 @@ describe("NanobotClient", () => {
   });
 
   it("serializes workspace scope for new chats and messages", async () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1373,7 +1373,7 @@ describe("NanobotClient", () => {
   });
 
   it("sends transcription requests and resolves transcription results outside chat dispatch", async () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1405,7 +1405,7 @@ describe("NanobotClient", () => {
   });
 
   it("rejects pending transcription requests on server errors and socket close", async () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1428,7 +1428,7 @@ describe("NanobotClient", () => {
   });
 
   it("queues sends while connecting and flushes on open", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1445,7 +1445,7 @@ describe("NanobotClient", () => {
   });
 
   it("includes an explicit turn id on outbound WebUI messages", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1463,7 +1463,7 @@ describe("NanobotClient", () => {
   });
 
   it("handles the silent system-command lifecycle without hiding concurrent events", async () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1508,7 +1508,7 @@ describe("NanobotClient", () => {
   });
 
   it("sends selected assistant text as separate quoted context", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1530,7 +1530,7 @@ describe("NanobotClient", () => {
   });
 
   it("includes CLI app attachments in outbound messages", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1573,7 +1573,7 @@ describe("NanobotClient", () => {
   });
 
   it("includes MCP preset attachments in outbound messages", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1620,7 +1620,7 @@ describe("NanobotClient", () => {
   });
 
   it("re-attaches known chats after a reconnect", async () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: true,
       maxBackoffMs: 10,
@@ -1645,7 +1645,7 @@ describe("NanobotClient", () => {
   });
 
   it("reports status transitions through onStatus", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1659,7 +1659,7 @@ describe("NanobotClient", () => {
   });
 
   it("does not schedule a reconnect when close() is called explicitly", async () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: true,
       maxBackoffMs: 10,
@@ -1679,7 +1679,7 @@ describe("NanobotClient", () => {
   });
 
   it("passes media through into the message envelope", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1700,7 +1700,7 @@ describe("NanobotClient", () => {
   });
 
   it("omits media from the envelope when no images are attached", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1719,7 +1719,7 @@ describe("NanobotClient", () => {
   });
 
   it("emits a message_too_big error when the socket closes with code 1009", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1734,7 +1734,7 @@ describe("NanobotClient", () => {
   });
 
   it("emits workspace scope rejection errors from server frames", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1759,7 +1759,7 @@ describe("NanobotClient", () => {
   });
 
   it("rejects pending new chats when workspace scope is rejected", async () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1780,7 +1780,7 @@ describe("NanobotClient", () => {
   });
 
   it("isolates throwing error handlers so reconnect bookkeeping still runs", async () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: true,
       maxBackoffMs: 5,
@@ -1802,7 +1802,7 @@ describe("NanobotClient", () => {
   });
 
   it("does not emit a stream error on a vanilla socket close", () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: false,
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
@@ -1816,7 +1816,7 @@ describe("NanobotClient", () => {
   });
 
   it("surfaces 'reconnecting' only on an unexpected drop", async () => {
-    const client = new NanobotClient({
+    const client = new NanoinfraClient({
       url: "ws://test",
       reconnect: true,
       maxBackoffMs: 5,

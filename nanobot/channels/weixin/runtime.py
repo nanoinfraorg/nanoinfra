@@ -28,13 +28,13 @@ import httpx
 from loguru import logger
 from pydantic import Field
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.outbound_events import ProgressEvent
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.config.paths import get_media_dir, get_runtime_subdir
-from nanobot.config.schema import Base
-from nanobot.utils.helpers import split_message
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.outbound_events import ProgressEvent
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.config.paths import get_media_dir, get_runtime_subdir
+from nanoinfra.config.schema import Base
+from nanoinfra.utils.helpers import split_message
 
 # ---------------------------------------------------------------------------
 # Protocol constants (from openclaw-weixin types.ts)
@@ -128,7 +128,7 @@ class WeixinConfig(Base):
     cdn_base_url: str = "https://novac2c.cdn.weixin.qq.com/c2c"
     route_tag: str | int | None = None
     token: str = ""  # Manually set token, or obtained via QR login
-    state_dir: str = ""  # Default: ~/.nanobot/weixin/
+    state_dir: str = ""  # Default: ~/.nanoinfra/weixin/
     poll_timeout: int = DEFAULT_LONG_POLL_TIMEOUT_S  # seconds for long-poll
     # Default on: WeChat iLink has no native incremental delivery (send_delta is
     # buffered and the final answer is still sent in one shot), so streaming has
@@ -572,7 +572,7 @@ class WeixinChannel(BaseChannel):
             self._token = self.config.token
         elif not self._load_state():
             if not await self._qr_login():
-                self.logger.error("login failed. Run 'nanobot channels login weixin' to authenticate.")
+                self.logger.error("login failed. Run 'nanoinfra channels login weixin' to authenticate.")
                 self._running = False
                 return
 
@@ -1445,7 +1445,7 @@ class WeixinChannel(BaseChannel):
         context_token: str,
     ) -> None:
         """Send a text message matching the exact protocol from send.ts."""
-        client_id = f"nanobot-{uuid.uuid4().hex[:12]}"
+        client_id = f"nanoinfra-{uuid.uuid4().hex[:12]}"
 
         item_list: list[dict[str, Any]] = []
         if text:
@@ -1600,7 +1600,7 @@ class WeixinChannel(BaseChannel):
             media_item["len"] = str(raw_size)
 
         # Send each media item as its own message (matching reference plugin)
-        client_id = f"nanobot-{uuid.uuid4().hex[:12]}"
+        client_id = f"nanoinfra-{uuid.uuid4().hex[:12]}"
         item_list: list[dict[str, Any]] = [
             {"type": item_type, item_key: media_item}
         ]

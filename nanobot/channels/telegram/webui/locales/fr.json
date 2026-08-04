@@ -1,5 +1,5 @@
 {
-  "description": "Discutez avec nanobot depuis Telegram.",
+  "description": "Discutez avec nanoinfra depuis Telegram.",
   "requirements": "Jeton du bot, utilisateurs autorisés et passerelle",
   "setup": {
     "docsLabel": "Ouvrir le guide Telegram",

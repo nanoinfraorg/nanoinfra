@@ -1,5 +1,5 @@
 {
-  "description": "Cho phép nanobot nhận và trả lời email.",
+  "description": "Cho phép nanoinfra nhận và trả lời email.",
   "requirements": "Hộp thư IMAP, gửi SMTP, mật khẩu ứng dụng và sự đồng ý rõ ràng",
   "setup": {
     "docsLabel": "Mở hướng dẫn Email",

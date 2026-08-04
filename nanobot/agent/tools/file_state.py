@@ -155,7 +155,7 @@ class FileStateStore:
 
 
 _current_file_states: ContextVar[FileStates | None] = ContextVar(
-    "nanobot_file_states",
+    "nanoinfra_file_states",
     default=None,
 )
 

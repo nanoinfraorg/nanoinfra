@@ -14,12 +14,12 @@ from typing import Any, cast
 
 from pydantic import Field
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.outbound_events import ProgressEvent
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.config.paths import get_media_dir
-from nanobot.config.schema import Base
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.outbound_events import ProgressEvent
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.config.paths import get_media_dir
+from nanoinfra.config.schema import Base
 
 WECOM_AVAILABLE = importlib.util.find_spec("wecom_aibot_sdk") is not None
 
@@ -105,7 +105,7 @@ class WecomChannel(BaseChannel):
     async def start(self) -> None:
         """Start the WeCom bot with WebSocket long connection."""
         if not WECOM_AVAILABLE:
-            self.logger.error("SDK not installed. Run: nanobot plugins enable wecom")
+            self.logger.error("SDK not installed. Run: nanoinfra plugins enable wecom")
             return
 
         if not self.config.bot_id or not self.config.secret:

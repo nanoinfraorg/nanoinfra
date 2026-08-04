@@ -1,1 +1,1 @@
-"""OpenAI-compatible HTTP API for nanobot."""
+"""OpenAI-compatible HTTP API for nanoinfra."""

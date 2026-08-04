@@ -1,5 +1,5 @@
 {
-  "description": "Izinkan nanobot menerima dan membalas email.",
+  "description": "Izinkan nanoinfra menerima dan membalas email.",
   "requirements": "Kotak masuk IMAP, pengirim SMTP, kata sandi aplikasi, dan persetujuan eksplisit",
   "setup": {
     "docsLabel": "Buka panduan Email",

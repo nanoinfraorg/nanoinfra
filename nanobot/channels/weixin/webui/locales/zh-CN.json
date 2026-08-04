@@ -1,6 +1,6 @@
 {
   "displayName": "微信",
-  "description": "在微信会话中使用 nanobot。",
+  "description": "在微信会话中使用 nanoinfra。",
   "requirements": "微信渠道配置和网关",
   "setup": {
     "primaryAction": "连接微信",
@@ -27,7 +27,7 @@
   "custom": {
     "qrAlt": "微信登录二维码",
     "scanTitle": "使用微信扫码",
-    "scanDescription": "用手机微信扫描此二维码。登录后，nanobot 会将账户状态保存在本地。",
+    "scanDescription": "用手机微信扫描此二维码。登录后，nanoinfra 会将账户状态保存在本地。",
     "waiting": "正在等待微信扫码...",
     "connected": "微信已连接。",
     "stopped": "微信登录已停止。",

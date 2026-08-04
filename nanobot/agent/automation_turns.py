@@ -6,7 +6,7 @@ import asyncio
 import dataclasses
 from collections.abc import Awaitable, Callable, Iterable
 
-from nanobot.bus.events import InboundMessage, OutboundMessage
+from nanoinfra.bus.events import InboundMessage, OutboundMessage
 
 
 class AutomationTurnError(RuntimeError):

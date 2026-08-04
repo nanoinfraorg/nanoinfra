@@ -9,19 +9,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
-from nanobot.agent.tools.context import ToolContext
-from nanobot.agent.tools.file_state import FileStates, _hash_file, current_file_states
-from nanobot.agent.tools.path_utils import resolve_workspace_path
-from nanobot.agent.tools.schema import (
+from nanoinfra.agent.tools.base import Tool, ToolResult, tool_parameters
+from nanoinfra.agent.tools.context import ToolContext
+from nanoinfra.agent.tools.file_state import FileStates, _hash_file, current_file_states
+from nanoinfra.agent.tools.path_utils import resolve_workspace_path
+from nanoinfra.agent.tools.schema import (
     BooleanSchema,
     IntegerSchema,
     StringSchema,
     tool_parameters_schema,
 )
-from nanobot.config_base import Base
-from nanobot.security.workspace_access import current_tool_workspace
-from nanobot.utils.helpers import build_image_content_blocks, detect_image_mime
+from nanoinfra.config_base import Base
+from nanoinfra.security.workspace_access import current_tool_workspace
+from nanoinfra.utils.helpers import build_image_content_blocks, detect_image_mime
 
 
 class FileToolsConfig(Base):
@@ -81,7 +81,7 @@ class _FsTool(Tool):
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
-        from nanobot.agent.skills import BUILTIN_SKILLS_DIR
+        from nanoinfra.agent.skills import BUILTIN_SKILLS_DIR
 
         agent_workspace = Path(ctx.workspace)
         resolved_agent_workspace = agent_workspace.expanduser().resolve(strict=False)
@@ -210,7 +210,7 @@ def _is_blocked_device(path: str | Path) -> bool:
 
 def _builtin_skill_read_path(path: str) -> Path | None:
     """Map workspace-relative skills/<name>/... reads onto bundled skills."""
-    from nanobot.agent.skills import BUILTIN_SKILLS_DIR
+    from nanoinfra.agent.skills import BUILTIN_SKILLS_DIR
 
     requested = Path(path)
     if requested.is_absolute():
@@ -373,7 +373,7 @@ class ReadFileTool(_FsTool):
             except UnicodeDecodeError:
                 # Match the former eager extractor for known text formats while
                 # keeping arbitrary binary files on the guarded error path.
-                from nanobot.utils.document import _is_text_extension
+                from nanoinfra.utils.document import _is_text_extension
 
                 if _is_text_extension(fp.suffix.lower()):
                     text_content = raw.decode("latin-1")
@@ -433,7 +433,7 @@ class ReadFileTool(_FsTool):
             return ToolResult.error(f"Error reading file: {e}")
 
     def _read_pdf(self, fp: Path, pages: str | None) -> str:
-        from nanobot.utils.document import PdfPageRangeError, PdfSafetyError, extract_pdf_pages
+        from nanoinfra.utils.document import PdfPageRangeError, PdfSafetyError, extract_pdf_pages
 
         try:
             extraction = extract_pdf_pages(
@@ -463,7 +463,7 @@ class ReadFileTool(_FsTool):
         return result
 
     def _read_office_doc(self, fp: Path) -> str:
-        from nanobot.utils.document import extract_text
+        from nanoinfra.utils.document import extract_text
 
         result = extract_text(fp)
 

@@ -14,14 +14,14 @@ from slack_sdk.socket_mode.websockets import SocketModeClient
 from slack_sdk.web.async_client import AsyncWebClient
 from slackify_markdown import slackify_markdown  # pyright: ignore[reportMissingTypeStubs]
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.outbound_events import ProgressEvent
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.config.paths import get_media_dir
-from nanobot.config.schema import Base
-from nanobot.pairing import is_approved
-from nanobot.utils.helpers import safe_filename, split_message
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.outbound_events import ProgressEvent
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.config.paths import get_media_dir
+from nanoinfra.config.schema import Base
+from nanoinfra.pairing import is_approved
+from nanoinfra.utils.helpers import safe_filename, split_message
 
 
 def _as_json_object(value: Any) -> dict[str, Any] | None:
@@ -579,7 +579,7 @@ class SlackChannel(BaseChannel):
     @staticmethod
     def _download_failure_marker(marker_type: str, name: str, reason: str) -> str:
         return (
-            f"[{marker_type}: {name}: {reason}; not available to nanobot. "
+            f"[{marker_type}: {name}: {reason}; not available to nanoinfra. "
             "Check Slack files:read scope, reinstall the Slack app, and ensure the bot can access the file.]"
         )
 

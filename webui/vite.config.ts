@@ -43,8 +43,8 @@ export function webuiManualChunk(id: string): string | undefined {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const target = env.NANOBOT_API_URL ?? "http://127.0.0.1:8765";
-  const hmrPath = "/__nanobot_vite_hmr";
+  const target = env.NANOINFRA_API_URL ?? "http://127.0.0.1:8765";
+  const hmrPath = "/__nanoinfra_vite_hmr";
 
   return {
     plugins: [react()],
@@ -63,7 +63,7 @@ export default defineConfig(({ mode }) => {
       exclude: ["@radix-ui/react-dialog"],
     },
     build: {
-      outDir: path.resolve(__dirname, "../nanobot/web/dist"),
+      outDir: path.resolve(__dirname, "../nanoinfra/web/dist"),
       emptyOutDir: true,
       sourcemap: false,
       rollupOptions: {
@@ -79,7 +79,7 @@ export default defineConfig(({ mode }) => {
       fs: {
         allow: [path.resolve(__dirname, "..")],
       },
-      // Keep Vite's HMR socket on a dedicated path. Nanobot's app WebSocket is
+      // Keep Vite's HMR socket on a dedicated path. Nanoinfra's app WebSocket is
       // opened directly from the browser to the gateway, so the dev server
       // should never proxy WebSocket upgrades.
       hmr: {

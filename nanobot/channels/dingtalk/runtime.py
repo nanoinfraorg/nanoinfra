@@ -17,11 +17,11 @@ from urllib.parse import unquote, urljoin, urlparse
 import httpx
 from pydantic import Field
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.config.schema import Base
-from nanobot.security.network import validate_resolved_url, validate_url_target
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.config.schema import Base
+from nanoinfra.security.network import validate_resolved_url, validate_url_target
 
 DINGTALK_MAX_REMOTE_MEDIA_BYTES = 20 * 1024 * 1024
 DINGTALK_MAX_REMOTE_MEDIA_REDIRECTS = 3
@@ -61,10 +61,10 @@ except ImportError:
 _CallbackHandlerBase = CallbackHandler
 
 
-class NanobotDingTalkHandler(_CallbackHandlerBase):
+class NanoinfraDingTalkHandler(_CallbackHandlerBase):
     """
     Standard DingTalk Stream SDK Callback Handler.
-    Parses incoming messages and forwards them to the Nanobot channel.
+    Parses incoming messages and forwards them to the Nanoinfra channel.
     """
 
     def __init__(self, channel: "DingTalkChannel"):
@@ -184,7 +184,7 @@ class NanobotDingTalkHandler(_CallbackHandlerBase):
 
             self.channel.logger.info("Received message from {} ({}): {}", sender_name, sender_id, content)
 
-            # Forward to Nanobot via _on_message (non-blocking).
+            # Forward to Nanoinfra via _on_message (non-blocking).
             # Store reference to prevent GC before task completes.
             task = asyncio.create_task(
                 self.channel._on_message(
@@ -264,7 +264,7 @@ class DingTalkChannel(BaseChannel):
         try:
             if not DINGTALK_AVAILABLE:
                 self.logger.error(
-                    "Stream SDK not installed. Run: nanobot plugins enable dingtalk"
+                    "Stream SDK not installed. Run: nanoinfra plugins enable dingtalk"
                 )
                 return
 
@@ -285,7 +285,7 @@ class DingTalkChannel(BaseChannel):
             self._client = DingTalkStreamClient(credential)
 
             # Register standard handler
-            handler = NanobotDingTalkHandler(self)
+            handler = NanoinfraDingTalkHandler(self)
             self._client.register_callback_handler(ChatbotMessage.TOPIC, handler)
 
             self.logger.info("bot started with Stream Mode")
@@ -689,7 +689,7 @@ class DingTalkChannel(BaseChannel):
             token,
             chat_id,
             "sampleMarkdown",
-            {"text": content, "title": "Nanobot Reply"},
+            {"text": content, "title": "Nanoinfra Reply"},
         )
 
     async def _send_media_ref(self, token: str, chat_id: str, media_ref: str) -> bool:
@@ -796,7 +796,7 @@ class DingTalkChannel(BaseChannel):
         conversation_type: str | None = None,
         conversation_id: str | None = None,
     ) -> None:
-        """Handle incoming message (called by NanobotDingTalkHandler).
+        """Handle incoming message (called by NanoinfraDingTalkHandler).
 
         Delegates to BaseChannel._handle_message() which enforces allow_from
         permission checks before publishing to the bus.
@@ -848,7 +848,7 @@ class DingTalkChannel(BaseChannel):
         sender_id: str,
     ) -> str | None:
         """Download a DingTalk file to the media directory, return local path."""
-        from nanobot.config.paths import get_media_dir
+        from nanoinfra.config.paths import get_media_dir
 
         try:
             token = await self._get_access_token()

@@ -16,13 +16,13 @@ from weakref import WeakValueDictionary
 
 from loguru import logger
 
-from nanobot.config.paths import get_legacy_sessions_dir
-from nanobot.providers.base import ProviderConversationState
-from nanobot.runtime_context import (
+from nanoinfra.config.paths import get_legacy_sessions_dir
+from nanoinfra.providers.base import ProviderConversationState
+from nanoinfra.runtime_context import (
     RUNTIME_CONTEXT_HISTORY_META,
     public_history_message,
 )
-from nanobot.utils.helpers import (
+from nanoinfra.utils.helpers import (
     content_with_media_breadcrumbs,
     ensure_dir,
     estimate_message_tokens,
@@ -31,7 +31,7 @@ from nanobot.utils.helpers import (
     safe_filename,
     strip_think,
 )
-from nanobot.utils.subagent_channel_display import scrub_subagent_announce_body
+from nanoinfra.utils.subagent_channel_display import scrub_subagent_announce_body
 
 FILE_MAX_MESSAGES = 2000
 SESSION_CACHE_MAX_SIZE = 128
@@ -1029,7 +1029,7 @@ class SessionManager:
         return self._jsonl_store.get_legacy_lossy_path(key)
 
     def _get_legacy_session_path(self, key: str) -> Path:
-        """Legacy global session path (~/.nanobot/sessions/)."""
+        """Legacy global session path (~/.nanoinfra/sessions/)."""
         return self._jsonl_store.get_legacy_session_path(key)
 
     def get_or_create(self, key: str) -> Session:

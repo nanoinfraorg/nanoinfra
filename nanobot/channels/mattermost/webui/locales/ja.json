@@ -1,5 +1,5 @@
 {
-  "description": "Mattermost のチャンネルと DM から nanobot を利用します。",
+  "description": "Mattermost のチャンネルと DM から nanoinfra を利用します。",
   "requirements": "Mattermost サーバー URL、ボットトークン、チャンネルアクセス",
   "setup": {
     "docsLabel": "Mattermost 設定ガイドを開く",

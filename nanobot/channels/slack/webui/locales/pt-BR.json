@@ -1,5 +1,5 @@
 {
-  "description": "Use o nanobot em workspaces do Slack.",
+  "description": "Use o nanoinfra em workspaces do Slack.",
   "requirements": "Token do app Slack, token do bot e instalação no workspace",
   "setup": {
     "docsLabel": "Abrir guia do Slack",

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from nanobot.config.schema import Config, ProviderConfig, ProvidersConfig
-from nanobot.providers.factory import provider_signature
-from nanobot.providers.registry import create_dynamic_spec
+from nanoinfra.config.schema import Config, ProviderConfig, ProvidersConfig
+from nanoinfra.providers.factory import provider_signature
+from nanoinfra.providers.registry import create_dynamic_spec
 
 
 class TestCustomProviderThinkingStyle:

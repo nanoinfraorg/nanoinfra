@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from nanobot.webui.ingress_policy import WebUIIngressPolicy
+from nanoinfra.webui.ingress_policy import WebUIIngressPolicy
 
 
 def test_text_limit_counts_utf8_bytes() -> None:

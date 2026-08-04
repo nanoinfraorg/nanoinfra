@@ -1,5 +1,5 @@
 {
-  "description": "Chat with nanobot from Telegram chats.",
+  "description": "Chat with nanoinfra from Telegram chats.",
   "requirements": "Bot token, allowed users, gateway",
   "setup": {
     "docsLabel": "Open Telegram setup",

@@ -24,13 +24,13 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.text import Text
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.outbound_events import ProgressEvent
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.channels.contracts import ChannelInstanceSpec
-from nanobot.channels.feishu.config import FeishuConfig, feishu_default_config
-from nanobot.channels.feishu.instances import (
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.outbound_events import ProgressEvent
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.channels.contracts import ChannelInstanceSpec
+from nanoinfra.channels.feishu.config import FeishuConfig, feishu_default_config
+from nanoinfra.channels.feishu.instances import (
     DEFAULT_INSTANCE_ID,
     feishu_app_identity_key,
     feishu_instance_specs,
@@ -38,12 +38,12 @@ from nanobot.channels.feishu.instances import (
     update_feishu_instance_preserving_shape,
     upsert_feishu_instance,
 )
-from nanobot.channels.feishu.websocket import get_feishu_ws_runner
-from nanobot.command.router import normalize_command_text
-from nanobot.config.paths import get_media_dir
-from nanobot.pairing import clear_channel
-from nanobot.utils.helpers import safe_filename
-from nanobot.utils.logging_bridge import redirect_lib_logging
+from nanoinfra.channels.feishu.websocket import get_feishu_ws_runner
+from nanoinfra.command.router import normalize_command_text
+from nanoinfra.config.paths import get_media_dir
+from nanoinfra.pairing import clear_channel
+from nanoinfra.utils.helpers import safe_filename
+from nanoinfra.utils.logging_bridge import redirect_lib_logging
 
 if TYPE_CHECKING:
     from lark_oapi.api.im.v1.model import (  # pyright: ignore[reportMissingTypeStubs]
@@ -700,7 +700,7 @@ def sync_saved_feishu_identity_boundary(
     if not current_identity_key:
         return False
 
-    from nanobot.config.loader import load_config, save_config
+    from nanoinfra.config.loader import load_config, save_config
 
     full_config = load_config()
     feishu_cfg = _as_json_object(getattr(full_config.channels, "feishu", None)) or {}
@@ -741,7 +741,7 @@ def save_registration_result(
     name: str | None = None,
 ) -> str:
     """Persist a successful Feishu/Lark registration result to config.json."""
-    from nanobot.config.loader import load_config, save_config
+    from nanoinfra.config.loader import load_config, save_config
 
     full_config = load_config()
     feishu_cfg = _as_json_object(getattr(full_config.channels, "feishu", None)) or {}
@@ -766,9 +766,9 @@ def save_registration_result(
             domain,
         )
     default_name = (
-        "nanobot"
+        "nanoinfra"
         if effective_instance_id == DEFAULT_INSTANCE_ID
-        else f"nanobot {effective_instance_id}"
+        else f"nanoinfra {effective_instance_id}"
     )
     existing_name = existing.config.get("name") if existing is not None else None
     saved_name = (
@@ -816,7 +816,7 @@ def refresh_saved_feishu_identities(
     if not FEISHU_AVAILABLE:
         return False
 
-    from nanobot.config.loader import load_config, save_config
+    from nanoinfra.config.loader import load_config, save_config
 
     full_config = config or load_config()
     feishu_cfg = getattr(full_config.channels, "feishu", None)
@@ -973,7 +973,7 @@ class FeishuChannel(BaseChannel):
         *,
         instance_id: str = DEFAULT_INSTANCE_ID,
     ) -> bool:
-        from nanobot.config.loader import load_config
+        from nanoinfra.config.loader import load_config
 
         return refresh_saved_feishu_identities(
             load_config(config_path),
@@ -1024,13 +1024,13 @@ class FeishuChannel(BaseChannel):
             _LOGIN_CONSOLE.print("Use --force to re-authenticate with a new bot.\n")
             return True
 
-        _LOGIN_CONSOLE.print("Authorize with the mobile app. nanobot will save the new bot credentials.\n")
+        _LOGIN_CONSOLE.print("Authorize with the mobile app. nanoinfra will save the new bot credentials.\n")
 
         result = qr_register(initial_domain=self.config.domain or "feishu")
         if not result:
             _LOGIN_CONSOLE.print(
                 "[yellow]Login was not completed.[/yellow] "
-                "Run 'nanobot channels login feishu --force' to retry."
+                "Run 'nanoinfra channels login feishu --force' to retry."
             )
             return False
 
@@ -1058,13 +1058,13 @@ class FeishuChannel(BaseChannel):
     async def start(self) -> None:
         """Start the Feishu bot with WebSocket long connection."""
         if not FEISHU_AVAILABLE:
-            self.logger.error("SDK not installed. Run: nanobot plugins enable feishu")
+            self.logger.error("SDK not installed. Run: nanoinfra plugins enable feishu")
             return
 
         if not self.config.app_id or not self.config.app_secret:
             self.logger.error(
                 "app_id and app_secret not configured. "
-                "Run 'nanobot channels login feishu' to set up via QR code."
+                "Run 'nanoinfra channels login feishu' to set up via QR code."
             )
             return
 

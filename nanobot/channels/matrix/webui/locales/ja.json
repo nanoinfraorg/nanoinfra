@@ -1,5 +1,5 @@
 {
-  "description": "Matrix ルームから nanobot を利用します。",
+  "description": "Matrix ルームから nanoinfra を利用します。",
   "requirements": "ホームサーバー、アカウントトークン、ルームへのアクセス",
   "setup": {
     "docsLabel": "Matrix 設定ガイドを開く",
@@ -7,7 +7,7 @@
     "tryIt": "Matrix アカウントをルームに招待し、テストメッセージを送信します。",
     "summary": "Matrix にはホームサーバーのアカウントと、パスワードまたはアクセストークンが必要です。",
     "steps": [
-      "nanobot 用の Matrix アカウントを作成または選択します。",
+      "nanoinfra 用の Matrix アカウントを作成または選択します。",
       "ホームサーバー、ユーザー ID、パスワードまたはアクセストークンを入力します。",
       "保存して Matrix を有効にし、アカウントをルームに招待してテストメッセージを送信します。"
     ],
@@ -18,7 +18,7 @@
       },
       "userId": {
         "label": "ユーザー ID",
-        "placeholder": "@nanobot:matrix.org"
+        "placeholder": "@nanoinfra:matrix.org"
       },
       "password": {
         "label": "パスワード",

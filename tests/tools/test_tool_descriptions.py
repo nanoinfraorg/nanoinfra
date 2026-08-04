@@ -1,11 +1,11 @@
 import sys
 from unittest.mock import patch
 
-from nanobot.agent.tools.apply_patch import ApplyPatchTool
-from nanobot.agent.tools.exec_session import ListExecSessionsTool, WriteStdinTool
-from nanobot.agent.tools.filesystem import EditFileTool, ReadFileTool, WriteFileTool
-from nanobot.agent.tools.search import FindFilesTool, GrepTool
-from nanobot.agent.tools.shell import ExecTool
+from nanoinfra.agent.tools.apply_patch import ApplyPatchTool
+from nanoinfra.agent.tools.exec_session import ListExecSessionsTool, WriteStdinTool
+from nanoinfra.agent.tools.filesystem import EditFileTool, ReadFileTool, WriteFileTool
+from nanoinfra.agent.tools.search import FindFilesTool, GrepTool
+from nanoinfra.agent.tools.shell import ExecTool
 
 
 def test_coding_tool_descriptions_steer_editing_priority() -> None:
@@ -52,13 +52,13 @@ def test_coding_tool_descriptions_steer_discovery_and_shell_usage() -> None:
 
 
 def test_exec_tool_shell_guidance_matches_platform() -> None:
-    with patch("nanobot.agent.tools.shell._IS_WINDOWS", False):
+    with patch("nanoinfra.agent.tools.shell._IS_WINDOWS", False):
         unix_description = ExecTool().description.lower()
     assert "on unix" in unix_description
     assert "powershell" not in unix_description
     assert "cmd-specific" not in unix_description
 
-    with patch("nanobot.agent.tools.shell._IS_WINDOWS", True):
+    with patch("nanoinfra.agent.tools.shell._IS_WINDOWS", True):
         windows_description = ExecTool().description.lower()
     assert "powershell syntax" in windows_description
     assert "shell='cmd'" in windows_description

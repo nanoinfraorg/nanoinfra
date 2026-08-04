@@ -10,8 +10,8 @@ from typing import Any, AsyncGenerator, cast
 import httpx
 from loguru import logger
 
-from nanobot.providers.base import LLMResponse, ToolCallRequest, parse_tool_arguments
-from nanobot.providers.openai_responses.state import build_responses_state
+from nanoinfra.providers.base import LLMResponse, ToolCallRequest, parse_tool_arguments
+from nanoinfra.providers.openai_responses.state import build_responses_state
 
 FINISH_REASON_MAP = {
     "completed": "stop",

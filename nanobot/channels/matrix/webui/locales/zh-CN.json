@@ -1,5 +1,5 @@
 {
-  "description": "在 Matrix 房间中使用 nanobot。",
+  "description": "在 Matrix 房间中使用 nanoinfra。",
   "requirements": "主服务器、账户令牌和房间访问权限",
   "setup": {
     "docsLabel": "打开 Matrix 配置指南",
@@ -7,7 +7,7 @@
     "tryIt": "将 Matrix 账户邀请进房间并发送一条测试消息。",
     "summary": "Matrix 需要主服务器账户，并使用密码或访问令牌登录。",
     "steps": [
-      "为 nanobot 创建或选择一个 Matrix 账户。",
+      "为 nanoinfra 创建或选择一个 Matrix 账户。",
       "填写主服务器、用户 ID，以及密码或访问令牌凭据。",
       "保存并启用 Matrix，将账户邀请进房间，然后发送一条测试消息。"
     ],
@@ -18,7 +18,7 @@
       },
       "userId": {
         "label": "用户 ID",
-        "placeholder": "@nanobot:matrix.org"
+        "placeholder": "@nanoinfra:matrix.org"
       },
       "password": {
         "label": "密码",

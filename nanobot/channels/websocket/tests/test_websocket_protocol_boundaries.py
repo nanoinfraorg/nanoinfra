@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from nanobot.channels.websocket.runtime import (
+from nanoinfra.channels.websocket.runtime import (
     _is_valid_chat_id,
     _parse_envelope,
 )

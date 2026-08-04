@@ -16,8 +16,8 @@ import httpx
 from oauth_cli_kit.models import OAuthToken
 from oauth_cli_kit.storage import FileTokenStorage
 
-from nanobot.providers.base import LLMResponse, ProviderCallContext
-from nanobot.providers.openai_compat_provider import OpenAICompatProvider
+from nanoinfra.providers.base import LLMResponse, ProviderCallContext
+from nanoinfra.providers.openai_compat_provider import OpenAICompatProvider
 
 DEFAULT_GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code"
 DEFAULT_GITHUB_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
@@ -27,8 +27,8 @@ DEFAULT_COPILOT_BASE_URL = "https://api.githubcopilot.com"
 GITHUB_COPILOT_CLIENT_ID = "Iv1.b507a08c87ecfe98"
 GITHUB_COPILOT_SCOPE = "read:user"
 TOKEN_FILENAME = "github-copilot.json"
-TOKEN_APP_NAME = "nanobot"
-USER_AGENT = "nanobot/0.1"
+TOKEN_APP_NAME = "nanoinfra"
+USER_AGENT = "nanoinfra/0.1"
 EDITOR_VERSION = "vscode/1.99.0"
 EDITOR_PLUGIN_VERSION = "copilot-chat/0.26.0"
 _EXPIRY_SKEW_SECONDS = 60
@@ -80,10 +80,10 @@ def login_github_copilot(
     printer = print_fn or print
     timeout = httpx.Timeout(20.0, connect=20.0)
 
-    client_id = _resolve("NANOBOT_GITHUB_COPILOT_CLIENT_ID", GITHUB_COPILOT_CLIENT_ID)
-    device_code_url = _resolve("NANOBOT_GITHUB_DEVICE_CODE_URL", DEFAULT_GITHUB_DEVICE_CODE_URL)
-    access_token_url = _resolve("NANOBOT_GITHUB_ACCESS_TOKEN_URL", DEFAULT_GITHUB_ACCESS_TOKEN_URL)
-    user_url = _resolve("NANOBOT_GITHUB_USER_URL", DEFAULT_GITHUB_USER_URL)
+    client_id = _resolve("NANOINFRA_GITHUB_COPILOT_CLIENT_ID", GITHUB_COPILOT_CLIENT_ID)
+    device_code_url = _resolve("NANOINFRA_GITHUB_DEVICE_CODE_URL", DEFAULT_GITHUB_DEVICE_CODE_URL)
+    access_token_url = _resolve("NANOINFRA_GITHUB_ACCESS_TOKEN_URL", DEFAULT_GITHUB_ACCESS_TOKEN_URL)
+    user_url = _resolve("NANOINFRA_GITHUB_USER_URL", DEFAULT_GITHUB_USER_URL)
 
     with httpx.Client(timeout=timeout, follow_redirects=True, trust_env=True) as client:
         response = client.post(
@@ -175,14 +175,14 @@ class GitHubCopilotProvider(OpenAICompatProvider):
     """Provider that exchanges a stored GitHub OAuth token for Copilot access tokens."""
 
     def __init__(self, default_model: str = "github-copilot/gpt-4.1"):
-        from nanobot.providers.registry import find_by_name
+        from nanoinfra.providers.registry import find_by_name
 
         self._copilot_access_token: str | None = None
         self._copilot_expires_at: float = 0.0
         self._copilot_token_lock: asyncio.Lock = asyncio.Lock()
         super().__init__(
             api_key="no-key",
-            api_base=_resolve("NANOBOT_COPILOT_BASE_URL", DEFAULT_COPILOT_BASE_URL),
+            api_base=_resolve("NANOINFRA_COPILOT_BASE_URL", DEFAULT_COPILOT_BASE_URL),
             default_model=default_model,
             extra_headers={
                 "Editor-Version": EDITOR_VERSION,
@@ -207,13 +207,13 @@ class GitHubCopilotProvider(OpenAICompatProvider):
             github_token = _load_github_token()
             if not github_token or not github_token.access:
                 raise RuntimeError(
-                    "GitHub Copilot is not logged in. Run: nanobot provider login github-copilot"
+                    "GitHub Copilot is not logged in. Run: nanoinfra provider login github-copilot"
                 )
 
             timeout = httpx.Timeout(20.0, connect=20.0)
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, trust_env=True) as client:
                 response = await client.get(
-                    _resolve("NANOBOT_COPILOT_TOKEN_URL", DEFAULT_COPILOT_TOKEN_URL),
+                    _resolve("NANOINFRA_COPILOT_TOKEN_URL", DEFAULT_COPILOT_TOKEN_URL),
                     headers=_copilot_headers(github_token.access),
                 )
                 response.raise_for_status()

@@ -12,20 +12,20 @@ import typer
 from loguru import logger
 from rich.console import Console
 
-from nanobot.config.schema import Config
-from nanobot.gateway import (
+from nanoinfra.config.schema import Config
+from nanoinfra.gateway import (
     GatewayRuntime,
     GatewayRuntimePaths,
     GatewayStartOptions,
     GatewayStatus,
 )
-from nanobot.gateway.service import (
+from nanoinfra.gateway.service import (
     GatewayServiceInstaller,
     GatewayServiceOptions,
     GatewayServiceResult,
     ServiceManagerKind,
 )
-from nanobot.webui.build import BuildMode
+from nanoinfra.webui.build import BuildMode
 
 RuntimeConfigLoader = Callable[[str | None, str | None], Config]
 GatewayRunner = Callable[..., None]
@@ -47,7 +47,7 @@ def create_gateway_app(
     prepare_webui_bundle: WebUIBundlePreparer | None = None,
 ) -> typer.Typer:
     gateway_app = typer.Typer(
-        help="Start and manage the nanobot gateway.",
+        help="Start and manage the nanoinfra gateway.",
         invoke_without_command=True,
         no_args_is_help=False,
     )
@@ -87,8 +87,8 @@ def create_gateway_app(
         return service_factory() if service_factory is not None else GatewayServiceInstaller()
 
     def interactive_build_mode() -> BuildMode:
-        # `nanobot gateway` is often launched by tests, supervisors, or service managers.
-        # The higher-level `nanobot webui` command owns interactive first-run guidance.
+        # `nanoinfra gateway` is often launched by tests, supervisors, or service managers.
+        # The higher-level `nanoinfra webui` command owns interactive first-run guidance.
         return "warn"
 
     def start_options(
@@ -144,7 +144,7 @@ def create_gateway_app(
         foreground: bool = typer.Option(False, "--foreground", help="Run in the foreground"),
         background: bool = typer.Option(False, "--background", help="Start as a background process"),
     ) -> None:
-        """Start the nanobot gateway."""
+        """Start the nanoinfra gateway."""
         if ctx.invoked_subcommand is not None:
             return
         if foreground and background:
@@ -270,7 +270,7 @@ def create_gateway_app(
         workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
         verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
         config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
-        name: str = typer.Option("nanobot-gateway", "--name", help="Service name"),
+        name: str = typer.Option("nanoinfra-gateway", "--name", help="Service name"),
         manager: ServiceManagerKind = typer.Option("auto", "--manager", help="auto, systemd, or launchd"),
         enable: bool = typer.Option(True, "--enable/--no-enable", help="Enable the service after writing it"),
         start_now: bool = typer.Option(True, "--start/--no-start", help="Start the service after writing it"),
@@ -302,7 +302,7 @@ def create_gateway_app(
 
     @gateway_app.command("uninstall-service")
     def gateway_uninstall_service(  # pyright: ignore[reportUnusedFunction]
-        name: str = typer.Option("nanobot-gateway", "--name", help="Service name"),
+        name: str = typer.Option("nanoinfra-gateway", "--name", help="Service name"),
         manager: ServiceManagerKind = typer.Option("auto", "--manager", help="auto, systemd, or launchd"),
         dry_run: bool = typer.Option(False, "--dry-run", help="Print actions without uninstalling"),
     ) -> None:

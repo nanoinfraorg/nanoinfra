@@ -1,6 +1,6 @@
-"""Lightweight background runtime for the nanobot gateway."""
+"""Lightweight background runtime for the nanoinfra gateway."""
 
-from nanobot.gateway.runtime import (
+from nanoinfra.gateway.runtime import (
     GatewayRuntime,
     GatewayRuntimePaths,
     GatewayStartOptions,

@@ -1,5 +1,5 @@
 {
-  "description": "Use nanobot from WeChat conversations.",
+  "description": "Use nanoinfra from WeChat conversations.",
   "requirements": "WeChat channel setup and gateway",
   "setup": {
     "primaryAction": "Connect WeChat",
@@ -26,7 +26,7 @@
   "custom": {
     "qrAlt": "WeChat login QR code",
     "scanTitle": "Scan with WeChat",
-    "scanDescription": "Use WeChat on your phone to scan this code. nanobot saves the account state locally after login.",
+    "scanDescription": "Use WeChat on your phone to scan this code. nanoinfra saves the account state locally after login.",
     "waiting": "Waiting for WeChat scan...",
     "connected": "WeChat is connected.",
     "stopped": "WeChat login stopped.",

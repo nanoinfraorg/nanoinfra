@@ -1,5 +1,5 @@
 {
-  "description": "Use nanobot from Signal messages.",
+  "description": "Use nanoinfra from Signal messages.",
   "requirements": "signal-cli HTTP daemon, phone number, allowlist",
   "setup": {
     "docsLabel": "Open Signal setup",

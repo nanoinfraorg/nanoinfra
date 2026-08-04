@@ -1,5 +1,5 @@
 {
-  "description": "Utilisez nanobot depuis les conversations Microsoft Teams.",
+  "description": "Utilisez nanoinfra depuis les conversations Microsoft Teams.",
   "requirements": "Identifiants de l’application bot Azure et endpoint de rappel public",
   "setup": {
     "docsLabel": "Ouvrir le guide Teams",

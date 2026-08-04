@@ -20,38 +20,38 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, TypeVar, cast
 
 from loguru import logger
 
-from nanobot.agent import context as agent_context
-from nanobot.agent import model_presets as preset_helpers
-from nanobot.agent.autocompact import AutoCompact
-from nanobot.agent.automation_turns import publish_next_deferred_turn
-from nanobot.agent.context import ContextBuilder
-from nanobot.agent.cron_turns import CronTurnCoordinator
-from nanobot.agent.hook import AgentHook, AgentTurnHookFactory
-from nanobot.agent.memory import Consolidator
-from nanobot.agent.model_runtime import ModelRuntimeResolver
-from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
-from nanobot.agent.subagent import SubagentManager
-from nanobot.agent.tools.context import RequestContext, bind_request_context, reset_request_context
-from nanobot.agent.tools.exec_session import ExecSessionManager
-from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
-from nanobot.agent.tools.message import MessageTool
-from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.self import MyTool
-from nanobot.agent.turn_delivery import (
+from nanoinfra.agent import context as agent_context
+from nanoinfra.agent import model_presets as preset_helpers
+from nanoinfra.agent.autocompact import AutoCompact
+from nanoinfra.agent.automation_turns import publish_next_deferred_turn
+from nanoinfra.agent.context import ContextBuilder
+from nanoinfra.agent.cron_turns import CronTurnCoordinator
+from nanoinfra.agent.hook import AgentHook, AgentTurnHookFactory
+from nanoinfra.agent.memory import Consolidator
+from nanoinfra.agent.model_runtime import ModelRuntimeResolver
+from nanoinfra.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
+from nanoinfra.agent.subagent import SubagentManager
+from nanoinfra.agent.tools.context import RequestContext, bind_request_context, reset_request_context
+from nanoinfra.agent.tools.exec_session import ExecSessionManager
+from nanoinfra.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
+from nanoinfra.agent.tools.message import MessageTool
+from nanoinfra.agent.tools.registry import ToolRegistry
+from nanoinfra.agent.tools.self import MyTool
+from nanoinfra.agent.turn_delivery import (
     TurnDelivery,
     TurnDeliveryFactory,
 )
-from nanobot.agent.turn_delivery import TurnRoute as TurnRoute
-from nanobot.agent.turn_hooks import AgentTurnHookSpec, build_agent_turn_hook
-from nanobot.bus.events import InboundMessage, OutboundMessage
-from nanobot.bus.outbound_events import StreamedResponseEvent
-from nanobot.bus.queue import MessageBus
-from nanobot.bus.runtime_events import RuntimeEventBus
-from nanobot.command import CommandContext, CommandRouter, register_builtin_commands
-from nanobot.config.schema import AgentDefaults, ModelPresetConfig
-from nanobot.providers.base import LLMProvider, ProviderConversationState
-from nanobot.providers.factory import ProviderSnapshot
-from nanobot.runtime_context import (
+from nanoinfra.agent.turn_delivery import TurnRoute as TurnRoute
+from nanoinfra.agent.turn_hooks import AgentTurnHookSpec, build_agent_turn_hook
+from nanoinfra.bus.events import InboundMessage, OutboundMessage
+from nanoinfra.bus.outbound_events import StreamedResponseEvent
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.bus.runtime_events import RuntimeEventBus
+from nanoinfra.command import CommandContext, CommandRouter, register_builtin_commands
+from nanoinfra.config.schema import AgentDefaults, ModelPresetConfig
+from nanoinfra.providers.base import LLMProvider, ProviderConversationState
+from nanoinfra.providers.factory import ProviderSnapshot
+from nanoinfra.runtime_context import (
     RUNTIME_CONTEXT_HISTORY_META,
     RUNTIME_CONTEXT_MESSAGE_META,
     RuntimeContextBlock,
@@ -60,50 +60,50 @@ from nanobot.runtime_context import (
     resolve_runtime_context,
     runtime_context_blocks_from_metadata,
 )
-from nanobot.security.workspace_access import (
+from nanoinfra.security.workspace_access import (
     WorkspaceScopeResolver,
     bind_workspace_scope,
     reset_workspace_scope,
 )
-from nanobot.session import turn_continuation
-from nanobot.session.automation_turns import automation_history_overrides
-from nanobot.session.goal_state import (
+from nanoinfra.session import turn_continuation
+from nanoinfra.session.automation_turns import automation_history_overrides
+from nanoinfra.session.goal_state import (
     goal_state_runtime_lines,
     runner_wall_llm_timeout_s,
     sustained_goal_active,
 )
-from nanobot.session.history_visibility import HIDDEN_HISTORY_META
-from nanobot.session.keys import UNIFIED_SESSION_KEY, remember_last_channel
-from nanobot.session.manager import (
+from nanoinfra.session.history_visibility import HIDDEN_HISTORY_META
+from nanoinfra.session.keys import UNIFIED_SESSION_KEY, remember_last_channel
+from nanoinfra.session.manager import (
     Session,
     SessionManager,
     replay_max_messages_for_context,
 )
-from nanobot.session.model_selection import (
+from nanoinfra.session.model_selection import (
     SESSION_MODEL_PRESET_METADATA_KEY,
     model_preset_from_metadata,
 )
-from nanobot.triggers.local_turns import LocalTriggerTurnCoordinator
-from nanobot.utils.cancellation import task_is_cancelling
-from nanobot.utils.document import reference_non_image_attachments
-from nanobot.utils.helpers import image_placeholder_text
-from nanobot.utils.helpers import truncate_text as truncate_text_fn
-from nanobot.utils.llm_runtime import LLMRuntime
-from nanobot.utils.runtime import (
+from nanoinfra.triggers.local_turns import LocalTriggerTurnCoordinator
+from nanoinfra.utils.cancellation import task_is_cancelling
+from nanoinfra.utils.document import reference_non_image_attachments
+from nanoinfra.utils.helpers import image_placeholder_text
+from nanoinfra.utils.helpers import truncate_text as truncate_text_fn
+from nanoinfra.utils.llm_runtime import LLMRuntime
+from nanoinfra.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
 )
 
 if TYPE_CHECKING:
-    from nanobot.agent.tools.mcp import MCPConnection
-    from nanobot.config.schema import (
+    from nanoinfra.agent.tools.mcp import MCPConnection
+    from nanoinfra.config.schema import (
         ChannelsConfig,
         Config,
         MCPServerConfig,
         ProviderConfig,
         ToolsConfig,
     )
-    from nanobot.cron.service import CronService
-    from nanobot.triggers.local_store import LocalTriggerStore
+    from nanoinfra.cron.service import CronService
+    from nanoinfra.triggers.local_store import LocalTriggerStore
 
 _T = TypeVar("_T")
 _SUBAGENT_PROVIDER_TASK_META = "subagent_provider_task_id"
@@ -291,7 +291,7 @@ class AgentLoop:
         local_trigger_store: LocalTriggerStore | None = None,
         idle_compact_check_interval_seconds: int = 0,
     ):
-        from nanobot.config.schema import ToolsConfig
+        from nanoinfra.config.schema import ToolsConfig
 
         _tc = tools_config or ToolsConfig()
         defaults = AgentDefaults()
@@ -424,8 +424,8 @@ class AgentLoop:
             ("cron", self._cron_turns),
             ("local trigger", self._local_trigger_turns),
         )
-        # NANOBOT_MAX_CONCURRENT_REQUESTS: <=0 means unlimited; default 3.
-        _max = int(os.environ.get("NANOBOT_MAX_CONCURRENT_REQUESTS", "3"))
+        # NANOINFRA_MAX_CONCURRENT_REQUESTS: <=0 means unlimited; default 3.
+        _max = int(os.environ.get("NANOINFRA_MAX_CONCURRENT_REQUESTS", "3"))
         self._concurrency_gate: asyncio.Semaphore | None = (
             asyncio.Semaphore(_max) if _max > 0 else None
         )
@@ -465,7 +465,7 @@ class AgentLoop:
         allowing callers to override or extend the standard config-derived
         parameters (e.g. ``cron_service``, ``session_manager``).
         """
-        from nanobot.providers.factory import make_provider
+        from nanoinfra.providers.factory import make_provider
 
         if bus is None:
             bus = MessageBus()
@@ -602,8 +602,8 @@ class AgentLoop:
         provider_snapshot_loader: Callable[..., ProviderSnapshot] | None,
     ) -> None:
         """Register the default set of tools via plugin loader."""
-        from nanobot.agent.tools.context import ToolContext
-        from nanobot.agent.tools.loader import ToolLoader
+        from nanoinfra.agent.tools.context import ToolContext
+        from nanoinfra.agent.tools.loader import ToolLoader
 
         ctx = ToolContext(
             config=self.tools_config,
@@ -1072,8 +1072,8 @@ class AgentLoop:
                 retry_wait_callback=on_retry_wait,
                 checkpoint_callback=_checkpoint,
                 injection_callback=_drain_pending,
-                # Sustained goals may legitimately exceed NANOBOT_LLM_TIMEOUT_S; idle stall
-                # is still capped by NANOBOT_STREAM_IDLE_TIMEOUT_S in streaming providers.
+                # Sustained goals may legitimately exceed NANOINFRA_LLM_TIMEOUT_S; idle stall
+                # is still capped by NANOINFRA_STREAM_IDLE_TIMEOUT_S in streaming providers.
                 llm_timeout_s=runner_wall_llm_timeout_s(
                     self.sessions,
                     session.key if session is not None else session_key,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from nanobot.providers.base import LLMProvider, LLMResponse
+from nanoinfra.providers.base import LLMProvider, LLMResponse
 
 
 class UnconfiguredProvider(LLMProvider):
@@ -26,7 +26,7 @@ class UnconfiguredProvider(LLMProvider):
     ) -> LLMResponse:
         return LLMResponse(
             content=(
-                "Nanobot needs a model before it can chat. Open Settings → Models "
+                "Nanoinfra needs a model before it can chat. Open Settings → Models "
                 "to configure a provider and model, then send your message again."
             ),
             finish_reason="error",

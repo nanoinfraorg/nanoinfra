@@ -1,9 +1,9 @@
-"""Lightweight WebSocket test client for integration testing the nanobot WebSocket channel.
+"""Lightweight WebSocket test client for integration testing the nanoinfra WebSocket channel.
 
 Provides an async ``WsTestClient`` class and token-issuance helpers that
 integration tests can import and use directly::
 
-    from nanobot.channels.websocket.tests.ws_test_client import WsTestClient
+    from nanoinfra.channels.websocket.tests.ws_test_client import WsTestClient
 
     async with WsTestClient("ws://127.0.0.1:8765/", client_id="t") as c:
         ready = await c.recv_ready()
@@ -24,8 +24,8 @@ from websockets.asyncio.client import ClientConnection
 from websockets.datastructures import Headers
 from websockets.http11 import Request as WsRequest
 
-from nanobot.channels.websocket.runtime import WebSocketChannel
-from nanobot.webui.http_utils import http_response
+from nanoinfra.channels.websocket.runtime import WebSocketChannel
+from nanoinfra.webui.http_utils import http_response
 
 _IN_PROCESS_HTTP_CHANNELS: dict[int, InProcessHttpChannel] = {}
 

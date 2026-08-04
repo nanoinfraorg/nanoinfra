@@ -1,5 +1,5 @@
 {
-  "description": "Telegram のチャットから nanobot と会話します。",
+  "description": "Telegram のチャットから nanoinfra と会話します。",
   "requirements": "ボットトークン、許可するユーザー、ゲートウェイ",
   "setup": {
     "docsLabel": "Telegram 設定ガイドを開く",

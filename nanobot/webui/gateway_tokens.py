@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from websockets.http11 import Request as WsRequest
 
-from nanobot.webui.http_utils import bearer_token, parse_query, query_first
+from nanoinfra.webui.http_utils import bearer_token, parse_query, query_first
 
 IssuedTokenAudience = Literal["client", "webui"]
 

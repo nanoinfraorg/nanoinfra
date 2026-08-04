@@ -1,5 +1,5 @@
 {
-  "description": "Use o nanobot em conversas e grupos do Feishu.",
+  "description": "Use o nanoinfra em conversas e grupos do Feishu.",
   "requirements": "Credenciais do Feishu, assinatura de eventos e gateway",
   "setup": {
     "primaryAction": "Conectar Feishu",
@@ -9,7 +9,7 @@
     "summary": "A conexão cria ou vincula um app Feishu por QR e salva as credenciais.",
     "steps": [
       "Clique em Conectar e escaneie o QR com Feishu ou Lark.",
-      "Aprove a conexão. O nanobot salva App ID e Secret automaticamente.",
+      "Aprove a conexão. O nanoinfra salva App ID e Secret automaticamente.",
       "Envie uma DM ao bot ou mencione-o em um grupo Feishu."
     ],
     "fields": {
@@ -64,7 +64,7 @@
     "countMany": "{{count}} assistentes conectados",
     "qrAlt": "QR code de conexão do Feishu",
     "scanTitle": "Escaneie com o Feishu",
-    "scanDescription": "Escaneie com Feishu ou Lark no celular. O nanobot concluirá a configuração após a autorização.",
+    "scanDescription": "Escaneie com Feishu ou Lark no celular. O nanoinfra concluirá a configuração após a autorização.",
     "waiting": "Aguardando autorização...",
     "connected": "Feishu está conectado.",
     "stopped": "Conexão interrompida.",

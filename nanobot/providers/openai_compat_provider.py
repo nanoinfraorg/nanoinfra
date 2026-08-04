@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 from loguru import logger
 from pydantic.alias_generators import to_snake
 
-from nanobot.providers.base import (
+from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
     ProviderCallContext,
@@ -33,7 +33,7 @@ from nanobot.providers.base import (
     resolve_stream_idle_timeout_s,
     tool_arguments_json_for_replay,
 )
-from nanobot.providers.openai_responses import (
+from nanoinfra.providers.openai_responses import (
     ResponsesStreamCapture,
     build_responses_state,
     consume_sdk_stream,
@@ -49,7 +49,7 @@ from nanobot.providers.openai_responses import (
 if TYPE_CHECKING:
     from openai import AsyncOpenAI as AsyncOpenAIType
 
-    from nanobot.providers.registry import ProviderSpec
+    from nanoinfra.providers.registry import ProviderSpec
 
 # Module-level placeholder — set lazily by _ensure_client on first real
 # use, or replaced by tests via ``patch(...)``.  Kept as a plain name so
@@ -65,8 +65,8 @@ _ALNUM = string.ascii_letters + string.digits
 _STANDARD_TC_KEYS = frozenset({"id", "type", "index", "function"})
 _STANDARD_FN_KEYS = frozenset({"name", "arguments"})
 _DEFAULT_OPENROUTER_HEADERS = {
-    "HTTP-Referer": "https://github.com/HKUDS/nanobot",
-    "X-OpenRouter-Title": "nanobot",
+    "HTTP-Referer": "https://github.com/bet0x/nanoinfra",
+    "X-OpenRouter-Title": "nanoinfra",
     "X-OpenRouter-Categories": "cli-agent,personal-agent",
 }
 _KIMI_K3_MODEL = "kimi-k3"
@@ -176,7 +176,7 @@ def _gateway_reasoning_extra_body(style: str, effort: str | None) -> dict[str, A
 
 def _openai_compat_timeout_s() -> float:
     """Return the bounded request timeout used for OpenAI-compatible providers."""
-    return _float_env("NANOBOT_OPENAI_COMPAT_TIMEOUT_S", _OPENAI_COMPAT_REQUEST_TIMEOUT_S)
+    return _float_env("NANOINFRA_OPENAI_COMPAT_TIMEOUT_S", _OPENAI_COMPAT_REQUEST_TIMEOUT_S)
 
 
 def _float_env(name: str, default: float) -> float:
@@ -319,7 +319,7 @@ def _extract_tc_extras(tc: Any) -> tuple[
 
 
 def _uses_openrouter_attribution(spec: "ProviderSpec | None", api_base: str | None) -> bool:
-    """Apply Nanobot attribution headers to OpenRouter requests by default."""
+    """Apply Nanoinfra attribution headers to OpenRouter requests by default."""
     if spec and spec.name == "openrouter":
         return True
     return bool(api_base and "openrouter" in api_base.lower())

@@ -8,10 +8,10 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 if TYPE_CHECKING:
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.bus.events import InboundMessage, OutboundMessage
-    from nanobot.session.manager import Session
-    from nanobot.utils.llm_runtime import LLMRuntime
+    from nanoinfra.agent.loop import AgentLoop
+    from nanoinfra.bus.events import InboundMessage, OutboundMessage
+    from nanoinfra.session.manager import Session
+    from nanoinfra.utils.llm_runtime import LLMRuntime
 
 Handler = Callable[["CommandContext"], Awaitable["OutboundMessage | None"]]
 _BOT_SUFFIX_RE = re.compile(r"^[A-Za-z0-9_]+$")

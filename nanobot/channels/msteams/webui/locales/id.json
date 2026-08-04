@@ -1,5 +1,5 @@
 {
-  "description": "Gunakan nanobot dari chat Microsoft Teams.",
+  "description": "Gunakan nanoinfra dari chat Microsoft Teams.",
   "requirements": "Kredensial aplikasi bot Azure dan endpoint callback publik",
   "setup": {
     "docsLabel": "Buka panduan Teams",

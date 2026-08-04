@@ -1,5 +1,5 @@
 {
-  "description": "Sử dụng nanobot từ các cuộc trò chuyện WhatsApp.",
+  "description": "Sử dụng nanoinfra từ các cuộc trò chuyện WhatsApp.",
   "requirements": "Cài đặt kết nối WhatsApp và gateway",
   "setup": {
     "primaryAction": "Kết nối WhatsApp",

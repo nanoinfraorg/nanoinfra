@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from nanobot.channels.feishu.runtime import FeishuChannel
+from nanoinfra.channels.feishu.runtime import FeishuChannel
 
 
 def _make_channel(bot_open_id: str | None = None) -> FeishuChannel:

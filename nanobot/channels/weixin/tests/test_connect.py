@@ -6,10 +6,10 @@ from typing import Any
 
 import pytest
 
-from nanobot.channels.weixin.connect import WeixinConnectStore
-from nanobot.channels.weixin.runtime import WeixinChannel
-from nanobot.config.loader import save_config
-from nanobot.config.schema import Config
+from nanoinfra.channels.weixin.connect import WeixinConnectStore
+from nanoinfra.channels.weixin.runtime import WeixinChannel
+from nanoinfra.config.loader import save_config
+from nanoinfra.config.schema import Config
 
 
 @pytest.mark.asyncio
@@ -23,7 +23,7 @@ async def test_weixin_connect_store_saves_confirmed_qr_login(
         Config.model_validate({"channels": {"weixin": {"stateDir": str(state_dir)}}}),
         config_path,
     )
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
 
     async def fake_fetch_qr_code(self: WeixinChannel) -> tuple[str, str]:
         return "qr-1", "https://qr.example/1"
@@ -84,7 +84,7 @@ async def test_weixin_reconnect_keeps_existing_account_until_scan_succeeds(
         Config.model_validate({"channels": {"weixin": {"stateDir": str(state_dir)}}}),
         config_path,
     )
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
 
     async def fake_fetch_qr_code(self: WeixinChannel) -> tuple[str, str]:
         return "qr-reconnect", "https://qr.example/reconnect"
@@ -111,7 +111,7 @@ async def test_weixin_cancel_wins_over_inflight_confirmation(
         Config.model_validate({"channels": {"weixin": {"stateDir": str(state_dir)}}}),
         config_path,
     )
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
 
     poll_started = asyncio.Event()
     release_poll = asyncio.Event()

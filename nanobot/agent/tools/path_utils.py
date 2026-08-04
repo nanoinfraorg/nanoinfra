@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from nanobot.config.paths import get_media_dir
-from nanobot.security.workspace_policy import (
+from nanoinfra.config.paths import get_media_dir
+from nanoinfra.security.workspace_policy import (
     is_path_within,
     resolve_allowed_path,
 )

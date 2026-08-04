@@ -49,7 +49,7 @@ def runtime_lines_for_request(
     if "@" not in text:
         return []
     try:
-        from nanobot.apps.cli import CliAppManager
+        from nanoinfra.apps.cli import CliAppManager
 
         mentions = cast(
             list[dict[str, Any]],

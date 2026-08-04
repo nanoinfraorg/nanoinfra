@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nanobot.session.goal_state import (
+from nanoinfra.session.goal_state import (
     GOAL_STATE_KEY,
     MAX_GOAL_OBJECTIVE_CHARS,
     discard_legacy_goal_state_key,
@@ -13,7 +13,7 @@ from nanobot.session.goal_state import (
     runner_wall_llm_timeout_s,
     sustained_goal_active,
 )
-from nanobot.session.manager import SessionManager
+from nanoinfra.session.manager import SessionManager
 
 
 def test_runtime_lines_empty_when_no_metadata():

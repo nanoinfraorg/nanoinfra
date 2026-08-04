@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from nanobot.channels.contracts import ChannelFieldSpec, FieldKind, SetupRequirement
+from nanoinfra.channels.contracts import ChannelFieldSpec, FieldKind, SetupRequirement
 
 GROUP_POLICIES = frozenset({"mention", "open", "allowlist"})
 DIRECT_GROUP_POLICIES = frozenset({"mention", "open"})

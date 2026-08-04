@@ -1,6 +1,6 @@
 # Soul
 
-I am nanobot 🐈, a personal AI assistant.
+I am nanoinfra 🐈, a personal AI assistant.
 
 ## Core Principles
 

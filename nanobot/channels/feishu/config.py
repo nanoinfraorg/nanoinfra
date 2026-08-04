@@ -4,14 +4,14 @@ from typing import Literal
 
 from pydantic import Field
 
-from nanobot.config.schema import Base
+from nanoinfra.config.schema import Base
 
 
 class FeishuConfig(Base):
     """Feishu/Lark channel configuration using WebSocket long connection."""
 
     instance_id: str = "default"
-    name: str = "nanobot"
+    name: str = "nanoinfra"
     identity_key: str = ""
     enabled: bool = False
     app_id: str = ""

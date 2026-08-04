@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from loguru import logger
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.outbound_events import (
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.outbound_events import (
     ProgressEvent,
     RetryWaitEvent,
     RuntimeModelUpdatedEvent,
@@ -23,33 +23,33 @@ from nanobot.bus.outbound_events import (
     outbound_event_from_message,
     replace_outbound_event,
 )
-from nanobot.bus.queue import MessageBus
-from nanobot.channels._setup import channel_setup_spec
-from nanobot.channels.base import BaseChannel
-from nanobot.channels.contracts import (
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels._setup import channel_setup_spec
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.channels.contracts import (
     channel_default_config,
     channel_instance_specs,
     channel_runtime_name,
     resolve_channel_action_target,
 )
-from nanobot.channels.registry import channel_default_enabled
-from nanobot.config.schema import Config
-from nanobot.utils.restart import (
+from nanoinfra.channels.registry import channel_default_enabled
+from nanoinfra.config.schema import Config
+from nanoinfra.utils.restart import (
     RestartNotice,
     consume_restart_notice_from_env,
     format_restart_completed_message,
 )
 
 if TYPE_CHECKING:
-    from nanobot.cron.service import CronService
-    from nanobot.session.manager import SessionManager
-    from nanobot.triggers.local_store import LocalTriggerStore
+    from nanoinfra.cron.service import CronService
+    from nanoinfra.session.manager import SessionManager
+    from nanoinfra.triggers.local_store import LocalTriggerStore
 
 
 def _default_webui_dist() -> Path | None:
     """Return the absolute path to the bundled webui dist directory if it exists."""
     try:
-        import nanobot.web as web_pkg  # type: ignore[import-not-found]
+        import nanoinfra.web as web_pkg  # type: ignore[import-not-found]
     except ImportError:
         return None
     candidate = Path(web_pkg.__file__).resolve().parent / "dist"
@@ -68,7 +68,7 @@ _BOOL_CAMEL_ALIASES: dict[str, str] = {
 }
 
 def _default_channel_config(name: str) -> dict[str, Any] | None:
-    from nanobot.channels.registry import load_channel_plugin
+    from nanoinfra.channels.registry import load_channel_plugin
 
     plugin = load_channel_plugin(name)
     if not plugin.default_enabled:
@@ -157,8 +157,8 @@ class ChannelManager:
     ) -> BaseChannel:
         kwargs: dict[str, Any] = {}
         if cls.name == "websocket":
-            from nanobot.channels.websocket.runtime import WebSocketConfig
-            from nanobot.webui.gateway_services import build_gateway_services
+            from nanoinfra.channels.websocket.runtime import WebSocketConfig
+            from nanoinfra.webui.gateway_services import build_gateway_services
 
             parsed = WebSocketConfig.model_validate(section)
             static_path = _default_webui_dist() if self._webui_static_dist else None
@@ -200,8 +200,8 @@ class ChannelManager:
 
     def _init_channels(self) -> None:
         """Initialize enabled runtimes from dependency-free channel descriptors."""
-        from nanobot.channels.registry import discover_plugins
-        from nanobot.optional_features import ensure_enabled_channel_dependencies
+        from nanoinfra.channels.registry import discover_plugins
+        from nanoinfra.optional_features import ensure_enabled_channel_dependencies
 
         plugins = discover_plugins()
         default_sections: dict[str, Any] = {}
@@ -398,7 +398,7 @@ class ChannelManager:
         if not name:
             return {"handled": False}
 
-        from nanobot.channels.registry import discover_plugins
+        from nanoinfra.channels.registry import discover_plugins
 
         plugin = discover_plugins({name}).get(name)
         if plugin is None:
@@ -411,7 +411,7 @@ class ChannelManager:
                 "message": f"{plugin.display_name} is always enabled and is applied on restart.",
             }
 
-        from nanobot.config.loader import load_config
+        from nanoinfra.config.loader import load_config
 
         self.config = load_config()
         section = self._channel_section(name, default_enabled=plugin.default_enabled)
