@@ -406,7 +406,10 @@ def test_write_stdin_accepts_max_output_tokens_alias(tmp_path):
         sid = _session_id(initial)
         poll = await stdin_tool.execute(
             session_id=sid,
-            yield_time_ms=500,
+            # Windows CI runners can take >500ms just to spawn/flush pwsh
+            # under load (see loadfile-parallel "compatibility tests" job),
+            # which starves this poll before the 2000-char write lands.
+            yield_time_ms=2000,
             max_output_tokens=1000,
         )
         cleanup = await stdin_tool.execute(session_id=sid, terminate=True, yield_time_ms=0)
