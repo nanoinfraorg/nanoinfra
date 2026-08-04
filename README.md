@@ -5,30 +5,14 @@
 
 <div align="center">
   <p>
-    <a href="https://nanoinfra.wiki/docs/latest/getting-started/nanoinfra-overview">English</a> |
-    <a href="https://nanoinfra.wiki/cn/docs/latest/getting-started/nanoinfra-overview">简体中文</a> |
-    <a href="https://nanoinfra.wiki/zh-Hant/docs/latest/getting-started/nanoinfra-overview">繁體中文</a> |
-    <a href="https://nanoinfra.wiki/es/docs/latest/getting-started/nanoinfra-overview">Español</a> |
-    <a href="https://nanoinfra.wiki/fr/docs/latest/getting-started/nanoinfra-overview">Français</a> |
-    <a href="https://nanoinfra.wiki/id/docs/latest/getting-started/nanoinfra-overview">Bahasa Indonesia</a> |
-    <a href="https://nanoinfra.wiki/ja/docs/latest/getting-started/nanoinfra-overview">日本語</a> |
-    <a href="https://nanoinfra.wiki/ko/docs/latest/getting-started/nanoinfra-overview">한국어</a> |
-    <a href="https://nanoinfra.wiki/ru/docs/latest/getting-started/nanoinfra-overview">Русский</a> |
-    <a href="https://nanoinfra.wiki/vi/docs/latest/getting-started/nanoinfra-overview">Tiếng Việt</a>
-  </p>
-  <p>
     <a href="https://github.com/bet0x/nanoinfra"><img src="https://img.shields.io/github/stars/bet0x/nanoinfra?style=flat&logo=github" alt="GitHub stars"></a>
     <a href="https://pypi.org/project/nanoinfra/"><img src="https://img.shields.io/pypi/v/nanoinfra" alt="PyPI version"></a>
-    <a href="https://pepy.tech/project/nanoinfra"><img src="https://static.pepy.tech/badge/nanoinfra" alt="PyPI downloads"></a>
     <a href="https://github.com/bet0x/nanoinfra/actions/workflows/ci.yml"><img src="https://github.com/bet0x/nanoinfra/actions/workflows/ci.yml/badge.svg?branch=main" alt="Test Suite"></a>
     <a href="https://pypi.org/project/nanoinfra/"><img src="https://img.shields.io/badge/python-%3E%3D3.11-blue" alt="Python 3.11 or newer"></a>
     <a href="./LICENSE"><img src="https://img.shields.io/github/license/bet0x/nanoinfra" alt="MIT License"></a>
-    <a href="https://nanoinfra.wiki/docs/latest/getting-started/nanoinfra-overview"><img src="https://img.shields.io/badge/docs-nanoinfra.wiki-blue" alt="nanoinfra documentation"></a>
   </p>
   <p>
-    <a href="https://discord.gg/MnCvHqpUGB">Discord</a> ·
-    <a href="https://x.com/nanoinfra_project">X</a> ·
-    <a href="./COMMUNICATION.md">WeChat / Feishu</a>
+    <a href="./COMMUNICATION.md">GitHub / Email</a>
   </p>
 </div>
 
@@ -266,7 +250,7 @@ See the [WebUI guide](./docs/webui.md) for LAN access, background operation, wor
 
 ## 📚 Docs
 
-Browse the [repo docs](./docs/README.md) for the latest features and GitHub development version, or visit [nanoinfra.wiki](https://nanoinfra.wiki/docs/latest/getting-started/nanoinfra-overview) for the stable release documentation.
+Browse the [repo docs](./docs/README.md) for the latest features and GitHub development version.
 
 - Use task-oriented guides: [Guides](./docs/guides/README.md)
 - Start with no technical background: [Start Without Technical Background](./docs/start-without-technical-background.md)
