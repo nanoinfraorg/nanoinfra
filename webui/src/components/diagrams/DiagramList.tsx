@@ -18,7 +18,7 @@ export function DiagramList({ diagrams, onOpen, onNew, onDelete }: DiagramListPr
     <div className="flex h-full min-h-0 w-full flex-col">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex flex-col">
-          <span className="text-[14px] font-semibold text-foreground">Diagrams</span>
+          <span className="text-[14px] font-semibold text-foreground">Infra Diagrams</span>
           <span className="text-[11px] text-muted-foreground">
             {diagrams.length > 0 ? `${diagrams.length} saved` : "No diagrams yet — mock/local storage only"}
           </span>
