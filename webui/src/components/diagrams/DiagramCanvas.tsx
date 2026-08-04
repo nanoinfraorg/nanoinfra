@@ -16,6 +16,7 @@ import {
   type NodeChange,
   type EdgeMouseHandler,
   type NodeMouseHandler,
+  type OnNodeDrag,
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { LayoutGrid } from "lucide-react";
@@ -23,10 +24,11 @@ import "@xyflow/react/dist/base.css";
 
 import { autoLayout } from "./autoLayout";
 import { DiagramNode } from "./DiagramNode";
+import { GroupNode } from "./GroupNode";
 import { defaultEdgeLabel } from "./edgeDefaults";
 import type { DiagramNodeData } from "./diagramTypes";
 
-const NODE_TYPES = { component: DiagramNode };
+const NODE_TYPES = { component: DiagramNode, group: GroupNode };
 
 // Applied to every edge — both the seeded ones and any drawn by hand — so a
 // new connection never falls back to React Flow's default (unstyled, which
@@ -49,13 +51,74 @@ export type DiagramSelection = { kind: "node" | "edge"; id: string } | null;
 
 export const PALETTE_DRAG_MIME = "application/x-nanoinfra-component";
 
+const GROUP_DEFAULT_WIDTH = 320;
+const GROUP_DEFAULT_HEIGHT = 220;
+
+function absolutePositionOf(
+  node: Node<DiagramNodeData>,
+  byId: Map<string, Node<DiagramNodeData>>,
+): { x: number; y: number } {
+  let x = node.position.x;
+  let y = node.position.y;
+  let current = node;
+  while (current.parentId) {
+    const parent = byId.get(current.parentId);
+    if (!parent) break;
+    x += parent.position.x;
+    y += parent.position.y;
+    current = parent;
+  }
+  return { x, y };
+}
+
+function groupDimensions(node: Node<DiagramNodeData>): { width: number; height: number } {
+  const styleWidth = typeof node.style?.width === "number" ? node.style.width : undefined;
+  const styleHeight = typeof node.style?.height === "number" ? node.style.height : undefined;
+  return {
+    width: node.measured?.width ?? styleWidth ?? GROUP_DEFAULT_WIDTH,
+    height: node.measured?.height ?? styleHeight ?? GROUP_DEFAULT_HEIGHT,
+  };
+}
+
+// Finds the innermost group whose absolute bounds contain the point — used
+// when a component is dropped from the palette (not dragged from elsewhere
+// on the canvas), since it doesn't exist as a node yet and so can't be
+// checked via getIntersectingNodes.
+function findContainingGroup(
+  point: { x: number; y: number },
+  nodes: Node<DiagramNodeData>[],
+  byId: Map<string, Node<DiagramNodeData>>,
+): Node<DiagramNodeData> | undefined {
+  let best: { node: Node<DiagramNodeData>; depth: number } | undefined;
+  for (const node of nodes) {
+    if (node.type !== "group") continue;
+    const abs = absolutePositionOf(node, byId);
+    const { width, height } = groupDimensions(node);
+    if (point.x < abs.x || point.x > abs.x + width || point.y < abs.y || point.y > abs.y + height) continue;
+    let depth = 0;
+    let current = node;
+    while (current.parentId) {
+      const parent = byId.get(current.parentId);
+      if (!parent) break;
+      depth += 1;
+      current = parent;
+    }
+    if (!best || depth > best.depth) best = { node, depth };
+  }
+  return best?.node;
+}
+
 interface DiagramCanvasProps {
   nodes: Node<DiagramNodeData>[];
   edges: Edge[];
   onNodesChange: (nodes: Node<DiagramNodeData>[]) => void;
   onEdgesChange: (edges: Edge[]) => void;
   onSelect: (selection: DiagramSelection) => void;
-  onDropComponent: (componentTypeId: string, position: { x: number; y: number }) => void;
+  onDropComponent: (
+    componentTypeId: string,
+    position: { x: number; y: number },
+    parentId?: string,
+  ) => void;
 }
 
 export function DiagramCanvas({
@@ -67,7 +130,7 @@ export function DiagramCanvas({
   onDropComponent,
 }: DiagramCanvasProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition, fitView } = useReactFlow();
+  const { screenToFlowPosition, fitView, getIntersectingNodes } = useReactFlow<Node<DiagramNodeData>, Edge>();
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<Node<DiagramNodeData>>[]) => {
@@ -108,6 +171,63 @@ export function DiagramCanvas({
     [onSelect],
   );
 
+  // Dropping a component — or a group — onto (or out of) another group
+  // reparents it, walking the full ancestor chain so this is correct at any
+  // nesting depth (a single level up is not enough once groups can contain
+  // groups).
+  const handleNodeDragStop: OnNodeDrag<Node<DiagramNodeData>> = useCallback(
+    (_event, draggedNode) => {
+      const byId = new Map(nodes.map((n) => [n.id, n]));
+
+      const descendantIds = new Set<string>();
+      const collectDescendants = (id: string) => {
+        for (const n of nodes) {
+          if (n.parentId === id && !descendantIds.has(n.id)) {
+            descendantIds.add(n.id);
+            collectDescendants(n.id);
+          }
+        }
+      };
+      collectDescendants(draggedNode.id);
+
+      const absolutePosition = absolutePositionOf(draggedNode, byId);
+
+      // A group can't be dropped into itself or into one of its own
+      // descendants — that would create a cycle.
+      const newParent = getIntersectingNodes(draggedNode).find(
+        (n) => n.type === "group" && n.id !== draggedNode.id && !descendantIds.has(n.id),
+      );
+
+      if (newParent && newParent.id !== draggedNode.parentId) {
+        const newParentAbsolute = absolutePositionOf(newParent, byId);
+        onNodesChange(
+          nodes.map((n) =>
+            n.id === draggedNode.id
+              ? {
+                  ...n,
+                  parentId: newParent.id,
+                  extent: "parent" as const,
+                  position: {
+                    x: absolutePosition.x - newParentAbsolute.x,
+                    y: absolutePosition.y - newParentAbsolute.y,
+                  },
+                }
+              : n,
+          ),
+        );
+      } else if (!newParent && draggedNode.parentId) {
+        onNodesChange(
+          nodes.map((n) =>
+            n.id === draggedNode.id
+              ? { ...n, parentId: undefined, extent: undefined, position: absolutePosition }
+              : n,
+          ),
+        );
+      }
+    },
+    [nodes, onNodesChange, getIntersectingNodes],
+  );
+
   const handleEdgeClick: EdgeMouseHandler = useCallback(
     (_event, edge) => onSelect({ kind: "edge", id: edge.id }),
     [onSelect],
@@ -126,10 +246,23 @@ export function DiagramCanvas({
       const componentTypeId = event.dataTransfer.getData(PALETTE_DRAG_MIME);
       if (!componentTypeId) return;
       event.preventDefault();
-      const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
-      onDropComponent(componentTypeId, position);
+      const absolutePosition = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+
+      const byId = new Map(nodes.map((n) => [n.id, n]));
+      const parent = findContainingGroup(absolutePosition, nodes, byId);
+
+      if (!parent) {
+        onDropComponent(componentTypeId, absolutePosition);
+        return;
+      }
+      const parentAbsolute = absolutePositionOf(parent, byId);
+      onDropComponent(
+        componentTypeId,
+        { x: absolutePosition.x - parentAbsolute.x, y: absolutePosition.y - parentAbsolute.y },
+        parent.id,
+      );
     },
-    [screenToFlowPosition, onDropComponent],
+    [nodes, screenToFlowPosition, onDropComponent],
   );
 
   const handleAutoLayout = useCallback(() => {
@@ -155,6 +288,7 @@ export function DiagramCanvas({
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
         onNodeClick={handleNodeClick}
+        onNodeDragStop={handleNodeDragStop}
         onEdgeClick={handleEdgeClick}
         onPaneClick={handlePaneClick}
         onInit={handleInit}

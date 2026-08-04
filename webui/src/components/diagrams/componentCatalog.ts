@@ -2,6 +2,11 @@
 // This stands in for the future "Infrastructure" Marketplace category —
 // no backend call, no persistence, just enough shape to validate the UX.
 
+// Sentinel id for the generic, nameable grouping container (e.g. "Kubernetes
+// Cluster", "Scaling Group") — not a real Component Type/Provider, so it's
+// handled separately from COMPONENT_TYPES wherever it's dropped/added.
+export const GROUP_COMPONENT_ID = "__group__";
+
 export type ProviderKind = "docker" | "api";
 
 export interface ProviderField {
@@ -29,6 +34,7 @@ export interface ComponentType {
 export type IconKey =
   | "webServer"
   | "compute"
+  | "application"
   | "database"
   | "cache"
   | "loadBalancer"
@@ -137,6 +143,35 @@ export const COMPONENT_TYPES: ComponentType[] = [
     providers: [
       { id: "nvidia-docker", label: "NVIDIA (Docker + CUDA)", kind: "docker", fields: [{ key: "image", label: "Image tag", placeholder: "nvidia/cuda:12.5-runtime", kind: "text" }] },
       { id: "ec2-gpu", label: "AWS EC2 GPU instance", kind: "api", fields: [{ key: "instanceType", label: "Instance type", placeholder: "g5.xlarge", kind: "text" }] },
+    ],
+  },
+  {
+    id: "application",
+    label: "Application",
+    category: "Applications",
+    iconKey: "application",
+    providers: [
+      {
+        id: "vllm",
+        label: "vLLM",
+        kind: "docker",
+        fields: [
+          { key: "image", label: "Image tag", placeholder: "vllm/vllm-openai:latest", kind: "text" },
+          { key: "model", label: "Model", placeholder: "meta-llama/Llama-3.1-8B-Instruct", kind: "text" },
+        ],
+      },
+      {
+        id: "custom-docker-app",
+        label: "Custom app (Docker)",
+        kind: "docker",
+        fields: [{ key: "image", label: "Image tag", placeholder: "myorg/myapp:latest", kind: "text" }],
+      },
+      {
+        id: "custom-api-app",
+        label: "Custom app (API)",
+        kind: "api",
+        fields: [{ key: "endpoint", label: "Endpoint", placeholder: "https://api.example.com", kind: "text" }],
+      },
     ],
   },
   {
