@@ -95,21 +95,34 @@ export function NodeInspector({
   onToggleLock,
   onDelete,
 }: NodeInspectorProps) {
+  const isGroup = node.type === "group";
   const type = findComponentType(node.data.componentTypeId);
   const provider = findProvider(node.data.componentTypeId, node.data.providerId);
 
   return (
     <InspectorShell title="Inspector" onClose={onClose}>
       <label className="flex flex-col gap-1">
-        <span className="text-[12px] font-medium text-muted-foreground">Label</span>
+        <span className="text-[12px] font-medium text-muted-foreground">
+          {isGroup ? "Name" : "Label"}
+        </span>
         <input
           value={node.data.label}
           disabled={node.data.locked}
           onChange={(event) => onChangeLabel(event.target.value)}
+          placeholder={isGroup ? "e.g. Kubernetes Cluster, Scaling Group" : undefined}
           className="h-9 rounded-[10px] border border-border/45 bg-background px-2.5 text-[13px] text-foreground outline-none focus-visible:border-border disabled:opacity-60"
         />
       </label>
 
+      {isGroup ? (
+        <span className="text-[11px] text-muted-foreground">
+          Drag components — or other groups — onto this box to nest them inside it. Connect it to
+          other things on the canvas like any other component.
+        </span>
+      ) : null}
+
+      {!isGroup ? (
+      <>
       <label className="flex flex-col gap-1">
         <span className="text-[12px] font-medium text-muted-foreground">Provider</span>
         <select
@@ -144,6 +157,8 @@ export function NodeInspector({
           />
         </label>
       ))}
+      </>
+      ) : null}
 
       <ActionRow locked={node.data.locked} onToggleLock={onToggleLock} onDelete={onDelete} />
     </InspectorShell>

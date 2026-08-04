@@ -1,4 +1,5 @@
 import {
+  Blocks,
   Cpu,
   Database,
   Flame,
@@ -24,6 +25,7 @@ export const COMPONENT_ICONS: Record<IconKey, LucideIcon> = {
   vpn: KeyRound,
   webServer: Server,
   compute: Cpu,
+  application: Blocks,
   database: Database,
   cache: Gauge,
   storage: HardDrive,

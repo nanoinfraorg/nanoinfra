@@ -6,7 +6,7 @@ import { ComponentPalette } from "./ComponentPalette";
 import { DiagramCanvas, type DiagramSelection } from "./DiagramCanvas";
 import { EdgeInspector, EmptyInspector, NodeInspector } from "./DiagramInspector";
 import { diagramToText } from "./diagramToText";
-import { COMPONENT_TYPES } from "./componentCatalog";
+import { COMPONENT_TYPES, GROUP_COMPONENT_ID } from "./componentCatalog";
 import { SEED_DIAGRAM } from "./seedDiagram";
 import type { Diagram, DiagramNodeData } from "./diagramTypes";
 
@@ -108,26 +108,54 @@ export function DiagramsView() {
     setTargets((prev) => (prev.includes(server) ? prev.filter((s) => s !== server) : [...prev, server]));
   }, []);
 
-  const handleAddComponent = useCallback((componentTypeId: string, position?: { x: number; y: number }) => {
-    const type = COMPONENT_TYPES.find((c) => c.id === componentTypeId);
-    if (!type) return;
-    const id = `${componentTypeId}-${Math.random().toString(36).slice(2, 8)}`;
-    setNodes((prev) => [
-      ...prev,
-      {
-        id,
-        type: "component",
-        position: position ?? { x: 120 + prev.length * 40, y: 80 + prev.length * 30 },
-        data: {
-          label: type.label,
-          componentTypeId: type.id,
-          providerId: type.providers[0]?.id ?? "",
-          config: {},
+  const handleAddComponent = useCallback(
+    (componentTypeId: string, position?: { x: number; y: number }, parentId?: string) => {
+      const id = `${componentTypeId}-${Math.random().toString(36).slice(2, 8)}`;
+      const fallbackPosition = (offset: number) => ({ x: 120 + offset * 40, y: 80 + offset * 30 });
+      const parentFields = parentId ? { parentId, extent: "parent" as const } : {};
+
+      if (componentTypeId === GROUP_COMPONENT_ID) {
+        // A group nested inside another group defaults smaller than its
+        // parent's own default size, so it visually fits instead of
+        // overflowing and overlapping siblings — the outer size is roomy
+        // enough for several top-level components.
+        const size = parentId ? { width: 220, height: 150 } : { width: 320, height: 220 };
+        setNodes((prev) => [
+          ...prev,
+          {
+            id,
+            type: "group",
+            position: position ?? fallbackPosition(prev.length),
+            style: size,
+            data: { label: "New Group", componentTypeId: GROUP_COMPONENT_ID, providerId: "", config: {} },
+            ...parentFields,
+          },
+        ]);
+        setSelection({ kind: "node", id });
+        return;
+      }
+
+      const type = COMPONENT_TYPES.find((c) => c.id === componentTypeId);
+      if (!type) return;
+      setNodes((prev) => [
+        ...prev,
+        {
+          id,
+          type: "component",
+          position: position ?? fallbackPosition(prev.length),
+          data: {
+            label: type.label,
+            componentTypeId: type.id,
+            providerId: type.providers[0]?.id ?? "",
+            config: {},
+          },
+          ...parentFields,
         },
-      },
-    ]);
-    setSelection({ kind: "node", id });
-  }, []);
+      ]);
+      setSelection({ kind: "node", id });
+    },
+    [],
+  );
 
   const updateSelectedNode = useCallback(
     (updater: (data: DiagramNodeData) => DiagramNodeData) => {
@@ -144,7 +172,28 @@ export function DiagramsView() {
   const handleDeleteNode = useCallback(() => {
     if (selection?.kind !== "node" || selectedNode?.data.locked) return;
     const id = selection.id;
-    setNodes((prev) => prev.filter((n) => n.id !== id));
+    const groupBeingDeleted = selectedNode?.type === "group" ? selectedNode : undefined;
+    setNodes((prev) =>
+      prev
+        .filter((n) => n.id !== id)
+        // Deleting a group ungroups its children instead of deleting them —
+        // they move up exactly one level, to the deleted group's own parent
+        // (or the top level, if it had none), rather than being flattened
+        // all the way to the canvas root when the group was nested.
+        .map((n) =>
+          groupBeingDeleted && n.parentId === id
+            ? {
+                ...n,
+                parentId: groupBeingDeleted.parentId,
+                extent: groupBeingDeleted.parentId ? ("parent" as const) : undefined,
+                position: {
+                  x: n.position.x + groupBeingDeleted.position.x,
+                  y: n.position.y + groupBeingDeleted.position.y,
+                },
+              }
+            : n,
+        ),
+    );
     setEdges((prev) => prev.filter((e) => e.source !== id && e.target !== id));
     setSelection(null);
   }, [selection, selectedNode]);

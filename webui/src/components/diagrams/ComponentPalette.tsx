@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Group as GroupIcon } from "lucide-react";
 
-import { COMPONENT_TYPES } from "./componentCatalog";
+import { COMPONENT_TYPES, GROUP_COMPONENT_ID } from "./componentCatalog";
 import { COMPONENT_ICONS } from "./icons";
 import { PALETTE_DRAG_MIME } from "./DiagramCanvas";
 
-const CATEGORIES = ["Edge", "Compute", "Data"] as const;
+const CATEGORIES = ["Edge", "Compute", "Applications", "Data"] as const;
 
 export function ComponentPalette({ onAdd }: { onAdd: (componentTypeId: string) => void }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -18,6 +18,26 @@ export function ComponentPalette({ onAdd }: { onAdd: (componentTypeId: string) =
       <div className="px-1 text-[11px] text-muted-foreground">
         Click to see providers · drag onto the canvas to add.
       </div>
+
+      <div className="flex flex-col gap-1">
+        <div className="px-1 text-[11px] font-medium text-muted-foreground">Layout</div>
+        <div
+          draggable
+          onDragStart={(event) => {
+            event.dataTransfer.setData(PALETTE_DRAG_MIME, GROUP_COMPONENT_ID);
+            event.dataTransfer.effectAllowed = "move";
+          }}
+          onDoubleClick={() => onAdd(GROUP_COMPONENT_ID)}
+          className="touch-target flex h-10 w-full cursor-grab items-center gap-2.5 rounded-[11px] px-2.5 text-left text-[13px] font-medium text-foreground transition-colors hover:bg-muted/70 active:cursor-grabbing"
+          title="A nameable container — drag other components inside it, and connect it to other things as a single unit (e.g. a Kubernetes Cluster or Scaling Group)."
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] bg-muted">
+            <GroupIcon className="h-3.5 w-3.5" />
+          </span>
+          <span className="flex-1">Group</span>
+        </div>
+      </div>
+
       {CATEGORIES.map((category) => (
         <div key={category} className="flex flex-col gap-1">
           <div className="px-1 text-[11px] font-medium text-muted-foreground">{category}</div>

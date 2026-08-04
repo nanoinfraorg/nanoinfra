@@ -22,6 +22,12 @@ const PAIR_DEFAULTS: Record<string, string> = {
   "firewall->load_balancer": "Filtered",
   "firewall->web_server": "Filtered",
   "web_server->compute": "Offload",
+  "load_balancer->application": "Route HTTP",
+  "reverse_proxy->application": "Proxy",
+  "application->compute": "Offload",
+  "application->database": "Read/Write",
+  "application->cache": "Cache/Session",
+  "application->storage": "Read/Write",
 };
 
 export function defaultEdgeLabel(sourceComponentTypeId: string, targetComponentTypeId: string): string {
