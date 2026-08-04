@@ -1,5 +1,5 @@
 {
-  "description": "WhatsApp の会話から nanobot を利用します。",
+  "description": "WhatsApp の会話から nanoinfra を利用します。",
   "requirements": "WhatsApp 接続設定とゲートウェイ",
   "setup": {
     "primaryAction": "WhatsApp に接続",

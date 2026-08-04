@@ -16,7 +16,7 @@ import {
   fetchInstalledCliApps,
   fetchMcpPresets,
   fetchMarketplaceSkillTrends,
-  fetchNanobotFeatures,
+  fetchNanoinfraFeatures,
   fetchProviderModels,
   fetchSessionAutomations,
   fetchSettingsUsage,
@@ -33,8 +33,8 @@ import {
   loginProviderOAuth,
   logoutProviderOAuth,
   migrateModelConfigurations,
-  disableNanobotFeature,
-  enableNanobotFeature,
+  disableNanoinfraFeature,
+  enableNanoinfraFeature,
   runAutomationAction,
   runCliAppAction,
   runMcpPresetAction,
@@ -195,7 +195,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-Nanobot-Channel-Values": JSON.stringify({
+          "X-Nanoinfra-Channel-Values": JSON.stringify({
             "channels.slack.botToken": "xoxb-test",
           }),
         }),
@@ -220,7 +220,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-Nanobot-Channel-Values": JSON.stringify({
+          "X-Nanoinfra-Channel-Values": JSON.stringify({
             "channels.discord.token": "saved-secret",
           }),
         }),
@@ -282,12 +282,12 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: {
           Authorization: "Bearer tok",
-          "X-Nanobot-Automation-Values": encodeURIComponent(JSON.stringify(values)),
+          "X-Nanoinfra-Automation-Values": encodeURIComponent(JSON.stringify(values)),
         },
       }),
     );
     const header = vi.mocked(fetch).mock.calls[0][1]?.headers as Record<string, string>;
-    expect(header["X-Nanobot-Automation-Values"]).not.toContain("每日");
+    expect(header["X-Nanoinfra-Automation-Values"]).not.toContain("每日");
   });
 
   it("fetches the WebUI skill summary", async () => {
@@ -523,7 +523,7 @@ describe("webui API helpers", () => {
       }),
     ).rejects.toMatchObject({
       status: 200,
-      message: "Gateway returned WebUI HTML instead of JSON. Restart nanobot gateway and try again.",
+      message: "Gateway returned WebUI HTML instead of JSON. Restart nanoinfra gateway and try again.",
     });
   });
 
@@ -567,7 +567,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: {
           Authorization: "Bearer tok",
-          "X-Nanobot-Provider-Values": encodeURIComponent(JSON.stringify({
+          "X-Nanoinfra-Provider-Values": encodeURIComponent(JSON.stringify({
             apiKey: "sk-or-test",
             apiBase: "https://openrouter.ai/api/v1",
           })),
@@ -588,7 +588,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: {
           Authorization: "Bearer tok",
-          "X-Nanobot-Provider-Values": encodeURIComponent(JSON.stringify({
+          "X-Nanoinfra-Provider-Values": encodeURIComponent(JSON.stringify({
             proxy: "http://127.0.0.1:7890",
             extraBody: '{"service_tier":"priority"}',
           })),
@@ -614,7 +614,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: {
           Authorization: "Bearer tok",
-          "X-Nanobot-Provider-Values": encodeURIComponent(JSON.stringify({
+          "X-Nanoinfra-Provider-Values": encodeURIComponent(JSON.stringify({
             name: "Company Gateway",
             apiKey: "sk-company",
             apiBase: "https://gateway.example/v1",
@@ -676,7 +676,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: {
           Authorization: "Bearer tok",
-          "X-Nanobot-OAuth-Code": "secret",
+          "X-Nanoinfra-OAuth-Code": "secret",
         },
       }),
     );
@@ -692,7 +692,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: {
           Authorization: "Bearer tok",
-          "X-Nanobot-OAuth-Callback":
+          "X-Nanoinfra-OAuth-Callback":
             "http://localhost:1455/auth/callback?code=secret&state=test",
         },
       }),
@@ -802,7 +802,7 @@ describe("webui API helpers", () => {
     );
   });
 
-  it("reads and toggles nanobot optional features", async () => {
+  it("reads and toggles nanoinfra optional features", async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -811,25 +811,25 @@ describe("webui API helpers", () => {
       }),
     } as Response);
 
-    await expect(fetchNanobotFeatures("tok")).resolves.toMatchObject({ features: [] });
+    await expect(fetchNanoinfraFeatures("tok")).resolves.toMatchObject({ features: [] });
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/nanobot-features",
+      "/api/settings/nanoinfra-features",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
     );
 
-    await enableNanobotFeature("tok", "matrix");
+    await enableNanoinfraFeature("tok", "matrix");
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/nanobot-features/enable?name=matrix",
+      "/api/settings/nanoinfra-features/enable?name=matrix",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
     );
 
-    await disableNanobotFeature("tok", "matrix");
+    await disableNanoinfraFeature("tok", "matrix");
     expect(fetch).toHaveBeenCalledWith(
-      "/api/settings/nanobot-features/disable?name=matrix",
+      "/api/settings/nanoinfra-features/disable?name=matrix",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
@@ -858,7 +858,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: {
           Authorization: "Bearer tok",
-          "X-Nanobot-API-Service-Values": JSON.stringify({ api_key: "secret-token" }),
+          "X-Nanoinfra-API-Service-Values": JSON.stringify({ api_key: "secret-token" }),
         },
       }),
     );
@@ -899,7 +899,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-Nanobot-MCP-Values": JSON.stringify({
+          "X-Nanoinfra-MCP-Values": JSON.stringify({
             browserbase_api_key: "bb_live_test",
           }),
         }),
@@ -920,7 +920,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-Nanobot-MCP-Values": JSON.stringify({
+          "X-Nanoinfra-MCP-Values": JSON.stringify({
             name: "docs",
             transport: "stdio",
             command: "npx",
@@ -937,7 +937,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-Nanobot-MCP-Values": JSON.stringify({
+          "X-Nanoinfra-MCP-Values": JSON.stringify({
             config: '{"mcpServers":{"docs":{"command":"npx"}}}',
           }),
         }),
@@ -950,7 +950,7 @@ describe("webui API helpers", () => {
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: "Bearer tok",
-          "X-Nanobot-MCP-Values": JSON.stringify({
+          "X-Nanoinfra-MCP-Values": JSON.stringify({
             name: "docs",
             enabled_tools: ["search", "fetch"],
           }),
@@ -965,7 +965,7 @@ describe("webui API helpers", () => {
       pinned_keys: ["websocket:chat-1"],
       archived_keys: ["websocket:old"],
       title_overrides: { "websocket:chat-1": "Release" },
-      project_name_overrides: { "/Users/me/nanobot": "Core" },
+      project_name_overrides: { "/Users/me/nanoinfra": "Core" },
       tags_by_key: {},
       collapsed_groups: {},
       view: {
@@ -1001,7 +1001,7 @@ describe("webui API helpers", () => {
     expect(JSON.parse(encodedState ?? "{}")).toMatchObject({
       pinned_keys: ["websocket:chat-1"],
       title_overrides: { "websocket:chat-1": "Release" },
-      project_name_overrides: { "/Users/me/nanobot": "Core" },
+      project_name_overrides: { "/Users/me/nanoinfra": "Core" },
     });
   });
 
@@ -1077,7 +1077,7 @@ describe("webui API helpers", () => {
           },
           {
             command: "/restart",
-            title: "Restart nanobot",
+            title: "Restart nanoinfra",
             description: "Restart the bot process.",
             icon: "rotate-cw",
             lifecycle: "side_channel",
@@ -1114,7 +1114,7 @@ describe("webui API helpers", () => {
       },
       {
         command: "/restart",
-        title: "Restart nanobot",
+        title: "Restart nanoinfra",
         description: "Restart the bot process.",
         icon: "rotate-cw",
         argHint: "",

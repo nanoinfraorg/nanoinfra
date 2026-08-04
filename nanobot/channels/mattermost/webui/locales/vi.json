@@ -1,5 +1,5 @@
 {
-  "description": "Sử dụng nanobot trong kênh và tin nhắn riêng Mattermost.",
+  "description": "Sử dụng nanoinfra trong kênh và tin nhắn riêng Mattermost.",
   "requirements": "URL máy chủ Mattermost, token bot và quyền truy cập kênh",
   "setup": {
     "docsLabel": "Mở hướng dẫn Mattermost",

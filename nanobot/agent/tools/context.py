@@ -8,20 +8,20 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from nanobot.agent.subagent import SubagentManager
-    from nanobot.agent.tools.exec_session import ExecSessionManager
-    from nanobot.agent.tools.file_state import FileStates
-    from nanobot.bus.queue import MessageBus
-    from nanobot.bus.runtime_events import RuntimeEventBus
-    from nanobot.config.schema import ProviderConfig, ToolsConfig
-    from nanobot.cron.service import CronService
-    from nanobot.providers.factory import ProviderSnapshot
-    from nanobot.security.workspace_access import WorkspaceSandboxStatus
-    from nanobot.session.manager import SessionManager
-    from nanobot.utils.llm_runtime import LLMRuntime
+    from nanoinfra.agent.subagent import SubagentManager
+    from nanoinfra.agent.tools.exec_session import ExecSessionManager
+    from nanoinfra.agent.tools.file_state import FileStates
+    from nanoinfra.bus.queue import MessageBus
+    from nanoinfra.bus.runtime_events import RuntimeEventBus
+    from nanoinfra.config.schema import ProviderConfig, ToolsConfig
+    from nanoinfra.cron.service import CronService
+    from nanoinfra.providers.factory import ProviderSnapshot
+    from nanoinfra.security.workspace_access import WorkspaceSandboxStatus
+    from nanoinfra.session.manager import SessionManager
+    from nanoinfra.utils.llm_runtime import LLMRuntime
 
 _CURRENT_REQUEST_CONTEXT: ContextVar["RequestContext | None"] = ContextVar(
-    "nanobot_tool_request_context",
+    "nanoinfra_tool_request_context",
     default=None,
 )
 

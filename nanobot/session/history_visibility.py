@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from nanobot.session.automation_turns import is_automation_history_message
+from nanoinfra.session.automation_turns import is_automation_history_message
 
 HIDDEN_HISTORY_META = "_hidden_history"
 

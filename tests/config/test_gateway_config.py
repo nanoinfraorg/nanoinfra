@@ -1,6 +1,6 @@
 import pytest
 
-from nanobot.config.schema import Config, GatewayConfig
+from nanoinfra.config.schema import Config, GatewayConfig
 
 
 def test_gateway_restart_mode_accepts_camel_alias():

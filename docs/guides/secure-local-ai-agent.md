@@ -1,6 +1,6 @@
-# How to Secure a Local AI Agent with nanobot
+# How to Secure a Local AI Agent with nanoinfra
 
-This guide covers the practical controls to review before letting a nanobot
+This guide covers the practical controls to review before letting a nanoinfra
 agent access files, shell commands, web fetch, chat apps, or remote users.
 
 ## What you will build
@@ -12,15 +12,15 @@ agent access files, shell commands, web fetch, chat apps, or remote users.
 
 ## When to use this
 
-Use this before exposing nanobot to teammates, chat apps, public networks, broad
+Use this before exposing nanoinfra to teammates, chat apps, public networks, broad
 web access, or unattended automations.
 
 ## Install
 
 ```bash
-python -m pip install nanobot-ai
-nanobot onboard --wizard
-nanobot agent -m "Hello!"
+python -m pip install nanoinfra
+nanoinfra onboard --wizard
+nanoinfra agent -m "Hello!"
 ```
 
 ## Minimal working example
@@ -70,7 +70,7 @@ Start with workspace restriction:
 - If local HTTP tools are blocked, review the SSRF whitelist and use a narrow
   CIDR.
 
-## Related nanobot docs
+## Related nanoinfra docs
 
 - [Configuration: Security](../configuration.md#security)
 - [Pairing](../configuration.md#pairing)

@@ -1,4 +1,4 @@
-"""Cross-platform lifecycle management for nanobot background processes."""
+"""Cross-platform lifecycle management for nanoinfra background processes."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from filelock import FileLock
 
 @dataclass(frozen=True)
 class ProcessStartOptions:
-    """Options shared by managed nanobot processes."""
+    """Options shared by managed nanoinfra processes."""
 
     port: int
     verbose: bool = False

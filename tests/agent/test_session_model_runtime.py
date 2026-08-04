@@ -2,18 +2,18 @@ import asyncio
 
 import pytest
 
-from nanobot.agent.loop import AgentLoop
-from nanobot.bus.queue import MessageBus
-from nanobot.config.schema import ModelPresetConfig
-from nanobot.nanobot import Nanobot
-from nanobot.providers.base import GenerationSettings, LLMProvider, LLMResponse
-from nanobot.providers.factory import ProviderSnapshot
-from nanobot.sdk.types import SessionSnapshot
-from nanobot.session.model_selection import (
+from nanoinfra.agent.loop import AgentLoop
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.config.schema import ModelPresetConfig
+from nanoinfra.nanoinfra import Nanoinfra
+from nanoinfra.providers.base import GenerationSettings, LLMProvider, LLMResponse
+from nanoinfra.providers.factory import ProviderSnapshot
+from nanoinfra.sdk.types import SessionSnapshot
+from nanoinfra.session.model_selection import (
     SESSION_MODEL_PRESET_METADATA_KEY,
     model_preset_from_metadata,
 )
-from nanobot.utils.llm_runtime import LLMRuntime
+from nanoinfra.utils.llm_runtime import LLMRuntime
 
 
 class RecordingProvider(LLMProvider):
@@ -168,7 +168,7 @@ async def test_streamed_sdk_resolves_session_runtime_after_lock_admission(tmp_pa
     lock = loop._session_locks.setdefault(session_key, asyncio.Lock())
     await lock.acquire()
     try:
-        run = await Nanobot(loop).run_streamed("hello", session_key=session_key)
+        run = await Nanoinfra(loop).run_streamed("hello", session_key=session_key)
         loop.set_session_model_preset(session_key, "deep")
     finally:
         lock.release()
@@ -199,7 +199,7 @@ async def test_sdk_custom_model_preset_metadata_does_not_select_runtime(
         context_window_tokens=8_000,
     )
     loop.schedule_background = lambda coro: coro.close()  # type: ignore[method-assign]
-    bot = Nanobot(loop)
+    bot = Nanoinfra(loop)
 
     await bot.sessions.ingest(
         "sdk:custom-metadata",
@@ -240,7 +240,7 @@ async def test_sdk_invalid_internal_model_preset_metadata_fails_explicitly(
         context_window_tokens=8_000,
     )
     loop.schedule_background = lambda coro: coro.close()  # type: ignore[method-assign]
-    bot = Nanobot(loop)
+    bot = Nanoinfra(loop)
 
     await bot.sessions.ingest(
         "sdk:invalid-internal-metadata",

@@ -1,5 +1,5 @@
 {
-  "description": "通过 Signal 消息使用 nanobot。",
+  "description": "通过 Signal 消息使用 nanoinfra。",
   "requirements": "signal-cli HTTP 服务、电话号码和白名单",
   "setup": {
     "docsLabel": "打开 Signal 配置指南",

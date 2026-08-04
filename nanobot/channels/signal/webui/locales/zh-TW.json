@@ -1,5 +1,5 @@
 {
-  "description": "透過 Signal 訊息使用 nanobot。",
+  "description": "透過 Signal 訊息使用 nanoinfra。",
   "requirements": "signal-cli HTTP 服務、電話號碼和允許清單",
   "setup": {
     "docsLabel": "開啟 Signal 設定指南",

@@ -1,4 +1,4 @@
-"""Tests for the Nanobot programmatic facade."""
+"""Tests for the Nanoinfra programmatic facade."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
-from nanobot.nanobot import (
+from nanoinfra.nanoinfra import (
     STREAM_EVENT_REASONING_COMPLETED,
     STREAM_EVENT_REASONING_DELTA,
     STREAM_EVENT_RUN_COMPLETED,
@@ -22,7 +22,7 @@ from nanobot.nanobot import (
     STREAM_EVENT_TOOL_FAILED,
     STREAM_EVENT_TOOL_STARTED,
     STREAM_EVENT_TYPES,
-    Nanobot,
+    Nanoinfra,
     RunResult,
     RunStream,
     SessionInfo,
@@ -30,13 +30,13 @@ from nanobot.nanobot import (
     StreamEvent,
     StreamEventType,
 )
-from nanobot.runtime_context import (
+from nanoinfra.runtime_context import (
     RUNTIME_CONTEXT_HISTORY_META,
     RuntimeContextBlock,
     append_runtime_context,
 )
-from nanobot.session.manager import FILE_MAX_MESSAGES
-from nanobot.utils.llm_runtime import runtime_from_provider_snapshot
+from nanoinfra.session.manager import FILE_MAX_MESSAGES
+from nanoinfra.utils.llm_runtime import runtime_from_provider_snapshot
 
 
 def _write_config(tmp_path: Path, overrides: dict | None = None) -> Path:
@@ -71,16 +71,16 @@ async def _admit_fake_runtime(bot, session_key, callback, runtime=None) -> None:
 
 def test_from_config_missing_file():
     with pytest.raises(FileNotFoundError):
-        Nanobot.from_config("/nonexistent/config.json")
+        Nanoinfra.from_config("/nonexistent/config.json")
 
 
 def test_from_config_missing_env_reports_explicit_config_path(
     tmp_path,
     monkeypatch,
 ) -> None:
-    from nanobot.config.errors import ConfigLoadError
+    from nanoinfra.config.errors import ConfigLoadError
 
-    name = "NANOBOT_TEST_SDK_MISSING_KEY"
+    name = "NANOINFRA_TEST_SDK_MISSING_KEY"
     monkeypatch.delenv(name, raising=False)
     config_path = tmp_path / "custom.json"
     config_path.write_text(
@@ -89,14 +89,14 @@ def test_from_config_missing_env_reports_explicit_config_path(
     )
 
     with pytest.raises(ConfigLoadError) as exc_info:
-        Nanobot.from_config(config_path)
+        Nanoinfra.from_config(config_path)
 
     assert exc_info.value.path == config_path.resolve()
 
 
 def test_from_config_creates_instance(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     assert bot._loop is not None
     assert bot._loop.workspace == tmp_path
 
@@ -104,7 +104,7 @@ def test_from_config_creates_instance(tmp_path):
 def test_from_config_accepts_default_model_override(tmp_path):
     config_path = _write_config(tmp_path)
 
-    bot = Nanobot.from_config(
+    bot = Nanoinfra.from_config(
         config_path,
         workspace=tmp_path,
         model="openai/gpt-4.1-mini",
@@ -127,7 +127,7 @@ def test_from_config_accepts_default_model_preset(tmp_path):
         },
     )
 
-    bot = Nanobot.from_config(config_path, workspace=tmp_path, model_preset="fast")
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path, model_preset="fast")
 
     assert bot.runtime.model == "openai/gpt-4.1-mini"
     assert bot._loop.model_preset == "fast"
@@ -137,7 +137,7 @@ def test_from_config_rejects_multiple_model_selectors(tmp_path):
     config_path = _write_config(tmp_path)
 
     with pytest.raises(ValueError, match="mutually exclusive"):
-        Nanobot.from_config(
+        Nanoinfra.from_config(
             config_path,
             workspace=tmp_path,
             model="openai/gpt-4.1",
@@ -146,24 +146,24 @@ def test_from_config_rejects_multiple_model_selectors(tmp_path):
 
 
 def test_from_config_default_path():
-    from nanobot.config.schema import Config
+    from nanoinfra.config.schema import Config
 
-    with patch("nanobot.config.loader.load_config") as mock_load, \
-         patch("nanobot.providers.factory.make_provider") as mock_prov:
+    with patch("nanoinfra.config.loader.load_config") as mock_load, \
+         patch("nanoinfra.providers.factory.make_provider") as mock_prov:
         mock_load.return_value = Config()
         mock_prov.return_value = MagicMock()
         mock_prov.return_value.get_default_model.return_value = "test"
         mock_prov.return_value.generation.max_tokens = 4096
-        Nanobot.from_config()
+        Nanoinfra.from_config()
         mock_load.assert_called_once_with(None)
 
 
 @pytest.mark.asyncio
 async def test_run_returns_result(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.bus.events import OutboundMessage
 
     mock_response = OutboundMessage(
         channel="cli", chat_id="direct", content="Hello back!"
@@ -183,11 +183,11 @@ async def test_run_returns_result(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_with_hooks(tmp_path):
-    from nanobot.agent.hook import AgentHook, AgentHookContext, SDKCaptureHook
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.agent.hook import AgentHook, AgentHookContext, SDKCaptureHook
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     class TestHook(AgentHook):
         async def before_iteration(self, context: AgentHookContext) -> None:
@@ -211,9 +211,9 @@ async def test_run_with_hooks(tmp_path):
 @pytest.mark.asyncio
 async def test_run_hooks_restored_on_error(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
-    from nanobot.agent.hook import AgentHook
+    from nanoinfra.agent.hook import AgentHook
 
     bot._loop.process_direct = AsyncMock(side_effect=RuntimeError("boom"))
     original_hooks = bot._loop._extra_hooks
@@ -227,7 +227,7 @@ async def test_run_hooks_restored_on_error(tmp_path):
 @pytest.mark.asyncio
 async def test_run_none_response(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     bot._loop.process_direct = AsyncMock(return_value=None)
 
     result = await bot.run("hi")
@@ -239,13 +239,13 @@ def test_workspace_override(tmp_path):
     custom_ws = tmp_path / "custom_workspace"
     custom_ws.mkdir()
 
-    bot = Nanobot.from_config(config_path, workspace=custom_ws)
+    bot = Nanoinfra.from_config(config_path, workspace=custom_ws)
     assert bot._loop.workspace == custom_ws
 
 
 def test_sdk_make_provider_uses_github_copilot_backend():
-    from nanobot.config.schema import Config
-    from nanobot.providers.factory import make_provider
+    from nanoinfra.config.schema import Config
+    from nanoinfra.providers.factory import make_provider
 
     config = Config.model_validate(
         {
@@ -258,7 +258,7 @@ def test_sdk_make_provider_uses_github_copilot_backend():
         }
     )
 
-    with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("nanoinfra.providers.openai_compat_provider.AsyncOpenAI"):
         provider = make_provider(config)
 
     assert provider.__class__.__name__ == "GitHubCopilotProvider"
@@ -266,10 +266,10 @@ def test_sdk_make_provider_uses_github_copilot_backend():
 
 @pytest.mark.asyncio
 async def test_run_custom_session_key(tmp_path):
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     mock_response = OutboundMessage(
         channel="cli", chat_id="direct", content="ok"
@@ -285,7 +285,7 @@ async def test_run_custom_session_key(tmp_path):
 
 
 def test_request_context_preserves_legacy_positional_arguments(tmp_path):
-    from nanobot.agent.tools.context import RequestContext
+    from nanoinfra.agent.tools.context import RequestContext
 
     context = RequestContext(
         "cli",
@@ -309,17 +309,17 @@ def test_request_context_preserves_legacy_positional_arguments(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_exposes_attributes_to_context_provider_without_persisting_them(tmp_path):
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.agent.tools.context import RequestContext
-    from nanobot.bus.queue import MessageBus
-    from nanobot.providers.base import LLMResponse
+    from nanoinfra.agent.loop import AgentLoop
+    from nanoinfra.agent.tools.context import RequestContext
+    from nanoinfra.bus.queue import MessageBus
+    from nanoinfra.providers.base import LLMResponse
 
     provider = _fake_provider("test-model")
     provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
         content="done",
         tool_calls=[],
     ))
-    bot = Nanobot(AgentLoop(
+    bot = Nanoinfra(AgentLoop(
         bus=MessageBus(),
         provider=provider,
         workspace=tmp_path,
@@ -356,17 +356,17 @@ async def test_run_exposes_attributes_to_context_provider_without_persisting_the
 
 @pytest.mark.asyncio
 async def test_persisted_turn_callback_is_best_effort_and_reads_display_safe_session(tmp_path):
-    from nanobot import SessionTurnPersisted
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.bus.queue import MessageBus
-    from nanobot.providers.base import LLMResponse
+    from nanoinfra import SessionTurnPersisted
+    from nanoinfra.agent.loop import AgentLoop
+    from nanoinfra.bus.queue import MessageBus
+    from nanoinfra.providers.base import LLMResponse
 
     provider = _fake_provider("test-model")
     provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
         content="saved reply",
         tool_calls=[],
     ))
-    bot = Nanobot(AgentLoop(
+    bot = Nanoinfra(AgentLoop(
         bus=MessageBus(),
         provider=provider,
         workspace=tmp_path,
@@ -426,11 +426,11 @@ async def test_persisted_turn_callback_is_best_effort_and_reads_display_safe_ses
 
 @pytest.mark.asyncio
 async def test_persisted_turn_callback_observes_saved_command_turn(tmp_path):
-    from nanobot import SessionTurnPersisted
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.bus.queue import MessageBus
+    from nanoinfra import SessionTurnPersisted
+    from nanoinfra.agent.loop import AgentLoop
+    from nanoinfra.bus.queue import MessageBus
 
-    bot = Nanobot(AgentLoop(
+    bot = Nanoinfra(AgentLoop(
         bus=MessageBus(),
         provider=_fake_provider("test-model"),
         workspace=tmp_path,
@@ -452,17 +452,17 @@ async def test_persisted_turn_callback_observes_saved_command_turn(tmp_path):
 
 @pytest.mark.asyncio
 async def test_ephemeral_run_does_not_invoke_persisted_turn_callback(tmp_path):
-    from nanobot import SessionTurnPersisted
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.bus.queue import MessageBus
-    from nanobot.providers.base import LLMResponse
+    from nanoinfra import SessionTurnPersisted
+    from nanoinfra.agent.loop import AgentLoop
+    from nanoinfra.bus.queue import MessageBus
+    from nanoinfra.providers.base import LLMResponse
 
     provider = _fake_provider("test-model")
     provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
         content="temporary",
         tool_calls=[],
     ))
-    bot = Nanobot(AgentLoop(
+    bot = Nanoinfra(AgentLoop(
         bus=MessageBus(),
         provider=provider,
         workspace=tmp_path,
@@ -477,29 +477,29 @@ async def test_ephemeral_run_does_not_invoke_persisted_turn_callback(tmp_path):
 
 
 def test_runtime_client_does_not_expose_generic_event_subscription():
-    from nanobot.sdk.clients import RuntimeClient
+    from nanoinfra.sdk.clients import RuntimeClient
 
     assert hasattr(RuntimeClient, "on_session_turn_persisted")
     assert not hasattr(RuntimeClient, "subscribe")
 
 
 def test_import_from_top_level():
-    import nanobot
+    import nanoinfra
 
-    assert nanobot.Nanobot is Nanobot
-    assert nanobot.RequestContext.__name__ == "RequestContext"
-    assert nanobot.RuntimeContextBlock.__name__ == "RuntimeContextBlock"
-    assert nanobot.RuntimeContextProvider is not None
-    assert nanobot.SessionTurnPersisted.__name__ == "SessionTurnPersisted"
-    assert nanobot.RunResult is RunResult
-    assert nanobot.RunStream is RunStream
-    assert nanobot.SessionInfo is SessionInfo
-    assert nanobot.SessionSnapshot is SessionSnapshot
-    assert nanobot.StreamEvent is StreamEvent
-    assert nanobot.StreamEventType is StreamEventType
-    assert nanobot.STREAM_EVENT_TEXT_DELTA == STREAM_EVENT_TEXT_DELTA
-    assert nanobot.STREAM_EVENT_RUN_COMPLETED == STREAM_EVENT_RUN_COMPLETED
-    assert nanobot.STREAM_EVENT_TYPES == STREAM_EVENT_TYPES
+    assert nanoinfra.Nanoinfra is Nanoinfra
+    assert nanoinfra.RequestContext.__name__ == "RequestContext"
+    assert nanoinfra.RuntimeContextBlock.__name__ == "RuntimeContextBlock"
+    assert nanoinfra.RuntimeContextProvider is not None
+    assert nanoinfra.SessionTurnPersisted.__name__ == "SessionTurnPersisted"
+    assert nanoinfra.RunResult is RunResult
+    assert nanoinfra.RunStream is RunStream
+    assert nanoinfra.SessionInfo is SessionInfo
+    assert nanoinfra.SessionSnapshot is SessionSnapshot
+    assert nanoinfra.StreamEvent is StreamEvent
+    assert nanoinfra.StreamEventType is StreamEventType
+    assert nanoinfra.STREAM_EVENT_TEXT_DELTA == STREAM_EVENT_TEXT_DELTA
+    assert nanoinfra.STREAM_EVENT_RUN_COMPLETED == STREAM_EVENT_RUN_COMPLETED
+    assert nanoinfra.STREAM_EVENT_TYPES == STREAM_EVENT_TYPES
 
 
 def test_stream_event_constants_are_stable():
@@ -537,12 +537,12 @@ def test_stream_event_constants_are_stable():
 @pytest.mark.asyncio
 async def test_run_populates_tools_used_across_iterations(tmp_path):
     """tools_used collects every tool name fired across all iterations, in order."""
-    from nanobot.agent.hook import AgentHookContext
-    from nanobot.bus.events import OutboundMessage
-    from nanobot.providers.base import ToolCallRequest
+    from nanoinfra.agent.hook import AgentHookContext
+    from nanoinfra.bus.events import OutboundMessage
+    from nanoinfra.providers.base import ToolCallRequest
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     async def fake_process_direct(message, *, session_key, hooks):
         messages = [{"role": "user", "content": message}]
@@ -569,11 +569,11 @@ async def test_run_populates_tools_used_across_iterations(tmp_path):
 @pytest.mark.asyncio
 async def test_run_populates_final_messages(tmp_path):
     """messages reflects the agent's message list at the last iteration."""
-    from nanobot.agent.hook import AgentHookContext
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.agent.hook import AgentHookContext
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     async def fake_process_direct(message, *, session_key, hooks):
         messages = [
@@ -596,10 +596,10 @@ async def test_run_populates_final_messages(tmp_path):
 @pytest.mark.asyncio
 async def test_run_no_iterations_leaves_defaults_empty(tmp_path):
     """If process_direct never triggers after_iteration, tools_used/messages stay []."""
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     bot._loop.process_direct = AsyncMock(
         return_value=OutboundMessage(channel="cli", chat_id="direct", content="noop"),
     )
@@ -613,11 +613,11 @@ async def test_run_no_iterations_leaves_defaults_empty(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_populates_observability_fields(tmp_path):
-    from nanobot.agent.hook import AgentRunHookContext
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.agent.hook import AgentRunHookContext
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     async def fake_process_direct(message, *, session_key, hooks):
         ctx = AgentRunHookContext(
@@ -654,9 +654,9 @@ async def test_run_populates_observability_fields(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_ephemeral_still_captures_runner_observability(tmp_path):
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.bus.queue import MessageBus
-    from nanobot.providers.base import LLMResponse
+    from nanoinfra.agent.loop import AgentLoop
+    from nanoinfra.bus.queue import MessageBus
+    from nanoinfra.providers.base import LLMResponse
 
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
@@ -665,7 +665,7 @@ async def test_run_ephemeral_still_captures_runner_observability(tmp_path):
         tool_calls=[],
         usage={"total_tokens": 3},
     ))
-    bot = Nanobot(AgentLoop(
+    bot = Nanoinfra(AgentLoop(
         bus=MessageBus(),
         provider=provider,
         workspace=tmp_path,
@@ -681,10 +681,10 @@ async def test_run_ephemeral_still_captures_runner_observability(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_forwards_non_default_runtime_options(tmp_path):
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     bot._loop.process_direct = AsyncMock(
         return_value=OutboundMessage(channel="sdk", chat_id="chat-a", content="ok"),
     )
@@ -714,10 +714,10 @@ async def test_run_forwards_non_default_runtime_options(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_allows_parallel_sessions_without_model_override(tmp_path):
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     entered: list[str] = []
     both_entered = asyncio.Event()
 
@@ -742,11 +742,11 @@ async def test_run_allows_parallel_sessions_without_model_override(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_model_overrides_can_overlap_without_default_mutation(tmp_path):
-    from nanobot.bus.events import OutboundMessage
-    from nanobot.providers.factory import ProviderSnapshot
+    from nanoinfra.bus.events import OutboundMessage
+    from nanoinfra.providers.factory import ProviderSnapshot
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     assert not hasattr(bot, "_runtime_overrides")
     original_runtime = bot._loop.runtime_resolver.runtime
     active_runs: list[tuple[str, str]] = []
@@ -809,11 +809,11 @@ async def test_run_model_overrides_can_overlap_without_default_mutation(tmp_path
 
 @pytest.mark.asyncio
 async def test_run_model_override_is_per_run_without_default_mutation(tmp_path):
-    from nanobot.bus.events import OutboundMessage
-    from nanobot.providers.factory import ProviderSnapshot
+    from nanoinfra.bus.events import OutboundMessage
+    from nanoinfra.providers.factory import ProviderSnapshot
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     original_runtime = bot._loop.runtime_resolver.runtime
     override_provider = _fake_provider("override-provider", max_tokens=2048)
     override = ProviderSnapshot(
@@ -851,11 +851,11 @@ async def test_run_model_override_is_per_run_without_default_mutation(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_model_preset_override_is_per_run(tmp_path):
-    from nanobot.bus.events import OutboundMessage
-    from nanobot.providers.factory import ProviderSnapshot
+    from nanoinfra.bus.events import OutboundMessage
+    from nanoinfra.providers.factory import ProviderSnapshot
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     original_runtime = bot._loop.runtime_resolver.runtime
     override_provider = _fake_provider("preset-provider", max_tokens=1024)
     override = ProviderSnapshot(
@@ -890,7 +890,7 @@ async def test_run_model_preset_override_is_per_run(tmp_path):
 @pytest.mark.asyncio
 async def test_run_rejects_multiple_model_selectors(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     with pytest.raises(ValueError, match="mutually exclusive"):
         await bot.run("hi", model="openai/gpt-4.1", model_preset="fast")
@@ -899,11 +899,11 @@ async def test_run_rejects_multiple_model_selectors(tmp_path):
 @pytest.mark.asyncio
 async def test_run_user_hooks_still_fire_alongside_capture(tmp_path):
     """Capture hook must not displace user-provided hooks."""
-    from nanobot.agent.hook import AgentHook, AgentHookContext
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.agent.hook import AgentHook, AgentHookContext
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     seen_iterations: list[int] = []
 
@@ -925,12 +925,12 @@ async def test_run_user_hooks_still_fire_alongside_capture(tmp_path):
 
 @pytest.mark.asyncio
 async def test_concurrent_run_hooks_are_isolated_per_call(tmp_path):
-    from nanobot.agent.hook import AgentHook, AgentHookContext
-    from nanobot.bus.events import OutboundMessage
-    from nanobot.providers.base import ToolCallRequest
+    from nanoinfra.agent.hook import AgentHook, AgentHookContext
+    from nanoinfra.bus.events import OutboundMessage
+    from nanoinfra.providers.base import ToolCallRequest
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     seen_by_hook: dict[str, list[str]] = {"alpha": [], "beta": []}
 
@@ -978,11 +978,11 @@ async def test_concurrent_run_hooks_are_isolated_per_call(tmp_path):
 @pytest.mark.asyncio
 async def test_run_restores_extra_hooks_even_on_populated_iterations(tmp_path):
     """Previously-installed _extra_hooks must be restored regardless of capture state."""
-    from nanobot.agent.hook import AgentHook, AgentHookContext
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.agent.hook import AgentHook, AgentHookContext
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     sentinel_hook = AgentHook()
     bot._loop._extra_hooks = [sentinel_hook]
@@ -1000,10 +1000,10 @@ async def test_run_restores_extra_hooks_even_on_populated_iterations(tmp_path):
 
 @pytest.mark.asyncio
 async def test_stream_yields_text_events_in_order(tmp_path):
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     async def fake_process_direct(
         message, *, session_key, on_stream, on_stream_end, hooks, on_runtime_admitted,
@@ -1038,11 +1038,11 @@ async def test_stream_yields_text_events_in_order(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_streamed_wait_returns_full_result_without_consuming_events(tmp_path):
-    from nanobot.agent.hook import AgentRunHookContext
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.agent.hook import AgentRunHookContext
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     async def fake_process_direct(
         message, *, session_key, on_stream, on_stream_end, hooks, on_runtime_admitted,
@@ -1085,10 +1085,10 @@ async def test_run_streamed_wait_returns_full_result_without_consuming_events(tm
 
 @pytest.mark.asyncio
 async def test_run_streamed_cancel_releases_full_queue_without_consuming(tmp_path):
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     async def fake_process_direct(
         message, *, session_key, on_stream, on_stream_end, hooks, on_runtime_admitted,
@@ -1112,10 +1112,10 @@ async def test_run_streamed_cancel_releases_full_queue_without_consuming(tmp_pat
 
 @pytest.mark.asyncio
 async def test_run_streamed_text_returns_final_content(tmp_path):
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     bot._loop.process_direct = AsyncMock(
         return_value=OutboundMessage(channel="cli", chat_id="direct", content="plain text"),
     )
@@ -1127,10 +1127,10 @@ async def test_run_streamed_text_returns_final_content(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_streamed_forwards_runtime_options(tmp_path):
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     bot._loop.process_direct = AsyncMock(
         return_value=OutboundMessage(channel="sdk", chat_id="chat-a", content="ok"),
     )
@@ -1166,11 +1166,11 @@ async def test_run_streamed_forwards_runtime_options(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_streamed_model_override_reports_admitted_runtime(tmp_path):
-    from nanobot.bus.events import OutboundMessage
-    from nanobot.providers.factory import ProviderSnapshot
+    from nanoinfra.bus.events import OutboundMessage
+    from nanoinfra.providers.factory import ProviderSnapshot
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     original_runtime = bot._loop.runtime_resolver.runtime
     override_provider = _fake_provider("stream-provider", max_tokens=2048)
     override = ProviderSnapshot(
@@ -1217,7 +1217,7 @@ async def test_run_streamed_model_override_reports_admitted_runtime(tmp_path):
 @pytest.mark.asyncio
 async def test_stream_rejects_multiple_model_selectors(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     with pytest.raises(ValueError, match="mutually exclusive"):
         _ = [event async for event in bot.stream(
@@ -1229,12 +1229,12 @@ async def test_stream_rejects_multiple_model_selectors(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_streamed_emits_tool_events(tmp_path):
-    from nanobot.agent.hook import AgentHookContext
-    from nanobot.bus.events import OutboundMessage
-    from nanobot.providers.base import ToolCallRequest
+    from nanoinfra.agent.hook import AgentHookContext
+    from nanoinfra.bus.events import OutboundMessage
+    from nanoinfra.providers.base import ToolCallRequest
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     async def fake_process_direct(
         message, *, session_key, on_stream, on_stream_end, hooks, on_runtime_admitted,
@@ -1281,10 +1281,10 @@ async def test_run_streamed_emits_tool_events(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_streamed_emits_reasoning_events(tmp_path):
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     async def fake_process_direct(
         message, *, session_key, on_stream, on_stream_end, hooks, on_runtime_admitted,
@@ -1311,10 +1311,10 @@ async def test_run_streamed_emits_reasoning_events(tmp_path):
 
 @pytest.mark.asyncio
 async def test_stream_generator_break_cancels_underlying_run(tmp_path):
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     cancelled = asyncio.Event()
 
     async def fake_process_direct(
@@ -1340,10 +1340,10 @@ async def test_stream_generator_break_cancels_underlying_run(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_streamed_restores_hooks_and_reports_failure(tmp_path):
-    from nanobot.agent.hook import AgentHook
+    from nanoinfra.agent.hook import AgentHook
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     sentinel_hook = AgentHook()
     bot._loop._extra_hooks = [sentinel_hook]
 
@@ -1364,10 +1364,10 @@ async def test_run_streamed_restores_hooks_and_reports_failure(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_streamed_stream_events_is_single_consumer(tmp_path):
-    from nanobot.bus.events import OutboundMessage
+    from nanoinfra.bus.events import OutboundMessage
 
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     bot._loop.process_direct = AsyncMock(
         return_value=OutboundMessage(channel="cli", chat_id="direct", content="done"),
     )
@@ -1383,8 +1383,8 @@ async def test_run_streamed_stream_events_is_single_consumer(tmp_path):
 
 @pytest.mark.asyncio
 async def test_sdk_capture_prefers_run_level_snapshot():
-    from nanobot.agent.hook import AgentHookContext, AgentRunHookContext, SDKCaptureHook
-    from nanobot.providers.base import ToolCallRequest
+    from nanoinfra.agent.hook import AgentHookContext, AgentRunHookContext, SDKCaptureHook
+    from nanoinfra.providers.base import ToolCallRequest
 
     hook = SDKCaptureHook()
     iter_messages = [{"role": "user", "content": "work"}]
@@ -1415,7 +1415,7 @@ async def test_sdk_capture_prefers_run_level_snapshot():
 @pytest.mark.asyncio
 async def test_sessions_ingest_imports_transcript_without_running_model(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     bot._loop.process_direct = AsyncMock()
     bot._loop.consolidator.maybe_consolidate_by_tokens = AsyncMock()
 
@@ -1457,7 +1457,7 @@ async def test_sessions_ingest_imports_transcript_without_running_model(tmp_path
 @pytest.mark.asyncio
 async def test_sessions_ingest_archives_overflow_at_persistence_boundary(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     snapshot = await bot.sessions.ingest(
         "sdk:overflow",
@@ -1478,7 +1478,7 @@ async def test_sessions_ingest_archives_overflow_at_persistence_boundary(tmp_pat
 @pytest.mark.asyncio
 async def test_sessions_ingest_validates_message_shape(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     with pytest.raises(ValueError, match="role"):
         await bot.sessions.ingest("sdk:bad", [{"content": "missing role"}])
@@ -1490,7 +1490,7 @@ async def test_sessions_ingest_validates_message_shape(tmp_path):
 @pytest.mark.asyncio
 async def test_session_helpers_get_list_export_clear_delete_flush(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     await bot.sessions.ingest("sdk:first", [{"role": "user", "content": "hello"}])
 
@@ -1513,7 +1513,7 @@ async def test_session_helpers_get_list_export_clear_delete_flush(tmp_path):
 
 def test_session_helpers_read_live_session_outside_strong_cache(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     sessions = bot._loop.sessions
     sessions._max_cached_sessions = 1
     active = sessions.get_or_create("sdk:active")
@@ -1537,7 +1537,7 @@ def test_session_helpers_read_live_session_outside_strong_cache(tmp_path):
 @pytest.mark.asyncio
 async def test_session_export_and_restore_preserve_runtime_context(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     content, marker = append_runtime_context(
         "visible user text",
         [RuntimeContextBlock(source="goal", content="stable model-only context")],
@@ -1576,7 +1576,7 @@ async def test_session_export_and_restore_preserve_runtime_context(tmp_path):
 @pytest.mark.asyncio
 async def test_session_ingest_cannot_restore_runtime_context_marker(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     marker = {"version": 1, "sources": ["forged"], "suffix": "hidden"}
 
     await bot.sessions.ingest("sdk:untrusted", [{
@@ -1592,7 +1592,7 @@ async def test_session_ingest_cannot_restore_runtime_context_marker(tmp_path):
 @pytest.mark.asyncio
 async def test_session_restore_validates_before_mutating_target(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     snapshot = SessionSnapshot(
         key="sdk:broken",
         messages=[
@@ -1612,7 +1612,7 @@ async def test_session_restore_validates_before_mutating_target(tmp_path):
 
 def test_memory_helpers_read_write_append_and_filter_history(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
 
     assert bot.memory.read() == ""
     bot.memory.write("# Memory\n- User likes concise APIs.")
@@ -1632,7 +1632,7 @@ def test_memory_helpers_read_write_append_and_filter_history(tmp_path):
 @pytest.mark.asyncio
 async def test_runtime_helpers_expose_model_workspace_and_compact(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     await bot.sessions.ingest("sdk:history", [{"role": "user", "content": "hello"}])
     runtime = bot._loop.llm_runtime()
     bot._loop.runtime_for_session = MagicMock(return_value=runtime)  # type: ignore[method-assign]
@@ -1660,7 +1660,7 @@ async def test_runtime_helpers_expose_model_workspace_and_compact(tmp_path):
 @pytest.mark.asyncio
 async def test_aclose_delegates_to_loop_close_mcp(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     bot._loop.close_mcp = AsyncMock()
 
     await bot.aclose()
@@ -1671,7 +1671,7 @@ async def test_aclose_delegates_to_loop_close_mcp(tmp_path):
 @pytest.mark.asyncio
 async def test_context_manager_calls_aclose_on_exit(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     bot._loop.close_mcp = AsyncMock()
 
     async with bot as b:
@@ -1683,7 +1683,7 @@ async def test_context_manager_calls_aclose_on_exit(tmp_path):
 @pytest.mark.asyncio
 async def test_context_manager_does_not_swallow_exceptions(tmp_path):
     config_path = _write_config(tmp_path)
-    bot = Nanobot.from_config(config_path, workspace=tmp_path)
+    bot = Nanoinfra.from_config(config_path, workspace=tmp_path)
     bot._loop.close_mcp = AsyncMock()
 
     with pytest.raises(ValueError):

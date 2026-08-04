@@ -1,4 +1,4 @@
-"""Document text extraction utilities for nanobot."""
+"""Document text extraction utilities for nanoinfra."""
 
 import mimetypes
 from collections.abc import Iterator
@@ -9,7 +9,7 @@ from zipfile import BadZipFile, ZipFile
 
 from loguru import logger
 
-from nanobot.utils.helpers import detect_image_mime
+from nanoinfra.utils.helpers import detect_image_mime
 
 # Supported file extensions for text extraction
 SUPPORTED_EXTENSIONS: set[str] = {

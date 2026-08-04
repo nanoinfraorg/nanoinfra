@@ -1,5 +1,5 @@
 {
-  "description": "Feishu 채팅과 그룹에서 nanobot을 사용합니다.",
+  "description": "Feishu 채팅과 그룹에서 nanoinfra을 사용합니다.",
   "requirements": "Feishu 앱 자격 증명, 이벤트 구독 및 게이트웨이",
   "setup": {
     "primaryAction": "Feishu 연결",
@@ -9,7 +9,7 @@
     "summary": "QR 코드로 Feishu 앱을 만들거나 연결하고 자격 증명을 자동 저장합니다.",
     "steps": [
       "연결을 클릭하고 휴대폰의 Feishu 또는 Lark로 QR 코드를 스캔하세요.",
-      "앱 연결을 승인하면 nanobot이 App ID와 Secret을 자동 저장합니다.",
+      "앱 연결을 승인하면 nanoinfra이 App ID와 Secret을 자동 저장합니다.",
       "봇에 DM을 보내거나 Feishu 그룹에서 멘션하세요."
     ],
     "fields": {
@@ -64,7 +64,7 @@
     "countMany": "어시스턴트 {{count}}개 연결됨",
     "qrAlt": "Feishu 연결 QR 코드",
     "scanTitle": "Feishu로 스캔",
-    "scanDescription": "휴대폰의 Feishu 또는 Lark로 스캔하세요. 승인 후 nanobot이 설정을 완료합니다.",
+    "scanDescription": "휴대폰의 Feishu 또는 Lark로 스캔하세요. 승인 후 nanoinfra이 설정을 완료합니다.",
     "waiting": "승인을 기다리는 중...",
     "connected": "Feishu가 연결되었습니다.",
     "stopped": "연결이 중지되었습니다.",

@@ -8,8 +8,8 @@
   aria-labelledby="title desc"
   shape-rendering="geometricPrecision"
 >
-  <title id="title">nanobot README cover</title>
-  <desc id="desc">nanobot. Your open-source agent. Everywhere you work.</desc>
+  <title id="title">nanoinfra README cover</title>
+  <desc id="desc">nanoinfra. Your open-source agent. Everywhere you work.</desc>
   <metadata>
     Tagline outlines were created with Cascadia Mono, licensed under the SIL Open Font License 1.1.
     https://github.com/microsoft/cascadia-code

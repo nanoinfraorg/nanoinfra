@@ -1,6 +1,6 @@
 """Registry for speech-to-text providers.
 
-Provider-specific HTTP adapters live in ``nanobot.providers.transcription``.
+Provider-specific HTTP adapters live in ``nanoinfra.providers.transcription``.
 This module is the app-level source of truth for provider names, aliases,
 default models, and adapter class paths.
 """
@@ -46,38 +46,38 @@ TRANSCRIPTION_PROVIDERS: tuple[TranscriptionProviderSpec, ...] = (
     TranscriptionProviderSpec(
         name="groq",
         default_model="whisper-large-v3",
-        adapter="nanobot.providers.transcription:GroqTranscriptionProvider",
+        adapter="nanoinfra.providers.transcription:GroqTranscriptionProvider",
     ),
     TranscriptionProviderSpec(
         name="openai",
         default_model="whisper-1",
-        adapter="nanobot.providers.transcription:OpenAITranscriptionProvider",
+        adapter="nanoinfra.providers.transcription:OpenAITranscriptionProvider",
     ),
     TranscriptionProviderSpec(
         name="openrouter",
         default_model="openai/whisper-1",
-        adapter="nanobot.providers.transcription:OpenRouterTranscriptionProvider",
+        adapter="nanoinfra.providers.transcription:OpenRouterTranscriptionProvider",
     ),
     TranscriptionProviderSpec(
         name="xiaomi_mimo",
         default_model="mimo-v2.5-asr",
-        adapter="nanobot.providers.transcription:XiaomiMiMoTranscriptionProvider",
+        adapter="nanoinfra.providers.transcription:XiaomiMiMoTranscriptionProvider",
         aliases=("mimo", "xiaomi"),
     ),
     TranscriptionProviderSpec(
         name="stepfun",
         default_model="stepaudio-2.5-asr",
-        adapter="nanobot.providers.transcription:StepFunTranscriptionProvider",
+        adapter="nanoinfra.providers.transcription:StepFunTranscriptionProvider",
     ),
     TranscriptionProviderSpec(
         name="assemblyai",
         default_model="universal-3-pro,universal-2",
-        adapter="nanobot.providers.transcription:AssemblyAITranscriptionProvider",
+        adapter="nanoinfra.providers.transcription:AssemblyAITranscriptionProvider",
     ),
     TranscriptionProviderSpec(
         name="siliconflow",
         default_model="FunAudioLLM/SenseVoiceSmall",
-        adapter="nanobot.providers.transcription:OpenAITranscriptionProvider",
+        adapter="nanoinfra.providers.transcription:OpenAITranscriptionProvider",
         aliases=("silicon",),
     ),
 )

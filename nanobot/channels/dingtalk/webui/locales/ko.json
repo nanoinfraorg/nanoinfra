@@ -1,5 +1,5 @@
 {
-  "description": "DingTalk 그룹에서 nanobot을 사용합니다.",
+  "description": "DingTalk 그룹에서 nanoinfra을 사용합니다.",
   "requirements": "DingTalk 앱 자격 증명 및 게이트웨이",
   "setup": {
     "docsLabel": "DingTalk 설정 가이드 열기",

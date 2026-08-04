@@ -14,19 +14,19 @@ from typing import Any, cast
 import httpx
 from loguru import logger
 
-from nanobot import __version__
-from nanobot.providers.base import (
+from nanoinfra import __version__
+from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
     ToolCallRequest,
     resolve_stream_idle_timeout_s,
 )
-from nanobot.providers.openai_responses import (
+from nanoinfra.providers.openai_responses import (
     consume_sse_with_reasoning,
     convert_messages,
     convert_tools,
 )
-from nanobot.providers.xai_oauth import (
+from nanoinfra.providers.xai_oauth import (
     XAI_CLIENT_VERSION,
     XAIToken,
     get_xai_oauth_token,
@@ -261,14 +261,14 @@ def _build_headers(token: str, model: str) -> dict[str, str]:
         "X-XAI-Token-Auth": "xai-grok-cli",
         "x-authenticateresponse": "authenticate-response",
         "x-grok-client-version": XAI_CLIENT_VERSION,
-        "x-grok-client-identifier": "nanobot",
+        "x-grok-client-identifier": "nanoinfra",
         "x-grok-client-mode": "headless",
         "x-grok-conv-id": conversation_id,
         "x-grok-req-id": str(uuid.uuid4()),
         "x-grok-model-override": model,
         "x-grok-session-id": conversation_id,
         "x-grok-agent-id": str(uuid.uuid4()),
-        "User-Agent": f"nanobot/{__version__} (python)",
+        "User-Agent": f"nanoinfra/{__version__} (python)",
         "accept": "text/event-stream",
         "content-type": "application/json",
     }
@@ -279,9 +279,9 @@ def _build_model_headers(token: XAIToken) -> dict[str, str]:
         "Authorization": f"Bearer {token.access}",
         "X-XAI-Token-Auth": "xai-grok-cli",
         "x-grok-client-version": XAI_CLIENT_VERSION,
-        "x-grok-client-identifier": "nanobot",
+        "x-grok-client-identifier": "nanoinfra",
         "x-grok-client-mode": "headless",
-        "User-Agent": f"nanobot/{__version__} (python)",
+        "User-Agent": f"nanoinfra/{__version__} (python)",
         "accept": "application/json",
     }
     claims = _decode_access_token_claims(token.access)
@@ -548,11 +548,11 @@ def _is_sensitive_error_key(key: str) -> bool:
 
 def _friendly_error(status_code: int, response_body: str | None = None) -> str:
     if status_code == 401:
-        message = "xAI rejected the login. Sign in again with `nanobot provider login xai-grok`."
+        message = "xAI rejected the login. Sign in again with `nanoinfra provider login xai-grok`."
     elif status_code == 403:
         message = "This xAI account or subscription cannot access the Grok subscription endpoint."
     elif status_code == 426:
-        message = "xAI requires a newer Grok client version. Update nanobot and try again."
+        message = "xAI requires a newer Grok client version. Update nanoinfra and try again."
     elif status_code == 429:
         message = "xAI usage quota or rate limit reached. Please try again later."
     else:

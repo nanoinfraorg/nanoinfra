@@ -1,5 +1,5 @@
 {
-  "description": "nanobot でメールを受信し、返信します。",
+  "description": "nanoinfra でメールを受信し、返信します。",
   "requirements": "IMAP 受信箱、SMTP 送信、アプリパスワード、明示的な同意",
   "setup": {
     "docsLabel": "メール設定ガイドを開く",

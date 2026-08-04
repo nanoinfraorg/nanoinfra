@@ -11,17 +11,17 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from nanobot import __version__
-from nanobot.bus.events import OutboundMessage
-from nanobot.command.router import CommandContext, CommandRouter, normalize_command_text
-from nanobot.utils.helpers import build_status_content
-from nanobot.utils.restart import set_restart_notice_to_env
-from nanobot.utils.workspace_prompts import initialize_workspace_prompt
+from nanoinfra import __version__
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.command.router import CommandContext, CommandRouter, normalize_command_text
+from nanoinfra.utils.helpers import build_status_content
+from nanoinfra.utils.restart import set_restart_notice_to_env
+from nanoinfra.utils.workspace_prompts import initialize_workspace_prompt
 
 if TYPE_CHECKING:
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.session.manager import Session
-    from nanobot.utils.gitstore import CommitInfo
+    from nanoinfra.agent.loop import AgentLoop
+    from nanoinfra.session.manager import Session
+    from nanoinfra.utils.gitstore import CommitInfo
 
 # WebUI protocol contract for how a slash command participates in turn state:
 # - side_channel: returns control text without starting or ending an agent turn.
@@ -77,7 +77,7 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
     ),
     BuiltinCommandSpec(
         "/restart",
-        "Restart nanobot",
+        "Restart nanoinfra",
         "Restart the bot process.",
         "rotate-cw",
     ),
@@ -231,7 +231,7 @@ async def cmd_restart(ctx: CommandContext) -> OutboundMessage:
 
     async def _do_restart():
         await asyncio.sleep(1)
-        argv = [sys.executable, "-m", "nanobot"] + sys.argv[1:]
+        argv = [sys.executable, "-m", "nanoinfra"] + sys.argv[1:]
         mode = ctx.loop.restart_mode or "auto"
         if mode == "auto":
             mode = "spawn" if sys.platform == "win32" else "exec"
@@ -270,7 +270,7 @@ async def cmd_status(ctx: CommandContext) -> OutboundMessage:
     search_usage_text: str | None = None
     # Never let usage fetch break /status
     with suppress(Exception):
-        from nanobot.utils.searchusage import fetch_search_usage
+        from nanoinfra.utils.searchusage import fetch_search_usage
         search_cfg = loop.web_config.search
         usage = await fetch_search_usage(
             provider=search_cfg.provider,
@@ -422,7 +422,7 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
     msg = ctx.msg
 
     async def _run_dream():
-        from nanobot.agent.memory import DreamRunProgress, MemoryStore
+        from nanoinfra.agent.memory import DreamRunProgress, MemoryStore
 
         dream_session_key = MemoryStore.dream_session_key
         build_dream_commit_message = MemoryStore.build_dream_commit_message
@@ -477,7 +477,7 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
             elapsed = time.monotonic() - t0
             content = f"Dream failed after {elapsed:.1f}s: {e}"
         finally:
-            from nanobot.webui.token_usage import record_response_token_usage
+            from nanoinfra.webui.token_usage import record_response_token_usage
 
             record_response_token_usage(
                 resp,
@@ -512,14 +512,14 @@ async def cmd_dream_prompt(ctx: CommandContext) -> OutboundMessage:
         if not initialize_workspace_prompt(path, store.default_dream_prompt()):
             content = (
                 f"Dream memory instructions already exist at `{display_path}`.\n\n"
-                "Edit that file, or delete/empty it to return to nanobot's default."
+                "Edit that file, or delete/empty it to return to nanoinfra's default."
             )
         else:
             content = (
                 f"Created Dream memory instructions at `{display_path}`.\n\n"
                 "Edit that file to teach Dream how to organize memory. "
-                "This fully replaces nanobot's default Dream guide for this workspace. "
-                "Delete or empty it to return to nanobot's default."
+                "This fully replaces nanoinfra's default Dream guide for this workspace. "
+                "Delete or empty it to return to nanoinfra's default."
             )
     elif args:
         content = "Usage: /dream-prompt [init]"
@@ -527,11 +527,11 @@ async def cmd_dream_prompt(ctx: CommandContext) -> OutboundMessage:
         content = (
             "Dream memory instructions: custom for this workspace\n\n"
             f"- Path: `{display_path}`\n"
-            "- Delete or empty this file to return to nanobot's default."
+            "- Delete or empty this file to return to nanoinfra's default."
         )
     else:
         content = (
-            "Dream memory instructions: nanobot default\n\n"
+            "Dream memory instructions: nanoinfra default\n\n"
             f"- Editable file: `{display_path}`\n"
             "- Run `/dream-prompt init` to create an editable copy."
         )
@@ -546,7 +546,7 @@ async def cmd_dream_prompt(ctx: CommandContext) -> OutboundMessage:
 
 async def cmd_evaluator_prompt(ctx: CommandContext) -> OutboundMessage:
     """Show or set up the workspace heartbeat evaluator prompt."""
-    from nanobot.utils.evaluator import (
+    from nanoinfra.utils.evaluator import (
         default_evaluator_prompt,
         evaluator_prompt_file,
         has_evaluator_prompt_override,
@@ -561,7 +561,7 @@ async def cmd_evaluator_prompt(ctx: CommandContext) -> OutboundMessage:
         if not initialize_workspace_prompt(path, default_evaluator_prompt()):
             content = (
                 f"Heartbeat evaluator prompt already exists at `{display_path}`.\n\n"
-                "Edit that file, or delete/empty it to return to nanobot's default."
+                "Edit that file, or delete/empty it to return to nanoinfra's default."
             )
         else:
             content = (
@@ -569,7 +569,7 @@ async def cmd_evaluator_prompt(ctx: CommandContext) -> OutboundMessage:
                 "Edit that file to control when the heartbeat notification gate speaks. "
                 "It must still instruct the model to call the `evaluate_notification` tool, "
                 "otherwise the gate fails closed and stays silent. "
-                "Delete or empty it to return to nanobot's default."
+                "Delete or empty it to return to nanoinfra's default."
             )
     elif args:
         content = "Usage: /evaluator-prompt [init]"
@@ -577,11 +577,11 @@ async def cmd_evaluator_prompt(ctx: CommandContext) -> OutboundMessage:
         content = (
             "Heartbeat evaluator prompt: custom for this workspace\n\n"
             f"- Path: `{display_path}`\n"
-            "- Delete or empty this file to return to nanobot's default."
+            "- Delete or empty this file to return to nanoinfra's default."
         )
     else:
         content = (
-            "Heartbeat evaluator prompt: nanobot default\n\n"
+            "Heartbeat evaluator prompt: nanoinfra default\n\n"
             f"- Editable file: `{display_path}`\n"
             "- Run `/evaluator-prompt init` to create an editable copy."
         )
@@ -876,7 +876,7 @@ async def cmd_history(ctx: CommandContext) -> OutboundMessage:
 
 async def cmd_goal(ctx: CommandContext) -> OutboundMessage | None:
     """Mark this turn as an explicit sustained-goal request."""
-    from nanobot.agent.goal_permission import goal_mutation_permission
+    from nanoinfra.agent.goal_permission import goal_mutation_permission
 
     goal = ctx.args.strip()
     if not goal:
@@ -918,7 +918,7 @@ async def cmd_goal(ctx: CommandContext) -> OutboundMessage | None:
 
 async def cmd_pairing(ctx: CommandContext) -> OutboundMessage:
     """List, approve, deny or revoke pairing requests."""
-    from nanobot.pairing import PAIRING_COMMAND_META_KEY, handle_pairing_command
+    from nanoinfra.pairing import PAIRING_COMMAND_META_KEY, handle_pairing_command
 
     reply = handle_pairing_command(ctx.msg.channel, ctx.args)
     return OutboundMessage(
@@ -963,14 +963,14 @@ async def cmd_trigger(ctx: CommandContext) -> OutboundMessage:
             metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
         )
 
-    from nanobot.triggers.local_store import LocalTriggerStore
+    from nanoinfra.triggers.local_store import LocalTriggerStore
 
     loop = ctx.loop
     store = loop.local_trigger_store
     if store is None:
         store = LocalTriggerStore(loop.workspace)
 
-    from nanobot.session.keys import UNIFIED_SESSION_KEY
+    from nanoinfra.session.keys import UNIFIED_SESSION_KEY
 
     session_key = (
         ctx.msg.session_key
@@ -985,7 +985,7 @@ async def cmd_trigger(ctx: CommandContext) -> OutboundMessage:
         sender_id="trigger",
         origin_metadata=dict(ctx.msg.metadata or {}),
     )
-    command = f'nanobot trigger {trigger.id} "message"'
+    command = f'nanoinfra trigger {trigger.id} "message"'
     return OutboundMessage(
         channel=ctx.msg.channel,
         chat_id=ctx.msg.chat_id,
@@ -1009,7 +1009,7 @@ async def cmd_help(ctx: CommandContext) -> OutboundMessage:
 
 def build_help_text() -> str:
     """Build canonical help text shared across channels."""
-    lines = ["🐈 nanobot commands:"]
+    lines = ["🐈 nanoinfra commands:"]
     for spec in BUILTIN_COMMAND_SPECS:
         command = spec.command
         if spec.arg_hint:

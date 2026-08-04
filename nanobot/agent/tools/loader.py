@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from nanobot.agent.tools.base import Tool, ToolResult
-from nanobot.agent.tools.registry import ToolRegistry
+from nanoinfra.agent.tools.base import Tool, ToolResult
+from nanoinfra.agent.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
-    from nanobot.agent.tools.context import RequestContext, ToolContext
+    from nanoinfra.agent.tools.context import RequestContext, ToolContext
 
 _SKIP_MODULES = frozenset({
     "base", "schema", "registry", "context", "loader", "config",
@@ -26,7 +26,7 @@ _SKIP_MODULES = frozenset({
 class ToolLoader:
     def __init__(self, package: Any = None, *, test_classes: list[type[Tool]] | None = None):
         if package is None:
-            import nanobot.agent.tools as _pkg
+            import nanoinfra.agent.tools as _pkg
             package = _pkg
         self._package = package
         self._test_classes = test_classes
@@ -71,7 +71,7 @@ class ToolLoader:
             return self._plugins
         plugins: dict[str, type[Tool]] = {}
         try:
-            eps = entry_points(group="nanobot.tools")
+            eps = entry_points(group="nanoinfra.tools")
         except Exception:
             return plugins
         for ep in eps:

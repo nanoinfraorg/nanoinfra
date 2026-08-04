@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Collection
 from typing import Any, Protocol, cast
 
-from nanobot.cron.types import CronJob
-from nanobot.session.history_visibility import is_hidden_history_message
-from nanobot.session.manager import _message_preview_text  # pyright: ignore[reportPrivateUsage]
-from nanobot.triggers.local_types import LocalTrigger
+from nanoinfra.cron.types import CronJob
+from nanoinfra.session.history_visibility import is_hidden_history_message
+from nanoinfra.session.manager import _message_preview_text  # pyright: ignore[reportPrivateUsage]
+from nanoinfra.triggers.local_types import LocalTrigger
 
 AutomationJob = CronJob | LocalTrigger
 
@@ -194,7 +194,7 @@ def _serialize_trigger(
     include_details: bool = False,
     session_manager: _SessionManagerLike | None = None,
 ) -> dict[str, Any]:
-    command = f'nanobot trigger {trigger.id} "message"'
+    command = f'nanoinfra trigger {trigger.id} "message"'
     payload: dict[str, Any] = {
         "id": trigger.id,
         "name": trigger.name,

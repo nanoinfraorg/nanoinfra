@@ -4,8 +4,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from nanobot.providers.base import ProviderConversationState
-from nanobot.session.manager import Session, SessionManager
+from nanoinfra.providers.base import ProviderConversationState
+from nanoinfra.session.manager import Session, SessionManager
 
 
 class TestAtomicSave:
@@ -64,7 +64,7 @@ class TestAtomicSave:
         ]
 
         import unittest.mock
-        with unittest.mock.patch("nanobot.session.manager.json.dumps", side_effect=failing_dumps):
+        with unittest.mock.patch("nanoinfra.session.manager.json.dumps", side_effect=failing_dumps):
             try:
                 mgr.save(session)
             except OSError:
@@ -155,7 +155,7 @@ class TestAtomicSave:
         tmp_path: Path,
         monkeypatch,
     ):
-        import nanobot.session.manager as session_manager
+        import nanoinfra.session.manager as session_manager
 
         monkeypatch.setattr(session_manager, "_SESSION_LIST_PREVIEW_MAX_CHARS", 100)
         mgr = SessionManager(tmp_path)

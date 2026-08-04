@@ -1,5 +1,5 @@
 {
-  "description": "Utilisez nanobot depuis les espaces Slack.",
+  "description": "Utilisez nanoinfra depuis les espaces Slack.",
   "requirements": "Jeton d’application Slack, jeton du bot et installation dans l’espace",
   "setup": {
     "docsLabel": "Ouvrir le guide Slack",

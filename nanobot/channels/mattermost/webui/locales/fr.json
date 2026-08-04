@@ -1,5 +1,5 @@
 {
-  "description": "Utilisez nanobot dans les canaux et messages privés Mattermost.",
+  "description": "Utilisez nanoinfra dans les canaux et messages privés Mattermost.",
   "requirements": "URL du serveur Mattermost, jeton du bot et accès aux canaux",
   "setup": {
     "docsLabel": "Ouvrir le guide Mattermost",

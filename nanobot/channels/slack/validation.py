@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from nanobot.channels.contracts import ChannelValidationContext
-from nanobot.channels.validation import (
+from nanoinfra.channels.contracts import ChannelValidationContext
+from nanoinfra.channels.validation import (
     check,
     http_post,
     message_from_response,

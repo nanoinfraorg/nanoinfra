@@ -7,9 +7,9 @@ import uuid
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, TypeGuard
 
-from nanobot.session.manager import SessionManager
-from nanobot.session.webui_turns import WEBUI_TITLE_METADATA_KEY, clean_generated_title
-from nanobot.webui.transcript import (
+from nanoinfra.session.manager import SessionManager
+from nanoinfra.session.webui_turns import WEBUI_TITLE_METADATA_KEY, clean_generated_title
+from nanoinfra.webui.transcript import (
     append_fork_marker,
     delete_webui_transcript,
     fork_transcript_before_user_index,
@@ -19,7 +19,7 @@ from nanobot.webui.transcript import (
 if TYPE_CHECKING:
     from websockets.asyncio.server import ServerConnection
 
-    from nanobot.channels.websocket.runtime import WebSocketChannel
+    from nanoinfra.channels.websocket.runtime import WebSocketChannel
 
 _WEBUI_CHAT_ID_RE = re.compile(r"^[A-Za-z0-9_:-]{1,64}$")
 

@@ -1,8 +1,8 @@
 """WebSocket management contract."""
 
-from nanobot.channels.contracts import ChannelSetupSpec
-from nanobot.channels.plugin import ChannelPlugin
-from nanobot.channels.websocket.validation import validate
+from nanoinfra.channels.contracts import ChannelSetupSpec
+from nanoinfra.channels.plugin import ChannelPlugin
+from nanoinfra.channels.websocket.validation import validate
 
 SETUP_SPEC = ChannelSetupSpec(
     fields={},

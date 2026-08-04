@@ -1,4 +1,4 @@
-# nanobot Task Guides
+# nanoinfra Task Guides
 
 Start with [Install and Quick Start](../quick-start.md) and get one reply before using a guide below. Each guide targets one outcome; linked reference pages hold the complete option tables and edge cases.
 
@@ -47,4 +47,4 @@ Use **Settings → Channels** in the WebUI for guided setup. These guides explai
 | Improve Ollama tool prompt-cache reuse | [Configure Ollama prompt caching](./configure-ollama-prompt-cache.md) |
 | Add Langfuse tracing | [Configure Langfuse observability](./configure-langfuse-observability.md) |
 | Secure local tools | [Secure a local AI agent](./secure-local-ai-agent.md) |
-| Deploy the gateway | [Deploy nanobot gateway](./deploy-nanobot-gateway.md) |
+| Deploy the gateway | [Deploy nanoinfra gateway](./deploy-nanoinfra-gateway.md) |

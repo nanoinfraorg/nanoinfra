@@ -1,5 +1,5 @@
 {
-  "description": "Use nanobot from DingTalk groups.",
+  "description": "Use nanoinfra from DingTalk groups.",
   "requirements": "DingTalk app credentials and gateway",
   "setup": {
     "docsLabel": "Open DingTalk setup",

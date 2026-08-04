@@ -1,6 +1,6 @@
 """Shared helpers for decoding ``data:...;base64,...`` URLs to disk.
 
-Historically lived in ``nanobot.api.server``; now shared by the WebSocket
+Historically lived in ``nanoinfra.api.server``; now shared by the WebSocket
 channel so the ``api`` + ``websocket`` ingress paths apply the same parsing,
 size guard, and filesystem layout.
 """
@@ -13,7 +13,7 @@ import re
 import uuid
 from pathlib import Path
 
-from nanobot.utils.helpers import safe_filename
+from nanoinfra.utils.helpers import safe_filename
 
 DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 MAX_FILE_SIZE = DEFAULT_MAX_BYTES

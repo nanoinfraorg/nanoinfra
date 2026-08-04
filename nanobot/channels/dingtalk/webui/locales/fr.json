@@ -1,5 +1,5 @@
 {
-  "description": "Utilisez nanobot depuis les groupes DingTalk.",
+  "description": "Utilisez nanoinfra depuis les groupes DingTalk.",
   "requirements": "Identifiants d’application DingTalk et passerelle",
   "setup": {
     "docsLabel": "Ouvrir le guide DingTalk",

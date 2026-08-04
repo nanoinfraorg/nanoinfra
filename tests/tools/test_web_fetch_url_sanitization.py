@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from nanobot.agent.tools.web import WebFetchTool, _validate_url
+from nanoinfra.agent.tools.web import WebFetchTool, _validate_url
 
 
 def _fake_resolve_public(hostname, port, family=0, type_=0):
@@ -45,9 +45,9 @@ class FakeClient:
 @contextmanager
 def _patched_web_fetch():
     with (
-        patch("nanobot.security.network.socket.getaddrinfo", _fake_resolve_public),
-        patch("nanobot.agent.tools.web.httpx.AsyncClient", FakeClient),
-        patch("nanobot.agent.tools.web._pinned_dns_transport", lambda: object()),
+        patch("nanoinfra.security.network.socket.getaddrinfo", _fake_resolve_public),
+        patch("nanoinfra.agent.tools.web.httpx.AsyncClient", FakeClient),
+        patch("nanoinfra.agent.tools.web._pinned_dns_transport", lambda: object()),
     ):
         yield
 

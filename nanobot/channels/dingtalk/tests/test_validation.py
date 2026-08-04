@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from nanobot.channels.validation import validate_channel_config
-from nanobot.config.loader import save_config
-from nanobot.config.schema import Config
+from nanoinfra.channels.validation import validate_channel_config
+from nanoinfra.config.loader import save_config
+from nanoinfra.config.schema import Config
 
 
 def test_validate_manual_channel_returns_configured(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -22,7 +22,7 @@ def test_validate_manual_channel_returns_configured(tmp_path, monkeypatch: pytes
         ),
         config_path,
     )
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
 
     result = validate_channel_config("dingtalk", {})
 

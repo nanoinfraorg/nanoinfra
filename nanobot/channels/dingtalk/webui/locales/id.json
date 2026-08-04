@@ -1,5 +1,5 @@
 {
-  "description": "Gunakan nanobot dari grup DingTalk.",
+  "description": "Gunakan nanoinfra dari grup DingTalk.",
   "requirements": "Kredensial aplikasi DingTalk dan gateway",
   "setup": {
     "docsLabel": "Buka panduan DingTalk",

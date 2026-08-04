@@ -1,4 +1,4 @@
-"""On-demand version checker for nanobot-ai releases.
+"""On-demand version checker for nanoinfra releases.
 
 Checks PyPI for newer versions when explicitly requested (no background polling).
 """
@@ -11,11 +11,11 @@ from typing import Any
 
 import httpx
 
-from nanobot import __version__
+from nanoinfra import __version__
 
 logger = logging.getLogger(__name__)
 
-_PYPI_URL = "https://pypi.org/pypi/nanobot-ai/json"
+_PYPI_URL = "https://pypi.org/pypi/nanoinfra/json"
 _CACHE_TTL_S = 300  # 5 minutes cache to avoid hammering PyPI
 
 _cache: tuple[float, str | None] = (0.0, None)
@@ -47,5 +47,5 @@ def check_for_update() -> dict[str, Any] | None:
     return {
         "currentVersion": __version__,
         "latestVersion": latest,
-        "pypiUrl": "https://pypi.org/project/nanobot-ai/",
+        "pypiUrl": "https://pypi.org/project/nanoinfra/",
     }

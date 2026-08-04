@@ -7,18 +7,18 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from nanobot.channels.plugin import (
+from nanoinfra.channels.plugin import (
     ChannelPlugin,
     has_channel_package,
     load_channel_package,
 )
 
 if TYPE_CHECKING:
-    from nanobot.channels.base import BaseChannel
+    from nanoinfra.channels.base import BaseChannel
 
 
 def _channel_package_names() -> list[str]:
-    import nanobot.channels as package
+    import nanoinfra.channels as package
 
     return [
         name

@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from nanobot.process_runtime import (
+from nanoinfra.process_runtime import (
     ManagedProcessRuntime,
     ProcessRuntimePaths,
     ProcessStartOptions,
@@ -16,7 +16,7 @@ from nanobot.process_runtime import (
 
 @dataclass(frozen=True)
 class ApiStartOptions(ProcessStartOptions):
-    """Options needed to start a managed ``nanobot serve`` process."""
+    """Options needed to start a managed ``nanoinfra serve`` process."""
 
     host: str = "127.0.0.1"
 
@@ -44,7 +44,7 @@ class ApiRuntime(ManagedProcessRuntime[ApiStartOptions]):
         command = [
             self.python_executable or sys.executable,
             "-m",
-            "nanobot",
+            "nanoinfra",
             "serve",
             "--host",
             options.host,

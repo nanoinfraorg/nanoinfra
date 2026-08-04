@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from nanobot.command.builtin import (
+from nanoinfra.command.builtin import (
     builtin_command_starts_agent_turn,
     register_builtin_commands,
 )
-from nanobot.command.router import CommandContext, CommandRouter
+from nanoinfra.command.router import CommandContext, CommandRouter
 
 
 def test_command_context_requires_loop_as_keyword_dependency() -> None:
@@ -207,7 +207,7 @@ class TestPairingCommandDispatch:
         self, router: CommandRouter, fake_msg: MagicMock, monkeypatch,
     ) -> None:
         monkeypatch.setattr(
-            "nanobot.pairing.store.list_pending",
+            "nanoinfra.pairing.store.list_pending",
             lambda: [
                 {
                     "code": "ABCD-EFGH",
@@ -231,7 +231,7 @@ class TestPairingCommandDispatch:
         self, router: CommandRouter, fake_msg: MagicMock, monkeypatch,
     ) -> None:
         monkeypatch.setattr(
-            "nanobot.pairing.store.approve_code",
+            "nanoinfra.pairing.store.approve_code",
             lambda code: ("telegram", "123") if code == "ABCD-EFGH" else None,
         )
         fake_msg.content = "/pairing approve ABCD-EFGH"
@@ -253,7 +253,7 @@ class TestPairingCommandDispatch:
         self, router: CommandRouter, fake_msg: MagicMock, monkeypatch,
     ) -> None:
         monkeypatch.setattr(
-            "nanobot.pairing.store.revoke",
+            "nanoinfra.pairing.store.revoke",
             lambda ch, sid: sid == "123",
         )
         fake_msg.content = "/pairing revoke 123"

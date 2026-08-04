@@ -1,15 +1,15 @@
 {
-  "description": "Use nanobot from Feishu chats and groups.",
+  "description": "Use nanoinfra from Feishu chats and groups.",
   "requirements": "Feishu app credentials, event subscription, gateway",
   "setup": {
     "primaryAction": "Connect with Feishu",
     "docsLabel": "Open Feishu setup",
     "officialLabel": "Open Feishu console",
     "tryIt": "Send a DM or mention the Feishu assistant in a group.",
-    "summary": "Connect creates or links a Feishu app by QR code, then saves the app credentials for nanobot.",
+    "summary": "Connect creates or links a Feishu app by QR code, then saves the app credentials for nanoinfra.",
     "steps": [
       "Click Connect and scan the QR code with Feishu or Lark on your phone.",
-      "Approve the app connection. nanobot saves the App ID and Secret automatically.",
+      "Approve the app connection. nanoinfra saves the App ID and Secret automatically.",
       "Send the bot a direct message or mention it in a Feishu group to test it."
     ],
     "fields": {
@@ -64,7 +64,7 @@
     "countMany": "{{count}} assistants connected",
     "qrAlt": "Feishu connection QR code",
     "scanTitle": "Scan with Feishu",
-    "scanDescription": "Use Feishu or Lark on your phone to scan this code. nanobot will finish setup automatically after authorization.",
+    "scanDescription": "Use Feishu or Lark on your phone to scan this code. nanoinfra will finish setup automatically after authorization.",
     "waiting": "Waiting for authorization...",
     "connected": "Feishu is connected.",
     "stopped": "Connection stopped.",

@@ -1,5 +1,5 @@
 {
-  "description": "Mengobrol dengan nanobot dari Telegram.",
+  "description": "Mengobrol dengan nanoinfra dari Telegram.",
   "requirements": "Token bot, pengguna yang diizinkan, dan gateway",
   "setup": {
     "docsLabel": "Buka panduan Telegram",

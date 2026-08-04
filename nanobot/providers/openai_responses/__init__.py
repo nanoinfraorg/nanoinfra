@@ -1,12 +1,12 @@
 """Shared helpers for provider backends that implement the OpenAI Responses protocol."""
 
-from nanobot.providers.openai_responses.converters import (
+from nanoinfra.providers.openai_responses.converters import (
     convert_messages,
     convert_tools,
     convert_user_message,
     split_tool_call_id,
 )
-from nanobot.providers.openai_responses.parsing import (
+from nanoinfra.providers.openai_responses.parsing import (
     FINISH_REASON_MAP,
     ResponsesStreamCapture,
     consume_sdk_stream,
@@ -17,7 +17,7 @@ from nanobot.providers.openai_responses.parsing import (
     map_finish_reason,
     parse_response_output,
 )
-from nanobot.providers.openai_responses.state import (
+from nanoinfra.providers.openai_responses.state import (
     build_responses_state,
     is_compaction_compatibility_error,
     prepare_responses_input,

@@ -11,8 +11,8 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from nanobot.config.paths import get_media_dir
-from nanobot.utils.helpers import detect_image_mime, ensure_dir
+from nanoinfra.config.paths import get_media_dir
+from nanoinfra.utils.helpers import detect_image_mime, ensure_dir
 
 _DATA_IMAGE_RE = re.compile(r"^data:(image/[A-Za-z0-9.+-]+);base64,(.*)$", re.DOTALL)
 _MIME_EXTENSIONS = {

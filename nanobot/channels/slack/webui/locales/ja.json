@@ -1,5 +1,5 @@
 {
-  "description": "Slack ワークスペースから nanobot を利用します。",
+  "description": "Slack ワークスペースから nanoinfra を利用します。",
   "requirements": "Slack アプリトークン、ボットトークン、ワークスペースへのインストール",
   "setup": {
     "docsLabel": "Slack 設定ガイドを開く",

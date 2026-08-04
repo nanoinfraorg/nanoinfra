@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from nanobot.utils.gitstore import CommitInfo, GitStore, GitStoreError
+from nanoinfra.utils.gitstore import CommitInfo, GitStore, GitStoreError
 
 TRACKED = ["SOUL.md", "USER.md", "memory/MEMORY.md"]
 
@@ -225,7 +225,7 @@ class TestShowCommitDiff:
 
 class TestCommitInfoFormat:
     def test_format_with_diff(self):
-        from nanobot.utils.gitstore import CommitInfo
+        from nanoinfra.utils.gitstore import CommitInfo
         c = CommitInfo(sha="abcd1234", message="test commit\nsecond line", timestamp="2026-04-02 12:00")
         result = c.format(diff="some diff")
         assert "test commit" in result
@@ -233,13 +233,13 @@ class TestCommitInfoFormat:
         assert "some diff" in result
 
     def test_format_without_diff(self):
-        from nanobot.utils.gitstore import CommitInfo
+        from nanoinfra.utils.gitstore import CommitInfo
         c = CommitInfo(sha="abcd1234", message="test", timestamp="2026-04-02 12:00")
         result = c.format()
         assert "(no file changes)" in result
 
     def test_format_empty_message(self):
-        from nanobot.utils.gitstore import CommitInfo
+        from nanoinfra.utils.gitstore import CommitInfo
         c = CommitInfo(sha="abcd1234", message="", timestamp="2026-04-02 12:00")
         result = c.format()
         assert "(no message)" in result
@@ -289,11 +289,11 @@ class TestRevert:
 
 class TestMemoryStoreGitProperty:
     def test_git_property_exposes_gitstore(self, tmp_path):
-        from nanobot.agent.memory import MemoryStore
+        from nanoinfra.agent.memory import MemoryStore
         store = MemoryStore(tmp_path)
         assert isinstance(store.git, GitStore)
 
     def test_git_property_is_same_object(self, tmp_path):
-        from nanobot.agent.memory import MemoryStore
+        from nanoinfra.agent.memory import MemoryStore
         store = MemoryStore(tmp_path)
         assert store.git is store._git

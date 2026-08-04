@@ -56,14 +56,14 @@ describe("channel UI contributions", () => {
       "utf8",
     );
 
-    expect(source).toContain("../../../nanobot/channels/*/webui/**/*.{ts,tsx}");
+    expect(source).toContain("../../../nanoinfra/channels/*/webui/**/*.{ts,tsx}");
     expect(source).not.toContain('"./*/index.tsx"');
   });
 
   it("derives channel identity from the package directory", () => {
     for (const channel of ["feishu", "weixin"]) {
       const source = readFileSync(
-        resolve(process.cwd(), `../nanobot/channels/${channel}/webui/index.tsx`),
+        resolve(process.cwd(), `../nanoinfra/channels/${channel}/webui/index.tsx`),
         "utf8",
       );
       expect(source).not.toMatch(/\bchannel\s*:/);
@@ -73,6 +73,6 @@ describe("channel UI contributions", () => {
   it("includes channel-owned UI in Tailwind's production scan", () => {
     const source = readFileSync(resolve(process.cwd(), "tailwind.config.js"), "utf8");
 
-    expect(source).toContain("../nanobot/channels/*/webui/**/*.{ts,tsx}");
+    expect(source).toContain("../nanoinfra/channels/*/webui/**/*.{ts,tsx}");
   });
 });

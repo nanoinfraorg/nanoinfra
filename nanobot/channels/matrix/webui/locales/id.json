@@ -1,5 +1,5 @@
 {
-  "description": "Gunakan nanobot dari ruang Matrix.",
+  "description": "Gunakan nanoinfra dari ruang Matrix.",
   "requirements": "Homeserver, token akun, dan akses ruang",
   "setup": {
     "docsLabel": "Buka panduan Matrix",
@@ -7,7 +7,7 @@
     "tryIt": "Undang akun Matrix ke ruang dan kirim pesan uji.",
     "summary": "Matrix memerlukan akun homeserver dan login dengan kata sandi atau token akses.",
     "steps": [
-      "Buat atau pilih akun Matrix untuk nanobot.",
+      "Buat atau pilih akun Matrix untuk nanoinfra.",
       "Masukkan homeserver, ID pengguna, dan kata sandi atau token akses.",
       "Simpan dan aktifkan Matrix, undang akun ke ruang, lalu kirim pesan uji."
     ],
@@ -18,7 +18,7 @@
       },
       "userId": {
         "label": "ID pengguna",
-        "placeholder": "@nanobot:matrix.org"
+        "placeholder": "@nanoinfra:matrix.org"
       },
       "password": {
         "label": "Kata sandi",

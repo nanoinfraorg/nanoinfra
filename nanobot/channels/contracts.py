@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, TypeGuard, cast
 
 if TYPE_CHECKING:
-    from nanobot.channels.plugin import ChannelPlugin
+    from nanoinfra.channels.plugin import ChannelPlugin
 
 FieldKind = Literal["string", "secret", "list", "bool", "int", "enum"]
 RouteFieldType = str | tuple[str, set[str]]
@@ -265,7 +265,7 @@ class ChannelManagementSpec:
 
 
 def channel_default_config(plugin: ChannelPlugin) -> dict[str, Any]:
-    from nanobot.config.loader import merge_missing_defaults
+    from nanoinfra.config.loader import merge_missing_defaults
 
     defaults: dict[str, Any] = {"enabled": plugin.default_enabled}
     if plugin.setup is not None:
@@ -443,7 +443,7 @@ def channel_set_config_enabled(
     instance_id: str = "default",
 ) -> dict[str, Any]:
     """Toggle one instance while preserving channel-owned config shape."""
-    from nanobot.config.loader import merge_missing_defaults
+    from nanoinfra.config.loader import merge_missing_defaults
 
     values = channel_instance_config(plugin, section, instance_id=instance_id)
     values = cast(dict[str, Any], merge_missing_defaults(values, channel_default_config(plugin)))

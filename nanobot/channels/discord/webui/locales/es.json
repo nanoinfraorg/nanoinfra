@@ -1,5 +1,5 @@
 {
-  "description": "Usa nanobot en servidores y mensajes directos de Discord.",
+  "description": "Usa nanoinfra en servidores y mensajes directos de Discord.",
   "requirements": "Token del bot de Discord, permisos y gateway",
   "setup": {
     "docsLabel": "Abrir guía de Discord",

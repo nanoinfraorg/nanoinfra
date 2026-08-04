@@ -23,24 +23,24 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from nanobot import __version__
-from nanobot.agent.tools.web import SEARCH_PROVIDER_OPTIONS
-from nanobot.audio.transcription import resolve_transcription_config
-from nanobot.audio.transcription_registry import (
+from nanoinfra import __version__
+from nanoinfra.agent.tools.web import SEARCH_PROVIDER_OPTIONS
+from nanoinfra.audio.transcription import resolve_transcription_config
+from nanoinfra.audio.transcription_registry import (
     resolve_transcription_provider,
     transcription_provider_names,
 )
-from nanobot.config.loader import get_config_path, load_config, resolve_config_env_vars, save_config
-from nanobot.config.schema import Config, FallbackCandidate, ModelPresetConfig, ProviderConfig
-from nanobot.providers.image_generation import (
+from nanoinfra.config.loader import get_config_path, load_config, resolve_config_env_vars, save_config
+from nanoinfra.config.schema import Config, FallbackCandidate, ModelPresetConfig, ProviderConfig
+from nanoinfra.providers.image_generation import (
     get_image_gen_provider,
     image_gen_provider_names,
 )
-from nanobot.providers.registry import PROVIDERS, create_dynamic_spec, find_by_name
-from nanobot.security.network import is_loopback_host
-from nanobot.security.workspace_access import workspace_sandbox_status
-from nanobot.webui.token_usage import token_usage_payload
-from nanobot.webui.workspaces import (
+from nanoinfra.providers.registry import PROVIDERS, create_dynamic_spec, find_by_name
+from nanoinfra.security.network import is_loopback_host
+from nanoinfra.security.workspace_access import workspace_sandbox_status
+from nanoinfra.webui.token_usage import token_usage_payload
+from nanoinfra.webui.workspaces import (
     read_webui_default_access_mode,
     write_webui_default_access_mode,
 )
@@ -57,7 +57,7 @@ def _version_payload() -> dict[str, Any]:
 
 
 _DOCS_STABLE_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:\.post\d+)?$")
-_DOCS_LATEST_URL = "https://nanobot.wiki/docs/latest"
+_DOCS_LATEST_URL = "https://nanoinfra.wiki/docs/latest"
 
 
 def _docs_version(version: str) -> str:
@@ -71,7 +71,7 @@ def _docs_version(version: str) -> str:
 def _docs_payload() -> dict[str, Any]:
     """Return version-aware documentation links for the WebUI."""
     docs_version = _docs_version(__version__)
-    base_url = f"https://nanobot.wiki/docs/{docs_version}"
+    base_url = f"https://nanoinfra.wiki/docs/{docs_version}"
     return {
         "version": docs_version,
         "base_url": base_url,
@@ -472,7 +472,7 @@ def _oauth_provider_status(spec: Any) -> dict[str, Any]:
 
     if spec.name == "github_copilot":
         try:
-            from nanobot.providers.github_copilot_provider import get_github_copilot_login_status
+            from nanoinfra.providers.github_copilot_provider import get_github_copilot_login_status
         except Exception:
             return {
                 "configured": False,
@@ -492,7 +492,7 @@ def _oauth_provider_status(spec: Any) -> dict[str, Any]:
 
     if spec.name == "xai_grok":
         try:
-            from nanobot.providers.xai_oauth import get_xai_oauth_login_status
+            from nanoinfra.providers.xai_oauth import get_xai_oauth_login_status
         except Exception:
             return {
                 "configured": False,
@@ -1790,7 +1790,7 @@ def login_oauth_provider(query: QueryParams) -> dict[str, Any]:
 
     if spec.name == "openai_codex":
         try:
-            from nanobot.providers.openai_codex_oauth import start_openai_codex_oauth_login
+            from nanoinfra.providers.openai_codex_oauth import start_openai_codex_oauth_login
         except ImportError:
             raise WebUISettingsError(
                 "oauth_cli_kit not installed. Run: pip install oauth-cli-kit", status=500
@@ -1827,7 +1827,7 @@ def login_oauth_provider(query: QueryParams) -> dict[str, Any]:
 
     if spec.name == "github_copilot":
         try:
-            from nanobot.providers.github_copilot_provider import (
+            from nanoinfra.providers.github_copilot_provider import (
                 get_github_copilot_login_status,
                 login_github_copilot,
             )
@@ -1844,7 +1844,7 @@ def login_oauth_provider(query: QueryParams) -> dict[str, Any]:
         return settings_payload()
 
     if spec.name == "xai_grok":
-        from nanobot.providers.xai_oauth import start_xai_oauth_login
+        from nanoinfra.providers.xai_oauth import start_xai_oauth_login
 
         try:
             proxy = resolve_config_env_vars(load_config()).providers.xai_grok.proxy or None
@@ -1889,7 +1889,7 @@ def complete_oauth_provider(
 
     try:
         if spec.name == "openai_codex":
-            from nanobot.providers.openai_codex_oauth import (
+            from nanoinfra.providers.openai_codex_oauth import (
                 OpenAICodexOAuthInputError,
                 complete_openai_codex_oauth_login,
             )
@@ -1899,7 +1899,7 @@ def complete_oauth_provider(
             except OpenAICodexOAuthInputError as e:
                 raise WebUISettingsError(str(e), status=400) from e
         else:
-            from nanobot.providers.xai_oauth import complete_xai_oauth_login
+            from nanoinfra.providers.xai_oauth import complete_xai_oauth_login
 
             token = complete_xai_oauth_login(flow, authorization_response)
     except WebUISettingsError:
@@ -1939,14 +1939,14 @@ def logout_oauth_provider(query: QueryParams) -> dict[str, Any]:
         token_path = FileTokenStorage(token_filename=OPENAI_CODEX_PROVIDER.token_filename).get_token_path()
     elif spec.name == "github_copilot":
         try:
-            from nanobot.providers.github_copilot_provider import get_storage
+            from nanoinfra.providers.github_copilot_provider import get_storage
         except ImportError:
             raise WebUISettingsError(
                 "oauth_cli_kit not installed. Run: pip install oauth-cli-kit", status=500
             ) from None
         token_path = get_storage().get_token_path()
     elif spec.name == "xai_grok":
-        from nanobot.providers.xai_oauth import logout_xai_oauth
+        from nanoinfra.providers.xai_oauth import logout_xai_oauth
 
         _clear_webui_oauth_flows(spec.name)
         logout_xai_oauth()

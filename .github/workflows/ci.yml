@@ -66,7 +66,7 @@ jobs:
           if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null &&
             changed_files="$(git diff --name-only --no-renames "$diff_range")" &&
             [[ -n "$changed_files" ]] &&
-            ! grep -qvE '^(webui/|nanobot/channels/[^/]+/webui/|docs/)' <<< "$changed_files"; then
+            ! grep -qvE '^(webui/|nanoinfra/channels/[^/]+/webui/|docs/)' <<< "$changed_files"; then
             python_required=false
           fi
 
@@ -127,7 +127,7 @@ jobs:
       # later uv run sync pruning the packages installed by the previous step.
       - name: Lint with ruff
         if: matrix.coverage
-        run: uv run --no-sync ruff check nanobot tests conftest.py
+        run: uv run --no-sync ruff check nanoinfra tests conftest.py
 
       - name: Type check with BasedPyright (strict)
         if: matrix.coverage
@@ -137,7 +137,7 @@ jobs:
         if: matrix.coverage
         run: >-
           uv run --no-sync python -m pytest
-          --cov=nanobot --cov-report=term-missing:skip-covered
+          --cov=nanoinfra --cov-report=term-missing:skip-covered
           --durations=25 --durations-min=1.0
 
       - name: Run compatibility tests
@@ -187,13 +187,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build image with default channel dependencies
-        run: docker build -t nanobot:test .
+        run: docker build -t nanoinfra:test .
 
       - name: Verify default WhatsApp dependencies
-        run: docker run --rm --entrypoint python nanobot:test -c "import neonize, segno"
+        run: docker run --rm --entrypoint python nanoinfra:test -c "import neonize, segno"
 
       - name: Verify runtime dependency permissions
         run: >-
-          docker run --rm --user 1000:1000 --entrypoint sh nanobot:test -c
-          'test -w /app/.venv && test ! -w /app && test ! -w /app/nanobot &&
+          docker run --rm --user 1000:1000 --entrypoint sh nanoinfra:test -c
+          'test -w /app/.venv && test ! -w /app && test ! -w /app/nanoinfra &&
           python -m scripts.install_channel_dependencies discord && python -c "import discord"'

@@ -1,6 +1,6 @@
 """Pairing module for DM sender approval."""
 
-from nanobot.pairing.store import (
+from nanoinfra.pairing.store import (
     approve_code,
     clear_channel,
     deny_code,

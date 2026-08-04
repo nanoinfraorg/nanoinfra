@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, Any, Callable, Coroutine, cast
 
 from loguru import logger
 
-from nanobot.session.manager import Session, SessionManager
+from nanoinfra.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
-    from nanobot.agent.memory import Consolidator
-    from nanobot.utils.llm_runtime import LLMRuntime
+    from nanoinfra.agent.memory import Consolidator
+    from nanoinfra.utils.llm_runtime import LLMRuntime
 
 
 class AutoCompact:

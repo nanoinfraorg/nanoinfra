@@ -1,5 +1,5 @@
 {
-  "description": "Usa nanobot desde chats de QQ.",
+  "description": "Usa nanoinfra desde chats de QQ.",
   "requirements": "Credenciales del bot de QQ y gateway",
   "setup": {
     "docsLabel": "Abrir guía de QQ",

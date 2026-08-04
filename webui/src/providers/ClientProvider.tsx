@@ -7,11 +7,11 @@ import {
   type ReactNode,
 } from "react";
 
-import type { NanobotClient } from "@/lib/nanobot-client";
+import type { NanoinfraClient } from "@/lib/nanoinfra-client";
 import type { WebUIIngressLimits } from "@/lib/types";
 
 interface ClientContextValue {
-  client: NanobotClient;
+  client: NanoinfraClient;
   token: string;
   getToken: () => string;
   modelName: string | null;
@@ -27,7 +27,7 @@ export function ClientProvider({
   ingressLimits = null,
   children,
 }: {
-  client: NanobotClient;
+  client: NanoinfraClient;
   token: string;
   modelName?: string | null;
   ingressLimits?: WebUIIngressLimits | null;

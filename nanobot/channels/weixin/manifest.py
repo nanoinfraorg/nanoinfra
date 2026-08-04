@@ -1,10 +1,10 @@
 """WeChat management contract."""
 
-from nanobot.channels._manifest import field, required
-from nanobot.channels.contracts import ChannelManagementSpec, ChannelSetupSpec
-from nanobot.channels.plugin import ChannelPlugin
-from nanobot.channels.weixin.state import local_state_present
-from nanobot.channels.weixin.validation import validate
+from nanoinfra.channels._manifest import field, required
+from nanoinfra.channels.contracts import ChannelManagementSpec, ChannelSetupSpec
+from nanoinfra.channels.plugin import ChannelPlugin
+from nanoinfra.channels.weixin.state import local_state_present
+from nanoinfra.channels.weixin.validation import validate
 
 SETUP_SPEC = ChannelSetupSpec(
     fields={

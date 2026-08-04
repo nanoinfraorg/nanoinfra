@@ -1,5 +1,5 @@
 import { isModelCommandResponseText, isModelCommandText } from "@/lib/format";
-import { isSystemCommandTurnId } from "@/lib/nanobot-client";
+import { isSystemCommandTurnId } from "@/lib/nanoinfra-client";
 import { scrubSubagentUiMessages } from "@/lib/subagent-channel-display";
 import type { UIMessage } from "@/lib/types";
 

@@ -7,25 +7,25 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from nanobot.agent.goal_permission import goal_mutation_allowed, goal_mutation_permission
-from nanobot.agent.loop import AgentLoop
-from nanobot.agent.tools.context import (
+from nanoinfra.agent.goal_permission import goal_mutation_allowed, goal_mutation_permission
+from nanoinfra.agent.loop import AgentLoop
+from nanoinfra.agent.tools.context import (
     RequestContext,
     current_request_context,
     request_context,
 )
-from nanobot.agent.tools.long_task import (
+from nanoinfra.agent.tools.long_task import (
     CreateGoalTool,
     UpdateGoalTool,
 )
-from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.bus.outbound_events import GoalStateSyncEvent
-from nanobot.bus.queue import MessageBus
-from nanobot.bus.runtime_events import RuntimeEventBus
-from nanobot.session.goal_state import GOAL_STATE_KEY, MAX_GOAL_OBJECTIVE_CHARS
-from nanobot.session.manager import SessionManager
-from nanobot.session.turn_continuation import should_finalize_on_max_iterations
-from nanobot.session.webui_turns import WebuiTurnCoordinator
+from nanoinfra.agent.tools.registry import ToolRegistry
+from nanoinfra.bus.outbound_events import GoalStateSyncEvent
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.bus.runtime_events import RuntimeEventBus
+from nanoinfra.session.goal_state import GOAL_STATE_KEY, MAX_GOAL_OBJECTIVE_CHARS
+from nanoinfra.session.manager import SessionManager
+from nanoinfra.session.turn_continuation import should_finalize_on_max_iterations
+from nanoinfra.session.webui_turns import WebuiTurnCoordinator
 
 
 def _goal_metadata() -> dict[str, object]:

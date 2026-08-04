@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from nanobot.channels.contracts import ChannelValidationContext
-from nanobot.channels.validation import (
+from nanoinfra.channels.contracts import ChannelValidationContext
+from nanoinfra.channels.validation import (
     check,
     int_value,
     probe_tcp,
@@ -27,7 +27,7 @@ def validate(
                 "consent",
                 "Mailbox consent",
                 "fail",
-                "Grant consent before nanobot reads this mailbox.",
+                "Grant consent before nanoinfra reads this mailbox.",
             )
         )
 

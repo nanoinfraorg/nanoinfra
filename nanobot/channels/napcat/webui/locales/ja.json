@@ -1,14 +1,14 @@
 {
-  "description": "NapCat ゲートウェイ経由で nanobot を接続します。",
+  "description": "NapCat ゲートウェイ経由で nanoinfra を接続します。",
   "requirements": "NapCat WebSocket エンドポイントと任意のアクセストークン",
   "setup": {
     "docsLabel": "NapCat 設定ガイドを開く",
     "officialLabel": "NapCat ドキュメントを開く",
     "tryIt": "NapCat 経由で QQ のテストメッセージを送信します。",
-    "summary": "NapCat はローカルまたはリモートの OneBot WebSocket で nanobot を QQ に接続します。",
+    "summary": "NapCat はローカルまたはリモートの OneBot WebSocket で nanoinfra を QQ に接続します。",
     "steps": [
       "NapCat を起動し、Forward WebSocket サービスを有効にします。",
-      "WebSocket URL と任意のアクセストークンを nanobot にコピーします。",
+      "WebSocket URL と任意のアクセストークンを nanoinfra にコピーします。",
       "保存して NapCat を有効にし、QQ のテストメッセージを送信します。"
     ],
     "fields": {

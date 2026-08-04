@@ -1,4 +1,4 @@
-"""Hatch build hook that bundles the webui (Vite) into nanobot/web/dist.
+"""Hatch build hook that bundles the webui (Vite) into nanoinfra/web/dist.
 
 Triggered automatically by `python -m build` (and any other hatch-driven build)
 so published wheels and sdists ship a fresh webui without requiring developers
@@ -10,10 +10,10 @@ Behavior:
   development; webui contributors use `cd webui && bun run dev` (Vite HMR) and
   do not need a packaged `dist/`.
 - No-op when `webui/package.json` is absent (e.g. installing from an sdist that
-  already contains a prebuilt `nanobot/web/dist/`).
-- Skips when `NANOBOT_SKIP_WEBUI_BUILD=1` is set.
-- Reuses `nanobot/web/dist/` only when it is already fresh, unless
-  `NANOBOT_FORCE_WEBUI_BUILD=1` is set.
+  already contains a prebuilt `nanoinfra/web/dist/`).
+- Skips when `NANOINFRA_SKIP_WEBUI_BUILD=1` is set.
+- Reuses `nanoinfra/web/dist/` only when it is already fresh, unless
+  `NANOINFRA_FORCE_WEBUI_BUILD=1` is set.
 - Uses `bun` when available, otherwise falls back to `npm`. The chosen tool
   performs `install` followed by `run build`.
 """
@@ -33,7 +33,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 
 def _load_webui_build_module() -> ModuleType:
-    from nanobot.webui import build as webui_build
+    from nanoinfra.webui import build as webui_build
 
     return webui_build
 
@@ -45,7 +45,7 @@ class WebUIBuildHook(BuildHookInterface):
         root = Path(self.root)
         webui_dir = root / "webui"
         package_json = webui_dir / "package.json"
-        dist_dir = root / "nanobot" / "web" / "dist"
+        dist_dir = root / "nanoinfra" / "web" / "dist"
         index_html = dist_dir / "index.html"
 
         # `pip install -e .` builds an editable wheel; skip the (slow) webui
@@ -58,23 +58,23 @@ class WebUIBuildHook(BuildHookInterface):
             )
             return
 
-        if os.environ.get("NANOBOT_SKIP_WEBUI_BUILD") == "1":
-            self.app.display_info("[webui-build] skipped via NANOBOT_SKIP_WEBUI_BUILD=1")
+        if os.environ.get("NANOINFRA_SKIP_WEBUI_BUILD") == "1":
+            self.app.display_info("[webui-build] skipped via NANOINFRA_SKIP_WEBUI_BUILD=1")
             return
 
         if not package_json.is_file():
             self.app.display_info(
-                "[webui-build] no webui/ source tree, assuming prebuilt nanobot/web/dist/"
+                "[webui-build] no webui/ source tree, assuming prebuilt nanoinfra/web/dist/"
             )
             return
 
         webui_build = _load_webui_build_module()
         status = webui_build.inspect_webui_bundle(source_dir=webui_dir, dist_dir=dist_dir)
-        force = os.environ.get("NANOBOT_FORCE_WEBUI_BUILD") == "1"
+        force = os.environ.get("NANOINFRA_FORCE_WEBUI_BUILD") == "1"
         if not status.needs_build and not force:
             self.app.display_info(
                 f"[webui-build] reusing existing build at {dist_dir} "
-                "(already fresh; set NANOBOT_FORCE_WEBUI_BUILD=1 to rebuild)"
+                "(already fresh; set NANOINFRA_FORCE_WEBUI_BUILD=1 to rebuild)"
             )
             return
 
@@ -92,7 +92,7 @@ class WebUIBuildHook(BuildHookInterface):
         except webui_build.WebUIBuildError as exc:
             raise RuntimeError(
                 "[webui-build] "
-                f"{exc}. Install `bun` or `npm`, or set NANOBOT_SKIP_WEBUI_BUILD=1 to bypass."
+                f"{exc}. Install `bun` or `npm`, or set NANOINFRA_SKIP_WEBUI_BUILD=1 to bypass."
             ) from exc
 
         if not index_html.is_file():

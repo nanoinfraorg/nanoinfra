@@ -5,7 +5,7 @@ __pycache__
 *.egg-info
 dist/
 build/
-nanobot/web/dist/
+nanoinfra/web/dist/
 .git
 .env
 .assets

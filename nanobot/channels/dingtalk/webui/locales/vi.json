@@ -1,5 +1,5 @@
 {
-  "description": "Sử dụng nanobot trong các nhóm DingTalk.",
+  "description": "Sử dụng nanoinfra trong các nhóm DingTalk.",
   "requirements": "Thông tin xác thực ứng dụng DingTalk và gateway",
   "setup": {
     "docsLabel": "Mở hướng dẫn DingTalk",

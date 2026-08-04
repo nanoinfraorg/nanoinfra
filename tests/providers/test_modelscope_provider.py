@@ -2,9 +2,9 @@
 
 from unittest.mock import patch
 
-from nanobot.config.schema import Config, ProvidersConfig
-from nanobot.providers.openai_compat_provider import OpenAICompatProvider
-from nanobot.providers.registry import PROVIDERS, find_by_name
+from nanoinfra.config.schema import Config, ProvidersConfig
+from nanoinfra.providers.openai_compat_provider import OpenAICompatProvider
+from nanoinfra.providers.registry import PROVIDERS, find_by_name
 
 
 def test_modelscope_config_field_exists() -> None:
@@ -78,7 +78,7 @@ def test_modelscope_keyword_matches_prefixed_model() -> None:
 
 def test_modelscope_strips_prefix_in_request_model() -> None:
     spec = find_by_name("modelscope")
-    with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
+    with patch("nanoinfra.providers.openai_compat_provider.AsyncOpenAI"):
         provider = OpenAICompatProvider(
             api_key="ms-token",
             default_model="modelscope/Qwen/Qwen3.5-35B-A3B",

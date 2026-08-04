@@ -1,10 +1,10 @@
 """Agent tools module."""
 
-from nanobot.agent.tools.base import Schema, Tool, ToolResult, tool_parameters
-from nanobot.agent.tools.context import ToolContext
-from nanobot.agent.tools.loader import ToolLoader
-from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.schema import (
+from nanoinfra.agent.tools.base import Schema, Tool, ToolResult, tool_parameters
+from nanoinfra.agent.tools.context import ToolContext
+from nanoinfra.agent.tools.loader import ToolLoader
+from nanoinfra.agent.tools.registry import ToolRegistry
+from nanoinfra.agent.tools.schema import (
     ArraySchema,
     BooleanSchema,
     IntegerSchema,

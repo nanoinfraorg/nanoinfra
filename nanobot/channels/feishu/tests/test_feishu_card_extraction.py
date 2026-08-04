@@ -1,6 +1,6 @@
 import json
 
-from nanobot.channels.feishu.runtime import (
+from nanoinfra.channels.feishu.runtime import (
     _extract_element_content,
     _extract_post_content,
     _extract_share_card_content,

@@ -5,13 +5,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from nanobot.agent.loop import AgentLoop, TurnContext, TurnKind
-from nanobot.agent.tools.filesystem import ReadFileTool
-from nanobot.bus.events import InboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.config.schema import ChannelsConfig
-from nanobot.providers.base import LLMResponse
-from nanobot.utils.document import reference_non_image_attachments
+from nanoinfra.agent.loop import AgentLoop, TurnContext, TurnKind
+from nanoinfra.agent.tools.filesystem import ReadFileTool
+from nanoinfra.bus.events import InboundMessage
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.config.schema import ChannelsConfig
+from nanoinfra.providers.base import LLMResponse
+from nanoinfra.utils.document import reference_non_image_attachments
 
 
 def _make_loop(
@@ -53,8 +53,8 @@ async def test_document_attachment_is_referenced_and_read_on_demand(
     media_dir = tmp_path / "media"
     media_dir.mkdir()
     csv_path = media_dir / "report.csv"
-    csv_path.write_text("name,value\nnanobot,1", encoding="utf-8")
-    monkeypatch.setattr("nanobot.agent.tools.path_utils.get_media_dir", lambda: media_dir)
+    csv_path.write_text("name,value\nnanoinfra,1", encoding="utf-8")
+    monkeypatch.setattr("nanoinfra.agent.tools.path_utils.get_media_dir", lambda: media_dir)
 
     loop = _make_loop(
         workspace,
@@ -79,7 +79,7 @@ async def test_document_attachment_is_referenced_and_read_on_demand(
     result = await read_tool.execute(path=str(csv_path))
 
     assert "1| name,value" in result
-    assert "2| nanobot,1" in result
+    assert "2| nanoinfra,1" in result
 
 
 @pytest.mark.asyncio

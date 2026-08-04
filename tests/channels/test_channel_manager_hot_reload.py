@@ -4,16 +4,16 @@ import asyncio
 
 import pytest
 
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.channels.contracts import (
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.channels.contracts import (
     ChannelInstanceSpec,
     ChannelManagementSpec,
     ChannelSetupSpec,
 )
-from nanobot.channels.manager import ChannelManager
-from nanobot.channels.plugin import ChannelPlugin
-from nanobot.config.schema import Config
+from nanoinfra.channels.manager import ChannelManager
+from nanoinfra.channels.plugin import ChannelPlugin
+from nanoinfra.config.schema import Config
 
 
 class _HotChannel(BaseChannel):
@@ -89,7 +89,7 @@ def _plugin(channel_cls: type[BaseChannel], *, multi_instance: bool = False) -> 
 def _stub_registry(monkeypatch, *plugins: ChannelPlugin) -> None:
     by_name = {plugin.name: plugin for plugin in plugins}
     monkeypatch.setattr(
-        "nanobot.channels.registry.discover_plugins",
+        "nanoinfra.channels.registry.discover_plugins",
         lambda enabled_names=None: {
             name: plugin
             for name, plugin in by_name.items()
@@ -126,7 +126,7 @@ async def test_apply_channel_feature_action_starts_and_stops_channel(monkeypatch
 
     configs = iter([enabled, disabled])
     _stub_registry(monkeypatch, _plugin(_HotChannel))
-    monkeypatch.setattr("nanobot.config.loader.load_config", lambda: next(configs))
+    monkeypatch.setattr("nanoinfra.config.loader.load_config", lambda: next(configs))
 
     manager = ChannelManager(disabled, MessageBus())
     manager._started = True
@@ -157,7 +157,7 @@ async def test_apply_channel_feature_action_keeps_running_channel_when_rebuild_f
     })
 
     _stub_registry(monkeypatch, _plugin(_HotChannel))
-    monkeypatch.setattr("nanobot.config.loader.load_config", lambda: enabled)
+    monkeypatch.setattr("nanoinfra.config.loader.load_config", lambda: enabled)
 
     manager = ChannelManager(enabled, MessageBus())
     old_channel = manager.channels["hot"]
@@ -193,7 +193,7 @@ async def test_apply_channel_feature_action_uses_channel_runtime_name(monkeypatc
     })
 
     _stub_registry(monkeypatch, _plugin(_MultiHotChannel, multi_instance=True))
-    monkeypatch.setattr("nanobot.config.loader.load_config", lambda: config)
+    monkeypatch.setattr("nanoinfra.config.loader.load_config", lambda: config)
 
     manager = ChannelManager(config, MessageBus())
     product = manager.channels["multi.product"]
@@ -248,7 +248,7 @@ async def test_default_multi_channel_action_reconciles_only_default_runtime(monk
 
     _stub_registry(monkeypatch, _plugin(_MultiHotChannel, multi_instance=True))
     configs = iter([disabled, enabled])
-    monkeypatch.setattr("nanobot.config.loader.load_config", lambda: next(configs))
+    monkeypatch.setattr("nanoinfra.config.loader.load_config", lambda: next(configs))
 
     manager = ChannelManager(initial, MessageBus())
     default = manager.channels["multi"]

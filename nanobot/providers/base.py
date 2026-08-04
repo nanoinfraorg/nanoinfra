@@ -18,9 +18,9 @@ from typing import Any, cast
 import json_repair
 from loguru import logger
 
-from nanobot.utils.helpers import sanitize_surrogates_deep
+from nanoinfra.utils.helpers import sanitize_surrogates_deep
 
-STREAM_IDLE_TIMEOUT_ENV = "NANOBOT_STREAM_IDLE_TIMEOUT_S"
+STREAM_IDLE_TIMEOUT_ENV = "NANOINFRA_STREAM_IDLE_TIMEOUT_S"
 DEFAULT_STREAM_IDLE_TIMEOUT_S = 90.0
 MAX_STREAM_IDLE_TIMEOUT_S = 3600.0
 RETRY_AFTER_BUFFER = 1

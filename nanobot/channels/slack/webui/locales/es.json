@@ -1,5 +1,5 @@
 {
-  "description": "Usa nanobot desde espacios de Slack.",
+  "description": "Usa nanoinfra desde espacios de Slack.",
   "requirements": "Token de app Slack, token del bot e instalación en el espacio",
   "setup": {
     "docsLabel": "Abrir guía de Slack",

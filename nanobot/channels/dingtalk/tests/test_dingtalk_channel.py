@@ -10,7 +10,7 @@ import pytest
 
 # Check optional dingtalk dependencies before running tests
 try:
-    import nanobot.channels.dingtalk.runtime as dingtalk_module
+    import nanoinfra.channels.dingtalk.runtime as dingtalk_module
 
     DINGTALK_AVAILABLE = dingtalk_module.DINGTALK_AVAILABLE
 except ImportError:
@@ -19,12 +19,12 @@ except ImportError:
 if not DINGTALK_AVAILABLE:
     pytest.skip("DingTalk dependencies not installed (dingtalk-stream)", allow_module_level=True)
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.dingtalk.runtime import (
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.dingtalk.runtime import (
     DingTalkChannel,
     DingTalkConfig,
-    NanobotDingTalkHandler,
+    NanoinfraDingTalkHandler,
 )
 
 
@@ -250,7 +250,7 @@ async def test_group_send_uses_group_messages_api() -> None:
         "token",
         "group:conv123",
         "sampleMarkdown",
-        {"text": "hello", "title": "Nanobot Reply"},
+        {"text": "hello", "title": "Nanoinfra Reply"},
     )
 
     assert ok is True
@@ -366,7 +366,7 @@ async def test_handler_uses_voice_recognition_text_when_text_is_empty(monkeypatc
         DingTalkConfig(client_id="app", client_secret="secret", allow_from=["user1"]),
         bus,
     )
-    handler = NanobotDingTalkHandler(channel)
+    handler = NanoinfraDingTalkHandler(channel)
 
     class _FakeChatbotMessage:
         text = None
@@ -410,7 +410,7 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
         DingTalkConfig(client_id="app", client_secret="secret", allow_from=["user1"]),
         bus,
     )
-    handler = NanobotDingTalkHandler(channel)
+    handler = NanoinfraDingTalkHandler(channel)
 
     class _FakeFileChatbotMessage:
         text = None
@@ -427,7 +427,7 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
             return _FakeFileChatbotMessage()
 
     async def fake_download(download_code, filename, sender_id):
-        return f"/tmp/nanobot_dingtalk/{sender_id}/{filename}"
+        return f"/tmp/nanoinfra_dingtalk/{sender_id}/{filename}"
 
     monkeypatch.setattr(dingtalk_module, "ChatbotMessage", _FakeFileChatbotMessage)
     monkeypatch.setattr(dingtalk_module, "AckMessage", SimpleNamespace(STATUS_OK="OK"))
@@ -448,7 +448,7 @@ async def test_handler_processes_file_message(monkeypatch) -> None:
 
     assert (status, body) == ("OK", "OK")
     assert "[File]" in msg.content
-    assert "/tmp/nanobot_dingtalk/user1/report.xlsx" in msg.content
+    assert "/tmp/nanoinfra_dingtalk/user1/report.xlsx" in msg.content
 
 
 def _rich_text_message(rich_text_list):
@@ -478,7 +478,7 @@ async def test_handler_richtext_keeps_formatted_segments(monkeypatch) -> None:
         DingTalkConfig(client_id="app", client_secret="secret", allow_from=["user1"]),
         bus,
     )
-    handler = NanobotDingTalkHandler(channel)
+    handler = NanoinfraDingTalkHandler(channel)
 
     fake_msg = _rich_text_message([
         {"type": "bold", "text": "Title"},
@@ -508,7 +508,7 @@ async def test_handler_richtext_all_formatted_not_dropped(monkeypatch) -> None:
         DingTalkConfig(client_id="app", client_secret="secret", allow_from=["user1"]),
         bus,
     )
-    handler = NanobotDingTalkHandler(channel)
+    handler = NanoinfraDingTalkHandler(channel)
 
     fake_msg = _rich_text_message([{"type": "bold", "text": "Important"}])
     monkeypatch.setattr(dingtalk_module, "ChatbotMessage", fake_msg)
@@ -534,14 +534,14 @@ async def test_handler_richtext_item_with_text_and_download(monkeypatch) -> None
         DingTalkConfig(client_id="app", client_secret="secret", allow_from=["user1"]),
         bus,
     )
-    handler = NanobotDingTalkHandler(channel)
+    handler = NanoinfraDingTalkHandler(channel)
 
     fake_msg = _rich_text_message([
         {"text": "see attached", "downloadCode": "abc123", "fileName": "report.xlsx"},
     ])
 
     async def fake_download(download_code, filename, sender_id):
-        return f"/tmp/nanobot_dingtalk/{sender_id}/{filename}"
+        return f"/tmp/nanoinfra_dingtalk/{sender_id}/{filename}"
 
     monkeypatch.setattr(dingtalk_module, "ChatbotMessage", fake_msg)
     monkeypatch.setattr(dingtalk_module, "AckMessage", SimpleNamespace(STATUS_OK="OK"))
@@ -555,7 +555,7 @@ async def test_handler_richtext_item_with_text_and_download(monkeypatch) -> None
 
     assert (status, body) == ("OK", "OK")
     assert "see attached" in msg.content
-    assert "/tmp/nanobot_dingtalk/user1/report.xlsx" in msg.content
+    assert "/tmp/nanoinfra_dingtalk/user1/report.xlsx" in msg.content
 
 
 @pytest.mark.asyncio
@@ -674,7 +674,7 @@ async def test_download_dingtalk_file(tmp_path, monkeypatch) -> None:
 
     # Redirect media dir to tmp_path
     monkeypatch.setattr(
-        "nanobot.config.paths.get_media_dir",
+        "nanoinfra.config.paths.get_media_dir",
         lambda channel_name=None: tmp_path / channel_name if channel_name else tmp_path,
     )
 
@@ -1020,7 +1020,7 @@ async def test_send_batch_message_propagates_transport_error() -> None:
             "token",
             "user123",
             "sampleMarkdown",
-            {"text": "hello", "title": "Nanobot Reply"},
+            {"text": "hello", "title": "Nanoinfra Reply"},
         )
 
     # The POST was attempted exactly once

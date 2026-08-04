@@ -9,13 +9,13 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.agent.hook import (
+from nanoinfra.agent.hook import (
     AgentHook,
     AgentTurnHookContext,
     AgentTurnHookFactory,
     CompositeHook,
 )
-from nanobot.agent.progress_hook import AgentProgressHook
+from nanoinfra.agent.progress_hook import AgentProgressHook
 
 
 @dataclass(slots=True)

@@ -1,6 +1,6 @@
 """Persisted WebUI sidebar workspace state.
 
-This state is UI-only metadata, scoped to the active nanobot instance data
+This state is UI-only metadata, scoped to the active nanoinfra instance data
 directory (the directory containing the current config.json). It deliberately
 does not modify agent sessions.
 """
@@ -15,7 +15,7 @@ from typing import Any, cast
 
 from loguru import logger
 
-from nanobot.config.paths import get_webui_dir
+from nanoinfra.config.paths import get_webui_dir
 
 WEBUI_SIDEBAR_STATE_SCHEMA_VERSION = 1
 _MAX_STATE_FILE_BYTES = 256 * 1024

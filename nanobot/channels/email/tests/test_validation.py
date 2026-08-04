@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from nanobot.channels.email import validation as email_validation
-from nanobot.channels.validation import validate_channel_config
-from nanobot.config.loader import load_config, save_config
-from nanobot.config.schema import Config
+from nanoinfra.channels.email import validation as email_validation
+from nanoinfra.channels.validation import validate_channel_config
+from nanoinfra.config.loader import load_config, save_config
+from nanoinfra.config.schema import Config
 
 
 def test_validate_email_presets_are_checked_without_saving(
@@ -14,7 +14,7 @@ def test_validate_email_presets_are_checked_without_saving(
 ) -> None:
     config_path = tmp_path / "config.json"
     save_config(Config(), config_path)
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
     monkeypatch.setattr(email_validation, "probe_tcp", lambda *_args, **_kwargs: None)
 
     result = validate_channel_config(
@@ -43,9 +43,9 @@ def test_validate_email_blocks_private_targets_when_local_access_is_disabled(
     config = Config()
     config.tools.webui_allow_local_service_access = False
     save_config(config, config_path)
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
     monkeypatch.setattr(
-        "nanobot.channels.validation.socket.create_connection",
+        "nanoinfra.channels.validation.socket.create_connection",
         lambda *_args, **_kwargs: pytest.fail("blocked target must not be connected"),
     )
 

@@ -1,4 +1,4 @@
-from nanobot.agent.context_governance import ContextGovernor
+from nanoinfra.agent.context_governance import ContextGovernor
 
 
 def _assistant_tool_call(call_id: str) -> dict:

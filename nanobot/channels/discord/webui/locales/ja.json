@@ -1,5 +1,5 @@
 {
-  "description": "Discord サーバーと DM から nanobot を利用します。",
+  "description": "Discord サーバーと DM から nanoinfra を利用します。",
   "requirements": "Discord ボットトークン、権限、ゲートウェイ",
   "setup": {
     "docsLabel": "Discord 設定ガイドを開く",

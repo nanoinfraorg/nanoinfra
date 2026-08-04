@@ -22,14 +22,14 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.text import Text
 
-from nanobot import __logo__
-from nanobot.bus.outbound_events import (
+from nanoinfra import __logo__
+from nanoinfra.bus.outbound_events import (
     ProgressEvent,
     RetryWaitEvent,
     outbound_event_from_message,
 )
-from nanobot.cli.stream import StreamRenderer, ThinkingSpinner
-from nanobot.utils.helpers import sanitize_surrogates as _sanitize_surrogates
+from nanoinfra.cli.stream import StreamRenderer, ThinkingSpinner
+from nanoinfra.utils.helpers import sanitize_surrogates as _sanitize_surrogates
 
 __all__ = [
     "_ReasoningBuffer",
@@ -179,7 +179,7 @@ def _init_prompt_session() -> None:
 
         _saved_term_attrs = termios.tcgetattr(sys.stdin.fileno())
 
-    from nanobot.config.paths import get_cli_history_path
+    from nanoinfra.config.paths import get_cli_history_path
 
     history_file = get_cli_history_path()
     history_file.parent.mkdir(parents=True, exist_ok=True)
@@ -225,7 +225,7 @@ def _print_agent_response(
     body = _response_renderable(content, render_markdown, metadata)
     if show_header:
         console.print()
-        console.print(f"[cyan]{__logo__} nanobot[/cyan]")
+        console.print(f"[cyan]{__logo__} nanoinfra[/cyan]")
     console.print(body)
     console.print()
 
@@ -263,7 +263,7 @@ async def _print_interactive_response(
 
         def _render(target: Console) -> None:
             target.print()
-            target.print(f"[cyan]{__logo__} nanobot[/cyan]")
+            target.print(f"[cyan]{__logo__} nanoinfra[/cyan]")
             target.print(_response_renderable(content, render_markdown, metadata))
             target.print()
 

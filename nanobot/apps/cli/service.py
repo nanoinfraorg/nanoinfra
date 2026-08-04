@@ -20,19 +20,19 @@ from urllib.parse import urlparse
 import httpx
 from loguru import logger
 
-from nanobot.apps.protocol import app_manifest, compact_dict
-from nanobot.config.paths import get_runtime_subdir
-from nanobot.security.workspace_policy import is_path_within
+from nanoinfra.apps.protocol import app_manifest, compact_dict
+from nanoinfra.config.paths import get_runtime_subdir
+from nanoinfra.security.workspace_policy import is_path_within
 
 CLI_ANYTHING_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/registry.json"
 CLI_ANYTHING_PUBLIC_REGISTRY_URL = "https://hkuds.github.io/CLI-Anything/public_registry.json"
 CLI_ANYTHING_RAW_BASE = "https://raw.githubusercontent.com/HKUDS/CLI-Anything/main"
-NANOBOT_EXTENSION_REGISTRY_URL = "https://raw.githubusercontent.com/Re-bin/nanobot-extension/main/registry.json"
-NANOBOT_EXTENSION_RAW_BASE = "https://raw.githubusercontent.com/Re-bin/nanobot-extension/main"
+NANOINFRA_EXTENSION_REGISTRY_URL = "https://raw.githubusercontent.com/Re-bin/nanoinfra-extension/main/registry.json"
+NANOINFRA_EXTENSION_RAW_BASE = "https://raw.githubusercontent.com/Re-bin/nanoinfra-extension/main"
 _CATALOG_SOURCES = (
     ("harness", CLI_ANYTHING_REGISTRY_URL, CLI_ANYTHING_RAW_BASE, True),
     ("public", CLI_ANYTHING_PUBLIC_REGISTRY_URL, CLI_ANYTHING_RAW_BASE, True),
-    ("extensions", NANOBOT_EXTENSION_REGISTRY_URL, NANOBOT_EXTENSION_RAW_BASE, False),
+    ("extensions", NANOINFRA_EXTENSION_REGISTRY_URL, NANOINFRA_EXTENSION_RAW_BASE, False),
 )
 
 _MAX_TOOL_OUTPUT_CHARS = 12_000
@@ -65,7 +65,7 @@ _ARTIFACT_IGNORE_DIRS = frozenset({
     ".git",
     ".hg",
     ".mypy_cache",
-    ".nanobot",
+    ".nanoinfra",
     ".pytest_cache",
     ".ruff_cache",
     ".venv",
@@ -575,11 +575,11 @@ class CliAppManager:
     def _manifest_source(self, app: dict[str, Any]) -> str:
         source = str(app.get("_source") or "harness")
         if source == "extensions":
-            return "nanobot-extension"
+            return "nanoinfra-extension"
         return f"cli-anything:{source}"
 
     def _trust_registry(self, app: dict[str, Any]) -> str:
-        return "nanobot-extension" if str(app.get("_source") or "") == "extensions" else "cli-anything"
+        return "nanoinfra-extension" if str(app.get("_source") or "") == "extensions" else "cli-anything"
 
     def get_app(self, name: str, *, force_refresh: bool = False) -> dict[str, Any]:
         wanted = name.lower()
@@ -736,7 +736,7 @@ class CliAppManager:
             "verification": (
                 ["package_manager_ok", "entry_point_absent", "managed_paths_absent"]
                 if strategy not in {"bundled", "unsupported"}
-                else ["nanobot_state_absent", "managed_paths_absent"]
+                else ["nanoinfra_state_absent", "managed_paths_absent"]
             ),
         })
         return app_manifest(
@@ -1032,7 +1032,7 @@ class CliAppManager:
         name = str(app.get("name") or "unknown")
         display = str(app.get("display_name") or name)
         entry = str(app.get("entry_point") or f"cli-anything-{name}")
-        description = _catalog_description(app) or f"Use {display} from nanobot."
+        description = _catalog_description(app) or f"Use {display} from nanoinfra."
         return f"""---
 name: {_safe_skill_name(name)}
 description: >-
@@ -1041,7 +1041,7 @@ description: >-
 
 # {display}
 
-Use this skill when the user asks nanobot to operate {display} through its installed CLI app.
+Use this skill when the user asks nanoinfra to operate {display} through its installed CLI app.
 
 If the user attached `@{name}` in chat, treat that as the selected app for the current turn.
 
@@ -1055,13 +1055,13 @@ If the user attached `@{name}` in chat, treat that as the selected app for the c
 Prefer machine-readable output when the CLI supports `--json`.
 """
 
-    def _with_nanobot_skill_note(self, content: str, app: dict[str, Any]) -> str:
-        marker = "<!-- nanobot-cli-app-note -->"
+    def _with_nanoinfra_skill_note(self, content: str, app: dict[str, Any]) -> str:
+        marker = "<!-- nanoinfra-cli-app-note -->"
         if marker in content:
             return content
         name = str(app.get("name") or "unknown")
         note = f"""{marker}
-## Nanobot execution
+## Nanoinfra execution
 
 Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not invoke this CLI through shell unless the user explicitly asks. Prefer this skill when Runtime Context mentions `@{name}` as a CLI App Attachment.
 """
@@ -1076,7 +1076,7 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
         path = self._skill_path(str(app["name"]))
         path.parent.mkdir(parents=True, exist_ok=True)
         content = self._fetch_skill_content(app) or self._fallback_skill(app)
-        content = self._with_nanobot_skill_note(content, app)
+        content = self._with_nanoinfra_skill_note(content, app)
         path.write_text(content, encoding="utf-8")
         return path
 
@@ -1197,7 +1197,7 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
                 )
                 message = (
                     f"Uninstall for {app['display_name']} completed, but {reason}, "
-                    "so nanobot kept it installed."
+                    "so nanoinfra kept it installed."
                 )
                 return self.payload() | {
                     "last_action": {
@@ -1215,8 +1215,8 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
         self.remove_skill(str(app["name"]))
         if strategy == "bundled" and still_available:
             message = (
-                f"Removed {app['display_name']} from nanobot. {entry_point} "
-                "is still available because it is managed outside nanobot."
+                f"Removed {app['display_name']} from nanoinfra. {entry_point} "
+                "is still available because it is managed outside nanoinfra."
             )
         elif still_available:
             message = (

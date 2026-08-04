@@ -1,27 +1,27 @@
-# How to Improve Ollama Tool-Calling Prompt Cache Reuse in nanobot
+# How to Improve Ollama Tool-Calling Prompt Cache Reuse in nanoinfra
 
 Some Ollama model templates move or remove tool definitions as a conversation
-switches between user, assistant, and tool messages. nanobot can send a correct
+switches between user, assistant, and tool messages. nanoinfra can send a correct
 append-only chat request while the model template still renders a different token
 prefix. On slower local hardware, re-evaluating that prefix can add tens of seconds
 to an otherwise simple tool-using turn.
 
 This guide shows how to diagnose that specific pattern and create a derived
-`llama3.1:8b` tag with a prefix-stable tool template. It does not modify nanobot or
+`llama3.1:8b` tag with a prefix-stable tool template. It does not modify nanoinfra or
 overwrite the original Ollama model.
 
 ## What you will build
 
 - a repeatable two-turn cache check
 - an optional derived `llama3.1:8b-prefix-stable-v1` Ollama tag
-- a nanobot model preset that uses the derived tag
+- a nanoinfra model preset that uses the derived tag
 
 ## When to use this
 
 Use this guide when all of the following are true:
 
 - direct Ollama responses are reasonably fast;
-- nanobot becomes slow after the model calls a tool;
+- nanoinfra becomes slow after the model calls a tool;
 - Ollama logs show a long main prompt, a much shorter tool follow-up, and low
   initial cache reuse on the next main prompt;
 - the model is `llama3.1:8b` with a template that renders concrete tools only for
@@ -57,9 +57,9 @@ In another terminal, use a fresh session and explicitly request a tool so both
 turns exercise the agent loop:
 
 ```bash
-nanobot agent --session cli:ollama-cache-check \
+nanoinfra agent --session cli:ollama-cache-check \
   --message "Use the exec tool to calculate 2+2, then answer"
-nanobot agent --session cli:ollama-cache-check \
+nanoinfra agent --session cli:ollama-cache-check \
   --message "Use the exec tool to calculate 4+7, then answer"
 ```
 
@@ -95,11 +95,11 @@ a user message:
 ```
 
 The first request ends with a user message, so the tools are rendered there. After
-nanobot appends an assistant tool call and its result, that user message is no
+nanoinfra appends an assistant tool call and its result, that user message is no
 longer last, so the same API request history renders without the concrete tool
 block. On the next user turn, the tools reappear at a new position.
 
-This is a model-template behavior. At the API boundary, nanobot continues to append
+This is a model-template behavior. At the API boundary, nanoinfra continues to append
 the assistant tool call and tool result and sends the same tool definitions.
 
 ## Create a prefix-stable derived model
@@ -167,9 +167,9 @@ ollama list
 Ollama reuses the existing model layers. The new tag adds a small template and
 manifest instead of copying the base weights.
 
-## Select the derived model in nanobot
+## Select the derived model in nanoinfra
 
-Merge this preset into `~/.nanobot/config.json` and select it:
+Merge this preset into `~/.nanoinfra/config.json` and select it:
 
 ```json
 {
@@ -199,10 +199,10 @@ Merge this preset into `~/.nanobot/config.json` and select it:
 Verify the selected model and repeat the two-turn check:
 
 ```bash
-nanobot status
-nanobot agent --session cli:ollama-stable-check \
+nanoinfra status
+nanoinfra agent --session cli:ollama-stable-check \
   --message "Use the exec tool to calculate 2+2, then answer"
-nanobot agent --session cli:ollama-stable-check \
+nanoinfra agent --session cli:ollama-stable-check \
   --message "Use the exec tool to calculate 4+7, then answer"
 ```
 
@@ -232,7 +232,7 @@ Removing the derived tag does not remove `llama3.1:8b`.
   execution, process startup, and storage can still dominate end-to-end latency.
 - Multiple Ollama slots change cache scheduling and may produce different results.
 
-## Related nanobot docs
+## Related nanoinfra docs
 
 - [Provider Cookbook: Ollama Local Model](../provider-cookbook.md#recipe-ollama-local-model)
 - [Providers and Models: Ollama](../providers.md#ollama)

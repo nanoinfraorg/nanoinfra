@@ -6,7 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Literal, Mapping, TypeAlias, cast
 
-from nanobot.runtime_context import public_history_messages
+from nanoinfra.runtime_context import public_history_messages
 
 StreamEventType: TypeAlias = Literal[
     "run.started",
@@ -61,7 +61,7 @@ class RunResult:
 
 @dataclass(slots=True)
 class StreamEvent:
-    """A typed event emitted by ``Nanobot.stream()`` and ``RunStream``."""
+    """A typed event emitted by ``Nanoinfra.stream()`` and ``RunStream``."""
 
     type: StreamEventType
     delta: str = ""

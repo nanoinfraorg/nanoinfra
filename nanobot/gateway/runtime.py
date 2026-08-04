@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from nanobot.config.paths import get_data_dir
-from nanobot.process_runtime import (
+from nanoinfra.config.paths import get_data_dir
+from nanoinfra.process_runtime import (
     ManagedProcessRuntime,
     ProcessResult,
     ProcessRuntimePaths,
@@ -29,7 +29,7 @@ def build_gateway_command(python_executable: str, options: GatewayStartOptions) 
     command = [
         python_executable,
         "-m",
-        "nanobot",
+        "nanoinfra",
         "gateway",
         "--foreground",
         "--port",
@@ -70,7 +70,7 @@ class GatewayRuntimePaths(ProcessRuntimePaths):
 
 
 class GatewayRuntime(ManagedProcessRuntime[ProcessStartOptions]):
-    """Manage a background ``nanobot gateway`` process."""
+    """Manage a background ``nanoinfra gateway`` process."""
 
     service_name = "gateway"
 

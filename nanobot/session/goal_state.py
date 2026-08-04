@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any, Mapping, MutableMapping, cast
 
-from nanobot.session.manager import SessionManager
+from nanoinfra.session.manager import SessionManager
 
 GOAL_STATE_KEY = "goal_state"
 GOAL_COMMAND = "/goal"
@@ -119,11 +119,11 @@ def runner_wall_llm_timeout_s(
     metadata: Mapping[str, Any] | None = None,
     message_metadata: Mapping[str, Any] | None = None,
 ) -> float | None:
-    """Wall-clock cap for :class:`~nanobot.agent.runner.AgentRunner` when streaming an LLM.
+    """Wall-clock cap for :class:`~nanoinfra.agent.runner.AgentRunner` when streaming an LLM.
 
     Returns ``0.0`` to disable ``asyncio.wait_for`` around the request when this is a
-    sustained-goal turn; ``None`` means use ``NANOBOT_LLM_TIMEOUT_S``. Pass in-memory
-    ``metadata`` when the caller already holds :attr:`~nanobot.session.manager.Session.metadata`
+    sustained-goal turn; ``None`` means use ``NANOINFRA_LLM_TIMEOUT_S``. Pass in-memory
+    ``metadata`` when the caller already holds :attr:`~nanoinfra.session.manager.Session.metadata`
     for this turn.
     """
     meta: Mapping[str, Any] | None = metadata

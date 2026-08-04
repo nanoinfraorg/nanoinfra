@@ -1,5 +1,5 @@
 {
-  "description": "Gunakan nanobot dari chat QQ.",
+  "description": "Gunakan nanoinfra dari chat QQ.",
   "requirements": "Kredensial bot QQ dan gateway",
   "setup": {
     "docsLabel": "Buka panduan QQ",

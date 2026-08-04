@@ -1,5 +1,5 @@
 {
-  "description": "Discord 서버와 DM에서 nanobot을 사용합니다.",
+  "description": "Discord 서버와 DM에서 nanoinfra을 사용합니다.",
   "requirements": "Discord 봇 토큰, 권한 및 게이트웨이",
   "setup": {
     "docsLabel": "Discord 설정 가이드 열기",

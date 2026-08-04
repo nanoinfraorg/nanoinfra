@@ -7,11 +7,11 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
-from nanobot.channels.connect import ChannelConnectError, QueryParams, query_first
-from nanobot.config.loader import load_config
+from nanoinfra.channels.connect import ChannelConnectError, QueryParams, query_first
+from nanoinfra.config.loader import load_config
 
 if TYPE_CHECKING:
-    from nanobot.channels.weixin.runtime import WeixinChannel
+    from nanoinfra.channels.weixin.runtime import WeixinChannel
 
 
 @dataclass(slots=True)
@@ -158,7 +158,7 @@ class WeixinConnectStore:
             return self._pending_payload(session)
 
         if status == "expired":
-            from nanobot.channels.weixin.runtime import MAX_QR_REFRESH_COUNT
+            from nanoinfra.channels.weixin.runtime import MAX_QR_REFRESH_COUNT
 
             session.refresh_count += 1
             if session.refresh_count > MAX_QR_REFRESH_COUNT:
@@ -210,8 +210,8 @@ class WeixinConnectStore:
 
     @staticmethod
     def _build_channel() -> WeixinChannel:
-        from nanobot.bus.queue import MessageBus
-        from nanobot.channels.weixin.runtime import WeixinChannel
+        from nanoinfra.bus.queue import MessageBus
+        from nanoinfra.channels.weixin.runtime import WeixinChannel
 
         section = getattr(load_config().channels, "weixin", None)
         if section is not None and hasattr(section, "model_dump"):

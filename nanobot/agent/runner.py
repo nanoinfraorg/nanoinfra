@@ -13,30 +13,30 @@ from typing import Any, cast
 
 from loguru import logger
 
-from nanobot.agent.context_governance import (
+from nanoinfra.agent.context_governance import (
     ContextGovernanceConfig,
     ContextGovernor,
 )
-from nanobot.agent.hook import AgentHook, AgentHookContext, AgentRunHookContext
-from nanobot.agent.tools.registry import ToolRegistry, is_tool_error_result
-from nanobot.providers.base import (
+from nanoinfra.agent.hook import AgentHook, AgentHookContext, AgentRunHookContext
+from nanoinfra.agent.tools.registry import ToolRegistry, is_tool_error_result
+from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
     ProviderCallContext,
     ProviderConversationState,
     ToolCallRequest,
 )
-from nanobot.providers.conversation_state import (
+from nanoinfra.providers.conversation_state import (
     ProviderConversationStateController,
     allows_conversation_message_merge,
 )
-from nanobot.runtime_context import (
+from nanoinfra.runtime_context import (
     RUNTIME_CONTEXT_MESSAGE_META,
     detach_runtime_context,
     reattach_runtime_context,
 )
-from nanobot.session.history_visibility import is_hidden_history_message
-from nanobot.utils.helpers import (
+from nanoinfra.session.history_visibility import is_hidden_history_message
+from nanoinfra.utils.helpers import (
     IncrementalThinkExtractor,
     build_assistant_message,
     estimate_message_tokens,
@@ -45,9 +45,9 @@ from nanobot.utils.helpers import (
     strip_reasoning_tags,
     strip_think,
 )
-from nanobot.utils.llm_runtime import LLMRuntime
-from nanobot.utils.prompt_templates import render_template
-from nanobot.utils.runtime import (
+from nanoinfra.utils.llm_runtime import LLMRuntime
+from nanoinfra.utils.prompt_templates import render_template
+from nanoinfra.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
     build_budget_exhausted_finalization_message,
     build_finalization_retry_message,
@@ -907,8 +907,8 @@ class AgentRunner:
         if timeout_s is None:
             # Default to a finite timeout to avoid per-session lock starvation when an LLM
             # request hangs indefinitely (e.g. gateway/network stall).
-            # Set NANOBOT_LLM_TIMEOUT_S=0 to disable.
-            raw = os.environ.get("NANOBOT_LLM_TIMEOUT_S", "300").strip()
+            # Set NANOINFRA_LLM_TIMEOUT_S=0 to disable.
+            raw = os.environ.get("NANOINFRA_LLM_TIMEOUT_S", "300").strip()
             try:
                 timeout_s = float(raw)
             except (TypeError, ValueError):
@@ -1017,9 +1017,9 @@ class AgentRunner:
             )
 
         # Streaming requests also have provider-level idle timeouts
-        # (NANOBOT_STREAM_IDLE_TIMEOUT_S), but a stream that keeps producing
+        # (NANOINFRA_STREAM_IDLE_TIMEOUT_S), but a stream that keeps producing
         # very slow deltas can still run forever. Use a more generous wall-clock
-        # timeout for streaming while preserving NANOBOT_LLM_TIMEOUT_S=0 as an
+        # timeout for streaming while preserving NANOINFRA_LLM_TIMEOUT_S=0 as an
         # opt-out for all LLM wall-clock timeouts.
         is_streaming_request = wants_streaming or wants_progress_streaming
         outer_timeout_s = (

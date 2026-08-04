@@ -3,11 +3,11 @@ import json
 import httpx
 import pytest
 
-from nanobot.channels.feishu import runtime as feishu_module
-from nanobot.channels.feishu.runtime import FeishuChannel
-from nanobot.config import loader
-from nanobot.config.schema import Config
-from nanobot.pairing import store as pairing_store
+from nanoinfra.channels.feishu import runtime as feishu_module
+from nanoinfra.channels.feishu.runtime import FeishuChannel
+from nanoinfra.config import loader
+from nanoinfra.config.schema import Config
+from nanoinfra.pairing import store as pairing_store
 
 
 def _default_feishu_instance(data: dict) -> dict:
@@ -123,7 +123,7 @@ def test_save_registration_result_reuses_existing_app_instance(monkeypatch, tmp_
             {
                 "id": "default",
                 "instanceId": "default",
-                "name": "nanobot",
+                "name": "nanoinfra",
                 "enabled": True,
                 "appId": "cli_same",
                 "appSecret": "old-secret",
@@ -144,7 +144,7 @@ def test_save_registration_result_reuses_existing_app_instance(monkeypatch, tmp_
             "domain": "feishu",
         },
         instance_id="assistant-new",
-        name="nanobot assistant-new",
+        name="nanoinfra assistant-new",
     )
 
     data = json.loads(config_path.read_text(encoding="utf-8"))
@@ -152,7 +152,7 @@ def test_save_registration_result_reuses_existing_app_instance(monkeypatch, tmp_
     assert effective_id == "default"
     assert len(instances) == 1
     assert instances[0]["id"] == "default"
-    assert instances[0]["name"] == "nanobot"
+    assert instances[0]["name"] == "nanoinfra"
     assert instances[0]["appSecret"] == "rotated-secret"
     assert instances[0]["allowFrom"] == ["approved-user"]
 

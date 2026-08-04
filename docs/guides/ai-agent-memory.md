@@ -1,6 +1,6 @@
-# How AI Agent Memory Works in nanobot
+# How AI Agent Memory Works in nanoinfra
 
-This guide explains how to use nanobot's long-term AI agent memory: session
+This guide explains how to use nanoinfra's long-term AI agent memory: session
 history, compressed archives, durable memory files, Dream consolidation, and
 Git-backed memory changes.
 
@@ -15,15 +15,15 @@ Git-backed memory changes.
 
 Use memory when an agent should remember stable preferences, project facts,
 decisions, and recurring context across sessions. Do not use memory as a dumping
-ground for every raw transcript; nanobot separates short-term messages from
+ground for every raw transcript; nanoinfra separates short-term messages from
 curated durable knowledge.
 
 ## Install
 
 ```bash
-python -m pip install nanobot-ai
-nanobot onboard --wizard
-nanobot agent -m "Hello!"
+python -m pip install nanoinfra
+nanoinfra onboard --wizard
+nanoinfra agent -m "Hello!"
 ```
 
 ## Minimal working example
@@ -41,7 +41,7 @@ Inspect recent memory changes:
 ```
 
 The exact files live in the active workspace, usually under
-`~/.nanobot/workspace/`.
+`~/.nanoinfra/workspace/`.
 
 ## Production notes
 
@@ -64,9 +64,9 @@ The exact files live in the active workspace, usually under
   previous versions.
 - If a new session lacks context, confirm it uses the same workspace.
 
-## Related nanobot docs
+## Related nanoinfra docs
 
-- [AI Agent Memory in nanobot](../memory.md)
+- [AI Agent Memory in nanoinfra](../memory.md)
 - [Concepts](../concepts.md)
 - [Configuration](../configuration.md#auto-compact)
 - [Chat Commands](../chat-commands.md)

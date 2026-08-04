@@ -1,6 +1,6 @@
 """Tests for length-recovery prompt construction."""
 
-from nanobot.utils.runtime import build_length_recovery_message
+from nanoinfra.utils.runtime import build_length_recovery_message
 
 
 def test_length_recovery_message_anchors_the_existing_tail() -> None:

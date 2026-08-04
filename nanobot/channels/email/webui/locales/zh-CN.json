@@ -1,5 +1,5 @@
 {
-  "description": "让 nanobot 接收并回复电子邮件。",
+  "description": "让 nanoinfra 接收并回复电子邮件。",
   "requirements": "IMAP 收件箱、SMTP 发件服务、应用专用密码和明确授权",
   "setup": {
     "docsLabel": "打开邮件配置指南",

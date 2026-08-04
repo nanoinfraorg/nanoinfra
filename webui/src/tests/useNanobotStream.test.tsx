@@ -2,8 +2,8 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { useNanobotStream } from "@/hooks/useNanobotStream";
-import type { StreamError } from "@/lib/nanobot-client";
+import { useNanoinfraStream } from "@/hooks/useNanoinfraStream";
+import type { StreamError } from "@/lib/nanoinfra-client";
 import type { ConnectionStatus, InboundEvent, GoalStateWsPayload } from "@/lib/types";
 import { ClientProvider } from "@/providers/ClientProvider";
 
@@ -106,7 +106,7 @@ function wrap(client: ReturnType<typeof fakeClient>["client"]) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <ClientProvider
-        client={client as unknown as import("@/lib/nanobot-client").NanobotClient}
+        client={client as unknown as import("@/lib/nanoinfra-client").NanoinfraClient}
         token="tok"
       >
         {children}
@@ -123,11 +123,11 @@ async function flushStreamFrame() {
   });
 }
 
-describe("useNanobotStream", () => {
+describe("useNanoinfraStream", () => {
   it("batches answer deltas into one animation-frame update", async () => {
     const fake = fakeClient();
     const requestFrame = vi.spyOn(window, "requestAnimationFrame");
-    const { result } = renderHook(() => useNanobotStream("chat-batch", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-batch", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -170,7 +170,7 @@ describe("useNanobotStream", () => {
     try {
       const fake = fakeClient();
       const { result } = renderHook(
-        () => useNanobotStream("chat-background", EMPTY_MESSAGES),
+        () => useNanoinfraStream("chat-background", EMPTY_MESSAGES),
         { wrapper: wrap(fake.client) },
       );
 
@@ -210,7 +210,7 @@ describe("useNanobotStream", () => {
   it("keeps the turn pending on disconnect without breaking a resumed stream", async () => {
     const fake = fakeClient();
     const { result } = renderHook(
-      () => useNanobotStream("chat-reconnect", EMPTY_MESSAGES),
+      () => useNanoinfraStream("chat-reconnect", EMPTY_MESSAGES),
       { wrapper: wrap(fake.client) },
     );
 
@@ -267,7 +267,7 @@ describe("useNanobotStream", () => {
 
   it("flushes pending delta text before turn_end finalizes the turn", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-flush", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-flush", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -294,7 +294,7 @@ describe("useNanobotStream", () => {
 
   it("preserves proactive automation source metadata on complete assistant messages", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-cron", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-cron", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -316,7 +316,7 @@ describe("useNanobotStream", () => {
 
   it("preserves proactive automation source metadata on streamed assistant messages", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-cron-stream", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-cron-stream", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
     const source = { kind: "cron", label: "Repo check" };
@@ -349,7 +349,7 @@ describe("useNanobotStream", () => {
 
   it("preserves proactive automation source metadata on stream_end final text", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-cron-stream-end", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-cron-stream-end", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
     const source = { kind: "cron", label: "Repo check" };
@@ -393,7 +393,7 @@ describe("useNanobotStream", () => {
     ];
 
     const { result } = renderHook(
-      () => useNanobotStream("chat-cron-done", initialMessages),
+      () => useNanoinfraStream("chat-cron-done", initialMessages),
       { wrapper: wrap(fake.client) },
     );
 
@@ -404,7 +404,7 @@ describe("useNanobotStream", () => {
   it("drops pending stream work when switching chats", async () => {
     const fake = fakeClient();
     const { result, rerender } = renderHook(
-      ({ chatId }: { chatId: string }) => useNanobotStream(chatId, EMPTY_MESSAGES),
+      ({ chatId }: { chatId: string }) => useNanoinfraStream(chatId, EMPTY_MESSAGES),
       {
         wrapper: wrap(fake.client),
         initialProps: { chatId: "chat-old" },
@@ -446,7 +446,7 @@ describe("useNanobotStream", () => {
       createdAt: Date.now(),
     }];
     const { result } = renderHook(
-      () => useNanobotStream("chat-p", initialMessages, true),
+      () => useNanoinfraStream("chat-p", initialMessages, true),
       {
         wrapper: wrap(fake.client),
       },
@@ -457,7 +457,7 @@ describe("useNanobotStream", () => {
 
   it("collapses consecutive tool_hint frames into one trace row", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-t", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-t", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -499,7 +499,7 @@ describe("useNanobotStream", () => {
 
   it("treats progress with arbitrary agent_ui like ordinary trace text", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-au", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-au", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
     act(() => {
@@ -521,7 +521,7 @@ describe("useNanobotStream", () => {
 
   it("renders live tool traces from structured tool events", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-tool-events", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-tool-events", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -558,7 +558,7 @@ describe("useNanobotStream", () => {
 
   it("dedupes finish-phase tool events after their start trace", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-tool-finish", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-tool-finish", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -612,7 +612,7 @@ describe("useNanobotStream", () => {
 
   it("keeps phase updates when a tool event trace line is deduped", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-tool-phase", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-tool-phase", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -660,7 +660,7 @@ describe("useNanobotStream", () => {
 
   it("renders live file_edit events as their own activity trace", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-file-edit", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-file-edit", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -726,7 +726,7 @@ describe("useNanobotStream", () => {
 
   it("replaces matching write_file tool events with live file edit activity", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-file-edit-events", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-file-edit-events", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -789,7 +789,7 @@ describe("useNanobotStream", () => {
 
   it("keeps live file edits separate from mixed non-file tool traces", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-file-edit-mixed-tools", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-file-edit-mixed-tools", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -854,7 +854,7 @@ describe("useNanobotStream", () => {
 
   it("keeps every file from one apply_patch call", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-apply-patch-many", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-apply-patch-many", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -910,7 +910,7 @@ describe("useNanobotStream", () => {
 
   it("upgrades pending file_edit placeholders when the path arrives", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-file-edit-pending", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-file-edit-pending", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -962,7 +962,7 @@ describe("useNanobotStream", () => {
 
   it("merges file_edit updates after interleaved progress events", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-file-edit-progress", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-file-edit-progress", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1025,7 +1025,7 @@ describe("useNanobotStream", () => {
 
   it("keeps interrupted pre-tool text as assistant output before activity", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-stream-segments", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-stream-segments", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1072,7 +1072,7 @@ describe("useNanobotStream", () => {
 
   it("does not replace interrupted pre-tool text with final stream_end text", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-stream-end-final", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-stream-end-final", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1118,7 +1118,7 @@ describe("useNanobotStream", () => {
 
   it("splits live assistant output around tool hints without moving it into reasoning", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-live-segments", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-live-segments", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1163,7 +1163,7 @@ describe("useNanobotStream", () => {
 
   it("opens a new activity segment for reasoning after file edit activity", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-file-segments", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-file-segments", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1218,7 +1218,7 @@ describe("useNanobotStream", () => {
 
   it("keeps file edit blocks ordered across a new reasoning phase", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-file-order", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-file-order", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1277,7 +1277,7 @@ describe("useNanobotStream", () => {
 
   it("accumulates reasoning_delta chunks on a placeholder until reasoning_end", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-r", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-r", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1311,7 +1311,7 @@ describe("useNanobotStream", () => {
 
   it("absorbs a streaming reasoning placeholder into the answer turn that follows", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-r2", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-r2", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1338,7 +1338,7 @@ describe("useNanobotStream", () => {
 
   it("ignores empty reasoning_delta frames", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-r3", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-r3", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1355,7 +1355,7 @@ describe("useNanobotStream", () => {
 
   it("treats legacy kind=reasoning messages as a complete delta + end pair", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-r4", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-r4", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1375,7 +1375,7 @@ describe("useNanobotStream", () => {
 
   it("starts a new Thought block when reasoning arrives after visible output", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-r5", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-r5", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1410,7 +1410,7 @@ describe("useNanobotStream", () => {
     dateNow.mockImplementation(() => now);
     try {
       const fake = fakeClient();
-      const { result } = renderHook(() => useNanobotStream("chat-r5-lat", EMPTY_MESSAGES), {
+      const { result } = renderHook(() => useNanoinfraStream("chat-r5-lat", EMPTY_MESSAGES), {
         wrapper: wrap(fake.client),
       });
       await act(async () => {});
@@ -1441,7 +1441,7 @@ describe("useNanobotStream", () => {
 
   it("keeps alternating reasoning and answer deltas in separate ordered blocks", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-r5b", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-r5b", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1504,7 +1504,7 @@ describe("useNanobotStream", () => {
       },
     ];
     const { result } = renderHook(
-      () => useNanobotStream("chat-r6", initialMessages),
+      () => useNanoinfraStream("chat-r6", initialMessages),
       { wrapper: wrap(fake.client) },
     );
 
@@ -1528,7 +1528,7 @@ describe("useNanobotStream", () => {
 
   it("does not attach reasoning across a tool trace boundary", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-r7", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-r7", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1569,7 +1569,7 @@ describe("useNanobotStream", () => {
 
   it("keeps tool-call reasoning before the matching live tool trace", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-tool-reasoning", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-tool-reasoning", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1612,7 +1612,7 @@ describe("useNanobotStream", () => {
 
   it("absorbs non-streamed final answers into the preceding reasoning placeholder", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-final-reasoning", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-final-reasoning", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1659,7 +1659,7 @@ describe("useNanobotStream", () => {
 
   it("prunes reasoning-only placeholders when a turn ends without an answer", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-empty-thinking", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-empty-thinking", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -1696,7 +1696,7 @@ describe("useNanobotStream", () => {
       },
     ];
     const { result } = renderHook(
-      () => useNanobotStream("chat-stale-thinking", initialMessages),
+      () => useNanoinfraStream("chat-stale-thinking", initialMessages),
       { wrapper: wrap(fake.client) },
     );
 
@@ -1715,7 +1715,7 @@ describe("useNanobotStream", () => {
   it("returns the submitted turn identity used by the optimistic row and wire frame", () => {
     const fake = fakeClient();
     const { result } = renderHook(
-      () => useNanobotStream("chat-submitted-turn", EMPTY_MESSAGES),
+      () => useNanoinfraStream("chat-submitted-turn", EMPTY_MESSAGES),
       { wrapper: wrap(fake.client) },
     );
 
@@ -1742,7 +1742,7 @@ describe("useNanobotStream", () => {
   it("marks an optimistic turn accepted when its acknowledgement arrives", () => {
     const fake = fakeClient();
     const { result } = renderHook(
-      () => useNanobotStream("chat-accept-one", EMPTY_MESSAGES),
+      () => useNanoinfraStream("chat-accept-one", EMPTY_MESSAGES),
       { wrapper: wrap(fake.client) },
     );
     let submitted: ReturnType<typeof result.current.send> = null;
@@ -1769,7 +1769,7 @@ describe("useNanobotStream", () => {
   it("marks only the optimistic turn named by a correlated rejection as failed", () => {
     const fake = fakeClient();
     const { result } = renderHook(
-      () => useNanobotStream("chat-reject-one", EMPTY_MESSAGES),
+      () => useNanoinfraStream("chat-reject-one", EMPTY_MESSAGES),
       { wrapper: wrap(fake.client) },
     );
     let first: ReturnType<typeof result.current.send> = null;
@@ -1814,7 +1814,7 @@ describe("useNanobotStream", () => {
   it("falls back to the previous running turn when the newer turn is rejected", () => {
     const fake = fakeClient();
     const { result } = renderHook(
-      () => useNanobotStream("chat-reject-new", EMPTY_MESSAGES),
+      () => useNanoinfraStream("chat-reject-new", EMPTY_MESSAGES),
       { wrapper: wrap(fake.client) },
     );
     let first: ReturnType<typeof result.current.send> = null;
@@ -1859,7 +1859,7 @@ describe("useNanobotStream", () => {
   it("ends the spinner and drops pending stream work when the only turn is rejected", async () => {
     const fake = fakeClient();
     const { result } = renderHook(
-      () => useNanobotStream("chat-reject-only", EMPTY_MESSAGES),
+      () => useNanoinfraStream("chat-reject-only", EMPTY_MESSAGES),
       { wrapper: wrap(fake.client) },
     );
     let submitted: ReturnType<typeof result.current.send> = null;
@@ -1897,7 +1897,7 @@ describe("useNanobotStream", () => {
   it("applies a correlated rejection replayed through the chat event queue", () => {
     const fake = fakeClient();
     const { result } = renderHook(
-      () => useNanobotStream("chat-replayed-reject", EMPTY_MESSAGES),
+      () => useNanoinfraStream("chat-replayed-reject", EMPTY_MESSAGES),
       { wrapper: wrap(fake.client) },
     );
     let submitted: ReturnType<typeof result.current.send> = null;
@@ -1931,7 +1931,7 @@ describe("useNanobotStream", () => {
   it("does not show or apply an error correlated to another chat", () => {
     const fake = fakeClient();
     const { result } = renderHook(
-      () => useNanobotStream("chat-visible", EMPTY_MESSAGES),
+      () => useNanoinfraStream("chat-visible", EMPTY_MESSAGES),
       { wrapper: wrap(fake.client) },
     );
     let submitted: ReturnType<typeof result.current.send> = null;
@@ -1956,7 +1956,7 @@ describe("useNanobotStream", () => {
   it("shows an uncorrelated 1009 fault without rolling back the current turn", () => {
     const fake = fakeClient();
     const { result } = renderHook(
-      () => useNanobotStream("chat-generic-1009", EMPTY_MESSAGES),
+      () => useNanoinfraStream("chat-generic-1009", EMPTY_MESSAGES),
       { wrapper: wrap(fake.client) },
     );
     act(() => {
@@ -1973,7 +1973,7 @@ describe("useNanobotStream", () => {
   it("marks rejected side-channel guidance failed without stopping the main run", () => {
     const fake = fakeClient();
     const { result } = renderHook(
-      () => useNanobotStream("chat-side-reject", EMPTY_MESSAGES),
+      () => useNanoinfraStream("chat-side-reject", EMPTY_MESSAGES),
       { wrapper: wrap(fake.client) },
     );
     let main: ReturnType<typeof result.current.send> = null;
@@ -2017,7 +2017,7 @@ describe("useNanobotStream", () => {
 
   it("adds optimistic user file attachments as media", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-file-send", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-file-send", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
     const attachment = {
@@ -2048,7 +2048,7 @@ describe("useNanobotStream", () => {
 
   it("inlines quoted context into the optimistic and outbound user message", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-quote", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-quote", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2067,7 +2067,7 @@ describe("useNanobotStream", () => {
 
   it("attaches assistant media_urls to complete messages", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-m", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-m", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2088,7 +2088,7 @@ describe("useNanobotStream", () => {
 
   it("keeps assistant html media as a file attachment", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-html-media", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-html-media", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2108,7 +2108,7 @@ describe("useNanobotStream", () => {
 
   it("infers assistant svg media as an image attachment", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-svg-media", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-svg-media", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2128,7 +2128,7 @@ describe("useNanobotStream", () => {
 
   it("corrects explicit image media when the name is a non-image file", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-mislabelled-html", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-mislabelled-html", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2148,7 +2148,7 @@ describe("useNanobotStream", () => {
 
   it("suppresses redundant stream confirmation after assistant media", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-img-result", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-img-result", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2187,7 +2187,7 @@ describe("useNanobotStream", () => {
 
   it("stops the active turn without adding a user slash command bubble", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-stop", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-stop", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2209,7 +2209,7 @@ describe("useNanobotStream", () => {
 
   it("does not mark side-channel slash commands as streaming", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-status", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-status", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2241,7 +2241,7 @@ describe("useNanobotStream", () => {
 
   it("finalizes active streaming before turn-ending side-channel commands", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-new", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-new", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2300,7 +2300,7 @@ describe("useNanobotStream", () => {
     vi.useFakeTimers();
     try {
       const fake = fakeClient();
-      const { result } = renderHook(() => useNanobotStream("chat-status-loop", EMPTY_MESSAGES), {
+      const { result } = renderHook(() => useNanoinfraStream("chat-status-loop", EMPTY_MESSAGES), {
         wrapper: wrap(fake.client),
       });
 
@@ -2349,7 +2349,7 @@ describe("useNanobotStream", () => {
 
   it("keeps guided output in place while the active turn resumes", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-guide", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-guide", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2432,7 +2432,7 @@ describe("useNanobotStream", () => {
 
   it("keeps length-recovery segments in one assistant message", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-length", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-length", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2506,7 +2506,7 @@ describe("useNanobotStream", () => {
   it("keeps streaming alive across stream_end when tool activity follows", async () => {
     const fake = fakeClient();
     const onTurnEnd = vi.fn();
-    const { result } = renderHook(() => useNanobotStream("chat-s", EMPTY_MESSAGES, false, onTurnEnd), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-s", EMPTY_MESSAGES, false, onTurnEnd), {
       wrapper: wrap(fake.client),
     });
 
@@ -2566,7 +2566,7 @@ describe("useNanobotStream", () => {
 
   it("replaces streamed content with final stream_end text when provided", async () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-stream-final", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-stream-final", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2598,7 +2598,7 @@ describe("useNanobotStream", () => {
 
   it("creates an assistant bubble from final stream_end text without prior delta", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-stream-end-only", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-stream-end-only", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2623,7 +2623,7 @@ describe("useNanobotStream", () => {
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(completedAt);
     try {
       const fake = fakeClient();
-      const { result } = renderHook(() => useNanobotStream("chat-lat", EMPTY_MESSAGES), {
+      const { result } = renderHook(() => useNanoinfraStream("chat-lat", EMPTY_MESSAGES), {
         wrapper: wrap(fake.client),
       });
 
@@ -2655,7 +2655,7 @@ describe("useNanobotStream", () => {
 
   it("tracks goal_status running and clears on idle", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-g", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-g", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2686,7 +2686,7 @@ describe("useNanobotStream", () => {
 
   it("clears runStartedAt on turn_end even without idle", () => {
     const fake = fakeClient();
-    const { result } = renderHook(() => useNanobotStream("chat-g", EMPTY_MESSAGES), {
+    const { result } = renderHook(() => useNanoinfraStream("chat-g", EMPTY_MESSAGES), {
       wrapper: wrap(fake.client),
     });
 
@@ -2714,7 +2714,7 @@ describe("useNanobotStream", () => {
   it("restores runStartedAt after switching away and back when goal_status was recorded without a subscriber", () => {
     const fake = fakeClient();
     const { result, rerender } = renderHook(
-      ({ chatId }: { chatId: string }) => useNanobotStream(chatId, EMPTY_MESSAGES),
+      ({ chatId }: { chatId: string }) => useNanoinfraStream(chatId, EMPTY_MESSAGES),
       {
         wrapper: wrap(fake.client),
         initialProps: { chatId: "chat-a" },
@@ -2753,7 +2753,7 @@ describe("useNanobotStream", () => {
   it("tracks goal_state per chat and restores after switching sessions", () => {
     const fake = fakeClient();
     const { result, rerender } = renderHook(
-      ({ chatId }: { chatId: string }) => useNanobotStream(chatId, EMPTY_MESSAGES),
+      ({ chatId }: { chatId: string }) => useNanoinfraStream(chatId, EMPTY_MESSAGES),
       {
         wrapper: wrap(fake.client),
         initialProps: { chatId: "chat-a" },

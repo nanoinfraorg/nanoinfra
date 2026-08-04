@@ -10,20 +10,20 @@ from typing import Any
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
-from nanobot.config.paths import get_media_dir
-from nanobot.webui.attachment_ingress import (
+from nanoinfra.config.paths import get_media_dir
+from nanoinfra.webui.attachment_ingress import (
     AttachmentIngressResult,
     store_inbound_attachments,
 )
-from nanobot.webui.ingress_policy import AttachmentIngressLimits
-from nanobot.webui.media_api import (
+from nanoinfra.webui.ingress_policy import AttachmentIngressLimits
+from nanoinfra.webui.media_api import (
     attach_signed_media_urls,
     serve_signed_media,
     sign_media_path,
     sign_or_stage_media_path,
     signed_media_attachments,
 )
-from nanobot.webui.transcript import rewrite_local_markdown_images
+from nanoinfra.webui.transcript import rewrite_local_markdown_images
 
 
 def _default_media_dir(channel: str | None) -> Path:

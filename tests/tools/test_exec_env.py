@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from nanobot.agent.tools.shell import ExecTool
+from nanoinfra.agent.tools.shell import ExecTool
 
 _UNIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="Unix shell commands")
 
@@ -13,9 +13,9 @@ _UNIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="Unix shell comm
 @pytest.mark.asyncio
 async def test_exec_does_not_leak_parent_env(monkeypatch):
     """Env vars from the parent process must not be visible to commands."""
-    monkeypatch.setenv("NANOBOT_SECRET_TOKEN", "super-secret-value")
+    monkeypatch.setenv("NANOINFRA_SECRET_TOKEN", "super-secret-value")
     tool = ExecTool()
-    result = await tool.execute(command="printenv NANOBOT_SECRET_TOKEN")
+    result = await tool.execute(command="printenv NANOINFRA_SECRET_TOKEN")
     assert "super-secret-value" not in result
 
 

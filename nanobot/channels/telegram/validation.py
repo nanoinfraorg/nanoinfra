@@ -6,8 +6,8 @@ from urllib.parse import urlparse
 
 import httpx
 
-from nanobot.channels.contracts import ChannelValidationContext
-from nanobot.channels.validation import (
+from nanoinfra.channels.contracts import ChannelValidationContext
+from nanoinfra.channels.validation import (
     check,
     message_from_response,
     payload,
@@ -15,7 +15,7 @@ from nanobot.channels.validation import (
     status_from_checks,
     string_value,
 )
-from nanobot.config.loader import resolve_env_refs
+from nanoinfra.config.loader import resolve_env_refs
 
 _TIMEOUT_SECONDS = 4.0
 _SUPPORTED_PROXY_SCHEMES = {"http", "https", "socks5", "socks5h"}

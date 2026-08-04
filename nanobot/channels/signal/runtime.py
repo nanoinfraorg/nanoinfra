@@ -17,14 +17,14 @@ from typing import Any, TypedDict, cast
 import httpx
 from pydantic import Field, computed_field, field_validator
 
-from nanobot.bus.events import InboundMessage, OutboundMessage
-from nanobot.bus.outbound_events import ProgressEvent
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.config.paths import get_media_dir
-from nanobot.config.schema import Base
-from nanobot.pairing import is_approved
-from nanobot.utils.helpers import safe_filename, split_message
+from nanoinfra.bus.events import InboundMessage, OutboundMessage
+from nanoinfra.bus.outbound_events import ProgressEvent
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.config.paths import get_media_dir
+from nanoinfra.config.schema import Base
+from nanoinfra.pairing import is_approved
+from nanoinfra.utils.helpers import safe_filename, split_message
 
 
 @dataclass

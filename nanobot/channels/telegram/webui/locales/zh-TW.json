@@ -1,5 +1,5 @@
 {
-  "description": "透過 Telegram 對話與 nanobot 聊天。",
+  "description": "透過 Telegram 對話與 nanoinfra 聊天。",
   "requirements": "機器人權杖、允許的使用者和閘道",
   "setup": {
     "docsLabel": "開啟 Telegram 設定指南",

@@ -11,16 +11,16 @@ import pytest
 pytest.importorskip("discord")
 import discord
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.outbound_events import ProgressEvent
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.discord.runtime import (
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.outbound_events import ProgressEvent
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.discord.runtime import (
     MAX_MESSAGE_LEN,
     DiscordBotClient,
     DiscordChannel,
     DiscordConfig,
 )
-from nanobot.command.builtin import build_help_text
+from nanoinfra.command.builtin import build_help_text
 
 
 # Minimal Discord client test double used to control startup/readiness behavior.
@@ -232,7 +232,7 @@ async def test_start_returns_when_discord_dependency_missing(monkeypatch) -> Non
         DiscordConfig(enabled=True, token="token", allow_from=["*"]),
         MessageBus(),
     )
-    monkeypatch.setattr("nanobot.channels.discord.runtime.DISCORD_AVAILABLE", False)
+    monkeypatch.setattr("nanoinfra.channels.discord.runtime.DISCORD_AVAILABLE", False)
 
     await channel.start()
 
@@ -251,7 +251,7 @@ async def test_start_handles_client_construction_failure(monkeypatch) -> None:
     def _boom(owner, *, intents, proxy=None, proxy_auth=None):
         raise RuntimeError("bad client")
 
-    monkeypatch.setattr("nanobot.channels.discord.runtime.DiscordBotClient", _boom)
+    monkeypatch.setattr("nanoinfra.channels.discord.runtime.DiscordBotClient", _boom)
 
     await channel.start()
 
@@ -269,7 +269,7 @@ async def test_start_handles_client_start_failure(monkeypatch) -> None:
 
     _FakeDiscordClient.instances.clear()
     _FakeDiscordClient.start_error = RuntimeError("connect failed")
-    monkeypatch.setattr("nanobot.channels.discord.runtime.DiscordBotClient", _FakeDiscordClient)
+    monkeypatch.setattr("nanoinfra.channels.discord.runtime.DiscordBotClient", _FakeDiscordClient)
 
     await channel.start()
 
@@ -372,9 +372,9 @@ async def test_on_message_unauthorized_dm_sends_pairing_code(monkeypatch) -> Non
     client.channels[456] = message.channel
     channel._client = client
     channel._running = True
-    monkeypatch.setattr("nanobot.channels.base.is_approved", lambda _ch, _sid: False)
+    monkeypatch.setattr("nanoinfra.channels.base.is_approved", lambda _ch, _sid: False)
     monkeypatch.setattr(
-        "nanobot.channels.base.generate_code", lambda _ch, _sid: "ABCD-EFGH"
+        "nanoinfra.channels.base.generate_code", lambda _ch, _sid: "ABCD-EFGH"
     )
 
     await channel._on_message(message)
@@ -622,7 +622,7 @@ async def test_on_message_downloads_attachments(tmp_path, monkeypatch) -> None:
         handled.append(kwargs)
 
     channel._handle_message = capture_handle  # type: ignore[method-assign]
-    monkeypatch.setattr("nanobot.channels.discord.runtime.get_media_dir", lambda _name: tmp_path)
+    monkeypatch.setattr("nanoinfra.channels.discord.runtime.get_media_dir", lambda _name: tmp_path)
 
     await channel._on_message(
         _make_message(
@@ -646,7 +646,7 @@ async def test_on_message_marks_failed_attachment_download(tmp_path, monkeypatch
         handled.append(kwargs)
 
     channel._handle_message = capture_handle  # type: ignore[method-assign]
-    monkeypatch.setattr("nanobot.channels.discord.runtime.get_media_dir", lambda _name: tmp_path)
+    monkeypatch.setattr("nanoinfra.channels.discord.runtime.get_media_dir", lambda _name: tmp_path)
 
     await channel._on_message(
         _make_message(
@@ -743,7 +743,7 @@ async def test_send_delta_streams_by_editing_message(monkeypatch) -> None:
     client.channels[123] = target
 
     times = iter([1.0, 3.0, 5.0])
-    monkeypatch.setattr("nanobot.channels.discord.runtime.time.monotonic", lambda: next(times, 5.0))
+    monkeypatch.setattr("nanoinfra.channels.discord.runtime.time.monotonic", lambda: next(times, 5.0))
 
     await owner.send_delta("123", "hel", stream_id="s1")
     await owner.send_delta("123", "lo", stream_id="s1")
@@ -764,7 +764,7 @@ async def test_send_delta_merge_next_keeps_one_message(monkeypatch) -> None:
     client.channels[123] = target
 
     times = iter([1.0, 3.0, 5.0])
-    monkeypatch.setattr("nanobot.channels.discord.runtime.time.monotonic", lambda: next(times, 5.0))
+    monkeypatch.setattr("nanoinfra.channels.discord.runtime.time.monotonic", lambda: next(times, 5.0))
 
     await owner.send_delta(
         "123",
@@ -800,7 +800,7 @@ async def test_send_delta_stream_end_splits_oversized_reply(monkeypatch) -> None
     assert len(chunks) == 2
 
     times = iter([1.0, 3.0])
-    monkeypatch.setattr("nanobot.channels.discord.runtime.time.monotonic", lambda: next(times, 3.0))
+    monkeypatch.setattr("nanoinfra.channels.discord.runtime.time.monotonic", lambda: next(times, 3.0))
 
     await owner.send_delta("123", prefix, stream_id="s1")
     await owner.send_delta("123", suffix, stream_id="s1")
@@ -1245,7 +1245,7 @@ async def test_start_passes_proxy_to_client(monkeypatch) -> None:
         ),
         MessageBus(),
     )
-    monkeypatch.setattr("nanobot.channels.discord.runtime.DiscordBotClient", _FakeDiscordClient)
+    monkeypatch.setattr("nanoinfra.channels.discord.runtime.DiscordBotClient", _FakeDiscordClient)
 
     await channel.start()
 
@@ -1270,7 +1270,7 @@ async def test_start_passes_proxy_auth_when_credentials_provided(monkeypatch) ->
         ),
         MessageBus(),
     )
-    monkeypatch.setattr("nanobot.channels.discord.runtime.DiscordBotClient", _FakeDiscordClient)
+    monkeypatch.setattr("nanoinfra.channels.discord.runtime.DiscordBotClient", _FakeDiscordClient)
 
     await channel.start()
 
@@ -1296,7 +1296,7 @@ async def test_start_no_proxy_auth_when_only_username(monkeypatch) -> None:
         ),
         MessageBus(),
     )
-    monkeypatch.setattr("nanobot.channels.discord.runtime.DiscordBotClient", _FakeDiscordClient)
+    monkeypatch.setattr("nanoinfra.channels.discord.runtime.DiscordBotClient", _FakeDiscordClient)
 
     await channel.start()
 
@@ -1317,7 +1317,7 @@ async def test_start_no_proxy_auth_when_only_password(monkeypatch) -> None:
         ),
         MessageBus(),
     )
-    monkeypatch.setattr("nanobot.channels.discord.runtime.DiscordBotClient", _FakeDiscordClient)
+    monkeypatch.setattr("nanoinfra.channels.discord.runtime.DiscordBotClient", _FakeDiscordClient)
 
     await channel.start()
 

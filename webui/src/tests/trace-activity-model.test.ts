@@ -9,7 +9,7 @@ function describeTrace(line: string, status: GenericToolStatus = "done") {
 
 describe("trace activity semantics", () => {
   it.each([
-    ['web_search({"query":"nanobot latest release"})', "done", "Searched nanobot latest release", ""],
+    ['web_search({"query":"nanoinfra latest release"})', "done", "Searched nanoinfra latest release", ""],
     ['web_fetch({"url":"https://example.com/docs?token=private"})', "done", "Read", "example.com/docs"],
     ['read_file({"path":"/Users/alice/project/README.md"})', "done", "Read", "~/project/README.md"],
     ['exec({"command":"date +%Y-%m-%d"})', "done", "Checked current time", ""],

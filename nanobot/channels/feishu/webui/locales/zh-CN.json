@@ -1,16 +1,16 @@
 {
   "displayName": "飞书",
-  "description": "在飞书会话和群组中使用 nanobot。",
+  "description": "在飞书会话和群组中使用 nanoinfra。",
   "requirements": "飞书应用凭据、事件订阅和网关",
   "setup": {
     "primaryAction": "连接飞书",
     "docsLabel": "打开飞书配置指南",
     "officialLabel": "打开飞书开发者后台",
     "tryIt": "向飞书助手发送私信，或在群组中提及它。",
-    "summary": "连接流程会通过二维码创建或关联飞书应用，并自动为 nanobot 保存应用凭据。",
+    "summary": "连接流程会通过二维码创建或关联飞书应用，并自动为 nanoinfra 保存应用凭据。",
     "steps": [
       "点击连接，用手机飞书或 Lark 扫描二维码。",
-      "批准应用连接，nanobot 会自动保存 App ID 和 Secret。",
+      "批准应用连接，nanoinfra 会自动保存 App ID 和 Secret。",
       "向机器人发送私信，或在飞书群中提及它以完成测试。"
     ],
     "fields": {
@@ -65,7 +65,7 @@
     "countMany": "已连接 {{count}} 个助手",
     "qrAlt": "飞书连接二维码",
     "scanTitle": "使用飞书扫码",
-    "scanDescription": "用手机上的飞书或 Lark 扫描二维码。授权完成后，nanobot 会自动完成配置。",
+    "scanDescription": "用手机上的飞书或 Lark 扫描二维码。授权完成后，nanoinfra 会自动完成配置。",
     "waiting": "正在等待授权...",
     "connected": "飞书已连接。",
     "stopped": "连接已停止。",

@@ -2,11 +2,11 @@
 
 from loguru import logger
 
-__all__ = ["_set_nanobot_logs"]
+__all__ = ["_set_nanoinfra_logs"]
 
 
-def _set_nanobot_logs(enabled: bool) -> None:
+def _set_nanoinfra_logs(enabled: bool) -> None:
     if enabled:
-        logger.enable("nanobot")
+        logger.enable("nanoinfra")
     else:
-        logger.disable("nanobot")
+        logger.disable("nanoinfra")

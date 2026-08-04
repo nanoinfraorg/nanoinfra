@@ -1,5 +1,5 @@
 {
-  "description": "Use o nanobot em salas do Matrix.",
+  "description": "Use o nanoinfra em salas do Matrix.",
   "requirements": "Homeserver, token da conta e acesso às salas",
   "setup": {
     "docsLabel": "Abrir guia do Matrix",
@@ -7,7 +7,7 @@
     "tryIt": "Convide a conta Matrix para uma sala e envie uma mensagem de teste.",
     "summary": "O Matrix precisa de uma conta no homeserver e login por senha ou token de acesso.",
     "steps": [
-      "Crie ou escolha uma conta Matrix para o nanobot.",
+      "Crie ou escolha uma conta Matrix para o nanoinfra.",
       "Informe o homeserver, ID de usuário e senha ou token de acesso.",
       "Salve e ative o Matrix, convide a conta para uma sala e envie uma mensagem de teste."
     ],
@@ -18,7 +18,7 @@
       },
       "userId": {
         "label": "ID de usuário",
-        "placeholder": "@nanobot:matrix.org"
+        "placeholder": "@nanoinfra:matrix.org"
       },
       "password": {
         "label": "Senha",

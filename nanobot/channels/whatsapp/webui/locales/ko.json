@@ -1,5 +1,5 @@
 {
-  "description": "WhatsApp 대화에서 nanobot을 사용합니다.",
+  "description": "WhatsApp 대화에서 nanoinfra을 사용합니다.",
   "requirements": "WhatsApp 연결 설정 및 게이트웨이",
   "setup": {
     "primaryAction": "WhatsApp 연결",

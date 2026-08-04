@@ -1,5 +1,5 @@
 {
-  "description": "Utilisez nanobot depuis les conversations WeChat.",
+  "description": "Utilisez nanoinfra depuis les conversations WeChat.",
   "requirements": "Configuration du canal WeChat et passerelle",
   "setup": {
     "primaryAction": "Connecter WeChat",
@@ -26,7 +26,7 @@
   "custom": {
     "qrAlt": "QR code de connexion WeChat",
     "scanTitle": "Scanner avec WeChat",
-    "scanDescription": "Scannez ce code avec WeChat. nanobot enregistre localement l’état du compte après la connexion.",
+    "scanDescription": "Scannez ce code avec WeChat. nanoinfra enregistre localement l’état du compte après la connexion.",
     "waiting": "En attente du scan WeChat...",
     "connected": "WeChat est connecté.",
     "stopped": "Connexion WeChat arrêtée.",

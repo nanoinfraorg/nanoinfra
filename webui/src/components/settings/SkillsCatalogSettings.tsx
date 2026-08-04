@@ -679,7 +679,7 @@ function RequirementsSection({
           <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
             {t("settings.skills.setupDescription", {
               defaultValue:
-                "Install the missing dependency on the machine running nanobot, then check again.",
+                "Install the missing dependency on the machine running nanoinfra, then check again.",
             })}
           </p>
         </div>

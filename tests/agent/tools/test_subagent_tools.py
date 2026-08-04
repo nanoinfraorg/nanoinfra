@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from nanobot.config.schema import AgentDefaults
-from nanobot.providers.base import GenerationSettings
-from nanobot.utils.llm_runtime import LLMRuntime
+from nanoinfra.config.schema import AgentDefaults
+from nanoinfra.providers.base import GenerationSettings
+from nanoinfra.utils.llm_runtime import LLMRuntime
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -22,8 +22,8 @@ def _runtime(provider: MagicMock, model: str = "test-model") -> LLMRuntime:
 @pytest.mark.asyncio
 async def test_run_inline_returns_result_without_announcement(tmp_path):
     """Inline subagents return directly instead of injecting a follow-up."""
-    from nanobot.agent.subagent import SubagentManager
-    from nanobot.bus.queue import MessageBus
+    from nanoinfra.agent.subagent import SubagentManager
+    from nanoinfra.bus.queue import MessageBus
 
     provider = MagicMock()
     manager = SubagentManager(
@@ -55,9 +55,9 @@ async def test_run_inline_returns_result_without_announcement(tmp_path):
 @pytest.mark.asyncio
 async def test_run_inline_returns_structured_error(tmp_path):
     """Inline subagent failures remain tool errors for the parent runner."""
-    from nanobot.agent.subagent import SubagentManager
-    from nanobot.agent.tools.registry import is_tool_error_result
-    from nanobot.bus.queue import MessageBus
+    from nanoinfra.agent.subagent import SubagentManager
+    from nanoinfra.agent.tools.registry import is_tool_error_result
+    from nanoinfra.bus.queue import MessageBus
 
     manager = SubagentManager(
         workspace=tmp_path,
@@ -86,10 +86,10 @@ async def test_run_inline_returns_structured_error(tmp_path):
 @pytest.mark.asyncio
 async def test_subagent_exec_tool_receives_allowed_env_keys(tmp_path):
     """allowed_env_keys from ExecToolConfig must be forwarded to the subagent's ExecTool."""
-    from nanobot.agent.subagent import SubagentManager, SubagentStatus
-    from nanobot.agent.tools.shell import ExecToolConfig
-    from nanobot.bus.queue import MessageBus
-    from nanobot.config.schema import ToolsConfig
+    from nanoinfra.agent.subagent import SubagentManager, SubagentStatus
+    from nanoinfra.agent.tools.shell import ExecToolConfig
+    from nanoinfra.bus.queue import MessageBus
+    from nanoinfra.config.schema import ToolsConfig
 
     bus = MessageBus()
     provider = MagicMock()
@@ -133,8 +133,8 @@ async def test_subagent_exec_tool_receives_allowed_env_keys(tmp_path):
 @pytest.mark.asyncio
 async def test_subagent_uses_configured_max_iterations(tmp_path):
     """Subagents should honor the configured tool-iteration limit."""
-    from nanobot.agent.subagent import SubagentManager, SubagentStatus
-    from nanobot.bus.queue import MessageBus
+    from nanoinfra.agent.subagent import SubagentManager, SubagentStatus
+    from nanoinfra.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -176,8 +176,8 @@ async def test_subagent_uses_configured_max_iterations(tmp_path):
 @pytest.mark.asyncio
 async def test_spawn_forwards_temperature_to_run_spec(tmp_path):
     """A temperature passed to spawn() should reach the AgentRunSpec."""
-    from nanobot.agent.subagent import SubagentManager
-    from nanobot.bus.queue import MessageBus
+    from nanoinfra.agent.subagent import SubagentManager
+    from nanoinfra.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -212,9 +212,9 @@ async def test_spawn_forwards_temperature_to_run_spec(tmp_path):
 @pytest.mark.asyncio
 async def test_spawn_tool_rejects_when_at_concurrency_limit(tmp_path):
     """SpawnTool should return an error string when the concurrency limit is reached."""
-    from nanobot.agent.subagent import SubagentManager
-    from nanobot.agent.tools.spawn import SpawnTool
-    from nanobot.bus.queue import MessageBus
+    from nanoinfra.agent.subagent import SubagentManager
+    from nanoinfra.agent.tools.spawn import SpawnTool
+    from nanoinfra.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -240,7 +240,7 @@ async def test_spawn_tool_rejects_when_at_concurrency_limit(tmp_path):
 
     mgr.runner.run = AsyncMock(side_effect=fake_run)
 
-    from nanobot.agent.tools.context import RequestContext, request_context
+    from nanoinfra.agent.tools.context import RequestContext, request_context
 
     tool = SpawnTool(mgr)
     with request_context(RequestContext(
@@ -266,8 +266,8 @@ async def test_spawn_tool_rejects_when_at_concurrency_limit(tmp_path):
 
 @pytest.mark.asyncio
 async def test_spawn_tool_waits_for_inline_result():
-    from nanobot.agent.tools.context import RequestContext, request_context
-    from nanobot.agent.tools.spawn import SpawnTool
+    from nanoinfra.agent.tools.context import RequestContext, request_context
+    from nanoinfra.agent.tools.spawn import SpawnTool
 
     class Manager:
         max_concurrent_subagents = 1
@@ -300,10 +300,10 @@ async def test_spawn_tool_waits_for_inline_result():
 
 @pytest.mark.asyncio
 async def test_inline_spawn_counts_toward_concurrency_limit(tmp_path):
-    from nanobot.agent.subagent import SubagentManager
-    from nanobot.agent.tools.context import RequestContext, request_context
-    from nanobot.agent.tools.spawn import SpawnTool
-    from nanobot.bus.queue import MessageBus
+    from nanoinfra.agent.subagent import SubagentManager
+    from nanoinfra.agent.tools.context import RequestContext, request_context
+    from nanoinfra.agent.tools.spawn import SpawnTool
+    from nanoinfra.bus.queue import MessageBus
 
     manager = SubagentManager(
         workspace=tmp_path,
@@ -348,8 +348,8 @@ async def test_inline_spawn_counts_toward_concurrency_limit(tmp_path):
 
 @pytest.mark.asyncio
 async def test_cancel_by_session_cancels_inline_subagent(tmp_path):
-    from nanobot.agent.subagent import SubagentManager
-    from nanobot.bus.queue import MessageBus
+    from nanoinfra.agent.subagent import SubagentManager
+    from nanoinfra.bus.queue import MessageBus
 
     manager = SubagentManager(
         workspace=tmp_path,
@@ -380,8 +380,8 @@ async def test_cancel_by_session_cancels_inline_subagent(tmp_path):
 
 def test_subagent_default_max_concurrent_matches_agent_defaults(tmp_path):
     """Direct SubagentManager construction should use the agent default concurrency limit."""
-    from nanobot.agent.subagent import SubagentManager
-    from nanobot.bus.queue import MessageBus
+    from nanoinfra.agent.subagent import SubagentManager
+    from nanoinfra.bus.queue import MessageBus
 
     bus = MessageBus()
     mgr = SubagentManager(
@@ -395,8 +395,8 @@ def test_subagent_default_max_concurrent_matches_agent_defaults(tmp_path):
 
 def test_subagent_default_max_iterations_matches_agent_defaults(tmp_path):
     """Direct SubagentManager construction should use the agent default limit."""
-    from nanobot.agent.subagent import SubagentManager
-    from nanobot.bus.queue import MessageBus
+    from nanoinfra.agent.subagent import SubagentManager
+    from nanoinfra.bus.queue import MessageBus
 
     bus = MessageBus()
     mgr = SubagentManager(
@@ -410,8 +410,8 @@ def test_subagent_default_max_iterations_matches_agent_defaults(tmp_path):
 
 def test_agent_loop_passes_max_iterations_to_subagents(tmp_path):
     """AgentLoop's configured limit should be shared with spawned subagents."""
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.bus.queue import MessageBus
+    from nanoinfra.agent.loop import AgentLoop
+    from nanoinfra.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -431,8 +431,8 @@ def test_agent_loop_passes_max_iterations_to_subagents(tmp_path):
 @pytest.mark.asyncio
 async def test_agent_loop_syncs_updated_max_iterations_before_run(tmp_path):
     """Runtime max_iterations changes should be reflected before tool execution."""
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.bus.queue import MessageBus
+    from nanoinfra.agent.loop import AgentLoop
+    from nanoinfra.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -472,10 +472,10 @@ async def test_agent_loop_syncs_updated_max_iterations_before_run(tmp_path):
 @pytest.mark.asyncio
 async def test_drain_pending_blocks_while_subagents_running(tmp_path):
     """_drain_pending should block when no messages are available but sub-agents are still running."""
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.bus.events import InboundMessage
-    from nanobot.bus.queue import MessageBus
-    from nanobot.session.manager import Session
+    from nanoinfra.agent.loop import AgentLoop
+    from nanoinfra.bus.events import InboundMessage
+    from nanoinfra.bus.queue import MessageBus
+    from nanoinfra.session.manager import Session
 
     bus = MessageBus()
     provider = MagicMock()
@@ -566,8 +566,8 @@ async def test_drain_pending_blocks_while_subagents_running(tmp_path):
 @pytest.mark.asyncio
 async def test_drain_pending_no_block_when_no_subagents(tmp_path):
     """_drain_pending should not block when no sub-agents are running."""
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.bus.queue import MessageBus
+    from nanoinfra.agent.loop import AgentLoop
+    from nanoinfra.bus.queue import MessageBus
 
     bus = MessageBus()
     provider = MagicMock()
@@ -614,9 +614,9 @@ async def test_drain_pending_no_block_when_no_subagents(tmp_path):
 @pytest.mark.asyncio
 async def test_drain_pending_timeout(tmp_path):
     """_drain_pending should return empty after timeout when sub-agents hang."""
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.bus.queue import MessageBus
-    from nanobot.session.manager import Session
+    from nanoinfra.agent.loop import AgentLoop
+    from nanoinfra.bus.queue import MessageBus
+    from nanoinfra.session.manager import Session
 
     bus = MessageBus()
     provider = MagicMock()
@@ -669,7 +669,7 @@ async def test_drain_pending_timeout(tmp_path):
         awaitable.close()
         raise asyncio.TimeoutError
 
-    with patch("nanobot.agent.loop.asyncio.wait_for", side_effect=_timeout):
+    with patch("nanoinfra.agent.loop.asyncio.wait_for", side_effect=_timeout):
         results = await injection_callback()
         assert results == []
 

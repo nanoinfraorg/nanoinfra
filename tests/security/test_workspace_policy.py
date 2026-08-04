@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from nanobot.security.workspace_policy import (
+from nanoinfra.security.workspace_policy import (
     WorkspaceBoundaryError,
     is_path_within,
     resolve_allowed_path,

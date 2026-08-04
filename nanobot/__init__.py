@@ -1,5 +1,5 @@
 """
-nanobot - A lightweight AI agent framework
+nanoinfra - A lightweight AI agent framework
 """
 
 import tomllib
@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .agent.tools.context import RequestContext
     from .bus.runtime_events import SessionTurnPersisted
-    from .nanobot import (
+    from .nanoinfra import (
         STREAM_EVENT_REASONING_COMPLETED,
         STREAM_EVENT_REASONING_DELTA,
         STREAM_EVENT_RUN_COMPLETED,
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
         STREAM_EVENT_TOOL_FAILED,
         STREAM_EVENT_TOOL_STARTED,
         STREAM_EVENT_TYPES,
-        Nanobot,
+        Nanoinfra,
         RunResult,
         RunStream,
         SessionInfo,
@@ -45,9 +45,9 @@ def _read_pyproject_version() -> str | None:
 
 def _resolve_version() -> str:
     try:
-        return _pkg_version("nanobot-ai")
+        return _pkg_version("nanoinfra")
     except PackageNotFoundError:
-        # Source checkouts often import nanobot without installed dist-info.
+        # Source checkouts often import nanoinfra without installed dist-info.
         return _read_pyproject_version() or "0.3.0"
 
 
@@ -55,27 +55,27 @@ __version__ = _resolve_version()
 __logo__ = "🐈"
 
 _LAZY_EXPORTS = {
-    "Nanobot": ".nanobot",
-    "RunStream": ".nanobot",
-    "RunResult": ".nanobot",
+    "Nanoinfra": ".nanoinfra",
+    "RunStream": ".nanoinfra",
+    "RunResult": ".nanoinfra",
     "RequestContext": ".agent.tools.context",
     "RuntimeContextBlock": ".runtime_context",
     "RuntimeContextProvider": ".runtime_context",
-    "SessionInfo": ".nanobot",
-    "SessionSnapshot": ".nanobot",
-    "STREAM_EVENT_REASONING_COMPLETED": ".nanobot",
-    "STREAM_EVENT_REASONING_DELTA": ".nanobot",
-    "STREAM_EVENT_RUN_COMPLETED": ".nanobot",
-    "STREAM_EVENT_RUN_FAILED": ".nanobot",
-    "STREAM_EVENT_RUN_STARTED": ".nanobot",
-    "STREAM_EVENT_TEXT_COMPLETED": ".nanobot",
-    "STREAM_EVENT_TEXT_DELTA": ".nanobot",
-    "STREAM_EVENT_TOOL_COMPLETED": ".nanobot",
-    "STREAM_EVENT_TOOL_FAILED": ".nanobot",
-    "STREAM_EVENT_TOOL_STARTED": ".nanobot",
-    "STREAM_EVENT_TYPES": ".nanobot",
-    "StreamEvent": ".nanobot",
-    "StreamEventType": ".nanobot",
+    "SessionInfo": ".nanoinfra",
+    "SessionSnapshot": ".nanoinfra",
+    "STREAM_EVENT_REASONING_COMPLETED": ".nanoinfra",
+    "STREAM_EVENT_REASONING_DELTA": ".nanoinfra",
+    "STREAM_EVENT_RUN_COMPLETED": ".nanoinfra",
+    "STREAM_EVENT_RUN_FAILED": ".nanoinfra",
+    "STREAM_EVENT_RUN_STARTED": ".nanoinfra",
+    "STREAM_EVENT_TEXT_COMPLETED": ".nanoinfra",
+    "STREAM_EVENT_TEXT_DELTA": ".nanoinfra",
+    "STREAM_EVENT_TOOL_COMPLETED": ".nanoinfra",
+    "STREAM_EVENT_TOOL_FAILED": ".nanoinfra",
+    "STREAM_EVENT_TOOL_STARTED": ".nanoinfra",
+    "STREAM_EVENT_TYPES": ".nanoinfra",
+    "StreamEvent": ".nanoinfra",
+    "StreamEventType": ".nanoinfra",
     "SessionTurnPersisted": ".bus.runtime_events",
 }
 
@@ -92,7 +92,7 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
-    "Nanobot",
+    "Nanoinfra",
     "RunResult",
     "RequestContext",
     "RuntimeContextBlock",

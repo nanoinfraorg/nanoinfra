@@ -7,11 +7,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from nanobot.webui.attachment_ingress import (
+from nanoinfra.webui.attachment_ingress import (
     extract_data_url_mime,
     store_inbound_attachments,
 )
-from nanobot.webui.ingress_policy import AttachmentIngressLimits
+from nanoinfra.webui.ingress_policy import AttachmentIngressLimits
 
 
 def _data_url(mime: str, payload: bytes) -> str:
@@ -45,7 +45,7 @@ def test_store_inbound_document_preserves_safe_name(tmp_path: Path) -> None:
     paths, rejection = store_inbound_attachments(
         [
             {
-                "data_url": _data_url("text/csv", b"name,value\nnanobot,1"),
+                "data_url": _data_url("text/csv", b"name,value\nnanoinfra,1"),
                 "name": "report.csv",
             },
         ],
@@ -58,7 +58,7 @@ def test_store_inbound_document_preserves_safe_name(tmp_path: Path) -> None:
     saved = Path(paths[0])
     assert saved.parent == tmp_path
     assert saved.name.endswith("_report.csv")
-    assert saved.read_bytes() == b"name,value\nnanobot,1"
+    assert saved.read_bytes() == b"name,value\nnanoinfra,1"
 
 
 def test_invalid_batch_removes_files_already_persisted(tmp_path: Path) -> None:

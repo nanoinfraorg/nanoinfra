@@ -14,7 +14,7 @@ Prefer a named `modelPresets` entry for the model/provider pair, then select it 
 
 ## Choose a Provider Without Guessing
 
-The docs show concrete provider names so the JSON is copyable, not because nanobot ranks providers. Start from the service or endpoint you actually control:
+The docs show concrete provider names so the JSON is copyable, not because nanoinfra ranks providers. Start from the service or endpoint you actually control:
 
 | If you have... | Configure... |
 |---|---|
@@ -22,8 +22,8 @@ The docs show concrete provider names so the JSON is copyable, not because nanob
 | An OpenCode Zen or Go key | `providers.opencodeZen.apiKey` or `providers.opencodeGo.apiKey`, then a preset with `provider: "opencode_zen"` or `provider: "opencode_go"`. |
 | A company proxy or regional endpoint | The matching provider block plus `apiBase` if the proxy gives you a URL. |
 | A local OpenAI-compatible server | A local provider block such as `ollama`, `vllm`, `lmStudio`, or `custom`, usually with `apiBase`. |
-| An OAuth-based account | Run the matching `nanobot provider login ...` command, then select that provider explicitly in a preset. |
-| No provider yet | Pick one outside nanobot based on account access, pricing, regional availability, privacy requirements, and the model IDs you need. Then come back with its key and model ID. |
+| An OAuth-based account | Run the matching `nanoinfra provider login ...` command, then select that provider explicitly in a preset. |
+| No provider yet | Pick one outside nanoinfra based on account access, pricing, regional availability, privacy requirements, and the model IDs you need. Then come back with its key and model ID. |
 
 ## Minimal Shape
 
@@ -51,7 +51,7 @@ The docs show concrete provider names so the JSON is copyable, not because nanob
 }
 ```
 
-The provider config gives nanobot credentials and endpoint details. The model preset names the provider/model pair. The agent defaults choose which named preset to use for normal turns. Replace the example provider and model together; mixing an API key from one provider with a model ID from another is the most common first-run failure.
+The provider config gives nanoinfra credentials and endpoint details. The model preset names the provider/model pair. The agent defaults choose which named preset to use for normal turns. Replace the example provider and model together; mixing an API key from one provider with a model ID from another is the most common first-run failure.
 
 ## Provider, Model, API Key, and Base URL
 
@@ -59,15 +59,15 @@ These fields answer different questions:
 
 | Field | Where it lives | Meaning |
 |---|---|---|
-| `provider` | `modelPresets.<name>.provider` | Which nanobot provider adapter should send the request. |
+| `provider` | `modelPresets.<name>.provider` | Which nanoinfra provider adapter should send the request. |
 | `model` | `modelPresets.<name>.model` | The model ID expected by that provider or gateway. |
 | `apiKey` | `providers.<provider>.apiKey` | Credential for that provider. Use `${ENV_VAR}` for secrets. |
 | `apiBase` | `providers.<provider>.apiBase` | HTTP base URL of the provider endpoint. |
 | `proxy` | `providers.<provider>.proxy` | Optional HTTP proxy for this provider only. Supported for OpenAI-compatible providers, OpenAI Codex, and xAI OAuth. |
 
-You usually omit `apiBase` for hosted built-in providers such as OpenRouter, Anthropic direct, OpenAI direct, Groq, or Bedrock because nanobot knows their default endpoints. Set `apiBase` for `custom`, local OpenAI-compatible servers, provider proxies, regional endpoints, or subscription endpoints. Include the API version path when the endpoint requires it, for example `https://api.example.com/v1` or `http://localhost:11434/v1`.
+You usually omit `apiBase` for hosted built-in providers such as OpenRouter, Anthropic direct, OpenAI direct, Groq, or Bedrock because nanoinfra knows their default endpoints. Set `apiBase` for `custom`, local OpenAI-compatible servers, provider proxies, regional endpoints, or subscription endpoints. Include the API version path when the endpoint requires it, for example `https://api.example.com/v1` or `http://localhost:11434/v1`.
 
-Use `proxy` when one provider must send HTTP traffic through a proxy without changing process-wide `HTTP_PROXY` / `HTTPS_PROXY`. This is supported for providers that use nanobot's OpenAI-compatible client, including `openai`, `custom`, named custom providers, OpenRouter-style gateways, local OpenAI-compatible servers, and similar registry entries. It is also supported for `openai_codex` and `xai_grok`, including OAuth token exchange/refresh and model requests. Native provider backends such as `anthropic`, `bedrock`, `azure_openai`, and `github_copilot` reject `proxy`; use their endpoint-specific configuration instead.
+Use `proxy` when one provider must send HTTP traffic through a proxy without changing process-wide `HTTP_PROXY` / `HTTPS_PROXY`. This is supported for providers that use nanoinfra's OpenAI-compatible client, including `openai`, `custom`, named custom providers, OpenRouter-style gateways, local OpenAI-compatible servers, and similar registry entries. It is also supported for `openai_codex` and `xai_grok`, including OAuth token exchange/refresh and model requests. Native provider backends such as `anthropic`, `bedrock`, `azure_openai`, and `github_copilot` reject `proxy`; use their endpoint-specific configuration instead.
 
 ## Common Provider Patterns
 
@@ -128,7 +128,7 @@ the full `provider/model` identifier listed by Eden AI:
 }
 ```
 
-Nanobot sends the model ID unchanged, including its provider prefix. Use
+Nanoinfra sends the model ID unchanged, including its provider prefix. Use
 Eden AI's [model listing](https://www.edenai.co/docs/v3/llms/listing-models)
 to choose a currently available model. The WebUI can also load that catalog
 after the Eden AI API key is saved under **Settings → Models**.
@@ -137,7 +137,7 @@ after the Eden AI API key is saved under **Settings → Models**.
 
 OpenCode Zen and OpenCode Go are OpenCode-managed gateways for coding-agent models.
 They share `OPENCODE_API_KEY`, but use separate provider config keys and default base
-URLs in nanobot.
+URLs in nanoinfra.
 
 ```json
 {
@@ -183,7 +183,7 @@ For OpenCode Go, switch the provider block and preset:
 ```
 
 OpenCode documents model IDs with `opencode/<model-id>` for Zen and
-`opencode-go/<model-id>` for Go. nanobot accepts those prefixes and strips them
+`opencode-go/<model-id>` for Go. nanoinfra accepts those prefixes and strips them
 before sending the request to OpenCode. Use model IDs that OpenCode lists under
 the `chat/completions` endpoint; models listed only under `responses`,
 `messages`, or provider-specific endpoints are not handled by this
@@ -331,9 +331,9 @@ If you have more than one custom OpenAI-compatible endpoint, give each endpoint 
 }
 ```
 
-Custom provider keys are treated as direct OpenAI-compatible providers. `apiBase` is required because nanobot cannot know the endpoint URL. `apiKey` is optional for local servers or private proxies that do not require one. Choose a name that does not conflict with a built-in provider name or alias, such as `openai`, `openai-codex`, `github-copilot`, or `lm-studio`. Do not set `apiType` on custom provider keys; `apiType` is only for `providers.openai`.
+Custom provider keys are treated as direct OpenAI-compatible providers. `apiBase` is required because nanoinfra cannot know the endpoint URL. `apiKey` is optional for local servers or private proxies that do not require one. Choose a name that does not conflict with a built-in provider name or alias, such as `openai`, `openai-codex`, `github-copilot`, or `lm-studio`. Do not set `apiType` on custom provider keys; `apiType` is only for `providers.openai`.
 
-If your custom endpoint documents a nonstandard thinking toggle, set `providers.<name>.thinkingStyle` to `thinking_type`, `enable_thinking`, or `reasoning_split`; nanobot then maps `reasoningEffort` onto that provider-specific request body. Leave it unset for ordinary OpenAI-compatible endpoints.
+If your custom endpoint documents a nonstandard thinking toggle, set `providers.<name>.thinkingStyle` to `thinking_type`, `enable_thinking`, or `reasoning_split`; nanoinfra then maps `reasoningEffort` onto that provider-specific request body. Leave it unset for ordinary OpenAI-compatible endpoints.
 
 This named custom provider path is not for Anthropic-compatible endpoints. For Anthropic-compatible proxies, use `providers.anthropic.apiBase` and set the preset provider to `anthropic`.
 
@@ -366,7 +366,7 @@ Create a ModelScope [access token](https://modelscope.cn/my/myaccesstoken), then
 }
 ```
 
-Use an inference-enabled model ID exactly as ModelScope publishes it (usually `Namespace/model-name`). The default base URL is `https://api-inference.modelscope.cn/v1`; override `providers.modelscope.apiBase` only if your account routes through a different host. Chat model IDs may optionally be prefixed with `modelscope/`; nanobot strips that routing prefix before sending the request.
+Use an inference-enabled model ID exactly as ModelScope publishes it (usually `Namespace/model-name`). The default base URL is `https://api-inference.modelscope.cn/v1`; override `providers.modelscope.apiBase` only if your account routes through a different host. Chat model IDs may optionally be prefixed with `modelscope/`; nanoinfra strips that routing prefix before sending the request.
 
 ModelScope image generation reuses the same provider key but is configured under `tools.imageGeneration`, not in a model preset:
 
@@ -386,7 +386,7 @@ Use the image model's exact ModelScope ID without a leading `modelscope/`; the i
 
 ### Ollama
 
-Start Ollama separately, then point nanobot at the OpenAI-compatible endpoint.
+Start Ollama separately, then point nanoinfra at the OpenAI-compatible endpoint.
 
 ```json
 {
@@ -415,7 +415,7 @@ Most Ollama setups do not require an API key.
 
 Ollama renders the OpenAI-compatible messages and tools through each model's chat
 template. If ordinary model responses are fast but tool-using turns show low prompt
-cache reuse, diagnose the rendered template before changing nanobot's context or
+cache reuse, diagnose the rendered template before changing nanoinfra's context or
 memory settings. The
 [Ollama prompt-cache guide](./guides/configure-ollama-prompt-cache.md) explains the
 log pattern and a tested `llama3.1:8b` workaround.
@@ -512,32 +512,32 @@ Some providers do not use API keys in `config.json`.
 For OpenAI Codex:
 
 ```bash
-nanobot provider login openai-codex --set-main
+nanoinfra provider login openai-codex --set-main
 ```
 
 For an eligible X Premium / Grok subscription:
 
 ```bash
-nanobot provider login xai-grok --set-main
+nanoinfra provider login xai-grok --set-main
 ```
 
 This selects `xai-grok/grok-4.5`. The provider reads xAI's model catalog and
 exposes the hosted `x_search` tool only when the selected model advertises
 `supportsBackendSearch`; otherwise the model runs without hosted X Search.
 When enabled, Grok can search current X posts and return inline source links
-without invoking a local nanobot tool. Credentials are stored under the
-active instance's `auth/xai.json` (normally `~/.nanobot/auth/xai.json`), not in
+without invoking a local nanoinfra tool. Credentials are stored under the
+active instance's `auth/xai.json` (normally `~/.nanoinfra/auth/xai.json`), not in
 `config.json` and not in Grok Build's credential file.
 
 The login is xAI subscription OAuth, not X Developer OAuth. It follows the
 public client contract documented and implemented by
 [Grok Build](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md);
-xAI may change that upstream contract independently of nanobot.
+xAI may change that upstream contract independently of nanoinfra.
 
 For GitHub Copilot:
 
 ```bash
-nanobot provider login github-copilot --set-main
+nanoinfra provider login github-copilot --set-main
 ```
 
 Each command authenticates the selected provider and makes its current default model active. OpenAI Codex and eligible GitHub Copilot models participate in [Responses state retention](./configuration.md#responses-state-and-compaction), while native compaction remains provider-capability-specific. OAuth providers are not valid automatic fallbacks. See [`troubleshooting.md`](./troubleshooting.md#provider-and-model-problems) for proxy, headless-login, model-name, and config-key errors.
@@ -641,7 +641,7 @@ Fallbacks are useful for transient provider failures, rate limits, or model avai
 }
 ```
 
-String entries in `fallbackModels` are preset names, not raw model names. nanobot tries them in order after the active preset. Each fallback preset uses its own `provider`, `model`, `maxTokens`, `contextWindowTokens`, `temperature`, and optional `reasoningEffort`.
+String entries in `fallbackModels` are preset names, not raw model names. nanoinfra tries them in order after the active preset. Each fallback preset uses its own `provider`, `model`, `maxTokens`, `contextWindowTokens`, `temperature`, and optional `reasoningEffort`.
 
 Use inline fallback objects only when a model is not worth naming as a preset:
 
@@ -671,18 +671,18 @@ Use inline fallback objects only when a model is not worth naming as a preset:
 }
 ```
 
-`fallbackModels` belongs under `agents.defaults`, not inside each preset. If fallback candidates use smaller context windows, nanobot builds context using the smallest window in the active chain so every candidate can receive the same prompt. See [`configuration.md#model-fallbacks`](./configuration.md#model-fallbacks) for failure conditions.
+`fallbackModels` belongs under `agents.defaults`, not inside each preset. If fallback candidates use smaller context windows, nanoinfra builds context using the smallest window in the active chain so every candidate can receive the same prompt. See [`configuration.md#model-fallbacks`](./configuration.md#model-fallbacks) for failure conditions.
 
 ## Quick Checks
 
 Run these before debugging a chat app:
 
 ```bash
-nanobot status
-nanobot agent -m "Hello!"
+nanoinfra status
+nanoinfra agent -m "Hello!"
 ```
 
-If `nanobot agent -m "Hello!"` fails:
+If `nanoinfra agent -m "Hello!"` fails:
 
 | Symptom | Likely cause |
 |---|---|

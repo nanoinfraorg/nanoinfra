@@ -1,5 +1,5 @@
 {
-  "description": "Utilisez nanobot depuis les messages Signal.",
+  "description": "Utilisez nanoinfra depuis les messages Signal.",
   "requirements": "Service HTTP signal-cli, numéro de téléphone et liste d’autorisation",
   "setup": {
     "docsLabel": "Ouvrir le guide Signal",

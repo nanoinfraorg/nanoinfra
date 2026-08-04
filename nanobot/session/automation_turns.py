@@ -55,8 +55,8 @@ def automation_history_overrides_for_spec(
 @lru_cache(maxsize=1)
 def _automation_specs() -> tuple[AutomationTurnSpec, ...]:
     # Source modules import the generic helpers above, so keep spec loading lazy.
-    from nanobot.cron.session_turns import CRON_AUTOMATION_SPEC
-    from nanobot.triggers.local_session_turns import LOCAL_TRIGGER_AUTOMATION_SPEC
+    from nanoinfra.cron.session_turns import CRON_AUTOMATION_SPEC
+    from nanoinfra.triggers.local_session_turns import LOCAL_TRIGGER_AUTOMATION_SPEC
 
     return (CRON_AUTOMATION_SPEC, LOCAL_TRIGGER_AUTOMATION_SPEC)
 

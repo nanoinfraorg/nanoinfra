@@ -1,5 +1,5 @@
 {
-  "description": "Sử dụng nanobot trong cuộc trò chuyện và nhóm Feishu.",
+  "description": "Sử dụng nanoinfra trong cuộc trò chuyện và nhóm Feishu.",
   "requirements": "Thông tin xác thực Feishu, đăng ký sự kiện và gateway",
   "setup": {
     "primaryAction": "Kết nối Feishu",
@@ -9,7 +9,7 @@
     "summary": "Kết nối tạo hoặc liên kết ứng dụng Feishu bằng QR và lưu thông tin xác thực.",
     "steps": [
       "Nhấn Kết nối và quét QR bằng Feishu hoặc Lark.",
-      "Phê duyệt kết nối. nanobot tự lưu App ID và Secret.",
+      "Phê duyệt kết nối. nanoinfra tự lưu App ID và Secret.",
       "Gửi tin nhắn riêng cho bot hoặc nhắc bot trong nhóm Feishu."
     ],
     "fields": {
@@ -64,7 +64,7 @@
     "countMany": "Đã kết nối {{count}} trợ lý",
     "qrAlt": "Mã QR kết nối Feishu",
     "scanTitle": "Quét bằng Feishu",
-    "scanDescription": "Quét bằng Feishu hoặc Lark trên điện thoại. nanobot sẽ hoàn tất cấu hình sau khi cấp quyền.",
+    "scanDescription": "Quét bằng Feishu hoặc Lark trên điện thoại. nanoinfra sẽ hoàn tất cấu hình sau khi cấp quyền.",
     "waiting": "Đang chờ cấp quyền...",
     "connected": "Feishu đã kết nối.",
     "stopped": "Kết nối đã dừng.",

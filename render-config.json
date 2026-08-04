@@ -19,7 +19,7 @@
       "enabled": true,
       "host": "0.0.0.0",
       "port": 8765,
-      "tokenIssueSecret": "${NANOBOT_WEB_TOKEN}",
+      "tokenIssueSecret": "${NANOINFRA_WEB_TOKEN}",
       "websocketRequiresToken": true
     }
   },

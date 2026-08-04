@@ -14,7 +14,7 @@ def _run_import_probe(source: str) -> str:
 
 def test_feishu_module_import_does_not_import_lark_oapi():
     out = _run_import_probe(
-        "import sys; import nanobot.channels.feishu; print('lark_oapi' in sys.modules)"
+        "import sys; import nanoinfra.channels.feishu; print('lark_oapi' in sys.modules)"
     )
 
     assert out == "False"
@@ -23,8 +23,8 @@ def test_feishu_module_import_does_not_import_lark_oapi():
 def test_feishu_channel_constructor_does_not_import_lark_oapi():
     out = _run_import_probe(
         "import sys; "
-        "from nanobot.bus.queue import MessageBus; "
-        "from nanobot.channels.feishu.runtime import FeishuChannel; "
+        "from nanoinfra.bus.queue import MessageBus; "
+        "from nanoinfra.channels.feishu.runtime import FeishuChannel; "
         "FeishuChannel({'enabled': True}, MessageBus()); "
         "print('lark_oapi' in sys.modules)"
     )
@@ -38,7 +38,7 @@ def test_lark_runtime_thread_import_clears_sdk_import_loop():
         "import sys\n"
         "import tempfile\n"
         "from pathlib import Path\n"
-        "from nanobot.channels.feishu.runtime import _load_lark_runtime\n"
+        "from nanoinfra.channels.feishu.runtime import _load_lark_runtime\n"
         "root = Path(tempfile.mkdtemp())\n"
         "pkg = root / 'lark_oapi'\n"
         "(pkg / 'ws').mkdir(parents=True)\n"
@@ -65,7 +65,7 @@ def test_lark_runtime_thread_import_is_serialized_for_multiple_instances():
         "import sys\n"
         "import tempfile\n"
         "from pathlib import Path\n"
-        "from nanobot.channels.feishu.runtime import _load_lark_runtime\n"
+        "from nanoinfra.channels.feishu.runtime import _load_lark_runtime\n"
         "root = Path(tempfile.mkdtemp())\n"
         "pkg = root / 'lark_oapi'\n"
         "(pkg / 'ws').mkdir(parents=True)\n"

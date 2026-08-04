@@ -2,10 +2,10 @@
 
 from typing import TYPE_CHECKING, Any
 
-from nanobot.cron.types import CronJob, CronSchedule
+from nanoinfra.cron.types import CronJob, CronSchedule
 
 if TYPE_CHECKING:
-    from nanobot.cron.service import CronService
+    from nanoinfra.cron.service import CronService
 
 __all__ = ["CronService", "CronJob", "CronSchedule"]
 

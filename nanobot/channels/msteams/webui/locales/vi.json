@@ -1,5 +1,5 @@
 {
-  "description": "Sử dụng nanobot từ các cuộc trò chuyện Microsoft Teams.",
+  "description": "Sử dụng nanoinfra từ các cuộc trò chuyện Microsoft Teams.",
   "requirements": "Thông tin xác thực bot Azure và endpoint callback công khai",
   "setup": {
     "docsLabel": "Mở hướng dẫn Teams",

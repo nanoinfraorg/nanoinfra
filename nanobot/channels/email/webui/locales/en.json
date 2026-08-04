@@ -1,5 +1,5 @@
 {
-  "description": "Let nanobot receive and answer email messages.",
+  "description": "Let nanoinfra receive and answer email messages.",
   "requirements": "IMAP inbox, SMTP sender, app password, explicit consent",
   "setup": {
     "docsLabel": "Open Email setup",

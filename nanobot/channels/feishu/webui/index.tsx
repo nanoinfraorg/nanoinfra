@@ -19,7 +19,7 @@ export default {
     logoUrl: "https://www.feishu.cn/favicon.ico",
     setup: {
       mode: "connect",
-      command: "nanobot channels login feishu",
+      command: "nanoinfra channels login feishu",
       docsUrl: chatAppGuideUrl("feishu"),
       manualFields: [
         { key: "channels.feishu.appId" },

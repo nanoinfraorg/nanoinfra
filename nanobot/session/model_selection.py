@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import cast
 
 # Session.metadata is public SDK data, so internal selectors use a reserved namespace.
-SESSION_MODEL_PRESET_METADATA_KEY = "_nanobot_model_preset"
+SESSION_MODEL_PRESET_METADATA_KEY = "_nanoinfra_model_preset"
 
 
 def model_preset_from_metadata(metadata: object) -> str | None:

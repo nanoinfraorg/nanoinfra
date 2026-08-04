@@ -1,12 +1,12 @@
 # Concepts
 
-Use this page when you want to understand nanobot before changing advanced settings. It explains the moving parts without requiring you to read the source first.
+Use this page when you want to understand nanoinfra before changing advanced settings. It explains the moving parts without requiring you to read the source first.
 
 If you want source-file ownership and extension points, read [`architecture.md`](./architecture.md) after this page.
 
 ## Runtime Shape
 
-nanobot has one small core loop and several ways to enter it:
+nanoinfra has one small core loop and several ways to enter it:
 
 | Part | What it does |
 |---|---|
@@ -17,26 +17,26 @@ nanobot has one small core loop and several ways to enter it:
 | Memory | Workspace files and session history that keep useful context across turns |
 | Gateway | Long-running process that connects enabled channels and serves the health endpoint |
 
-The simplest path is `nanobot agent -m "Hello!"`: one inbound message goes through the agent loop and prints the reply in your terminal. The long-running path is `nanobot gateway`: channels receive messages from chat apps or the WebUI, publish them to the same agent loop, and send replies back to the originating channel.
+The simplest path is `nanoinfra agent -m "Hello!"`: one inbound message goes through the agent loop and prints the reply in your terminal. The long-running path is `nanoinfra gateway`: channels receive messages from chat apps or the WebUI, publish them to the same agent loop, and send replies back to the originating channel.
 
 ## Config vs Workspace
 
-The default instance lives under `~/.nanobot/`:
+The default instance lives under `~/.nanoinfra/`:
 
 | Path | Meaning |
 |---|---|
-| `~/.nanobot/config.json` | Instance configuration: providers, model defaults, channels, tools, gateway, API, and runtime options |
-| `~/.nanobot/workspace/` | Agent workspace: memory, sessions, heartbeat tasks, cron jobs, skills, and generated artifacts |
+| `~/.nanoinfra/config.json` | Instance configuration: providers, model defaults, channels, tools, gateway, API, and runtime options |
+| `~/.nanoinfra/workspace/` | Agent workspace: memory, sessions, heartbeat tasks, cron jobs, skills, and generated artifacts |
 
 You can override both with command flags:
 
 ```bash
-nanobot onboard --config ./bot-a/config.json --workspace ./bot-a/workspace
-nanobot agent --config ./bot-a/config.json --workspace ./bot-a/workspace -m "Hello"
-nanobot gateway --config ./bot-a/config.json --workspace ./bot-a/workspace
+nanoinfra onboard --config ./bot-a/config.json --workspace ./bot-a/workspace
+nanoinfra agent --config ./bot-a/config.json --workspace ./bot-a/workspace -m "Hello"
+nanoinfra gateway --config ./bot-a/config.json --workspace ./bot-a/workspace
 ```
 
-The config file controls what nanobot may use. The workspace is where nanobot keeps state for that instance.
+The config file controls what nanoinfra may use. The workspace is where nanoinfra keeps state for that instance.
 
 ### Agent Workspace and Project Workspace
 
@@ -57,9 +57,9 @@ a second agent or relocate the configured agent workspace.
 
 ## Config Format
 
-`config.json` accepts both camelCase and snake_case keys. The docs use camelCase because nanobot writes config back to disk with camelCase aliases, for example `apiKey`, `modelPresets`, `intervalS`, and `maxToolResultChars`.
+`config.json` accepts both camelCase and snake_case keys. The docs use camelCase because nanoinfra writes config back to disk with camelCase aliases, for example `apiKey`, `modelPresets`, `intervalS`, and `maxToolResultChars`.
 
-Most examples are partial snippets. Merge them into the existing file created by `nanobot onboard`; do not replace the whole file unless you want to reset the instance.
+Most examples are partial snippets. Merge them into the existing file created by `nanoinfra onboard`; do not replace the whole file unless you want to reset the instance.
 
 ## One Agent Turn
 
@@ -77,11 +77,11 @@ That flow is the same whether the message starts in the CLI, WebUI, Telegram, Di
 
 | Entry point | Command | Use it for |
 |---|---|---|
-| CLI one-shot | `nanobot agent -m "..."` | First-run checks, scripts, and quick local questions |
-| CLI interactive | `nanobot agent` | Terminal chat with persistent session history |
-| Gateway | `nanobot gateway` | Chat apps, WebUI, heartbeat, Dream, and long-running service mode |
-| OpenAI-compatible API | `nanobot serve` | Programmatic access through `/v1/chat/completions` |
-| WebUI | `nanobot webui` | Prepare the local WebUI, start the gateway, and open the browser workbench |
+| CLI one-shot | `nanoinfra agent -m "..."` | First-run checks, scripts, and quick local questions |
+| CLI interactive | `nanoinfra agent` | Terminal chat with persistent session history |
+| Gateway | `nanoinfra gateway` | Chat apps, WebUI, heartbeat, Dream, and long-running service mode |
+| OpenAI-compatible API | `nanoinfra serve` | Programmatic access through `/v1/chat/completions` |
+| WebUI | `nanoinfra webui` | Prepare the local WebUI, start the gateway, and open the browser workbench |
 
 The WebUI launcher is the normal browser entry point. Underneath, the gateway keeps the WebSocket channel and other long-running services alive. The gateway health endpoint is on `gateway.port` (`18790` by default); the browser WebUI is served on `8765` by default, not by the health endpoint.
 
@@ -89,8 +89,8 @@ The WebUI launcher is the normal browser entry point. Underneath, the gateway ke
 
 The active model should normally come from a named `modelPresets` entry selected by `agents.defaults.modelPreset`. Direct `agents.defaults.provider` and `agents.defaults.model` still form the implicit `default` preset for older or minimal configs. The active provider is resolved in this order:
 
-1. If the active preset provider or implicit default provider is not `"auto"`, nanobot uses that provider.
-2. If provider is `"auto"`, nanobot tries to infer the provider from the model name, configured API keys, local provider base URLs, or gateway providers.
+1. If the active preset provider or implicit default provider is not `"auto"`, nanoinfra uses that provider.
+2. If provider is `"auto"`, nanoinfra tries to infer the provider from the model name, configured API keys, local provider base URLs, or gateway providers.
 3. OAuth providers such as OpenAI Codex and GitHub Copilot require explicit login and explicit provider/model selection inside the active preset.
 
 Pin the provider inside the preset when setting up for the first time. It is easier to debug:
@@ -121,7 +121,7 @@ Each channel maps inbound messages to a session key. That lets independent conve
 
 ## Memory, Sessions, and Dream
 
-nanobot uses two related stores:
+nanoinfra uses two related stores:
 
 | Store | Location | Purpose |
 |---|---|---|
@@ -148,13 +148,13 @@ Security-sensitive controls live in [`configuration.md#security`](./configuratio
 
 ## Background Jobs
 
-When `nanobot gateway` starts, it runs workspace-scoped automations and
+When `nanoinfra gateway` starts, it runs workspace-scoped automations and
 registers system jobs:
 
 - `dream`, when `agents.defaults.dream.enabled` is true;
 - `heartbeat`, when `gateway.heartbeat.enabled` is true.
 
-Heartbeat reads `<workspace>/HEARTBEAT.md`. If the file has tasks under `## Active Tasks`, nanobot executes them and sends only useful/actionable results to the most recently active chat target. Routine "nothing changed" results are suppressed.
+Heartbeat reads `<workspace>/HEARTBEAT.md`. If the file has tasks under `## Active Tasks`, nanoinfra executes them and sends only useful/actionable results to the most recently active chat target. Routine "nothing changed" results are suppressed.
 
 User-created reminders use the same cron service but are not the same as the
 protected heartbeat system job. They run as scheduled turns in their origin
@@ -162,9 +162,9 @@ chat/session and normally deliver the result back to that channel.
 
 Local triggers are also session-bound, but they do not have their own
 schedule. Create one from the target chat with `/trigger <name>`, then call
-`nanobot trigger <id> "<message>"` when a local script or external service wants
-nanobot to respond in that session. Webhook servers, third-party auth, and
-event-to-message formatting stay outside nanobot. Trigger deliveries are stored
+`nanoinfra trigger <id> "<message>"` when a local script or external service wants
+nanoinfra to respond in that session. Webhook servers, third-party auth, and
+event-to-message formatting stay outside nanoinfra. Trigger deliveries are stored
 in the workspace until the linked agent turn finishes successfully. If the
 target session is busy, the trigger waits until that session is idle instead of
 being injected into the active turn. The message is recorded as an automation

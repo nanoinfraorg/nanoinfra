@@ -1,5 +1,5 @@
 {
-  "description": "在 Mattermost 頻道和私訊中使用 nanobot。",
+  "description": "在 Mattermost 頻道和私訊中使用 nanoinfra。",
   "requirements": "Mattermost 伺服器網址、機器人權杖和頻道權限",
   "setup": {
     "docsLabel": "開啟 Mattermost 設定指南",

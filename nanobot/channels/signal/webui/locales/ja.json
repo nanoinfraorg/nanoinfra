@@ -1,5 +1,5 @@
 {
-  "description": "Signal メッセージから nanobot を利用します。",
+  "description": "Signal メッセージから nanoinfra を利用します。",
   "requirements": "signal-cli HTTP デーモン、電話番号、許可リスト",
   "setup": {
     "docsLabel": "Signal 設定ガイドを開く",

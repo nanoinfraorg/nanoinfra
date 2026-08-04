@@ -46,4 +46,4 @@ Information about the user to help personalize interactions.
 
 ---
 
-*Edit this file to customize nanobot's behavior for your needs.*
+*Edit this file to customize nanoinfra's behavior for your needs.*

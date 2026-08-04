@@ -1,12 +1,12 @@
 # Channel Package Guide
 
-Use this guide to add a self-contained channel package to the nanobot repository. A channel is part of nanobot when its package lives at `nanobot/channels/<channel>/`; there is no separate external channel-plugin path.
+Use this guide to add a self-contained channel package to the nanoinfra repository. A channel is part of nanoinfra when its package lives at `nanoinfra/channels/<channel>/`; there is no separate external channel-plugin path.
 
-> **Breaking change:** nanobot no longer discovers the `nanobot.channels` Python entry-point group. Move an entry-point implementation into `nanobot/channels/<channel>/` with a package-owned manifest, runtime, tests, and optional WebUI contribution.
+> **Breaking change:** nanoinfra no longer discovers the `nanoinfra.channels` Python entry-point group. Move an entry-point implementation into `nanoinfra/channels/<channel>/` with a package-owned manifest, runtime, tests, and optional WebUI contribution.
 
 ## How It Works
 
-When `nanobot gateway` starts, nanobot scans the packages under `nanobot/channels/` and loads each dependency-free `ChannelPlugin` descriptor from `manifest.py`.
+When `nanoinfra gateway` starts, nanoinfra scans the packages under `nanoinfra/channels/` and loads each dependency-free `ChannelPlugin` descriptor from `manifest.py`.
 
 If a matching config section has `"enabled": true`, the channel is instantiated and started.
 
@@ -34,7 +34,7 @@ We'll build a minimal webhook channel that receives messages via HTTP POST and s
 ### Project Structure
 
 ```text
-nanobot/channels/webhook/
+nanoinfra/channels/webhook/
 ├── __init__.py          # lightweight package marker; do not import the runtime
 ├── manifest.py          # dependency-free ChannelPlugin descriptor
 ├── runtime.py           # channel implementation and optional SDK imports
@@ -45,14 +45,14 @@ nanobot/channels/webhook/
 ### 1. Create Your Channel
 
 ```python
-# nanobot/channels/webhook/__init__.py
+# nanoinfra/channels/webhook/__init__.py
 """Webhook channel package."""
 ```
 
 ```python
-# nanobot/channels/webhook/manifest.py
-from nanobot.channels.contracts import ChannelFieldSpec, ChannelSetupSpec
-from nanobot.channels.plugin import ChannelPlugin
+# nanoinfra/channels/webhook/manifest.py
+from nanoinfra.channels.contracts import ChannelFieldSpec, ChannelSetupSpec
+from nanoinfra.channels.plugin import ChannelPlugin
 
 
 PLUGIN = ChannelPlugin(
@@ -70,7 +70,7 @@ PLUGIN = ChannelPlugin(
 ```
 
 ```python
-# nanobot/channels/webhook/runtime.py
+# nanoinfra/channels/webhook/runtime.py
 import asyncio
 from typing import Any
 
@@ -78,10 +78,10 @@ from aiohttp import web
 from loguru import logger
 from pydantic import Field
 
-from nanobot.channels.base import BaseChannel
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.config.schema import Base
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.config.schema import Base
 
 
 class WebhookConfig(Base):
@@ -169,11 +169,11 @@ Declare runtime requirements directly in `ChannelPlugin.dependencies`. Do not ad
 ### 2. Configure
 
 ```bash
-nanobot plugins list      # verify the channel package appears as "webhook"
-nanobot onboard           # add default config for detected channels
+nanoinfra plugins list      # verify the channel package appears as "webhook"
+nanoinfra onboard           # add default config for detected channels
 ```
 
-Edit `~/.nanobot/config.json`:
+Edit `~/.nanoinfra/config.json`:
 
 ```json
 {
@@ -187,12 +187,12 @@ Edit `~/.nanobot/config.json`:
 }
 ```
 
-nanobot always loads the dependency-free descriptor during discovery. When the WebUI gateway starts, it installs missing requirements for enabled channels before importing their runtimes. It also installs them when a channel is enabled from the CLI or WebUI. Status, configuration, and disable operations do not need the runtime. Single-instance and multi-instance channels use the same activation rules.
+nanoinfra always loads the dependency-free descriptor during discovery. When the WebUI gateway starts, it installs missing requirements for enabled channels before importing their runtimes. It also installs them when a channel is enabled from the CLI or WebUI. Status, configuration, and disable operations do not need the runtime. Single-instance and multi-instance channels use the same activation rules.
 
 ### 3. Run & Test
 
 ```bash
-nanobot gateway
+nanoinfra gateway
 ```
 
 In another terminal:
@@ -207,12 +207,12 @@ The agent receives the message and processes it. Replies arrive in your `send()`
 
 ## Channel Package Requirements
 
-Every channel is a self-contained package at `nanobot/channels/<channel>/`; channel-specific runtime code, setup metadata, tests, WebUI structure, components, and translations stay under that directory.
+Every channel is a self-contained package at `nanoinfra/channels/<channel>/`; channel-specific runtime code, setup metadata, tests, WebUI structure, components, and translations stay under that directory.
 
 ### Package Layout
 
 ```text
-nanobot/channels/<channel>/
+nanoinfra/channels/<channel>/
 ├── __init__.py                 # package marker only; no runtime or SDK imports
 ├── manifest.py                 # dependency-free ChannelPlugin and ChannelSetupSpec
 ├── config.py                   # optional dependency-free config model and defaults
@@ -229,17 +229,17 @@ nanobot/channels/<channel>/
         └── <locale>.json       # one file for every supported WebUI locale
 ```
 
-Do not add a runtime module directly under `nanobot/channels/`, create a parallel manifest tree, or add a central per-channel UI catalog. If existing channel files move, use `git mv` so history remains traceable.
+Do not add a runtime module directly under `nanoinfra/channels/`, create a parallel manifest tree, or add a central per-channel UI catalog. If existing channel files move, use `git mv` so history remains traceable.
 
 ### Manifest and Runtime Boundary
 
-`manifest.py` exports a typed `ChannelPlugin` whose `runtime` target is an absolute import target, such as `nanobot.channels.telegram.runtime:TelegramChannel`; using `f"{__package__}.runtime:TelegramChannel"` keeps it package-owned without repeating the package path. Discovery imports the manifest before it knows whether the optional platform dependency is installed, so `manifest.py` must not import `runtime.py` or any platform SDK. Import runtime symbols from `runtime.py` explicitly; `__init__.py` remains an inert package marker.
+`manifest.py` exports a typed `ChannelPlugin` whose `runtime` target is an absolute import target, such as `nanoinfra.channels.telegram.runtime:TelegramChannel`; using `f"{__package__}.runtime:TelegramChannel"` keeps it package-owned without repeating the package path. Discovery imports the manifest before it knows whether the optional platform dependency is installed, so `manifest.py` must not import `runtime.py` or any platform SDK. Import runtime symbols from `runtime.py` explicitly; `__init__.py` remains an inert package marker.
 
 The manifest owns the channel name, display name, setup contract, management adapter, optional connector target, dependency requirements, capabilities, default activation, and optional WebUI entry path. The management adapter alone decides whether a channel is single-instance or multi-instance.
 
 Interactive browser setup uses one small connector contract. Set `connector=f"{__package__}.connect:MyConnectStore"`; the target is loaded only when `/api/settings/channels/<name>/connect/{start,poll,cancel}` is called. The store exposes one async `handle(action, query)` method and keeps platform-specific parsing, sessions, and errors inside the channel package. The shared settings router only authenticates, dispatches, and applies a successful connection.
 
-Use the small constructors in [`nanobot/channels/_manifest.py`](../nanobot/channels/_manifest.py) for declarative field and requirement definitions. Use [`nanobot/channels/dingtalk/manifest.py`](../nanobot/channels/dingtalk/manifest.py) as a compact single-instance example and [`nanobot/channels/feishu/`](../nanobot/channels/feishu/) as a multi-instance example.
+Use the small constructors in [`nanoinfra/channels/_manifest.py`](../nanoinfra/channels/_manifest.py) for declarative field and requirement definitions. Use [`nanoinfra/channels/dingtalk/manifest.py`](../nanoinfra/channels/dingtalk/manifest.py) as a compact single-instance example and [`nanoinfra/channels/feishu/`](../nanoinfra/channels/feishu/) as a multi-instance example.
 
 ### Package-owned WebUI
 
@@ -255,7 +255,7 @@ Create `webui/locales/<locale>.json` for every locale code declared in [`webui/s
 
 ```json
 {
-  "description": "Use nanobot from Example chats.",
+  "description": "Use nanoinfra from Example chats.",
   "requirements": "Example app credentials and gateway",
   "setup": {
     "docsLabel": "Open Example setup",
@@ -294,7 +294,7 @@ Custom channel components should read dynamic copy with `channelTranslator(t, "<
 The dependency direction is intentional:
 
 - [`webui/src/i18n/index.ts`](../webui/src/i18n/index.ts) imports the pure JSON [`channel-plugins/locale-registry.ts`](../webui/src/channel-plugins/locale-registry.ts).
-- The locale registry discovers only `nanobot/channels/*/webui/locales/*.json` and must not import the UI registry, React, or TSX.
+- The locale registry discovers only `nanoinfra/channels/*/webui/locales/*.json` and must not import the UI registry, React, or TSX.
 - Settings components may consume both the UI registry and locale registry.
 - Channel UI code may use shared types and generic settings components, but core settings code must not add `if (feature.name === "...")` branches for individual channels.
 
@@ -302,12 +302,12 @@ This separation prevents i18n initialization from eagerly loading every channel 
 
 ### Tests and Definition of Done
 
-Put channel-specific Python tests in `nanobot/channels/<channel>/tests/`. Keep only shared registry, manager, base-class, and cross-channel contract tests in `tests/channels/`. Release builds exclude package-local tests while the repository test configuration discovers both trees.
+Put channel-specific Python tests in `nanoinfra/channels/<channel>/tests/`. Keep only shared registry, manager, base-class, and cross-channel contract tests in `tests/channels/`. Release builds exclude package-local tests while the repository test configuration discovers both trees.
 
 For a focused channel change, run the smallest relevant set:
 
 ```bash
-uv run pytest nanobot/channels/<channel>/tests -q
+uv run pytest nanoinfra/channels/<channel>/tests -q
 
 cd webui
 bun run test -- src/tests/channel-locale-registry.test.ts src/tests/channel-ui-registry.test.ts src/tests/channel-identity.test.ts
@@ -366,8 +366,8 @@ Channels that don't need interactive login (e.g. Telegram with bot token, Discor
 
 Users trigger interactive login via:
 ```bash
-nanobot channels login <channel_name>
-nanobot channels login <channel_name> --force  # re-authenticate
+nanoinfra channels login <channel_name>
+nanoinfra channels login <channel_name> --force  # re-authenticate
 ```
 
 ### Provided by Base
@@ -391,8 +391,8 @@ nanobot channels login <channel_name> --force  # re-authenticate
 Persisted-state management belongs to `ChannelPlugin.management`, not `BaseChannel`. Keep the adapter and anything it imports free of optional platform SDKs so status, settings, and disable operations still work when the runtime cannot be imported. Runtime classes own network lifecycle, message delivery, interactive login, enable-time availability checks, and explicit runtime-only actions such as metadata refresh.
 
 ```python
-from nanobot.channels.contracts import ChannelFieldSpec, ChannelSetupSpec, SetupRequirement
-from nanobot.channels.plugin import ChannelPlugin
+from nanoinfra.channels.contracts import ChannelFieldSpec, ChannelSetupSpec, SetupRequirement
+from nanoinfra.channels.plugin import ChannelPlugin
 
 from .instances import MANAGEMENT
 
@@ -420,7 +420,7 @@ PLUGIN = ChannelPlugin(
 ```python
 from typing import Any
 
-from nanobot.channels.contracts import ChannelInstanceSpec, ChannelManagementSpec
+from nanoinfra.channels.contracts import ChannelInstanceSpec, ChannelManagementSpec
 
 from .config import default_config
 
@@ -458,11 +458,11 @@ Multi-instance adapters return `ChannelInstanceSpec` objects and preserve their 
 - settings instance summaries are generated from `instance_specs()` and `ChannelPlugin.setup`. They contain the authoritative `enabled` and `configured` state plus secret-safe `config_values` and `configured_fields` for the generic instance editor;
 - the management adapter's `feature_instances()` may return `None` or presentation overrides containing an `id` plus `name`, `display_name`, or `avatar_url`. It cannot override runtime state or the configuration snapshot.
 
-`ChannelInstanceSpec` contains only `instance_id` and the instance config; nanobot derives its runtime name through the adapter. Single-instance plugins keep ownership of their entire config, including a field named `instances`. Only plugins whose management spec sets `multi_instance=True` opt into instance expansion.
+`ChannelInstanceSpec` contains only `instance_id` and the instance config; nanoinfra derives its runtime name through the adapter. Single-instance plugins keep ownership of their entire config, including a field named `instances`. Only plugins whose management spec sets `multi_instance=True` opt into instance expansion.
 
 The package/config section name owns every runtime produced from that section. Class inheritance does not transfer runtime ownership to another package.
 
-Return a concrete iterable or generator from the adapter's `instance_specs()`; nanobot materializes and validates it before constructing any runtime. Raise an exception for malformed persisted data rather than silently changing instance identity. Keep network-backed metadata refresh behind the runtime's `refresh_feature_metadata()` so feature GET requests remain dependency-free and read-only.
+Return a concrete iterable or generator from the adapter's `instance_specs()`; nanoinfra materializes and validates it before constructing any runtime. Raise an exception for malformed persisted data rather than silently changing instance identity. Keep network-backed metadata refresh behind the runtime's `refresh_feature_metadata()` so feature GET requests remain dependency-free and read-only.
 
 For package layout, WebUI ownership, and localization rules, see [Channel Package Requirements](#channel-package-requirements).
 
@@ -485,7 +485,7 @@ class OutboundMessage:
     event: object | None # typed runtime/UI event; usually inspect with isinstance()
 ```
 
-Runtime/UI semantics live on `msg.event`. Plugin-authored outbound messages should use typed events instead of legacy metadata flags such as `_progress`, `_stream_delta`, `_stream_end`, `_reasoning_delta`, `_turn_end`, or `_goal_status`. nanobot still accepts those old flags as a compatibility bridge for existing in-process extensions, but new plugin code should not add fresh dependencies on them.
+Runtime/UI semantics live on `msg.event`. Plugin-authored outbound messages should use typed events instead of legacy metadata flags such as `_progress`, `_stream_delta`, `_stream_end`, `_reasoning_delta`, `_turn_end`, or `_goal_status`. nanoinfra still accepts those old flags as a compatibility bridge for existing in-process extensions, but new plugin code should not add fresh dependencies on them.
 
 ## Streaming Support
 
@@ -593,14 +593,14 @@ When `streaming` is `false` (default) or omitted, only `send()` is called — no
 
 ## Progress, Tool Hints, and Reasoning
 
-Besides normal assistant text, nanobot can emit low-emphasis trace blocks. These are intended for UI affordances like status rows, collapsible "used tools" groups, or reasoning/thinking blocks. Platforms that do not have a good place for them can ignore them safely.
+Besides normal assistant text, nanoinfra can emit low-emphasis trace blocks. These are intended for UI affordances like status rows, collapsible "used tools" groups, or reasoning/thinking blocks. Platforms that do not have a good place for them can ignore them safely.
 
 ### Progress and Tool Hints
 
 Progress and tool hints arrive through the normal `send(msg)` path. Check `msg.event` before rendering:
 
 ```python
-from nanobot.bus.outbound_events import ProgressEvent
+from nanoinfra.bus.outbound_events import ProgressEvent
 
 async def send(self, msg: OutboundMessage) -> None:
     event = msg.event
@@ -706,15 +706,15 @@ Recommended rendering:
 
 `BaseChannel.is_allowed()` reads the permission list via `getattr(self.config, "allow_from", [])`. This works for Pydantic models where `allow_from` is a real Python attribute, but **fails silently for plain `dict`** — `dict` has no `allow_from` attribute, so `getattr` always returns the default `[]`, causing all messages to be denied.
 
-Channel runtimes use Pydantic config models by subclassing `Base` from `nanobot.config.schema`.
+Channel runtimes use Pydantic config models by subclassing `Base` from `nanoinfra.config.schema`.
 
 ### Pattern
 
-1. Define a Pydantic model inheriting from `nanobot.config.schema.Base`:
+1. Define a Pydantic model inheriting from `nanoinfra.config.schema.Base`:
 
 ```python
 from pydantic import Field
-from nanobot.config.schema import Base
+from nanoinfra.config.schema import Base
 
 class WebhookConfig(Base):
     """Webhook channel configuration."""
@@ -729,7 +729,7 @@ class WebhookConfig(Base):
 
 ```python
 from typing import Any
-from nanobot.bus.queue import MessageBus
+from nanoinfra.bus.queue import MessageBus
 
 class WebhookChannel(BaseChannel):
     def __init__(self, config: Any, bus: MessageBus):
@@ -748,7 +748,7 @@ async def start(self) -> None:
 
 `allowFrom` is handled automatically by `_handle_message()` — you don't need to check it yourself.
 
-`nanobot onboard` reads the descriptor without importing the runtime. Put writable defaults in `ChannelSetupSpec`:
+`nanoinfra onboard` reads the descriptor without importing the runtime. Put writable defaults in `ChannelSetupSpec`:
 
 ```python
 setup=ChannelSetupSpec(
@@ -765,26 +765,26 @@ String and secret fields default to `""`, list fields to `[]`, and boolean field
 
 | What | Format | Example |
 |------|--------|---------|
-| Package directory | `nanobot/channels/{name}` | `nanobot/channels/webhook` |
+| Package directory | `nanoinfra/channels/{name}` | `nanoinfra/channels/webhook` |
 | Manifest name | `{name}` | `webhook` |
 | Config section | `channels.{name}` | `channels.webhook` |
-| Runtime import | `nanobot.channels.{name}.runtime` | `nanobot.channels.webhook.runtime` |
+| Runtime import | `nanoinfra.channels.{name}.runtime` | `nanoinfra.channels.webhook.runtime` |
 
 ## Local Development
 
 ```bash
-git clone https://github.com/HKUDS/nanobot.git
-cd nanobot
+git clone https://github.com/bet0x/nanoinfra.git
+cd nanoinfra
 python -m pip install -e .
-nanobot plugins list    # should show the package as "webhook"
-nanobot plugins enable webhook
-nanobot gateway         # test end-to-end
+nanoinfra plugins list    # should show the package as "webhook"
+nanoinfra plugins enable webhook
+nanoinfra gateway         # test end-to-end
 ```
 
 ## Verify
 
 ```bash
-$ nanobot plugins list
+$ nanoinfra plugins list
 
   Name       Type      Enabled
   discord    channel   no

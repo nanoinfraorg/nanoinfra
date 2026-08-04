@@ -1,6 +1,6 @@
 # Check optional Feishu dependencies before running tests
 try:
-    from nanobot.channels.feishu import runtime as feishu
+    from nanoinfra.channels.feishu import runtime as feishu
     FEISHU_AVAILABLE = getattr(feishu, "FEISHU_AVAILABLE", False)
 except ImportError:
     FEISHU_AVAILABLE = False
@@ -9,7 +9,7 @@ if not FEISHU_AVAILABLE:
     import pytest
     pytest.skip("Feishu dependencies not installed (lark-oapi)", allow_module_level=True)
 
-from nanobot.channels.feishu.runtime import FeishuChannel, _extract_post_content
+from nanoinfra.channels.feishu.runtime import FeishuChannel, _extract_post_content
 
 
 def test_extract_post_content_supports_post_wrapper_shape() -> None:

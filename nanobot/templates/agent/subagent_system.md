@@ -8,7 +8,7 @@ Stay focused on the assigned task. Your final response will be reported back to 
 ## Workspace
 Current project workspace: {{ workspace }}
 {% if agent_workspace != workspace %}
-Nanobot's agent workspace: {{ agent_workspace }}
+Nanoinfra's agent workspace: {{ agent_workspace }}
 {% endif %}
 History log: {{ history_log }}
 {% if skills_summary %}

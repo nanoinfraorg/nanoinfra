@@ -1,4 +1,4 @@
-"""Utility functions for nanobot."""
+"""Utility functions for nanoinfra."""
 
 import base64
 import json
@@ -365,7 +365,7 @@ def current_time_str(timezone: str | None = None) -> str:
 
 _UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*]')
 _TOOL_RESULT_PREVIEW_CHARS = 1200
-_TOOL_RESULTS_DIR = ".nanobot/tool-results"
+_TOOL_RESULTS_DIR = ".nanoinfra/tool-results"
 _TOOL_RESULT_RETENTION_SECS = 7 * 24 * 60 * 60
 _TOOL_RESULT_MAX_BUCKETS = 32
 _TRUNCATED_SUFFIX = "\n... (truncated)"
@@ -843,7 +843,7 @@ def build_status_content(
     if cached and last_in:
         token_line += f" ({cached * 100 // last_in}% cached)"
     lines = [
-        f"\U0001f408 nanobot v{version}",
+        f"\U0001f408 nanoinfra v{version}",
         f"\U0001f9e0 Model: {model}",
         token_line,
         f"\U0001f4da Context: {ctx_used_str}/{ctx_total_str} ({ctx_pct}% of input budget)",
@@ -861,7 +861,7 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
     from importlib.resources import files as pkg_files
 
     try:
-        tpl = pkg_files("nanobot") / "templates"
+        tpl = pkg_files("nanoinfra") / "templates"
     except Exception:
         return []
     if not tpl.is_dir():
@@ -893,7 +893,7 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
 
     # Initialize git for memory version control
     try:
-        from nanobot.utils.gitstore import GitStore
+        from nanoinfra.utils.gitstore import GitStore
 
         gs = GitStore(
             workspace,
@@ -911,11 +911,11 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
 
 
 def load_bundled_template(template_name: str) -> str | None:
-    """Read a bundled template file from the nanobot package."""
+    """Read a bundled template file from the nanoinfra package."""
     from importlib.resources import files as pkg_files
 
     with suppress(Exception):
-        tpl = pkg_files("nanobot") / "templates" / template_name
+        tpl = pkg_files("nanoinfra") / "templates" / template_name
         if tpl.is_file():
             return tpl.read_text(encoding="utf-8")
     return None

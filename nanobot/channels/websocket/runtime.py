@@ -1,4 +1,4 @@
-"""WebSocket server channel: nanobot acts as a WebSocket server and serves connected clients."""
+"""WebSocket server channel: nanoinfra acts as a WebSocket server and serves connected clients."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ from websockets.asyncio.server import ServerConnection, serve, unix_serve
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request as WsRequest
 
-from nanobot.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
-from nanobot.bus.outbound_events import (
+from nanoinfra.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
+from nanoinfra.bus.outbound_events import (
     GoalStateSyncEvent,
     GoalStatusEvent,
     ProgressEvent,
@@ -30,21 +30,21 @@ from nanobot.bus.outbound_events import (
     outbound_event_from_message,
     outbound_message_for_event,
 )
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.command.builtin import builtin_command_starts_agent_turn
-from nanobot.config.schema import Base
-from nanobot.runtime_context import (
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.command.builtin import builtin_command_starts_agent_turn
+from nanoinfra.config.schema import Base
+from nanoinfra.runtime_context import (
     RUNTIME_CONTEXT_INPUT_META,
     WEBUI_QUOTE_METADATA,
     webui_quote_runtime_context,
 )
-from nanobot.security.workspace_access import (
+from nanoinfra.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeError,
 )
-from nanobot.session.goal_state import goal_state_ws_blob
-from nanobot.session.webui_turns import (
+from nanoinfra.session.goal_state import goal_state_ws_blob
+from nanoinfra.session.webui_turns import (
     clear_websocket_turn_if_current,
     mark_websocket_turn_transcript_persistence_failed,
     register_queued_websocket_turn_if_idle,
@@ -52,27 +52,27 @@ from nanobot.session.webui_turns import (
     websocket_turn_transcript_persistence_failed,
     websocket_turn_wall_started_at,
 )
-from nanobot.webui.cli_apps_api import normalize_cli_app_mentions
-from nanobot.webui.forking import handle_webui_fork_chat
-from nanobot.webui.gateway_services import GatewayServices
-from nanobot.webui.http_utils import (
+from nanoinfra.webui.cli_apps_api import normalize_cli_app_mentions
+from nanoinfra.webui.forking import handle_webui_fork_chat
+from nanoinfra.webui.gateway_services import GatewayServices
+from nanoinfra.webui.http_utils import (
     normalize_config_path as _normalize_config_path,
 )
-from nanobot.webui.http_utils import (
+from nanoinfra.webui.http_utils import (
     parse_request_path as _parse_request_path,
 )
-from nanobot.webui.http_utils import (
+from nanoinfra.webui.http_utils import (
     query_first as _query_first,
 )
-from nanobot.webui.mcp_presets_api import normalize_mcp_preset_mentions
-from nanobot.webui.metadata import (
+from nanoinfra.webui.mcp_presets_api import normalize_mcp_preset_mentions
+from nanoinfra.webui.metadata import (
     WEBSOCKET_TURN_OWNER_METADATA_KEY,
     WEBUI_SYSTEM_COMMAND_TURN_PREFIX,
     WEBUI_TURN_METADATA_KEY,
 )
-from nanobot.webui.transcript import WEBUI_TRANSCRIPT_INCOMPLETE_KEY
-from nanobot.webui.transcription_ws import webui_transcription_event
-from nanobot.webui.websocket_logging import websockets_server_logger
+from nanoinfra.webui.transcript import WEBUI_TRANSCRIPT_INCOMPLETE_KEY
+from nanoinfra.webui.transcription_ws import webui_transcription_event
+from nanoinfra.webui.websocket_logging import websockets_server_logger
 
 # Plain HTTP WebUI routes also run through websockets.process_request.
 _WEBUI_HTTP_OPEN_TIMEOUT_S = 360.0
@@ -88,10 +88,10 @@ class WebSocketConfig(Base):
     - ``token_issue_path``: If non-empty, **GET** (HTTP/1.1) to this path returns JSON
       ``{"token": "...", "expires_in": <seconds>}``; use ``?token=...`` when opening the WebSocket.
       Must differ from ``path`` (the WS upgrade path). If the client runs in the **same process** as
-      nanobot and shares the asyncio loop, use a thread or async HTTP client for GET—do not call
+      nanoinfra and shares the asyncio loop, use a thread or async HTTP client for GET—do not call
       blocking ``urllib`` or synchronous ``httpx`` from inside a coroutine.
     - ``token_issue_secret``: If non-empty, token requests must send ``Authorization: Bearer <secret>`` or
-      ``X-Nanobot-Auth: <secret>``.
+      ``X-Nanoinfra-Auth: <secret>``.
     - ``websocket_requires_token``: If True, the handshake must include a valid token (static or issued and not expired).
     - Each connection has its own session: a unique ``chat_id`` maps to the agent session internally.
     - ``media`` field in outbound messages contains local filesystem paths; remote clients need a
@@ -464,7 +464,7 @@ class WebSocketChannel(BaseChannel):
     # -- Server lifecycle and connection ingress ---------------------------
 
     async def start(self) -> None:
-        from nanobot.utils.logging_bridge import redirect_lib_logging
+        from nanoinfra.utils.logging_bridge import redirect_lib_logging
 
         redirect_lib_logging("websockets", level="WARNING")
         ws_logger = websockets_server_logger()

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable
 
-from nanobot.agent.automation_turns import AutomationTurnCoordinator
-from nanobot.bus.events import InboundMessage
-from nanobot.cron.session_turns import (
+from nanoinfra.agent.automation_turns import AutomationTurnCoordinator
+from nanoinfra.bus.events import InboundMessage
+from nanoinfra.cron.session_turns import (
     cron_run_id,
     cron_trigger,
     defer_cron_until_session_idle,

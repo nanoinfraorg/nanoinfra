@@ -1,5 +1,5 @@
 [project]
-name = "nanobot-ai"
+name = "nanoinfra"
 version = "0.3.0"
 description = "A lightweight personal AI assistant framework"
 readme = { file = "README.md", content-type = "text/markdown" }
@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     {name = "Xubin Ren"},
-    {name = "the nanobot contributors"}
+    {name = "the nanoinfra contributors"}
 ]
 keywords = ["ai", "agent", "chatbot"]
 classifiers = [
@@ -105,11 +105,11 @@ dev = [
 ]
 
 [project.scripts]
-nanobot = "nanobot.cli.commands:app"
+nanoinfra = "nanoinfra.cli.commands:app"
 
 # Third-party tool plugins register here.  Built-in tools are discovered
 # automatically via pkgutil scanning in ToolLoader.discover().
-# [project.entry-points."nanobot.tools"]
+# [project.entry-points."nanoinfra.tools"]
 # my_plugin = "my_package.plugins:MyTool"
 
 [build-system]
@@ -124,38 +124,38 @@ allow-direct-references = true
 
 [tool.hatch.build]
 include = [
-    "nanobot/**/*.py",
-    "nanobot/templates/**/*.md",
-    "nanobot/skills/**/*.md",
-    "nanobot/skills/**/*.sh",
-    "nanobot/channels/*/webui/**/*",
-    "nanobot/web/dist/**/*",
+    "nanoinfra/**/*.py",
+    "nanoinfra/templates/**/*.md",
+    "nanoinfra/skills/**/*.md",
+    "nanoinfra/skills/**/*.sh",
+    "nanoinfra/channels/*/webui/**/*",
+    "nanoinfra/web/dist/**/*",
 ]
-# nanobot/web/dist/ is produced by `cd webui && bun run build` and is
+# nanoinfra/web/dist/ is produced by `cd webui && bun run build` and is
 # git-ignored. List it as an artifact so hatch ships it in both wheel and
 # sdist even though VCS does not track it.
 artifacts = [
-    "nanobot/web/dist/**/*",
+    "nanoinfra/web/dist/**/*",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["nanobot"]
-exclude = ["nanobot/channels/*/tests/**"]
+packages = ["nanoinfra"]
+exclude = ["nanoinfra/channels/*/tests/**"]
 
 [tool.hatch.build.targets.wheel.sources]
-"nanobot" = "nanobot"
+"nanoinfra" = "nanoinfra"
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "nanobot/",
-    "nanobot/web/dist/",
+    "nanoinfra/",
+    "nanoinfra/web/dist/",
     "hatch_build.py",
     "README.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "pyproject.toml",
 ]
-exclude = ["nanobot/channels/*/tests/**"]
+exclude = ["nanoinfra/channels/*/tests/**"]
 
 [tool.ruff]
 line-length = 100
@@ -166,17 +166,17 @@ select = ["E", "F", "I", "N", "W"]
 ignore = ["E501"]
 
 [tool.basedpyright]
-include = ["nanobot"]
+include = ["nanoinfra"]
 exclude = ["**/tests"]
 typeCheckingMode = "strict"
 pythonVersion = "3.11"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests", "nanobot/channels"]
+testpaths = ["tests", "nanoinfra/channels"]
 
 [tool.coverage.run]
-source = ["nanobot"]
+source = ["nanoinfra"]
 omit = ["tests/*", "**/tests/*"]
 
 [tool.coverage.report]

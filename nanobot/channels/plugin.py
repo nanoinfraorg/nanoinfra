@@ -11,10 +11,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 from packaging.requirements import InvalidRequirement, Requirement
 
-from nanobot.channels.contracts import ChannelManagementSpec, ChannelSetupSpec
+from nanoinfra.channels.contracts import ChannelManagementSpec, ChannelSetupSpec
 
 if TYPE_CHECKING:
-    from nanobot.channels.base import BaseChannel
+    from nanoinfra.channels.base import BaseChannel
 
 _CHANNEL_PACKAGE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 
@@ -73,7 +73,7 @@ class ChannelPlugin:
 
     def load_channel_class(self) -> type[BaseChannel]:
         """Resolve and validate the runtime class only when the channel is needed."""
-        from nanobot.channels.base import BaseChannel
+        from nanoinfra.channels.base import BaseChannel
 
         module_name, _, attr_name = self.runtime.partition(":")
         module = importlib.import_module(module_name)
@@ -128,7 +128,7 @@ def has_channel_package(name: str) -> bool:
     """Return whether *name* owns a dependency-free package manifest."""
     if _CHANNEL_PACKAGE_NAME.fullmatch(name) is None:
         return False
-    return files("nanobot.channels").joinpath(name, "manifest.py").is_file()
+    return files("nanoinfra.channels").joinpath(name, "manifest.py").is_file()
 
 
 @lru_cache(maxsize=None)
@@ -137,7 +137,7 @@ def load_channel_package(name: str) -> ChannelPlugin | None:
     if not has_channel_package(name):
         return None
 
-    module_name = f"nanobot.channels.{name}.manifest"
+    module_name = f"nanoinfra.channels.{name}.manifest"
     module = importlib.import_module(module_name)
     plugin = getattr(module, "PLUGIN", None)
     if not isinstance(plugin, ChannelPlugin):
@@ -147,8 +147,8 @@ def load_channel_package(name: str) -> ChannelPlugin | None:
             f"{module_name}.PLUGIN declares name '{plugin.name}', expected '{name}'"
         )
 
-    package_name = f"nanobot.channels.{name}"
-    package_root = files("nanobot.channels").joinpath(name)
+    package_name = f"nanoinfra.channels.{name}"
+    package_root = files("nanoinfra.channels").joinpath(name)
     targets = [("runtime", plugin.runtime)]
     if plugin.connector is not None:
         targets.append(("connector", plugin.connector))
@@ -171,7 +171,7 @@ def load_channel_package(name: str) -> ChannelPlugin | None:
                 f"{target_module}"
             )
     if plugin.webui is not None:
-        webui_entry = files("nanobot.channels").joinpath(name, *plugin.webui.split("/"))
+        webui_entry = files("nanoinfra.channels").joinpath(name, *plugin.webui.split("/"))
         if not webui_entry.is_file():
             raise TypeError(
                 f"{module_name}.PLUGIN webui entry does not exist: {plugin.webui}"

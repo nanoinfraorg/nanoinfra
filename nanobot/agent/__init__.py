@@ -1,7 +1,7 @@
 """Agent core module."""
 
-from nanobot.agent.context import ContextBuilder
-from nanobot.agent.hook import (
+from nanoinfra.agent.context import ContextBuilder
+from nanoinfra.agent.hook import (
     AgentHook,
     AgentHookContext,
     AgentRunHookContext,
@@ -9,10 +9,10 @@ from nanobot.agent.hook import (
     AgentTurnHookFactory,
     CompositeHook,
 )
-from nanobot.agent.loop import AgentLoop
-from nanobot.agent.memory import MemoryStore
-from nanobot.agent.skills import SkillsLoader
-from nanobot.agent.subagent import SubagentManager
+from nanoinfra.agent.loop import AgentLoop
+from nanoinfra.agent.memory import MemoryStore
+from nanoinfra.agent.skills import SkillsLoader
+from nanoinfra.agent.subagent import SubagentManager
 
 __all__ = [
     "AgentHook",

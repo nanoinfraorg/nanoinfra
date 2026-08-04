@@ -1,5 +1,5 @@
 {
-  "description": "通过 Telegram 会话与 nanobot 聊天。",
+  "description": "通过 Telegram 会话与 nanoinfra 聊天。",
   "requirements": "机器人令牌、允许的用户和网关",
   "setup": {
     "docsLabel": "打开 Telegram 配置指南",

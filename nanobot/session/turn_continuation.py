@@ -12,14 +12,14 @@ from typing import TYPE_CHECKING, Any, Mapping, MutableMapping
 
 from loguru import logger
 
-from nanobot.session.goal_state import (
+from nanoinfra.session.goal_state import (
     goal_state_runtime_lines,
     sustained_goal_active,
     sustained_goal_turn,
 )
 
 if TYPE_CHECKING:
-    from nanobot.agent.loop import TurnContext
+    from nanoinfra.agent.loop import TurnContext
 
 INTERNAL_CONTINUATION_META = "_internal_continuation"
 INTERNAL_CONTINUATION_KIND_META = "_internal_continuation_kind"

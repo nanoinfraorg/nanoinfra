@@ -66,7 +66,7 @@ def _start_gateway(config_path: Path, log_path: Path) -> subprocess.Popen[bytes]
             [
                 sys.executable,
                 "-m",
-                "nanobot",
+                "nanoinfra",
                 "gateway",
                 "--config",
                 str(config_path),
@@ -101,7 +101,7 @@ def _get_json(url: str, *, token: str | None = None) -> dict:
 def _get_bootstrap(url: str) -> dict:
     response = httpx.get(
         url,
-        headers={"X-Nanobot-Auth": _BOOTSTRAP_SECRET},
+        headers={"X-Nanoinfra-Auth": _BOOTSTRAP_SECRET},
         timeout=5.0,
         trust_env=False,
     )

@@ -8,7 +8,7 @@ type ChannelUiContributionModule = {
 };
 
 const modules = import.meta.glob<ChannelUiContributionModule>(
-  "../../../nanobot/channels/*/webui/**/*.{ts,tsx}",
+  "../../../nanoinfra/channels/*/webui/**/*.{ts,tsx}",
   {
     eager: true,
   },
@@ -22,7 +22,7 @@ const translationOwners = new Map<string, string>();
 for (const [modulePath, module] of Object.entries(modules)) {
   const contribution = module.default;
   if (!contribution) continue;
-  const match = modulePath.match(/nanobot\/channels\/([^/]+)\/(.+)$/);
+  const match = modulePath.match(/nanoinfra\/channels\/([^/]+)\/(.+)$/);
   if (!match) {
     throw new Error(`Cannot derive channel UI identity from '${modulePath}'`);
   }

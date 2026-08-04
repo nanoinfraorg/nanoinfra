@@ -1,29 +1,29 @@
-# How to Deploy a Long-Running nanobot AI Agent Gateway
+# How to Deploy a Long-Running nanoinfra AI Agent Gateway
 
-The nanobot gateway is the long-running self-hosted AI agent process that keeps
+The nanoinfra gateway is the long-running self-hosted AI agent process that keeps
 WebUI sessions, chat apps, automations, local triggers, heartbeat jobs, Dream,
 and WebSocket delivery online.
 
 ## What you will build
 
-- a verified nanobot config
+- a verified nanoinfra config
 - a gateway process
 - a service or container deployment path with Docker, systemd, or macOS
   LaunchAgent
 
 ## When to use this
 
-Use this when nanobot should keep running after a single CLI turn. Chat apps,
+Use this when nanoinfra should keep running after a single CLI turn. Chat apps,
 browser sessions, background automations, local triggers, and server-side
 integrations all depend on a live gateway.
 
 ## Install
 
 ```bash
-python -m pip install nanobot-ai
-nanobot onboard --wizard
-nanobot status
-nanobot agent -m "Hello!"
+python -m pip install nanoinfra
+nanoinfra onboard --wizard
+nanoinfra status
+nanoinfra agent -m "Hello!"
 ```
 
 ## Minimal working example
@@ -31,15 +31,15 @@ nanobot agent -m "Hello!"
 Run the gateway in the foreground:
 
 ```bash
-nanobot gateway
+nanoinfra gateway
 ```
 
 For WebUI background usage:
 
 ```bash
-nanobot webui --background
-nanobot gateway status
-nanobot gateway logs
+nanoinfra webui --background
+nanoinfra gateway status
+nanoinfra gateway logs
 ```
 
 ## Production notes
@@ -54,7 +54,7 @@ nanobot gateway logs
 ## Security notes
 
 - Plan ports before exposing services. Gateway health defaults to `18790`,
-  WebUI/WebSocket defaults to `8765`, and `nanobot serve` defaults to `8900`.
+  WebUI/WebSocket defaults to `8765`, and `nanoinfra serve` defaults to `8900`.
 - Bind externally only when you have configured tokens or API keys.
 - Keep chat access control intentional before deploying.
 - Use Docker or Linux sandboxing when shell tools are enabled for unattended
@@ -65,11 +65,11 @@ nanobot gateway logs
 - Use the same `--config` and `--workspace` flags for status checks and service
   startup.
 - Check logs with `docker compose logs`, `journalctl`, LaunchAgent logs, or
-  `nanobot gateway --verbose`.
+  `nanoinfra gateway --verbose`.
 - If Docker port publishing does not work, confirm the service is not bound only
   to container loopback.
 
-## Related nanobot docs
+## Related nanoinfra docs
 
 - [Deployment](../deployment.md)
 - [Multiple Instances](../multiple-instances.md)

@@ -19,13 +19,13 @@ from pydantic import Field
 from websockets.asyncio.client import ClientConnection
 from websockets.asyncio.client import connect as ws_connect
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.config.paths import get_media_dir
-from nanobot.config.schema import Base
-from nanobot.security.network import validate_url_target
-from nanobot.utils.helpers import safe_filename
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.config.paths import get_media_dir
+from nanoinfra.config.schema import Base
+from nanoinfra.security.network import validate_url_target
+from nanoinfra.utils.helpers import safe_filename
 
 _DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(total=60)
 _ACTION_TIMEOUT = 20.0
@@ -479,7 +479,7 @@ class NapcatChannel(BaseChannel):
                 return None
             return {"type": "image", "data": {"file": ref}}
         # Local path → base64 so it works even when napcat runs on a
-        # different host/container than nanobot.
+        # different host/container than nanoinfra.
         path = Path(os.path.expanduser(ref)).resolve()
         if not path.is_file():
             logger.warning("napcat: local image not found: {}", path)

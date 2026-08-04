@@ -17,7 +17,7 @@ from urllib.parse import quote, unquote, urlparse
 
 from pydantic import Field
 
-from nanobot.security.workspace_policy import is_path_within
+from nanoinfra.security.workspace_policy import is_path_within
 
 try:
     import aiohttp
@@ -50,17 +50,17 @@ try:
     from nio.exceptions import EncryptionError
 except ImportError as e:
     raise ImportError(
-        "Matrix dependencies not installed. Run: nanobot plugins enable matrix"
+        "Matrix dependencies not installed. Run: nanoinfra plugins enable matrix"
     ) from e
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.outbound_events import ProgressEvent
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.config.paths import get_data_dir, get_media_dir
-from nanobot.config.schema import Base
-from nanobot.utils.helpers import safe_filename
-from nanobot.utils.logging_bridge import redirect_lib_logging
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.outbound_events import ProgressEvent
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.config.paths import get_data_dir, get_media_dir
+from nanoinfra.config.schema import Base
+from nanoinfra.utils.helpers import safe_filename
+from nanoinfra.utils.logging_bridge import redirect_lib_logging
 
 TYPING_NOTICE_TIMEOUT_MS = 30_000
 # Must stay below TYPING_NOTICE_TIMEOUT_MS so the indicator doesn't expire mid-processing.
@@ -108,7 +108,7 @@ MATRIX_ALLOWED_HTML_ATTRIBUTES: dict[str, set[str]] = {
     "img": {"src", "alt", "title", "width", "height"},
 }
 MATRIX_ALLOWED_URL_SCHEMES = {"https", "http", "matrix", "mailto", "mxc"}
-_MXC_IMAGE_PLACEHOLDER_PREFIX = "https://nanobot.invalid/matrix-mxc/"
+_MXC_IMAGE_PLACEHOLDER_PREFIX = "https://nanoinfra.invalid/matrix-mxc/"
 _MXC_MARKDOWN_IMAGE_RE = re.compile(
     r"(?P<prefix>!\[[^\]]*\]\()"
     r"(?P<value>mxc://[^\s)]+)"

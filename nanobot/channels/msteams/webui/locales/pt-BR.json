@@ -1,5 +1,5 @@
 {
-  "description": "Use o nanobot em conversas do Microsoft Teams.",
+  "description": "Use o nanoinfra em conversas do Microsoft Teams.",
   "requirements": "Credenciais do app bot Azure e endpoint público de callback",
   "setup": {
     "docsLabel": "Abrir guia do Teams",

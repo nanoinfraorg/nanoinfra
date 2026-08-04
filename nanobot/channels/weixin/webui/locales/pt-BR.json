@@ -1,5 +1,5 @@
 {
-  "description": "Use o nanobot em conversas do WeChat.",
+  "description": "Use o nanoinfra em conversas do WeChat.",
   "requirements": "Configuração do canal WeChat e gateway",
   "setup": {
     "primaryAction": "Conectar WeChat",
@@ -26,7 +26,7 @@
   "custom": {
     "qrAlt": "QR code de login do WeChat",
     "scanTitle": "Escaneie com o WeChat",
-    "scanDescription": "Escaneie com o WeChat no celular. O nanobot salva o estado localmente após o login.",
+    "scanDescription": "Escaneie com o WeChat no celular. O nanoinfra salva o estado localmente após o login.",
     "waiting": "Aguardando leitura do WeChat...",
     "connected": "WeChat está conectado.",
     "stopped": "Login do WeChat interrompido.",

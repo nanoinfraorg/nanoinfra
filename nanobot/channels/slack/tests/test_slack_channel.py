@@ -12,9 +12,9 @@ try:
 except ImportError:
     pytest.skip("Slack dependencies not installed (slack-sdk)", allow_module_level=True)
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.slack.runtime import SLACK_MAX_MESSAGE_LEN, SlackChannel, SlackConfig
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.slack.runtime import SLACK_MAX_MESSAGE_LEN, SlackChannel, SlackConfig
 
 
 class _FakeAsyncWebClient:
@@ -753,7 +753,7 @@ def test_slack_download_rejects_login_html() -> None:
 def test_slack_download_failure_marker_is_actionable() -> None:
     marker = SlackChannel._download_failure_marker("image", "screenshot.png", "download failed")
 
-    assert "not available to nanobot" in marker
+    assert "not available to nanoinfra" in marker
     assert "files:read" in marker
     assert "reinstall the Slack app" in marker
 

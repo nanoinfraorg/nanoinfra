@@ -5,10 +5,10 @@ import typer
 from rich.console import Console
 from typer.testing import CliRunner
 
-from nanobot.cli.gateway import create_gateway_app
-from nanobot.config.schema import Config
-from nanobot.gateway import GatewayStartOptions, GatewayStatus, RuntimeResult
-from nanobot.gateway.service import GatewayServiceOptions, GatewayServiceResult
+from nanoinfra.cli.gateway import create_gateway_app
+from nanoinfra.config.schema import Config
+from nanoinfra.gateway import GatewayStartOptions, GatewayStatus, RuntimeResult
+from nanoinfra.gateway.service import GatewayServiceOptions, GatewayServiceResult
 
 runner = CliRunner()
 
@@ -69,9 +69,9 @@ class FakeServiceInstaller:
             True,
             "service_install_dry_run" if dry_run else "service_installed",
             "systemd",
-            self.tmp_path / "nanobot-gateway.service",
+            self.tmp_path / "nanoinfra-gateway.service",
             (("systemctl", "--user", "daemon-reload"),),
-            "[Unit]\nDescription=Nanobot Gateway\n",
+            "[Unit]\nDescription=Nanoinfra Gateway\n",
         )
 
     def uninstall(self, *, name: str, manager: str, dry_run: bool) -> GatewayServiceResult:
@@ -81,8 +81,8 @@ class FakeServiceInstaller:
             True,
             "service_uninstall_dry_run" if dry_run else "service_uninstalled",
             "systemd",
-            self.tmp_path / "nanobot-gateway.service",
-            (("systemctl", "--user", "disable", "--now", "nanobot-gateway.service"),),
+            self.tmp_path / "nanoinfra-gateway.service",
+            (("systemctl", "--user", "disable", "--now", "nanoinfra-gateway.service"),),
         )
 
 

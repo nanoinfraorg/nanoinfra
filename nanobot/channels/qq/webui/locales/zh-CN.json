@@ -1,5 +1,5 @@
 {
-  "description": "在 QQ 会话中使用 nanobot。",
+  "description": "在 QQ 会话中使用 nanoinfra。",
   "requirements": "QQ 机器人凭据和网关",
   "setup": {
     "docsLabel": "打开 QQ 配置指南",

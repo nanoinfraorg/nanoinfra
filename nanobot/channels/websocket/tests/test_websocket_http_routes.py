@@ -13,22 +13,22 @@ from urllib.parse import quote, urlencode
 
 import pytest
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.channels.base import BaseChannel
-from nanobot.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
-from nanobot.cron.service import CronService
-from nanobot.cron.types import CronJob, CronPayload, CronSchedule
-from nanobot.optional_features import InstallResult
-from nanobot.runtime_context import (
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
+from nanoinfra.cron.service import CronService
+from nanoinfra.cron.types import CronJob, CronPayload, CronSchedule
+from nanoinfra.optional_features import InstallResult
+from nanoinfra.runtime_context import (
     RUNTIME_CONTEXT_HISTORY_META,
     RuntimeContextBlock,
     append_runtime_context,
 )
-from nanobot.security.workspace_access import WORKSPACE_SCOPE_METADATA_KEY
-from nanobot.session.keys import UNIFIED_SESSION_KEY
-from nanobot.session.manager import Session, SessionManager
-from nanobot.triggers.local_store import LocalTriggerStore
-from nanobot.webui.gateway_services import GatewayServices, build_gateway_services
+from nanoinfra.security.workspace_access import WORKSPACE_SCOPE_METADATA_KEY
+from nanoinfra.session.keys import UNIFIED_SESSION_KEY
+from nanoinfra.session.manager import Session, SessionManager
+from nanoinfra.triggers.local_store import LocalTriggerStore
+from nanoinfra.webui.gateway_services import GatewayServices, build_gateway_services
 
 from .ws_test_client import InProcessHttpChannel
 from .ws_test_client import http_get as _http_get
@@ -177,9 +177,9 @@ def _stub_matrix_feature(
     install_calls: list[str] | None = None,
     channels: list[str] | None = None,
 ) -> None:
-    from nanobot.channels.plugin import ChannelPlugin, load_channel_package
+    from nanoinfra.channels.plugin import ChannelPlugin, load_channel_package
 
-    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
     requested = channels or ["matrix"]
     matrix = ChannelPlugin(
         name="matrix",
@@ -193,7 +193,7 @@ def _stub_matrix_feature(
         assert websocket is not None
         plugins["websocket"] = websocket
     monkeypatch.setattr(
-        "nanobot.channels.registry.discover_plugins",
+        "nanoinfra.channels.registry.discover_plugins",
         lambda enabled_names=None: {
             name: plugin
             for name, plugin in plugins.items()
@@ -201,13 +201,13 @@ def _stub_matrix_feature(
         },
     )
     monkeypatch.setattr(
-        "nanobot.optional_features.optional_dependency_groups",
+        "nanoinfra.optional_features.optional_dependency_groups",
         lambda: {"matrix": deps if deps is not None else []},
     )
-    monkeypatch.setattr("nanobot.optional_features.extra_installed", lambda _name, _deps: installed)
+    monkeypatch.setattr("nanoinfra.optional_features.extra_installed", lambda _name, _deps: installed)
     if install_calls is not None:
         monkeypatch.setattr(
-            "nanobot.optional_features.install_extra",
+            "nanoinfra.optional_features.install_extra",
             lambda name, _deps, *, runner: install_calls.append(name)
             or InstallResult(True, f"{name} support", ["python", "-m", "pip", "install", name]),
         )
@@ -456,7 +456,7 @@ async def test_session_automations_route_lists_local_triggers(
         assert job["schedule"]["kind"] == "local"
         assert job["payload"]["kind"] == "local_trigger"
         assert job["payload"]["message"] == "Review PR #4591"
-        assert job["payload"]["command"] == f'nanobot trigger {trigger.id} "message"'
+        assert job["payload"]["command"] == f'nanoinfra trigger {trigger.id} "message"'
         assert job["state"]["pending"] is True
     finally:
         await channel.stop()
@@ -481,12 +481,12 @@ async def test_webui_skills_route_requires_token_and_hides_paths(
             "name: zz-unavailable-skill",
             "description: Missing CLI skill.",
             "metadata:",
-            "  nanobot:",
+            "  nanoinfra:",
             "    requires:",
             "      bins:",
-            "        - definitely-missing-nanobot-skill-cli",
+            "        - definitely-missing-nanoinfra-skill-cli",
             "      env:",
-            "        - DEFINITELY_MISSING_NANOBOT_SKILL_ENV",
+            "        - DEFINITELY_MISSING_NANOINFRA_SKILL_ENV",
             "---",
             "Use the missing CLI and env var.",
         ]),
@@ -530,8 +530,8 @@ async def test_webui_skills_route_requires_token_and_hides_paths(
         unavailable = next(skill for skill in body["skills"] if skill["name"] == "zz-unavailable-skill")
         assert unavailable["available"] is False
         assert unavailable["unavailable_reason"] == (
-            "CLI: definitely-missing-nanobot-skill-cli, "
-            "ENV: DEFINITELY_MISSING_NANOBOT_SKILL_ENV"
+            "CLI: definitely-missing-nanoinfra-skill-cli, "
+            "ENV: DEFINITELY_MISSING_NANOINFRA_SKILL_ENV"
         )
 
         detail = await _http_get(
@@ -542,10 +542,10 @@ async def test_webui_skills_route_requires_token_and_hides_paths(
         detail_body = detail.json()
         assert "path" not in detail_body
         assert detail_body["requirements"] == {
-            "bins": ["definitely-missing-nanobot-skill-cli"],
-            "env": ["DEFINITELY_MISSING_NANOBOT_SKILL_ENV"],
-            "missing_bins": ["definitely-missing-nanobot-skill-cli"],
-            "missing_env": ["DEFINITELY_MISSING_NANOBOT_SKILL_ENV"],
+            "bins": ["definitely-missing-nanoinfra-skill-cli"],
+            "env": ["DEFINITELY_MISSING_NANOINFRA_SKILL_ENV"],
+            "missing_bins": ["definitely-missing-nanoinfra-skill-cli"],
+            "missing_env": ["DEFINITELY_MISSING_NANOINFRA_SKILL_ENV"],
         }
         assert "Use the missing CLI and env var." in detail_body["raw_markdown"]
     finally:
@@ -593,8 +593,8 @@ async def test_webui_skill_management_routes(
         skill_dir.rmdir()
         return {"name": name, "enabled": False, "deleted": True}
 
-    monkeypatch.setattr("nanobot.webui.ws_http.set_webui_skill_enabled", set_enabled)
-    monkeypatch.setattr("nanobot.webui.ws_http.delete_webui_skill", delete)
+    monkeypatch.setattr("nanoinfra.webui.ws_http.set_webui_skill_enabled", set_enabled)
+    monkeypatch.setattr("nanoinfra.webui.ws_http.delete_webui_skill", delete)
 
     port = _free_port()
     channel = _ch(
@@ -696,10 +696,10 @@ async def test_webui_skills_marketplace_routes_search_and_install(
         return {"installed": True, "already_installed": False, "name": skill_id}
 
     install_mock = AsyncMock(side_effect=install)
-    monkeypatch.setattr("nanobot.webui.ws_http.search_marketplace_skills", search)
-    monkeypatch.setattr("nanobot.webui.ws_http.trending_marketplace_skills", trending)
-    monkeypatch.setattr("nanobot.webui.ws_http.marketplace_skill_trends", trends)
-    monkeypatch.setattr("nanobot.webui.ws_http.install_marketplace_skill", install_mock)
+    monkeypatch.setattr("nanoinfra.webui.ws_http.search_marketplace_skills", search)
+    monkeypatch.setattr("nanoinfra.webui.ws_http.trending_marketplace_skills", trending)
+    monkeypatch.setattr("nanoinfra.webui.ws_http.marketplace_skill_trends", trends)
+    monkeypatch.setattr("nanoinfra.webui.ws_http.install_marketplace_skill", install_mock)
 
     port = _free_port()
     channel = _ch(
@@ -796,7 +796,7 @@ async def test_webui_skill_install_rejects_overlapping_requests(
         return {"installed": True, "already_installed": False, "name": skill_id}
 
     install_mock = AsyncMock(side_effect=install)
-    monkeypatch.setattr("nanobot.webui.ws_http.install_marketplace_skill", install_mock)
+    monkeypatch.setattr("nanoinfra.webui.ws_http.install_marketplace_skill", install_mock)
     channel = _ch(
         bus,
         session_manager=_seed_session(tmp_path),
@@ -839,8 +839,8 @@ async def test_webui_skill_delete_remains_local_only(
     delete = MagicMock()
     policy = MagicMock()
     policy.tools.webui_allow_remote_package_install = True
-    monkeypatch.setattr("nanobot.config.loader.load_config", lambda: policy)
-    monkeypatch.setattr("nanobot.webui.ws_http.delete_webui_skill", delete)
+    monkeypatch.setattr("nanoinfra.config.loader.load_config", lambda: policy)
+    monkeypatch.setattr("nanoinfra.webui.ws_http.delete_webui_skill", delete)
     channel = _ch(
         bus,
         session_manager=_seed_session(tmp_path),
@@ -869,7 +869,7 @@ async def test_webui_skill_install_honors_remote_install_opt_in(
 ) -> None:
     policy = MagicMock()
     policy.tools.webui_allow_remote_package_install = True
-    monkeypatch.setattr("nanobot.config.loader.load_config", lambda: policy)
+    monkeypatch.setattr("nanoinfra.config.loader.load_config", lambda: policy)
 
     async def install(
         source: str,
@@ -888,7 +888,7 @@ async def test_webui_skill_install_honors_remote_install_opt_in(
         return {"installed": True, "already_installed": False, "name": skill_id}
 
     monkeypatch.setattr(
-        "nanobot.webui.ws_http.install_marketplace_skill",
+        "nanoinfra.webui.ws_http.install_marketplace_skill",
         AsyncMock(side_effect=install),
     )
     channel = _ch(
@@ -944,11 +944,11 @@ async def test_cli_apps_routes_require_token_and_return_payload(
         }
 
     monkeypatch.setattr(
-        "nanobot.webui.settings_routes.cli_apps_payload",
+        "nanoinfra.webui.settings_routes.cli_apps_payload",
         payload,
     )
     monkeypatch.setattr(
-        "nanobot.webui.settings_routes.cli_apps_action",
+        "nanoinfra.webui.settings_routes.cli_apps_action",
         lambda action, query: {
             "apps": [],
             "installed_count": 1,
@@ -984,7 +984,7 @@ async def test_cli_apps_routes_require_token_and_return_payload(
 
 
 @pytest.mark.asyncio
-async def test_nanobot_feature_routes_require_token_and_enable(
+async def test_nanoinfra_feature_routes_require_token_and_enable(
     bus: MagicMock,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -994,14 +994,14 @@ async def test_nanobot_feature_routes_require_token_and_enable(
     channel = _ch(bus, session_manager=_seed_session(tmp_path), port=29916)
     server_task = asyncio.create_task(channel.start())
     try:
-        deny = await _http_get("http://127.0.0.1:29916/api/settings/nanobot-features")
+        deny = await _http_get("http://127.0.0.1:29916/api/settings/nanoinfra-features")
         assert deny.status_code == 401
 
         token = channel.gateway.tokens.issue_api_token(300)
         auth = {"Authorization": f"Bearer {token}"}
 
         catalog = await _http_get(
-            "http://127.0.0.1:29916/api/settings/nanobot-features",
+            "http://127.0.0.1:29916/api/settings/nanoinfra-features",
             headers=auth,
         )
         assert catalog.status_code == 200
@@ -1011,7 +1011,7 @@ async def test_nanobot_feature_routes_require_token_and_enable(
         assert features["websocket"]["ready"] is True
 
         enabled = await _http_get(
-            "http://127.0.0.1:29916/api/settings/nanobot-features/enable?name=matrix",
+            "http://127.0.0.1:29916/api/settings/nanoinfra-features/enable?name=matrix",
             headers=auth,
         )
         assert enabled.status_code == 200
@@ -1020,7 +1020,7 @@ async def test_nanobot_feature_routes_require_token_and_enable(
         assert body["restart_required_sections"] == ["runtime"]
 
         disabled_websocket = await _http_get(
-            "http://127.0.0.1:29916/api/settings/nanobot-features/disable?name=websocket",
+            "http://127.0.0.1:29916/api/settings/nanoinfra-features/disable?name=websocket",
             headers=auth,
         )
         assert disabled_websocket.status_code == 400
@@ -1028,7 +1028,7 @@ async def test_nanobot_feature_routes_require_token_and_enable(
         assert "websocket" not in json.loads(config_path.read_text(encoding="utf-8"))["channels"]
 
         disabled = await _http_get(
-            "http://127.0.0.1:29916/api/settings/nanobot-features/disable?name=matrix",
+            "http://127.0.0.1:29916/api/settings/nanoinfra-features/disable?name=matrix",
             headers=auth,
         )
         assert disabled.status_code == 200
@@ -1044,7 +1044,7 @@ async def test_nanobot_feature_routes_require_token_and_enable(
 
 
 @pytest.mark.asyncio
-async def test_nanobot_feature_route_reports_live_channel_failure(
+async def test_nanoinfra_feature_route_reports_live_channel_failure(
     bus: MagicMock,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1079,7 +1079,7 @@ async def test_nanobot_feature_route_reports_live_channel_failure(
     try:
         token = channel.gateway.tokens.issue_api_token(300)
         response = await _http_get(
-            "http://127.0.0.1:29946/api/settings/nanobot-features",
+            "http://127.0.0.1:29946/api/settings/nanoinfra-features",
             headers={"Authorization": f"Bearer {token}"},
         )
 
@@ -1115,13 +1115,13 @@ async def test_pairing_routes_require_token_and_approve_or_deny(
     approved: list[str] = []
     denied: list[str] = []
 
-    monkeypatch.setattr("nanobot.webui.settings_routes.list_pending", lambda: list(pending))
+    monkeypatch.setattr("nanoinfra.webui.settings_routes.list_pending", lambda: list(pending))
     monkeypatch.setattr(
-        "nanobot.webui.settings_routes.approve_code",
+        "nanoinfra.webui.settings_routes.approve_code",
         lambda code: approved.append(code) or ("feishu", "ou_123") if code == "ABCD-EFGH" else None,
     )
     monkeypatch.setattr(
-        "nanobot.webui.settings_routes.deny_code",
+        "nanoinfra.webui.settings_routes.deny_code",
         lambda code: denied.append(code) or code == "ABCD-EFGH",
     )
 
@@ -1186,7 +1186,7 @@ async def test_pairing_routes_require_token_and_approve_or_deny(
 def test_api_service_settings_read_api_key_from_private_header(bus: MagicMock) -> None:
     channel = _ch(bus)
     request = _FakeReq(
-        {"X-Nanobot-API-Service-Values": json.dumps({"api_key": "secret-token"})},
+        {"X-Nanoinfra-API-Service-Values": json.dumps({"api_key": "secret-token"})},
         path="/api/settings/api-service/start?host=0.0.0.0&port=8900&timeout=120",
     )
 
@@ -1201,11 +1201,11 @@ def test_api_service_settings_read_api_key_from_private_header(bus: MagicMock) -
 
 
 def test_api_service_settings_reject_invalid_private_header(bus: MagicMock) -> None:
-    from nanobot.webui.settings_api import WebUISettingsError
+    from nanoinfra.webui.settings_api import WebUISettingsError
 
     channel = _ch(bus)
     request = _FakeReq(
-        {"X-Nanobot-API-Service-Values": json.dumps({"api_key": 123})},
+        {"X-Nanoinfra-API-Service-Values": json.dumps({"api_key": 123})},
         path="/api/settings/api-service/start?host=127.0.0.1",
     )
 
@@ -1220,7 +1220,7 @@ def test_api_service_settings_reject_invalid_private_header(bus: MagicMock) -> N
 
 
 @pytest.mark.asyncio
-async def test_nanobot_feature_remote_install_requires_opt_in(
+async def test_nanoinfra_feature_remote_install_requires_opt_in(
     bus: MagicMock,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1236,13 +1236,13 @@ async def test_nanobot_feature_remote_install_requires_opt_in(
     )
     channel = _ch(bus, session_manager=_seed_session(tmp_path), port=_free_port())
     token = channel.gateway.tokens.issue_api_token(300)
-    path = "/api/settings/nanobot-features/enable?name=matrix"
+    path = "/api/settings/nanoinfra-features/enable?name=matrix"
     request = _FakeReq({"Authorization": f"Bearer {token}"}, path=path)
 
     blocked = await channel.gateway.http.settings_routes.dispatch(
         _REMOTE,
         request,
-        "/api/settings/nanobot-features/enable",
+        "/api/settings/nanoinfra-features/enable",
     )
 
     assert blocked is not None
@@ -1258,7 +1258,7 @@ async def test_nanobot_feature_remote_install_requires_opt_in(
     allowed = await channel.gateway.http.settings_routes.dispatch(
         _REMOTE,
         request,
-        "/api/settings/nanobot-features/enable",
+        "/api/settings/nanoinfra-features/enable",
     )
 
     assert allowed is not None
@@ -1267,7 +1267,7 @@ async def test_nanobot_feature_remote_install_requires_opt_in(
 
 
 @pytest.mark.asyncio
-async def test_nanobot_feature_local_install_allowed_by_default(
+async def test_nanoinfra_feature_local_install_allowed_by_default(
     bus: MagicMock,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1285,13 +1285,13 @@ async def test_nanobot_feature_local_install_allowed_by_default(
     token = channel.gateway.tokens.issue_api_token(300)
     request = _FakeReq(
         {"Authorization": f"Bearer {token}", "Host": "127.0.0.1:8765"},
-        path="/api/settings/nanobot-features/enable?name=matrix",
+        path="/api/settings/nanoinfra-features/enable?name=matrix",
     )
 
     response = await channel.gateway.http.settings_routes.dispatch(
         _LOCAL,
         request,
-        "/api/settings/nanobot-features/enable",
+        "/api/settings/nanoinfra-features/enable",
     )
 
     assert response is not None
@@ -1303,7 +1303,7 @@ async def test_nanobot_feature_local_install_allowed_by_default(
 
 
 @pytest.mark.asyncio
-async def test_nanobot_feature_channel_action_can_apply_without_restart(
+async def test_nanoinfra_feature_channel_action_can_apply_without_restart(
     bus: MagicMock,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1334,13 +1334,13 @@ async def test_nanobot_feature_channel_action_can_apply_without_restart(
     token = channel.gateway.tokens.issue_api_token(300)
     request = _FakeReq(
         {"Authorization": f"Bearer {token}", "Host": "127.0.0.1:8765"},
-        path="/api/settings/nanobot-features/enable?name=matrix",
+        path="/api/settings/nanoinfra-features/enable?name=matrix",
     )
 
     response = await channel.gateway.http.settings_routes.dispatch(
         _LOCAL,
         request,
-        "/api/settings/nanobot-features/enable",
+        "/api/settings/nanoinfra-features/enable",
     )
 
     assert response is not None
@@ -1369,7 +1369,7 @@ async def test_channel_connect_runtime_import_error_is_not_reported_as_unsupport
             return BrokenConnector()
 
     monkeypatch.setattr(
-        "nanobot.webui.settings_routes.load_channel_plugin",
+        "nanoinfra.webui.settings_routes.load_channel_plugin",
         lambda _name: FakePlugin(),
     )
     channel = _ch(bus, session_manager=_seed_session(tmp_path), port=_free_port())
@@ -1394,9 +1394,9 @@ async def test_feishu_connect_routes_write_config_and_hot_reload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from nanobot.channels.feishu import runtime as feishu_module
-    from nanobot.config import loader
-    from nanobot.config.schema import Config
+    from nanoinfra.channels.feishu import runtime as feishu_module
+    from nanoinfra.config import loader
+    from nanoinfra.config.schema import Config
 
     config_path = tmp_path / "config.json"
     loader.save_config(Config(), config_path)
@@ -1432,7 +1432,7 @@ async def test_feishu_connect_routes_write_config_and_hot_reload(
         },
     )
     monkeypatch.setattr(
-        "nanobot.webui.settings_routes.nanobot_features_action",
+        "nanoinfra.webui.settings_routes.nanoinfra_features_action",
         lambda _action, _query, *, allow_install=True: {
             "features": [{
                 "name": "feishu",
@@ -1502,7 +1502,7 @@ async def test_feishu_connect_routes_write_config_and_hot_reload(
     assert body["instance_id"] == "default"
     assert "app_secret" not in body
     assert calls == [("enable", "feishu", "default")]
-    assert body["nanobot_features"]["requires_restart"] is False
+    assert body["nanoinfra_features"]["requires_restart"] is False
     data = json.loads(config_path.read_text(encoding="utf-8"))
     assert data["channels"]["feishu"]["instances"][0]["id"] == "default"
     assert data["channels"]["feishu"]["instances"][0]["appId"] == "cli_app"
@@ -1516,9 +1516,9 @@ def test_feishu_connect_create_appends_instance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from nanobot.channels.feishu import runtime as feishu_module
-    from nanobot.channels.feishu.connect import FeishuConnectStore
-    from nanobot.config import loader
+    from nanoinfra.channels.feishu import runtime as feishu_module
+    from nanoinfra.channels.feishu.connect import FeishuConnectStore
+    from nanoinfra.config import loader
 
     config_path = tmp_path / "config.json"
     config_path.write_text(
@@ -1527,7 +1527,7 @@ def test_feishu_connect_create_appends_instance(
                 "feishu": {
                     "instances": [{
                         "id": "default",
-                        "name": "nanobot",
+                        "name": "nanoinfra",
                         "enabled": True,
                         "appId": "cli_default",
                         "appSecret": "default-secret",
@@ -1600,8 +1600,8 @@ async def test_channel_configure_route_saves_discord_config_and_hot_reloads(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from nanobot.config import loader
-    from nanobot.config.schema import Config
+    from nanoinfra.config import loader
+    from nanoinfra.config.schema import Config
 
     config_path = tmp_path / "config.json"
     loader.save_config(Config(), config_path)
@@ -1637,7 +1637,7 @@ async def test_channel_configure_route_saves_discord_config_and_hot_reloads(
             "last_action": {"ok": True, "message": "Enabled channel 'discord'", "enabled": True},
         }
 
-    monkeypatch.setattr("nanobot.webui.settings_routes.nanobot_features_action", fake_feature_action)
+    monkeypatch.setattr("nanoinfra.webui.settings_routes.nanoinfra_features_action", fake_feature_action)
     calls: list[tuple[str, str, str]] = []
 
     async def channel_feature_action(action: str, name: str, instance_id: str) -> dict[str, Any]:
@@ -1664,7 +1664,7 @@ async def test_channel_configure_route_saves_discord_config_and_hot_reloads(
             {
                 "Authorization": f"Bearer {token}",
                 "Host": "127.0.0.1:8765",
-                "X-Nanobot-Channel-Values": json.dumps(
+                "X-Nanoinfra-Channel-Values": json.dumps(
                     {
                         "channels.discord.token": "discord-token",
                         "channels.discord.allowChannels": "123, 456",
@@ -1684,7 +1684,7 @@ async def test_channel_configure_route_saves_discord_config_and_hot_reloads(
     assert body["name"] == "discord"
     assert "discord-token" not in response.body.decode()
     assert calls == [("enable", "discord", "default")]
-    assert body["nanobot_features"]["requires_restart"] is False
+    assert body["nanoinfra_features"]["requires_restart"] is False
     data = json.loads(config_path.read_text(encoding="utf-8"))
     assert data["channels"]["discord"] == {
         "token": "discord-token",
@@ -1700,8 +1700,8 @@ async def test_channel_configure_route_preserves_existing_channel_values(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from nanobot.config import loader
-    from nanobot.config.schema import Config
+    from nanoinfra.config import loader
+    from nanoinfra.config.schema import Config
 
     config_path = tmp_path / "config.json"
     config = Config()
@@ -1728,7 +1728,7 @@ async def test_channel_configure_route_preserves_existing_channel_values(
             {
                 "Authorization": f"Bearer {token}",
                 "Host": "127.0.0.1:8765",
-                "X-Nanobot-Channel-Values": json.dumps(
+                "X-Nanoinfra-Channel-Values": json.dumps(
                     {
                         "channels.discord.token": "",
                         "channels.discord.allowChannels": "new-channel",
@@ -1746,7 +1746,7 @@ async def test_channel_configure_route_preserves_existing_channel_values(
     assert body["saved_keys"] == ["channels.discord.allowChannels"]
     discord = next(
         feature
-        for feature in body["nanobot_features"]["features"]
+        for feature in body["nanoinfra_features"]["features"]
         if feature["name"] == "discord"
     )
     assert discord["configured"] is True
@@ -1768,8 +1768,8 @@ async def test_channel_configure_route_saves_matrix_device_id_without_replacing_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from nanobot.config import loader
-    from nanobot.config.schema import Config
+    from nanoinfra.config import loader
+    from nanoinfra.config.schema import Config
 
     config_path = tmp_path / "config.json"
     config = Config()
@@ -1779,7 +1779,7 @@ async def test_channel_configure_route_saves_matrix_device_id_without_replacing_
         {
             "enabled": False,
             "homeserver": "https://matrix.example",
-            "userId": "@nanobot:matrix.example",
+            "userId": "@nanoinfra:matrix.example",
             "accessToken": "saved-token",
         },
     )
@@ -1794,7 +1794,7 @@ async def test_channel_configure_route_saves_matrix_device_id_without_replacing_
             {
                 "Authorization": f"Bearer {token}",
                 "Host": "127.0.0.1:8765",
-                "X-Nanobot-Channel-Values": json.dumps(
+                "X-Nanoinfra-Channel-Values": json.dumps(
                     {
                         "channels.matrix.accessToken": "",
                         "channels.matrix.deviceId": "DEVICE-ID",
@@ -1819,8 +1819,8 @@ async def test_channel_configure_route_saves_mattermost_setup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from nanobot.config import loader
-    from nanobot.config.schema import Config
+    from nanoinfra.config import loader
+    from nanoinfra.config.schema import Config
 
     config_path = tmp_path / "config.json"
     loader.save_config(Config(), config_path)
@@ -1834,7 +1834,7 @@ async def test_channel_configure_route_saves_mattermost_setup(
             {
                 "Authorization": f"Bearer {token}",
                 "Host": "127.0.0.1:8765",
-                "X-Nanobot-Channel-Values": json.dumps(
+                "X-Nanoinfra-Channel-Values": json.dumps(
                     {
                         "channels.mattermost.serverUrl": "https://chat.example.com",
                         "channels.mattermost.token": "mattermost-token",
@@ -1858,7 +1858,7 @@ async def test_channel_configure_route_saves_mattermost_setup(
 
 
 @pytest.mark.asyncio
-async def test_nanobot_feature_loopback_reverse_proxy_install_requires_opt_in(
+async def test_nanoinfra_feature_loopback_reverse_proxy_install_requires_opt_in(
     bus: MagicMock,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1877,16 +1877,16 @@ async def test_nanobot_feature_loopback_reverse_proxy_install_requires_opt_in(
     request = _FakeReq(
         {
             "Authorization": f"Bearer {token}",
-            "Host": "nanobot.example",
+            "Host": "nanoinfra.example",
             "X-Forwarded-For": "203.0.113.42",
         },
-        path="/api/settings/nanobot-features/enable?name=matrix",
+        path="/api/settings/nanoinfra-features/enable?name=matrix",
     )
 
     blocked = await channel.gateway.http.settings_routes.dispatch(
         _LOCAL,
         request,
-        "/api/settings/nanobot-features/enable",
+        "/api/settings/nanoinfra-features/enable",
     )
 
     assert blocked is not None
@@ -1901,7 +1901,7 @@ async def test_nanobot_feature_loopback_reverse_proxy_install_requires_opt_in(
     allowed = await channel.gateway.http.settings_routes.dispatch(
         _LOCAL,
         request,
-        "/api/settings/nanobot-features/enable",
+        "/api/settings/nanoinfra-features/enable",
     )
 
     assert allowed is not None
@@ -1910,7 +1910,7 @@ async def test_nanobot_feature_loopback_reverse_proxy_install_requires_opt_in(
 
 
 @pytest.mark.asyncio
-async def test_nanobot_feature_remote_enable_without_install_is_allowed(
+async def test_nanoinfra_feature_remote_enable_without_install_is_allowed(
     bus: MagicMock,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1928,13 +1928,13 @@ async def test_nanobot_feature_remote_enable_without_install_is_allowed(
     token = channel.gateway.tokens.issue_api_token(300)
     request = _FakeReq(
         {"Authorization": f"Bearer {token}"},
-        path="/api/settings/nanobot-features/enable?name=matrix",
+        path="/api/settings/nanoinfra-features/enable?name=matrix",
     )
 
     response = await channel.gateway.http.settings_routes.dispatch(
         _REMOTE,
         request,
-        "/api/settings/nanobot-features/enable",
+        "/api/settings/nanoinfra-features/enable",
     )
 
     assert response is not None
@@ -1946,7 +1946,7 @@ async def test_nanobot_feature_remote_enable_without_install_is_allowed(
 
 
 @pytest.mark.asyncio
-async def test_nanobot_feature_remote_disable_does_not_need_install_policy(
+async def test_nanoinfra_feature_remote_disable_does_not_need_install_policy(
     bus: MagicMock,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1962,13 +1962,13 @@ async def test_nanobot_feature_remote_disable_does_not_need_install_policy(
     token = channel.gateway.tokens.issue_api_token(300)
     request = _FakeReq(
         {"Authorization": f"Bearer {token}"},
-        path="/api/settings/nanobot-features/disable?name=matrix",
+        path="/api/settings/nanoinfra-features/disable?name=matrix",
     )
 
     response = await channel.gateway.http.settings_routes.dispatch(
         _REMOTE,
         request,
-        "/api/settings/nanobot-features/disable",
+        "/api/settings/nanoinfra-features/disable",
     )
 
     assert response is not None
@@ -1994,7 +1994,7 @@ async def test_cli_apps_catalog_does_not_block_other_webui_http_routes(
             await asyncio.wait_for(release.wait(), 2.0)
         return {"apps": [], "installed_count": 0, "catalog_updated_at": None}
 
-    monkeypatch.setattr("nanobot.webui.settings_routes.cli_apps_payload", slow_payload)
+    monkeypatch.setattr("nanoinfra.webui.settings_routes.cli_apps_payload", slow_payload)
     channel = _ch(bus, session_manager=_seed_session(tmp_path), port=29935)
     server_task = asyncio.create_task(channel.start())
     try:
@@ -2034,7 +2034,7 @@ async def test_cli_apps_route_supports_installed_only_payload(
         calls.append(installed_only)
         return {"apps": [], "installed_count": 0, "catalog_updated_at": None}
 
-    monkeypatch.setattr("nanobot.webui.settings_routes.cli_apps_payload", payload)
+    monkeypatch.setattr("nanoinfra.webui.settings_routes.cli_apps_payload", payload)
     channel = _ch(bus, session_manager=_seed_session(tmp_path), port=29936)
     server_task = asyncio.create_task(channel.start())
     try:
@@ -2061,7 +2061,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "nanobot.webui.mcp_presets_api.mcp_presets_payload",
+        "nanoinfra.webui.mcp_presets_api.mcp_presets_payload",
         lambda: {
             "presets": [
                 {
@@ -2112,11 +2112,11 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
         }
 
     monkeypatch.setattr(
-        "nanobot.webui.mcp_presets_api.mcp_presets_action",
+        "nanoinfra.webui.mcp_presets_api.mcp_presets_action",
         _mcp_preset_action,
     )
     monkeypatch.setattr(
-        "nanobot.webui.mcp_presets_api.custom_mcp_action",
+        "nanoinfra.webui.mcp_presets_api.custom_mcp_action",
         _custom_action,
     )
 
@@ -2124,7 +2124,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
         return {"ok": True, "message": "MCP config reloaded.", "requires_restart": False}
 
     monkeypatch.setattr(
-        "nanobot.webui.settings_routes.request_mcp_reload",
+        "nanoinfra.webui.settings_routes.request_mcp_reload",
         _hot_reload,
     )
     channel = _ch(bus, session_manager=_seed_session(tmp_path), port=29913)
@@ -2147,7 +2147,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             "http://127.0.0.1:29913/api/settings/mcp-presets/enable?name=browserbase",
             headers={
                 **auth,
-                "X-Nanobot-MCP-Values": json.dumps(
+                "X-Nanoinfra-MCP-Values": json.dumps(
                     {"browserbase_api_key": "bb_live_secret"}
                 ),
             },
@@ -2162,7 +2162,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
 
         bad_header = await _http_get(
             "http://127.0.0.1:29913/api/settings/mcp-presets/enable?name=browserbase",
-            headers={**auth, "X-Nanobot-MCP-Values": "[]"},
+            headers={**auth, "X-Nanoinfra-MCP-Values": "[]"},
         )
         assert bad_header.status_code == 400
 
@@ -2170,7 +2170,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             "http://127.0.0.1:29913/api/settings/mcp-presets/custom",
             headers={
                 **auth,
-                "X-Nanobot-MCP-Values": json.dumps(
+                "X-Nanoinfra-MCP-Values": json.dumps(
                     {"name": "docs", "command": "npx"}
                 ),
             },
@@ -2181,7 +2181,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
 
         imported = await _http_get(
             "http://127.0.0.1:29913/api/settings/mcp-presets/import",
-            headers={**auth, "X-Nanobot-MCP-Values": json.dumps({"config": "{}"})},
+            headers={**auth, "X-Nanoinfra-MCP-Values": json.dumps({"config": "{}"})},
         )
         assert imported.status_code == 200
         assert imported.json()["last_action"]["message"] == "import:config MCP config reloaded."
@@ -2190,7 +2190,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             "http://127.0.0.1:29913/api/settings/mcp-presets/tools",
             headers={
                 **auth,
-                "X-Nanobot-MCP-Values": json.dumps(
+                "X-Nanoinfra-MCP-Values": json.dumps(
                     {"name": "docs", "enabled_tools": []}
                 ),
             },
@@ -2261,7 +2261,7 @@ async def test_sessions_list_only_returns_websocket_sessions_by_default(
 async def test_webui_sidebar_state_routes_are_config_dir_scoped(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
     sm = _seed_session(tmp_path, key="websocket:sidebar")
     channel = _ch(bus, session_manager=sm, port=29911)
     server_task = asyncio.create_task(channel.start())
@@ -2308,9 +2308,9 @@ async def test_webui_sidebar_state_routes_are_config_dir_scoped(
 async def test_session_delete_removes_file(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
     sm = _seed_session(tmp_path, key="websocket:doomed")
-    from nanobot.webui.transcript import append_transcript_object
+    from nanoinfra.webui.transcript import append_transcript_object
 
     append_transcript_object("websocket:doomed", {"event": "user", "chat_id": "doomed", "text": "x"})
     channel = _ch(bus, session_manager=sm, port=29903)
@@ -2431,7 +2431,7 @@ async def test_webui_automations_route_lists_all_jobs_and_allows_user_actions(
             f"{base_url}/api/webui/automations/update?id={user_job.id}",
             headers={
                 **auth,
-                "X-Nanobot-Automation-Values": json.dumps(
+                "X-Nanoinfra-Automation-Values": json.dumps(
                     {
                         "name": "Daily quiz",
                         "message": "Ask the daily quiz",
@@ -2456,7 +2456,7 @@ async def test_webui_automations_route_lists_all_jobs_and_allows_user_actions(
             f"{base_url}/api/webui/automations/update?id={user_job.id}",
             headers={
                 **auth,
-                "X-Nanobot-Automation-Values": quote(
+                "X-Nanoinfra-Automation-Values": quote(
                     json.dumps(
                         {
                             "name": "每日测验",
@@ -2476,7 +2476,7 @@ async def test_webui_automations_route_lists_all_jobs_and_allows_user_actions(
             f"{base_url}/api/webui/automations/update?id={user_job.id}",
             headers={
                 **auth,
-                "X-Nanobot-Automation-Values": json.dumps({"message": ["bad"]}),
+                "X-Nanoinfra-Automation-Values": json.dumps({"message": ["bad"]}),
             },
         )
         assert malformed_update.status_code == 400
@@ -2486,7 +2486,7 @@ async def test_webui_automations_route_lists_all_jobs_and_allows_user_actions(
             f"{base_url}/api/webui/automations/update?id={user_job.id}",
             headers={
                 **auth,
-                "X-Nanobot-Automation-Values": json.dumps(
+                "X-Nanoinfra-Automation-Values": json.dumps(
                     {"schedule": {"kind": "cron", "expr": "not a cron", "tz": "UTC"}}
                 ),
             },
@@ -2498,7 +2498,7 @@ async def test_webui_automations_route_lists_all_jobs_and_allows_user_actions(
             f"{base_url}/api/webui/automations/update?id={past_one_shot_job.id}",
             headers={
                 **auth,
-                "X-Nanobot-Automation-Values": json.dumps(
+                "X-Nanoinfra-Automation-Values": json.dumps(
                     {
                         "message": "Updated one-shot message",
                         "schedule": {"kind": "at", "at_ms": 1},
@@ -2514,7 +2514,7 @@ async def test_webui_automations_route_lists_all_jobs_and_allows_user_actions(
             f"{base_url}/api/webui/automations/update?id=heartbeat",
             headers={
                 **auth,
-                "X-Nanobot-Automation-Values": json.dumps({"name": "bad"}),
+                "X-Nanoinfra-Automation-Values": json.dumps({"name": "bad"}),
             },
         )
         assert protected_update.status_code == 403
@@ -2618,7 +2618,7 @@ async def test_webui_automations_route_manages_local_triggers(
         assert by_id[trigger.id]["kind"] == "local_trigger"
         assert by_id[trigger.id]["state"]["pending"] is True
         assert by_id[trigger.id]["payload"]["message"] == "Review queued PR"
-        assert by_id[trigger.id]["trigger"]["command"] == f'nanobot trigger {trigger.id} "message"'
+        assert by_id[trigger.id]["trigger"]["command"] == f'nanoinfra trigger {trigger.id} "message"'
 
         disabled = await _http_get(
             f"{base_url}/api/webui/automations/disable?id={trigger.id}",
@@ -2640,7 +2640,7 @@ async def test_webui_automations_route_manages_local_triggers(
             f"{base_url}/api/webui/automations/update?id={trigger.id}",
             headers={
                 **auth,
-                "X-Nanobot-Automation-Values": json.dumps({"name": "Release review"}),
+                "X-Nanoinfra-Automation-Values": json.dumps({"name": "Release review"}),
             },
         )
         assert renamed.status_code == 200
@@ -2652,7 +2652,7 @@ async def test_webui_automations_route_manages_local_triggers(
             f"{base_url}/api/webui/automations/update?id={trigger.id}",
             headers={
                 **auth,
-                "X-Nanobot-Automation-Values": json.dumps({"message": "coupled"}),
+                "X-Nanoinfra-Automation-Values": json.dumps({"message": "coupled"}),
             },
         )
         assert bad_update.status_code == 400
@@ -2673,7 +2673,7 @@ async def test_webui_automations_route_manages_local_triggers(
 async def test_session_delete_blocks_when_bound_automation_exists(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
     sm = _seed_session(tmp_path, key="websocket:doomed")
     cron = CronService(tmp_path / "cron" / "jobs.json")
     cron.add_job(
@@ -2712,7 +2712,7 @@ async def test_session_delete_blocks_when_bound_automation_exists(
 async def test_session_delete_blocks_and_cascades_local_triggers(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
     port = _free_port()
     base_url = f"http://127.0.0.1:{port}"
     sm = _seed_session(tmp_path, key="websocket:doomed")
@@ -2758,7 +2758,7 @@ async def test_session_delete_blocks_and_cascades_local_triggers(
 async def test_session_delete_can_cascade_bound_automations(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
     sm = _seed_session(tmp_path, key="websocket:doomed")
     cron = CronService(tmp_path / "cron" / "jobs.json")
     cron.add_job(
@@ -2802,7 +2802,7 @@ async def test_session_delete_can_cascade_bound_automations(
 async def test_session_delete_blocks_origin_automation_when_unified_enabled(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
     sm = _seed_session(tmp_path, key="websocket:doomed")
     cron = CronService(tmp_path / "cron" / "jobs.json")
     cron.add_job(
@@ -2915,9 +2915,9 @@ async def test_session_messages_hide_persisted_runtime_context(
 async def test_webui_thread_resigns_assistant_media_urls(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from nanobot.webui.transcript import append_transcript_object
+    from nanoinfra.webui.transcript import append_transcript_object
 
-    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
     media_root = tmp_path / "media"
     websocket_media = media_root / "websocket"
     websocket_media.mkdir(parents=True)
@@ -2927,7 +2927,7 @@ async def test_webui_thread_resigns_assistant_media_urls(
     def fake_media_dir(channel: str | None = None) -> Path:
         return websocket_media if channel == "websocket" else media_root
 
-    monkeypatch.setattr("nanobot.webui.media_gateway.get_media_dir", fake_media_dir)
+    monkeypatch.setattr("nanoinfra.webui.media_gateway.get_media_dir", fake_media_dir)
 
     append_transcript_object(
         "websocket:video-replay",
@@ -3012,9 +3012,9 @@ async def test_sessions_list_negotiates_gzip_across_repeated_headers(
 async def test_webui_thread_complete_transcript_skips_session_history_read(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from nanobot.webui.transcript import append_transcript_object
+    from nanoinfra.webui.transcript import append_transcript_object
 
-    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
     key = "websocket:fast-thread"
     sm = _seed_session(tmp_path, key=key)
     for event in (
@@ -3059,9 +3059,9 @@ async def test_webui_thread_complete_transcript_skips_session_history_read(
 async def test_webui_thread_negotiates_gzip_for_large_payloads(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from nanobot.webui.transcript import append_transcript_object
+    from nanoinfra.webui.transcript import append_transcript_object
 
-    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
     sm = SessionManager(tmp_path)
     append_transcript_object(
         "websocket:gzip-thread",
@@ -3285,7 +3285,7 @@ _LOCAL_BROWSER_REQ = _FakeReq({"Host": "127.0.0.1:8765"})
 
 
 def test_local_browser_request_requires_loopback_host_and_forwarded_origin() -> None:
-    from nanobot.webui.http_utils import is_local_browser_request
+    from nanoinfra.webui.http_utils import is_local_browser_request
 
     assert is_local_browser_request(_LOCAL, {"Host": "127.0.0.1:8765"}) is True
     assert is_local_browser_request(_LOCAL, {"Host": "localhost:8765"}) is True
@@ -3297,7 +3297,7 @@ def test_local_browser_request_requires_loopback_host_and_forwarded_origin() -> 
         is True
     )
     assert is_local_browser_request(_REMOTE, {"Host": "127.0.0.1:8765"}) is False
-    assert is_local_browser_request(_LOCAL, {"Host": "nanobot.example"}) is False
+    assert is_local_browser_request(_LOCAL, {"Host": "nanoinfra.example"}) is False
     assert (
         is_local_browser_request(
             _LOCAL,
@@ -3308,14 +3308,14 @@ def test_local_browser_request_requires_loopback_host_and_forwarded_origin() -> 
     assert (
         is_local_browser_request(
             _LOCAL,
-            {"Host": "127.0.0.1:8765", "X-Forwarded-Host": "nanobot.example"},
+            {"Host": "127.0.0.1:8765", "X-Forwarded-Host": "nanoinfra.example"},
         )
         is False
     )
     assert (
         is_local_browser_request(
             _LOCAL,
-            {"Host": "127.0.0.1:8765", "Forwarded": "for=203.0.113.42;host=nanobot.example"},
+            {"Host": "127.0.0.1:8765", "Forwarded": "for=203.0.113.42;host=nanoinfra.example"},
         )
         is False
     )
@@ -3350,7 +3350,7 @@ def test_wildcard_ipv6_without_auth_raises(bus: MagicMock) -> None:
 def test_wildcard_ipv6_with_secret_is_valid(bus: MagicMock) -> None:
     channel = _ch(bus, host="::", tokenIssueSecret="s3cret")
     resp = channel.gateway.http._handle_bootstrap(
-        _REMOTE, _FakeReq({"X-Nanobot-Auth": "s3cret"})
+        _REMOTE, _FakeReq({"X-Nanoinfra-Auth": "s3cret"})
     )
     assert resp.status_code == 200
 
@@ -3375,14 +3375,14 @@ def test_bootstrap_ws_url_uses_forwarded_https_host(bus: MagicMock) -> None:
         _FakeReq(
             {
                 "Authorization": "Bearer s3cret",
-                "Host": "nanobot.example",
+                "Host": "nanoinfra.example",
                 "X-Forwarded-Proto": "https",
             }
         ),
     )
     assert resp.status_code == 200
     body = json.loads(resp.body)
-    assert body["ws_url"] == "wss://nanobot.example/"
+    assert body["ws_url"] == "wss://nanoinfra.example/"
 
 
 def test_bootstrap_without_auth_rejects_remote_requests(bus: MagicMock) -> None:
@@ -3395,7 +3395,7 @@ def test_bootstrap_without_auth_rejects_reverse_proxy_remote_headers(bus: MagicM
     channel = _ch(bus, host="127.0.0.1")
     resp = channel.gateway.http._handle_bootstrap(
         _LOCAL,
-        _FakeReq({"Host": "nanobot.example", "X-Forwarded-For": "203.0.113.42"}),
+        _FakeReq({"Host": "nanoinfra.example", "X-Forwarded-For": "203.0.113.42"}),
     )
     assert resp.status_code == 403
 
@@ -3436,7 +3436,7 @@ def test_authenticated_bootstrap_returns_distinct_api_token(bus: MagicMock) -> N
 
 def test_bootstrap_prefers_runtime_model_name(bus: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "nanobot.webui.ws_http._default_model_name_from_config",
+        "nanoinfra.webui.ws_http._default_model_name_from_config",
         lambda: "from-disk",
     )
     channel = _ch(bus, host="127.0.0.1", runtime_model_name=lambda: "  live/model  ")
@@ -3448,7 +3448,7 @@ def test_bootstrap_prefers_runtime_model_name(bus: MagicMock, monkeypatch: pytes
 
 def test_bootstrap_falls_back_when_runtime_returns_empty(bus: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "nanobot.webui.ws_http._default_model_name_from_config",
+        "nanoinfra.webui.ws_http._default_model_name_from_config",
         lambda: "from-disk",
     )
     channel = _ch(bus, host="127.0.0.1", runtime_model_name=lambda: "   ")
@@ -3460,7 +3460,7 @@ def test_bootstrap_falls_back_when_runtime_returns_empty(bus: MagicMock, monkeyp
 
 def test_bootstrap_falls_back_when_runtime_raises(bus: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "nanobot.webui.ws_http._default_model_name_from_config",
+        "nanoinfra.webui.ws_http._default_model_name_from_config",
         lambda: "from-disk",
     )
 
@@ -3492,10 +3492,10 @@ def test_bootstrap_accepts_remote_with_valid_secret(bus: MagicMock) -> None:
     assert body["token"].startswith("nbwt_")
 
 
-def test_bootstrap_accepts_x_nanobot_auth_header(bus: MagicMock) -> None:
+def test_bootstrap_accepts_x_nanoinfra_auth_header(bus: MagicMock) -> None:
     channel = _ch(bus, host="0.0.0.0", tokenIssueSecret="s3cret")
     resp = channel.gateway.http._handle_bootstrap(
-        _REMOTE, _FakeReq({"X-Nanobot-Auth": "s3cret"})
+        _REMOTE, _FakeReq({"X-Nanoinfra-Auth": "s3cret"})
     )
     assert resp.status_code == 200
 

@@ -7,8 +7,8 @@ from typing import Any, cast
 
 from loguru import logger
 
-from nanobot.providers.base import ProviderConversationState
-from nanobot.providers.openai_responses.converters import convert_messages
+from nanoinfra.providers.base import ProviderConversationState
+from nanoinfra.providers.openai_responses.converters import convert_messages
 
 RESPONSES_STATE_KIND = "openai_responses"
 RESPONSES_STATE_VERSION = 1

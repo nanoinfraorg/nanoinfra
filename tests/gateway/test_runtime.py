@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from nanobot.gateway import GatewayRuntime, GatewayRuntimePaths, GatewayStartOptions, GatewayStatus
+from nanoinfra.gateway import GatewayRuntime, GatewayRuntimePaths, GatewayStartOptions, GatewayStatus
 
 
 class FakeProcess:
@@ -69,7 +69,7 @@ def test_start_background_writes_state_and_child_command(tmp_path, monkeypatch):
     assert calls[0]["command"] == [
         "/python",
         "-m",
-        "nanobot",
+        "nanoinfra",
         "gateway",
         "--foreground",
         "--port",
@@ -274,7 +274,7 @@ def test_terminate_windows_falls_back_when_ctrl_break_is_rejected(tmp_path, monk
     def fake_kill(_pid, _signal):
         raise OSError(87, "The parameter is incorrect")
 
-    monkeypatch.setattr("nanobot.process_runtime.os.kill", fake_kill)
+    monkeypatch.setattr("nanoinfra.process_runtime.os.kill", fake_kill)
 
     def fake_wait_for_exit(_pid, _timeout_s):
         wait_timeouts.append(_timeout_s)
@@ -309,7 +309,7 @@ def test_terminate_posix_tolerates_process_group_disappearing_before_sigkill(
     )
     waits = iter([False, True])
     monkeypatch.setattr(
-        "nanobot.process_runtime.os.getpgid",
+        "nanoinfra.process_runtime.os.getpgid",
         lambda _pid: 1234,
         raising=False,
     )
@@ -318,7 +318,7 @@ def test_terminate_posix_tolerates_process_group_disappearing_before_sigkill(
         if sent_signal == signal.SIGKILL:
             raise PermissionError(1, "Operation not permitted")
 
-    monkeypatch.setattr("nanobot.process_runtime.os.killpg", fake_killpg, raising=False)
+    monkeypatch.setattr("nanoinfra.process_runtime.os.killpg", fake_killpg, raising=False)
     monkeypatch.setattr(runtime, "_wait_for_exit", lambda *_args: next(waits))
 
     assert runtime._terminate_posix(1234, timeout_s=1) is True

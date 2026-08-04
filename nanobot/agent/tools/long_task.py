@@ -8,16 +8,16 @@ from copy import deepcopy
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from nanobot.agent.goal_permission import (
+from nanoinfra.agent.goal_permission import (
     goal_mutation_allowed,
     revoke_goal_mutation_permission,
 )
-from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
-from nanobot.agent.tools.context import RequestContext, ToolContext, current_request_context
-from nanobot.agent.tools.schema import StringSchema, tool_parameters_schema
-from nanobot.bus.runtime_events import GoalStateChanged, RuntimeEventBus, RuntimeEventContext
-from nanobot.runtime_context import RuntimeContextBlock, wrap_runtime_context_lines
-from nanobot.session.goal_state import (
+from nanoinfra.agent.tools.base import Tool, ToolResult, tool_parameters
+from nanoinfra.agent.tools.context import RequestContext, ToolContext, current_request_context
+from nanoinfra.agent.tools.schema import StringSchema, tool_parameters_schema
+from nanoinfra.bus.runtime_events import GoalStateChanged, RuntimeEventBus, RuntimeEventContext
+from nanoinfra.runtime_context import RuntimeContextBlock, wrap_runtime_context_lines
+from nanoinfra.session.goal_state import (
     GOAL_STATE_KEY,
     MAX_GOAL_OBJECTIVE_CHARS,
     discard_legacy_goal_state_key,
@@ -27,11 +27,11 @@ from nanobot.session.goal_state import (
     parse_goal_state,
     sustained_goal_active,
 )
-from nanobot.session.turn_continuation import reset_goal_continuation_rounds
-from nanobot.utils.prompt_templates import render_template
+from nanoinfra.session.turn_continuation import reset_goal_continuation_rounds
+from nanoinfra.utils.prompt_templates import render_template
 
 if TYPE_CHECKING:
-    from nanobot.session.manager import SessionManager
+    from nanoinfra.session.manager import SessionManager
 
 
 _GOAL_ACTIONS = ("complete", "cancel", "block", "replace")

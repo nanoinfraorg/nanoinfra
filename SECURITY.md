@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in nanobot, please report it by:
+If you discover a security vulnerability in nanoinfra, please report it by:
 
 1. **DO NOT** open a public GitHub issue
 2. Create a private security advisory on GitHub or contact the repository maintainers (xubinrencs@gmail.com)
@@ -22,19 +22,19 @@ We aim to respond to security reports within 48 hours.
 
 ```bash
 # ✅ Best: Use environment variable references in config (never writes the key to disk)
-# In ~/.nanobot/config.json:
+# In ~/.nanoinfra/config.json:
 #   "apiKey": "${ANTHROPIC_API_KEY}"
 # Then supply the key at runtime via env var or Docker secret.
 
 # ✅ Good: Store in config file with restricted permissions
-chmod 600 ~/.nanobot/config.json
+chmod 600 ~/.nanoinfra/config.json
 
 # ❌ Bad: Hardcoding keys in code or committing them
 ```
 
 **Recommendations:**
-- **Prefer environment variable references** (`${VAR}`) in config — the config file stores the `${VAR}` placeholder, and the plaintext value only exists in memory at runtime. See [Configuration: Environment Variables for Secrets](https://nanobot.wiki/docs/latest/use-nanobot/configuration/#environment-variables-for-secrets) for details.
-- When plaintext keys are stored in `~/.nanobot/config.json`, set file permissions to `0600` (`chmod 600`)
+- **Prefer environment variable references** (`${VAR}`) in config — the config file stores the `${VAR}` placeholder, and the plaintext value only exists in memory at runtime. See [Configuration: Environment Variables for Secrets](https://nanoinfra.wiki/docs/latest/use-nanoinfra/configuration/#environment-variables-for-secrets) for details.
+- When plaintext keys are stored in `~/.nanoinfra/config.json`, set file permissions to `0600` (`chmod 600`)
 - Consider using an OS keyring/credential manager for production deployments
 - Rotate API keys regularly
 - Use separate API keys for development and production
@@ -73,7 +73,7 @@ The `exec` tool can execute shell commands. While dangerous command patterns are
 - ✅ Review all tool usage in agent logs
 - ✅ Understand what commands the agent is running
 - ✅ Use a dedicated user account with limited privileges
-- ✅ Never run nanobot as root
+- ✅ Never run nanoinfra as root
 - ❌ Don't disable security checks
 - ❌ Don't run on systems with sensitive data without careful review
 
@@ -84,7 +84,7 @@ On Linux, set `"tools.exec.sandbox": "bwrap"` to wrap every shell command in a [
 - Workspace directory → **read-write** (agent works normally)
 - Media directory → **read-only** (can read uploaded attachments)
 - System directories (`/usr`, `/bin`, `/lib`) → **read-only** (commands still work)
-- Config files and API keys (`~/.nanobot/config.json`) → **hidden** (masked by tmpfs)
+- Config files and API keys (`~/.nanoinfra/config.json`) → **hidden** (masked by tmpfs)
 
 Requires `bwrap` installed (`apt install bubblewrap`). Pre-installed in the official Docker image. **Not available on macOS or Windows** — bubblewrap depends on Linux kernel namespaces.
 
@@ -102,7 +102,7 @@ Enabling the sandbox also automatically activates `restrictToWorkspace` for file
 File operations have path traversal protection, but:
 
 - ✅ Enable `restrictToWorkspace` or the bwrap sandbox to confine file access
-- ✅ Run nanobot with a dedicated user account
+- ✅ Run nanoinfra with a dedicated user account
 - ✅ Use filesystem permissions to protect sensitive directories
 - ✅ Regularly audit file operations in logs
 - ❌ Don't give unrestricted access to sensitive files
@@ -116,8 +116,8 @@ File operations have path traversal protection, but:
 - Consider using a firewall to restrict outbound connections if needed
 
 **WhatsApp:**
-- Keep the neonize session database under `~/.nanobot/whatsapp-auth` secure (mode 0700).
-- Use `nanobot channels login whatsapp --force` to remove and recreate the local session database when rotating linked devices.
+- Keep the neonize session database under `~/.nanoinfra/whatsapp-auth` secure (mode 0700).
+- Use `nanoinfra channels login whatsapp --force` to remove and recreate the local session database when rotating linked devices.
 
 ### 6. Dependency Security
 
@@ -129,13 +129,13 @@ pip install pip-audit
 pip-audit
 
 # Update to latest secure versions
-pip install --upgrade nanobot-ai
+pip install --upgrade nanoinfra
 ```
 
 **Important Notes:**
 - Keep `litellm` updated to the latest version for security fixes
 - Run `pip-audit` regularly after enabling the channels used in production; their manifest-declared dependencies are installed into the same environment
-- Subscribe to security advisories for nanobot and its dependencies
+- Subscribe to security advisories for nanoinfra and its dependencies
 
 ### 7. Production Deployment
 
@@ -145,26 +145,26 @@ For production use:
    ```bash
    # Run in a container or VM
    docker run --rm -it python:3.11
-   pip install nanobot-ai
+   pip install nanoinfra
    ```
 
 2. **Use a Dedicated User**
    ```bash
-   sudo useradd -m -s /bin/bash nanobot
-   sudo -u nanobot nanobot gateway
+   sudo useradd -m -s /bin/bash nanoinfra
+   sudo -u nanoinfra nanoinfra gateway
    ```
 
 3. **Set Proper Permissions**
    ```bash
-   chmod 700 ~/.nanobot
-   chmod 600 ~/.nanobot/config.json
-   chmod 700 ~/.nanobot/whatsapp-auth
+   chmod 700 ~/.nanoinfra
+   chmod 600 ~/.nanoinfra/config.json
+   chmod 700 ~/.nanoinfra/whatsapp-auth
    ```
 
 4. **Enable Logging**
    ```bash
    # Configure log monitoring
-   tail -f ~/.nanobot/logs/nanobot.log
+   tail -f ~/.nanoinfra/logs/nanoinfra.log
    ```
 
 5. **Use Rate Limiting**
@@ -175,7 +175,7 @@ For production use:
 6. **Regular Updates**
    ```bash
    # Check for updates weekly
-   pip install --upgrade nanobot-ai
+   pip install --upgrade nanoinfra
    ```
 
 ### 8. Development vs Production
@@ -197,7 +197,7 @@ For production use:
 
 - **Logs may contain sensitive information** - secure log files appropriately
 - **LLM providers see your prompts** - review their privacy policies
-- **Chat history is stored locally** - protect the `~/.nanobot` directory
+- **Chat history is stored locally** - protect the `~/.nanoinfra` directory
 - **API keys are in plain text** - use OS keyring for production
 
 ### 10. Incident Response
@@ -207,7 +207,7 @@ If you suspect a security breach:
 1. **Immediately revoke compromised API keys**
 2. **Review logs for unauthorized access**
    ```bash
-   grep "Access denied" ~/.nanobot/logs/nanobot.log
+   grep "Access denied" ~/.nanoinfra/logs/nanoinfra.log
    ```
 3. **Check for unexpected file modifications**
 4. **Rotate all credentials**
@@ -249,7 +249,7 @@ If you suspect a security breach:
 
 ## Security Checklist
 
-Before deploying nanobot:
+Before deploying nanoinfra:
 
 - [ ] API keys stored securely (not in code)
 - [ ] Config file permissions set to 0600
@@ -268,8 +268,8 @@ Before deploying nanobot:
 **Last Updated**: 2026-07-21
 
 For the latest security updates and announcements, check:
-- GitHub Security Advisories: https://github.com/HKUDS/nanobot/security/advisories
-- Release Notes: https://github.com/HKUDS/nanobot/releases
+- GitHub Security Advisories: https://github.com/bet0x/nanoinfra/security/advisories
+- Release Notes: https://github.com/bet0x/nanoinfra/releases
 
 ## License
 

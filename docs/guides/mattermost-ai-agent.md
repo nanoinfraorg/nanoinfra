@@ -1,36 +1,36 @@
-# Build a Mattermost AI Agent with nanobot
+# Build a Mattermost AI Agent with nanoinfra
 
-This guide connects nanobot to Mattermost through the built-in Mattermost
+This guide connects nanoinfra to Mattermost through the built-in Mattermost
 channel, using WebSocket events and the Mattermost REST API.
 
 ## What this guide builds
 
 - a Mattermost bot account or token
-- the `mattermost` channel enabled in nanobot
+- the `mattermost` channel enabled in nanoinfra
 - mention-only group behavior for first deployment
 - one pairing-approved DM or mention test
 
 ## Prerequisites
 
-- A working local nanobot reply:
+- A working local nanoinfra reply:
 
 ```bash
-nanobot agent -m "Hello!"
+nanoinfra agent -m "Hello!"
 ```
 
 - A Mattermost server URL.
 - A bot token or personal access token for the bot account.
 
-## Install nanobot
+## Install nanoinfra
 
 ```bash
-python -m pip install nanobot-ai
-nanobot onboard --wizard
+python -m pip install nanoinfra
+nanoinfra onboard --wizard
 ```
 
 ## Enable the Mattermost channel
 
-Merge this snippet into `~/.nanobot/config.json`:
+Merge this snippet into `~/.nanoinfra/config.json`:
 
 ```json
 {
@@ -57,11 +57,11 @@ Mattermost DMs are open by default. Setting `dm.policy` to `"allowlist"` with no
 `dm.allowFrom` entries makes new DM senders receive a pairing code. Approve the
 code before using the bot normally.
 
-## Run nanobot gateway
+## Run nanoinfra gateway
 
 ```bash
-nanobot channels status
-nanobot gateway
+nanoinfra channels status
+nanoinfra gateway
 ```
 
 ## Test a message
@@ -70,13 +70,13 @@ DM the bot account. It should return a pairing code. Approve it from a trusted
 local surface:
 
 ```bash
-nanobot agent -m "/pairing approve ABCD-EFGH"
+nanoinfra agent -m "/pairing approve ABCD-EFGH"
 ```
 
 Then DM the bot again, or mention it in a channel where the bot has access:
 
 ```text
-@nanobot Hello from Mattermost
+@nanoinfra Hello from Mattermost
 ```
 
 ## Security notes

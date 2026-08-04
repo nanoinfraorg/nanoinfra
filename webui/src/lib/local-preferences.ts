@@ -10,8 +10,8 @@ export interface LocalPreferences {
   fileEditDisplayMode: FileEditDisplayMode;
 }
 
-export const LOCAL_PREFS_STORAGE_KEY = "nanobot-webui.settings-preferences";
-export const LOCAL_PREFS_CHANGED_EVENT = "nanobot-webui.local-preferences-changed";
+export const LOCAL_PREFS_STORAGE_KEY = "nanoinfra-webui.settings-preferences";
+export const LOCAL_PREFS_CHANGED_EVENT = "nanoinfra-webui.local-preferences-changed";
 
 export const DEFAULT_LOCAL_PREFS: LocalPreferences = {
   density: "comfortable",

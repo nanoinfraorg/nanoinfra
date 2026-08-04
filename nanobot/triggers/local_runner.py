@@ -9,12 +9,12 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.agent.automation_turns import AutomationTurnError
-from nanobot.bus.events import InboundMessage, OutboundMessage
-from nanobot.triggers.local_session_turns import LOCAL_TRIGGER_META
-from nanobot.triggers.local_store import LocalTriggerStore
-from nanobot.triggers.local_types import LocalTrigger, TriggerDelivery
-from nanobot.webui.metadata import WEBUI_MESSAGE_SOURCE_METADATA_KEY, WEBUI_TURN_METADATA_KEY
+from nanoinfra.agent.automation_turns import AutomationTurnError
+from nanoinfra.bus.events import InboundMessage, OutboundMessage
+from nanoinfra.triggers.local_session_turns import LOCAL_TRIGGER_META
+from nanoinfra.triggers.local_store import LocalTriggerStore
+from nanoinfra.triggers.local_types import LocalTrigger, TriggerDelivery
+from nanoinfra.webui.metadata import WEBUI_MESSAGE_SOURCE_METADATA_KEY, WEBUI_TURN_METADATA_KEY
 
 
 async def run_local_trigger_queue(

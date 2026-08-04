@@ -1,13 +1,13 @@
 {
   "app": {
-    "brand": "nanobot",
+    "brand": "nanoinfra",
     "loading": {
-      "connecting": "Conectando con nanobot…",
-      "boot": "Cargando nanobot…"
+      "connecting": "Conectando con nanoinfra…",
+      "boot": "Cargando nanoinfra…"
     },
     "error": {
-      "title": "No se pudo conectar con nanobot",
-      "gatewayHint": "Asegúrate de que la gateway esté en ejecución (`nanobot gateway`) y de que esta página esté abierta en la misma máquina."
+      "title": "No se pudo conectar con nanoinfra",
+      "gatewayHint": "Asegúrate de que la gateway esté en ejecución (`nanoinfra gateway`) y de que esta página esté abierta en la misma máquina."
     },
     "auth": {
       "title": "Autenticación requerida",
@@ -23,8 +23,8 @@
     },
     "system": {
       "section": "Sistema",
-      "restartHint": "Reinicia nanobot para aplicar los cambios de ejecución.",
-      "restart": "Reiniciar nanobot",
+      "restartHint": "Reinicia nanoinfra para aplicar los cambios de ejecución.",
+      "restart": "Reiniciar nanoinfra",
       "restarting": "Reiniciando...",
       "restartEngine": "Reiniciar motor",
       "restartingEngine": "Reiniciando motor..."
@@ -33,11 +33,11 @@
       "completed": "Reinicio completado en {{seconds}} s."
     },
     "documentTitle": {
-      "base": "nanobot",
-      "chat": "{{title}} · nanobot"
+      "base": "nanoinfra",
+      "chat": "{{title}} · nanoinfra"
     },
     "meta": {
-      "description": "Interfaz web de nanobot: conversa con tu espacio de trabajo de nanobot."
+      "description": "Interfaz web de nanoinfra: conversa con tu espacio de trabajo de nanoinfra."
     },
     "pairing": {
       "title": "Vincular a un usuario del chat",
@@ -121,7 +121,7 @@
       "language": "Idioma",
       "provider": "Proveedor",
       "model": "Modelo",
-      "restart": "Reiniciar nanobot",
+      "restart": "Reiniciar nanoinfra",
       "configPath": "Ruta de configuración",
       "activePreset": "Preajuste activo",
       "gateway": "Pasarela",
@@ -194,7 +194,7 @@
       "selectedModelProvider": "Definido por el modelo seleccionado.",
       "selectedModelValue": "Definido por el modelo seleccionado.",
       "brandLogos": "Muestra logos de proveedores de terceros y CLI en Ajustes.",
-      "cliAppsCatalog": "Instala solo adaptadores CLI de aplicaciones que nanobot puede ejecutar localmente; las aplicaciones nativas no se modifican.",
+      "cliAppsCatalog": "Instala solo adaptadores CLI de aplicaciones que nanoinfra puede ejecutar localmente; las aplicaciones nativas no se modifican.",
       "cliAppsFilter": "Busca por aplicación, categoría o capacidad.",
       "logs": "Abre la carpeta de registros del motor nativo.",
       "diagnostics": "Exporta un pequeño informe del tiempo de ejecución para soporte.",
@@ -243,11 +243,11 @@
       "loadError": "No se pudieron cargar los ajustes",
       "unsaved": "Cambios sin guardar.",
       "upToDate": "Actualizado.",
-      "savedRestart": "Guardado. Reinicia nanobot para aplicar.",
+      "savedRestart": "Guardado. Reinicia nanoinfra para aplicar.",
       "restartAfterSaving": "Guarda los cambios y reinicia cuando puedas.",
       "savedRestartApply": "Guardado. Reinicia cuando puedas.",
       "imageProviderRestart": "Cambios del proveedor de imagen guardados. Reinicia cuando puedas.",
-      "hostRestartAfterSaving": "Al guardar, nanobot reiniciará su motor.",
+      "hostRestartAfterSaving": "Al guardar, nanoinfra reiniciará su motor.",
       "hostRestartPending": "Guardado. El motor se reiniciará cuando esté listo.",
       "hostApiUnavailable": "Las acciones del host solo están disponibles en la app nativa.",
       "logsOpened": "Carpeta de registros abierta.",
@@ -271,7 +271,7 @@
       "exporting": "Exportando..."
     },
     "byok": {
-      "description": "Usa tus propias claves de proveedor. Nanobot lee estos valores desde la configuración actual y solo los proveedores configurados pueden usarse en los preajustes de modelo.",
+      "description": "Usa tus propias claves de proveedor. Nanoinfra lee estos valores desde la configuración actual y solo los proveedores configurados pueden usarse en los preajustes de modelo.",
       "configured": "Configurado",
       "notConfigured": "Sin configurar",
       "configuredSection": "Configurados",
@@ -505,7 +505,7 @@
       "saveCustom": "Guardar MCP",
       "configImport": "Importar mcp.json",
       "importConfig": "Importar",
-      "restartRequired": "Reinicia nanobot para conectar las herramientas MCP actualizadas.",
+      "restartRequired": "Reinicia nanoinfra para conectar las herramientas MCP actualizadas.",
       "toolsFound": "{{count}} herramientas",
       "loading": "Cargando preajustes MCP...",
       "empty": "Ningún preajuste MCP coincide con este filtro.",
@@ -544,14 +544,14 @@
       "apiKeyPlaceholder": "Introduce una clave API", "autoInstall": "El soporte API se instalará automáticamente al iniciarlo."
     },
     "observability": {
-      "title": "Observabilidad", "configured": "Las credenciales de trazas están disponibles para nanobot.",
-      "environment": "Configura LANGFUSE_SECRET_KEY y LANGFUSE_PUBLIC_KEY y reinicia nanobot.", "enable": "Habilitar soporte de trazas"
+      "title": "Observabilidad", "configured": "Las credenciales de trazas están disponibles para nanoinfra.",
+      "environment": "Configura LANGFUSE_SECRET_KEY y LANGFUSE_PUBLIC_KEY y reinicia nanoinfra.", "enable": "Habilitar soporte de trazas"
     },
     "legal": {
       "thirdPartyBrands": "Los nombres, logotipos y marcas de productos pertenecen a sus respectivos propietarios. Su uso es solo identificativo y no implica respaldo."
     },
     "apps": {
-      "description": "Añade herramientas a nanobot y luego úsalas con @ en el chat.",
+      "description": "Añade herramientas a nanoinfra y luego úsalas con @ en el chat.",
       "cliLabel": "Aplicación",
       "mcpLabel": "Integración",
       "channelLabel": "Canal",
@@ -566,21 +566,21 @@
       "featured": "Herramientas",
       "loading": "Cargando aplicaciones...",
       "empty": "Ninguna herramienta coincide con esta vista.",
-      "restartRequired": "Reinicia nanobot para aplicar las aplicaciones y funciones actualizadas."
+      "restartRequired": "Reinicia nanoinfra para aplicar las aplicaciones y funciones actualizadas."
     },
     "channels": {
-      "description": "Conecta nanobot con aplicaciones de chat. Instalar el soporte solo añade el paquete de integración; la mayoría de canales aún necesitan tokens o configuración del espacio de trabajo.",
+      "description": "Conecta nanoinfra con aplicaciones de chat. Instalar el soporte solo añade el paquete de integración; la mayoría de canales aún necesitan tokens o configuración del espacio de trabajo.",
       "caption": "{{enabled}} activados · {{total}} canales",
       "searchPlaceholder": "Buscar canales",
       "backToChannels": "Todos los canales",
       "catalog": "Canales",
       "loading": "Cargando canales...",
       "empty": "Ningún canal coincide con este filtro.",
-      "restartRequired": "Reinicia nanobot para aplicar el soporte de canales actualizado.",
+      "restartRequired": "Reinicia nanoinfra para aplicar el soporte de canales actualizado.",
       "requires": "Requiere: {{requirements}}",
       "setUp": "Configurar",
       "setupGuide": "Guía de configuración",
-      "setupSummary": "Activar solo habilita el soporte en nanobot. Añade las credenciales de la plataforma y reinicia nanobot.",
+      "setupSummary": "Activar solo habilita el soporte en nanoinfra. Añade las credenciales de la plataforma y reinicia nanoinfra.",
       "configKeys": "Claves de configuración",
       "enable": "Activar canal",
       "disable": "Desactivar canal",
@@ -635,7 +635,7 @@
         "unsupported": "Configuración manual"
       }
     },
-    "nanobotFeatures": {
+    "nanoinfraFeatures": {
       "enabled": "Activado",
       "enable": "Activar",
       "disable": "Desactivar",
@@ -643,7 +643,7 @@
       "missingDependency": "Falta soporte",
       "installSupport": "Instalar soporte",
       "installConfirmTitle": "¿Instalar soporte para {{name}}?",
-      "installConfirmDescription": "nanobot añadirá lo que {{name}} necesita y luego lo activará. ¿Continuar?",
+      "installConfirmDescription": "nanoinfra añadirá lo que {{name}} necesita y luego lo activará. ¿Continuar?",
       "installConfirmAction": "Instalar y activar",
       "websocketRequired": "Requerido para WebUI",
       "channelDisabled": "El canal está desactivado",
@@ -668,7 +668,7 @@
       "loading": "Cargando automatizaciones...",
       "noMatches": "No hay automatizaciones que coincidan con esta vista.",
       "empty": "Aún no hay automatizaciones.",
-      "emptyHint": "Créala desde donde debe ejecutarse para que nanobot conserve el contexto correcto.",
+      "emptyHint": "Créala desde donde debe ejecutarse para que nanoinfra conserve el contexto correcto.",
       "oneShot": "Una vez",
       "systemTask": "Automatización administrada por el sistema",
       "localTrigger": "Activador local",
@@ -785,7 +785,7 @@
       "signedInAs": "Sesión iniciada como {{account}}",
       "signInHelp": "Inicia sesión desde este dispositivo; no se guarda API key en config.",
       "remoteSignInHelp": "Selecciona Iniciar sesión para abrir xAI en tu computadora y luego pega el código de autorización que se muestra tras iniciar sesión.",
-      "codexRemoteSignInHelp": "Inicia sesión en este navegador y pega en nanobot la URL completa de devolución de localhost.",
+      "codexRemoteSignInHelp": "Inicia sesión en este navegador y pega en nanoinfra la URL completa de devolución de localhost.",
       "signInRequired": "Inicio de sesión requerido",
       "signInBeforeSaving": "Inicia sesión en este proveedor antes de guardar el preajuste.",
       "signedIn": "Sesión iniciada",
@@ -793,9 +793,9 @@
       "proxyLabel": "Proxy de red",
       "proxySaveBeforeSignIn": "Guarda los cambios del proxy antes de iniciar sesión.",
       "saveProxy": "Guardar proxy",
-      "localCodeHelp": "Completa el inicio de sesión en el navegador. nanobot suele finalizar automáticamente; si no lo hace, pega el código de autorización abajo.",
+      "localCodeHelp": "Completa el inicio de sesión en el navegador. nanoinfra suele finalizar automáticamente; si no lo hace, pega el código de autorización abajo.",
       "remoteCodeHelp": "Selecciona Iniciar sesión para abrir xAI en tu computadora. Después de iniciar sesión, pega abajo el código de autorización que muestra xAI.",
-      "localCallbackHelp": "Completa el inicio de sesión en el navegador. nanobot suele finalizar automáticamente; si no lo hace, copia de la barra de direcciones la URL completa de devolución de localhost y pégala abajo.",
+      "localCallbackHelp": "Completa el inicio de sesión en el navegador. nanoinfra suele finalizar automáticamente; si no lo hace, copia de la barra de direcciones la URL completa de devolución de localhost y pégala abajo.",
       "remoteCallbackHelp": "Abre ChatGPT en este navegador y completa el inicio de sesión. Cuando la página de localhost no cargue, copia la URL completa de la barra de direcciones y pégala abajo.",
       "authorizationCode": "Código de autorización",
       "callbackUrl": "URL completa de devolución",
@@ -838,7 +838,7 @@
       "deleteConfirmAction": "Eliminar habilidad",
       "instructionsTitle": "Instrucciones de la habilidad",
       "setupRequired": "Requiere configuración",
-      "setupDescription": "Instala la dependencia que falta en el equipo donde se ejecuta nanobot y vuelve a comprobarlo.",
+      "setupDescription": "Instala la dependencia que falta en el equipo donde se ejecuta nanoinfra y vuelve a comprobarlo.",
       "copySetupCommand": "Copiar comando de configuración",
       "checkAgain": "Comprobar de nuevo",
       "marketplaceSearchFailed": "No se pudieron buscar los mercados de habilidades.",
@@ -1006,7 +1006,7 @@
       "imageQuickActions": {
         "icon": {
           "title": "Diseñar un icono de aplicación",
-          "prompt": "Genera un icono de aplicación 1:1 limpio para nanobot: robot amigable, estilo vectorial simple, paleta suave azul y blanca, sin texto."
+          "prompt": "Genera un icono de aplicación 1:1 limpio para nanoinfra: robot amigable, estilo vectorial simple, paleta suave azul y blanca, sin texto."
         },
         "sticker": {
           "title": "Crear una pegatina",
@@ -1142,7 +1142,7 @@
             "description": "Cancela el turno activo del agente en este chat."
           },
           "restart": {
-            "title": "Reiniciar nanobot",
+            "title": "Reiniciar nanoinfra",
             "description": "Reinicia el proceso del bot en el mismo lugar."
           },
           "status": {
@@ -1324,7 +1324,7 @@
     "close": "Cerrar vista previa de archivo",
     "loading": "Cargando vista previa...",
     "failed": "No se pudo previsualizar este archivo.",
-    "routeMissing": "La vista previa necesita el gateway más reciente. Reinicia nanobot gateway e inténtalo de nuevo.",
+    "routeMissing": "La vista previa necesita el gateway más reciente. Reinicia nanoinfra gateway e inténtalo de nuevo.",
     "resize": "Cambiar el tamaño de la vista previa",
     "truncated": "La vista previa está truncada porque el archivo es grande."
   },
@@ -1347,7 +1347,7 @@
     },
     "workspaceScopeRejected": {
       "title": "El espacio de trabajo no cambió",
-      "body": "El gateway rechazó el proyecto o modo de acceso solicitado, así que Nanobot conservó el espacio de trabajo anterior."
+      "body": "El gateway rechazó el proyecto o modo de acceso solicitado, así que Nanoinfra conservó el espacio de trabajo anterior."
     },
     "turnRejected": {
       "title": "El mensaje no se envió",

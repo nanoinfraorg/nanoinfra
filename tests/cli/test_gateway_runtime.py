@@ -11,7 +11,7 @@ import asyncio
 import time
 from contextlib import suppress
 
-from nanobot.cli.gateway_runtime import _close_gateway_runtime
+from nanoinfra.cli.gateway_runtime import _close_gateway_runtime
 
 
 class _FakeAgent:

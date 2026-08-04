@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from nanobot.channels.contracts import ChannelValidationContext
-from nanobot.channels.validation import check, enabled, official_action, payload, string_value
+from nanoinfra.channels.contracts import ChannelValidationContext
+from nanoinfra.channels.validation import check, enabled, official_action, payload, string_value
 
 
 def validate(values: dict[str, Any], _context: ChannelValidationContext) -> dict[str, Any]:

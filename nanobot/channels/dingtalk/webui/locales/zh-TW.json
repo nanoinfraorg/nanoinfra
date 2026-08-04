@@ -1,6 +1,6 @@
 {
   "displayName": "釘釘",
-  "description": "在釘釘群組中使用 nanobot。",
+  "description": "在釘釘群組中使用 nanoinfra。",
   "requirements": "釘釘應用程式憑證和閘道",
   "setup": {
     "docsLabel": "開啟釘釘設定指南",

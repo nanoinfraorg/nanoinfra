@@ -15,7 +15,7 @@ Example valid usage:
 
 ## Windows Compatibility
 
-nanobot explicitly supports Windows. Key differences to keep in mind:
+nanoinfra explicitly supports Windows. Key differences to keep in mind:
 - `ExecTool` defaults to PowerShell on Windows (`pwsh` when available, otherwise Windows PowerShell); pass `shell="cmd"` for cmd.exe syntax or cmd built-ins (`shell.py`).
 - `cli/commands.py` forces `sys.stdout`/`stderr` to UTF-8 on startup to handle emoji and multilingual input.
 - MCP stdio server commands are normalized for Windows path separators (`mcp.py`).
@@ -23,7 +23,7 @@ nanobot explicitly supports Windows. Key differences to keep in mind:
 
 ## Prompt Templates
 
-Agent system prompts and scenario-specific instructions live in `nanobot/templates/` as Jinja2 markdown files (`identity.md`, `platform_policy.md`, `HEARTBEAT.md`, `SOUL.md`, etc.). Changing these files alters agent behavior as directly as changing Python code. They are loaded by `utils/prompt_templates.py`.
+Agent system prompts and scenario-specific instructions live in `nanoinfra/templates/` as Jinja2 markdown files (`identity.md`, `platform_policy.md`, `HEARTBEAT.md`, `SOUL.md`, etc.). Changing these files alters agent behavior as directly as changing Python code. They are loaded by `utils/prompt_templates.py`.
 
 Tool descriptions, skills, and replayed session history also shape model behavior. Treat changes to those surfaces like runtime code: keep them narrow, add a focused regression test when possible, and avoid teaching the model to repeat internal markers, local paths, or tool-call text.
 
@@ -33,7 +33,7 @@ Anything written into memory, session history, or prompt inputs can be replayed 
 
 ## Skills as Extension Point
 
-Built-in skills live in `nanobot/skills/` (markdown + YAML frontmatter format). Agent capabilities that are "know-how" rather than code should be added as skills, not hardcoded into the agent loop. External skills can be published to and installed from ClawHub.
+Built-in skills live in `nanoinfra/skills/` (markdown + YAML frontmatter format). Agent capabilities that are "know-how" rather than code should be added as skills, not hardcoded into the agent loop. External skills can be published to and installed from ClawHub.
 
 ## Atomic Session Writes
 

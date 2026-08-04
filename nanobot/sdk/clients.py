@@ -7,18 +7,18 @@ from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from nanobot.bus.runtime_events import SessionTurnPersisted
-from nanobot.runtime_context import RUNTIME_CONTEXT_HISTORY_META, RuntimeContextProvider
-from nanobot.sdk.types import (
+from nanoinfra.bus.runtime_events import SessionTurnPersisted
+from nanoinfra.runtime_context import RUNTIME_CONTEXT_HISTORY_META, RuntimeContextProvider
+from nanoinfra.sdk.types import (
     SessionInfo,
     SessionSnapshot,
     snapshot_from_payload,
     snapshot_from_session,
 )
-from nanobot.session.manager import replay_max_messages_for_context
+from nanoinfra.session.manager import replay_max_messages_for_context
 
 if TYPE_CHECKING:
-    from nanobot.agent.loop import AgentLoop
+    from nanoinfra.agent.loop import AgentLoop
 
 
 class SessionClient:

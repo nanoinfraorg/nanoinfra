@@ -10,12 +10,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from nanobot.audio.transcription_registry import (
+from nanoinfra.audio.transcription_registry import (
     get_transcription_provider,
     transcription_provider_names,
 )
-from nanobot.config.schema import Config
-from nanobot.providers.transcription import StepFunTranscriptionProvider
+from nanoinfra.config.schema import Config
+from nanoinfra.providers.transcription import StepFunTranscriptionProvider
 
 
 @pytest.fixture
@@ -305,7 +305,7 @@ def test_stepfun_in_registry() -> None:
     spec = get_transcription_provider("stepfun")
     assert spec is not None
     assert spec.default_model == "stepaudio-2.5-asr"
-    assert spec.adapter == "nanobot.providers.transcription:StepFunTranscriptionProvider"
+    assert spec.adapter == "nanoinfra.providers.transcription:StepFunTranscriptionProvider"
 
 
 def test_config_resolves_stepfun() -> None:
@@ -316,7 +316,7 @@ def test_config_resolves_stepfun() -> None:
     config.providers.stepfun.api_key = "step-test"
     config.providers.stepfun.api_base = "https://api.stepfun.com/step_plan/v1/audio/asr/sse"
 
-    from nanobot.audio.transcription import resolve_transcription_config
+    from nanoinfra.audio.transcription import resolve_transcription_config
 
     resolved = resolve_transcription_config(config)
 

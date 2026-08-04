@@ -2,7 +2,7 @@
 
 These helpers convert agent progress callbacks into outbound chat messages.
 Runtime state notifications such as turn lifecycle and model changes live in
-``nanobot.bus.runtime_events``.
+``nanoinfra.bus.runtime_events``.
 """
 
 from __future__ import annotations
@@ -10,9 +10,9 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from nanobot.bus.events import InboundMessage
-from nanobot.bus.outbound_events import ProgressEvent, outbound_message_for_event
-from nanobot.bus.queue import MessageBus
+from nanoinfra.bus.events import InboundMessage
+from nanoinfra.bus.outbound_events import ProgressEvent, outbound_message_for_event
+from nanoinfra.bus.queue import MessageBus
 
 
 def build_bus_progress_callback(

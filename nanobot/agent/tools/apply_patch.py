@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from nanobot.agent.tools.base import ToolResult, tool_parameters
-from nanobot.agent.tools.filesystem import _FsTool  # pyright: ignore[reportPrivateUsage]
-from nanobot.agent.tools.schema import (
+from nanoinfra.agent.tools.base import ToolResult, tool_parameters
+from nanoinfra.agent.tools.filesystem import _FsTool  # pyright: ignore[reportPrivateUsage]
+from nanoinfra.agent.tools.schema import (
     ArraySchema,
     BooleanSchema,
     ObjectSchema,

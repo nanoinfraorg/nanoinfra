@@ -9,11 +9,11 @@ import {
 import type { ChannelPluginPanelProps } from "@/channel-plugins/types";
 import { ChannelInstancesPanel } from "@/components/settings/channels/ChannelInstancesPanel";
 import { Button } from "@/components/ui/button";
-import { enableNanobotFeature } from "@/lib/api";
+import { enableNanoinfraFeature } from "@/lib/api";
 import type {
-  NanobotChannelInstanceInfo,
-  NanobotFeatureInfo,
-  NanobotFeaturesPayload,
+  NanoinfraChannelInstanceInfo,
+  NanoinfraFeatureInfo,
+  NanoinfraFeaturesPayload,
 } from "@/lib/types";
 
 import { FeishuConnectFlow } from "./FeishuConnectFlow";
@@ -89,8 +89,8 @@ function FeishuInstanceAction({
   onFeaturesUpdate,
 }: {
   token: string;
-  instance: NanobotChannelInstanceInfo;
-  onFeaturesUpdate: (payload: NanobotFeaturesPayload) => void;
+  instance: NanoinfraChannelInstanceInfo;
+  onFeaturesUpdate: (payload: NanoinfraFeaturesPayload) => void;
 }) {
   const { t } = useTranslation();
   const tx = channelTranslator(t, "feishu");
@@ -114,7 +114,7 @@ function FeishuInstanceAction({
     setError(null);
     try {
       onFeaturesUpdate(
-        await enableNanobotFeature(token, "feishu", { instanceId: instance.id }),
+        await enableNanoinfraFeature(token, "feishu", { instanceId: instance.id }),
       );
     } catch (err) {
       setError((err as Error).message);
@@ -151,10 +151,10 @@ function FeishuInstanceAction({
   );
 }
 
-function defaultFeishuInstance(feature: NanobotFeatureInfo): NanobotChannelInstanceInfo {
+function defaultFeishuInstance(feature: NanoinfraFeatureInfo): NanoinfraChannelInstanceInfo {
   return {
     id: "default",
-    name: "nanobot",
+    name: "nanoinfra",
     enabled: feature.enabled,
     configured: Boolean(feature.configured),
     config_values: feature.config_values ?? {},
@@ -171,7 +171,7 @@ function feishuAssistantCountLabel(
   return tx("custom.countMany", "{{count}} assistants connected", { count });
 }
 
-function instanceDisplayName(instance: NanobotChannelInstanceInfo): string {
+function instanceDisplayName(instance: NanoinfraChannelInstanceInfo): string {
   return instance.display_name?.trim() || instance.name.trim() || instance.id;
 }
 

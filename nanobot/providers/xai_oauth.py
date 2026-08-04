@@ -30,8 +30,8 @@ import httpx
 from filelock import FileLock
 from loguru import logger
 
-from nanobot.config.paths import get_data_dir
-from nanobot.utils.helpers import _write_text_atomic  # pyright: ignore[reportPrivateUsage]
+from nanoinfra.config.paths import get_data_dir
+from nanoinfra.utils.helpers import _write_text_atomic  # pyright: ignore[reportPrivateUsage]
 
 XAI_OAUTH_ISSUER = "https://auth.x.ai"
 XAI_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"
@@ -137,7 +137,7 @@ class XAIOAuthLoginFlow:
         self._server_thread = threading.Thread(
             target=_serve_callback_server,
             args=(server, self._stop_event),
-            name="nanobot-xai-grok-oauth-callback",
+            name="nanoinfra-xai-grok-oauth-callback",
             daemon=True,
         )
         self._server_thread.start()
@@ -193,7 +193,7 @@ class XAIOAuthLoginFlow:
                     raise self._error
             raise XAIOAuthError(
                 "Timed out waiting for xAI sign-in. Run "
-                "`nanobot provider login xai-grok` to try again."
+                "`nanoinfra provider login xai-grok` to try again."
             ) from exc
         return self._finish(callback)
 
@@ -358,7 +358,7 @@ def get_xai_oauth_token(
     token = _load_token()
     if token is None:
         raise XAIOAuthError(
-            "xAI is not signed in. Run `nanobot provider login xai-grok` first."
+            "xAI is not signed in. Run `nanoinfra provider login xai-grok` first."
         )
     if not force_refresh and _token_is_fresh(token, min_ttl_ms):
         return token
@@ -367,21 +367,21 @@ def get_xai_oauth_token(
             return token
         raise XAIOAuthError(
             "The xAI login has expired and cannot be refreshed. "
-            "Run `nanobot provider login xai-grok` again."
+            "Run `nanoinfra provider login xai-grok` again."
         )
 
     with _token_lock():
         latest = _load_token()
         if latest is None:
             raise XAIOAuthError(
-                "xAI is not signed in. Run `nanobot provider login xai-grok` first."
+                "xAI is not signed in. Run `nanoinfra provider login xai-grok` first."
             )
         if not force_refresh and _token_is_fresh(latest, min_ttl_ms):
             return latest
         if not latest.refresh:
             raise XAIOAuthError(
                 "The xAI login has expired and cannot be refreshed. "
-                "Run `nanobot provider login xai-grok` again."
+                "Run `nanoinfra provider login xai-grok` again."
             )
         refreshed = _refresh_token(latest, proxy)
         _write_token(refreshed)
@@ -461,7 +461,7 @@ def _build_authorize_url(
         "code_challenge_method": "S256",
         "state": state,
         "nonce": nonce,
-        "referrer": "nanobot",
+        "referrer": "nanoinfra",
     }
     return f"{endpoint}?{urlencode(params)}"
 
@@ -494,15 +494,15 @@ def _make_callback_server(
             if code and received_state and hmac.compare_digest(received_state, expected_state):
                 result = _CallbackResult(code=code, state=received_state)
                 title = "Signed in to xAI"
-                message = "You can close this tab and return to nanobot."
+                message = "You can close this tab and return to nanoinfra."
             elif code:
                 result = _CallbackResult(error="OAuth state mismatch")
                 title = "Sign-in failed"
-                message = "The sign-in response could not be verified. Return to nanobot and retry."
+                message = "The sign-in response could not be verified. Return to nanoinfra and retry."
             else:
                 result = _CallbackResult(error=error or "access denied")
                 title = "Access denied"
-                message = "Return to nanobot and try signing in again."
+                message = "Return to nanoinfra and try signing in again."
             with suppress(queue.Full):
                 result_queue.put_nowait(result)
             body = _callback_page(title, message)

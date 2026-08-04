@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import pytest
 from prompt_toolkit.formatted_text import HTML
 
-from nanobot.cli import stream as stream_mod
-from nanobot.cli import terminal
+from nanoinfra.cli import stream as stream_mod
+from nanoinfra.cli import terminal
 
 
 @pytest.fixture
@@ -14,8 +14,8 @@ def mock_prompt_session():
     """Mock the global prompt session."""
     mock_session = MagicMock()
     mock_session.prompt_async = AsyncMock()
-    with patch("nanobot.cli.terminal._prompt_session", mock_session), \
-         patch("nanobot.cli.terminal.patch_stdout"):
+    with patch("nanoinfra.cli.terminal._prompt_session", mock_session), \
+         patch("nanoinfra.cli.terminal.patch_stdout"):
         yield mock_session
 
 
@@ -46,8 +46,8 @@ def test_init_prompt_session_creates_session():
     # Ensure global is None before test
     terminal._prompt_session = None
 
-    with patch("nanobot.cli.terminal.PromptSession") as mock_session_cls, \
-         patch("nanobot.cli.terminal.FileHistory"), \
+    with patch("nanoinfra.cli.terminal.PromptSession") as mock_session_cls, \
+         patch("nanoinfra.cli.terminal.FileHistory"), \
          patch("pathlib.Path.home") as mock_home:
 
         mock_home.return_value = MagicMock()
@@ -254,7 +254,7 @@ async def test_print_interactive_progress_line_pauses_spinner_before_printing():
     async def fake_print(_text: str) -> None:
         order.append("print")
 
-    with patch("nanobot.cli.terminal._print_interactive_line", side_effect=fake_print):
+    with patch("nanoinfra.cli.terminal._print_interactive_line", side_effect=fake_print):
         thinking = stream_mod.ThinkingSpinner(console=mock_console)
         with thinking:
             await terminal._print_interactive_progress_line("tool running", thinking)
@@ -264,7 +264,7 @@ async def test_print_interactive_progress_line_pauses_spinner_before_printing():
 
 def test_response_renderable_uses_text_for_explicit_plain_rendering():
     status = (
-        "🐈 nanobot v0.1.4.post5\n"
+        "🐈 nanoinfra v0.1.4.post5\n"
         "🧠 Model: MiniMax-M2.7\n"
         "📊 Tokens: 20639 in / 29 out"
     )
@@ -285,7 +285,7 @@ def test_response_renderable_preserves_normal_markdown_rendering():
 
 
 def test_response_renderable_without_metadata_keeps_markdown_path():
-    help_text = "🐈 nanobot commands:\n/status — Show bot status\n/help — Show available commands"
+    help_text = "🐈 nanoinfra commands:\n/status — Show bot status\n/help — Show available commands"
 
     renderable = terminal._response_renderable(help_text, render_markdown=True)
 

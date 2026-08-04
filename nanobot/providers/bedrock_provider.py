@@ -11,7 +11,7 @@ import re
 from collections.abc import Awaitable, Callable, Iterator
 from typing import Any, cast
 
-from nanobot.providers.base import (
+from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
     ToolCallRequest,
@@ -24,7 +24,7 @@ _IMAGE_DATA_URL = re.compile(r"^data:image/([a-zA-Z0-9.+-]+);base64,(.*)$", re.D
 _TEXT_BLOCK_TYPES = {"text", "input_text", "output_text"}
 _TEMPERATURE_UNSUPPORTED_MODEL_TOKENS = ("claude-opus-4-7",)
 _ADAPTIVE_THINKING_ONLY_MODEL_TOKENS = ("claude-opus-4-7",)
-_NOOP_TOOL_NAME = "nanobot_noop"
+_NOOP_TOOL_NAME = "nanoinfra_noop"
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -75,7 +75,7 @@ class BedrockProvider(LLMProvider):
             import boto3
         except ImportError as exc:  # pragma: no cover - exercised only without boto3 installed
             raise RuntimeError(
-                "AWS Bedrock provider requires boto3. Run `nanobot plugins enable bedrock`."
+                "AWS Bedrock provider requires boto3. Run `nanoinfra plugins enable bedrock`."
             ) from exc
 
         session_kwargs: dict[str, Any] = {}

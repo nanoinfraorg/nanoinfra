@@ -35,11 +35,11 @@ except ImportError:  # pragma: no cover
 import httpx
 from pydantic import Field
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.base import BaseChannel
-from nanobot.config.paths import get_workspace_path
-from nanobot.config.schema import Base
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.base import BaseChannel
+from nanoinfra.config.paths import get_workspace_path
+from nanoinfra.config.schema import Base
 
 MSTEAMS_AVAILABLE = (
     importlib.util.find_spec("jwt") is not None
@@ -145,7 +145,7 @@ class MSTeamsChannel(BaseChannel):
     async def start(self) -> None:
         """Start the Teams webhook listener."""
         if not MSTEAMS_AVAILABLE:
-            self.logger.error("PyJWT not installed. Run: nanobot plugins enable msteams")
+            self.logger.error("PyJWT not installed. Run: nanoinfra plugins enable msteams")
             return
 
         if not self.config.app_id or not self.config.app_password:
@@ -219,7 +219,7 @@ class MSTeamsChannel(BaseChannel):
         self._server = ThreadingHTTPServer((self.config.host, self.config.port), Handler)
         self._server_thread = threading.Thread(
             target=self._server.serve_forever,
-            name="nanobot-msteams",
+            name="nanoinfra-msteams",
             daemon=True,
         )
         self._server_thread.start()
@@ -472,7 +472,7 @@ class MSTeamsChannel(BaseChannel):
     async def _validate_inbound_auth(self, auth_header: str, activity: dict[str, Any]) -> None:
         """Validate inbound Bot Framework bearer token."""
         if not MSTEAMS_AVAILABLE:
-            raise RuntimeError("PyJWT not installed. Run: nanobot plugins enable msteams")
+            raise RuntimeError("PyJWT not installed. Run: nanoinfra plugins enable msteams")
 
         if not auth_header.lower().startswith("bearer "):
             raise ValueError("missing bearer token")

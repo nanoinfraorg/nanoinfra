@@ -8,9 +8,9 @@ import tempfile
 from pathlib import Path
 from typing import Any, cast
 
-from nanobot.agent.skills import SkillsLoader
-from nanobot.config.loader import load_config, save_config
-from nanobot.security.workspace_policy import WorkspaceBoundaryError, require_path_within
+from nanoinfra.agent.skills import SkillsLoader
+from nanoinfra.config.loader import load_config, save_config
+from nanoinfra.security.workspace_policy import WorkspaceBoundaryError, require_path_within
 
 
 class SkillManagementError(Exception):
@@ -121,7 +121,7 @@ def delete_webui_skill(
     next_disabled = set(original_disabled)
     if name in next_disabled:
         next_disabled.remove(name)
-    with tempfile.TemporaryDirectory(prefix=".nanobot-delete-", dir=skills_root) as staging:
+    with tempfile.TemporaryDirectory(prefix=".nanoinfra-delete-", dir=skills_root) as staging:
         staged_target = Path(staging) / name
         target.replace(staged_target)
         try:
@@ -182,7 +182,7 @@ def _description(metadata: dict[str, Any] | None, fallback: str) -> str:
     return value.strip() if isinstance(value, str) and value.strip() else fallback
 
 
-def _nanobot_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+def _nanoinfra_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
     if metadata is None:
         return {}
     raw = metadata.get("metadata")
@@ -194,13 +194,13 @@ def _nanobot_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(raw, dict):
         return {}
     metadata_payload = cast(dict[str, Any], raw)
-    payload = metadata_payload.get("nanobot", metadata_payload.get("openclaw", {}))
+    payload = metadata_payload.get("nanoinfra", metadata_payload.get("openclaw", {}))
     return cast(dict[str, Any], payload) if isinstance(payload, dict) else {}
 
 
 def _install_options(metadata: dict[str, Any] | None) -> list[dict[str, str]]:
     """Return safe, copyable setup commands declared by a skill."""
-    raw_install = _nanobot_metadata(metadata).get("install")
+    raw_install = _nanoinfra_metadata(metadata).get("install")
     if not isinstance(raw_install, list):
         return []
     install = cast(list[object], raw_install)

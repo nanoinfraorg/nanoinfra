@@ -1,5 +1,5 @@
 {
-  "description": "在 Mattermost 频道和私信中使用 nanobot。",
+  "description": "在 Mattermost 频道和私信中使用 nanoinfra。",
   "requirements": "Mattermost 服务器地址、机器人令牌和频道权限",
   "setup": {
     "docsLabel": "打开 Mattermost 配置指南",

@@ -1,5 +1,5 @@
 {
-  "description": "Sử dụng nanobot từ các cuộc trò chuyện QQ.",
+  "description": "Sử dụng nanoinfra từ các cuộc trò chuyện QQ.",
   "requirements": "Thông tin xác thực bot QQ và gateway",
   "setup": {
     "docsLabel": "Mở hướng dẫn QQ",

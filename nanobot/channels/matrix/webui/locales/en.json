@@ -1,5 +1,5 @@
 {
-  "description": "Use nanobot from Matrix rooms.",
+  "description": "Use nanoinfra from Matrix rooms.",
   "requirements": "Homeserver, account token, room access",
   "setup": {
     "docsLabel": "Open Matrix setup",
@@ -7,7 +7,7 @@
     "tryIt": "Invite the Matrix account into a room and send a test message.",
     "summary": "Matrix needs a homeserver account and either password login or an access token.",
     "steps": [
-      "Create or choose a Matrix account for nanobot.",
+      "Create or choose a Matrix account for nanoinfra.",
       "Enter the homeserver, user ID, and either password or access-token credentials.",
       "Save and enable Matrix, invite the account to a room, and send a test message."
     ],
@@ -18,7 +18,7 @@
       },
       "userId": {
         "label": "User ID",
-        "placeholder": "@nanobot:matrix.org"
+        "placeholder": "@nanoinfra:matrix.org"
       },
       "password": {
         "label": "Password",

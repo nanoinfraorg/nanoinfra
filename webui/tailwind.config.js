@@ -7,7 +7,7 @@ export default {
   content: [
     "./index.html",
     "./src/**/*.{ts,tsx}",
-    "../nanobot/channels/*/webui/**/*.{ts,tsx}",
+    "../nanoinfra/channels/*/webui/**/*.{ts,tsx}",
     "./node_modules/streamdown/dist/*.js",
   ],
   theme: {

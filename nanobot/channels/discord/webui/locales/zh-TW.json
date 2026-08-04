@@ -1,5 +1,5 @@
 {
-  "description": "在 Discord 伺服器和私訊中使用 nanobot。",
+  "description": "在 Discord 伺服器和私訊中使用 nanoinfra。",
   "requirements": "Discord 機器人權杖、權限和閘道",
   "setup": {
     "docsLabel": "開啟 Discord 設定指南",

@@ -1,10 +1,10 @@
-"""JSON Schema fragment types: all subclass :class:`~nanobot.agent.tools.base.Schema` for descriptions and constraints on tool parameters.
+"""JSON Schema fragment types: all subclass :class:`~nanoinfra.agent.tools.base.Schema` for descriptions and constraints on tool parameters.
 
-- ``to_json_schema()``: returns a dict compatible with :meth:`~nanobot.agent.tools.base.Schema.validate_json_schema_value` /
-  :class:`~nanobot.agent.tools.base.Tool`.
+- ``to_json_schema()``: returns a dict compatible with :meth:`~nanoinfra.agent.tools.base.Schema.validate_json_schema_value` /
+  :class:`~nanoinfra.agent.tools.base.Tool`.
 - ``validate_value(value, path)``: validates a single value against this schema; returns a list of error messages (empty means valid).
 
-Shared validation and fragment normalization are on the class methods of :class:`~nanobot.agent.tools.base.Schema`.
+Shared validation and fragment normalization are on the class methods of :class:`~nanoinfra.agent.tools.base.Schema`.
 
 Note: Python does not allow subclassing ``bool``, so booleans use :class:`BooleanSchema`.
 """
@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from nanobot.agent.tools.base import Schema
+from nanoinfra.agent.tools.base import Schema
 
 
 class StringSchema(Schema):

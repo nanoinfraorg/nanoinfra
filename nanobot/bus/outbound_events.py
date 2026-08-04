@@ -1,6 +1,6 @@
 """Typed outbound events carried by :class:`OutboundMessage`.
 
-The message bus still transports :class:`nanobot.bus.events.OutboundMessage`
+The message bus still transports :class:`nanoinfra.bus.events.OutboundMessage`
 because channels need chat routing fields. Runtime/UI semantics live on the
 message's explicit ``event`` field rather than in reserved metadata flags.
 """
@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any, cast
 
-from nanobot.bus.events import OutboundMessage
+from nanoinfra.bus.events import OutboundMessage
 
 
 class OutboundEvent:

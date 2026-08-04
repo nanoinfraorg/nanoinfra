@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from nanobot.agent.autocompact import AutoCompact
-from nanobot.session.manager import Session, SessionManager
+from nanoinfra.agent.autocompact import AutoCompact
+from nanoinfra.session.manager import Session, SessionManager
 
 
 def _runtime(_session: Session | None = None):

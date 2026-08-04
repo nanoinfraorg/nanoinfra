@@ -476,7 +476,7 @@ describe("AgentActivityCluster", () => {
 
   it("renders file edit diffs and responds to preference changes", () => {
     localStorage.setItem(
-      "nanobot-webui.settings-preferences",
+      "nanoinfra-webui.settings-preferences",
       JSON.stringify({ fileEditDisplayMode: "diff" }),
     );
 
@@ -530,13 +530,13 @@ describe("AgentActivityCluster", () => {
       });
       expect(screen.getByTestId("file-edit-diff")).toBeInTheDocument();
     } finally {
-      localStorage.removeItem("nanobot-webui.settings-preferences");
+      localStorage.removeItem("nanoinfra-webui.settings-preferences");
     }
   });
 
   it("renders folded separators between separated file edit hunks", () => {
     localStorage.setItem(
-      "nanobot-webui.settings-preferences",
+      "nanoinfra-webui.settings-preferences",
       JSON.stringify({ fileEditDisplayMode: "diff" }),
     );
 
@@ -587,13 +587,13 @@ describe("AgentActivityCluster", () => {
       expect(screen.getByText("return newSecond;")).toBeInTheDocument();
       expect(screen.getByTestId("activity-file-reference")).toHaveTextContent("src/app.tsx");
     } finally {
-      localStorage.removeItem("nanobot-webui.settings-preferences");
+      localStorage.removeItem("nanoinfra-webui.settings-preferences");
     }
   });
 
   it("keeps long file edit diffs collapsed until opened", () => {
     localStorage.setItem(
-      "nanobot-webui.settings-preferences",
+      "nanoinfra-webui.settings-preferences",
       JSON.stringify({ fileEditDisplayMode: "diff" }),
     );
     const lines = Array.from({ length: 165 }, (_, index) => `line-${index + 1}`);
@@ -665,13 +665,13 @@ describe("AgentActivityCluster", () => {
       expect(toggle).toHaveAttribute("aria-expanded", "false");
       expect(screen.queryByTestId("file-edit-diff")).not.toBeInTheDocument();
     } finally {
-      localStorage.removeItem("nanobot-webui.settings-preferences");
+      localStorage.removeItem("nanoinfra-webui.settings-preferences");
     }
   });
 
   it("does not mount collapsed file edit diffs until opened", () => {
     localStorage.setItem(
-      "nanobot-webui.settings-preferences",
+      "nanoinfra-webui.settings-preferences",
       JSON.stringify({ fileEditDisplayMode: "collapsed_diff" }),
     );
 
@@ -722,13 +722,13 @@ describe("AgentActivityCluster", () => {
       expect(screen.getByTestId("file-edit-diff")).toBeInTheDocument();
       expect(screen.getByText("return <New />;")).toBeInTheDocument();
     } finally {
-      localStorage.removeItem("nanobot-webui.settings-preferences");
+      localStorage.removeItem("nanoinfra-webui.settings-preferences");
     }
   });
 
   it("offers the file preview entry point when a diff payload is truncated", () => {
     localStorage.setItem(
-      "nanobot-webui.settings-preferences",
+      "nanoinfra-webui.settings-preferences",
       JSON.stringify({ fileEditDisplayMode: "diff" }),
     );
     const onOpenFilePreview = vi.fn();
@@ -779,7 +779,7 @@ describe("AgentActivityCluster", () => {
 
       expect(onOpenFilePreview).toHaveBeenCalledWith("/repo/src/app.tsx");
     } finally {
-      localStorage.removeItem("nanobot-webui.settings-preferences");
+      localStorage.removeItem("nanoinfra-webui.settings-preferences");
     }
   });
 
@@ -927,8 +927,8 @@ describe("AgentActivityCluster", () => {
             id: "t-search",
             role: "tool",
             kind: "trace",
-            content: 'web_search({"query":"nanobot architecture"})',
-            traces: ['web_search({"query":"nanobot architecture"})'],
+            content: 'web_search({"query":"nanoinfra architecture"})',
+            traces: ['web_search({"query":"nanoinfra architecture"})'],
             createdAt: 1,
           },
           {
@@ -960,7 +960,7 @@ describe("AgentActivityCluster", () => {
       />,
     );
 
-    const searchRow = screen.getByText("Searched nanobot architecture").closest('[data-testid="activity-step"]');
+    const searchRow = screen.getByText("Searched nanoinfra architecture").closest('[data-testid="activity-step"]');
     const cliRow = screen.getByText("Used Blender · --json project new").closest('[data-testid="activity-step"]');
     const fetchRow = screen.getByText("example.com/diagram").closest('[data-testid="activity-step"]');
 
@@ -1044,7 +1044,7 @@ describe("AgentActivityCluster", () => {
   });
 
   it("renders hosted X search as an explicit search activity", () => {
-    const line = 'x_search({"query":"nanobot oauth"})';
+    const line = 'x_search({"query":"nanoinfra oauth"})';
     render(
       <AgentActivityCluster
         messages={[{
@@ -1057,7 +1057,7 @@ describe("AgentActivityCluster", () => {
             phase: "end",
             call_id: "x-search-1",
             name: "x_search",
-            arguments: { query: "nanobot oauth" },
+            arguments: { query: "nanoinfra oauth" },
             result: { name: "x_semantic_search" },
           }],
           createdAt: 1,
@@ -1067,7 +1067,7 @@ describe("AgentActivityCluster", () => {
       />,
     );
 
-    expect(screen.getByText("Searched X · nanobot oauth")).toBeInTheDocument();
+    expect(screen.getByText("Searched X · nanoinfra oauth")).toBeInTheDocument();
     expect(screen.queryByText(/Completed X search/i)).not.toBeInTheDocument();
     expect(screen.getAllByTestId("activity-step")).toHaveLength(1);
   });
@@ -1373,8 +1373,8 @@ describe("AgentActivityCluster", () => {
   it("groups repeated searches over internal tool results without exposing raw paths", () => {
     const pattern = "Jul (1[0-7]), 2026|July (1[0-7]), 2026|2026-07-(1[0-7])";
     const secondPattern = "Anthropic|OpenAI|DeepMind";
-    const firstPath = "/Users/test/.nanobot/workspace/.nanobot/tool-results/websocket_session/call_first-result.txt";
-    const secondPath = "/Users/test/.nanobot/workspace/.nanobot/tool-results/websocket_session/call_second-result.txt";
+    const firstPath = "/Users/test/.nanoinfra/workspace/.nanoinfra/tool-results/websocket_session/call_first-result.txt";
+    const secondPath = "/Users/test/.nanoinfra/workspace/.nanoinfra/tool-results/websocket_session/call_second-result.txt";
     const traces = [
       `grep(${JSON.stringify({ pattern, path: firstPath })})`,
       `grep(${JSON.stringify({ pattern: secondPattern, path: secondPath })})`,
@@ -1661,7 +1661,7 @@ describe("AgentActivityCluster", () => {
           fileEdits: [{
             call_id: "call-write",
             tool: "write_file",
-            path: "/Users/renxubin/.nanobot/workspace/agent-research-video/composition.html",
+            path: "/Users/renxubin/.nanoinfra/workspace/agent-research-video/composition.html",
             phase: "error",
             added: 0,
             deleted: 0,
@@ -1685,7 +1685,7 @@ describe("AgentActivityCluster", () => {
 
   it("keeps repeated edits for the same path as separate actions", () => {
     localStorage.setItem(
-      "nanobot-webui.settings-preferences",
+      "nanoinfra-webui.settings-preferences",
       JSON.stringify({ fileEditDisplayMode: "diff" }),
     );
     try {
@@ -1769,7 +1769,7 @@ describe("AgentActivityCluster", () => {
       expect(screen.getAllByText("+6").length).toBeGreaterThan(0);
       expect(screen.getAllByText("-6").length).toBeGreaterThan(0);
     } finally {
-      localStorage.removeItem("nanobot-webui.settings-preferences");
+      localStorage.removeItem("nanoinfra-webui.settings-preferences");
     }
   });
 
@@ -1857,13 +1857,13 @@ describe("AgentActivityCluster", () => {
       id: "image-run",
       role: "tool",
       kind: "trace",
-      content: 'generate_image({"prompt":"an orange nanobot on a desk","aspect_ratio":"4:3"})',
-      traces: ['generate_image({"prompt":"an orange nanobot on a desk","aspect_ratio":"4:3"})'],
+      content: 'generate_image({"prompt":"an orange nanoinfra on a desk","aspect_ratio":"4:3"})',
+      traces: ['generate_image({"prompt":"an orange nanoinfra on a desk","aspect_ratio":"4:3"})'],
       toolEvents: [{
         phase: "start",
         call_id: "image-call",
         name: "generate_image",
-        arguments: { prompt: "an orange nanobot on a desk", aspect_ratio: "4:3" },
+        arguments: { prompt: "an orange nanoinfra on a desk", aspect_ratio: "4:3" },
       }],
       createdAt: 1,
     };

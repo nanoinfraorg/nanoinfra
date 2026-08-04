@@ -1,5 +1,5 @@
 {
-  "description": "在 Microsoft Teams 對話中使用 nanobot。",
+  "description": "在 Microsoft Teams 對話中使用 nanoinfra。",
   "requirements": "Azure 機器人應用程式憑證和公開回呼端點",
   "setup": {
     "docsLabel": "開啟 Teams 設定指南",

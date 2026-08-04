@@ -1,5 +1,5 @@
 {
-  "description": "Sử dụng nanobot trong máy chủ và tin nhắn riêng Discord.",
+  "description": "Sử dụng nanoinfra trong máy chủ và tin nhắn riêng Discord.",
   "requirements": "Token bot Discord, quyền và gateway",
   "setup": {
     "docsLabel": "Mở hướng dẫn Discord",

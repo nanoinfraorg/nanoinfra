@@ -7,7 +7,7 @@ import {
 } from "@/lib/runtime";
 
 afterEach(() => {
-  Reflect.deleteProperty(window, "nanobotHost");
+  Reflect.deleteProperty(window, "nanoinfraHost");
   window.sessionStorage.clear();
   window.history.replaceState(null, "", "/");
   initializeLoopbackRuntimeHost();
@@ -26,7 +26,7 @@ describe("runtime host facade", () => {
   it("wraps native host actions behind the runtime facade", async () => {
     const pickFolder = vi.fn(async () => "/tmp/project");
     const restartEngine = vi.fn(async () => undefined);
-    Object.defineProperty(window, "nanobotHost", {
+    Object.defineProperty(window, "nanoinfraHost", {
       configurable: true,
       value: {
         getRuntimeInfo: vi.fn(),

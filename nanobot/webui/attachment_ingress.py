@@ -6,8 +6,8 @@ import re
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from nanobot.utils.media_decode import FileSizeExceeded, save_base64_data_url
-from nanobot.webui.ingress_policy import (
+from nanoinfra.utils.media_decode import FileSizeExceeded, save_base64_data_url
+from nanoinfra.webui.ingress_policy import (
     DEFAULT_WEBUI_INGRESS_POLICY,
     AttachmentIngressLimits,
 )

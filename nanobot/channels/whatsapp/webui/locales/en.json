@@ -1,5 +1,5 @@
 {
-  "description": "Use nanobot from WhatsApp conversations.",
+  "description": "Use nanoinfra from WhatsApp conversations.",
   "requirements": "WhatsApp connection setup and gateway",
   "setup": {
     "primaryAction": "Connect WhatsApp",

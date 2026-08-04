@@ -25,7 +25,7 @@ export function WeixinConnectFlow({
         scanTitle: tx("custom.scanTitle", "Scan with WeChat"),
         scanDescription: tx(
           "custom.scanDescription",
-          "Use WeChat on your phone to scan this code. nanobot saves the account state locally after login.",
+          "Use WeChat on your phone to scan this code. nanoinfra saves the account state locally after login.",
         ),
         waiting: tx("custom.waiting", "Waiting for WeChat scan..."),
         connected: tx("custom.connected", "WeChat is connected."),

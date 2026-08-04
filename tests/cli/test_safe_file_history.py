@@ -3,8 +3,8 @@
 Surrogate characters in CLI input must not crash history file writes.
 """
 
-from nanobot.cli.commands import SafeFileHistory as LegacySafeFileHistory
-from nanobot.cli.terminal import SafeFileHistory, _sanitize_surrogates
+from nanoinfra.cli.commands import SafeFileHistory as LegacySafeFileHistory
+from nanoinfra.cli.terminal import SafeFileHistory, _sanitize_surrogates
 
 
 def test_commands_keeps_safe_file_history_import_compatible() -> None:
@@ -28,7 +28,7 @@ class TestSanitizeSurrogates:
 
     def test_emoji_already_correct(self):
         """Properly encoded emoji should pass through unchanged."""
-        assert _sanitize_surrogates("hello 🐈 nanobot") == "hello 🐈 nanobot"
+        assert _sanitize_surrogates("hello 🐈 nanoinfra") == "hello 🐈 nanoinfra"
 
     def test_mixed_unicode_preserved(self):
         assert _sanitize_surrogates("你好 hello こんにちは 🎉") == "你好 hello こんにちは 🎉"
@@ -58,9 +58,9 @@ class TestSafeFileHistory:
 
     def test_emoji_preserved(self, tmp_path):
         hist = SafeFileHistory(str(tmp_path / "history"))
-        hist.store_string("hello 🐈 nanobot")
+        hist.store_string("hello 🐈 nanoinfra")
         entries = list(hist.load_history_strings())
-        assert entries[0] == "hello 🐈 nanobot"
+        assert entries[0] == "hello 🐈 nanoinfra"
 
     def test_mixed_unicode_preserved(self, tmp_path):
         """CJK + emoji + latin should all pass through cleanly."""

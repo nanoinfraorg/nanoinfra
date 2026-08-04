@@ -9,7 +9,7 @@ import pytest
 
 # Check optional Feishu dependencies before running tests
 try:
-    from nanobot.channels.feishu import runtime as feishu
+    from nanoinfra.channels.feishu import runtime as feishu
     FEISHU_AVAILABLE = getattr(feishu, "FEISHU_AVAILABLE", False)
 except ImportError:
     FEISHU_AVAILABLE = False
@@ -17,10 +17,10 @@ except ImportError:
 if not FEISHU_AVAILABLE:
     pytest.skip("Feishu dependencies not installed (lark-oapi)", allow_module_level=True)
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.outbound_events import ProgressEvent
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.feishu.runtime import FeishuChannel, FeishuConfig
+from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.outbound_events import ProgressEvent
+from nanoinfra.bus.queue import MessageBus
+from nanoinfra.channels.feishu.runtime import FeishuChannel, FeishuConfig
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -699,7 +699,7 @@ async def test_on_message_strips_required_leading_bot_mention_for_commands() -> 
     channel._handle_message = _capture
     mention = SimpleNamespace(
         key="@_user_1",
-        name="nanobot",
+        name="nanoinfra",
         id=SimpleNamespace(open_id="ou_bot", user_id=None),
     )
 
@@ -729,7 +729,7 @@ async def test_on_message_keeps_longer_mention_key_that_shares_bot_prefix() -> N
     channel._handle_message = _capture
     bot_mention = SimpleNamespace(
         key="@_user_1",
-        name="nanobot",
+        name="nanoinfra",
         id=SimpleNamespace(open_id="ou_bot", user_id=None),
     )
     user_mention = SimpleNamespace(
@@ -748,7 +748,7 @@ async def test_on_message_keeps_longer_mention_key_that_shares_bot_prefix() -> N
         )
 
     assert len(captured) == 1
-    assert captured[0]["content"] == "@Alice (ou_alice) /new @nanobot (ou_bot)"
+    assert captured[0]["content"] == "@Alice (ou_alice) /new @nanoinfra (ou_bot)"
 
 
 # ---------------------------------------------------------------------------
@@ -767,7 +767,7 @@ async def test_on_message_audio_publishes_downloaded_path_and_transcription() ->
 
     channel.bus.publish_inbound = capture
     channel._download_and_save_media = AsyncMock(
-        return_value=(r"C:\\Users\\dodre\\.nanobot\\media\\feishu\\voice.ogg", "[audio: voice.ogg]")
+        return_value=(r"C:\\Users\\dodre\\.nanoinfra\\media\\feishu\\voice.ogg", "[audio: voice.ogg]")
     )
     channel.transcribe_audio = AsyncMock(return_value="hello from voice")
     channel._add_reaction = AsyncMock(return_value=None)
@@ -782,9 +782,9 @@ async def test_on_message_audio_publishes_downloaded_path_and_transcription() ->
     channel._download_and_save_media.assert_awaited_once_with(
         "audio", {"file_key": "audio_key", "duration": 1000}, "om_audio"
     )
-    channel.transcribe_audio.assert_awaited_once_with(r"C:\\Users\\dodre\\.nanobot\\media\\feishu\\voice.ogg")
+    channel.transcribe_audio.assert_awaited_once_with(r"C:\\Users\\dodre\\.nanoinfra\\media\\feishu\\voice.ogg")
     assert len(captured) == 1
-    assert captured[0].media == [r"C:\\Users\\dodre\\.nanobot\\media\\feishu\\voice.ogg"]
+    assert captured[0].media == [r"C:\\Users\\dodre\\.nanoinfra\\media\\feishu\\voice.ogg"]
     assert captured[0].content == "[transcription: hello from voice]"
 
 

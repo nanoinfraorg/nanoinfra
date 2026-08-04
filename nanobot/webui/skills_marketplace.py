@@ -17,9 +17,9 @@ from urllib.parse import quote, urlparse
 
 import httpx
 
-from nanobot.agent.skills import SkillsLoader
-from nanobot.security.network import PinnedDNSAsyncTransport
-from nanobot.security.workspace_policy import WorkspaceBoundaryError, require_path_within
+from nanoinfra.agent.skills import SkillsLoader
+from nanoinfra.security.network import PinnedDNSAsyncTransport
+from nanoinfra.security.workspace_policy import WorkspaceBoundaryError, require_path_within
 
 _PROVIDER_ALL = "all"
 _PROVIDER_SKILLS_SH = "skills_sh"
@@ -50,7 +50,7 @@ _WEEKLY_CACHE_TTL_SECONDS = 300
 _SKILLHUB_MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
 _SKILLHUB_MAX_UNPACKED_BYTES = 100 * 1024 * 1024
 _SKILLHUB_MAX_FILES = 1_000
-# The skills CLI's OpenClaw adapter copies into <workspace>/skills, nanobot's layout too.
+# The skills CLI's OpenClaw adapter copies into <workspace>/skills, nanoinfra's layout too.
 _CLI_AGENT = "openclaw"
 _weekly_cache: dict[tuple[str, str], list[int]] = {}
 _weekly_cache_expires_at = 0.0

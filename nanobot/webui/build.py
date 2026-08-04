@@ -71,10 +71,10 @@ def default_webui_source_dir(project_root: Path | None = None) -> Path:
 def default_webui_dist_dir(project_root: Path | None = None) -> Path:
     """Return the bundled WebUI dist directory for the installed package."""
     try:
-        import nanobot.web as web_pkg  # type: ignore[import-not-found]
+        import nanoinfra.web as web_pkg  # type: ignore[import-not-found]
     except ImportError:
         root = project_root or default_project_root()
-        return root / "nanobot" / "web" / "dist"
+        return root / "nanoinfra" / "web" / "dist"
     return Path(web_pkg.__file__).resolve().parent / "dist"
 
 
@@ -90,7 +90,7 @@ def iter_webui_source_files(source_dir: Path) -> list[Path]:
         if not root.is_dir():
             continue
         files.extend(path for path in root.rglob("*") if path.is_file())
-    channel_root = source_dir.parent / "nanobot" / "channels"
+    channel_root = source_dir.parent / "nanoinfra" / "channels"
     if channel_root.is_dir():
         for channel_webui in channel_root.glob("*/webui"):
             files.extend(path for path in channel_webui.rglob("*") if path.is_file())
@@ -230,7 +230,7 @@ def ensure_webui_bundle(
         return status
 
     detail = describe_webui_bundle_status(status)
-    if env.get("NANOBOT_SKIP_WEBUI_BUILD") == "1" or mode == "skip":
+    if env.get("NANOINFRA_SKIP_WEBUI_BUILD") == "1" or mode == "skip":
         _emit(output, f"Warning: {detail} Skipping WebUI build.")
         return status
 

@@ -1,14 +1,14 @@
 {
-  "description": "通过 NapCat 网关连接 nanobot。",
+  "description": "通过 NapCat 网关连接 nanoinfra。",
   "requirements": "NapCat WebSocket 地址和可选访问令牌",
   "setup": {
     "docsLabel": "打开 NapCat 配置指南",
     "officialLabel": "打开 NapCat 文档",
     "tryIt": "通过 NapCat 发送一条 QQ 测试消息。",
-    "summary": "NapCat 通过本地或远程 OneBot WebSocket 地址将 nanobot 连接到 QQ。",
+    "summary": "NapCat 通过本地或远程 OneBot WebSocket 地址将 nanoinfra 连接到 QQ。",
     "steps": [
       "启动 NapCat 并启用正向 WebSocket 服务。",
-      "将 WebSocket 地址和可选访问令牌复制到 nanobot。",
+      "将 WebSocket 地址和可选访问令牌复制到 nanoinfra。",
       "保存并启用 NapCat，然后发送一条 QQ 测试消息。"
     ],
     "fields": {

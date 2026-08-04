@@ -1,5 +1,5 @@
 {
-  "description": "Microsoft Teams のチャットから nanobot を利用します。",
+  "description": "Microsoft Teams のチャットから nanoinfra を利用します。",
   "requirements": "Azure ボットアプリの認証情報と公開コールバックエンドポイント",
   "setup": {
     "docsLabel": "Teams 設定ガイドを開く",

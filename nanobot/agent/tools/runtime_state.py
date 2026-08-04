@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from nanobot.agent.subagent import SubagentManager
-    from nanobot.agent.tools.shell import ExecToolConfig
-    from nanobot.agent.tools.web import WebToolsConfig
-    from nanobot.utils.llm_runtime import LLMRuntime
+    from nanoinfra.agent.subagent import SubagentManager
+    from nanoinfra.agent.tools.shell import ExecToolConfig
+    from nanoinfra.agent.tools.web import WebToolsConfig
+    from nanoinfra.utils.llm_runtime import LLMRuntime
 
 
 class RuntimeState(Protocol):

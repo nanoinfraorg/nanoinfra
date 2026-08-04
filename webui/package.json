@@ -1,5 +1,5 @@
 {
-  "name": "nanobot-webui",
+  "name": "nanoinfra-webui",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "cd .. && eslint --config webui/eslint.config.js webui/src \"nanobot/channels/*/webui/**/*.{ts,tsx}\" --max-warnings 0"
+    "lint": "cd .. && eslint --config webui/eslint.config.js webui/src \"nanoinfra/channels/*/webui/**/*.{ts,tsx}\" --max-warnings 0"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.4",
