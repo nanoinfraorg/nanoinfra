@@ -1,0 +1,38 @@
+{
+  "id": "auth_gateway",
+  "label": "Auth / API Gateway",
+  "category": "Security",
+  "iconKey": "auth",
+  "providers": [
+    {
+      "id": "kong",
+      "label": "Kong Gateway",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "kong:3.7", "kind": "text" },
+        { "key": "authType", "label": "Auth type", "placeholder": "API key, OAuth2, JWT...", "kind": "text" }
+      ]
+    },
+    {
+      "id": "oauth2-proxy",
+      "label": "oauth2-proxy",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "quay.io/oauth2-proxy/oauth2-proxy:latest", "kind": "text" },
+        { "key": "authProvider", "label": "Identity provider", "placeholder": "Google, GitHub, OIDC...", "kind": "text" }
+      ]
+    },
+    {
+      "id": "aws-api-gateway",
+      "label": "AWS API Gateway",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [
+        { "key": "authType", "label": "Auth type", "placeholder": "API key, Cognito, IAM...", "kind": "text" },
+        { "key": "apiKey", "label": "API key", "kind": "secret" }
+      ]
+    }
+  ]
+}

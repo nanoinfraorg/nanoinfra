@@ -1,0 +1,35 @@
+{
+  "id": "monitoring",
+  "label": "Monitoring",
+  "category": "Observability",
+  "iconKey": "monitoring",
+  "providers": [
+    {
+      "id": "prometheus",
+      "label": "Prometheus",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "prom/prometheus:v2.54.1", "kind": "text" },
+        { "key": "scrapeInterval", "label": "Scrape interval", "placeholder": "15s", "kind": "text" },
+        { "key": "retentionDays", "label": "Retention", "placeholder": "15d", "kind": "text" }
+      ]
+    },
+    {
+      "id": "dcgm-exporter",
+      "label": "NVIDIA DCGM Exporter",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "nvcr.io/nvidia/k8s/dcgm-exporter:3.3.7", "kind": "text" }
+      ]
+    },
+    {
+      "id": "cloudwatch-metrics",
+      "label": "AWS CloudWatch Metrics",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "namespace", "label": "Metric namespace", "kind": "text" }]
+    }
+  ]
+}

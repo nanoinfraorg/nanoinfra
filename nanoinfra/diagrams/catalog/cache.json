@@ -9,7 +9,10 @@
       "label": "Redis",
       "kind": "docker",
       "integration": { "type": "internal" },
-      "fields": [{ "key": "image", "label": "Image tag", "placeholder": "redis:7", "kind": "text" }]
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "redis:7", "kind": "text" },
+        { "key": "persistence", "label": "Persistence", "placeholder": "appendonly yes (AOF), RDB snapshots, none...", "kind": "text" }
+      ]
     }
   ]
 }

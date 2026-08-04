@@ -1,0 +1,29 @@
+{
+  "id": "backup",
+  "label": "Backup",
+  "category": "Data",
+  "iconKey": "backup",
+  "providers": [
+    {
+      "id": "velero",
+      "label": "Velero",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "velero/velero:v1.14.1", "kind": "text" },
+        { "key": "schedule", "label": "Backup schedule", "placeholder": "0 2 * * * (cron)", "kind": "text" },
+        { "key": "retention", "label": "Retention", "placeholder": "30d", "kind": "text" }
+      ]
+    },
+    {
+      "id": "ebs-snapshot",
+      "label": "AWS EBS Snapshot / Backup",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [
+        { "key": "schedule", "label": "Backup schedule", "placeholder": "0 2 * * * (cron)", "kind": "text" },
+        { "key": "retention", "label": "Retention", "placeholder": "30d", "kind": "text" }
+      ]
+    }
+  ]
+}

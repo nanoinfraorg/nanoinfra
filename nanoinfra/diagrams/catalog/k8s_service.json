@@ -1,0 +1,35 @@
+{
+  "id": "k8s_service",
+  "label": "K8s Service",
+  "category": "Compute",
+  "iconKey": "k8sService",
+  "providers": [
+    {
+      "id": "cluster-ip",
+      "label": "ClusterIP",
+      "kind": "api",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "port", "label": "Port", "placeholder": "8000", "kind": "text" },
+        { "key": "targetPort", "label": "Target port", "placeholder": "8000", "kind": "text" }
+      ]
+    },
+    {
+      "id": "node-port",
+      "label": "NodePort",
+      "kind": "api",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "port", "label": "Port", "placeholder": "8000", "kind": "text" },
+        { "key": "nodePort", "label": "Node port", "placeholder": "30080", "kind": "text" }
+      ]
+    },
+    {
+      "id": "k8s-loadbalancer",
+      "label": "LoadBalancer (cloud-provisioned)",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "port", "label": "Port", "placeholder": "443", "kind": "text" }]
+    }
+  ]
+}
