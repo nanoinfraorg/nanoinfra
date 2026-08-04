@@ -67,7 +67,8 @@
     "automations": "Tự động hóa",
     "skills": {
       "title": "Kỹ năng"
-    }
+    },
+    "diagrams": "Sơ đồ"
   },
   "settings": {
     "backToChat": "Quay lại chat",

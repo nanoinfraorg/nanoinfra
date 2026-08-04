@@ -67,7 +67,8 @@
     "automations": "自動任務",
     "skills": {
       "title": "技能"
-    }
+    },
+    "diagrams": "圖表"
   },
   "settings": {
     "backToChat": "返回聊天",

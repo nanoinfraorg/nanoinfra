@@ -67,7 +67,8 @@
     "automations": "Automatizaciones",
     "skills": {
       "title": "Habilidades"
-    }
+    },
+    "diagrams": "Diagramas"
   },
   "settings": {
     "backToChat": "Volver al chat",

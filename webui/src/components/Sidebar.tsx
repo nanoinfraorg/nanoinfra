@@ -9,6 +9,7 @@ import {
   Brain,
   CalendarClock,
   Menu,
+  Network,
   Search,
   Settings,
   SquarePen,
@@ -47,9 +48,10 @@ interface SidebarProps {
   onOpenApps: () => void;
   onOpenSkills: () => void;
   onOpenAutomations: () => void;
+  onOpenDiagrams: () => void;
   onSettingsIntent?: () => void;
   onOpenSearch: () => void;
-  activeUtility?: "apps" | "skills" | "automations" | null;
+  activeUtility?: "apps" | "skills" | "automations" | "diagrams" | null;
   onToggleArchived: () => void;
   onCollapse: () => void;
   onExpand?: () => void;
@@ -200,6 +202,15 @@ export function Sidebar(props: SidebarProps) {
           active={props.activeUtility === "automations"}
           selectionRef={activeActionRef}
           icon={<CalendarClock className="h-4 w-4" />}
+        />
+        <SidebarActionButton
+          collapsed={collapsed}
+          label={t("sidebar.diagrams", { defaultValue: "Diagrams" })}
+          onClick={props.onOpenDiagrams}
+          onIntent={props.onSettingsIntent}
+          active={props.activeUtility === "diagrams"}
+          selectionRef={activeActionRef}
+          icon={<Network className="h-4 w-4" />}
         />
         {props.archivedCount ? (
           <SidebarActionButton
