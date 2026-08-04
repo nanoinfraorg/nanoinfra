@@ -322,7 +322,7 @@ Use nanoinfra for a real task, report what broke, and then pick a focused improv
 
 ## Contact
 
-Nanoinfra was started by [Xubin Ren](https://github.com/re-bin) as a personal open-source project and is now maintained collaboratively with contributors from the open-source community. Feel free to contact [xubinrencs@gmail.com](mailto:xubinrencs@gmail.com) for questions, ideas, or collaboration.
+Nanoinfra is a fork of [nanobot](https://github.com/re-bin/nanobot), the original open-source project started by [Xubin Ren](https://github.com/re-bin). This fork is maintained by Alberto Ferrer. Feel free to contact [albertof@barrahome.org](mailto:albertof@barrahome.org) for questions, ideas, or collaboration.
 
 ### Contributors
 
