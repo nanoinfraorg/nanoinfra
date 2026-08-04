@@ -25,14 +25,14 @@ export function DiagramNode({ data, selected }: NodeProps & { data: DiagramNodeD
           <Icon className="h-4 w-4" />
         </div>
       ) : null}
-      <div className="flex min-w-0 flex-col">
-        <span className="text-[13px] font-medium text-foreground">{data.label}</span>
-        <span className="text-[11px] text-muted-foreground">{type?.label ?? data.componentTypeId}</span>
+      <div className="flex min-w-0 max-w-[220px] flex-col">
+        <span className="truncate text-[13px] font-medium text-foreground">{data.label}</span>
+        <span className="truncate text-[11px] text-muted-foreground">{type?.label ?? data.componentTypeId}</span>
         {provider ? (
           <span className="truncate text-[10.5px] text-muted-foreground/80">{provider.label}</span>
         ) : null}
         {legend.length > 0 ? (
-          <span className="truncate text-[10px] text-muted-foreground/70" title={legendTitle}>
+          <span className="whitespace-normal break-words text-[10px] leading-snug text-muted-foreground/70" title={legendTitle}>
             {legend.join(" · ")}
             {hasMore ? " · …" : ""}
           </span>

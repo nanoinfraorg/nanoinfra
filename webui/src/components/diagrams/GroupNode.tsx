@@ -34,7 +34,7 @@ export function GroupNode({ data, selected }: NodeProps & { data: DiagramNodeDat
           <span className="truncate text-[10.5px] font-normal text-muted-foreground">{provider.label}</span>
         ) : null}
         {legend.length > 0 ? (
-          <span className="truncate text-[10px] text-muted-foreground/80" title={legendTitle}>
+          <span className="whitespace-normal break-words text-[10px] leading-snug text-muted-foreground/80" title={legendTitle}>
             {legend.join(" · ")}
             {hasMore ? " · …" : ""}
           </span>
