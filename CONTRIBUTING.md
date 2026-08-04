@@ -40,14 +40,11 @@ shape of the work can be discussed before the implementation grows too large.
 Before making changes, sync your local checkout and create a topic branch.
 
 ```bash
-git fetch upstream
+git fetch origin
 git switch main
-git pull --ff-only upstream main
+git pull --ff-only origin main
 git switch -c your-topic-branch
 ```
-
-Use your primary bet0x/nanoinfra remote in place of `upstream` if your checkout
-uses a different remote name.
 
 Keep unrelated local changes out of the topic branch. If your checkout already has
 work in progress, use a separate worktree or finish that work before starting a
@@ -140,10 +137,9 @@ explicitly in the PR description so it can be discussed before merge.
 
 If you have questions, ideas, or half-formed insights, you are warmly welcome here.
 
-Please feel free to open an [issue](https://github.com/bet0x/nanoinfra/issues), join the community, or simply reach out:
+Please feel free to open an [issue](https://github.com/bet0x/nanoinfra/issues) or reach out:
 
-- [Discord](https://discord.gg/MnCvHqpUGB)
-- [Feishu/WeChat](./COMMUNICATION.md)
-- Email: Xubin Ren (@Re-bin) — <xubinrencs@gmail.com>
+- Maintainer: Alberto Ferrer — <albertof@barrahome.org>
+- GitHub: [bet0x/nanoinfra](https://github.com/bet0x/nanoinfra)
 
 Thank you for spending your time and care on nanoinfra. We would love for more people to participate in this community, and we genuinely welcome contributions of all sizes.

@@ -56,13 +56,13 @@ async def test_brave_search(monkeypatch):
         assert kw["headers"]["X-Subscription-Token"] == "brave-key"
         assert kw["headers"]["User-Agent"] == "nanoinfra-search-test"
         return _response(json={
-            "web": {"results": [{"title": "NanoBot", "url": "https://example.com", "description": "AI assistant"}]}
+            "web": {"results": [{"title": "NanoInfra", "url": "https://example.com", "description": "AI assistant"}]}
         })
 
     monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
     tool = _tool(provider="brave", api_key="brave-key", user_agent="nanoinfra-search-test")
     result = await tool.execute(query="nanoinfra", count=1)
-    assert "NanoBot" in result
+    assert "NanoInfra" in result
     assert "https://example.com" in result
 
 
