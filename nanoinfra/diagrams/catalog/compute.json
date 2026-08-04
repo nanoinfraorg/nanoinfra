@@ -1,0 +1,22 @@
+{
+  "id": "compute",
+  "label": "GPU / NPU",
+  "category": "Compute",
+  "iconKey": "compute",
+  "providers": [
+    {
+      "id": "nvidia-docker",
+      "label": "NVIDIA (Docker + CUDA)",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [{ "key": "image", "label": "Image tag", "placeholder": "nvidia/cuda:12.5-runtime", "kind": "text" }]
+    },
+    {
+      "id": "ec2-gpu",
+      "label": "AWS EC2 GPU instance",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "instanceType", "label": "Instance type", "placeholder": "g5.xlarge", "kind": "text" }]
+    }
+  ]
+}

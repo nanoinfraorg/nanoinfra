@@ -20,6 +20,16 @@ if sys.platform == "win32":
                 if callable(reconfigure):
                     reconfigure(encoding="utf-8", errors="replace")
 
+# The `websockets` library (the gateway's HTTP+WS transport) reads this env
+# var into a module-level constant the first time it's imported, capping
+# every raw request/header line at 8KB by default. Every WebUI mutation
+# route smuggles its JSON payload through one custom header rather than a
+# real POST body (the library rejects any request with one), so a diagram
+# with enough nodes/edges can exceed that cap. Set a generous ceiling before
+# anything below has a chance to import `websockets` — this must run before
+# that happens, not after, since the constant is read once at import time.
+os.environ.setdefault("WEBSOCKETS_MAX_LINE_LENGTH", "131072")
+
 # Keep console encoding setup before importing CLI UI/logging libraries.
 import typer  # noqa: E402
 from loguru import logger  # noqa: E402

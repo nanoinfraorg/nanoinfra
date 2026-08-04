@@ -1,0 +1,15 @@
+{
+  "id": "cache",
+  "label": "Cache",
+  "category": "Data",
+  "iconKey": "cache",
+  "providers": [
+    {
+      "id": "redis",
+      "label": "Redis",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [{ "key": "image", "label": "Image tag", "placeholder": "redis:7", "kind": "text" }]
+    }
+  ]
+}

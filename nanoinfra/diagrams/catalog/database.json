@@ -1,0 +1,28 @@
+{
+  "id": "database",
+  "label": "Database",
+  "category": "Data",
+  "iconKey": "database",
+  "providers": [
+    {
+      "id": "postgres",
+      "label": "PostgreSQL",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "postgres:17", "kind": "text" },
+        { "key": "password", "label": "Admin password", "kind": "secret" }
+      ]
+    },
+    {
+      "id": "rds",
+      "label": "AWS RDS",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [
+        { "key": "instanceId", "label": "Instance ID", "kind": "text" },
+        { "key": "credentials", "label": "Credentials", "kind": "secret" }
+      ]
+    }
+  ]
+}

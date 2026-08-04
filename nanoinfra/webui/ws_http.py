@@ -26,10 +26,20 @@ from websockets.http11 import Response
 from nanoinfra.command.builtin import builtin_command_palette
 from nanoinfra.cron.session_turns import is_bound_cron_job
 from nanoinfra.cron.types import CronJob, CronSchedule
+from nanoinfra.diagrams.normalize import DiagramValidationError
+from nanoinfra.diagrams.store import DiagramStore
 from nanoinfra.runtime_context import public_history_messages
 from nanoinfra.security.workspace_access import WorkspaceScope
 from nanoinfra.triggers.local_types import LocalTrigger
 from nanoinfra.utils.subagent_channel_display import scrub_subagent_messages_for_channel
+from nanoinfra.webui.diagrams_api import (
+    create_webui_diagram,
+    delete_webui_diagram,
+    update_webui_diagram,
+    webui_diagram_catalog_payload,
+    webui_diagram_detail_payload,
+    webui_diagrams_payload,
+)
 from nanoinfra.webui.file_preview import (
     WebUIFilePreviewError,
     file_preview_availability_payload,
@@ -115,6 +125,7 @@ from nanoinfra.webui.workspaces import WebUIWorkspaceController
 
 _SLOW_WEBUI_HTTP_LOG_MS = 1_000
 _AUTOMATION_VALUES_HEADER = "X-Nanoinfra-Automation-Values"
+_DIAGRAM_VALUES_HEADER = "X-Nanoinfra-Diagram-Values"
 
 # Fix for #5190: On Windows, mimetypes.guess_type() reads the registry key
 # HKEY_CLASSES_ROOT\.js\Content Type, which is commonly set to 'text/plain'
@@ -231,6 +242,10 @@ class GatewayHTTPHandler:
         self.disabled_skills: set[str] = (
             disabled_skills if disabled_skills is not None else set()
         )
+        # Diagrams are workspace-scoped the same way skills are — reuse the
+        # already-threaded workspace path rather than adding a duplicate
+        # constructor parameter for what is always the same value.
+        self.diagrams = DiagramStore(skills_workspace_path)
         self.skill_state_action = skill_state_action
         self._skill_install_lock = asyncio.Lock()
         self.cron_service = cron_service
@@ -312,6 +327,11 @@ class GatewayHTTPHandler:
 
         # Automation routes
         response = await self._dispatch_automation_routes(request, got)
+        if response is not None:
+            return response
+
+        # Diagram routes
+        response = self._dispatch_diagram_routes(request, got)
         if response is not None:
             return response
 
@@ -838,6 +858,83 @@ class GatewayHTTPHandler:
         if not ran:
             logger.warning("WebUI automation run-now task did not execute")
 
+    # -- Diagram routes -------------------------------------------------------
+
+    def _dispatch_diagram_routes(self, request: WsRequest, got: str) -> Response | None:
+        if got == "/api/webui/diagrams":
+            return self._handle_webui_diagrams(request)
+        if got == "/api/webui/diagrams/catalog":
+            return self._handle_webui_diagram_catalog(request)
+        if got == "/api/webui/diagrams/create":
+            return self._handle_webui_diagram_create(request)
+        m = re.match(r"^/api/webui/diagrams/([^/]+)/update$", got)
+        if m:
+            return self._handle_webui_diagram_update(request, m.group(1))
+        m = re.match(r"^/api/webui/diagrams/([^/]+)/delete$", got)
+        if m:
+            return self._handle_webui_diagram_delete(request, m.group(1))
+        m = re.match(r"^/api/webui/diagrams/([^/]+)$", got)
+        if m:
+            return self._handle_webui_diagram_detail(request, m.group(1))
+        return None
+
+    def _handle_webui_diagrams(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        return _http_json_response(webui_diagrams_payload(self.diagrams))
+
+    def _handle_webui_diagram_catalog(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        return _http_json_response(
+            webui_diagram_catalog_payload(
+                self.skills_workspace_path,
+                skills_workspace_path=self.skills_workspace_path,
+                disabled_skills=self.disabled_skills,
+            )
+        )
+
+    def _handle_webui_diagram_detail(self, request: WsRequest, diagram_id: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        payload = webui_diagram_detail_payload(self.diagrams, diagram_id)
+        if payload is None:
+            return _http_error(404, "diagram not found")
+        return _http_json_response(payload)
+
+    def _handle_webui_diagram_create(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        values = _diagram_values_from_request(request)
+        if values is None:
+            return _http_error(400, "invalid diagram payload")
+        try:
+            payload = create_webui_diagram(self.diagrams, values)
+        except DiagramValidationError as exc:
+            return _http_error(400, str(exc))
+        return _http_json_response(payload)
+
+    def _handle_webui_diagram_update(self, request: WsRequest, diagram_id: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        values = _diagram_values_from_request(request)
+        if values is None:
+            return _http_error(400, "invalid diagram payload")
+        try:
+            payload = update_webui_diagram(self.diagrams, diagram_id, values)
+        except DiagramValidationError as exc:
+            return _http_error(400, str(exc))
+        if payload is None:
+            return _http_error(404, "diagram not found")
+        return _http_json_response(payload)
+
+    def _handle_webui_diagram_delete(self, request: WsRequest, diagram_id: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if not delete_webui_diagram(self.diagrams, diagram_id):
+            return _http_error(404, "diagram not found")
+        return _http_json_response({"deleted": True})
+
     # -- Media routes -------------------------------------------------------
 
     def _dispatch_media_routes(self, request: WsRequest, got: str) -> Response | None:
@@ -1156,6 +1253,26 @@ def _automation_values_from_request(request: WsRequest) -> dict[str, Any] | None
     raw = _case_insensitive_header(request.headers, _AUTOMATION_VALUES_HEADER)
     if not raw:
         return {}
+    try:
+        values = json.loads(raw)
+    except Exception:
+        try:
+            values = json.loads(unquote(raw))
+        except Exception:
+            return None
+    return cast(dict[str, Any], values) if isinstance(values, dict) else None
+
+
+def _diagram_values_from_request(request: WsRequest) -> dict[str, Any] | None:
+    """Read the full diagram body from ``X-Nanoinfra-Diagram-Values``.
+
+    Unlike ``_automation_values_from_request``, a missing header is *not*
+    "no changes" here — create/update always need a complete diagram body,
+    so a missing or malformed header is treated the same: an invalid payload.
+    """
+    raw = _case_insensitive_header(request.headers, _DIAGRAM_VALUES_HEADER)
+    if not raw:
+        return None
     try:
         values = json.loads(raw)
     except Exception:

@@ -1,0 +1,32 @@
+{
+  "id": "storage",
+  "label": "Storage",
+  "category": "Data",
+  "iconKey": "storage",
+  "providers": [
+    {
+      "id": "local-volume",
+      "label": "Local volume",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [{ "key": "path", "label": "Host path", "placeholder": "/srv/websites", "kind": "text" }]
+    },
+    {
+      "id": "s3",
+      "label": "AWS S3",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "bucket", "label": "Bucket", "kind": "text" }]
+    },
+    {
+      "id": "pvc",
+      "label": "Persistent Volume Claim (Kubernetes)",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [
+        { "key": "claimName", "label": "Claim name", "placeholder": "models-pvc", "kind": "text" },
+        { "key": "size", "label": "Size", "placeholder": "50Gi", "kind": "text" }
+      ]
+    }
+  ]
+}

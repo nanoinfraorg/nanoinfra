@@ -1,0 +1,22 @@
+{
+  "id": "reverse_proxy",
+  "label": "Reverse Proxy",
+  "category": "Edge",
+  "iconKey": "reverseProxy",
+  "providers": [
+    {
+      "id": "caddy",
+      "label": "Caddy",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [{ "key": "image", "label": "Image tag", "placeholder": "caddy:2", "kind": "text" }]
+    },
+    {
+      "id": "nginx-proxy",
+      "label": "nginx",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [{ "key": "image", "label": "Image tag", "placeholder": "nginx:1.27", "kind": "text" }]
+    }
+  ]
+}

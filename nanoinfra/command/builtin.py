@@ -20,6 +20,8 @@ from nanoinfra.utils.workspace_prompts import initialize_workspace_prompt
 
 if TYPE_CHECKING:
     from nanoinfra.agent.loop import AgentLoop
+    from nanoinfra.diagrams.store import DiagramStore
+    from nanoinfra.diagrams.types import Diagram
     from nanoinfra.session.manager import Session
     from nanoinfra.utils.gitstore import CommitInfo
 
@@ -109,6 +111,15 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
         "Tell the agent to treat the request as a long-running goal.",
         "activity",
         "<goal>",
+        lifecycle="agent_turn_with_args",
+        accepts_args=True,
+    ),
+    BuiltinCommandSpec(
+        "/infradiagrams",
+        "Attach infra diagram",
+        "List saved infra diagrams, or attach one to this conversation's context.",
+        "workflow",
+        "[name-or-id]",
         lifecycle="agent_turn_with_args",
         accepts_args=True,
     ),
@@ -916,6 +927,78 @@ async def cmd_goal(ctx: CommandContext) -> OutboundMessage | None:
     return None
 
 
+def _resolve_infradiagram(store: "DiagramStore", query: str) -> "Diagram | None":
+    """Look up a saved diagram by exact id, else case-insensitive name match.
+
+    Always re-fetches from the store and returns only its data — never trusts
+    anything about the diagram beyond using ``query`` as a lookup key, the
+    same discipline ``session_access.py::normalize_mentions()`` uses for
+    WebUI session mentions.
+    """
+    diagram = store.get(query)
+    if diagram is not None:
+        return diagram
+    query_lower = query.lower()
+    for summary in store.list_diagrams():
+        if summary.name.lower() == query_lower:
+            return store.get(summary.id)
+    return None
+
+
+async def cmd_infradiagrams(ctx: CommandContext) -> OutboundMessage | None:
+    """List saved infra diagrams, or attach one to this conversation's context."""
+    from nanoinfra.diagrams.runtime_context import diagram_runtime_context
+    from nanoinfra.diagrams.store import DiagramStore
+    from nanoinfra.runtime_context import RUNTIME_CONTEXT_INPUT_META, RuntimeContextBlock
+
+    store = DiagramStore(ctx.loop.workspace)
+    query = ctx.args.strip()
+
+    if not query:
+        diagrams = store.list_diagrams()
+        if not diagrams:
+            content = "No saved diagrams."
+        else:
+            lines = [f"Saved diagrams ({len(diagrams)}):", ""]
+            for summary in diagrams:
+                lines.append(f"- **{summary.name}** — `{summary.id}`")
+            lines.append("")
+            lines.append("Use `/infradiagrams <name-or-id>` to attach one to this conversation.")
+            content = "\n".join(lines)
+        return OutboundMessage(
+            channel=ctx.msg.channel,
+            chat_id=ctx.msg.chat_id,
+            content=content,
+            metadata=dict(ctx.msg.metadata or {}),
+        )
+
+    diagram = _resolve_infradiagram(store, query)
+    if diagram is None:
+        return OutboundMessage(
+            channel=ctx.msg.channel,
+            chat_id=ctx.msg.chat_id,
+            content=f"No saved diagram matches `{query}`. Use `/infradiagrams` to list them.",
+            metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
+        )
+
+    # Append rather than replace — a WebUI turn may already carry other
+    # runtime-context blocks (e.g. session mentions) under the same key.
+    existing = dict(ctx.msg.metadata or {}).get(RUNTIME_CONTEXT_INPUT_META)
+    if isinstance(existing, RuntimeContextBlock):
+        existing_blocks: list[RuntimeContextBlock] = [existing]
+    elif isinstance(existing, list):
+        existing_blocks = cast(list[RuntimeContextBlock], existing)
+    else:
+        existing_blocks = []
+
+    ctx.msg.metadata = {
+        **dict(ctx.msg.metadata or {}),
+        RUNTIME_CONTEXT_INPUT_META: [*existing_blocks, diagram_runtime_context(diagram)],
+    }
+    ctx.msg.content = ctx.raw
+    return None
+
+
 async def cmd_pairing(ctx: CommandContext) -> OutboundMessage:
     """List, approve, deny or revoke pairing requests."""
     from nanoinfra.pairing import PAIRING_COMMAND_META_KEY, handle_pairing_command
@@ -1031,6 +1114,8 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.prefix("/history ", cmd_history)
     router.exact("/goal", cmd_goal)
     router.prefix("/goal ", cmd_goal)
+    router.exact("/infradiagrams", cmd_infradiagrams)
+    router.prefix("/infradiagrams ", cmd_infradiagrams)
     router.exact("/trigger", cmd_trigger)
     router.prefix("/trigger ", cmd_trigger)
     router.exact("/dream", cmd_dream)

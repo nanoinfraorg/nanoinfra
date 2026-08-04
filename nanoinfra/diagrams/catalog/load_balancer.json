@@ -1,0 +1,22 @@
+{
+  "id": "load_balancer",
+  "label": "Load Balancer",
+  "category": "Edge",
+  "iconKey": "loadBalancer",
+  "providers": [
+    {
+      "id": "alb",
+      "label": "AWS Application Load Balancer",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "targetGroup", "label": "Target group", "kind": "text" }]
+    },
+    {
+      "id": "nginx-lb",
+      "label": "nginx (upstream)",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [{ "key": "image", "label": "Image tag", "placeholder": "nginx:1.27", "kind": "text" }]
+    }
+  ]
+}

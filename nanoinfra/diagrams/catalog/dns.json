@@ -1,0 +1,22 @@
+{
+  "id": "dns",
+  "label": "DNS",
+  "category": "Edge",
+  "iconKey": "dns",
+  "providers": [
+    {
+      "id": "cloudflare",
+      "label": "Cloudflare DNS",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "zone", "label": "Zone", "placeholder": "example.com", "kind": "text" }]
+    },
+    {
+      "id": "route53",
+      "label": "AWS Route 53",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "hostedZoneId", "label": "Hosted zone ID", "kind": "text" }]
+    }
+  ]
+}

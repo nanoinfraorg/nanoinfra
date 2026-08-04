@@ -1,0 +1,16 @@
+{
+  "id": "__group__",
+  "label": "Group",
+  "category": "Layout",
+  "iconKey": "group",
+  "isGroup": true,
+  "providers": [
+    { "id": "generic", "label": "Generic container", "kind": "docker", "fields": [] },
+    {
+      "id": "kubernetes",
+      "label": "Kubernetes Cluster",
+      "kind": "api",
+      "fields": [{ "key": "namespace", "label": "Namespace", "placeholder": "default", "kind": "text" }]
+    }
+  ]
+}

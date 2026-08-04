@@ -1,0 +1,22 @@
+{
+  "id": "vpn",
+  "label": "VPN",
+  "category": "Edge",
+  "iconKey": "vpn",
+  "providers": [
+    {
+      "id": "wireguard",
+      "label": "WireGuard",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [{ "key": "image", "label": "Image tag", "placeholder": "linuxserver/wireguard", "kind": "text" }]
+    },
+    {
+      "id": "tailscale",
+      "label": "Tailscale",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "authKey", "label": "Auth key", "kind": "secret" }]
+    }
+  ]
+}
