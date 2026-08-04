@@ -1,9 +1,20 @@
 import { Lock } from "lucide-react";
 import { Handle, NodeResizer, Position, type NodeProps } from "@xyflow/react";
 
+import { GROUP_COMPONENT_ID, findProvider } from "./componentCatalog";
 import type { DiagramNodeData } from "./diagramTypes";
 
 export function GroupNode({ data, selected }: NodeProps & { data: DiagramNodeData }) {
+  const provider = findProvider(GROUP_COMPONENT_ID, data.providerId);
+  const isConfigured = provider && provider.id !== "generic";
+  // Never surface "secret" fields here — this legend is a glanceable summary
+  // on the canvas, not a place to ever echo back sensitive values.
+  const legend = isConfigured
+    ? provider.fields
+        .filter((field) => field.kind !== "secret" && data.config[field.key])
+        .map((field) => `${field.label}: ${data.config[field.key]}`)
+    : [];
+
   return (
     <div
       className={[
@@ -19,9 +30,19 @@ export function GroupNode({ data, selected }: NodeProps & { data: DiagramNodeDat
         lineClassName="!border-border"
       />
       <Handle type="target" position={Position.Top} className="!h-2 !w-2 !border-none !bg-border" />
-      <div className="flex items-center gap-1.5 px-3 py-2 text-[12.5px] font-medium text-foreground">
-        <span className="truncate">{data.label}</span>
-        {data.locked ? <Lock className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Locked" /> : null}
+      <div className="flex flex-col gap-0.5 px-3 py-2">
+        <div className="flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
+          <span className="truncate">{data.label}</span>
+          {data.locked ? <Lock className="h-3 w-3 shrink-0 text-muted-foreground" aria-label="Locked" /> : null}
+        </div>
+        {isConfigured ? (
+          <span className="truncate text-[10.5px] font-normal text-muted-foreground">{provider.label}</span>
+        ) : null}
+        {legend.length > 0 ? (
+          <span className="truncate text-[10px] text-muted-foreground/80" title={legend.join(" · ")}>
+            {legend.join(" · ")}
+          </span>
+        ) : null}
       </div>
       <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !border-none !bg-border" />
     </div>

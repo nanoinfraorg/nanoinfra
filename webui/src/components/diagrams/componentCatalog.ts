@@ -3,8 +3,11 @@
 // no backend call, no persistence, just enough shape to validate the UX.
 
 // Sentinel id for the generic, nameable grouping container (e.g. "Kubernetes
-// Cluster", "Scaling Group") — not a real Component Type/Provider, so it's
-// handled separately from COMPONENT_TYPES wherever it's dropped/added.
+// Cluster", "Scaling Group"). It IS a real entry in COMPONENT_TYPES below
+// (so the Inspector's Provider/config UI works for it like any other
+// component), but it's still handled separately from the palette's category
+// loop — it needs its own "Layout" section and drag/nesting behavior, not a
+// providers-preview flyout.
 export const GROUP_COMPONENT_ID = "__group__";
 
 export type ProviderKind = "docker" | "api";
@@ -43,9 +46,36 @@ export type IconKey =
   | "vpn"
   | "dns"
   | "storage"
-  | "client";
+  | "client"
+  | "group";
 
 export const COMPONENT_TYPES: ComponentType[] = [
+  {
+    id: GROUP_COMPONENT_ID,
+    label: "Group",
+    category: "Layout",
+    iconKey: "group",
+    providers: [
+      { id: "generic", label: "Generic container", kind: "docker", fields: [] },
+      {
+        id: "kubernetes",
+        label: "Kubernetes Cluster",
+        kind: "api",
+        fields: [
+          { key: "namespace", label: "Namespace", placeholder: "default", kind: "text" },
+          {
+            key: "modelSource",
+            label: "Model source",
+            placeholder: "HuggingFace repo, S3 path, or PVC",
+            kind: "text",
+          },
+          { key: "pvc", label: "Persistent Volume Claim", placeholder: "models-pvc (50Gi)", kind: "text" },
+          { key: "podMemory", label: "Memory per pod", placeholder: "24Gi", kind: "text" },
+          { key: "replicas", label: "Autoscaling (min–max replicas)", placeholder: "2–10", kind: "text" },
+        ],
+      },
+    ],
+  },
   {
     id: "client",
     label: "Client",
