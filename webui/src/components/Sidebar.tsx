@@ -205,7 +205,7 @@ export function Sidebar(props: SidebarProps) {
         />
         <SidebarActionButton
           collapsed={collapsed}
-          label={t("sidebar.diagrams", { defaultValue: "Diagrams" })}
+          label={t("sidebar.diagrams", { defaultValue: "Infra Diagrams" })}
           onClick={props.onOpenDiagrams}
           onIntent={props.onSettingsIntent}
           active={props.activeUtility === "diagrams"}
