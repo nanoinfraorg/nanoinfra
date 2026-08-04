@@ -17,7 +17,14 @@ type ViewMode = "visual" | "code";
 const FAKE_SERVERS = ["prod-web-01", "prod-web-02", "staging-01"];
 
 function toFlowNodes(diagram: Diagram): Node<DiagramNodeData>[] {
-  return diagram.nodes.map((n) => ({ id: n.id, position: n.position, data: n.data, type: "component" }));
+  return diagram.nodes.map((n) => ({
+    id: n.id,
+    position: n.position,
+    data: n.data,
+    type: n.type ?? "component",
+    ...(n.parentId ? { parentId: n.parentId, extent: "parent" as const } : {}),
+    ...(n.style ? { style: n.style } : {}),
+  }));
 }
 
 function toFlowEdges(diagram: Diagram): Edge[] {
