@@ -104,6 +104,74 @@ async def test_attach_by_name_case_insensitive(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_attach_by_id_with_trailing_question(tmp_path: Path) -> None:
+    """`/infradiagrams <id> <question>` must still resolve -- the id is a prefix, not the whole query."""
+    store = DiagramStore(tmp_path)
+    diagram = store.create({"name": "vLLM deployment basic"})
+
+    router = CommandRouter()
+    register_builtin_commands(router)
+    ctx = _ctx(tmp_path, f"/infradiagrams {diagram.id} what do you think of this design")
+
+    response = await router.dispatch(ctx)
+
+    assert response is None
+    blocks = ctx.msg.metadata[RUNTIME_CONTEXT_INPUT_META]
+    assert "vLLM deployment basic" in blocks[0].content
+
+
+@pytest.mark.asyncio
+async def test_attach_by_name_with_spaces_and_trailing_question(tmp_path: Path) -> None:
+    """A multi-word name followed by free text must match the name, not fail as one long query."""
+    store = DiagramStore(tmp_path)
+    store.create({"name": "vLLM deployment basic"})
+
+    router = CommandRouter()
+    register_builtin_commands(router)
+    ctx = _ctx(tmp_path, "/infradiagrams vLLM deployment basic what do you think of this design")
+
+    response = await router.dispatch(ctx)
+
+    assert response is None
+    blocks = ctx.msg.metadata[RUNTIME_CONTEXT_INPUT_META]
+    assert "vLLM deployment basic" in blocks[0].content
+
+
+@pytest.mark.asyncio
+async def test_attach_by_name_prefix_requires_word_boundary(tmp_path: Path) -> None:
+    """A name must not match as a prefix of a longer, unrelated word (e.g. "Web" inside "Webhooks")."""
+    store = DiagramStore(tmp_path)
+    store.create({"name": "Web"})
+
+    router = CommandRouter()
+    register_builtin_commands(router)
+    ctx = _ctx(tmp_path, "/infradiagrams Webhooks are cool")
+
+    response = await router.dispatch(ctx)
+
+    assert response is not None
+    assert "No saved diagram matches" in response.content
+
+
+@pytest.mark.asyncio
+async def test_attach_picks_longest_matching_name(tmp_path: Path) -> None:
+    """When one saved name is a prefix of another, the longest actual match wins."""
+    store = DiagramStore(tmp_path)
+    store.create({"name": "Web"})
+    longer = store.create({"name": "Web App"})
+
+    router = CommandRouter()
+    register_builtin_commands(router)
+    ctx = _ctx(tmp_path, "/infradiagrams Web App what do you think")
+
+    response = await router.dispatch(ctx)
+
+    assert response is None
+    blocks = ctx.msg.metadata[RUNTIME_CONTEXT_INPUT_META]
+    assert longer.name in blocks[0].content
+
+
+@pytest.mark.asyncio
 async def test_attach_unknown_name_returns_not_found(tmp_path: Path) -> None:
     router = CommandRouter()
     register_builtin_commands(router)

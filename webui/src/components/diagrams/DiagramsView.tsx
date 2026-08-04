@@ -124,6 +124,9 @@ function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps)
         data: n.data,
         type: n.type as "component" | "groupBox" | undefined,
         parentId: n.parentId,
+        ...(typeof n.style?.width === "number" && typeof n.style?.height === "number"
+          ? { style: { width: n.style.width, height: n.style.height } }
+          : {}),
       })),
       edges: edges.map((e) => ({
         id: e.id,
