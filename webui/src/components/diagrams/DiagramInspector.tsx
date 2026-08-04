@@ -95,7 +95,7 @@ export function NodeInspector({
   onToggleLock,
   onDelete,
 }: NodeInspectorProps) {
-  const isGroup = node.type === "group";
+  const isGroup = node.type === "groupBox";
   const type = findComponentType(node.data.componentTypeId);
   const provider = findProvider(node.data.componentTypeId, node.data.providerId);
 

@@ -21,7 +21,7 @@ export function GroupNode({ data, selected }: NodeProps & { data: DiagramNodeDat
     <div
       className={[
         "flex h-full w-full flex-col rounded-[14px] border-2 border-dashed bg-muted/10",
-        selected ? "border-foreground/50" : "border-border/45",
+        selected ? "border-foreground/50" : "border-border",
       ].join(" ")}
     >
       <NodeResizer
