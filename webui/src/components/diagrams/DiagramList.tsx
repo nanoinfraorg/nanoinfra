@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { FileText, Plus, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { DiagramDeleteConfirm } from "./DiagramDeleteConfirm";
 import type { DiagramSummary } from "./diagramStore";
@@ -12,13 +13,16 @@ interface DiagramListProps {
 }
 
 export function DiagramList({ diagrams, onOpen, onNew, onDelete }: DiagramListProps) {
+  const { t } = useTranslation();
   const [pendingDelete, setPendingDelete] = useState<DiagramSummary | null>(null);
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex flex-col">
-          <span className="text-[14px] font-semibold text-foreground">Infra Diagrams</span>
+          <span className="text-[14px] font-semibold text-foreground">
+            {t("sidebar.diagrams", { defaultValue: "Infra Diagrams" })}
+          </span>
           <span className="text-[11px] text-muted-foreground">
             {diagrams.length > 0 ? `${diagrams.length} saved` : "No diagrams yet — mock/local storage only"}
           </span>
