@@ -25,6 +25,18 @@ export function GroupNode({ data, selected }: NodeProps & { data: DiagramNodeDat
         lineClassName="!border-border"
       />
       <Handle type="target" position={Position.Top} className="!h-2 !w-2 !border-none !bg-border" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="left"
+        className="!h-2 !w-2 !border-none !bg-border"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right"
+        className="!h-2 !w-2 !border-none !bg-border"
+      />
       <div className="flex flex-col gap-0.5 px-3 py-2">
         <div className="flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
           <span className="truncate">{data.label}</span>

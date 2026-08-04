@@ -11,9 +11,20 @@ function nodeTitle(node: DiagramNode): string {
   return `${node.data.label}${suffix}`;
 }
 
+function yamlQuote(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
 /** One-way, read-only text projection of the visual diagram (Mermaid-flowchart-flavored). */
 export function diagramToText(diagram: Diagram): string {
-  const lines: string[] = ["flowchart TD"];
+  const lines: string[] = [];
+  // Mermaid's YAML frontmatter is how a diagram carries its own title —
+  // this is what turns "just some flowchart syntax" into a named, saveable
+  // diagram when the text is pasted into any standard Mermaid renderer.
+  if (diagram.name) {
+    lines.push("---", `title: ${yamlQuote(diagram.name)}`, "---");
+  }
+  lines.push("flowchart TD");
 
   const childrenByParent = new Map<string, DiagramNode[]>();
   const roots: DiagramNode[] = [];

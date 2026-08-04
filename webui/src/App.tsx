@@ -95,6 +95,10 @@ type ShellRoute = {
   view: ShellView;
   activeKey: string | null;
   settingsSection: SettingsSectionKey;
+  // Only meaningful for view "diagrams" — which saved diagram (by UUID) is
+  // open in the editor, so a reload or a back/forward navigation lands back
+  // on it instead of dropping to the diagrams list.
+  diagramId?: string | null;
 };
 
 const loadSettingsView = () => import("@/components/settings/SettingsView");
@@ -231,7 +235,8 @@ function readShellRoute(): ShellRoute {
     return { view: "skills", activeKey, settingsSection: "skills" };
   }
   if (path === "/diagrams") {
-    return { view: "diagrams", activeKey, settingsSection: "overview" };
+    const diagramId = params.get("d")?.trim() || null;
+    return { view: "diagrams", activeKey, settingsSection: "overview", diagramId };
   }
   if (path.startsWith("/chat/")) {
     const encoded = path.slice("/chat/".length);
@@ -257,6 +262,9 @@ function shellRouteHash(route: ShellRoute): string {
   if (route.activeKey) params.set("chat", route.activeKey);
   if (route.view === "settings" && route.settingsSection !== "overview") {
     params.set("section", route.settingsSection);
+  }
+  if (route.view === "diagrams" && route.diagramId) {
+    params.set("d", route.diagramId);
   }
   const query = params.toString();
   return `#/${route.view}${query ? `?${query}` : ""}`;
@@ -965,6 +973,9 @@ function Shell({
   const [view, setView] = useState<ShellView>(initialRouteRef.current.view);
   const [settingsInitialSection, setSettingsInitialSection] =
     useState<SettingsSectionKey>(initialRouteRef.current.settingsSection);
+  const [diagramId, setDiagramId] = useState<string | null>(
+    initialRouteRef.current.diagramId ?? null,
+  );
   const [hostSidebarOpen, setHostSidebarOpen] =
     useState<boolean>(readSidebarOpen);
   const [hostSidebarPreviewOpen, setHostSidebarPreviewOpen] = useState(false);
@@ -1017,9 +1028,17 @@ function Shell({
       setActiveKey(route.activeKey);
       setView(route.view);
       setSettingsInitialSection(route.settingsSection);
+      setDiagramId(route.diagramId ?? null);
       writeShellRoute(route, options?.replace);
     },
     [],
+  );
+
+  const onDiagramIdChange = useCallback(
+    (id: string | null, options?: { replace?: boolean }) => {
+      navigate({ view: "diagrams", activeKey, settingsSection: "overview", diagramId: id }, options);
+    },
+    [activeKey, navigate],
   );
 
   useEffect(() => {
@@ -1028,6 +1047,7 @@ function Shell({
       setActiveKey(route.activeKey);
       setView(route.view);
       setSettingsInitialSection(route.settingsSection);
+      setDiagramId(route.diagramId ?? null);
       setWorkspaceError(null);
       if (route.view === "chat" && !route.activeKey) {
         setDraftWorkspaceScope(null);
@@ -2137,7 +2157,7 @@ function Shell({
             {view === "diagrams" && (
               <div className="absolute inset-0 flex flex-col">
                 <Suspense fallback={<SurfaceLoadingFallback />}>
-                  <DiagramsView />
+                  <DiagramsView diagramId={diagramId} onDiagramIdChange={onDiagramIdChange} />
                 </Suspense>
               </div>
             )}
