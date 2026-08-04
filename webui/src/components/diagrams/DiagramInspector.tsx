@@ -121,8 +121,6 @@ export function NodeInspector({
         </span>
       ) : null}
 
-      {!isGroup ? (
-      <>
       <label className="flex flex-col gap-1">
         <span className="text-[12px] font-medium text-muted-foreground">Provider</span>
         <select
@@ -137,7 +135,7 @@ export function NodeInspector({
             </option>
           ))}
         </select>
-        {provider ? (
+        {provider && !isGroup ? (
           <span className="text-[11px] text-muted-foreground">
             kind: <code className="rounded bg-muted px-1 py-0.5">{provider.kind}</code>
           </span>
@@ -157,8 +155,6 @@ export function NodeInspector({
           />
         </label>
       ))}
-      </>
-      ) : null}
 
       <ActionRow locked={node.data.locked} onToggleLock={onToggleLock} onDelete={onDelete} />
     </InspectorShell>

@@ -5,6 +5,7 @@ import {
   Flame,
   Gauge,
   Globe,
+  Group,
   HardDrive,
   KeyRound,
   Server,
@@ -29,4 +30,5 @@ export const COMPONENT_ICONS: Record<IconKey, LucideIcon> = {
   database: Database,
   cache: Gauge,
   storage: HardDrive,
+  group: Group,
 };

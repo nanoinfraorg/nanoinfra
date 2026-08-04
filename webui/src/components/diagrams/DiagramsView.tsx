@@ -127,7 +127,7 @@ export function DiagramsView() {
             type: "group",
             position: position ?? fallbackPosition(prev.length),
             style: size,
-            data: { label: "New Group", componentTypeId: GROUP_COMPONENT_ID, providerId: "", config: {} },
+            data: { label: "New Group", componentTypeId: GROUP_COMPONENT_ID, providerId: "generic", config: {} },
             ...parentFields,
           },
         ]);
