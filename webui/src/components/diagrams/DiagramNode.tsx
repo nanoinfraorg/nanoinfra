@@ -2,12 +2,15 @@ import { Lock } from "lucide-react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
 import { COMPONENT_ICONS } from "./icons";
-import { findComponentType } from "./componentCatalog";
+import { findComponentType, findProvider } from "./componentCatalog";
+import { buildFieldLegend } from "./nodeLegend";
 import type { DiagramNodeData } from "./diagramTypes";
 
 export function DiagramNode({ data, selected }: NodeProps & { data: DiagramNodeData }) {
   const type = findComponentType(data.componentTypeId);
   const Icon = type ? COMPONENT_ICONS[type.iconKey] : undefined;
+  const provider = findProvider(data.componentTypeId, data.providerId);
+  const { legend, legendTitle, hasMore } = buildFieldLegend(provider, data.config);
 
   return (
     <div
@@ -22,9 +25,18 @@ export function DiagramNode({ data, selected }: NodeProps & { data: DiagramNodeD
           <Icon className="h-4 w-4" />
         </div>
       ) : null}
-      <div className="flex flex-col">
+      <div className="flex min-w-0 flex-col">
         <span className="text-[13px] font-medium text-foreground">{data.label}</span>
         <span className="text-[11px] text-muted-foreground">{type?.label ?? data.componentTypeId}</span>
+        {provider ? (
+          <span className="truncate text-[10.5px] text-muted-foreground/80">{provider.label}</span>
+        ) : null}
+        {legend.length > 0 ? (
+          <span className="truncate text-[10px] text-muted-foreground/70" title={legendTitle}>
+            {legend.join(" · ")}
+            {hasMore ? " · …" : ""}
+          </span>
+        ) : null}
       </div>
       {data.locked ? (
         <Lock className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Locked" />
