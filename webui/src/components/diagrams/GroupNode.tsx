@@ -8,18 +8,20 @@ export function GroupNode({ data, selected }: NodeProps & { data: DiagramNodeDat
   const provider = findProvider(GROUP_COMPONENT_ID, data.providerId);
   const isConfigured = provider && provider.id !== "generic";
   // Never surface "secret" fields here — this legend is a glanceable summary
-  // on the canvas, not a place to ever echo back sensitive values.
-  const legend = isConfigured
-    ? provider.fields
-        .filter((field) => field.kind !== "secret" && data.config[field.key])
-        .map((field) => `${field.label}: ${data.config[field.key]}`)
+  // on the canvas, not a place to ever echo back sensitive values. Capped to
+  // 2 fields so it stays a short caption instead of a full config dump that
+  // sprawls the box's whole width on a single line.
+  const legendFields = isConfigured
+    ? provider.fields.filter((field) => field.kind !== "secret" && data.config[field.key])
     : [];
+  const legend = legendFields.slice(0, 2).map((field) => `${field.label}: ${data.config[field.key]}`);
+  const legendTitle = legendFields.map((field) => `${field.label}: ${data.config[field.key]}`).join(" · ");
 
   return (
     <div
       className={[
         "flex h-full w-full flex-col rounded-[14px] border-2 border-dashed bg-muted/10",
-        selected ? "border-foreground/50" : "border-border",
+        selected ? "border-foreground/50" : "border-border/45",
       ].join(" ")}
     >
       <NodeResizer
@@ -39,8 +41,9 @@ export function GroupNode({ data, selected }: NodeProps & { data: DiagramNodeDat
           <span className="truncate text-[10.5px] font-normal text-muted-foreground">{provider.label}</span>
         ) : null}
         {legend.length > 0 ? (
-          <span className="truncate text-[10px] text-muted-foreground/80" title={legend.join(" · ")}>
+          <span className="truncate text-[10px] text-muted-foreground/80" title={legendTitle}>
             {legend.join(" · ")}
+            {legendFields.length > legend.length ? " · …" : ""}
           </span>
         ) : null}
       </div>
