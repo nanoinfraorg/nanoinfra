@@ -2,20 +2,13 @@ import { Lock } from "lucide-react";
 import { Handle, NodeResizer, Position, type NodeProps } from "@xyflow/react";
 
 import { GROUP_COMPONENT_ID, findProvider } from "./componentCatalog";
+import { buildFieldLegend } from "./nodeLegend";
 import type { DiagramNodeData } from "./diagramTypes";
 
 export function GroupNode({ data, selected }: NodeProps & { data: DiagramNodeData }) {
   const provider = findProvider(GROUP_COMPONENT_ID, data.providerId);
   const isConfigured = provider && provider.id !== "generic";
-  // Never surface "secret" fields here — this legend is a glanceable summary
-  // on the canvas, not a place to ever echo back sensitive values. Capped to
-  // 2 fields so it stays a short caption instead of a full config dump that
-  // sprawls the box's whole width on a single line.
-  const legendFields = isConfigured
-    ? provider.fields.filter((field) => field.kind !== "secret" && data.config[field.key])
-    : [];
-  const legend = legendFields.slice(0, 2).map((field) => `${field.label}: ${data.config[field.key]}`);
-  const legendTitle = legendFields.map((field) => `${field.label}: ${data.config[field.key]}`).join(" · ");
+  const { legend, legendTitle, hasMore } = buildFieldLegend(isConfigured ? provider : undefined, data.config);
 
   return (
     <div
@@ -43,7 +36,7 @@ export function GroupNode({ data, selected }: NodeProps & { data: DiagramNodeDat
         {legend.length > 0 ? (
           <span className="truncate text-[10px] text-muted-foreground/80" title={legendTitle}>
             {legend.join(" · ")}
-            {legendFields.length > legend.length ? " · …" : ""}
+            {hasMore ? " · …" : ""}
           </span>
         ) : null}
       </div>
