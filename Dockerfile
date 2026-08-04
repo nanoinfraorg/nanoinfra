@@ -24,7 +24,7 @@ RUN uv venv --seed "$VIRTUAL_ENV"
 # Install Python dependencies first (cached layer). Hatch reads the custom build
 # hook from hatch_build.py even for this metadata-only install.
 ARG NANOINFRA_EXTRAS=
-COPY pyproject.toml README.md LICENSE THIRD_PARTY_NOTICES.md hatch_build.py ./
+COPY pyproject.toml README.md README_PYPI.md LICENSE THIRD_PARTY_NOTICES.md hatch_build.py ./
 RUN mkdir -p nanoinfra && touch nanoinfra/__init__.py && \
     if [ -n "$NANOINFRA_EXTRAS" ]; then \
         NANOINFRA_SKIP_WEBUI_BUILD=1 uv pip install \
