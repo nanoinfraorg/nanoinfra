@@ -1,4 +1,4 @@
-import { Lock, Trash2, Unlock, X } from "lucide-react";
+import { Link2, Lock, Trash2, Unlock, X } from "lucide-react";
 import type { Edge, Node } from "@xyflow/react";
 
 import { findComponentType, findProvider } from "./componentCatalog";
@@ -6,12 +6,37 @@ import type { DiagramNodeData } from "./diagramTypes";
 
 interface NodeInspectorProps {
   node: Node<DiagramNodeData>;
+  nodes: Node<DiagramNodeData>[];
+  edges: Edge[];
   onClose: () => void;
   onChangeLabel: (value: string) => void;
   onChangeProvider: (providerId: string) => void;
   onChangeConfig: (key: string, value: string) => void;
   onToggleLock: () => void;
   onDelete: () => void;
+}
+
+// A connection drawn either direction counts — "Application -> Storage" and
+// "Storage -> Application" both mean "this pod's model comes from that PVC".
+function findLinkedNode(
+  node: Node<DiagramNodeData>,
+  componentTypeId: string,
+  nodes: Node<DiagramNodeData>[],
+  edges: Edge[],
+): Node<DiagramNodeData> | undefined {
+  const neighborIds = new Set(
+    edges
+      .filter((e) => e.source === node.id || e.target === node.id)
+      .map((e) => (e.source === node.id ? e.target : e.source)),
+  );
+  return nodes.find((n) => neighborIds.has(n.id) && n.data.componentTypeId === componentTypeId);
+}
+
+function summarizeLinkedNode(node: Node<DiagramNodeData>): string {
+  const provider = findProvider(node.data.componentTypeId, node.data.providerId);
+  const detailField = provider?.fields.find((f) => f.kind !== "secret" && node.data.config[f.key]);
+  const detail = detailField ? `${detailField.label}: ${node.data.config[detailField.key]}` : provider?.label;
+  return detail ? `${node.data.label} — ${detail}` : node.data.label;
 }
 
 interface EdgeInspectorProps {
@@ -88,6 +113,8 @@ function ActionRow({
 
 export function NodeInspector({
   node,
+  nodes,
+  edges,
   onClose,
   onChangeLabel,
   onChangeProvider,
@@ -142,19 +169,37 @@ export function NodeInspector({
         ) : null}
       </label>
 
-      {provider?.fields.map((field) => (
-        <label key={field.key} className="flex flex-col gap-1">
-          <span className="text-[12px] font-medium text-muted-foreground">{field.label}</span>
-          <input
-            type={field.kind === "secret" ? "password" : "text"}
-            disabled={node.data.locked}
-            value={node.data.config[field.key] ?? ""}
-            placeholder={field.kind === "secret" ? "stored in Secrets Manager" : field.placeholder}
-            onChange={(event) => onChangeConfig(field.key, event.target.value)}
-            className="h-9 rounded-[10px] border border-border/45 bg-background px-2.5 text-[13px] text-foreground outline-none focus-visible:border-border disabled:opacity-60"
-          />
-        </label>
-      ))}
+      {provider?.fields.map((field) => {
+        const linkedNode = field.linkedComponentType
+          ? findLinkedNode(node, field.linkedComponentType, nodes, edges)
+          : undefined;
+        return (
+          <label key={field.key} className="flex flex-col gap-1">
+            <span className="text-[12px] font-medium text-muted-foreground">{field.label}</span>
+            {linkedNode ? (
+              <div className="flex h-9 items-center gap-1.5 rounded-[10px] border border-border/45 bg-muted/40 px-2.5 text-[13px] text-foreground">
+                <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate">{summarizeLinkedNode(linkedNode)}</span>
+              </div>
+            ) : (
+              <input
+                type={field.kind === "secret" ? "password" : "text"}
+                disabled={node.data.locked}
+                value={node.data.config[field.key] ?? ""}
+                placeholder={field.kind === "secret" ? "stored in Secrets Manager" : field.placeholder}
+                onChange={(event) => onChangeConfig(field.key, event.target.value)}
+                className="h-9 rounded-[10px] border border-border/45 bg-background px-2.5 text-[13px] text-foreground outline-none focus-visible:border-border disabled:opacity-60"
+              />
+            )}
+            {linkedNode ? (
+              <span className="text-[11px] text-muted-foreground">
+                Connected via the diagram — edit it on that component, or remove the connection to type
+                this manually instead.
+              </span>
+            ) : null}
+          </label>
+        );
+      })}
 
       <ActionRow locked={node.data.locked} onToggleLock={onToggleLock} onDelete={onDelete} />
     </InspectorShell>

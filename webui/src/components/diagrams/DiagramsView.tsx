@@ -266,6 +266,8 @@ export function DiagramsView() {
           {selectedNode ? (
             <NodeInspector
               node={selectedNode}
+              nodes={nodes}
+              edges={edges}
               onClose={() => setSelection(null)}
               onChangeLabel={(value) => updateSelectedNode((data) => ({ ...data, label: value }))}
               onChangeProvider={(providerId) => updateSelectedNode((data) => ({ ...data, providerId, config: {} }))}

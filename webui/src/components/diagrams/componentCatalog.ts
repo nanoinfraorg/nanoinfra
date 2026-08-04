@@ -17,6 +17,12 @@ export interface ProviderField {
   label: string;
   placeholder?: string;
   kind: "text" | "secret";
+  // When a node of this Component Type is connected to this one via an
+  // edge (either direction), the Inspector shows that connection as this
+  // field's value instead of free text — the diagram's own wiring becomes
+  // the source of truth once it exists, rather than a second, disconnected
+  // way to say the same thing.
+  linkedComponentType?: string;
 }
 
 export interface ComponentProvider {
@@ -185,6 +191,7 @@ export const COMPONENT_TYPES: ComponentType[] = [
             label: "Model source",
             placeholder: "HuggingFace repo, S3 path, or PVC name",
             kind: "text",
+            linkedComponentType: "storage",
           },
           { key: "podMemory", label: "Memory per pod", placeholder: "24Gi", kind: "text" },
           { key: "replicas", label: "Autoscaling (min–max replicas)", placeholder: "2–10", kind: "text" },
