@@ -31,7 +31,11 @@ from nanoinfra.agent.memory import Consolidator
 from nanoinfra.agent.model_runtime import ModelRuntimeResolver
 from nanoinfra.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from nanoinfra.agent.subagent import SubagentManager
-from nanoinfra.agent.tools.context import RequestContext, bind_request_context, reset_request_context
+from nanoinfra.agent.tools.context import (
+    RequestContext,
+    bind_request_context,
+    reset_request_context,
+)
 from nanoinfra.agent.tools.exec_session import ExecSessionManager
 from nanoinfra.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from nanoinfra.agent.tools.message import MessageTool

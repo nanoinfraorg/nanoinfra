@@ -406,8 +406,9 @@ def test_multi_plugin_action_defaults_to_default_instance(
     monkeypatch,
     tmp_path,
 ):
-    from nanoinfra.config import loader
     from nanoinfra.webui.nanoinfra_features_api import nanoinfra_features_action
+
+    from nanoinfra.config import loader
 
     class _ManagedMultiPlugin(_FakeMultiChannel):
         name = "managedmulti"
@@ -460,8 +461,9 @@ async def test_single_channel_enable_applies_defaults_before_hot_reload(
     monkeypatch,
     tmp_path,
 ):
-    from nanoinfra.config import loader
     from nanoinfra.webui.nanoinfra_features_api import nanoinfra_features_action
+
+    from nanoinfra.config import loader
 
     class _SingleDefaultsPlugin(_FakePlugin):
         name = "singleplugin"

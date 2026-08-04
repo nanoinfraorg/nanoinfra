@@ -38,7 +38,10 @@ from nanoinfra.agent.tools.schema import (
 )
 from nanoinfra.config.paths import get_media_dir
 from nanoinfra.config_base import Base
-from nanoinfra.security.workspace_access import current_scope_allows_loopback, current_tool_workspace
+from nanoinfra.security.workspace_access import (
+    current_scope_allows_loopback,
+    current_tool_workspace,
+)
 from nanoinfra.security.workspace_policy import is_path_within
 
 _IS_WINDOWS = sys.platform == "win32"
