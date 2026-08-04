@@ -3611,7 +3611,7 @@ describe("ThreadShell", () => {
     ));
 
     const input = await screen.findByLabelText("Message input");
-    expect(screen.queryByRole("listbox", { name: "Apps" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "Mentions" })).not.toBeInTheDocument();
 
     const payload: CliAppsPayload = {
       apps: [{
@@ -3639,7 +3639,7 @@ describe("ThreadShell", () => {
     });
     fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
 
-    expect(screen.getByRole("listbox", { name: "Apps" })).toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "Mentions" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /@gimp/i })).toBeInTheDocument();
   });
 
@@ -3766,5 +3766,43 @@ describe("ThreadShell", () => {
     expect(screen.getByTestId("composer-cli-mention-obsidian-agent-cli")).toHaveTextContent(
       "@obsidian-agent-cli",
     );
+  });
+
+  it("offers only same-project sessions in restricted mode", async () => {
+    const client = makeClient();
+    const currentScope = {
+      project_path: "/projects/current",
+      access_mode: "restricted" as const,
+    };
+    const sameProject = {
+      ...session("same-project"),
+      title: "Same project",
+      workspaceScope: currentScope,
+    };
+    const otherProject = {
+      ...session("other-project"),
+      title: "Other project",
+      workspaceScope: {
+        project_path: "/projects/other",
+        access_mode: "restricted" as const,
+      },
+    };
+
+    render(wrap(
+      client,
+      <ThreadShell
+        session={session("current")}
+        sessions={[sameProject, otherProject]}
+        title="Current"
+        onToggleSidebar={() => {}}
+        workspaceScope={currentScope}
+      />,
+    ));
+
+    const input = await screen.findByLabelText("Message input");
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
+
+    expect(screen.getByRole("option", { name: /Same project/i })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Other project/i })).not.toBeInTheDocument();
   });
 });

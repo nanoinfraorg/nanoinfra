@@ -12,7 +12,7 @@ import shutil
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Mapping, NamedTuple, cast
+from typing import Any, Callable, Mapping, NamedTuple, Sequence, cast
 from urllib.parse import unquote, urlparse
 
 from loguru import logger
@@ -68,6 +68,8 @@ _TURN_DISPLAY_EVENTS: frozenset[str] = frozenset({
     "file_edit",
     "turn_end",
 })
+MAX_SESSION_MENTIONS = 8
+_SESSION_MENTION_NAME_RE = re.compile(r"^[\w-]+$")
 
 
 def rewrite_local_markdown_images(
@@ -757,6 +759,7 @@ class WebUITranscriptRecorder:
         media_paths: list[str] | None = None,
         cli_apps: list[dict[str, Any]] | None = None,
         mcp_presets: list[dict[str, Any]] | None = None,
+        session_mentions: Sequence[Mapping[str, Any]] | None = None,
     ) -> bool:
         if text.strip() == "/stop" and not media_paths:
             return False
@@ -766,6 +769,7 @@ class WebUITranscriptRecorder:
             media_paths=media_paths,
             cli_apps=cli_apps,
             mcp_presets=mcp_presets,
+            session_mentions=session_mentions,
         )
         if payload is None:
             return False
@@ -890,7 +894,7 @@ def write_session_messages_as_transcript(
                 row["media_paths"] = [
                     str(p) for p in cast(list[Any], media) if isinstance(p, str) and p
                 ]
-            for key in ("cli_apps", "mcp_presets"):
+            for key in ("cli_apps", "mcp_presets", "session_mentions"):
                 value = msg.get(key)
                 if isinstance(value, list) and value:
                     row[key] = json.loads(json.dumps(value, ensure_ascii=False))
@@ -927,6 +931,36 @@ def delete_webui_transcript(session_key: str) -> bool:
     return removed
 
 
+def normalize_session_mentions_metadata(raw: object) -> list[dict[str, str]]:
+    """Validate session-reference metadata crossing a persistence seam."""
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes, bytearray)):
+        return []
+    normalized: list[dict[str, str]] = []
+    for raw_item in cast(Sequence[object], raw)[:MAX_SESSION_MENTIONS]:
+        if not isinstance(raw_item, Mapping):
+            continue
+        item = cast(Mapping[str, object], raw_item)
+        name = item.get("name")
+        session_key = item.get("session_key")
+        title = item.get("title")
+        if not isinstance(name, str) or not isinstance(session_key, str):
+            continue
+        name = name.strip()[:80]
+        session_key = session_key.strip()[:512]
+        if (
+            not name
+            or _SESSION_MENTION_NAME_RE.fullmatch(name) is None
+            or not session_key.startswith("websocket:")
+        ):
+            continue
+        normalized.append({
+            "name": name,
+            "session_key": session_key,
+            "title": title.strip()[:160] if isinstance(title, str) else "",
+        })
+    return normalized
+
+
 def build_user_transcript_event(
     chat_id: str,
     text: str,
@@ -934,6 +968,7 @@ def build_user_transcript_event(
     media_paths: list[Any] | None = None,
     cli_apps: list[Any] | None = None,
     mcp_presets: list[Any] | None = None,
+    session_mentions: Sequence[Any] | None = None,
 ) -> dict[str, Any] | None:
     paths = [str(path) for path in (media_paths or []) if path]
     if not text and not paths:
@@ -959,6 +994,9 @@ def build_user_transcript_event(
     ]
     if presets:
         event["mcp_presets"] = presets
+    mentions = normalize_session_mentions_metadata(session_mentions)
+    if mentions:
+        event["session_mentions"] = mentions
     return event
 
 
@@ -991,6 +1029,7 @@ def _session_user_event(
     media = message.get("media")
     cli_apps = message.get("cli_apps")
     mcp_presets = message.get("mcp_presets")
+    session_mentions = message.get("session_mentions")
     chat_id = session_key.split(":", 1)[1] if ":" in session_key else session_key
     return build_user_transcript_event(
         chat_id,
@@ -998,6 +1037,9 @@ def _session_user_event(
         media_paths=cast(list[Any], media) if isinstance(media, list) else None,
         cli_apps=cast(list[Any], cli_apps) if isinstance(cli_apps, list) else None,
         mcp_presets=cast(list[Any], mcp_presets) if isinstance(mcp_presets, list) else None,
+        session_mentions=(
+            cast(list[Any], session_mentions) if isinstance(session_mentions, list) else None
+        ),
     )
 
 
@@ -1184,7 +1226,7 @@ def _find_unique_session_turn(
 def _user_recovery_signature(event: dict[str, Any]) -> str:
     fields = {
         key: event[key]
-        for key in ("text", "media_paths", "cli_apps", "mcp_presets")
+        for key in ("text", "media_paths", "cli_apps", "mcp_presets", "session_mentions")
         if key in event
     }
     return json.dumps(fields, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -2065,6 +2107,11 @@ def replay_transcript_to_ui_messages(
                     for preset in cast(list[Any], mcp_presets)
                     if isinstance(preset, dict)
                 ]
+            session_mentions = normalize_session_mentions_metadata(
+                rec.get("session_mentions")
+            )
+            if session_mentions:
+                row["sessionMentions"] = session_mentions
             messages.append(row)
             continue
 

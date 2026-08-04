@@ -2,8 +2,7 @@ import { Fragment } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
-  CliAppMentionToken,
-  McpPresetMentionToken,
+  CapabilityMentionToken,
   splitCapabilityMentionSegments,
   type CapabilityMentionSegment,
 } from "@/components/CliAppMentionText";
@@ -11,7 +10,7 @@ import {
   INLINE_TOKEN_HIGHLIGHT_COLOR,
   InlineTokenHighlight,
 } from "@/components/InlineTokenHighlight";
-import type { CliAppInfo, McpPresetInfo } from "@/lib/types";
+import type { CliAppInfo, McpPresetInfo, SessionMention } from "@/lib/types";
 
 type SkillReferenceSegment =
   | { kind: "text"; text: string }
@@ -49,9 +48,15 @@ function splitUserMessageSegments(
   value: string,
   cliApps: CliAppInfo[],
   mcpPresets: McpPresetInfo[],
+  sessionMentions: SessionMention[],
 ): UserMessageSegment[] {
   const segments: UserMessageSegment[] = [];
-  for (const segment of splitCapabilityMentionSegments(value, cliApps, mcpPresets)) {
+  for (const segment of splitCapabilityMentionSegments(
+    value,
+    cliApps,
+    mcpPresets,
+    sessionMentions,
+  )) {
     if (segment.kind === "text") {
       segments.push(...splitSkillReferenceSegments(segment.text));
     } else {
@@ -65,13 +70,15 @@ export function UserMessageText({
   text,
   cliApps,
   mcpPresets,
+  sessionMentions = [],
 }: {
   text: string;
   cliApps: CliAppInfo[];
   mcpPresets: McpPresetInfo[];
+  sessionMentions?: SessionMention[];
 }) {
   const { t } = useTranslation();
-  const segments = splitUserMessageSegments(text, cliApps, mcpPresets);
+  const segments = splitUserMessageSegments(text, cliApps, mcpPresets, sessionMentions);
   return (
     <>
       {segments.map((segment, index) => {
@@ -89,19 +96,10 @@ export function UserMessageText({
             {segment.text}
           </InlineTokenHighlight>
         );
-        if (segment.kind === "cli") return (
-          <CliAppMentionToken
-            key={`cli-${segment.app.name}-${index}`}
-            app={segment.app}
-            label={segment.text}
-            variant="message"
-          />
-        );
         return (
-          <McpPresetMentionToken
-            key={`mcp-${segment.preset.name}-${index}`}
-            preset={segment.preset}
-            label={segment.text}
+          <CapabilityMentionToken
+            key={`${segment.kind}-${index}`}
+            segment={segment}
             variant="message"
           />
         );

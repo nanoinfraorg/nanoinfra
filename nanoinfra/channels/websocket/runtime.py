@@ -18,7 +18,11 @@ from websockets.asyncio.server import ServerConnection, serve, unix_serve
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request as WsRequest
 
-from nanoinfra.bus.events import OUTBOUND_META_AGENT_UI, OutboundMessage
+from nanoinfra.bus.events import (
+    INBOUND_META_SESSION_READ_SCOPE,
+    OUTBOUND_META_AGENT_UI,
+    OutboundMessage,
+)
 from nanoinfra.bus.outbound_events import (
     GoalStateSyncEvent,
     GoalStatusEvent,
@@ -37,6 +41,7 @@ from nanoinfra.config.schema import Base
 from nanoinfra.runtime_context import (
     RUNTIME_CONTEXT_INPUT_META,
     WEBUI_QUOTE_METADATA,
+    RuntimeContextBlock,
     webui_quote_runtime_context,
 )
 from nanoinfra.security.workspace_access import (
@@ -69,6 +74,12 @@ from nanoinfra.webui.metadata import (
     WEBSOCKET_TURN_OWNER_METADATA_KEY,
     WEBUI_SYSTEM_COMMAND_TURN_PREFIX,
     WEBUI_TURN_METADATA_KEY,
+)
+from nanoinfra.webui.session_access import (
+    SessionAccessScope,
+    SessionMention,
+    WebuiSessionAccess,
+    session_mentions_runtime_context,
 )
 from nanoinfra.webui.transcript import WEBUI_TRANSCRIPT_INCOMPLETE_KEY
 from nanoinfra.webui.transcription_ws import webui_transcription_event
@@ -284,6 +295,11 @@ class WebSocketChannel(BaseChannel):
         self._ingress = gateway.ingress
         self._transcripts = gateway.transcripts
         self._workspaces = gateway.workspaces
+        self._session_access = (
+            WebuiSessionAccess(gateway.session_manager)
+            if gateway.session_manager is not None
+            else None
+        )
 
         self._stream_text_buffers: dict[tuple[str, str], list[str]] = {}
 
@@ -796,12 +812,32 @@ class WebSocketChannel(BaseChannel):
             if envelope.get("webui") is True:
                 metadata["webui"] = True
                 metadata.update(self._transcripts.client_turn_metadata(envelope.get("turn_id")))
+            trusted_webui = metadata.get("webui") is True and connection in self._webui_connections
+            if trusted_webui:
+                metadata[INBOUND_META_SESSION_READ_SCOPE] = f"{self.name}:"
             cli_apps = normalize_cli_app_mentions(envelope.get("cli_apps"))
             if cli_apps:
                 metadata["cli_apps"] = cli_apps
             mcp_presets = normalize_mcp_preset_mentions(envelope.get("mcp_presets"))
             if mcp_presets:
                 metadata["mcp_presets"] = mcp_presets
+            session_mentions: list[SessionMention] = []
+            if (
+                trusted_webui
+                and self._session_access is not None
+            ):
+                session_mentions = await asyncio.to_thread(
+                    self._session_access.normalize_mentions,
+                    envelope.get("session_mentions"),
+                    SessionAccessScope(
+                        current_session_key=f"{self.name}:{cid}",
+                        session_key_prefix=f"{self.name}:",
+                        project_path=scope.project_path,
+                        restrict_to_workspace=scope.restrict_to_workspace,
+                    ),
+                )
+                if session_mentions:
+                    metadata["session_mentions"] = session_mentions
             metadata[WORKSPACE_SCOPE_METADATA_KEY] = scope.metadata()
             self._workspaces.persist_scope(cid, scope)
             is_webui = metadata.get("webui") is True
@@ -820,13 +856,20 @@ class WebSocketChannel(BaseChannel):
                         media_paths=media_paths or None,
                         cli_apps=cli_apps or None,
                         mcp_presets=mcp_presets or None,
+                        session_mentions=session_mentions or None,
                     )
-                if is_webui and connection in self._webui_connections:
+                if trusted_webui:
+                    context_blocks: list[RuntimeContextBlock] = []
                     quote = webui_quote_runtime_context({
                         WEBUI_QUOTE_METADATA: envelope.get("quoted_context"),
                     })
                     if quote is not None:
-                        metadata[RUNTIME_CONTEXT_INPUT_META] = [quote]
+                        context_blocks.append(quote)
+                    session_context = session_mentions_runtime_context(session_mentions)
+                    if session_context is not None:
+                        context_blocks.append(session_context)
+                    if context_blocks:
+                        metadata[RUNTIME_CONTEXT_INPUT_META] = context_blocks
                 await self._handle_message(
                     sender_id=client_id,
                     chat_id=cid,
