@@ -3,6 +3,7 @@ import {
   Background,
   BackgroundVariant,
   Controls,
+  Panel,
   ReactFlow,
   addEdge,
   applyEdgeChanges,
@@ -15,9 +16,12 @@ import {
   type NodeChange,
   type EdgeMouseHandler,
   type NodeMouseHandler,
+  type ReactFlowInstance,
 } from "@xyflow/react";
+import { LayoutGrid } from "lucide-react";
 import "@xyflow/react/dist/base.css";
 
+import { autoLayout } from "./autoLayout";
 import { DiagramNode } from "./DiagramNode";
 import { defaultEdgeLabel } from "./edgeDefaults";
 import type { DiagramNodeData } from "./diagramTypes";
@@ -34,6 +38,12 @@ const EDGE_LABEL_STYLE = {
   labelBgStyle: { fill: "hsl(var(--settings-surface))", stroke: "hsl(var(--border))", strokeWidth: 1 },
   style: { stroke: "hsl(var(--border))" },
 };
+
+// minZoom is a floor on readability, not a guarantee every node is visible —
+// a diagram that doesn't fit at this zoom stays pannable/scrollable instead
+// of shrinking further, so it never looks "tiny" just because the window is
+// narrow.
+const FIT_VIEW_OPTIONS = { padding: 0.15, minZoom: 0.85, maxZoom: 1.5 };
 
 export type DiagramSelection = { kind: "node" | "edge"; id: string } | null;
 
@@ -57,7 +67,7 @@ export function DiagramCanvas({
   onDropComponent,
 }: DiagramCanvasProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<Node<DiagramNodeData>>[]) => {
@@ -122,6 +132,19 @@ export function DiagramCanvas({
     [screenToFlowPosition, onDropComponent],
   );
 
+  const handleAutoLayout = useCallback(() => {
+    onNodesChange(autoLayout(nodes, edges));
+    // Let the new positions commit to the DOM before re-fitting the view.
+    requestAnimationFrame(() => fitView(FIT_VIEW_OPTIONS));
+  }, [nodes, edges, onNodesChange, fitView]);
+
+  const handleInit = useCallback((instance: ReactFlowInstance<Node<DiagramNodeData>, Edge>) => {
+    // React Flow's declarative `fitView` prop can fire before the flex
+    // layout around the canvas has settled to its final size, producing a
+    // too-small initial zoom. Re-fitting one frame later fixes it.
+    requestAnimationFrame(() => instance.fitView(FIT_VIEW_OPTIONS));
+  }, []);
+
   return (
     <div ref={wrapperRef} className="h-full w-full" onDragOver={handleDragOver} onDrop={handleDrop}>
       <ReactFlow
@@ -134,12 +157,26 @@ export function DiagramCanvas({
         onNodeClick={handleNodeClick}
         onEdgeClick={handleEdgeClick}
         onPaneClick={handlePaneClick}
+        onInit={handleInit}
         deleteKeyCode={["Backspace", "Delete"]}
         fitView
+        fitViewOptions={FIT_VIEW_OPTIONS}
+        minZoom={0.2}
+        maxZoom={2}
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{ type: "smoothstep", ...EDGE_LABEL_STYLE }}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} className="opacity-40" />
+        <Panel position="top-left">
+          <button
+            type="button"
+            onClick={handleAutoLayout}
+            className="touch-target flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground shadow-none hover:bg-muted/70"
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Auto Layout
+          </button>
+        </Panel>
         <Controls
           showInteractive={false}
           className="!shadow-none [&_button]:!border-border/45 [&_button]:!bg-settings-surface"
