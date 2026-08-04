@@ -1,0 +1,22 @@
+{
+  "id": "firewall",
+  "label": "Firewall",
+  "category": "Edge",
+  "iconKey": "firewall",
+  "providers": [
+    {
+      "id": "ufw",
+      "label": "UFW (host firewall)",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [{ "key": "rules", "label": "Allowed ports", "placeholder": "22, 80, 443", "kind": "text" }]
+    },
+    {
+      "id": "security-group",
+      "label": "AWS Security Group",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "groupId", "label": "Security group ID", "kind": "text" }]
+    }
+  ]
+}

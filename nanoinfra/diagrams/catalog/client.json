@@ -1,0 +1,7 @@
+{
+  "id": "client",
+  "label": "Client",
+  "category": "Edge",
+  "iconKey": "client",
+  "providers": [{ "id": "browser", "label": "Browser / User", "kind": "api", "fields": [] }]
+}

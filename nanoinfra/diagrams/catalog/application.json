@@ -1,0 +1,44 @@
+{
+  "id": "application",
+  "label": "Application",
+  "category": "Applications",
+  "iconKey": "application",
+  "providers": [
+    {
+      "id": "vllm",
+      "label": "vLLM",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "vllm/vllm-openai:latest", "kind": "text" },
+        {
+          "key": "model",
+          "label": "Model source",
+          "placeholder": "HuggingFace repo, S3 path, or PVC name",
+          "kind": "text",
+          "linkedComponentType": "storage"
+        },
+        { "key": "podMemory", "label": "Memory per pod", "placeholder": "24Gi", "kind": "text" },
+        { "key": "replicas", "label": "Autoscaling (min–max replicas)", "placeholder": "2–10", "kind": "text" }
+      ]
+    },
+    {
+      "id": "custom-docker-app",
+      "label": "Custom app (Docker)",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "myorg/myapp:latest", "kind": "text" },
+        { "key": "podMemory", "label": "Memory per pod", "placeholder": "512Mi", "kind": "text" },
+        { "key": "replicas", "label": "Autoscaling (min–max replicas)", "placeholder": "1–5", "kind": "text" }
+      ]
+    },
+    {
+      "id": "custom-api-app",
+      "label": "Custom app (API)",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "endpoint", "label": "Endpoint", "placeholder": "https://api.example.com", "kind": "text" }]
+    }
+  ]
+}
