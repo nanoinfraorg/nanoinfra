@@ -1,12 +1,16 @@
 import { Lock } from "lucide-react";
 import { Handle, NodeResizer, Position, type NodeProps } from "@xyflow/react";
 
-import { GROUP_COMPONENT_ID, findProvider } from "./componentCatalog";
+import { useComponentCatalog } from "./useComponentCatalog";
 import { buildFieldLegend } from "./nodeLegend";
 import type { DiagramNodeData } from "./diagramTypes";
 
 export function GroupNode({ data, selected }: NodeProps & { data: DiagramNodeData }) {
-  const provider = findProvider(GROUP_COMPONENT_ID, data.providerId);
+  const { findProvider } = useComponentCatalog();
+  // Use the node's own componentTypeId, not a hardcoded sentinel — every
+  // group node's data.componentTypeId already points at whichever fetched
+  // catalog type has isGroup: true.
+  const provider = findProvider(data.componentTypeId, data.providerId);
   const isConfigured = provider && provider.id !== "generic";
   const { legend, legendTitle, hasMore } = buildFieldLegend(isConfigured ? provider : undefined, data.config);
 

@@ -1,12 +1,12 @@
 import type { Diagram, DiagramNode } from "./diagramTypes";
-import { findComponentType, findProvider, GROUP_COMPONENT_ID } from "./componentCatalog";
+import { findComponentType, findProvider, type ComponentType } from "./componentCatalog";
 
 function slug(id: string): string {
   return id.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
-function nodeTitle(node: DiagramNode): string {
-  const provider = findProvider(node.data.componentTypeId, node.data.providerId);
+function nodeTitle(node: DiagramNode, componentTypes: ComponentType[]): string {
+  const provider = findProvider(componentTypes, node.data.componentTypeId, node.data.providerId);
   const suffix = provider ? `: ${provider.label}` : "";
   return `${node.data.label}${suffix}`;
 }
@@ -16,7 +16,7 @@ function yamlQuote(value: string): string {
 }
 
 /** One-way, read-only text projection of the visual diagram (Mermaid-flowchart-flavored). */
-export function diagramToText(diagram: Diagram): string {
+export function diagramToText(diagram: Diagram, componentTypes: ComponentType[]): string {
   const lines: string[] = [];
   // Mermaid's YAML frontmatter is how a diagram carries its own title —
   // this is what turns "just some flowchart syntax" into a named, saveable
@@ -43,21 +43,20 @@ export function diagramToText(diagram: Diagram): string {
   // are flat `id["label"]` declarations, indented to reflect nesting depth.
   function emitNode(node: DiagramNode, depth: number) {
     const indent = "    ".repeat(depth + 1);
-    const isGroup = node.data.componentTypeId === GROUP_COMPONENT_ID || node.type === "groupBox";
+    const isGroup = findComponentType(componentTypes, node.data.componentTypeId)?.isGroup || node.type === "groupBox";
     const children = childrenByParent.get(node.id) ?? [];
     if (isGroup) {
-      lines.push(`${indent}subgraph ${slug(node.id)}["${nodeTitle(node)}"]`);
+      lines.push(`${indent}subgraph ${slug(node.id)}["${nodeTitle(node, componentTypes)}"]`);
       for (const child of children) {
         emitNode(child, depth + 1);
       }
       lines.push(`${indent}end`);
     } else {
-      lines.push(`${indent}${slug(node.id)}["${nodeTitle(node)}"]`);
+      lines.push(`${indent}${slug(node.id)}["${nodeTitle(node, componentTypes)}"]`);
       for (const child of children) {
         emitNode(child, depth + 1);
       }
     }
-    void findComponentType(node.data.componentTypeId);
   }
 
   for (const node of roots) {

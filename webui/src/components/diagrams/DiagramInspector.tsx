@@ -1,7 +1,8 @@
 import { Link2, Lock, Trash2, Unlock, X } from "lucide-react";
 import type { Edge, Node } from "@xyflow/react";
 
-import { findComponentType, findProvider } from "./componentCatalog";
+import type { ComponentProvider } from "./componentCatalog";
+import { useComponentCatalog } from "./useComponentCatalog";
 import type { DiagramNodeData } from "./diagramTypes";
 
 interface NodeInspectorProps {
@@ -32,7 +33,10 @@ function findLinkedNode(
   return nodes.find((n) => neighborIds.has(n.id) && n.data.componentTypeId === componentTypeId);
 }
 
-function summarizeLinkedNode(node: Node<DiagramNodeData>): string {
+function summarizeLinkedNode(
+  node: Node<DiagramNodeData>,
+  findProvider: (componentTypeId: string, providerId: string) => ComponentProvider | undefined,
+): string {
   const provider = findProvider(node.data.componentTypeId, node.data.providerId);
   const detailField = provider?.fields.find((f) => f.kind !== "secret" && node.data.config[f.key]);
   const detail = detailField ? `${detailField.label}: ${node.data.config[detailField.key]}` : provider?.label;
@@ -122,6 +126,7 @@ export function NodeInspector({
   onToggleLock,
   onDelete,
 }: NodeInspectorProps) {
+  const { findComponentType, findProvider } = useComponentCatalog();
   const isGroup = node.type === "groupBox";
   const type = findComponentType(node.data.componentTypeId);
   const provider = findProvider(node.data.componentTypeId, node.data.providerId);
@@ -179,7 +184,7 @@ export function NodeInspector({
             {linkedNode ? (
               <div className="flex h-9 items-center gap-1.5 rounded-[10px] border border-border/45 bg-muted/40 px-2.5 text-[13px] text-foreground">
                 <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate">{summarizeLinkedNode(linkedNode)}</span>
+                <span className="truncate">{summarizeLinkedNode(linkedNode, findProvider)}</span>
               </div>
             ) : (
               <input

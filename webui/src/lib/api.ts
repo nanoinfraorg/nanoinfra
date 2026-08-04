@@ -41,6 +41,13 @@ import type {
   WebuiThreadPersistedPayload,
   WorkspaceScopePayload,
 } from "./types";
+// Diagram payload shapes live with the feature (componentCatalog.ts,
+// diagramTypes.ts) rather than in ./types — `types.ts` is a deliberately
+// standalone leaf module with no cross-imports, and the diagram/catalog
+// record shapes already have a single canonical home in that feature
+// folder, used throughout webui/src/components/diagrams/.
+import type { DiagramCatalogPayload } from "@/components/diagrams/componentCatalog";
+import type { Diagram, DiagramSummary } from "@/components/diagrams/diagramTypes";
 import { fetchWithTimeout } from "./http";
 
 const API_READ_TIMEOUT_MS = 20_000;
@@ -63,6 +70,7 @@ const API_SERVICE_VALUES_HEADER = "X-Nanoinfra-API-Service-Values";
 const OAUTH_CODE_HEADER = "X-Nanoinfra-OAuth-Code";
 const OAUTH_CALLBACK_HEADER = "X-Nanoinfra-OAuth-Callback";
 const PROVIDER_VALUES_HEADER = "X-Nanoinfra-Provider-Values";
+const DIAGRAM_VALUES_HEADER = "X-Nanoinfra-Diagram-Values";
 
 export class ApiError extends Error {
   status: number;
@@ -1105,6 +1113,87 @@ export async function updateTranscriptionSettings(
   query.set("max_upload_mb", String(update.maxUploadMb));
   return request<SettingsPayload>(
     `${base}/api/settings/transcription/update?${query}`,
+    token,
+  );
+}
+
+export async function fetchDiagramCatalog(
+  token: string,
+  base: string = "",
+): Promise<DiagramCatalogPayload> {
+  return request<DiagramCatalogPayload>(
+    `${base}/api/webui/diagrams/catalog`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export interface DiagramsPayload {
+  diagrams: DiagramSummary[];
+}
+
+export interface DiagramDetailPayload {
+  diagram: Diagram;
+}
+
+export async function fetchDiagrams(
+  token: string,
+  base: string = "",
+): Promise<DiagramsPayload> {
+  return request<DiagramsPayload>(
+    `${base}/api/webui/diagrams`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchDiagram(
+  token: string,
+  id: string,
+  base: string = "",
+): Promise<DiagramDetailPayload> {
+  return request<DiagramDetailPayload>(
+    `${base}/api/webui/diagrams/${encodeURIComponent(id)}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function createDiagram(
+  token: string,
+  diagram: Diagram,
+  base: string = "",
+): Promise<DiagramDetailPayload> {
+  return request<DiagramDetailPayload>(
+    `${base}/api/webui/diagrams/create`,
+    token,
+    { headers: { [DIAGRAM_VALUES_HEADER]: encodeURIComponent(JSON.stringify(diagram)) } },
+  );
+}
+
+export async function updateDiagram(
+  token: string,
+  id: string,
+  diagram: Diagram,
+  base: string = "",
+): Promise<DiagramDetailPayload> {
+  return request<DiagramDetailPayload>(
+    `${base}/api/webui/diagrams/${encodeURIComponent(id)}/update`,
+    token,
+    { headers: { [DIAGRAM_VALUES_HEADER]: encodeURIComponent(JSON.stringify(diagram)) } },
+  );
+}
+
+export async function deleteDiagramApi(
+  token: string,
+  id: string,
+  base: string = "",
+): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(
+    `${base}/api/webui/diagrams/${encodeURIComponent(id)}/delete`,
     token,
   );
 }

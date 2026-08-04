@@ -3,7 +3,7 @@ import { FileText, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { DiagramDeleteConfirm } from "./DiagramDeleteConfirm";
-import type { DiagramSummary } from "./diagramStore";
+import type { DiagramSummary } from "./diagramTypes";
 
 interface DiagramListProps {
   diagrams: DiagramSummary[];
@@ -24,7 +24,7 @@ export function DiagramList({ diagrams, onOpen, onNew, onDelete }: DiagramListPr
             {t("sidebar.diagrams", { defaultValue: "Infra Diagrams" })}
           </span>
           <span className="text-[11px] text-muted-foreground">
-            {diagrams.length > 0 ? `${diagrams.length} saved` : "No diagrams yet — mock/local storage only"}
+            {diagrams.length > 0 ? `${diagrams.length} saved` : "No diagrams yet"}
           </span>
         </div>
         <button

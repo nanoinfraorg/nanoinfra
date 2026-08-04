@@ -38,3 +38,17 @@ export interface Diagram {
   nodes: DiagramNode[];
   edges: DiagramEdge[];
 }
+
+/** The lightweight listing shape shown in the Diagrams gallery. */
+export interface DiagramSummary {
+  id: string;
+  name: string;
+  targets: string[];
+  nodeCount: number;
+  updatedAt: string;
+}
+
+/** A fresh, unsaved diagram — the id is assigned server-side on first save. */
+export function createBlankDiagram(): Diagram {
+  return { id: "", name: "Untitled diagram", targets: [], nodes: [], edges: [] };
+}
