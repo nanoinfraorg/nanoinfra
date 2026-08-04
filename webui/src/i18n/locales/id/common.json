@@ -67,7 +67,8 @@
     "automations": "Otomasi",
     "skills": {
       "title": "Keterampilan"
-    }
+    },
+    "diagrams": "Diagram"
   },
   "settings": {
     "backToChat": "Kembali ke chat",

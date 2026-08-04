@@ -67,7 +67,8 @@
     "automations": "자동화",
     "skills": {
       "title": "스킬"
-    }
+    },
+    "diagrams": "다이어그램"
   },
   "settings": {
     "backToChat": "채팅으로 돌아가기",

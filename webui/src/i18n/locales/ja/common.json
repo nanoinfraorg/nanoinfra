@@ -67,7 +67,8 @@
     "automations": "自動タスク",
     "skills": {
       "title": "スキル"
-    }
+    },
+    "diagrams": "ダイアグラム"
   },
   "settings": {
     "backToChat": "チャットに戻る",
