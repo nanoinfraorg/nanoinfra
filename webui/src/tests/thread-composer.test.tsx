@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
-import type { CliAppInfo, McpPresetInfo, SlashCommand } from "@/lib/types";
+import type { ChatSummary, CliAppInfo, McpPresetInfo, SlashCommand } from "@/lib/types";
 
 vi.mock("@/lib/imageEncode", () => ({
   encodeImage: vi.fn(async (file: File) => ({
@@ -124,6 +124,18 @@ const MCP_PRESETS: McpPresetInfo[] = [
     connection_summary: "",
   },
 ];
+
+function session(chatId: string, title: string, preview = ""): ChatSummary {
+  return {
+    key: `websocket:${chatId}`,
+    channel: "websocket",
+    chatId,
+    createdAt: null,
+    updatedAt: null,
+    title,
+    preview,
+  };
+}
 
 const ORIGINAL_INNER_HEIGHT = window.innerHeight;
 const ORIGINAL_MEDIA_DEVICES = navigator.mediaDevices;
@@ -1395,7 +1407,7 @@ describe("ThreadComposer", () => {
     const input = screen.getByLabelText("Message input");
     fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
 
-    const palette = screen.getByRole("listbox", { name: "Apps" });
+    const palette = screen.getByRole("listbox", { name: "Mentions" });
     expect(palette).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /@gimp/i })).toHaveAttribute(
       "aria-selected",
@@ -1414,7 +1426,7 @@ describe("ThreadComposer", () => {
     expect(screen.getByTestId("composer-cli-mention-blender")).toHaveTextContent("@blender");
     expect(screen.queryByTestId("composer-cli-app-tray")).not.toBeInTheDocument();
     expect(onSend).not.toHaveBeenCalled();
-    expect(screen.queryByRole("listbox", { name: "Apps" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "Mentions" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
@@ -1533,6 +1545,159 @@ describe("ThreadComposer", () => {
         logo_url: "https://example.invalid/browserbase.svg",
         brand_color: "#111827",
       }],
+    });
+  });
+
+  it("attaches persisted sessions only through the shared mention palette", () => {
+    const onSend = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={onSend}
+        placeholder="Type your message..."
+        sessions={[session("pricing", "收费设计", "讨论云存储")]}
+      />,
+    );
+
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, {
+      target: { value: "普通文字 @收费设计", selectionStart: 10 },
+    });
+    expect(screen.queryByTestId("composer-session-mention-收费设计")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(onSend).toHaveBeenLastCalledWith("普通文字 @收费设计", undefined, undefined);
+
+    fireEvent.change(input, {
+      target: { value: "参考 @收费", selectionStart: 6 },
+    });
+
+    expect(screen.getByRole("group", { name: "Nanoinfra conversations" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /@收费设计/i })).toBeInTheDocument();
+    fireEvent.keyDown(input, { key: "Tab" });
+
+    expect(input).toHaveValue("参考 @收费设计 ");
+    const mention = screen.getByTestId("composer-session-mention-收费设计");
+    expect(mention).toHaveTextContent("@收费设计");
+    expect(mention.closest("a")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).toHaveBeenCalledWith("参考 @收费设计", undefined, {
+      sessionMentions: [{
+        name: "收费设计",
+        session_key: "websocket:pricing",
+        title: "收费设计",
+      }],
+    });
+  });
+
+  it("disambiguates duplicate and capability-colliding session names", () => {
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        cliApps={CLI_APPS}
+        mcpPresets={MCP_PRESETS}
+        sessions={[
+          ...["a", "b"].map((chatId) => session(chatId, "Plan")),
+          session("blender-chat", "Blender", "3D notes"),
+        ]}
+      />,
+    );
+
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
+
+    const palette = screen.getByRole("listbox", { name: "Mentions" });
+    expect(within(palette).getAllByRole("group").map((group) => (
+      group.getAttribute("aria-label")
+    ))).toEqual(["CLI apps", "MCP services", "Nanoinfra conversations"]);
+    const options = screen.getAllByRole("option", { name: /Plan @Plan/i });
+    expect(options.map((option) => option.textContent)).toEqual([
+      expect.stringContaining("@Plan"),
+      expect.stringContaining("@Plan-chat"),
+    ]);
+    expect(screen.getByRole("group", { name: "Nanoinfra conversations" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "CLI apps" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Blender @Blender-chat Reference/i }))
+      .toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Blender @blender Use/i }))
+      .toBeInTheDocument();
+  });
+
+  it("releases the eight-session limit when a mention is removed", () => {
+    const onSend = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={onSend}
+        placeholder="Type your message..."
+        sessions={Array.from(
+          { length: 9 },
+          (_, index) => session(`topic-${index}`, `Topic${index}`),
+        )}
+      />,
+    );
+
+    const input = screen.getByLabelText("Message input") as HTMLTextAreaElement;
+    for (let index = 0; index < 8; index += 1) {
+      const value = `${input.value}${input.value ? " " : ""}@Topic${index}`;
+      fireEvent.change(input, { target: { value, selectionStart: value.length } });
+      fireEvent.keyDown(input, { key: "Tab" });
+    }
+    const replacement = `${input.value.replace("@Topic0 ", "")} @Topic8`;
+    fireEvent.change(input, {
+      target: { value: replacement, selectionStart: replacement.length },
+    });
+    fireEvent.keyDown(input, { key: "Tab" });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    const options = onSend.mock.calls[0]?.[2];
+    expect(options.sessionMentions).toHaveLength(8);
+    expect(options.sessionMentions.map((mention: { session_key: string }) => (
+      mention.session_key
+    ))).toEqual(expect.arrayContaining(["websocket:topic-8"]));
+  });
+
+  it("keeps a selected session stable across refreshes and queued guidance", () => {
+    const onSend = vi.fn();
+    const target = session("z-target", "Plan", "Original plan");
+    const { rerender } = render(
+      <ThreadComposer
+        onSend={onSend}
+        onStop={vi.fn()}
+        isStreaming
+        placeholder="Type your message..."
+        sessions={[target]}
+      />,
+    );
+
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
+    fireEvent.keyDown(input, { key: "Tab" });
+
+    rerender(
+      <ThreadComposer
+        onSend={onSend}
+        onStop={vi.fn()}
+        isStreaming
+        placeholder="Type your message..."
+        sessions={[
+          { ...target, title: "Renamed plan" },
+          session("a-new", "Plan", target.preview),
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId("composer-session-mention-Plan")).toHaveTextContent("@Plan");
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Guide" }));
+
+    expect(onSend).toHaveBeenCalledWith("@Plan", undefined, {
+      sessionMentions: [{
+        name: "Plan",
+        session_key: "websocket:z-target",
+        title: "Plan",
+      }],
+      continueActiveTurn: true,
     });
   });
 

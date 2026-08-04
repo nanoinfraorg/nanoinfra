@@ -10,6 +10,7 @@ from nanoinfra.agent.memory import MemoryStore
 from nanoinfra.agent.skills import SkillsLoader
 from nanoinfra.agent.tools import image_generation as image_generation_tools
 from nanoinfra.agent.tools import mcp as mcp_tools
+from nanoinfra.agent.tools import sessions as session_tools
 from nanoinfra.agent.tools.registry import ToolRegistry
 from nanoinfra.apps.cli import utils as cli_app_utils
 from nanoinfra.bus.events import InboundMessage
@@ -30,7 +31,11 @@ from nanoinfra.utils.prompt_templates import render_template
 
 def session_extra(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
     """Return persisted kwargs for turn-attached capabilities."""
-    return cli_app_utils.session_extra(metadata) | mcp_tools.session_extra(metadata)
+    return (
+        cli_app_utils.session_extra(metadata)
+        | mcp_tools.session_extra(metadata)
+        | session_tools.session_extra(metadata)
+    )
 
 
 async def connect_mcp(state: Any, tools: ToolRegistry) -> None:

@@ -11,8 +11,7 @@ import {
 
 import { MarkdownText, preloadMarkdownText } from "@/components/MarkdownText";
 import {
-  CliAppMentionToken,
-  McpPresetMentionToken,
+  CapabilityMentionToken,
   cliAppInitials,
   mcpPresetInitials,
   splitCapabilityMentionSegments,
@@ -33,6 +32,7 @@ import {
   History,
   ImageIcon,
   Loader2,
+  MessageCircle,
   Mic,
   Plus,
   Quote,
@@ -81,10 +81,12 @@ import { usePageVisibility } from "@/hooks/usePageVisibility";
 import { useVoiceRecorder, type VoiceRecorderErrorKey } from "@/hooks/useVoiceRecorder";
 import type {
   CliAppInfo,
+  ChatSummary,
   GoalStateWsPayload,
   McpPresetInfo,
   OutboundCliAppMention,
   OutboundMcpPresetMention,
+  SessionMention,
   SlashCommand,
   SkillSummary,
   WebUIIngressLimits,
@@ -184,6 +186,7 @@ interface ThreadComposerProps {
   slashCommands?: SlashCommand[];
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
+  sessions?: ChatSummary[];
   skills?: SkillSummary[];
   onStop?: () => void;
   onTranscribeAudio?: (dataUrl: string, options?: { durationMs?: number }) => Promise<string>;
@@ -228,6 +231,7 @@ const SLASH_RECENTS_LIMIT = 5;
 const QUEUED_PROMPTS_STORAGE_PREFIX = "nanoinfra.webui.composerQueuedGuidance.v1:";
 const QUEUED_PROMPTS_LIMIT = 20;
 const QUEUED_PROMPT_MAX_CHARS = 4000;
+const SESSION_MENTIONS_LIMIT = 8;
 
 function VoiceRecordingMeter({
   ariaLabel,
@@ -280,6 +284,7 @@ interface QueuedPrompt {
   text: string;
   images?: QueuedPromptImage[];
   quotedContext?: string;
+  sessionMentions?: SessionMention[];
 }
 
 interface QueuedPromptImage {
@@ -294,9 +299,54 @@ interface CliAppMentionQuery {
   end: number;
 }
 
-type MentionCandidate =
-  | { kind: "cli"; name: string; app: CliAppInfo }
-  | { kind: "mcp"; name: string; preset: McpPresetInfo };
+type MentionCandidate = {
+  name: string;
+  displayName: string;
+} & (
+  | { kind: "session"; mention: SessionMention }
+  | {
+      kind: "cli" | "mcp";
+      brandColor: string | null;
+      logoUrl: string | null;
+      initials: string;
+    }
+);
+
+function sessionMentionBase(session: ChatSummary): string {
+  const label = session.title?.trim() || session.preview.trim() || "session";
+  const slug = label
+    .normalize("NFKC")
+    .replace(/\s+/g, "-")
+    .replace(/[^\p{L}\p{N}_-]+/gu, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return Array.from(slug || "session").slice(0, 40).join("");
+}
+
+function sessionMentionOptions(
+  sessions: ChatSummary[],
+  reservedNames: string[],
+): SessionMention[] {
+  const used = new Set(reservedNames.map((name) => name.toLowerCase()));
+  const namesByKey = new Map<string, string>();
+  for (const session of [...sessions].sort((a, b) => a.key.localeCompare(b.key))) {
+    const base = sessionMentionBase(session);
+    let name = base;
+    let suffix = 2;
+    if (used.has(name.toLowerCase())) name = `${base}-chat`;
+    while (used.has(name.toLowerCase())) {
+      name = `${base}-chat-${suffix}`;
+      suffix += 1;
+    }
+    used.add(name.toLowerCase());
+    namesByKey.set(session.key, name);
+  }
+  return sessions.map((session) => ({
+    name: namesByKey.get(session.key) ?? sessionMentionBase(session),
+    session_key: session.key,
+    title: session.title?.trim() || session.preview.trim(),
+  }));
+}
 
 interface SlashPaletteCommand {
   command: string;
@@ -354,6 +404,26 @@ function queuedPromptsStorageKey(key?: string | null): string | null {
   return clean ? `${QUEUED_PROMPTS_STORAGE_PREFIX}${clean}` : null;
 }
 
+function normalizeQueuedSessionMentions(value: unknown): SessionMention[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const candidate = item as Partial<SessionMention>;
+    const name = candidate.name?.trim().slice(0, 80);
+    const sessionKey = candidate.session_key?.trim().slice(0, 512);
+    if (
+      !name
+      || !sessionKey?.startsWith("websocket:")
+      || !/^[\p{L}\p{N}_-]+$/u.test(name)
+    ) return [];
+    return [{
+      name,
+      session_key: sessionKey,
+      title: candidate.title?.trim().slice(0, 160) ?? "",
+    }];
+  }).slice(0, SESSION_MENTIONS_LIMIT);
+}
+
 function normalizeQueuedPrompt(item: unknown, index: number): QueuedPrompt | null {
   if (!item || typeof item !== "object") return null;
   const record = item as Partial<QueuedPrompt>;
@@ -383,6 +453,7 @@ function normalizeQueuedPrompt(item: unknown, index: number): QueuedPrompt | nul
   const quotedContext = typeof record.quotedContext === "string"
     ? record.quotedContext.trim().slice(0, QUEUED_PROMPT_MAX_CHARS)
     : "";
+  const sessionMentions = normalizeQueuedSessionMentions(record.sessionMentions);
   if (!text && images.length === 0) return null;
   const id = typeof record.id === "string" && record.id.trim()
     ? record.id
@@ -392,6 +463,7 @@ function normalizeQueuedPrompt(item: unknown, index: number): QueuedPrompt | nul
     text,
     ...(images.length > 0 ? { images } : {}),
     ...(quotedContext ? { quotedContext } : {}),
+    ...(sessionMentions.length > 0 ? { sessionMentions } : {}),
   };
 }
 
@@ -425,6 +497,9 @@ function storeQueuedPrompts(storageKey: string, prompts: QueuedPrompt[]): void {
           text: prompt.text.slice(0, QUEUED_PROMPT_MAX_CHARS),
           ...(prompt.images?.length ? { images: prompt.images.slice(0, MAX_ATTACHMENTS_PER_MESSAGE) } : {}),
           ...(prompt.quotedContext ? { quotedContext: prompt.quotedContext } : {}),
+          ...(prompt.sessionMentions?.length
+            ? { sessionMentions: prompt.sessionMentions.slice(0, SESSION_MENTIONS_LIMIT) }
+            : {}),
         })),
       ),
     );
@@ -834,6 +909,7 @@ export function ThreadComposer({
   slashCommands = [],
   cliApps = [],
   mcpPresets = [],
+  sessions = [],
   skills = [],
   onStop,
   onTranscribeAudio,
@@ -854,6 +930,7 @@ export function ThreadComposer({
 }: ThreadComposerProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
+  const [selectedSessionMentions, setSelectedSessionMentions] = useState<SessionMention[]>([]);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [voiceErrorFading, setVoiceErrorFading] = useState(false);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
@@ -1155,7 +1232,7 @@ export function ThreadComposer({
     if (disabled || cliAppMenuDismissed) return null;
     const caret = Math.min(Math.max(cursorPosition, 0), value.length);
     const beforeCaret = value.slice(0, caret);
-    const match = /(?:^|\s)@([a-z0-9_-]*)$/i.exec(beforeCaret);
+    const match = /(?:^|\s)@([\p{L}\p{N}_-]*)$/iu.exec(beforeCaret);
     if (!match) return null;
     const query = match[1].toLowerCase();
     return {
@@ -1165,8 +1242,49 @@ export function ThreadComposer({
     };
   }, [cliAppMenuDismissed, cursorPosition, disabled, value]);
 
+  const availableSessionMentions = useMemo(
+    () => sessionMentionOptions(
+      sessions,
+      [
+        ...cliApps.filter((app) => app.installed).map((app) => app.name),
+        ...mcpPresets
+          .filter((preset) => preset.installed && preset.configured)
+          .map((preset) => preset.name),
+      ],
+    ),
+    [cliApps, mcpPresets, sessions],
+  );
+  const mentionSegments = useMemo(
+    () => splitCapabilityMentionSegments(value, cliApps, mcpPresets, selectedSessionMentions),
+    [cliApps, mcpPresets, selectedSessionMentions, value],
+  );
+  const activeSessionMentions = useMemo(() => {
+    const seen = new Set<string>();
+    return mentionSegments.flatMap((segment) => {
+      if (segment.kind !== "session" || seen.has(segment.mention.session_key)) return [];
+      seen.add(segment.mention.session_key);
+      return [segment.mention];
+    }).slice(0, SESSION_MENTIONS_LIMIT);
+  }, [mentionSegments]);
   const filteredMentionCandidates = useMemo<MentionCandidate[]>(() => {
     if (!cliAppMention) return [];
+    const sessionCandidates: MentionCandidate[] = availableSessionMentions
+      .filter((mention) => (
+        activeSessionMentions.length < SESSION_MENTIONS_LIMIT
+        || activeSessionMentions.some(
+          (selected) => selected.session_key === mention.session_key,
+        )
+      ))
+      .filter((mention) => [
+        mention.name,
+        mention.title,
+      ].join(" ").toLowerCase().includes(cliAppMention.query))
+      .map((mention) => ({
+        kind: "session",
+        name: mention.name,
+        displayName: mention.title || mention.name,
+        mention,
+      }));
     const cliCandidates: MentionCandidate[] = cliApps
       .filter((app) => app.installed)
       .filter((app) => {
@@ -1179,7 +1297,14 @@ export function ThreadComposer({
         ].join(" ").toLowerCase();
         return haystack.includes(cliAppMention.query);
       })
-      .map((app) => ({ kind: "cli", name: app.name, app }));
+      .map((app) => ({
+        kind: "cli",
+        name: app.name,
+        displayName: app.display_name,
+        brandColor: app.brand_color ?? null,
+        logoUrl: app.logo_url ?? null,
+        initials: cliAppInitials(app),
+      }));
     const mcpCandidates: MentionCandidate[] = mcpPresets
       .filter((preset) => preset.installed && preset.configured)
       .filter((preset) => {
@@ -1192,18 +1317,37 @@ export function ThreadComposer({
         ].join(" ").toLowerCase();
         return haystack.includes(cliAppMention.query);
       })
-      .map((preset) => ({ kind: "mcp", name: preset.name, preset }));
-    return [...cliCandidates, ...mcpCandidates].slice(0, 8);
-  }, [cliAppMention, cliApps, mcpPresets]);
+      .map((preset) => ({
+        kind: "mcp",
+        name: preset.name,
+        displayName: preset.display_name,
+        brandColor: preset.brand_color ?? null,
+        logoUrl: preset.logo_url ?? null,
+        initials: mcpPresetInitials(preset),
+      }));
+    const groups = [
+      { candidates: cliCandidates, reserved: 2 },
+      { candidates: mcpCandidates, reserved: 2 },
+      { candidates: sessionCandidates, reserved: 4 },
+    ];
+    let remaining = 8;
+    const counts = groups.map(({ candidates, reserved }) => {
+      const count = Math.min(candidates.length, reserved);
+      remaining -= count;
+      return count;
+    });
+    for (const index of [2, 0, 1]) {
+      const extra = Math.min(remaining, groups[index].candidates.length - counts[index]);
+      counts[index] += extra;
+      remaining -= extra;
+    }
+    return groups.flatMap(({ candidates }, index) => candidates.slice(0, counts[index]));
+  }, [activeSessionMentions, availableSessionMentions, cliAppMention, cliApps, mcpPresets]);
 
   const showCliAppMenu = filteredMentionCandidates.length > 0;
   const showAnyPalette = showSlashMenu || showCliAppMenu;
-  const mentionSegments = useMemo(
-    () => splitCapabilityMentionSegments(value, cliApps, mcpPresets),
-    [cliApps, mcpPresets, value],
-  );
   const hasMentionDecorations = mentionSegments.some(
-    (segment) => segment.kind === "cli" || segment.kind === "mcp",
+    (segment) => segment.kind !== "text",
   );
   const activeCliMentionApps = useMemo(() => {
     const seen = new Set<string>();
@@ -1318,6 +1462,7 @@ export function ThreadComposer({
     previousPendingQueueKeyRef.current = pendingQueueKey;
     secondEnterPromptIdRef.current = null;
     setValue("");
+    setSelectedSessionMentions([]);
     setInlineError(null);
     setSlashMenuDismissed(false);
     setCliAppMenuDismissed(false);
@@ -1459,6 +1604,16 @@ export function ThreadComposer({
   const chooseMentionCandidate = useCallback(
     (candidate: MentionCandidate) => {
       if (!cliAppMention) return;
+      if (candidate.kind === "session") {
+        const name = candidate.name.toLowerCase();
+        setSelectedSessionMentions([
+          ...activeSessionMentions.filter((mention) => (
+            mention.name.toLowerCase() !== name
+            && mention.session_key !== candidate.mention.session_key
+          )),
+          candidate.mention,
+        ]);
+      }
       const suffix = value.slice(cliAppMention.end);
       const mention = `@${candidate.name}${suffix.startsWith(" ") ? "" : " "}`;
       const next = `${value.slice(0, cliAppMention.start)}${mention}${suffix}`;
@@ -1476,11 +1631,12 @@ export function ThreadComposer({
         el.setSelectionRange(nextCursor, nextCursor);
       });
     },
-    [cliAppMention, resizeTextarea, value],
+    [activeSessionMentions, cliAppMention, resizeTextarea, value],
   );
 
   const clearComposerText = useCallback((restoreFocus = true) => {
     setValue("");
+    setSelectedSessionMentions([]);
     setInlineError(null);
     setSlashMenuDismissed(false);
     setCliAppMenuDismissed(false);
@@ -1506,12 +1662,16 @@ export function ThreadComposer({
         text,
         ...(queuedImages.length > 0 ? { images: queuedImages } : {}),
         ...(normalizedQuotedContext ? { quotedContext: normalizedQuotedContext } : {}),
+        ...(activeSessionMentions.length > 0
+          ? { sessionMentions: activeSessionMentions }
+          : {}),
       },
     ]);
     clear();
     clearComposerText();
     onQuotedContextChange?.(null);
   }, [
+    activeSessionMentions,
     canQueueGuidance,
     clear,
     clearComposerText,
@@ -1533,6 +1693,7 @@ export function ThreadComposer({
     secondEnterPromptIdRef.current = null;
     setQueuedPrompts((items) => items.filter((item) => item.id !== prompt.id));
     setValue(prompt.text);
+    setSelectedSessionMentions(prompt.sessionMentions ?? []);
     setInlineError(null);
     setSlashMenuDismissed(false);
     setCliAppMenuDismissed(false);
@@ -1573,9 +1734,16 @@ export function ThreadComposer({
       const queuedImages = queuedImagesToSendImages(prompt.images);
       setQueuedPrompts((items) => items.filter((item) => item.id !== prompt.id));
       if (text || queuedImages?.length) {
-        const options: SendOptions | undefined = prompt.quotedContext || isStreaming
+        const options: SendOptions | undefined = (
+          prompt.quotedContext
+          || prompt.sessionMentions?.length
+          || isStreaming
+        )
           ? {
               ...(prompt.quotedContext ? { quotedContext: prompt.quotedContext } : {}),
+              ...(prompt.sessionMentions?.length
+                ? { sessionMentions: prompt.sessionMentions }
+                : {}),
               ...(isStreaming ? { continueActiveTurn: true } : {}),
             }
           : undefined;
@@ -1595,8 +1763,15 @@ export function ThreadComposer({
     }
     setQueuedPrompts((items) => items.filter((item) => item.id !== nextPrompt.id));
     const queuedImages = queuedImagesToSendImages(nextPrompt.images);
-    const options = nextPrompt.quotedContext
-      ? { quotedContext: nextPrompt.quotedContext }
+    const options: SendOptions | undefined = (
+      nextPrompt.quotedContext || nextPrompt.sessionMentions?.length
+    )
+      ? {
+          ...(nextPrompt.quotedContext ? { quotedContext: nextPrompt.quotedContext } : {}),
+          ...(nextPrompt.sessionMentions?.length
+            ? { sessionMentions: nextPrompt.sessionMentions }
+            : {}),
+        }
       : undefined;
     if (queuedImages?.length && options) onSend(nextPrompt.text.trim(), queuedImages, options);
     else if (queuedImages?.length) onSend(nextPrompt.text.trim(), queuedImages);
@@ -1654,17 +1829,24 @@ export function ThreadComposer({
     const attachedCliApps = activeCliMentionApps.map(cliAppMentionPayload);
     const attachedMcpPresets = activeMcpPresetMentions.map(mcpPresetMentionPayload);
     const options: SendOptions | undefined =
-      attachedCliApps.length > 0 || attachedMcpPresets.length > 0 || normalizedQuotedContext
+      attachedCliApps.length > 0
+      || attachedMcpPresets.length > 0
+      || activeSessionMentions.length > 0
+      || normalizedQuotedContext
         ? {
             ...(attachedCliApps.length > 0 ? { cliApps: attachedCliApps } : {}),
             ...(attachedMcpPresets.length > 0 ? { mcpPresets: attachedMcpPresets } : {}),
+            ...(activeSessionMentions.length > 0
+              ? { sessionMentions: activeSessionMentions }
+              : {}),
             ...(normalizedQuotedContext ? { quotedContext: normalizedQuotedContext } : {}),
           }
         : undefined;
     const hasPlainTextCommandPayload =
       payload === undefined
       && attachedCliApps.length === 0
-      && attachedMcpPresets.length === 0;
+      && attachedMcpPresets.length === 0
+      && activeSessionMentions.length === 0;
     const slashLifecycle = hasPlainTextCommandPayload
       ? slashCommandLifecycle(content, slashCommands)
       : null;
@@ -1704,6 +1886,7 @@ export function ThreadComposer({
   }, [
     activeCliMentionApps,
     activeMcpPresetMentions,
+    activeSessionMentions,
     canSend,
     clear,
     clearComposerText,
@@ -2425,20 +2608,10 @@ function ComposerCliMentionOverlay({
         if (segment.kind === "text") {
           return <span key={`text-${index}`}>{segment.text}</span>;
         }
-        if (segment.kind === "cli") return (
-          <CliAppMentionToken
-            key={`cli-${segment.app.name}-${index}`}
-            app={segment.app}
-            label={segment.text}
-            variant="composer"
-            isHero={isHero}
-          />
-        );
         return (
-          <McpPresetMentionToken
-            key={`mcp-${segment.preset.name}-${index}`}
-            preset={segment.preset}
-            label={segment.text}
+          <CapabilityMentionToken
+            key={`${segment.kind}-${index}`}
+            segment={segment}
             variant="composer"
             isHero={isHero}
           />
@@ -2496,6 +2669,19 @@ function CliAppMentionPalette({
     layout.maxHeight - SLASH_PALETTE_CHROME_PX,
   );
   const listRef = useSelectedOptionScroll(selectedIndex);
+  const groupedCandidates = (["cli", "mcp", "session"] as const)
+    .map((kind) => ({
+      kind,
+      label: kind === "session"
+        ? t("thread.composer.mentions.sessionGroup")
+        : kind === "cli"
+          ? t("thread.composer.mentions.cliGroup")
+          : t("thread.composer.mentions.mcpGroup"),
+      items: candidates
+        .map((candidate, index) => ({ candidate, index }))
+        .filter(({ candidate }) => candidate.kind === kind),
+    }))
+    .filter((group) => group.items.length > 0);
   return (
     <div
       role="listbox"
@@ -2509,64 +2695,71 @@ function CliAppMentionPalette({
         isHero ? "max-w-[58rem]" : "max-w-[49.5rem]",
       )}
     >
-      <div className="px-2 pb-1.5 pt-0.5 text-[13px] font-semibold text-muted-foreground/78">
-        {t("thread.composer.mentions.label")}
-      </div>
       <div ref={listRef} className="overflow-y-auto" style={{ maxHeight: listMaxHeight }}>
-        {candidates.map((candidate, index) => {
-          const selected = index === selectedIndex;
-          const name = candidate.name;
-          const displayName = candidate.kind === "cli"
-            ? candidate.app.display_name
-            : candidate.preset.display_name;
-          const typeLabel = candidate.kind === "cli"
-            ? t("thread.composer.mentions.cliBadge")
-            : t("thread.composer.mentions.mcpBadge");
-          const ariaDescription = candidate.kind === "cli"
-            ? t("thread.composer.mentions.cliDescription", { name })
-            : t("thread.composer.mentions.mcpDescription", { name });
-          return (
-            <button
-              key={`${candidate.kind}-${name}`}
-              type="button"
-              role="option"
-              data-palette-index={index}
-              aria-selected={selected}
-              aria-label={`${displayName} @${name} ${ariaDescription} ${typeLabel}`}
-              onMouseEnter={() => onHover(index)}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onChoose(candidate);
-              }}
-              className={cn(
-                "flex min-h-10 w-full items-center gap-2.5 rounded-[13px] px-2.5 py-1.5 text-left transition-colors",
-                selected
-                  ? "bg-foreground/[0.055] text-foreground"
-                  : "text-foreground/90 hover:bg-foreground/[0.04]",
-              )}
-            >
-              <MentionCandidateLogo candidate={candidate} selected={selected} />
-              <span className="flex min-w-0 flex-1 items-baseline gap-2">
-                <span className="min-w-0 truncate text-[15px] font-medium tracking-normal text-foreground">
-                  {displayName}
-                </span>
-                <span className="truncate text-[15px] font-normal tracking-normal text-muted-foreground/72">
-                  @{name}
-                </span>
-              </span>
-              <span
-                className={cn(
-                  "ml-2 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-normal",
-                  candidate.kind === "cli"
-                    ? "bg-orange-500/10 text-orange-600 dark:text-orange-300"
-                    : "bg-sky-500/10 text-sky-600 dark:text-sky-300",
-                )}
-              >
-                {typeLabel}
-              </span>
-            </button>
-          );
-        })}
+        {groupedCandidates.map((group) => (
+          <div key={group.kind} role="group" aria-label={group.label} className="mt-1.5 first:mt-0">
+            <div className="px-2 pb-1 pt-1 text-[12px] font-medium text-muted-foreground/72">
+              {group.label}
+            </div>
+            {group.items.map(({ candidate, index }) => {
+              const selected = index === selectedIndex;
+              const name = candidate.name;
+              const typeLabel = candidate.kind === "cli"
+                ? t("thread.composer.mentions.cliBadge")
+                : candidate.kind === "mcp"
+                  ? t("thread.composer.mentions.mcpBadge")
+                  : t("thread.composer.mentions.sessionBadge");
+              const ariaDescription = candidate.kind === "cli"
+                ? t("thread.composer.mentions.cliDescription", { name })
+                : candidate.kind === "mcp"
+                  ? t("thread.composer.mentions.mcpDescription", { name })
+                  : t("thread.composer.mentions.sessionDescription", { name });
+              return (
+                <button
+                  key={`${candidate.kind}-${name}`}
+                  type="button"
+                  role="option"
+                  data-palette-index={index}
+                  aria-selected={selected}
+                  aria-label={`${candidate.displayName} @${name} ${ariaDescription} ${typeLabel}`}
+                  onMouseEnter={() => onHover(index)}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onChoose(candidate);
+                  }}
+                  className={cn(
+                    "flex min-h-10 w-full items-center gap-2.5 rounded-[13px] px-2.5 py-1.5 text-left transition-colors",
+                    selected
+                      ? "bg-foreground/[0.055] text-foreground"
+                      : "text-foreground/90 hover:bg-foreground/[0.04]",
+                  )}
+                >
+                  <MentionCandidateLogo candidate={candidate} selected={selected} />
+                  <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                    <span className="min-w-0 truncate text-[15px] font-medium tracking-normal text-foreground">
+                      {candidate.displayName}
+                    </span>
+                    <span className="truncate text-[15px] font-normal tracking-normal text-muted-foreground/72">
+                      @{name}
+                    </span>
+                  </span>
+                  {candidate.kind !== "session" ? (
+                    <span
+                      className={cn(
+                        "ml-2 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-normal",
+                        candidate.kind === "cli"
+                          ? "bg-orange-500/10 text-orange-600 dark:text-orange-300"
+                          : "bg-sky-500/10 text-sky-600 dark:text-sky-300",
+                      )}
+                    >
+                      {typeLabel}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -2579,13 +2772,20 @@ function MentionCandidateLogo({
   candidate: MentionCandidate;
   selected: boolean;
 }) {
-  const color = (candidate.kind === "cli"
-    ? candidate.app.brand_color
-    : candidate.preset.brand_color) || INLINE_TOKEN_HIGHLIGHT_COLOR;
-  const rawLogoUrl = candidate.kind === "cli" ? candidate.app.logo_url : candidate.preset.logo_url;
+  const color = candidate.kind === "session"
+    ? INLINE_TOKEN_HIGHLIGHT_COLOR
+    : candidate.brandColor || INLINE_TOKEN_HIGHLIGHT_COLOR;
+  const rawLogoUrl = candidate.kind === "session" ? null : candidate.logoUrl;
   const logoUrls = useMemo(() => logoFallbackUrls(rawLogoUrl), [rawLogoUrl]);
   const { logoUrl, onLogoError, onLogoLoad } = useLogoFallback(logoUrls);
 
+  if (candidate.kind === "session") {
+    return (
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground">
+        <MessageCircle className="h-4 w-4" aria-hidden />
+      </span>
+    );
+  }
   if (logoUrl) {
     return (
       <span
@@ -2611,9 +2811,7 @@ function MentionCandidateLogo({
       className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[7.5px] font-semibold text-white"
       style={{ backgroundColor: color }}
     >
-      {candidate.kind === "cli"
-        ? cliAppInitials(candidate.app)
-        : mcpPresetInitials(candidate.preset)}
+      {candidate.initials}
     </span>
   );
 }
