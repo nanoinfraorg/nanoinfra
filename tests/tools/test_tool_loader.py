@@ -326,7 +326,10 @@ def test_web_fetch_tool_create():
 
 
 def test_image_gen_tool_config_cls():
-    from nanoinfra.agent.tools.image_generation import ImageGenerationTool, ImageGenerationToolConfig
+    from nanoinfra.agent.tools.image_generation import (
+        ImageGenerationTool,
+        ImageGenerationToolConfig,
+    )
     assert ImageGenerationTool.config_key == "image_generation"
     assert ImageGenerationTool.config_cls() is ImageGenerationToolConfig
 

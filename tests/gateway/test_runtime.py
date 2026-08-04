@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from nanoinfra.gateway import GatewayRuntime, GatewayRuntimePaths, GatewayStartOptions, GatewayStatus
+from nanoinfra.gateway import (
+    GatewayRuntime,
+    GatewayRuntimePaths,
+    GatewayStartOptions,
+    GatewayStatus,
+)
 
 
 class FakeProcess:

@@ -16,7 +16,12 @@ from nanoinfra.bus.queue import MessageBus
 from nanoinfra.channels.base import BaseChannel
 from nanoinfra.config.paths import get_media_dir
 from nanoinfra.config_base import Base
-from nanoinfra.pairing import PAIRING_CODE_META_KEY, format_pairing_reply, generate_code, is_approved
+from nanoinfra.pairing import (
+    PAIRING_CODE_META_KEY,
+    format_pairing_reply,
+    generate_code,
+    is_approved,
+)
 from nanoinfra.utils.helpers import safe_filename, split_message
 
 MATTERMOST_MAX_MESSAGE_LEN = 16383

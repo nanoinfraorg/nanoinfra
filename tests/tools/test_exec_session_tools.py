@@ -14,7 +14,11 @@ import pytest
 
 from nanoinfra.agent import context as agent_context
 from nanoinfra.agent.loop import AgentLoop
-from nanoinfra.agent.tools.context import RequestContext, bind_request_context, reset_request_context
+from nanoinfra.agent.tools.context import (
+    RequestContext,
+    bind_request_context,
+    reset_request_context,
+)
 from nanoinfra.agent.tools.exec_session import (
     MAX_OUTPUT_CHARS,
     ExecSessionManager,

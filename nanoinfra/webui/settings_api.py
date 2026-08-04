@@ -30,7 +30,12 @@ from nanoinfra.audio.transcription_registry import (
     resolve_transcription_provider,
     transcription_provider_names,
 )
-from nanoinfra.config.loader import get_config_path, load_config, resolve_config_env_vars, save_config
+from nanoinfra.config.loader import (
+    get_config_path,
+    load_config,
+    resolve_config_env_vars,
+    save_config,
+)
 from nanoinfra.config.schema import Config, FallbackCandidate, ModelPresetConfig, ProviderConfig
 from nanoinfra.providers.image_generation import (
     get_image_gen_provider,
