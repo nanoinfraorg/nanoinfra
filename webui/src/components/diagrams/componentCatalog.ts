@@ -61,18 +61,11 @@ export const COMPONENT_TYPES: ComponentType[] = [
         id: "kubernetes",
         label: "Kubernetes Cluster",
         kind: "api",
-        fields: [
-          { key: "namespace", label: "Namespace", placeholder: "default", kind: "text" },
-          {
-            key: "modelSource",
-            label: "Model source",
-            placeholder: "HuggingFace repo, S3 path, or PVC",
-            kind: "text",
-          },
-          { key: "pvc", label: "Persistent Volume Claim", placeholder: "models-pvc (50Gi)", kind: "text" },
-          { key: "podMemory", label: "Memory per pod", placeholder: "24Gi", kind: "text" },
-          { key: "replicas", label: "Autoscaling (min–max replicas)", placeholder: "2–10", kind: "text" },
-        ],
+        // Cluster-wide scope only — anything specific to one pod (what it
+        // runs, how much memory it gets, how it scales) belongs on that
+        // pod's own component instead, since a cluster can host several
+        // pods with different configs.
+        fields: [{ key: "namespace", label: "Namespace", placeholder: "default", kind: "text" }],
       },
     ],
   },
@@ -187,14 +180,25 @@ export const COMPONENT_TYPES: ComponentType[] = [
         kind: "docker",
         fields: [
           { key: "image", label: "Image tag", placeholder: "vllm/vllm-openai:latest", kind: "text" },
-          { key: "model", label: "Model", placeholder: "meta-llama/Llama-3.1-8B-Instruct", kind: "text" },
+          {
+            key: "model",
+            label: "Model source",
+            placeholder: "HuggingFace repo, S3 path, or PVC name",
+            kind: "text",
+          },
+          { key: "podMemory", label: "Memory per pod", placeholder: "24Gi", kind: "text" },
+          { key: "replicas", label: "Autoscaling (min–max replicas)", placeholder: "2–10", kind: "text" },
         ],
       },
       {
         id: "custom-docker-app",
         label: "Custom app (Docker)",
         kind: "docker",
-        fields: [{ key: "image", label: "Image tag", placeholder: "myorg/myapp:latest", kind: "text" }],
+        fields: [
+          { key: "image", label: "Image tag", placeholder: "myorg/myapp:latest", kind: "text" },
+          { key: "podMemory", label: "Memory per pod", placeholder: "512Mi", kind: "text" },
+          { key: "replicas", label: "Autoscaling (min–max replicas)", placeholder: "1–5", kind: "text" },
+        ],
       },
       {
         id: "custom-api-app",
@@ -244,6 +248,15 @@ export const COMPONENT_TYPES: ComponentType[] = [
     providers: [
       { id: "local-volume", label: "Local volume", kind: "docker", fields: [{ key: "path", label: "Host path", placeholder: "/srv/websites", kind: "text" }] },
       { id: "s3", label: "AWS S3", kind: "api", fields: [{ key: "bucket", label: "Bucket", kind: "text" }] },
+      {
+        id: "pvc",
+        label: "Persistent Volume Claim (Kubernetes)",
+        kind: "api",
+        fields: [
+          { key: "claimName", label: "Claim name", placeholder: "models-pvc", kind: "text" },
+          { key: "size", label: "Size", placeholder: "50Gi", kind: "text" },
+        ],
+      },
     ],
   },
 ];
