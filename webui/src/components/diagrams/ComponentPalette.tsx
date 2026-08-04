@@ -47,12 +47,11 @@ export function ComponentPalette({ onAdd }: { onAdd: (componentTypeId: string) =
                   />
                 </div>
                 {expanded ? (
-                  <div className="ml-9 flex flex-col gap-0.5 pb-1.5 pt-0.5">
+                  <div className="ml-9 flex flex-col gap-1 pb-2 pt-0.5">
                     {component.providers.map((provider) => (
-                      <div key={provider.id} className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-                        <span>{provider.label}</span>
-                        <code className="rounded bg-muted px-1 py-0.5 text-[10px]">{provider.kind}</code>
-                      </div>
+                      <span key={provider.id} className="text-[12px] leading-tight text-muted-foreground">
+                        {provider.label}
+                      </span>
                     ))}
                   </div>
                 ) : null}
