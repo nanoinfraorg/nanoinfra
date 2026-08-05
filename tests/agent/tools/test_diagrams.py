@@ -193,6 +193,79 @@ async def test_update_diagram_unknown_diagram_id_returns_error(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_update_diagram_auto_arranges_new_nodes_ignoring_model_positions(tmp_path: Path) -> None:
+    """The model is unreliable at 2D spatial packing -- regression guard for a real
+    incident where several agent-added nodes landed overlapping because their
+    guessed pixel positions were taken at face value. New nodes must be placed
+    in a non-overlapping grid regardless of whatever position the model sent."""
+    store = DiagramStore(tmp_path)
+    diagram_id = _seed_diagram(store)
+    before = store.get(diagram_id)
+    assert before is not None
+
+    group = next(n for n in before.nodes if n.id == "group")
+    group_dict = group.to_dict()
+    group_dict["style"] = {"width": 900.0, "height": 220.0}
+
+    def _new_child(node_id: str) -> dict:
+        return {
+            "id": node_id,
+            "parentId": "group",
+            # Every new node claims the exact same colliding position on purpose.
+            "position": {"x": 0.0, "y": 0.0},
+            "data": {"label": node_id, "componentTypeId": "monitoring", "providerId": "prometheus", "config": {}},
+        }
+
+    nodes = (
+        [n.to_dict() for n in before.nodes if n.id != "group"]
+        + [group_dict]
+        + [_new_child("new-a"), _new_child("new-b"), _new_child("new-c")]
+    )
+
+    tool = UpdateDiagramTool(store, tmp_path)
+    result = await tool.execute(diagram_id=diagram_id, nodes=nodes, edges=[], dry_run=False)
+    assert not getattr(result, "is_error", False)
+
+    after = store.get(diagram_id)
+    by_id = {n.id: n for n in after.nodes}
+
+    positions = {node_id: (by_id[node_id].position["x"], by_id[node_id].position["y"]) for node_id in ("new-a", "new-b", "new-c")}
+    assert len(set(positions.values())) == 3, f"new nodes must not collide: {positions}"
+    assert positions == {
+        "new-a": (40.0, 40.0),
+        "new-b": (340.0, 40.0),
+        "new-c": (40.0, 190.0),
+    }
+
+    # The group must grow to actually contain its new children.
+    resized_group = by_id["group"]
+    assert resized_group.style == {"width": 900.0, "height": 340.0}
+
+
+@pytest.mark.asyncio
+async def test_update_diagram_gives_new_untyped_group_a_default_size(tmp_path: Path) -> None:
+    store = DiagramStore(tmp_path)
+    diagram_id = _seed_diagram(store)
+    before = store.get(diagram_id)
+    assert before is not None
+
+    nodes = [n.to_dict() for n in before.nodes] + [{
+        "id": "new-group",
+        "type": "groupBox",
+        "position": {"x": 0.0, "y": 0.0},
+        "data": {"label": "New Group", "componentTypeId": "__group__", "providerId": "generic", "config": {}},
+    }]
+
+    tool = UpdateDiagramTool(store, tmp_path)
+    result = await tool.execute(diagram_id=diagram_id, nodes=nodes, edges=[], dry_run=False)
+    assert not getattr(result, "is_error", False)
+
+    after = store.get(diagram_id)
+    new_group = next(n for n in after.nodes if n.id == "new-group")
+    assert new_group.style == {"width": 320.0, "height": 220.0}
+
+
+@pytest.mark.asyncio
 async def test_update_diagram_preserves_group_style_when_not_touched(tmp_path: Path) -> None:
     """Regression guard: the WebUI once dropped a group's `style` on save, collapsing
     it to a tiny default size. Copying a node forward unchanged must not lose it."""
