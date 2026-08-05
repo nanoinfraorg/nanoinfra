@@ -108,6 +108,12 @@ _THINKING_STYLE_MAP: dict[
     "thinking_type": lambda on: {"thinking": {"type": "enabled" if on else "disabled"}},
     "enable_thinking": lambda on: {"enable_thinking": on},
     "reasoning_split": lambda on: {"reasoning_split": on},
+    # Raw vLLM/SGLang OpenAI-compatible servers pass extra_body straight
+    # through to `tokenizer.apply_chat_template(...)`, which expects
+    # `enable_thinking` nested under `chat_template_kwargs` -- unlike the
+    # bare top-level key that gateway proxies like OpenRouter/DashScope
+    # translate on their end (see the "enable_thinking" style above).
+    "chat_template_enable_thinking": lambda on: {"chat_template_kwargs": {"enable_thinking": on}},
 }
 _GATEWAY_REASONING_STYLE_MAP: dict[
     str,
@@ -149,17 +155,32 @@ def _requires_max_completion_tokens(model_name: str) -> bool:
 
 
 def _model_thinking_style(model_name: str) -> str:
-    return _MODEL_THINKING_STYLES.get(_model_slug(model_name), "")
+    slug = _model_slug(model_name)
+    style = _MODEL_THINKING_STYLES.get(slug)
+    if style:
+        return style
+    # Self-hosted Qwen3 deployments (vLLM, SGLang, ...) are routinely served
+    # under custom slugs (e.g. "qwen3-35b", "qwen3-32b-instruct") that will
+    # never match the exact hosted-API names in _QWEN_THINKING_MODELS above.
+    # Unlike those (routed through a gateway that expects a bare top-level
+    # `enable_thinking` key), a direct vLLM/SGLang endpoint needs it nested
+    # under `chat_template_kwargs` -- without this, reasoning_effort="none"
+    # is silently a no-op and the model reasons until it runs out of tokens.
+    if slug.startswith("qwen3"):
+        return "chat_template_enable_thinking"
+    return ""
 
 
 def _thinking_styles_for(spec: ProviderSpec | None, model_name: str) -> list[str]:
-    styles: list[str] = []
+    # A provider-level style is authoritative for every model under that
+    # provider (e.g. DashScope always speaks the bare `enable_thinking` key
+    # regardless of which Qwen model is selected) -- don't also stack the
+    # model-level fallback on top, which could send a second, conflicting
+    # wire format the provider's gateway never asked for.
     if spec and spec.thinking_style:
-        styles.append(spec.thinking_style)
+        return [spec.thinking_style]
     model_style = _model_thinking_style(model_name)
-    if model_style and model_style not in styles:
-        styles.append(model_style)
-    return styles
+    return [model_style] if model_style else []
 
 
 def _thinking_extra_body(style: str, thinking_enabled: bool) -> dict[str, Any] | None:

@@ -1765,6 +1765,29 @@ def test_qwen_no_extra_body_when_reasoning_effort_omitted() -> None:
     assert "extra_body" not in kw
 
 
+def test_self_hosted_qwen3_disables_thinking_via_chat_template_kwargs() -> None:
+    """A self-hosted Qwen3 slug not in the exact hosted-API table (e.g. a
+    custom vLLM/SGLang deployment tagged "qwen3-35b") must still get thinking
+    disabled -- via the nested chat_template_kwargs form those raw servers
+    expect, not the bare top-level key gateways like DashScope translate."""
+    kw = _build_kwargs_for("openai", "qwen3-35b", reasoning_effort="none")
+    assert kw["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+    assert "reasoning_effort" not in kw
+
+
+def test_self_hosted_qwen3_enables_thinking_via_chat_template_kwargs() -> None:
+    kw = _build_kwargs_for("openai", "qwen3-35b", reasoning_effort="medium")
+    assert kw["extra_body"] == {"chat_template_kwargs": {"enable_thinking": True}}
+
+
+def test_dashscope_thinking_not_double_applied_for_untabled_qwen3_slug() -> None:
+    """DashScope's own provider-level style stays authoritative and exclusive
+    -- the model-level fallback must not also stack a second, conflicting
+    extra_body key just because the slug happens to start with "qwen3"."""
+    kw = _build_kwargs_for("dashscope", "qwen3-plus", reasoning_effort="none")
+    assert kw["extra_body"] == {"enable_thinking": False}
+
+
 def test_deepseek_no_backfill_when_reasoning_effort_none_string() -> None:
     """reasoning_effort='none' must NOT trigger reasoning_content backfill (thinking inactive)."""
     spec = find_by_name("deepseek")
