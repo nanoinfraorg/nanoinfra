@@ -31,13 +31,21 @@ function toFlowNodes(diagram: Diagram): Node<DiagramNodeData>[] {
 function toFlowEdges(diagram: Diagram): Edge[] {
   // Label/line styling is centralized in DiagramCanvas's defaultEdgeOptions
   // so both seeded and hand-drawn edges render identically.
+  //
+  // sourceHandle/targetHandle must never be left undefined here: @xyflow's
+  // own handle lookup treats a falsy handle id as "pick whichever handle of
+  // that type was declared first" rather than "use the node's default"
+  // (see DiagramNode.tsx) -- every saved edge predates giving Top/Bottom
+  // real ids, so they all rely on "no handle specified" meaning the default
+  // vertical pair. Substituting that pair explicitly here keeps every
+  // previously-saved diagram rendering exactly as before.
   return diagram.edges.map((e) => ({
     id: e.id,
     source: e.source,
     target: e.target,
     label: e.label,
-    sourceHandle: e.sourceHandle,
-    targetHandle: e.targetHandle,
+    sourceHandle: e.sourceHandle ?? "bottom",
+    targetHandle: e.targetHandle ?? "top",
   }));
 }
 
