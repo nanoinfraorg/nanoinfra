@@ -3,6 +3,7 @@ import {
   Archive,
   Blocks,
   Box,
+  Clock,
   Cpu,
   Database,
   Flame,
@@ -47,6 +48,7 @@ export const COMPONENT_ICONS: Record<string, LucideIcon> = {
   logging: ScrollText,
   k8sService: Network,
   backup: Archive,
+  automation: Clock,
 };
 
 export const DEFAULT_COMPONENT_ICON: LucideIcon = Box;

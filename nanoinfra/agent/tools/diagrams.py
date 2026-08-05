@@ -101,6 +101,11 @@ def _auto_layout_new_nodes(nodes: list[Any], new_ids: set[str]) -> None:
     whatever pixel coordinates the model guessed -- LLMs are unreliable at 2D
     spatial packing, so this is corrected deterministically, not by better
     prompting. Mutates ``nodes`` in place; existing nodes are never touched.
+
+    Uses shelf packing (place left-to-right, wrap to a new row when a node
+    would cross the container's right edge) rather than a fixed-column grid,
+    since a fixed grid sized for the *default* footprint overlaps as soon as
+    one sibling is wider than that default -- e.g. a same-level groupBox.
     """
     by_id = {node.id: node for node in nodes}
     for node in nodes:
@@ -121,7 +126,6 @@ def _auto_layout_new_nodes(nodes: list[Any], new_ids: set[str]) -> None:
         parent = by_id.get(parent_id) if parent_id else None
         if parent is not None and parent.style:
             container_width = parent.style.get("width", _DEFAULT_CONTAINER_WIDTH)
-        columns = max(1, int((container_width - _LAYOUT_MARGIN) // (_DEFAULT_NODE_WIDTH + _LAYOUT_MARGIN)))
 
         start_y = _LAYOUT_MARGIN
         if existing_siblings:
@@ -130,12 +134,18 @@ def _auto_layout_new_nodes(nodes: list[Any], new_ids: set[str]) -> None:
                 for sibling in existing_siblings
             )
 
-        for index, node in enumerate(new_siblings):
-            row, col = divmod(index, columns)
-            node.position = {
-                "x": _LAYOUT_MARGIN + col * (_DEFAULT_NODE_WIDTH + _LAYOUT_MARGIN),
-                "y": start_y + row * (_DEFAULT_NODE_HEIGHT + _LAYOUT_MARGIN),
-            }
+        cursor_x = _LAYOUT_MARGIN
+        row_y = start_y
+        row_height = 0.0
+        for node in new_siblings:
+            width, height = _node_footprint(node)
+            if cursor_x > _LAYOUT_MARGIN and cursor_x + width > container_width:
+                row_y += row_height + _LAYOUT_MARGIN
+                cursor_x = _LAYOUT_MARGIN
+                row_height = 0.0
+            node.position = {"x": cursor_x, "y": row_y}
+            cursor_x += width + _LAYOUT_MARGIN
+            row_height = max(row_height, height)
 
 
 def _fit_groups_to_children(nodes: list[Any]) -> None:
