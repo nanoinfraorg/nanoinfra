@@ -268,24 +268,24 @@ Browse the [repo docs](./docs/README.md) for the latest features and GitHub deve
 
 ## Releases
 
-**Latest release: [v0.3.0 - The Agency Release](https://github.com/HKUDS/nanobot/releases/tag/v0.3.0)**
+**Latest release: [v0.4.0 - The Blueprint Release](https://github.com/bet0x/nanoinfra/releases/tag/v0.4.0)**
 
-The Agency Release turns nanoinfra from a durable workbench into an agent runtime that can coordinate helpers, switch models per session, and carry authorized work through to completion.
+The Blueprint Release adds Infra Diagrams: a visual designer for the infrastructure you run and talk about with your agent, backed by real persistence and a catalog the agent actually understands.
 
-- Consult inline subagents without leaving the current task
-- Switch model presets per session directly from the composer
-- Start from a guided WebUI setup with clearer execution controls
-- Apply configuration changes live across a more reliable provider, channel, and tool runtime
+- Design, save, and edit infrastructure diagrams visually, with components, providers, and connections backed by real workspace persistence
+- A dynamic component catalog — add new providers with a JSON file, no code changes or restart required
+- `/infradiagrams` attaches a saved diagram to any conversation, and new agent tools let the agent propose and, with your explicit confirmation, apply changes to a diagram itself
+- Smarter auto-layout and free-form connections in the visual editor, so components no longer overlap and links can be drawn from any side to any side
 
-[Read the v0.3.0 release notes](https://github.com/HKUDS/nanobot/releases/tag/v0.3.0)
+[Read the v0.4.0 release notes](https://github.com/bet0x/nanoinfra/releases/tag/v0.4.0)
 
 ## Recent Updates
 
+- **2026-08-04** Infra Diagrams: visual designer with real persistence, a dynamic component catalog, and agent tools with an approval gate.
 - **2026-07-24** Guided first-run setup, inline subagents, and model switching from the composer.
 - **2026-07-23** Grok OAuth with hosted X Search, live image settings, and clearer fallback models.
 - **2026-07-22** Parallel Search, live configuration reloads, richer app discovery, and a smoother mobile WebUI.
 - **2026-07-21** Codex fast mode, visible skill references, safer configuration saves, and sturdier task cleanup.
-- **2026-07-20** Cleaner code blocks and copy actions, self-contained channels, and steadier QQ reconnects.
 
 For older updates, see the [release archive](./docs/release-archive.md) or [GitHub releases](https://github.com/bet0x/nanoinfra/releases).
 

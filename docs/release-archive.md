@@ -6,6 +6,7 @@ For tagged releases, see [GitHub Releases](https://github.com/bet0x/nanoinfra/re
 
 ## Highlights
 
+- **2026-08-04** 🚀 Released **v0.4.0** — **The Blueprint Release** adds Infra Diagrams: a visual designer for the infrastructure you run, backed by real workspace persistence, a dynamic component catalog, the `/infradiagrams` command, and agent tools that can propose and apply diagram changes with an explicit approval gate. Please see [release notes](https://github.com/bet0x/nanoinfra/releases/tag/v0.4.0) for details.
 - **2026-07-24** 🧭 Guided first-run setup, inline subagents, and model switching from the composer.
 - **2026-07-23** 🔎 Grok OAuth with hosted X Search, live image settings, and clearer fallback models.
 - **2026-07-22** 🔌 Parallel Search, live configuration reloads, richer app discovery, and a smoother mobile WebUI.
