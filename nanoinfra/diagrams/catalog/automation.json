@@ -1,0 +1,38 @@
+{
+  "id": "automation",
+  "label": "Cron / Automation",
+  "category": "Automation",
+  "iconKey": "automation",
+  "providers": [
+    {
+      "id": "cron",
+      "label": "cron",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "schedule", "label": "Schedule", "placeholder": "every 12h, 0 */12 * * * (crontab)", "kind": "text" },
+        { "key": "command", "label": "Command / script", "placeholder": "/path/to/script.sh", "kind": "text" }
+      ]
+    },
+    {
+      "id": "systemd-timer",
+      "label": "systemd timer",
+      "kind": "docker",
+      "integration": { "type": "internal" },
+      "fields": [
+        { "key": "schedule", "label": "OnCalendar", "placeholder": "*-*-* 00,12:00:00", "kind": "text" },
+        { "key": "command", "label": "ExecStart", "placeholder": "/path/to/script.sh", "kind": "text" }
+      ]
+    },
+    {
+      "id": "github-actions",
+      "label": "GitHub Actions (scheduled workflow)",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [
+        { "key": "schedule", "label": "cron", "placeholder": "0 */12 * * *", "kind": "text" },
+        { "key": "workflow", "label": "Workflow file", "placeholder": ".github/workflows/rebuild.yml", "kind": "text" }
+      ]
+    }
+  ]
+}

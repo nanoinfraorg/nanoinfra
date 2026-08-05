@@ -12,9 +12,28 @@ from nanoinfra.agent.tools.diagrams import (
     ListDiagramComponentsTool,
     ListDiagramsTool,
     UpdateDiagramTool,
+    _node_footprint,
 )
 from nanoinfra.agent.tools.loader import ToolLoader
 from nanoinfra.diagrams.store import DiagramStore
+
+
+def _boxes_overlap(a, b) -> bool:
+    aw, ah = _node_footprint(a)
+    bw, bh = _node_footprint(b)
+    ax, ay = a.position["x"], a.position["y"]
+    bx, by = b.position["x"], b.position["y"]
+    return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
+
+
+def _assert_no_overlaps(nodes) -> None:
+    by_parent: dict[str | None, list] = {}
+    for node in nodes:
+        by_parent.setdefault(node.parent_id, []).append(node)
+    for siblings in by_parent.values():
+        for i, a in enumerate(siblings):
+            for b in siblings[i + 1 :]:
+                assert not _boxes_overlap(a, b), f"{a.id} overlaps {b.id}"
 
 
 def _decode(value: object) -> object:
@@ -34,7 +53,7 @@ def _seed_diagram(store: DiagramStore) -> str:
             {
                 "id": "group",
                 "type": "groupBox",
-                "position": {"x": 100, "y": 100},
+                "position": {"x": 600, "y": 0},
                 "style": {"width": 320.0, "height": 220.0},
                 "data": {"label": "Cluster", "componentTypeId": "__group__", "providerId": "kubernetes", "config": {}},
             },
@@ -205,7 +224,7 @@ async def test_update_diagram_auto_arranges_new_nodes_ignoring_model_positions(t
 
     group = next(n for n in before.nodes if n.id == "group")
     group_dict = group.to_dict()
-    group_dict["style"] = {"width": 900.0, "height": 220.0}
+    group_dict["style"] = {"width": 600.0, "height": 220.0}
 
     def _new_child(node_id: str) -> dict:
         return {
@@ -239,7 +258,46 @@ async def test_update_diagram_auto_arranges_new_nodes_ignoring_model_positions(t
 
     # The group must grow to actually contain its new children.
     resized_group = by_id["group"]
-    assert resized_group.style == {"width": 900.0, "height": 340.0}
+    assert resized_group.style == {"width": 640.0, "height": 340.0}
+
+
+@pytest.mark.asyncio
+async def test_update_diagram_auto_layout_handles_wide_group_alongside_plain_nodes(tmp_path: Path) -> None:
+    """A fixed-column grid sized for the default node footprint overlaps as soon
+    as a same-level sibling is wider than that default -- e.g. a big new groupBox
+    placed next to plain nodes. Regression guard for exactly that mix, checked
+    generically (no overlaps) rather than against one hardcoded layout."""
+    store = DiagramStore(tmp_path)
+    diagram_id = _seed_diagram(store)
+    before = store.get(diagram_id)
+    assert before is not None
+
+    nodes = [n.to_dict() for n in before.nodes] + [
+        {
+            "id": "wide-group",
+            "type": "groupBox",
+            "position": {"x": 0.0, "y": 0.0},
+            "style": {"width": 900.0, "height": 300.0},
+            "data": {"label": "Wide Group", "componentTypeId": "__group__", "providerId": "generic", "config": {}},
+        },
+        {
+            "id": "plain-a",
+            "position": {"x": 0.0, "y": 0.0},
+            "data": {"label": "A", "componentTypeId": "monitoring", "providerId": "prometheus", "config": {}},
+        },
+        {
+            "id": "plain-b",
+            "position": {"x": 0.0, "y": 0.0},
+            "data": {"label": "B", "componentTypeId": "monitoring", "providerId": "prometheus", "config": {}},
+        },
+    ]
+
+    tool = UpdateDiagramTool(store, tmp_path)
+    result = await tool.execute(diagram_id=diagram_id, nodes=nodes, edges=[], dry_run=False)
+    assert not getattr(result, "is_error", False)
+
+    after = store.get(diagram_id)
+    _assert_no_overlaps(after.nodes)
 
 
 @pytest.mark.asyncio
