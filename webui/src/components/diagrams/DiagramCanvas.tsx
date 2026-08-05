@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -21,7 +21,7 @@ import {
   type OnNodeDrag,
   type ReactFlowInstance,
 } from "@xyflow/react";
-import { LayoutGrid } from "lucide-react";
+import { LayoutGrid, Lock, Unlock, Zap } from "lucide-react";
 import "@xyflow/react/dist/base.css";
 
 import { autoLayout } from "./autoLayout";
@@ -294,6 +294,18 @@ export function DiagramCanvas({
     requestAnimationFrame(() => instance.fitView(FIT_VIEW_OPTIONS));
   }, []);
 
+  // Session-only view preferences, not saved with the diagram -- locking
+  // is about browsing the current layout without accidentally dragging
+  // something out of place, not a property of the diagram itself.
+  const [diagramLocked, setDiagramLocked] = useState(false);
+  const [edgesAnimated, setEdgesAnimated] = useState(false);
+
+  const handleToggleAnimated = useCallback(() => {
+    const next = !edgesAnimated;
+    setEdgesAnimated(next);
+    onEdgesChange(edges.map((e) => ({ ...e, animated: next })));
+  }, [edgesAnimated, edges, onEdgesChange]);
+
   return (
     <div ref={wrapperRef} className="h-full w-full" onDragOver={handleDragOver} onDrop={handleDrop}>
       <ReactFlow
@@ -329,18 +341,56 @@ export function DiagramCanvas({
         minZoom={0.2}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
-        defaultEdgeOptions={{ type: "smoothstep", ...EDGE_LABEL_STYLE }}
+        // Locking is a canvas-wide "don't let me accidentally drag anything
+        // while I'm just looking around" toggle -- separate from a node's
+        // own `data.locked` flag, which only ever blocked deletion, not
+        // movement (see handleNodesChange above).
+        nodesDraggable={!diagramLocked}
+        nodesConnectable={!diagramLocked}
+        defaultEdgeOptions={{ type: "smoothstep", animated: edgesAnimated, ...EDGE_LABEL_STYLE }}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} className="opacity-40" />
         <Panel position="top-left">
-          <button
-            type="button"
-            onClick={handleAutoLayout}
-            className="touch-target flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground shadow-none hover:bg-muted/70"
-          >
-            <LayoutGrid className="h-3.5 w-3.5" />
-            Auto Layout
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleAutoLayout}
+              className="touch-target flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground shadow-none hover:bg-muted/70"
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              Auto Layout
+            </button>
+            <button
+              type="button"
+              onClick={() => setDiagramLocked((v) => !v)}
+              aria-pressed={diagramLocked}
+              title="Prevent dragging any component while browsing the diagram"
+              className={[
+                "touch-target flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12px] font-medium shadow-none hover:bg-muted/70",
+                diagramLocked
+                  ? "border-foreground/45 bg-muted text-foreground"
+                  : "border-border/45 bg-settings-surface text-foreground",
+              ].join(" ")}
+            >
+              {diagramLocked ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+              {diagramLocked ? "Locked" : "Lock"}
+            </button>
+            <button
+              type="button"
+              onClick={handleToggleAnimated}
+              aria-pressed={edgesAnimated}
+              title="Animate connection lines to show flow direction"
+              className={[
+                "touch-target flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12px] font-medium shadow-none hover:bg-muted/70",
+                edgesAnimated
+                  ? "border-foreground/45 bg-muted text-foreground"
+                  : "border-border/45 bg-settings-surface text-foreground",
+              ].join(" ")}
+            >
+              <Zap className="h-3.5 w-3.5" />
+              Animate
+            </button>
+          </div>
         </Panel>
         <Controls
           showInteractive={false}
