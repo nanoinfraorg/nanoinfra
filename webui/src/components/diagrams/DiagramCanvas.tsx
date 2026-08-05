@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import {
   Background,
   BackgroundVariant,
+  ConnectionLineType,
   ConnectionMode,
   Controls,
   Panel,
@@ -275,9 +276,12 @@ export function DiagramCanvas({
     // hand-placed geometry — dagre's TB layout assumes the default top/
     // bottom flow, so a handle override left over from before auto-layout
     // ran can end up routing straight through whatever dagre placed nearby.
-    // Auto Layout owns the whole geometry now, so it resets the handles too.
-    if (edges.some((e) => e.sourceHandle || e.targetHandle)) {
-      onEdgesChange(edges.map((e) => ({ ...e, sourceHandle: undefined, targetHandle: undefined })));
+    // Auto Layout owns the whole geometry now, so it resets the handles too
+    // -- to the explicit default pair, not undefined/null, which @xyflow's
+    // handle lookup resolves to "whichever handle of that type was declared
+    // first" rather than "the node's default" (see DiagramNode.tsx).
+    if (edges.some((e) => e.sourceHandle !== "bottom" || e.targetHandle !== "top")) {
+      onEdgesChange(edges.map((e) => ({ ...e, sourceHandle: "bottom", targetHandle: "top" })));
     }
     // Let the new positions commit to the DOM before re-fitting the view.
     requestAnimationFrame(() => fitView(FIT_VIEW_OPTIONS));
@@ -312,6 +316,14 @@ export function DiagramCanvas({
         // Loose allows any handle to connect to any other, matching the 4
         // visually-identical dots each node actually shows.
         connectionMode={ConnectionMode.Loose}
+        // The in-progress drag preview defaults to a bezier curve that bends
+        // toward wherever the cursor currently is -- easy to misread as "this
+        // connection is anchored somewhere other than the handle I grabbed"
+        // when the cursor just happens to be off to one side. Match it to the
+        // same orthogonal style completed edges use so the preview always
+        // looks like it's leaving from the exact handle, not the cursor.
+        connectionLineType={ConnectionLineType.SmoothStep}
+        connectionLineStyle={EDGE_LABEL_STYLE.style}
         fitView
         fitViewOptions={FIT_VIEW_OPTIONS}
         minZoom={0.2}

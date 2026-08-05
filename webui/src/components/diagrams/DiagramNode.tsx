@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import type { NodeProps } from "@xyflow/react";
 
+import { ConnectionHandles } from "./ConnectionHandles";
 import { getComponentIcon } from "./icons";
 import { useComponentCatalog } from "./useComponentCatalog";
 import { buildFieldLegend } from "./nodeLegend";
@@ -20,24 +21,7 @@ export function DiagramNode({ data, selected }: NodeProps & { data: DiagramNodeD
         selected ? "border-foreground/60" : "border-border/45",
       ].join(" ")}
     >
-      <Handle type="target" position={Position.Top} className="!h-2 !w-2 !border-none !bg-border" />
-      {/* Side handles are opt-in (via an edge's sourceHandle/targetHandle) for
-          connections between nodes that sit side-by-side rather than stacked —
-          without one, a mostly-horizontal edge still has to leave from the
-          bottom and enter from the top, forcing a detour through whatever
-          sits between the two default handles. */}
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="left"
-        className="!h-2 !w-2 !border-none !bg-border"
-      />
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="right"
-        className="!h-2 !w-2 !border-none !bg-border"
-      />
+      <ConnectionHandles />
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-muted text-foreground">
         <Icon className="h-4 w-4" />
       </div>
@@ -57,7 +41,6 @@ export function DiagramNode({ data, selected }: NodeProps & { data: DiagramNodeD
       {data.locked ? (
         <Lock className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Locked" />
       ) : null}
-      <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !border-none !bg-border" />
     </div>
   );
 }

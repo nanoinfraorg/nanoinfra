@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
-import { Handle, NodeResizer, Position, type NodeProps } from "@xyflow/react";
+import { NodeResizer, type NodeProps } from "@xyflow/react";
 
+import { ConnectionHandles } from "./ConnectionHandles";
 import { useComponentCatalog } from "./useComponentCatalog";
 import { buildFieldLegend } from "./nodeLegend";
 import type { DiagramNodeData } from "./diagramTypes";
@@ -28,19 +29,7 @@ export function GroupNode({ data, selected }: NodeProps & { data: DiagramNodeDat
         handleClassName="!h-2.5 !w-2.5 !rounded-full !border-none !bg-border"
         lineClassName="!border-border"
       />
-      <Handle type="target" position={Position.Top} className="!h-2 !w-2 !border-none !bg-border" />
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="left"
-        className="!h-2 !w-2 !border-none !bg-border"
-      />
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="right"
-        className="!h-2 !w-2 !border-none !bg-border"
-      />
+      <ConnectionHandles />
       <div className="flex flex-col gap-0.5 px-3 py-2">
         <div className="flex items-center gap-1.5 text-[12.5px] font-medium text-foreground">
           <span className="truncate">{data.label}</span>
@@ -56,7 +45,6 @@ export function GroupNode({ data, selected }: NodeProps & { data: DiagramNodeDat
           </span>
         ) : null}
       </div>
-      <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !border-none !bg-border" />
     </div>
   );
 }
