@@ -237,14 +237,3 @@ export function EdgeInspector({ edge, sourceLabel, targetLabel, onClose, onChang
     </InspectorShell>
   );
 }
-
-export function EmptyInspector() {
-  return (
-    <div className="flex h-full w-[280px] shrink-0 flex-col items-center justify-center gap-1 border-l border-border bg-settings-surface px-4 text-center">
-      <span className="text-[13px] font-medium text-foreground">Nothing selected</span>
-      <span className="text-[12px] text-muted-foreground">
-        Click a component or connection on the canvas to configure it.
-      </span>
-    </div>
-  );
-}

@@ -5,7 +5,7 @@ import { Check, ChevronDown, ChevronLeft, Code2, Save, Waypoints } from "lucide-
 import { ComponentPalette } from "./ComponentPalette";
 import { DiagramCanvas, type DiagramSelection } from "./DiagramCanvas";
 import { DiagramList } from "./DiagramList";
-import { EdgeInspector, EmptyInspector, NodeInspector } from "./DiagramInspector";
+import { EdgeInspector, NodeInspector } from "./DiagramInspector";
 import { diagramToText } from "./diagramToText";
 import { ComponentCatalogProvider, useComponentCatalog } from "./useComponentCatalog";
 import { useDiagrams } from "@/hooks/useDiagrams";
@@ -373,9 +373,7 @@ function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps)
               onChangeLabel={handleChangeEdgeLabel}
               onDelete={handleDeleteEdge}
             />
-          ) : (
-            <EmptyInspector />
-          )}
+          ) : null}
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto bg-background p-4">
