@@ -83,6 +83,89 @@ _EDGE_SCHEMA = ObjectSchema(
 )
 
 
+_DEFAULT_NODE_WIDTH = 260.0
+_DEFAULT_NODE_HEIGHT = 110.0
+_LAYOUT_MARGIN = 40.0
+_DEFAULT_CONTAINER_WIDTH = 900.0
+_DEFAULT_GROUP_STYLE = {"width": 320.0, "height": 220.0}
+
+
+def _node_footprint(node: Any) -> tuple[float, float]:
+    if node.type == "groupBox" and node.style:
+        return node.style.get("width", _DEFAULT_NODE_WIDTH), node.style.get("height", _DEFAULT_NODE_HEIGHT)
+    return _DEFAULT_NODE_WIDTH, _DEFAULT_NODE_HEIGHT
+
+
+def _auto_layout_new_nodes(nodes: list[Any], new_ids: set[str]) -> None:
+    """Give every newly-added node a non-overlapping position instead of trusting
+    whatever pixel coordinates the model guessed -- LLMs are unreliable at 2D
+    spatial packing, so this is corrected deterministically, not by better
+    prompting. Mutates ``nodes`` in place; existing nodes are never touched.
+    """
+    by_id = {node.id: node for node in nodes}
+    for node in nodes:
+        if node.id in new_ids and node.type == "groupBox" and node.style is None:
+            node.style = dict(_DEFAULT_GROUP_STYLE)
+
+    by_parent: dict[str | None, list[Any]] = {}
+    for node in nodes:
+        by_parent.setdefault(node.parent_id, []).append(node)
+
+    for parent_id, siblings in by_parent.items():
+        new_siblings = [node for node in siblings if node.id in new_ids]
+        if not new_siblings:
+            continue
+        existing_siblings = [node for node in siblings if node.id not in new_ids]
+
+        container_width = _DEFAULT_CONTAINER_WIDTH
+        parent = by_id.get(parent_id) if parent_id else None
+        if parent is not None and parent.style:
+            container_width = parent.style.get("width", _DEFAULT_CONTAINER_WIDTH)
+        columns = max(1, int((container_width - _LAYOUT_MARGIN) // (_DEFAULT_NODE_WIDTH + _LAYOUT_MARGIN)))
+
+        start_y = _LAYOUT_MARGIN
+        if existing_siblings:
+            start_y = _LAYOUT_MARGIN + max(
+                sibling.position.get("y", 0.0) + _node_footprint(sibling)[1]
+                for sibling in existing_siblings
+            )
+
+        for index, node in enumerate(new_siblings):
+            row, col = divmod(index, columns)
+            node.position = {
+                "x": _LAYOUT_MARGIN + col * (_DEFAULT_NODE_WIDTH + _LAYOUT_MARGIN),
+                "y": start_y + row * (_DEFAULT_NODE_HEIGHT + _LAYOUT_MARGIN),
+            }
+
+
+def _fit_groups_to_children(nodes: list[Any]) -> None:
+    """Grow (never shrink) a group's style so it visually contains every child,
+    since ``_auto_layout_new_nodes`` may have placed new children further out
+    than whatever size the model guessed for the group."""
+    children_by_parent: dict[str, list[Any]] = {}
+    for node in nodes:
+        if node.parent_id:
+            children_by_parent.setdefault(node.parent_id, []).append(node)
+
+    for node in nodes:
+        if node.type != "groupBox":
+            continue
+        children = children_by_parent.get(node.id)
+        if not children:
+            continue
+        required_width = _LAYOUT_MARGIN + max(
+            child.position.get("x", 0.0) + _node_footprint(child)[0] for child in children
+        )
+        required_height = _LAYOUT_MARGIN + max(
+            child.position.get("y", 0.0) + _node_footprint(child)[1] for child in children
+        )
+        current = node.style or dict(_DEFAULT_GROUP_STYLE)
+        node.style = {
+            "width": max(current.get("width", 0.0), required_width),
+            "height": max(current.get("height", 0.0), required_height),
+        }
+
+
 def _catalog_pairs(catalog_types: list[Any]) -> set[tuple[str, str]]:
     return {
         (component_type.id, provider.id)
@@ -309,7 +392,9 @@ class UpdateDiagramTool(Tool):
             "show that diff to the user and wait for their explicit confirmation before calling "
             "this again with dry_run=false and the same nodes/edges. Never set dry_run=false on "
             "the first call. Rejects any node whose componentTypeId/providerId is not in "
-            "list_diagram_components, without saving or previewing."
+            "list_diagram_components, without saving or previewing. Position for a brand-new "
+            "node is a required field but its value is ignored and auto-arranged to avoid "
+            "overlap -- do not spend effort guessing pixel coordinates, any placeholder works."
         )
 
     async def execute(
@@ -337,6 +422,10 @@ class UpdateDiagramTool(Tool):
         except DiagramValidationError as exc:
             return ToolResult.error(f"Invalid diagram payload: {exc}")
 
+        new_ids = {node.id for node in candidate.nodes} - {node.id for node in current.nodes}
+        _auto_layout_new_nodes(candidate.nodes, new_ids)
+        _fit_groups_to_children(candidate.nodes)
+
         catalog_types = load_catalog(self.workspace, skills_workspace_path=self.workspace)
         errors = _unknown_component_errors(candidate, catalog_types)
         if errors:
@@ -352,7 +441,10 @@ class UpdateDiagramTool(Tool):
                 "dry_run=false only after the user confirms."
             )
 
-        saved = self.store.update(diagram_id, raw)
+        # Persist `candidate`, not the original `raw` -- it carries the
+        # auto-arranged positions/group sizes computed above, which the
+        # model's own (possibly overlapping) guesses must not overwrite.
+        saved = self.store.update(diagram_id, candidate.to_dict())
         if saved is None:
             return ToolResult.error(f"No saved diagram with id {diagram_id!r}.")
         return f"Saved.\n{diff}"
