@@ -9,6 +9,7 @@ from nanoinfra.diagrams.catalog import (
     ProviderIntegration,
     load_catalog,
 )
+from nanoinfra.diagrams.lookup import resolve_diagram
 from nanoinfra.diagrams.normalize import DiagramValidationError, normalize_diagram
 from nanoinfra.diagrams.runtime_context import diagram_runtime_context
 from nanoinfra.diagrams.store import DiagramStore
@@ -35,4 +36,5 @@ __all__ = [
     "diagram_runtime_context",
     "load_catalog",
     "normalize_diagram",
+    "resolve_diagram",
 ]
