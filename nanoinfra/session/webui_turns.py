@@ -51,7 +51,13 @@ WEBUI_SESSION_METADATA_KEY = "webui"
 WEBUI_TITLE_METADATA_KEY = "title"
 WEBUI_TITLE_USER_EDITED_METADATA_KEY = "title_user_edited"
 TITLE_MAX_CHARS = 60
-TITLE_GENERATION_MAX_TOKENS = 96
+# Some reasoning-capable models don't honor reasoning_effort="none" through
+# every provider path and spend several hundred tokens on hidden thinking
+# before ever emitting the title itself -- a low budget here just means
+# finish_reason="length" with empty content, not a shorter title. Generous
+# enough to comfortably survive that, cheap enough to not matter (this call
+# only happens once per session, right after the first turn completes).
+TITLE_GENERATION_MAX_TOKENS = 1024
 TITLE_GENERATION_REASONING_EFFORT = "none"
 
 # Latest active turn projection per ``chat_id`` (websocket only). It survives browser refresh
