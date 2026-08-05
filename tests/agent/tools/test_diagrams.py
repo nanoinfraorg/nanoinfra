@@ -224,7 +224,7 @@ async def test_update_diagram_auto_arranges_new_nodes_ignoring_model_positions(t
 
     group = next(n for n in before.nodes if n.id == "group")
     group_dict = group.to_dict()
-    group_dict["style"] = {"width": 600.0, "height": 220.0}
+    group_dict["style"] = {"width": 700.0, "height": 220.0}
 
     def _new_child(node_id: str) -> dict:
         return {
@@ -251,14 +251,14 @@ async def test_update_diagram_auto_arranges_new_nodes_ignoring_model_positions(t
     positions = {node_id: (by_id[node_id].position["x"], by_id[node_id].position["y"]) for node_id in ("new-a", "new-b", "new-c")}
     assert len(set(positions.values())) == 3, f"new nodes must not collide: {positions}"
     assert positions == {
-        "new-a": (40.0, 40.0),
-        "new-b": (340.0, 40.0),
-        "new-c": (40.0, 190.0),
+        "new-a": (40.0, 90.0),
+        "new-b": (380.0, 90.0),
+        "new-c": (40.0, 260.0),
     }
 
     # The group must grow to actually contain its new children.
     resized_group = by_id["group"]
-    assert resized_group.style == {"width": 640.0, "height": 340.0}
+    assert resized_group.style == {"width": 720.0, "height": 430.0}
 
 
 @pytest.mark.asyncio

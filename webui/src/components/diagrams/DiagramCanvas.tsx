@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import {
   Background,
   BackgroundVariant,
+  ConnectionMode,
   Controls,
   Panel,
   ReactFlow,
@@ -304,6 +305,13 @@ export function DiagramCanvas({
         onPaneClick={handlePaneClick}
         onInit={handleInit}
         deleteKeyCode={["Backspace", "Delete"]}
+        // Strict (the default) only allows dragging from a `type="source"`
+        // handle onto a `type="target"` one -- since each side has only one
+        // role (e.g. the top handle is target-only), that meant a drag could
+        // only ever start at bottom/right and only ever land on top/left.
+        // Loose allows any handle to connect to any other, matching the 4
+        // visually-identical dots each node actually shows.
+        connectionMode={ConnectionMode.Loose}
         fitView
         fitViewOptions={FIT_VIEW_OPTIONS}
         minZoom={0.2}

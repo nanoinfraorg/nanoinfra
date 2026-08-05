@@ -83,11 +83,21 @@ _EDGE_SCHEMA = ObjectSchema(
 )
 
 
-_DEFAULT_NODE_WIDTH = 260.0
-_DEFAULT_NODE_HEIGHT = 110.0
+# Generous on purpose: unlike the WebUI's own auto-layout (autoLayout.ts),
+# which can read a node's real rendered `measured` size, this runs before a
+# node is ever drawn in a browser -- there is no ground truth to fall back
+# on, only a guess. A 2-line wrapped legend renders up to ~290px wide (the
+# node's text column caps at 220px, plus icon/gap/padding), so undershooting
+# this is exactly what produced real overlapping "pills" in practice.
+_DEFAULT_NODE_WIDTH = 300.0
+_DEFAULT_NODE_HEIGHT = 130.0
 _LAYOUT_MARGIN = 40.0
 _DEFAULT_CONTAINER_WIDTH = 900.0
 _DEFAULT_GROUP_STYLE = {"width": 320.0, "height": 220.0}
+# Vertical space a group's own header (label + provider + legend) occupies
+# above its first child -- reserving only _LAYOUT_MARGIN there let a child
+# visually overlap the header text.
+_GROUP_HEADER_CLEARANCE = 90.0
 
 
 def _node_footprint(node: Any) -> tuple[float, float]:
@@ -127,7 +137,7 @@ def _auto_layout_new_nodes(nodes: list[Any], new_ids: set[str]) -> None:
         if parent is not None and parent.style:
             container_width = parent.style.get("width", _DEFAULT_CONTAINER_WIDTH)
 
-        start_y = _LAYOUT_MARGIN
+        start_y = _GROUP_HEADER_CLEARANCE if parent_id else _LAYOUT_MARGIN
         if existing_siblings:
             start_y = _LAYOUT_MARGIN + max(
                 sibling.position.get("y", 0.0) + _node_footprint(sibling)[1]
