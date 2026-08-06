@@ -27,6 +27,7 @@ from nanoinfra.command.builtin import builtin_command_palette
 from nanoinfra.cron.session_turns import is_bound_cron_job
 from nanoinfra.cron.types import CronJob, CronSchedule
 from nanoinfra.diagrams.normalize import DiagramValidationError
+from nanoinfra.diagrams.seed import seed_example_diagram_if_new_workspace
 from nanoinfra.diagrams.store import DiagramStore
 from nanoinfra.runtime_context import public_history_messages
 from nanoinfra.security.workspace_access import WorkspaceScope
@@ -249,6 +250,7 @@ class GatewayHTTPHandler:
         # already-threaded workspace path rather than adding a duplicate
         # constructor parameter for what is always the same value.
         self.diagrams = DiagramStore(skills_workspace_path)
+        seed_example_diagram_if_new_workspace(self.diagrams)
         self.skill_state_action = skill_state_action
         self._skill_install_lock = asyncio.Lock()
         self._title_retry_in_flight: set[str] = set()

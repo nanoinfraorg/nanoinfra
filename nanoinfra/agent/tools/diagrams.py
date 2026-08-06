@@ -470,7 +470,102 @@ class UpdateDiagramTool(Tool):
         return f"Saved.\n{diff}"
 
 
+@tool_parameters(
+    tool_parameters_schema(
+        name=StringSchema("Name for the new diagram.", min_length=1),
+        targets=ArraySchema(StringSchema(""), description="Target server names.", nullable=True),
+        nodes=ArraySchema(_NODE_SCHEMA, description="Every node the new diagram should start with.", min_items=0),
+        edges=ArraySchema(_EDGE_SCHEMA, description="Every edge the new diagram should start with.", min_items=0),
+        dry_run=BooleanSchema(
+            description=(
+                "Defaults to true: validate and return a preview without creating anything. "
+                "Only pass dry_run=false, with the exact same nodes/edges, after the user has "
+                "explicitly confirmed the preview."
+            ),
+            default=True,
+        ),
+        required=["name", "nodes", "edges"],
+    )
+)
+class CreateDiagramTool(Tool):
+    """Preview (default) or create a brand-new saved diagram."""
+
+    @classmethod
+    def create(cls, ctx: ToolContext) -> Tool:
+        workspace = Path(ctx.workspace)
+        return cls(DiagramStore(workspace), workspace)
+
+    def __init__(self, store: DiagramStore, workspace: Path) -> None:
+        self.store = store
+        self.workspace = workspace
+
+    @property
+    def name(self) -> str:
+        return "create_diagram"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Create a brand-new saved Infra Diagram from scratch. Defaults to dry_run=true, "
+            "which validates and returns a preview without creating anything -- show that "
+            "preview to the user and wait for their explicit confirmation before calling this "
+            "again with dry_run=false and the same nodes/edges. Never set dry_run=false on the "
+            "first call. Rejects any node whose componentTypeId/providerId is not in "
+            "list_diagram_components, without creating or previewing. Position for a node is a "
+            "required field but its value is ignored and auto-arranged to avoid overlap -- do "
+            "not spend effort guessing pixel coordinates, any placeholder works. To add to an "
+            "already-saved diagram instead of starting a new one, use update_diagram."
+        )
+
+    async def execute(
+        self,
+        name: str,
+        nodes: list[Any],
+        edges: list[Any],
+        targets: list[str] | None = None,
+        dry_run: bool = True,
+        **kwargs: Any,
+    ) -> Any:
+        raw: dict[str, Any] = {"name": name, "targets": targets or [], "nodes": nodes, "edges": edges}
+        try:
+            # "pending" is a throwaway id for validation only -- store.create()
+            # below mints the real one and re-normalizes independently.
+            candidate = normalize_diagram(raw, diagram_id="pending")
+        except DiagramValidationError as exc:
+            return ToolResult.error(f"Invalid diagram payload: {exc}")
+
+        new_ids = {node.id for node in candidate.nodes}
+        _auto_layout_new_nodes(candidate.nodes, new_ids)
+        _fit_groups_to_children(candidate.nodes)
+
+        catalog_types = load_catalog(self.workspace, skills_workspace_path=self.workspace)
+        errors = _unknown_component_errors(candidate, catalog_types)
+        if errors:
+            return ToolResult.error("Not created -- unknown component(s):\n" + "\n".join(errors))
+
+        lines = [f"+ node {node.id!r}: {_node_label(node)}" for node in candidate.nodes]
+        lines += [f"+ edge {edge.id!r}: {edge.source} -> {edge.target}" for edge in candidate.edges]
+        if not lines:
+            lines.append("(empty diagram)")
+        lines.append(f"Total: {len(candidate.nodes)} nodes, {len(candidate.edges)} edges.")
+        diff = "\n".join(lines)
+
+        if dry_run:
+            return (
+                f"Preview (not created):\nName: {candidate.name}\n{diff}\n\n"
+                "Not saved. Call create_diagram again with the same nodes/edges and "
+                "dry_run=false only after the user confirms."
+            )
+
+        # Persist `candidate`, not the original `raw` -- it carries the
+        # auto-arranged positions/group sizes computed above, which the
+        # model's own (possibly overlapping) guesses must not overwrite.
+        saved = self.store.create(candidate.to_dict())
+        return f"Created diagram {saved.id!r} ({saved.name!r}).\n{diff}"
+
+
 __all__ = [
+    "CreateDiagramTool",
     "GetDiagramTool",
     "ListDiagramComponentsTool",
     "ListDiagramsTool",
