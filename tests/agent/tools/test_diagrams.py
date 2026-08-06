@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from nanoinfra.agent.tools.diagrams import (
+    CreateDiagramTool,
     GetDiagramTool,
     ListDiagramComponentsTool,
     ListDiagramsTool,
@@ -69,6 +70,7 @@ def test_diagram_tools_are_discovered() -> None:
         "ListDiagramsTool",
         "GetDiagramTool",
         "ListDiagramComponentsTool",
+        "CreateDiagramTool",
         "UpdateDiagramTool",
     } <= names
 
@@ -341,3 +343,90 @@ async def test_update_diagram_preserves_group_style_when_not_touched(tmp_path: P
     after = store.get(diagram_id)
     group = next(n for n in after.nodes if n.id == "group")
     assert group.style == {"width": 320.0, "height": 220.0}
+
+
+@pytest.mark.asyncio
+async def test_create_diagram_dry_run_does_not_persist(tmp_path: Path) -> None:
+    store = DiagramStore(tmp_path)
+    nodes = [{
+        "id": "web",
+        "position": {"x": 0, "y": 0},
+        "data": {"label": "Web", "componentTypeId": "web_server", "providerId": "nginx", "config": {}},
+    }]
+
+    tool = CreateDiagramTool(store, tmp_path)
+    result = await tool.execute(name="New app", nodes=nodes, edges=[])
+
+    assert not getattr(result, "is_error", False)
+    assert "Preview (not created)" in result
+    assert "+ node 'web'" in result
+    assert "Not saved" in result
+    assert store.list_diagrams() == []
+
+
+@pytest.mark.asyncio
+async def test_create_diagram_persists_when_dry_run_false(tmp_path: Path) -> None:
+    store = DiagramStore(tmp_path)
+    nodes = [{
+        "id": "web",
+        "position": {"x": 0, "y": 0},
+        "data": {"label": "Web", "componentTypeId": "web_server", "providerId": "nginx", "config": {}},
+    }]
+
+    tool = CreateDiagramTool(store, tmp_path)
+    result = await tool.execute(name="New app", targets=["prod-01"], nodes=nodes, edges=[], dry_run=False)
+
+    assert not getattr(result, "is_error", False)
+    assert "Created diagram" in result
+
+    summaries = store.list_diagrams()
+    assert len(summaries) == 1
+    saved = store.get(summaries[0].id)
+    assert saved.name == "New app"
+    assert saved.targets == ["prod-01"]
+    assert {n.id for n in saved.nodes} == {"web"}
+
+
+@pytest.mark.asyncio
+async def test_create_diagram_rejects_unknown_component_without_persisting(tmp_path: Path) -> None:
+    store = DiagramStore(tmp_path)
+    nodes = [{
+        "id": "fake-1",
+        "position": {"x": 0, "y": 0},
+        "data": {"label": "Fake", "componentTypeId": "gpu_cluster_v2", "providerId": "made-up", "config": {}},
+    }]
+
+    tool = CreateDiagramTool(store, tmp_path)
+    result = await tool.execute(name="Bad diagram", nodes=nodes, edges=[], dry_run=False)
+
+    assert result.is_error
+    assert "gpu_cluster_v2" in result
+    assert "list_diagram_components" in result
+    assert store.list_diagrams() == []
+
+
+@pytest.mark.asyncio
+async def test_create_diagram_auto_arranges_new_nodes(tmp_path: Path) -> None:
+    store = DiagramStore(tmp_path)
+
+    def _node(node_id: str) -> dict:
+        return {
+            "id": node_id,
+            # Every node claims the exact same colliding position on purpose.
+            "position": {"x": 0.0, "y": 0.0},
+            "data": {"label": node_id, "componentTypeId": "monitoring", "providerId": "prometheus", "config": {}},
+        }
+
+    tool = CreateDiagramTool(store, tmp_path)
+    result = await tool.execute(
+        name="Layout test",
+        nodes=[_node("a"), _node("b"), _node("c")],
+        edges=[],
+        dry_run=False,
+    )
+    assert not getattr(result, "is_error", False)
+
+    summaries = store.list_diagrams()
+    saved = store.get(summaries[0].id)
+    positions = {node.id: (node.position["x"], node.position["y"]) for node in saved.nodes}
+    assert len(set(positions.values())) == 3, f"nodes must not collide: {positions}"
