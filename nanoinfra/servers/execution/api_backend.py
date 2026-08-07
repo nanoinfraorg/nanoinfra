@@ -35,11 +35,22 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from nanoinfra.servers.execution.base import ExecutionResult
+from nanoinfra.servers.execution.base import ABSOLUTE_CEILING_S, ExecutionResult
 from nanoinfra.servers.network_guard import validate_server_target
 from nanoinfra.servers.types import Server
 
 DEFAULT_IDLE_TIMEOUT_S = 30
+
+# httpx's own timeout must never be the one that fires. The backend has no way to
+# learn the caller's effective timeout (ExecutionBackend.run() takes no timeout
+# argument, and adding a provider-specific one would mean the generic caller
+# branching per provider), so this is sized above the orchestrator's hard ceiling
+# instead: run_with_idle_timeout always gives up first and labels the job
+# `timed_out`. Hardcoding DEFAULT_IDLE_TIMEOUT_S here used to silently cap a
+# user's longer `timeout_s` override at 30s and report the result as a generic
+# backend `failed`, mislabeling the job.
+_REQUEST_TIMEOUT_S = ABSOLUTE_CEILING_S + 60
+
 _VALID_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
@@ -104,7 +115,7 @@ class ApiBackend:
 
         headers = {"Authorization": f"Bearer {secret_value}"} if secret_value else {}
         try:
-            async with httpx.AsyncClient(timeout=DEFAULT_IDLE_TIMEOUT_S) as client:
+            async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_S) as client:
                 response = await client.request(method, url, headers=headers)
         except Exception as exc:  # noqa: BLE001 -- must report, not raise
             return ExecutionResult(exit_code=None, output="", error=str(exc))

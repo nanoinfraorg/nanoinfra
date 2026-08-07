@@ -23,8 +23,8 @@ import pytest
 
 from nanoinfra.agent.tools.server_execution import (  # pyright: ignore[reportPrivateUsage]
     _HOST_FIELDS_BY_PROVIDER,
-    _target_host,
     ExecuteOnServerTool,
+    _target_host,
 )
 from nanoinfra.secrets import crypto
 from nanoinfra.secrets.store import SecretStore

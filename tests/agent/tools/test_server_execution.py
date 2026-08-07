@@ -14,6 +14,7 @@ from nanoinfra.secrets.store import SecretStore
 from nanoinfra.servers.execution.base import MAX_OUTPUT_CHARS, ExecutionResult
 from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.store import ServerStore
+from nanoinfra.servers.types import Server
 
 
 @pytest.fixture(autouse=True)
@@ -41,6 +42,89 @@ async def test_dry_run_does_not_execute_or_create_a_job(tmp_path: Path) -> None:
     assert "Preview (not executed)" in result
     assert "prod-web-01" in result
     run_mock.assert_not_called()
+    assert JobStore(tmp_path).list_jobs() == []
+
+
+@pytest.mark.asyncio
+async def test_dry_run_surfaces_a_blocked_target_instead_of_inviting_confirmation(
+    tmp_path: Path,
+) -> None:
+    """A preview used to return a clean "call again with dry_run=false" message for a
+    metadata-pointed server, hiding the refusal that call was always going to get."""
+    server_store = ServerStore(tmp_path)
+    server_store.create(
+        {"name": "metadata-server", "providerId": "ssh", "config": {"host": "169.254.169.254"}}
+    )
+    tool = _tool(tmp_path)
+
+    with (
+        patch("nanoinfra.servers.execution.ssh_backend.SSHBackend.run", new=AsyncMock()) as run_mock,
+        patch("nanoinfra.secrets.store.SecretStore.resolve_plaintext", new=Mock()) as resolve_mock,
+    ):
+        result = await tool.execute(server_id_or_name="metadata-server", command="uptime")
+
+    assert result.is_error
+    assert "dry_run=false" not in str(result)
+    run_mock.assert_not_called()
+    resolve_mock.assert_not_called()
+    assert JobStore(tmp_path).list_jobs() == []
+
+
+@pytest.mark.asyncio
+async def test_dry_run_surfaces_an_unknown_provider(tmp_path: Path) -> None:
+    # ServerStore.create() rejects unknown providerIds, so this state can only come
+    # from a hand-edited or downgrade-written store file -- which is exactly why the
+    # tool keeps its own defensive check, and why the preview should show it.
+    tool = _tool(tmp_path)
+    stored = Server(
+        id="a" * 32,
+        name="weird",
+        provider_id="carrier-pigeon",
+        config={"host": "10.0.1.5"},
+        secret_ref=None,
+        tags=[],
+        created_at="t",
+        updated_at="t",
+    )
+
+    with patch.object(server_execution, "resolve_server", return_value=stored):
+        result = await tool.execute(server_id_or_name="weird", command="uptime")
+
+    assert result.is_error
+    assert "carrier-pigeon" in str(result)
+
+
+@pytest.mark.asyncio
+async def test_backend_is_resolved_before_the_secret_is_decrypted(tmp_path: Path) -> None:
+    """A provider whose optional library isn't installed must fail before a
+    credential is decrypted, not after."""
+    secret_store = SecretStore(tmp_path)
+    secret = secret_store.create(
+        {"name": "web-key", "kind": "ssh_key", "providerId": "local", "value": "s3cr3t-key-material"}
+    )
+    server_store = ServerStore(tmp_path)
+    server_store.create(
+        {
+            "name": "prod-web-01",
+            "providerId": "ssh",
+            "config": {"host": "10.0.1.5"},
+            "secretRef": secret.id,
+        }
+    )
+    tool = _tool(tmp_path)
+
+    with (
+        patch.object(
+            server_execution,
+            "_backend_and_default_timeout",
+            side_effect=ImportError("No module named 'asyncssh'"),
+        ),
+        patch("nanoinfra.secrets.store.SecretStore.resolve_plaintext", new=Mock()) as resolve_mock,
+        pytest.raises(ImportError),
+    ):
+        await tool.execute(server_id_or_name="prod-web-01", command="uptime", dry_run=False)
+
+    resolve_mock.assert_not_called()
     assert JobStore(tmp_path).list_jobs() == []
 
 
