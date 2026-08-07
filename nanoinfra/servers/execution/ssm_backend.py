@@ -72,6 +72,14 @@ class SSMBackend:
                 Parameters={"commands": [command]},
             )
             command_id = sent["Command"]["CommandId"]
+            # TODO(servers): this CommandId is the recovery handle for a timed-out
+            # run. Once send_command returns, the command is running on the
+            # instance and nothing here can un-send it -- cancelling the awaiting
+            # coroutine only stops the polling (see timeout.py's module
+            # docstring). Persisting it on the ServerJob would let a retry poll
+            # the original invocation (or aws ssm cancel-command it) instead of
+            # blindly starting a second copy. Out of scope for now; the timeout
+            # message says plainly that the command may still be running.
 
             while True:
                 try:
