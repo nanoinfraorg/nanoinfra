@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import type { NodeProps } from "@xyflow/react";
 
+import { categoryBorderColor } from "./categoryColors";
 import { ConnectionHandles } from "./ConnectionHandles";
 import { getComponentIcon } from "./icons";
 import { useComponentCatalog } from "./useComponentCatalog";
@@ -13,6 +14,9 @@ export function DiagramNode({ data, selected }: NodeProps & { data: DiagramNodeD
   const Icon = getComponentIcon(type?.iconKey ?? "");
   const provider = findProvider(data.componentTypeId, data.providerId);
   const { legend, legendTitle, hasMore } = buildFieldLegend(provider, data.config);
+  // Selection must stay unambiguous regardless of category, so the accent
+  // only applies at rest -- selected keeps the existing neutral highlight.
+  const accentColor = !selected ? categoryBorderColor(type?.category) : undefined;
 
   return (
     <div
@@ -20,6 +24,7 @@ export function DiagramNode({ data, selected }: NodeProps & { data: DiagramNodeD
         "flex min-w-[180px] items-center gap-2.5 rounded-[14px] border bg-settings-surface px-3.5 py-2.5 text-left shadow-none",
         selected ? "border-foreground/60" : "border-border/45",
       ].join(" ")}
+      style={accentColor ? { borderColor: accentColor } : undefined}
     >
       <ConnectionHandles />
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-muted text-foreground">
