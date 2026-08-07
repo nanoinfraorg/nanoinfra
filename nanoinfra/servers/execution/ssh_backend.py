@@ -5,6 +5,10 @@ partial output can be reported to on_activity as it streams -- run()
 only returns everything at once on completion, which would make the
 idle-timeout tracker's "reset on activity" meaningless for this backend.
 
+Host-key verification is deliberately disabled (``known_hosts=None``);
+see .agent/security.md's "Server Execution Backends" section for the
+accepted-risk record.
+
 Target validation (loopback/link-local/metadata) happens in Task 8's
 execute_on_server before this backend is ever called, not here -- this
 backend's only job is the connection itself.
@@ -12,7 +16,8 @@ backend's only job is the connection itself.
 
 from __future__ import annotations
 
-from typing import Callable
+import asyncio
+from typing import Any, Callable
 
 import asyncssh
 
@@ -54,20 +59,30 @@ class SSHBackend:
                 async with process:
                     stdout_parts: list[str] = []
                     stderr_parts: list[str] = []
-                    while True:
-                        chunk = await process.stdout.read(_READ_CHUNK_SIZE)
-                        if not chunk:
-                            break
-                        text = chunk.decode("utf-8", errors="replace")
-                        stdout_parts.append(text)
-                        on_activity(text)
-                    while True:
-                        chunk = await process.stderr.read(_READ_CHUNK_SIZE)
-                        if not chunk:
-                            break
-                        text = chunk.decode("utf-8", errors="replace")
-                        stderr_parts.append(text)
-                        on_activity(text)
+
+                    async def _drain(stream: Any, sink: list[str]) -> None:
+                        while True:
+                            chunk = await stream.read(_READ_CHUNK_SIZE)
+                            if not chunk:
+                                return
+                            text = chunk.decode("utf-8", errors="replace")
+                            sink.append(text)
+                            on_activity(text)
+
+                    # Both streams are drained CONCURRENTLY, never one after the
+                    # other. asyncssh shares a single receive window across a
+                    # channel's stdout and stderr: once buffered-but-unread data
+                    # fills it (~2 MiB), asyncssh stops reading the channel
+                    # entirely, so the remote's writes block. Draining stdout to
+                    # EOF first would then deadlock on any command that emits
+                    # enough stderr before closing stdout -- stdout never reaches
+                    # EOF because the peer is blocked on stderr nobody is
+                    # reading. Reading both keeps the window draining no matter
+                    # which stream the output lands on.
+                    await asyncio.gather(
+                        _drain(process.stdout, stdout_parts),
+                        _drain(process.stderr, stderr_parts),
+                    )
                     completed = await process.wait()
                     output = "".join(stdout_parts)
                     if stderr_parts:

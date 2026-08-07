@@ -1,6 +1,7 @@
 # tests/servers/execution/test_ssh_backend.py
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -113,6 +114,75 @@ async def test_run_passes_secret_value_as_private_key_when_pem_shaped():
     _, kwargs = connect_mock.call_args
     assert kwargs.get("client_keys") == ["parsed-key-object"]
     assert kwargs.get("password") is None
+
+
+class _BlockedUntilReader:
+    """stdout that cannot make progress until stderr has been consumed.
+
+    This is the mock-level analogue of asyncssh's real flow control: stdout and
+    stderr share one channel receive window, so a peer with unread stderr
+    buffered stops sending stdout altogether. A backend that drains stdout to
+    EOF *before* touching stderr therefore waits forever on a stream the peer
+    will never advance.
+    """
+
+    def __init__(self, chunks: list[bytes], gate: asyncio.Event) -> None:
+        self._chunks = list(chunks)
+        self._gate = gate
+
+    async def read(self, _n: int) -> bytes:
+        await self._gate.wait()
+        if not self._chunks:
+            return b""
+        return self._chunks.pop(0)
+
+
+class _OpensTheGateReader:
+    """stderr whose chunks, once read, unblock stdout."""
+
+    def __init__(self, chunks: list[bytes], gate: asyncio.Event) -> None:
+        self._chunks = list(chunks)
+        self._gate = gate
+
+    async def read(self, _n: int) -> bytes:
+        await asyncio.sleep(0)
+        if self._chunks:
+            return self._chunks.pop(0)
+        self._gate.set()
+        return b""
+
+
+@pytest.mark.asyncio
+async def test_stdout_and_stderr_are_drained_concurrently_not_sequentially():
+    """Regression test for a real deadlock: draining stdout to EOF and only then
+    stderr hangs forever when the remote can't advance stdout until its buffered
+    stderr is consumed. With concurrent draining, both complete. The wait_for is
+    what makes the failure a fast failure instead of a hung test run.
+    """
+    gate = asyncio.Event()
+
+    fake_process = MagicMock()
+    fake_process.stdout = _BlockedUntilReader([b"late-stdout\n"], gate)
+    fake_process.stderr = _OpensTheGateReader([b"early-stderr\n"], gate)
+    fake_process.wait = AsyncMock(return_value=MagicMock(exit_status=0))
+    fake_process.__aenter__ = AsyncMock(return_value=fake_process)
+    fake_process.__aexit__ = AsyncMock(return_value=False)
+
+    fake_conn = MagicMock()
+    fake_conn.create_process = AsyncMock(return_value=fake_process)
+    fake_conn.__aenter__ = AsyncMock(return_value=fake_conn)
+    fake_conn.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("asyncssh.connect", AsyncMock(return_value=fake_conn)):
+        backend = SSHBackend()
+        result = await asyncio.wait_for(
+            backend.run(_server(), "noisy-command", None, on_activity=lambda _c: None),
+            timeout=5,
+        )
+
+    assert result.exit_code == 0
+    assert "late-stdout" in result.output
+    assert "early-stderr" in result.output
 
 
 @pytest.mark.asyncio
