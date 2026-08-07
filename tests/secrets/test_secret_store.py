@@ -1,12 +1,14 @@
 # tests/secrets/test_secret_store.py
 from __future__ import annotations
 
+import stat
 from pathlib import Path
 
 import pytest
 
 from nanoinfra.secrets import crypto
 from nanoinfra.secrets.normalize import SecretValidationError
+from nanoinfra.secrets.postgres_backend import PostgresBackend
 from nanoinfra.secrets.store import SecretStore
 
 
@@ -117,3 +119,99 @@ def test_operations_fail_cleanly_when_key_not_configured(tmp_path: Path, monkeyp
     store = SecretStore(tmp_path)
     with pytest.raises(crypto.SecretsNotConfiguredError):
         store.create({"name": "n", "kind": "password", "providerId": "local", "value": "1"})
+
+
+# -- Fix 5: name uniqueness -------------------------------------------------
+
+
+def test_create_rejects_duplicate_name(tmp_path: Path):
+    store = SecretStore(tmp_path)
+    store.create({"name": "prod-key", "kind": "password", "providerId": "local", "value": "1"})
+    with pytest.raises(SecretValidationError, match="already exists"):
+        store.create({"name": "prod-key", "kind": "password", "providerId": "local", "value": "2"})
+
+
+def test_create_rejects_duplicate_name_case_insensitively(tmp_path: Path):
+    store = SecretStore(tmp_path)
+    store.create({"name": "Prod-Key", "kind": "password", "providerId": "local", "value": "1"})
+    with pytest.raises(SecretValidationError, match="already exists"):
+        store.create({"name": "prod-key", "kind": "password", "providerId": "local", "value": "2"})
+
+
+def test_create_rejects_duplicate_name_across_providers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A name collision must be caught regardless of where the colliding
+    secret lives -- simulate a same-named secret already present via the
+    Postgres backend (no real Postgres needed for this check)."""
+    from nanoinfra.secrets.types import Secret
+
+    monkeypatch.setenv("NANOINFRA_SECRETS_POSTGRES_DSN", "postgresql://x")
+    existing = Secret(
+        id="b" * 32,
+        name="shared-name",
+        kind="token",
+        provider_id="postgres",
+        ciphertext=b"x",
+        created_at="t",
+        updated_at="t",
+    )
+    monkeypatch.setattr(PostgresBackend, "list_secrets", lambda self: [existing])
+
+    store = SecretStore(tmp_path)
+    with pytest.raises(SecretValidationError, match="already exists"):
+        store.create({"name": "Shared-Name", "kind": "password", "providerId": "local", "value": "1"})
+
+
+def test_update_rejects_name_collision_with_different_secret(tmp_path: Path):
+    store = SecretStore(tmp_path)
+    store.create({"name": "one", "kind": "password", "providerId": "local", "value": "1"})
+    two = store.create({"name": "two", "kind": "password", "providerId": "local", "value": "2"})
+
+    with pytest.raises(SecretValidationError, match="already exists"):
+        store.update(two.id, {"name": "one", "kind": "password", "providerId": "local", "value": "2"})
+
+
+def test_update_allows_renaming_to_its_own_current_name(tmp_path: Path):
+    store = SecretStore(tmp_path)
+    secret = store.create({"name": "same", "kind": "password", "providerId": "local", "value": "1"})
+
+    updated = store.update(secret.id, {"name": "same", "kind": "password", "providerId": "local", "value": "2"})
+
+    assert updated is not None
+    assert updated.name == "same"
+
+
+# -- Fix 6: id validation before Postgres fallback --------------------------
+
+
+def test_get_invalid_id_does_not_hit_postgres(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("NANOINFRA_SECRETS_POSTGRES_DSN", "postgresql://x")
+
+    def _boom(self: PostgresBackend, secret_id: str):  # noqa: ANN001
+        raise AssertionError("Postgres should never be queried for an invalid id")
+
+    monkeypatch.setattr(PostgresBackend, "get", _boom)
+    store = SecretStore(tmp_path)
+    assert store.get("not-a-valid-id") is None
+
+
+def test_delete_invalid_id_does_not_hit_postgres(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("NANOINFRA_SECRETS_POSTGRES_DSN", "postgresql://x")
+
+    def _boom(self: PostgresBackend, secret_id: str):  # noqa: ANN001
+        raise AssertionError("Postgres should never be queried for an invalid id")
+
+    monkeypatch.setattr(PostgresBackend, "delete", _boom)
+    store = SecretStore(tmp_path)
+    assert store.delete("not-a-valid-id") is False
+
+
+# -- Fix 7: restrictive file/dir permissions ---------------------------------
+
+
+def test_new_secret_file_and_directory_are_locked_down(tmp_path: Path):
+    store = SecretStore(tmp_path)
+    secret = store.create({"name": "n", "kind": "password", "providerId": "local", "value": "1"})
+
+    path = tmp_path / "secrets" / f"{secret.id}.json"
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert stat.S_IMODE((tmp_path / "secrets").stat().st_mode) == 0o700
