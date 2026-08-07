@@ -72,6 +72,7 @@ const OAUTH_CALLBACK_HEADER = "X-Nanoinfra-OAuth-Callback";
 const PROVIDER_VALUES_HEADER = "X-Nanoinfra-Provider-Values";
 const DIAGRAM_VALUES_HEADER = "X-Nanoinfra-Diagram-Values";
 const SECRET_VALUES_HEADER = "X-Nanoinfra-Secret-Values";
+const SERVER_VALUES_HEADER = "X-Nanoinfra-Server-Values";
 
 export class ApiError extends Error {
   status: number;
@@ -1275,4 +1276,71 @@ export interface ServersPayload {
 
 export async function fetchServers(token: string, base: string = ""): Promise<ServersPayload> {
   return request<ServersPayload>(`${base}/api/webui/servers`, token, undefined, API_READ_TIMEOUT_MS);
+}
+
+export interface ServerDetail extends ServerSummary {
+  createdAt: string;
+  config: Record<string, string>;
+  secretRef: string | null;
+}
+
+export interface ServerDetailPayload {
+  server: ServerDetail;
+}
+
+export interface ServerValues {
+  name: string;
+  providerId: string;
+  config: Record<string, string>;
+  secretRef: string | null;
+  tags: string[];
+}
+
+export async function fetchServer(
+  token: string,
+  id: string,
+  base: string = "",
+): Promise<ServerDetailPayload> {
+  return request<ServerDetailPayload>(
+    `${base}/api/webui/servers/${encodeURIComponent(id)}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function createServer(
+  token: string,
+  values: ServerValues,
+  base: string = "",
+): Promise<ServerDetailPayload> {
+  return request<ServerDetailPayload>(
+    `${base}/api/webui/servers/create`,
+    token,
+    { headers: { [SERVER_VALUES_HEADER]: encodeURIComponent(JSON.stringify(values)) } },
+  );
+}
+
+export async function updateServer(
+  token: string,
+  id: string,
+  values: ServerValues,
+  base: string = "",
+): Promise<ServerDetailPayload> {
+  return request<ServerDetailPayload>(
+    `${base}/api/webui/servers/${encodeURIComponent(id)}/update`,
+    token,
+    { headers: { [SERVER_VALUES_HEADER]: encodeURIComponent(JSON.stringify(values)) } },
+  );
+}
+
+export async function deleteServerApi(
+  token: string,
+  id: string,
+  base: string = "",
+): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(
+    `${base}/api/webui/servers/${encodeURIComponent(id)}/delete`,
+    token,
+  );
 }
