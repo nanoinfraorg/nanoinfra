@@ -9,7 +9,7 @@ import pytest
 from nanoinfra.agent.tools.server_execution import ExecuteOnServerTool
 from nanoinfra.secrets import crypto
 from nanoinfra.secrets.store import SecretStore
-from nanoinfra.servers.execution.base import ExecutionResult
+from nanoinfra.servers.execution.base import MAX_OUTPUT_CHARS, ExecutionResult
 from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.store import ServerStore
 
@@ -264,6 +264,32 @@ async def test_timeout_marks_job_timed_out_not_failed(tmp_path: Path) -> None:
     jobs = JobStore(tmp_path).list_jobs()
     assert len(jobs) == 1
     assert jobs[0].status == "timed_out"
+
+
+@pytest.mark.asyncio
+async def test_oversized_output_is_truncated_in_both_the_result_and_the_job_file(
+    tmp_path: Path,
+) -> None:
+    """Nothing in the chain capped output before: a chatty remote command's entire
+    output went into the persisted ServerJob JSON and the model's context."""
+    server_store = ServerStore(tmp_path)
+    server_store.create({"name": "prod-web-01", "providerId": "ssh", "config": {"host": "10.0.1.5"}})
+    tool = _tool(tmp_path)
+
+    huge = "x" * (MAX_OUTPUT_CHARS + 5_000)
+    fake_result = ExecutionResult(exit_code=0, output=huge, error=None)
+    with patch(
+        "nanoinfra.servers.execution.ssh_backend.SSHBackend.run",
+        new=AsyncMock(return_value=fake_result),
+    ):
+        result = await tool.execute(server_id_or_name="prod-web-01", command="cat big", dry_run=False)
+
+    assert "(5,000 chars truncated from output)" in result
+    assert len(result) < MAX_OUTPUT_CHARS + 500
+
+    job = JobStore(tmp_path).list_jobs()[0]
+    assert len(job.output) < MAX_OUTPUT_CHARS + 200
+    assert "(5,000 chars truncated from output)" in job.output
 
 
 @pytest.mark.asyncio

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 from nanoinfra.agent.tools.base import Tool, ToolResult, tool_parameters
 from nanoinfra.agent.tools.schema import BooleanSchema, StringSchema, tool_parameters_schema
 from nanoinfra.secrets.store import SecretStore
-from nanoinfra.servers.execution.base import ExecutionBackend
+from nanoinfra.servers.execution.base import ABSOLUTE_CEILING_S, ExecutionBackend, truncate_output
 from nanoinfra.servers.execution.timeout import IdleTimeoutTracker, run_with_idle_timeout
 from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.lookup import resolve_server
@@ -27,8 +27,6 @@ from nanoinfra.servers.store import ServerStore
 
 if TYPE_CHECKING:
     from nanoinfra.agent.tools.context import ToolContext
-
-_ABSOLUTE_CEILING_S = 1800
 
 # Providers with a real network-address concept at this layer -- if
 # _target_host() can't find one for these, that's not "nothing to check"
@@ -241,21 +239,27 @@ class ExecuteOnServerTool(Tool):
         )
         self.jobs.mark_running(job.id)
 
-        tracker = IdleTimeoutTracker(idle_timeout_s=idle_timeout, absolute_ceiling_s=_ABSOLUTE_CEILING_S)
+        tracker = IdleTimeoutTracker(idle_timeout_s=idle_timeout, absolute_ceiling_s=ABSOLUTE_CEILING_S)
         result = await run_with_idle_timeout(
             backend.run(server, command, secret_value, on_activity=tracker.touch),
             tracker,
         )
 
+        # One cap for every backend, applied to the same string that gets both
+        # persisted into the job file and handed to the model -- neither the
+        # ServerJob JSON nor the tool result may grow without bound just because
+        # a remote command was chatty.
+        output = truncate_output(result.output)
+
         if result.timed_out:
-            self.jobs.complete(job.id, exit_code=None, output=result.output, error="Timed out", status="timed_out")
+            self.jobs.complete(job.id, exit_code=None, output=output, error="Timed out", status="timed_out")
             return ToolResult.error(f"Timed out running {command!r} on {server.name!r}.")
         if result.error:
-            self.jobs.complete(job.id, exit_code=result.exit_code, output=result.output, error=result.error, status="failed")
+            self.jobs.complete(job.id, exit_code=result.exit_code, output=output, error=result.error, status="failed")
             return ToolResult.error(f"Failed running {command!r} on {server.name!r}: {result.error}")
 
-        self.jobs.complete(job.id, exit_code=result.exit_code, output=result.output, error=None, status="completed")
-        return f"Ran {command!r} on {server.name!r} (exit code {result.exit_code}):\n{result.output}"
+        self.jobs.complete(job.id, exit_code=result.exit_code, output=output, error=None, status="completed")
+        return f"Ran {command!r} on {server.name!r} (exit code {result.exit_code}):\n{output}"
 
 
 __all__ = ["ExecuteOnServerTool"]
