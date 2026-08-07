@@ -8,6 +8,22 @@ sessions are polled repeatedly by the caller across separate tool calls;
 a Server execution job is one tool call that waits for the whole thing,
 so the equivalent here is racing the backend coroutine against a
 periodic expiry check rather than a poll() the caller drives itself.
+
+Known limitation -- what "timed out" does and does not mean per backend:
+cancelling the awaited coroutine stops *this process from waiting*, and
+for SSH it also tears the asyncssh connection down, which really does end
+the remote command. AnsibleRunnerBackend and SSMBackend, though, wrap a
+blocking call in ``asyncio.to_thread``, and a thread that has already
+started cannot be cancelled -- the ansible play keeps running to
+completion in a pool thread, and an SSM command that has already been
+sent keeps running on the instance. In those two cases a reported timeout
+means "this tool stopped waiting and discarded the result", NOT "the
+remote work stopped". Callers must surface that distinction rather than
+implying the command was stopped (see execute_on_server's timeout
+message), because a blind retry can otherwise put two copies of the same
+command in flight. Fixing it properly needs per-provider cancellation
+(SSM's CommandId makes this feasible; ansible-runner's does not without
+process-level isolation) and is out of scope here.
 """
 
 from __future__ import annotations
@@ -57,8 +73,16 @@ async def run_with_idle_timeout(
     tracker: IdleTimeoutTracker,
     *,
     poll_interval_s: float = _DEFAULT_POLL_INTERVAL_S,
+    partial_output: Callable[[], str] | None = None,
 ) -> ExecutionResult:
-    """Run ``coro`` to completion, or cancel it once ``tracker`` expires."""
+    """Run ``coro`` to completion, or cancel it once ``tracker`` expires.
+
+    ``partial_output`` is an optional getter for whatever output the caller has
+    accumulated so far (streaming backends report chunks through ``on_activity``).
+    Cancelling the backend coroutine destroys its own buffers, so without this the
+    timeout path threw away everything already read -- exactly the output a user
+    most needs to see when asking "what did it get through before it hung?".
+    """
     task = asyncio.ensure_future(coro)
     try:
         while True:
@@ -71,7 +95,13 @@ async def run_with_idle_timeout(
                 task.cancel()
                 with suppress(asyncio.CancelledError):
                     await task
-                return ExecutionResult(exit_code=None, output="", error="Idle/absolute timeout exceeded", timed_out=True)
+                recovered = partial_output() if partial_output is not None else ""
+                return ExecutionResult(
+                    exit_code=None,
+                    output=recovered,
+                    error="Idle/absolute timeout exceeded",
+                    timed_out=True,
+                )
             try:
                 return await asyncio.wait_for(asyncio.shield(task), timeout=min(remaining, poll_interval_s))
             except asyncio.TimeoutError:

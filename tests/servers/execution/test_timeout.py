@@ -110,3 +110,42 @@ def test_absolute_ceiling_is_deterministic_with_fake_clock():
 
     # ...but 20s have elapsed since _start, which the ceiling always enforces.
     assert tracker.expired() is True
+
+
+@pytest.mark.asyncio
+async def test_timeout_returns_partial_output_instead_of_discarding_it():
+    """Cancelling the backend coroutine destroys its own buffers, so the timeout
+    path used to return output="" no matter how much had already been read --
+    discarding output on precisely the case a user most needs it for."""
+    tracker = IdleTimeoutTracker(idle_timeout_s=0.05, absolute_ceiling_s=1800)
+    seen: list[str] = []
+
+    async def streams_then_hangs() -> ExecutionResult:
+        seen.append("line-1\n")
+        seen.append("line-2\n")
+        await asyncio.sleep(999)
+        return ExecutionResult(exit_code=0, output="unreachable", error=None)
+
+    result = await run_with_idle_timeout(
+        streams_then_hangs(),
+        tracker,
+        poll_interval_s=0.02,
+        partial_output=lambda: "".join(seen),
+    )
+
+    assert result.timed_out is True
+    assert result.output == "line-1\nline-2\n"
+
+
+@pytest.mark.asyncio
+async def test_timeout_without_a_partial_output_getter_still_reports_empty_output():
+    tracker = IdleTimeoutTracker(idle_timeout_s=0.05, absolute_ceiling_s=1800)
+
+    async def hangs_forever() -> ExecutionResult:
+        await asyncio.sleep(999)
+        return ExecutionResult(exit_code=0, output="unreachable", error=None)
+
+    result = await run_with_idle_timeout(hangs_forever(), tracker, poll_interval_s=0.02)
+
+    assert result.timed_out is True
+    assert result.output == ""
