@@ -16,6 +16,7 @@ say something different.
 from __future__ import annotations
 
 import json
+import os
 import re
 import uuid
 from datetime import UTC, datetime
@@ -25,8 +26,8 @@ from typing import Any
 from loguru import logger
 
 from nanoinfra.secrets import crypto
-from nanoinfra.secrets.normalize import normalize_secret_input
-from nanoinfra.secrets.postgres_backend import PostgresBackend
+from nanoinfra.secrets.normalize import SecretValidationError, normalize_secret_input
+from nanoinfra.secrets.postgres_backend import PostgresBackend, PostgresSecretsUnavailableError
 from nanoinfra.secrets.types import Secret
 from nanoinfra.utils.helpers import (
     _write_text_atomic,  # pyright: ignore[reportPrivateUsage]
@@ -70,7 +71,15 @@ class SecretStore:
 
     def list_secrets(self) -> list[Secret]:
         secrets = self._list_local()
-        secrets.extend(PostgresBackend().list_secrets() if self._postgres_configured() else [])
+        if self._postgres_configured():
+            try:
+                secrets.extend(PostgresBackend().list_secrets())
+            except PostgresSecretsUnavailableError as exc:
+                # Degrade gracefully: a temporarily-unreachable shared
+                # Postgres must not break listing purely-local secrets.
+                logger.warning(
+                    "Postgres secrets backend unavailable, returning local secrets only: {}", exc
+                )
         secrets.sort(key=lambda s: s.updated_at, reverse=True)
         return secrets
 
@@ -86,21 +95,37 @@ class SecretStore:
 
     @staticmethod
     def _postgres_configured() -> bool:
-        import os
-
         return bool(os.environ.get("NANOINFRA_SECRETS_POSTGRES_DSN"))
 
     def get(self, secret_id: str) -> Secret | None:
         local = self._read_local(secret_id)
         if local is not None:
             return local
+        if not _VALID_ID_RE.match(secret_id):
+            # Ids are validated before touching any path or SQL parameter --
+            # this also skips a pointless Postgres round-trip for every
+            # name-based lookup miss (e.g. from _resolve_secret).
+            return None
         if self._postgres_configured():
             return PostgresBackend().get(secret_id)
         return None
 
+    def _check_name_unique(self, name: str, *, exclude_id: str | None) -> None:
+        """Names must be unique across BOTH providers -- a collision should
+        be caught regardless of where the colliding secret lives, since
+        name-based lookup (``_resolve_secret`` in the agent tools) would
+        otherwise silently return whichever one happens to match first."""
+        needle = name.lower()
+        for existing in self.list_secrets():
+            if exclude_id is not None and existing.id == exclude_id:
+                continue
+            if existing.name.lower() == needle:
+                raise SecretValidationError(f"a secret named {name!r} already exists")
+
     def create(self, raw: dict[str, Any]) -> Secret:
         secret_id = uuid.uuid4().hex
         secret, plaintext = normalize_secret_input(raw, secret_id=secret_id)
+        self._check_name_unique(secret.name, exclude_id=None)
         now = _now_iso()
         secret.ciphertext = crypto.encrypt(plaintext)
         secret.created_at = now
@@ -116,6 +141,7 @@ class SecretStore:
         if existing is None:
             return None
         secret, plaintext = normalize_secret_input(raw, secret_id=secret_id)
+        self._check_name_unique(secret.name, exclude_id=secret_id)
         secret.ciphertext = crypto.encrypt(plaintext)
         secret.created_at = existing.created_at
         secret.updated_at = _now_iso()
@@ -139,6 +165,8 @@ class SecretStore:
         if local_path is not None and local_path.is_file():
             local_path.unlink()
             return True
+        if not _VALID_ID_RE.match(secret_id):
+            return False
         if self._postgres_configured():
             return PostgresBackend().delete(secret_id)
         return False
@@ -158,7 +186,15 @@ class SecretStore:
         if path is None:
             raise ValueError(f"Refusing to write secret with invalid id: {secret.id!r}")
         ensure_dir(self.root)
+        # ensure_dir only mkdir()s -- it doesn't restrict permissions, so a
+        # freshly-created secrets/ directory would otherwise inherit the
+        # process umask (commonly world-readable/-executable).
+        os.chmod(self.root, 0o700)
         _write_text_atomic(path, json.dumps(secret.to_storage_dict(), ensure_ascii=False, indent=2))
+        # _write_text_atomic only preserves an *existing* file's permissions
+        # -- a brand-new secret file would otherwise inherit the process
+        # umask (commonly 0644, world-readable on a shared host).
+        os.chmod(path, 0o600)
 
 
 __all__ = ["SecretStore"]

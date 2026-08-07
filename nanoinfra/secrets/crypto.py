@@ -22,14 +22,24 @@ _ENV_VAR = "NANOINFRA_SECRETS_KEY"
 
 
 class SecretsNotConfiguredError(RuntimeError):
-    """Raised by encrypt/decrypt when NANOINFRA_SECRETS_KEY is unset."""
+    """Raised by encrypt/decrypt when NANOINFRA_SECRETS_KEY is unset or unusable.
 
-    def __init__(self) -> None:
-        super().__init__(
+    A malformed key (set but not a valid Fernet key) is functionally the
+    same "not usable" state as an unset key -- same remediation (fix the
+    env var) -- so it reuses this type rather than introducing a new one.
+    ``detail`` carries the underlying error text so the operator knows WHY,
+    not just that it's broken.
+    """
+
+    def __init__(self, detail: str | None = None) -> None:
+        message = (
             f"Secrets module is not configured: set the {_ENV_VAR} environment "
             "variable to enable it. The gateway runs fine without it -- only "
             "secret storage is unavailable until it's set."
         )
+        if detail:
+            message += f" ({detail})"
+        super().__init__(message)
 
 
 def generate_key_for_setup() -> str:
@@ -50,7 +60,12 @@ def _fernet() -> Fernet:
     key = os.environ.get(_ENV_VAR)
     if not key:
         raise SecretsNotConfiguredError
-    return Fernet(key.encode("ascii"))
+    try:
+        return Fernet(key.encode("ascii"))
+    except ValueError as exc:
+        raise SecretsNotConfiguredError(
+            f"{_ENV_VAR} is set but is not a valid Fernet key: {exc}"
+        ) from exc
 
 
 def encrypt(plaintext: str) -> bytes:

@@ -41,3 +41,16 @@ def test_decrypt_with_wrong_key_raises(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("NANOINFRA_SECRETS_KEY", crypto.generate_key_for_setup())
     with pytest.raises(Exception):  # cryptography.fernet.InvalidToken
         crypto.decrypt(ciphertext)
+
+
+def test_malformed_key_raises_secrets_not_configured_error_with_detail(monkeypatch: pytest.MonkeyPatch):
+    """A key that isn't a valid Fernet key (not 32 url-safe base64 bytes)
+    must surface as our own typed, operator-actionable error -- not a raw
+    ValueError from Fernet's constructor -- and the message must explain
+    WHY, not just that the module "isn't configured"."""
+    monkeypatch.setenv("NANOINFRA_SECRETS_KEY", "not-a-valid-key")
+    with pytest.raises(crypto.SecretsNotConfiguredError) as excinfo:
+        crypto.encrypt("anything")
+    message = str(excinfo.value)
+    assert "not a valid Fernet key" in message
+    assert "base64" in message.lower() or "Fernet key" in message
