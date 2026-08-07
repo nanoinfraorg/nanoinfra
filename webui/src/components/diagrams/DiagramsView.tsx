@@ -93,7 +93,25 @@ function TargetPicker({
   );
 }
 
-function ExportButton({ diagramName }: { diagramName: string }) {
+// Two frames is the standard "wait for layout to settle" trick -- one for
+// React to commit the DOM, one for the browser to actually paint/measure it
+// -- so the canvas the Code view just switched away from has real dimensions
+// by the time html-to-image reads it, instead of capturing it mid-transition.
+function waitForNextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
+
+function ExportButton({
+  diagramName,
+  mode,
+  onSetMode,
+}: {
+  diagramName: string;
+  mode: ViewMode;
+  onSetMode: (mode: ViewMode) => void;
+}) {
   // Requires a ReactFlowProvider ancestor -- reads the live canvas via
   // getNodes(), not diagramAsData, since the export captures the actual
   // rendered DOM (see exportDiagramImage.ts), not a re-derived model.
@@ -106,12 +124,22 @@ function ExportButton({ diagramName }: { diagramName: string }) {
       setOpen(false);
       setExporting(true);
       try {
+        // The Code view unmounts the canvas entirely (see the mode ternary
+        // below), so there's nothing for html-to-image to capture from
+        // there -- hop over to Visual just long enough to export, then
+        // restore whichever view the user was actually on.
+        const cameFromCode = mode === "code";
+        if (cameFromCode) {
+          onSetMode("visual");
+          await waitForNextPaint();
+        }
         await exportDiagramImage(reactFlowInstance, diagramName, format);
+        if (cameFromCode) onSetMode("code");
       } finally {
         setExporting(false);
       }
     },
-    [reactFlowInstance, diagramName],
+    [reactFlowInstance, diagramName, mode, onSetMode],
   );
 
   return (
@@ -387,7 +415,7 @@ function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps)
                 <Code2 className="h-3.5 w-3.5" /> Code
               </button>
             </div>
-            {mode === "visual" ? <ExportButton diagramName={diagramName} /> : null}
+            <ExportButton diagramName={diagramName} mode={mode} onSetMode={setMode} />
             <button
               type="button"
               onClick={() => void handleSave()}
