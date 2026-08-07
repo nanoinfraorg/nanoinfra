@@ -1,10 +1,16 @@
-"""Workspace-scoped secret persistence — one JSON file per local secret.
+"""Workspace-scoped secret persistence, dispatching between two providers.
 
-Mirrors nanoinfra/diagrams/store.py's DiagramStore shape exactly (per-entity
-files, atomic writes, validated ids) for the ``local`` provider. Postgres
-dispatch is added in Task 4 -- this file's ``create``/``get``/``update``/
-``delete`` already branch on ``provider_id`` so that addition only fills in
-the other branch, it doesn't restructure anything here.
+Mirrors nanoinfra/diagrams/store.py's DiagramStore shape (per-entity files,
+atomic writes, validated ids) for the ``local`` provider. Every mutating or
+lookup method here (``get``/``create``/``update``/``delete``/
+``list_secrets``/``resolve_plaintext``) branches between local JSON files
+and the shared Postgres backend (``postgres_backend.py``). ``create`` picks
+the storage location from the incoming payload's ``providerId`` -- that is
+the only point a location is ever chosen. Every other method dispatches on
+where the secret *already* lives (looked up first via a local read or,
+failing that, Postgres), never on a caller-supplied ``providerId``, since a
+secret's storage location must not move just because a payload happens to
+say something different.
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ from loguru import logger
 
 from nanoinfra.secrets import crypto
 from nanoinfra.secrets.normalize import normalize_secret_input
+from nanoinfra.secrets.postgres_backend import PostgresBackend
 from nanoinfra.secrets.types import Secret
 from nanoinfra.utils.helpers import (
     _write_text_atomic,  # pyright: ignore[reportPrivateUsage]
@@ -62,55 +69,86 @@ class SecretStore:
             return None
 
     def list_secrets(self) -> list[Secret]:
-        if not self.root.is_dir():
-            return []
-        secrets: list[Secret] = []
-        for path in self.root.glob("*.json"):
-            secret = self._read_local(path.stem)
-            if secret is not None:
-                secrets.append(secret)
+        secrets = self._list_local()
+        secrets.extend(PostgresBackend().list_secrets() if self._postgres_configured() else [])
         secrets.sort(key=lambda s: s.updated_at, reverse=True)
         return secrets
 
+    def _list_local(self) -> list[Secret]:
+        if not self.root.is_dir():
+            return []
+        result: list[Secret] = []
+        for path in self.root.glob("*.json"):
+            secret = self._read_local(path.stem)
+            if secret is not None:
+                result.append(secret)
+        return result
+
+    @staticmethod
+    def _postgres_configured() -> bool:
+        import os
+
+        return bool(os.environ.get("NANOINFRA_SECRETS_POSTGRES_DSN"))
+
     def get(self, secret_id: str) -> Secret | None:
-        return self._read_local(secret_id)
+        local = self._read_local(secret_id)
+        if local is not None:
+            return local
+        if self._postgres_configured():
+            return PostgresBackend().get(secret_id)
+        return None
 
     def create(self, raw: dict[str, Any]) -> Secret:
         secret_id = uuid.uuid4().hex
         secret, plaintext = normalize_secret_input(raw, secret_id=secret_id)
-        if secret.provider_id != "local":
-            raise NotImplementedError(f"provider {secret.provider_id!r} not supported yet")
         now = _now_iso()
         secret.ciphertext = crypto.encrypt(plaintext)
         secret.created_at = now
         secret.updated_at = now
-        self._write_local(secret)
+        if secret.provider_id == "postgres":
+            PostgresBackend().create(secret)
+        else:
+            self._write_local(secret)
         return secret
 
     def update(self, secret_id: str, raw: dict[str, Any]) -> Secret | None:
-        existing = self._read_local(secret_id)
+        existing = self.get(secret_id)
         if existing is None:
             return None
         secret, plaintext = normalize_secret_input(raw, secret_id=secret_id)
         secret.ciphertext = crypto.encrypt(plaintext)
         secret.created_at = existing.created_at
         secret.updated_at = _now_iso()
-        self._write_local(secret)
+        # A secret's storage location is fixed at creation and cannot move
+        # on an edit -- pin provider_id to the existing (real) location,
+        # discarding whatever providerId the payload happened to include.
+        # This is not just about *this* call's dispatch: if the persisted
+        # provider_id field itself were allowed to drift to the payload's
+        # value, the NEXT update would read back that drifted value as
+        # "existing" and genuinely misroute -- e.g. silently no-op'ing
+        # against a Postgres row that was never created.
+        secret.provider_id = existing.provider_id
+        if existing.provider_id == "postgres":
+            PostgresBackend().update(secret)
+        else:
+            self._write_local(secret)
         return secret
 
     def delete(self, secret_id: str) -> bool:
-        path = self._path(secret_id)
-        if path is None or not path.is_file():
-            return False
-        path.unlink()
-        return True
+        local_path = self._path(secret_id)
+        if local_path is not None and local_path.is_file():
+            local_path.unlink()
+            return True
+        if self._postgres_configured():
+            return PostgresBackend().delete(secret_id)
+        return False
 
     def resolve_plaintext(self, secret_id: str) -> str | None:
         """Decrypt a secret's value. The ONLY method in this module that
         calls crypto.decrypt -- callers outside this class (REST routes,
         agent tools) must never call crypto.decrypt directly; this is the
         single seam future execution code (Servers module) goes through."""
-        secret = self._read_local(secret_id)
+        secret = self.get(secret_id)
         if secret is None:
             return None
         return crypto.decrypt(secret.ciphertext)

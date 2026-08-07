@@ -58,6 +58,37 @@ def test_update_changes_name_and_value(tmp_path: Path):
     assert store.resolve_plaintext(secret.id) == "2"
 
 
+def test_update_does_not_move_storage_when_payload_lies_about_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A secret's storage location is fixed at creation. An update payload
+    that claims a different providerId must not move it -- dispatch must
+    key off the *existing* secret's provider_id, not the payload's. If this
+    regresses to the payload-driven dispatch the Task 3 review flagged,
+    this update would incorrectly try (and, unconfigured, fail) to write to
+    Postgres instead of leaving the local file alone."""
+    monkeypatch.delenv("NANOINFRA_SECRETS_POSTGRES_DSN", raising=False)
+    store = SecretStore(tmp_path)
+    secret = store.create({"name": "old", "kind": "password", "providerId": "local", "value": "1"})
+    local_path = tmp_path / "secrets" / f"{secret.id}.json"
+    assert local_path.is_file()
+
+    updated = store.update(secret.id, {"name": "new", "kind": "password", "providerId": "postgres", "value": "2"})
+
+    assert updated is not None
+    assert updated.provider_id == "local"  # persisted field must not drift to the payload's claim either
+    assert local_path.is_file()  # still stored locally, unmoved
+    assert store.resolve_plaintext(secret.id) == "2"
+
+    # A second update must still resolve locally -- if the first update had
+    # let provider_id drift to "postgres", this would misroute (raising
+    # PostgresSecretsNotConfiguredError here, or silently no-op'ing if
+    # Postgres happened to be configured).
+    updated2 = store.update(secret.id, {"name": "new2", "kind": "password", "providerId": "local", "value": "3"})
+    assert updated2 is not None
+    assert store.resolve_plaintext(secret.id) == "3"
+
+
 def test_update_unknown_id_returns_none(tmp_path: Path):
     store = SecretStore(tmp_path)
     assert store.update("0" * 32, {"name": "n", "kind": "password", "providerId": "local", "value": "1"}) is None
