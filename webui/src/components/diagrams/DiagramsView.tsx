@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ReactFlowProvider, type Edge, type Node } from "@xyflow/react";
-import { Check, ChevronDown, ChevronLeft, Code2, Save, Waypoints } from "lucide-react";
+import { ReactFlowProvider, useReactFlow, type Edge, type Node } from "@xyflow/react";
+import { Check, ChevronDown, ChevronLeft, Code2, Download, Save, Waypoints } from "lucide-react";
 
 import { ComponentPalette } from "./ComponentPalette";
 import { DiagramCanvas, type DiagramSelection } from "./DiagramCanvas";
 import { DiagramList } from "./DiagramList";
 import { EdgeInspector, NodeInspector } from "./DiagramInspector";
 import { diagramToText } from "./diagramToText";
+import { exportDiagramImage } from "./exportDiagramImage";
 import { ComponentCatalogProvider, useComponentCatalog } from "./useComponentCatalog";
 import { useDiagrams } from "@/hooks/useDiagrams";
 import { createBlankDiagram, type Diagram, type DiagramNodeData } from "./diagramTypes";
@@ -86,6 +87,59 @@ function TargetPicker({
           <div className="mt-1 border-t border-border/45 px-2.5 pt-2 text-[11px] text-muted-foreground">
             Fake list for now — real servers come from Server Management.
           </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ExportButton({ diagramName }: { diagramName: string }) {
+  // Requires a ReactFlowProvider ancestor -- reads the live canvas via
+  // getNodes(), not diagramAsData, since the export captures the actual
+  // rendered DOM (see exportDiagramImage.ts), not a re-derived model.
+  const reactFlowInstance = useReactFlow();
+  const [open, setOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = useCallback(
+    async (format: "png" | "svg") => {
+      setOpen(false);
+      setExporting(true);
+      try {
+        await exportDiagramImage(reactFlowInstance, diagramName, format);
+      } finally {
+        setExporting(false);
+      }
+    },
+    [reactFlowInstance, diagramName],
+  );
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={exporting}
+        className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <Download className="h-3.5 w-3.5" /> {exporting ? "Exporting…" : "Export"}
+      </button>
+      {open ? (
+        <div className="absolute right-0 top-9 z-10 w-40 rounded-[14px] border border-border bg-settings-surface p-1.5 shadow-lg">
+          <button
+            type="button"
+            onClick={() => void handleExport("png")}
+            className="flex h-9 w-full items-center rounded-[10px] px-2.5 text-left text-[13px] font-medium text-foreground hover:bg-muted/70"
+          >
+            Download PNG
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleExport("svg")}
+            className="flex h-9 w-full items-center rounded-[10px] px-2.5 text-left text-[13px] font-medium text-foreground hover:bg-muted/70"
+          >
+            Download SVG
+          </button>
         </div>
       ) : null}
     </div>
@@ -277,77 +331,78 @@ function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps)
   }, [selection]);
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col">
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label="Back to diagrams"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <div className="flex flex-col">
-            <input
-              value={diagramName}
-              onChange={(event) => setDiagramName(event.target.value)}
-              placeholder="Untitled diagram"
-              // Width tracks the title's own length (clamped) so it reads like
-              // editable text, not a cramped fixed-size box — the browser
-              // default (~20ch) truncated most real titles.
-              style={{ width: `${Math.min(Math.max(diagramName.length, 10), 60) + 2}ch` }}
-              className="-ml-1.5 max-w-full rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-[14px] font-semibold text-foreground outline-none hover:border-border/45 focus:border-border focus:bg-muted/70"
-            />
-            <span className="text-[11px] text-muted-foreground">
-              {targets.length > 0 ? `Targets: ${targets.join(", ")}` : "No targets selected yet"}
-              {lastSavedAt ? ` · Saved ${lastSavedAt}` : diagramId ? "" : " · Not saved yet"}
-            </span>
-            {saveError ? (
-              <span className="text-[11px] text-destructive">Failed to save: {saveError}</span>
-            ) : null}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <TargetPicker targets={targets} onToggle={handleToggleTarget} />
-          <div className="flex items-center gap-0.5 rounded-full bg-muted p-0.5 text-[12px] font-medium text-muted-foreground">
+    <ReactFlowProvider>
+      <div className="flex h-full min-h-0 w-full flex-col">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setMode("visual")}
-              className={[
-                "flex items-center gap-1.5 rounded-full px-3 py-1 transition-colors",
-                mode === "visual" ? "bg-background text-foreground" : "hover:text-foreground",
-              ].join(" ")}
+              onClick={onBack}
+              aria-label="Back to diagrams"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/70 hover:text-foreground"
             >
-              <Waypoints className="h-3.5 w-3.5" /> Visual
+              <ChevronLeft className="h-4 w-4" />
             </button>
+            <div className="flex flex-col">
+              <input
+                value={diagramName}
+                onChange={(event) => setDiagramName(event.target.value)}
+                placeholder="Untitled diagram"
+                // Width tracks the title's own length (clamped) so it reads like
+                // editable text, not a cramped fixed-size box — the browser
+                // default (~20ch) truncated most real titles.
+                style={{ width: `${Math.min(Math.max(diagramName.length, 10), 60) + 2}ch` }}
+                className="-ml-1.5 max-w-full rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-[14px] font-semibold text-foreground outline-none hover:border-border/45 focus:border-border focus:bg-muted/70"
+              />
+              <span className="text-[11px] text-muted-foreground">
+                {targets.length > 0 ? `Targets: ${targets.join(", ")}` : "No targets selected yet"}
+                {lastSavedAt ? ` · Saved ${lastSavedAt}` : diagramId ? "" : " · Not saved yet"}
+              </span>
+              {saveError ? (
+                <span className="text-[11px] text-destructive">Failed to save: {saveError}</span>
+              ) : null}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <TargetPicker targets={targets} onToggle={handleToggleTarget} />
+            <div className="flex items-center gap-0.5 rounded-full bg-muted p-0.5 text-[12px] font-medium text-muted-foreground">
+              <button
+                type="button"
+                onClick={() => setMode("visual")}
+                className={[
+                  "flex items-center gap-1.5 rounded-full px-3 py-1 transition-colors",
+                  mode === "visual" ? "bg-background text-foreground" : "hover:text-foreground",
+                ].join(" ")}
+              >
+                <Waypoints className="h-3.5 w-3.5" /> Visual
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("code")}
+                className={[
+                  "flex items-center gap-1.5 rounded-full px-3 py-1 transition-colors",
+                  mode === "code" ? "bg-background text-foreground" : "hover:text-foreground",
+                ].join(" ")}
+              >
+                <Code2 className="h-3.5 w-3.5" /> Code
+              </button>
+            </div>
+            {mode === "visual" ? <ExportButton diagramName={diagramName} /> : null}
             <button
               type="button"
-              onClick={() => setMode("code")}
-              className={[
-                "flex items-center gap-1.5 rounded-full px-3 py-1 transition-colors",
-                mode === "code" ? "bg-background text-foreground" : "hover:text-foreground",
-              ].join(" ")}
+              onClick={() => void handleSave()}
+              disabled={saving}
+              className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <Code2 className="h-3.5 w-3.5" /> Code
+              <Save className="h-3.5 w-3.5" /> {saving ? "Saving…" : "Save"}
             </button>
           </div>
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={saving}
-            className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Save className="h-3.5 w-3.5" /> {saving ? "Saving…" : "Save"}
-          </button>
         </div>
-      </div>
 
-      {mode === "visual" ? (
-        <div className="flex min-h-0 flex-1">
-          <ComponentPalette onAdd={handleAddComponent} />
-          <div className="min-h-0 flex-1">
-            <ReactFlowProvider>
+        {mode === "visual" ? (
+          <div className="flex min-h-0 flex-1">
+            <ComponentPalette onAdd={handleAddComponent} />
+            <div className="min-h-0 flex-1">
               <DiagramCanvas
                 nodes={nodes}
                 edges={edges}
@@ -356,45 +411,45 @@ function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps)
                 onSelect={setSelection}
                 onDropComponent={handleAddComponent}
               />
-            </ReactFlowProvider>
+            </div>
+            {selectedNode ? (
+              <NodeInspector
+                node={selectedNode}
+                nodes={nodes}
+                edges={edges}
+                onClose={() => setSelection(null)}
+                onChangeLabel={(value) => updateSelectedNode((data) => ({ ...data, label: value }))}
+                onChangeProvider={(providerId) => updateSelectedNode((data) => ({ ...data, providerId, config: {} }))}
+                onChangeConfig={(key, value) =>
+                  updateSelectedNode((data) => ({ ...data, config: { ...data.config, [key]: value } }))
+                }
+                onToggleLock={handleToggleLock}
+                onDelete={handleDeleteNode}
+              />
+            ) : selectedEdge ? (
+              <EdgeInspector
+                edge={selectedEdge}
+                sourceLabel={nodes.find((n) => n.id === selectedEdge.source)?.data.label ?? selectedEdge.source}
+                targetLabel={nodes.find((n) => n.id === selectedEdge.target)?.data.label ?? selectedEdge.target}
+                onClose={() => setSelection(null)}
+                onChangeLabel={handleChangeEdgeLabel}
+                onDelete={handleDeleteEdge}
+              />
+            ) : null}
           </div>
-          {selectedNode ? (
-            <NodeInspector
-              node={selectedNode}
-              nodes={nodes}
-              edges={edges}
-              onClose={() => setSelection(null)}
-              onChangeLabel={(value) => updateSelectedNode((data) => ({ ...data, label: value }))}
-              onChangeProvider={(providerId) => updateSelectedNode((data) => ({ ...data, providerId, config: {} }))}
-              onChangeConfig={(key, value) =>
-                updateSelectedNode((data) => ({ ...data, config: { ...data.config, [key]: value } }))
-              }
-              onToggleLock={handleToggleLock}
-              onDelete={handleDeleteNode}
-            />
-          ) : selectedEdge ? (
-            <EdgeInspector
-              edge={selectedEdge}
-              sourceLabel={nodes.find((n) => n.id === selectedEdge.source)?.data.label ?? selectedEdge.source}
-              targetLabel={nodes.find((n) => n.id === selectedEdge.target)?.data.label ?? selectedEdge.target}
-              onClose={() => setSelection(null)}
-              onChangeLabel={handleChangeEdgeLabel}
-              onDelete={handleDeleteEdge}
-            />
-          ) : null}
-        </div>
-      ) : (
-        <div className="min-h-0 flex-1 overflow-auto bg-background p-4">
-          <div className="mb-2 text-[11px] text-muted-foreground">
-            Read-only preview generated from the visual diagram — switch back to Visual to edit. Includes the
-            Mermaid frontmatter title, so this text is a complete, pasteable Mermaid diagram.
+        ) : (
+          <div className="min-h-0 flex-1 overflow-auto bg-background p-4">
+            <div className="mb-2 text-[11px] text-muted-foreground">
+              Read-only preview generated from the visual diagram — switch back to Visual to edit. Includes the
+              Mermaid frontmatter title, so this text is a complete, pasteable Mermaid diagram.
+            </div>
+            <pre className="rounded-[14px] border border-border/45 bg-settings-surface p-4 text-[12.5px] leading-relaxed text-foreground">
+              <code>{generatedText}</code>
+            </pre>
           </div>
-          <pre className="rounded-[14px] border border-border/45 bg-settings-surface p-4 text-[12.5px] leading-relaxed text-foreground">
-            <code>{generatedText}</code>
-          </pre>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </ReactFlowProvider>
   );
 }
 
