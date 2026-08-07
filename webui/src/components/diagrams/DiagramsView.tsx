@@ -73,7 +73,7 @@ function TargetPicker({
             <div className="px-2.5 py-2 text-[12px] text-destructive">Failed to load servers: {error}</div>
           ) : servers.length === 0 ? (
             <div className="px-2.5 py-2 text-[12px] text-muted-foreground">
-              No servers yet — add one with the agent (create_server) or from Server Management.
+              No servers yet — add one with the agent (create_server) or from Infrastructure ▸ Servers.
             </div>
           ) : (
             servers.map((server) => {
