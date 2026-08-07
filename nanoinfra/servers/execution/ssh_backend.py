@@ -12,6 +12,8 @@ backend's only job is the connection itself.
 
 from __future__ import annotations
 
+from typing import Callable
+
 import asyncssh
 
 from nanoinfra.servers.execution.base import ExecutionResult
@@ -26,7 +28,14 @@ def _looks_like_private_key(value: str) -> bool:
 
 
 class SSHBackend:
-    async def run(self, server: Server, command: str, secret_value, *, on_activity) -> ExecutionResult:  # noqa: ANN001
+    async def run(
+        self,
+        server: Server,
+        command: str,
+        secret_value: str | None,
+        *,
+        on_activity: Callable[[str], None],
+    ) -> ExecutionResult:
         host = server.config.get("host", "")
         port = int(server.config.get("port") or 22)
         username = server.config.get("username") or None
@@ -66,6 +75,12 @@ class SSHBackend:
                     return ExecutionResult(exit_code=completed.exit_status, output=output, error=None)
         except Exception as exc:  # noqa: BLE001 -- connection/auth failures must return, not raise
             return ExecutionResult(exit_code=None, output="", error=str(exc))
+        # Unreachable in practice: asyncssh's __aexit__ is typed to return bool (it
+        # never actually suppresses an exception), which makes the type checker see
+        # a path where control could fall past the async-with blocks above without
+        # raising or returning. This satisfies strict-mode exhaustiveness for that
+        # theoretical path without changing any real behavior.
+        return ExecutionResult(exit_code=None, output="", error="unreachable: connection closed without a result")
 
 
 __all__ = ["DEFAULT_IDLE_TIMEOUT_S", "SSHBackend"]

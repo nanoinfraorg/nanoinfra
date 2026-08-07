@@ -23,20 +23,31 @@ wrapped so a missing-stdout edge case is reported like any other
 failure instead of raising out of this backend.
 """
 
+# pyright: reportMissingTypeStubs=false
 from __future__ import annotations
 
 import asyncio
+from typing import Any, Callable, cast
 
 import ansible_runner
 
 from nanoinfra.servers.execution.base import ExecutionResult
 from nanoinfra.servers.types import Server
 
+ansible_runner_module = cast(Any, ansible_runner)
+
 DEFAULT_IDLE_TIMEOUT_S = 300
 
 
 class AnsibleRunnerBackend:
-    async def run(self, server: Server, command: str, secret_value, *, on_activity) -> ExecutionResult:  # noqa: ANN001
+    async def run(
+        self,
+        server: Server,
+        command: str,
+        secret_value: str | None,
+        *,
+        on_activity: Callable[[str], None],
+    ) -> ExecutionResult:
         host_pattern = server.config.get("inventoryHost") or server.config.get("group") or "all"
         private_data_dir = server.config.get("projectPath") or "."
 
@@ -51,7 +62,7 @@ class AnsibleRunnerBackend:
             kwargs["ssh_key"] = secret_value
 
         try:
-            runner = await asyncio.to_thread(ansible_runner.run, **kwargs)
+            runner = await asyncio.to_thread(ansible_runner_module.run, **kwargs)
         except Exception as exc:  # noqa: BLE001 -- must report, not raise
             return ExecutionResult(exit_code=None, output="", error=str(exc))
 

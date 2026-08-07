@@ -23,6 +23,7 @@ on the parsed hostname is the correct, plan-consistent choice.
 
 from __future__ import annotations
 
+from typing import Callable
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -43,7 +44,14 @@ def _parse_command(command: str) -> tuple[str, str]:
 
 
 class ApiBackend:
-    async def run(self, server: Server, command: str, secret_value, *, on_activity) -> ExecutionResult:  # noqa: ANN001
+    async def run(
+        self,
+        server: Server,
+        command: str,
+        secret_value: str | None,
+        *,
+        on_activity: Callable[[str], None],
+    ) -> ExecutionResult:
         base_url = server.config.get("baseUrl", "")
         method, path = _parse_command(command)
         url = urljoin(base_url if base_url.endswith("/") else base_url + "/", path.lstrip("/"))
