@@ -68,7 +68,10 @@
     "skills": {
       "title": "Kỹ năng"
     },
-    "diagrams": "Sơ đồ hạ tầng"
+    "diagrams": "Sơ đồ hạ tầng",
+    "infrastructure": "Hạ tầng",
+    "servers": "Máy chủ",
+    "secrets": "Bí mật"
   },
   "settings": {
     "backToChat": "Quay lại chat",

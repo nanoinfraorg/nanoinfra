@@ -1,0 +1,252 @@
+{
+  "version": 1,
+  "diagram": {
+    "id": "2ffb06f5a4cd42429854e4b1756528da",
+    "name": "Example: web app with cache + replica",
+    "targets": [
+      "prod-web-01"
+    ],
+    "nodes": [
+      {
+        "id": "client",
+        "position": {
+          "x": 40.0,
+          "y": 20.0
+        },
+        "data": {
+          "label": "User Client",
+          "componentTypeId": "client",
+          "providerId": "browser",
+          "config": {},
+          "locked": false
+        }
+      },
+      {
+        "id": "dns",
+        "position": {
+          "x": 20.0,
+          "y": 140.0
+        },
+        "data": {
+          "label": "Cloudflare DNS",
+          "componentTypeId": "dns",
+          "providerId": "cloudflare",
+          "config": {
+            "zone": "example.com"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "lb",
+        "position": {
+          "x": 20.0,
+          "y": 260.0
+        },
+        "data": {
+          "label": "Application Load Balancer",
+          "componentTypeId": "load_balancer",
+          "providerId": "alb",
+          "config": {},
+          "locked": false
+        }
+      },
+      {
+        "id": "web",
+        "position": {
+          "x": 20.0,
+          "y": 380.0
+        },
+        "data": {
+          "label": "Web Application Server",
+          "componentTypeId": "web_server",
+          "providerId": "nginx",
+          "config": {
+            "image": "nginx:1.27",
+            "domains": "example.com, www.example.com"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "db",
+        "position": {
+          "x": -140.0,
+          "y": 520.0
+        },
+        "data": {
+          "label": "PostgreSQL Database",
+          "componentTypeId": "database",
+          "providerId": "postgres",
+          "config": {
+            "image": "postgres:17"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "cache",
+        "position": {
+          "x": 180.0,
+          "y": 520.0
+        },
+        "data": {
+          "label": "Redis Cache",
+          "componentTypeId": "cache",
+          "providerId": "redis",
+          "config": {
+            "image": "redis:7"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "replica",
+        "position": {
+          "x": -140.0,
+          "y": 640.0
+        },
+        "data": {
+          "label": "Read Replica",
+          "componentTypeId": "database",
+          "providerId": "postgres",
+          "config": {
+            "image": "postgres:17"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "storage-group",
+        "position": {
+          "x": 380.0,
+          "y": 380.0
+        },
+        "data": {
+          "label": "Storage via Isilon",
+          "componentTypeId": "__group__",
+          "providerId": "generic",
+          "config": {},
+          "locked": false
+        },
+        "type": "groupBox",
+        "style": {
+          "width": 300.0,
+          "height": 420.0
+        }
+      },
+      {
+        "id": "storage-web",
+        "position": {
+          "x": 20.0,
+          "y": 50.0
+        },
+        "data": {
+          "label": "Storage",
+          "componentTypeId": "storage",
+          "providerId": "pvc",
+          "config": {
+            "claimName": "nginx-pvc",
+            "size": "20Gi"
+          },
+          "locked": false
+        },
+        "parentId": "storage-group"
+      },
+      {
+        "id": "storage-db",
+        "position": {
+          "x": 20.0,
+          "y": 170.0
+        },
+        "data": {
+          "label": "Storage",
+          "componentTypeId": "storage",
+          "providerId": "pvc",
+          "config": {
+            "claimName": "postgres-pvc",
+            "size": "200Gi"
+          },
+          "locked": false
+        },
+        "parentId": "storage-group"
+      },
+      {
+        "id": "storage-cache",
+        "position": {
+          "x": 20.0,
+          "y": 290.0
+        },
+        "data": {
+          "label": "Storage",
+          "componentTypeId": "storage",
+          "providerId": "pvc",
+          "config": {
+            "claimName": "redis-pvc",
+            "size": "50Gi"
+          },
+          "locked": false
+        },
+        "parentId": "storage-group"
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source": "client",
+        "target": "dns",
+        "label": "HTTPS"
+      },
+      {
+        "id": "e2",
+        "source": "dns",
+        "target": "lb",
+        "label": "Load Balance"
+      },
+      {
+        "id": "e3",
+        "source": "lb",
+        "target": "web",
+        "label": "Route HTTP"
+      },
+      {
+        "id": "e4",
+        "source": "web",
+        "target": "db",
+        "label": "Read/Write"
+      },
+      {
+        "id": "e5",
+        "source": "web",
+        "target": "cache",
+        "label": "Cache/Session"
+      },
+      {
+        "id": "e6",
+        "source": "db",
+        "target": "replica",
+        "label": "Replicate"
+      },
+      {
+        "id": "e7",
+        "source": "web",
+        "target": "storage-web",
+        "label": "Read/Write"
+      },
+      {
+        "id": "e8",
+        "source": "db",
+        "target": "storage-db",
+        "label": "Read/Write"
+      },
+      {
+        "id": "e9",
+        "source": "cache",
+        "target": "storage-cache",
+        "label": "Read/Write"
+      }
+    ]
+  },
+  "created_at": "2026-08-07T04:52:17.540101+00:00",
+  "updated_at": "2026-08-07T04:52:17.540101+00:00"
+}

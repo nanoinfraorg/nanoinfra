@@ -492,3 +492,92 @@ async def test_runner_blocks_repeated_external_fetches():
         if msg.get("role") == "tool" and msg.get("tool_call_id") == "call_3"
     ][0]
     assert "repeated external lookup blocked" in blocked_tool_message["content"]
+
+
+class _SensitiveTool(Tool):
+    """Stand-in for create_secret/update_secret: declares value as sensitive."""
+
+    sensitive_params = frozenset({"value"})
+
+    def __init__(self, received_calls: list[dict]):
+        self._received_calls = received_calls
+
+    @property
+    def name(self) -> str:
+        return "store_thing"
+
+    @property
+    def description(self) -> str:
+        return "store_thing"
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {}, "required": []}
+
+    async def execute(self, **kwargs):
+        self._received_calls.append(kwargs)
+        return "stored"
+
+
+async def test_runner_redacts_sensitive_tool_arguments_in_persisted_and_checkpointed_messages():
+    """create_secret/update_secret's ``value`` must never reach session history,
+    checkpoints, or a later model turn in plaintext -- only the live execute()
+    call for this turn sees it."""
+    provider = MagicMock()
+    captured_second_call: list[dict] = []
+    checkpoints: list[dict] = []
+    received_calls: list[dict] = []
+    call_count = {"n": 0}
+
+    async def checkpoint(payload: dict) -> None:
+        checkpoints.append(payload)
+
+    async def chat_with_retry(*, messages, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return LLMResponse(
+                content=None,
+                tool_calls=[
+                    ToolCallRequest(
+                        id="call_1",
+                        name="store_thing",
+                        arguments={"name": "db-password", "value": "hunter2"},
+                    )
+                ],
+                usage={},
+            )
+        captured_second_call[:] = messages
+        return LLMResponse(content="done", tool_calls=[], usage={})
+
+    provider.chat_with_retry = chat_with_retry
+    tools = ToolRegistry()
+    tools.register(_SensitiveTool(received_calls))
+
+    runner = AgentRunner()
+    result = await runner.run(make_run_spec(provider,
+        initial_messages=[{"role": "user", "content": "store a secret"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=2,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        checkpoint_callback=checkpoint,
+    ))
+
+    assert result.final_content == "done"
+
+    # Execution for this turn still received the real value.
+    assert received_calls == [{"name": "db-password", "value": "hunter2"}]
+
+    # Nothing sent back to the model on the next turn contains the plaintext value.
+    assistant_messages = [
+        msg for msg in captured_second_call
+        if msg.get("role") == "assistant" and msg.get("tool_calls")
+    ]
+    assert len(assistant_messages) == 1
+    persisted_args = assistant_messages[0]["tool_calls"][0]["function"]["arguments"]
+    assert "hunter2" not in persisted_args
+    assert "[REDACTED]" in persisted_args
+
+    # Nor does any checkpoint payload (what a WebUI/progress consumer would see).
+    for payload in checkpoints:
+        assert "hunter2" not in str(payload)

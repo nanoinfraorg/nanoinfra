@@ -1,0 +1,217 @@
+{
+  "version": 1,
+  "diagram": {
+    "id": "8ce4b0ba3a844fb4be5033437a6c7614",
+    "name": "Example: disaster recovery (cross-region failover)",
+    "targets": [],
+    "nodes": [
+      {
+        "id": "dns-failover",
+        "position": {
+          "x": 40.0,
+          "y": 40.0
+        },
+        "data": {
+          "label": "Route 53 (failover routing)",
+          "componentTypeId": "dns",
+          "providerId": "route53",
+          "config": {
+            "hostedZoneId": "Z0PRIMARY"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "primary-region",
+        "position": {
+          "x": 40.0,
+          "y": 210.0
+        },
+        "data": {
+          "label": "Primary Region (us-east-1)",
+          "componentTypeId": "__group__",
+          "providerId": "generic",
+          "config": {},
+          "locked": false
+        },
+        "type": "groupBox",
+        "style": {
+          "width": 340.0,
+          "height": 300.0
+        }
+      },
+      {
+        "id": "app-primary",
+        "position": {
+          "x": 20.0,
+          "y": 50.0
+        },
+        "data": {
+          "label": "App (primary)",
+          "componentTypeId": "application",
+          "providerId": "custom-docker-app",
+          "config": {
+            "image": "myorg/api:latest"
+          },
+          "locked": false
+        },
+        "parentId": "primary-region"
+      },
+      {
+        "id": "db-primary",
+        "position": {
+          "x": 20.0,
+          "y": 170.0
+        },
+        "data": {
+          "label": "PostgreSQL (primary)",
+          "componentTypeId": "database",
+          "providerId": "postgres",
+          "config": {
+            "image": "postgres:17"
+          },
+          "locked": false
+        },
+        "parentId": "primary-region"
+      },
+      {
+        "id": "dr-region",
+        "position": {
+          "x": 420.0,
+          "y": 210.0
+        },
+        "data": {
+          "label": "DR Region (us-west-2) — standby",
+          "componentTypeId": "__group__",
+          "providerId": "generic",
+          "config": {},
+          "locked": false
+        },
+        "type": "groupBox",
+        "style": {
+          "width": 340.0,
+          "height": 300.0
+        }
+      },
+      {
+        "id": "app-standby",
+        "position": {
+          "x": 20.0,
+          "y": 50.0
+        },
+        "data": {
+          "label": "App (standby, scaled to 0)",
+          "componentTypeId": "application",
+          "providerId": "custom-docker-app",
+          "config": {
+            "image": "myorg/api:latest"
+          },
+          "locked": false
+        },
+        "parentId": "dr-region"
+      },
+      {
+        "id": "db-standby",
+        "position": {
+          "x": 20.0,
+          "y": 170.0
+        },
+        "data": {
+          "label": "PostgreSQL (warm standby)",
+          "componentTypeId": "database",
+          "providerId": "postgres",
+          "config": {
+            "image": "postgres:17"
+          },
+          "locked": false
+        },
+        "parentId": "dr-region"
+      },
+      {
+        "id": "velero",
+        "position": {
+          "x": 800.0,
+          "y": 40.0
+        },
+        "data": {
+          "label": "Velero (scheduled backups)",
+          "componentTypeId": "backup",
+          "providerId": "velero",
+          "config": {
+            "schedule": "0 2 * * *",
+            "retention": "30d"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "backup-s3",
+        "position": {
+          "x": 800.0,
+          "y": 210.0
+        },
+        "data": {
+          "label": "Cross-region backup (S3)",
+          "componentTypeId": "storage",
+          "providerId": "s3",
+          "config": {
+            "bucket": "acme-dr-backups"
+          },
+          "locked": false
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source": "dns-failover",
+        "target": "app-primary",
+        "label": "primary (active)"
+      },
+      {
+        "id": "e2",
+        "source": "dns-failover",
+        "target": "app-standby",
+        "label": "failover (standby)"
+      },
+      {
+        "id": "e3",
+        "source": "app-primary",
+        "target": "db-primary",
+        "label": "Read/Write"
+      },
+      {
+        "id": "e4",
+        "source": "app-standby",
+        "target": "db-standby",
+        "label": "Read/Write (standby)"
+      },
+      {
+        "id": "e5",
+        "source": "db-primary",
+        "target": "db-standby",
+        "label": "Cross-region replication"
+      },
+      {
+        "id": "e6",
+        "source": "velero",
+        "target": "db-primary",
+        "label": "backs up"
+      },
+      {
+        "id": "e7",
+        "source": "velero",
+        "target": "backup-s3",
+        "label": "stores snapshot"
+      },
+      {
+        "id": "e8",
+        "source": "backup-s3",
+        "target": "db-standby",
+        "label": "restores from (DR drill)"
+      }
+    ]
+  },
+  "created_at": "2026-08-07T04:52:17.553249+00:00",
+  "updated_at": "2026-08-07T04:52:17.553249+00:00"
+}

@@ -68,7 +68,10 @@
     "skills": {
       "title": "스킬"
     },
-    "diagrams": "인프라 다이어그램"
+    "diagrams": "인프라 다이어그램",
+    "infrastructure": "인프라",
+    "servers": "서버",
+    "secrets": "비밀"
   },
   "settings": {
     "backToChat": "채팅으로 돌아가기",
