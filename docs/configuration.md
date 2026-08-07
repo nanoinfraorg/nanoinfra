@@ -197,6 +197,13 @@ These variables are process-level switches. Set them in the same terminal, servi
 | `NANOINFRA_SANDBOX_ENFORCED` | unset | Legacy compatibility alias for `NANOINFRA_WORKSPACE_SANDBOX_ENFORCED`. |
 | `NANOINFRA_TMUX_SOCKET_DIR` | `${TMPDIR:-/tmp}/nanoinfra-tmux-sockets` | Socket directory used by the bundled `tmux` skill scripts. |
 
+### Secrets module
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NANOINFRA_SECRETS_KEY` | unset | Master encryption key (Fernet) for the Secrets module. nanoinfra never generates or stores this key — you generate it yourself and set it in the same environment that starts the gateway (service unit, container, or `.env`): `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Without it, the gateway still starts fine; every Secrets operation just returns a clean "not configured" error until it's set. |
+| `NANOINFRA_SECRETS_POSTGRES_DSN` | unset | Postgres connection string for secrets stored with `providerId="postgres"` (shared across a deployment). Optional — `providerId="local"` secrets work fully without it; only Postgres-backed secrets fail with "not configured" if it's unset. Requires the `secrets-postgres` extra: `nanoinfra plugins enable secrets-postgres` (or `pip install nanoinfra[secrets-postgres]`). |
+
 ### Installer, build, and WebUI development
 
 | Variable | Default | Description |

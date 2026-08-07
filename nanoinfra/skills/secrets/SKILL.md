@@ -5,6 +5,9 @@ description: Read metadata about and manage stored secrets (credentials for conn
 
 # Secrets
 
+> [!WARNING]
+> **Typing a secret's value into chat persists it in this conversation's session history and re-sends it to the LLM provider on every subsequent turn.** `create_secret`/`update_secret` take the plaintext value as a tool-call argument, and tool-call arguments are recorded in session history like any other message content — there is no redaction of them today. For genuinely sensitive credentials (production passwords, long-lived API keys, anything you wouldn't paste into a public chat log), prefer having the user enter the value directly through the WebUI/REST API instead of typing it to you for you to relay. If a user pastes a high-sensitivity value directly into chat, proactively flag this tradeoff before calling `create_secret`/`update_secret` with it, and suggest the WebUI path for next time.
+
 Tools: `list_secrets`, `get_secret`, `create_secret`, `update_secret`, `delete_secret`.
 
 ## Secrets are write-only to you
