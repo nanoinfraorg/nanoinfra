@@ -25,12 +25,12 @@ import pytest
 
 psycopg = pytest.importorskip("psycopg")
 
-from nanoinfra.secrets import crypto
-from nanoinfra.secrets.postgres_backend import (
+from nanoinfra.secrets import crypto  # noqa: E402
+from nanoinfra.secrets.postgres_backend import (  # noqa: E402
     PostgresBackend,
     PostgresSecretsUnavailableError,
 )
-from nanoinfra.secrets.store import SecretStore
+from nanoinfra.secrets.store import SecretStore  # noqa: E402
 
 _SENSITIVE_DETAIL = (
     "connection to server failed: FATAL: password authentication failed for "
