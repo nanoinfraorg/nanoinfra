@@ -352,17 +352,24 @@ class Session:
 
         start_idx = max(0, len(self.messages) - max_messages)
         if extend_to_user:
-            start_idx = next(
+            recovered_user = next(
                 (i for i in range(start_idx, -1, -1) if self.messages[i].get("role") == "user"),
-                start_idx,
+                None,
             )
+            if recovered_user is not None:
+                start_idx = recovered_user
+                if start_idx > 0 and self.messages[start_idx - 1].get("_channel_delivery"):
+                    start_idx -= 1
 
         retained = self.messages[start_idx:]
 
-        # Prefer starting at a user turn when one exists within the retained window.
+        # Prefer starting at a user turn (or its preceding _channel_delivery) when one exists within the retained window.
         first_user = next((i for i, m in enumerate(retained) if m.get("role") == "user"), None)
         if first_user is not None:
-            retained = retained[first_user:]
+            if first_user > 0 and retained[first_user - 1].get("_channel_delivery"):
+                retained = retained[first_user - 1:]
+            else:
+                retained = retained[first_user:]
         elif not extend_to_user:
             # If the hard-capped tail is assistant/tool-only, anchor to the
             # latest user in the full session and take a capped forward window.
