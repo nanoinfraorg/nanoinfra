@@ -158,6 +158,39 @@ async def test_default_port_in_base_url_still_matches_explicit_port(respx_mock):
 
 
 @pytest.mark.asyncio
+async def test_malformed_port_in_command_url_fails_closed_not_open(respx_mock, monkeypatch):
+    """Regression test: a malformed port (e.g. `:+22`) makes urlparse.port
+    raise ValueError. The origin check used to catch that and silently
+    substitute the scheme's default port, which could coincidentally equal
+    a baseUrl with no explicit port -- httpx itself accepts some malformed
+    port forms urlparse rejects, so the two could dial different ports
+    while the origin check saw them as equal. A malformed port on either
+    side must now fail the comparison closed (refuse), not fall back to a
+    default that could match by coincidence."""
+    sent: list[httpx.Request] = []
+
+    async def fail_send(self, request, **kwargs):  # noqa: ANN001, ANN202
+        sent.append(request)
+        raise AssertionError(f"no request may be sent, got {request.url}")
+
+    import httpx as httpx_module
+
+    monkeypatch.setattr(httpx_module.AsyncClient, "send", fail_send)
+
+    backend = ApiBackend()
+    result = await backend.run(
+        _server(base_url="http://10.0.1.5"),
+        "GET http://10.0.1.5:+22/x",
+        None,
+        on_activity=lambda _c: None,
+    )
+
+    assert result.exit_code is None
+    assert result.error is not None and "different origin" in result.error
+    assert sent == []
+
+
+@pytest.mark.asyncio
 async def test_connection_error_is_reported_not_raised(respx_mock):
     respx_mock.get("http://10.0.1.5:8080/status").mock(side_effect=httpx.ConnectError("refused"))
 

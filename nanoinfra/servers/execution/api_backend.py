@@ -62,17 +62,24 @@ def _parse_command(command: str) -> tuple[str, str]:
     return "GET", command.strip()
 
 
-def _origin(url: str) -> tuple[str, str, int | None]:
+def _origin(url: str) -> tuple[str, str, int] | None:
     """(scheme, host, port) with the scheme's default port filled in, so
-    ``http://h`` and ``http://h:80`` compare equal."""
+    ``http://h`` and ``http://h:80`` compare equal. Returns ``None`` when the
+    port can't be parsed unambiguously (e.g. ``:+22``) -- httpx may still
+    accept such a URL and dial a different port than urlparse reports, so a
+    malformed port must fail the origin check closed rather than fall back
+    to a default port that could coincidentally match the other side's."""
     parsed = urlparse(url)
     scheme = (parsed.scheme or "").lower()
     host = (parsed.hostname or "").lower()
     try:
         port = parsed.port
-    except ValueError:  # malformed port in the URL -- not this operator's baseUrl
-        port = None
-    return scheme, host, port or _DEFAULT_PORTS.get(scheme)
+    except ValueError:
+        return None
+    resolved_port = port or _DEFAULT_PORTS.get(scheme)
+    if resolved_port is None:
+        return None
+    return scheme, host, resolved_port
 
 
 class ApiBackend:
@@ -97,7 +104,8 @@ class ApiBackend:
         # for this provider. So: the effective request must stay on exactly the
         # origin the operator configured. Checked before the Authorization header
         # is even constructed, let alone sent.
-        if _origin(url) != _origin(base_url):
+        request_origin = _origin(url)
+        if request_origin is None or request_origin != _origin(base_url):
             return ExecutionResult(
                 exit_code=None,
                 output="",
