@@ -1,7 +1,10 @@
 """Error-handling tests for the Postgres secrets backend that do NOT need a
 real, reachable Postgres -- unlike test_postgres_backend.py (which skips
-entirely without one), these mock the failure points directly so they run
-in every environment, sandboxed or not.
+entirely without one), these mock the network/database layer directly.
+They still need the ``psycopg`` package itself importable (its real
+exception classes are what PostgresBackend's ``except psycopg.Error``
+actually catches), so this module still needs the ``secrets-postgres``
+extra installed -- it just never needs a reachable Postgres server.
 
 Covers:
 - Fix 3: a missing ``psycopg`` install must raise a clear RuntimeError, not
@@ -18,8 +21,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import psycopg
 import pytest
+
+psycopg = pytest.importorskip("psycopg")
 
 from nanoinfra.secrets import crypto
 from nanoinfra.secrets.postgres_backend import (
