@@ -262,30 +262,31 @@ Browse the [repo docs](./docs/README.md) for the latest features and GitHub deve
 - Debug setup and runtime failures: [Troubleshooting](./docs/troubleshooting.md)
 - Talk to your nanoinfra with familiar chat apps: [Chat App AI Agent](./docs/guides/chat-app-ai-agent.md) · [Chat Apps](./docs/chat-apps.md)
 - Schedule or trigger agent work: [Automations](./docs/automations.md)
+- Store credentials and let the agent connect to a server: [Secrets and Servers](./docs/secrets-and-servers.md)
 - Configure providers, web search, MCP, and runtime behavior: [Configuration](./docs/configuration.md)
 - Integrate nanoinfra with local tools and automations: [OpenAI-Compatible API](./docs/openai-api.md) · [Python SDK](./docs/python-sdk.md)
 - Run nanoinfra with Docker or as a Linux service: [Deployment](./docs/deployment.md)
 
 ## Releases
 
-**Latest release: [v0.4.0 - The Blueprint Release](https://github.com/bet0x/nanoinfra/releases/tag/v0.4.0)**
+**Latest release: [v0.5.0 - The Keyring Release](https://github.com/bet0x/nanoinfra/releases/tag/v0.5.0)**
 
-The Blueprint Release adds Infra Diagrams: a visual designer for the infrastructure you run and talk about with your agent, backed by real persistence and a catalog the agent actually understands.
+The Keyring Release adds encrypted Secrets storage and a Server inventory the agent can actually connect to and run things on — with a WebUI to manage both.
 
-- Design, save, and edit infrastructure diagrams visually, with components, providers, and connections backed by real workspace persistence
-- A dynamic component catalog — add new providers with a JSON file, no code changes or restart required
-- `/infradiagrams` attaches a saved diagram to any conversation, and new agent tools let the agent propose and, with your explicit confirmation, apply changes to a diagram itself
-- Smarter auto-layout and free-form connections in the visual editor, so components no longer overlap and links can be drawn from any side to any side
+- Secrets: encrypted-at-rest credential storage (local or Postgres-backed), write-only by design — no tool or API response ever returns a decrypted value, and there's no agent-facing tool at all for creating or rotating one, only the WebUI
+- Servers: an inventory of hosts and how to reach them (SSH, Ansible Runner, AWS SSM, or a configured HTTP API), each optionally tied to a Secret for authentication
+- `execute_on_server` lets the agent actually connect and run a command or action on an inventoried server — durable job records survive a gateway restart, with idle-aware timeouts and a network guard that blocks metadata/loopback targets
+- New "Infrastructure" section in the WebUI sidebar (Diagrams, Servers, Secrets) and the Diagrams target picker now lists real inventoried servers instead of a placeholder
 
-[Read the v0.4.0 release notes](https://github.com/bet0x/nanoinfra/releases/tag/v0.4.0)
+[Read the v0.5.0 release notes](https://github.com/bet0x/nanoinfra/releases/tag/v0.5.0)
 
 ## Recent Updates
 
+- **2026-08-07** Secrets and Servers: encrypted credential storage, a server inventory, and agent-driven remote execution (SSH/Ansible Runner/SSM/API) with durable job tracking.
 - **2026-08-04** Infra Diagrams: visual designer with real persistence, a dynamic component catalog, and agent tools with an approval gate.
 - **2026-07-24** Guided first-run setup, inline subagents, and model switching from the composer.
 - **2026-07-23** Grok OAuth with hosted X Search, live image settings, and clearer fallback models.
 - **2026-07-22** Parallel Search, live configuration reloads, richer app discovery, and a smoother mobile WebUI.
-- **2026-07-21** Codex fast mode, visible skill references, safer configuration saves, and sturdier task cleanup.
 
 For older updates, see the [release archive](./docs/release-archive.md) or [GitHub releases](https://github.com/bet0x/nanoinfra/releases).
 
