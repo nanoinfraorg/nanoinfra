@@ -36,9 +36,19 @@ _ABSOLUTE_CEILING_S = 1800
 # dialed address); it means execute() must refuse rather than proceed
 # unguarded. Keys are the config field name(s) shown to the user in the
 # refusal message.
+#
+# Each entry must name EXACTLY the config field(s) the corresponding
+# backend actually reads to decide what to connect to -- nothing more.
+# Listing an extra host-shaped field here (ansible-runner used to list
+# "host", which AnsibleRunnerBackend never reads) means the guard
+# validates one value while the backend dials another, which is a
+# bypass, not extra safety: an agent could add {"host": "8.8.8.8"} to a
+# group-only ansible config and satisfy the guard with an address
+# nothing ever connects to. tests/servers/execution/
+# test_guard_backend_consistency.py holds this table to that rule.
 _HOST_FIELDS_BY_PROVIDER: dict[str, tuple[str, ...]] = {
     "ssh": ("host",),
-    "ansible-runner": ("host", "inventoryHost"),
+    "ansible-runner": ("inventoryHost",),
     "api": ("baseUrl",),
 }
 _KNOWN_PROVIDER_IDS = frozenset({"ssh", "ansible-runner", "ssm", "api"})
@@ -84,18 +94,28 @@ def _target_host(provider_id: str, config: dict[str, str]) -> str | None:
     """The host this providerId actually connects to, for target
     validation -- None for providers with no single "host" concept at
     this layer (ssm targets an AWS instance id via IAM, not a raw
-    network address the local process dials; ansible-runner's
-    inventoryHost is validated the same way ssh's host is).
+    network address the local process dials).
+
+    Each branch reads exactly the field its backend reads, and no
+    fallbacks across fields the backend ignores: SSHBackend only ever
+    dials ``host`` (never ``inventoryHost``) and AnsibleRunnerBackend
+    only ever targets ``inventoryHost``/``group`` (never ``host``).
+    Guard and backend reading different keys is how a validated address
+    ends up being one nothing connects to.
 
     For ssh/ansible-runner/api, None does NOT mean "nothing to validate"
     -- those providers DO have a checkable network address; None here
     just means the server's config didn't supply one (e.g. an
-    ansible-runner server configured with only `group`). Callers must
-    treat that case as "cannot validate, refuse" rather than "validated,
-    proceed" -- see _HOST_FIELDS_BY_PROVIDER and execute()'s use of it.
+    ansible-runner server configured with only `group`, which is an
+    inventory-file label rather than an address there is anything to
+    resolve). Callers must treat that case as "cannot validate, refuse"
+    rather than "validated, proceed" -- see _HOST_FIELDS_BY_PROVIDER and
+    execute()'s use of it.
     """
-    if provider_id in ("ssh", "ansible-runner"):
-        return config.get("host") or config.get("inventoryHost")
+    if provider_id == "ssh":
+        return config.get("host")
+    if provider_id == "ansible-runner":
+        return config.get("inventoryHost")
     if provider_id == "api":
         from urllib.parse import urlparse
 

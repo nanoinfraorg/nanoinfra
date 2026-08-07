@@ -2,6 +2,13 @@
 named playbook (there's no playbook file on disk for an arbitrary
 agent-supplied command string to reference).
 
+The only config fields this backend reads to decide what it targets are
+``inventoryHost`` and ``group``, in that order -- ``host`` is not an
+ansible-runner config key and is deliberately ignored, so the guard in
+nanoinfra/agent/tools/server_execution.py checks ``inventoryHost`` and
+nothing else. Keep those two in sync (see
+tests/servers/execution/test_guard_backend_consistency.py).
+
 ansible_runner.run() is synchronous and blocks until the whole play
 finishes, so it's wrapped in asyncio.to_thread. on_activity fires at
 most once, after run() returns (see this file's plan-task notes for
@@ -48,7 +55,20 @@ class AnsibleRunnerBackend:
         *,
         on_activity: Callable[[str], None],
     ) -> ExecutionResult:
-        host_pattern = server.config.get("inventoryHost") or server.config.get("group") or "all"
+        host_pattern = server.config.get("inventoryHost") or server.config.get("group")
+        if not host_pattern:
+            # No "all" fallback: a config with neither field used to run the
+            # command against the operator's ENTIRE inventory while the job
+            # record and the tool's confirmation both named one server. Refusing
+            # is the only honest option -- there is nothing to target.
+            return ExecutionResult(
+                exit_code=None,
+                output="",
+                error=(
+                    "Refusing to run: server config has no inventoryHost or group to target. "
+                    "Running against the entire ansible inventory is never inferred."
+                ),
+            )
         private_data_dir = server.config.get("projectPath") or "."
 
         kwargs: dict[str, object] = {

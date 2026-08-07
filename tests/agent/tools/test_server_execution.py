@@ -164,6 +164,80 @@ async def test_ansible_runner_group_only_config_refuses_before_secret_resolution
 
 
 @pytest.mark.asyncio
+async def test_ansible_runner_undocumented_host_key_does_not_satisfy_the_guard(tmp_path: Path) -> None:
+    """AnsibleRunnerBackend never reads `host` -- it targets inventoryHost/group. A
+    config that pairs a group with a host-shaped extra key used to let the guard
+    validate 8.8.8.8 while the backend targeted the `web` group, re-opening the
+    group-only bypass. The guard must only ever consider inventoryHost here, so
+    this config has nothing checkable and must be refused.
+    """
+    server_store = ServerStore(tmp_path)
+    server_store.create(
+        {
+            "name": "ansible-group-plus-host",
+            "providerId": "ansible-runner",
+            "config": {"group": "web", "host": "8.8.8.8"},
+        }
+    )
+    tool = _tool(tmp_path)
+
+    with (
+        patch("nanoinfra.servers.execution.ansible_backend.AnsibleRunnerBackend.run", new=AsyncMock()) as run_mock,
+        patch("nanoinfra.secrets.store.SecretStore.resolve_plaintext", new=Mock()) as resolve_mock,
+    ):
+        result = await tool.execute(
+            server_id_or_name="ansible-group-plus-host", command="uptime", dry_run=False
+        )
+
+    assert result.is_error
+    run_mock.assert_not_called()
+    resolve_mock.assert_not_called()
+    assert JobStore(tmp_path).list_jobs() == []
+
+
+@pytest.mark.asyncio
+async def test_ansible_runner_host_only_config_refuses_instead_of_targeting_everything(
+    tmp_path: Path,
+) -> None:
+    """With only `host` set, the guard used to validate 10.0.1.5 while the backend's
+    own fallback chain skipped straight to "all" -- running against the entire
+    inventory under a job record naming one server."""
+    server_store = ServerStore(tmp_path)
+    server_store.create(
+        {"name": "ansible-host-only", "providerId": "ansible-runner", "config": {"host": "10.0.1.5"}}
+    )
+    tool = _tool(tmp_path)
+
+    with patch(
+        "nanoinfra.servers.execution.ansible_backend.AnsibleRunnerBackend.run", new=AsyncMock()
+    ) as run_mock:
+        result = await tool.execute(server_id_or_name="ansible-host-only", command="uptime", dry_run=False)
+
+    assert result.is_error
+    run_mock.assert_not_called()
+    assert JobStore(tmp_path).list_jobs() == []
+
+
+@pytest.mark.asyncio
+async def test_ssh_inventory_host_only_config_refuses(tmp_path: Path) -> None:
+    """SSHBackend only ever dials `host`; the guard used to fall back to
+    inventoryHost, validating a field the backend ignores (it would then have
+    connected to host="" instead)."""
+    server_store = ServerStore(tmp_path)
+    server_store.create(
+        {"name": "ssh-inventory-only", "providerId": "ssh", "config": {"inventoryHost": "10.0.1.5"}}
+    )
+    tool = _tool(tmp_path)
+
+    with patch("nanoinfra.servers.execution.ssh_backend.SSHBackend.run", new=AsyncMock()) as run_mock:
+        result = await tool.execute(server_id_or_name="ssh-inventory-only", command="uptime", dry_run=False)
+
+    assert result.is_error
+    run_mock.assert_not_called()
+    assert JobStore(tmp_path).list_jobs() == []
+
+
+@pytest.mark.asyncio
 async def test_timeout_marks_job_timed_out_not_failed(tmp_path: Path) -> None:
     server_store = ServerStore(tmp_path)
     server_store.create({"name": "prod-web-01", "providerId": "ssh", "config": {"host": "10.0.1.5"}})
