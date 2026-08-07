@@ -6,6 +6,7 @@ For tagged releases, see [GitHub Releases](https://github.com/bet0x/nanoinfra/re
 
 ## Highlights
 
+- **2026-08-07** 🔐 Released **v0.5.0** — **The Keyring Release** adds encrypted Secrets storage (local or Postgres-backed, write-only — no tool or API ever returns a decrypted value) and a Server inventory the agent can connect to and run real commands/actions on via SSH, Ansible Runner, AWS SSM, or a configured HTTP API, with durable job records, idle-aware timeouts, and a network guard against metadata/loopback targets. Both modules get a full WebUI management page under a new "Infrastructure" sidebar section, and the Diagrams target picker now lists real inventoried servers. Please see [release notes](https://github.com/bet0x/nanoinfra/releases/tag/v0.5.0) for details.
 - **2026-08-04** 🚀 Released **v0.4.0** — **The Blueprint Release** adds Infra Diagrams: a visual designer for the infrastructure you run, backed by real workspace persistence, a dynamic component catalog, the `/infradiagrams` command, and agent tools that can propose and apply diagram changes with an explicit approval gate. Please see [release notes](https://github.com/bet0x/nanoinfra/releases/tag/v0.4.0) for details.
 - **2026-07-24** 🧭 Guided first-run setup, inline subagents, and model switching from the composer.
 - **2026-07-23** 🔎 Grok OAuth with hosted X Search, live image settings, and clearer fallback models.
