@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "diagram": {
+    "id": "95bad883d1f949f5940671f34bc12dad",
+    "name": "Example: blog on Azure",
+    "targets": [],
+    "nodes": [
+      {
+        "id": "azure-dns",
+        "position": {
+          "x": 40.0,
+          "y": 20.0
+        },
+        "data": {
+          "label": "Azure DNS",
+          "componentTypeId": "dns",
+          "providerId": "azure-dns",
+          "config": {
+            "resourceGroup": "rg-blog-prod"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "app-gateway",
+        "position": {
+          "x": 20.0,
+          "y": 140.0
+        },
+        "data": {
+          "label": "Application Gateway",
+          "componentTypeId": "load_balancer",
+          "providerId": "app-gateway",
+          "config": {
+            "backendPool": "blog-app-pool"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "app-service",
+        "position": {
+          "x": 20.0,
+          "y": 260.0
+        },
+        "data": {
+          "label": "Blog (App Service)",
+          "componentTypeId": "application",
+          "providerId": "app-service",
+          "config": {
+            "image": "myorg/blog:latest",
+            "planTier": "P1v3"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "azure-postgresql",
+        "position": {
+          "x": -140.0,
+          "y": 400.0
+        },
+        "data": {
+          "label": "Posts DB (Azure PostgreSQL)",
+          "componentTypeId": "database",
+          "providerId": "azure-postgresql",
+          "config": {
+            "serverName": "blog-pg-prod"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "azure-blob",
+        "position": {
+          "x": 180.0,
+          "y": 400.0
+        },
+        "data": {
+          "label": "Media (Blob Storage)",
+          "componentTypeId": "storage",
+          "providerId": "azure-blob",
+          "config": {
+            "container": "blog-media"
+          },
+          "locked": false
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source": "azure-dns",
+        "target": "app-gateway",
+        "label": "HTTPS"
+      },
+      {
+        "id": "e2",
+        "source": "app-gateway",
+        "target": "app-service",
+        "label": "Route HTTP"
+      },
+      {
+        "id": "e3",
+        "source": "app-service",
+        "target": "azure-postgresql",
+        "label": "Read/Write"
+      },
+      {
+        "id": "e4",
+        "source": "app-service",
+        "target": "azure-blob",
+        "label": "Read/Write"
+      }
+    ]
+  },
+  "created_at": "2026-08-07T04:52:17.560340+00:00",
+  "updated_at": "2026-08-07T04:52:17.560340+00:00"
+}

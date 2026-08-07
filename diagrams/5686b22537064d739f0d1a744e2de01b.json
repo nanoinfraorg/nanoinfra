@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "diagram": {
+    "id": "5686b22537064d739f0d1a744e2de01b",
+    "name": "Example: e-commerce on AWS",
+    "targets": [],
+    "nodes": [
+      {
+        "id": "dns-route53",
+        "position": {
+          "x": 40.0,
+          "y": 20.0
+        },
+        "data": {
+          "label": "Route 53",
+          "componentTypeId": "dns",
+          "providerId": "route53",
+          "config": {},
+          "locked": false
+        }
+      },
+      {
+        "id": "alb",
+        "position": {
+          "x": 20.0,
+          "y": 140.0
+        },
+        "data": {
+          "label": "Application Load Balancer",
+          "componentTypeId": "load_balancer",
+          "providerId": "alb",
+          "config": {
+            "targetGroup": "storefront-tg"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "ecs-app",
+        "position": {
+          "x": 20.0,
+          "y": 260.0
+        },
+        "data": {
+          "label": "Storefront API (ECS Fargate)",
+          "componentTypeId": "application",
+          "providerId": "ecs-fargate",
+          "config": {
+            "image": "myorg/storefront:latest",
+            "taskCpu": "2 vCPU / 4GB"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "rds-orders",
+        "position": {
+          "x": -140.0,
+          "y": 400.0
+        },
+        "data": {
+          "label": "Orders DB (RDS PostgreSQL)",
+          "componentTypeId": "database",
+          "providerId": "rds",
+          "config": {
+            "instanceId": "orders-db-prod"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "elasticache-sessions",
+        "position": {
+          "x": 180.0,
+          "y": 400.0
+        },
+        "data": {
+          "label": "Session cache (ElastiCache)",
+          "componentTypeId": "cache",
+          "providerId": "elasticache",
+          "config": {
+            "clusterId": "sessions-cache"
+          },
+          "locked": false
+        }
+      },
+      {
+        "id": "s3-assets",
+        "position": {
+          "x": 20.0,
+          "y": 520.0
+        },
+        "data": {
+          "label": "Product images (S3)",
+          "componentTypeId": "storage",
+          "providerId": "s3",
+          "config": {
+            "bucket": "acme-shop-assets"
+          },
+          "locked": false
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source": "dns-route53",
+        "target": "alb",
+        "label": "HTTPS"
+      },
+      {
+        "id": "e2",
+        "source": "alb",
+        "target": "ecs-app",
+        "label": "Route HTTP"
+      },
+      {
+        "id": "e3",
+        "source": "ecs-app",
+        "target": "rds-orders",
+        "label": "Read/Write"
+      },
+      {
+        "id": "e4",
+        "source": "ecs-app",
+        "target": "elasticache-sessions",
+        "label": "Cache/Session"
+      },
+      {
+        "id": "e5",
+        "source": "ecs-app",
+        "target": "s3-assets",
+        "label": "Read/Write"
+      }
+    ]
+  },
+  "created_at": "2026-08-07T04:52:17.557022+00:00",
+  "updated_at": "2026-08-07T04:52:17.557022+00:00"
+}

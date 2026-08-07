@@ -208,14 +208,10 @@ class ExecuteOnServerTool(Tool):
         if server is None:
             return ToolResult.error(f"No server matches {server_id_or_name!r}.")
 
-        if dry_run:
-            return (
-                f"Preview (not executed): server={server.name!r} (id={server.id!r}) "
-                f"provider={server.provider_id!r} command={command!r}\n"
-                "Nothing was run. Call execute_on_server again with the same arguments "
-                "and dry_run=false only after the user explicitly confirms."
-            )
-
+        # Everything that can refuse this call runs BEFORE the dry_run branch, so a
+        # preview of an unknown-provider or metadata-pointed server says so instead
+        # of cheerfully inviting the user to confirm a call that can only fail.
+        # None of these checks connect to anything or decrypt anything.
         if server.provider_id not in _KNOWN_PROVIDER_IDS:
             return ToolResult.error(f"Unknown providerId: {server.provider_id!r}.")
 
@@ -228,8 +224,9 @@ class ExecuteOnServerTool(Tool):
             # This provider DOES have a network-address concept (unlike
             # ssm, validated via IAM instead) but the config didn't supply
             # one -- e.g. an ansible-runner server configured with only
-            # `group`, no host/inventoryHost. Refuse rather than proceed
-            # unguarded straight into secret decryption and the backend.
+            # `group`, which is an inventory label, not an address. Refuse
+            # rather than proceed unguarded into secret decryption and the
+            # backend.
             fields = "/".join(_HOST_FIELDS_BY_PROVIDER[server.provider_id])
             configured_keys = ", ".join(sorted(server.config.keys())) or "nothing"
             return ToolResult.error(
@@ -242,6 +239,21 @@ class ExecuteOnServerTool(Tool):
         except ValueError:
             return ToolResult.error(f"Invalid timeout_s: {timeout_s!r} is not an integer.")
 
+        if dry_run:
+            validated = f" validated target={target_host!r}" if target_host else ""
+            return (
+                f"Preview (not executed): server={server.name!r} (id={server.id!r}) "
+                f"provider={server.provider_id!r} command={command!r}{validated}\n"
+                "Nothing was run. Call execute_on_server again with the same arguments "
+                "and dry_run=false only after the user explicitly confirms."
+            )
+
+        # Resolved before the secret: this lazily imports the provider's optional
+        # library, and if it isn't installed there is no point decrypting a
+        # credential first. Same ordering principle as the checks above.
+        backend, default_idle_timeout = _backend_and_default_timeout(server.provider_id)
+        idle_timeout = idle_timeout_override if idle_timeout_override is not None else default_idle_timeout
+
         secret_value: str | None = None
         if server.secret_ref:
             secret_value = self.secrets.resolve_plaintext(server.secret_ref)
@@ -249,9 +261,6 @@ class ExecuteOnServerTool(Tool):
                 return ToolResult.error(
                     f"Server {server.name!r} references secret {server.secret_ref!r}, which no longer exists."
                 )
-
-        backend, default_idle_timeout = _backend_and_default_timeout(server.provider_id)
-        idle_timeout = idle_timeout_override if idle_timeout_override is not None else default_idle_timeout
 
         job = self.jobs.create(
             server_id=server.id, provider_id=server.provider_id, command=command, timeout_s=idle_timeout
