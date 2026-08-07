@@ -30,3 +30,4 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `clawhub` | Search and install skills from ClawHub registry |
 | `skill-creator` | Create new skills |
 | `infra-diagrams` | Read and update saved Infra Diagrams |
+| `secrets` | Read metadata about and manage stored secrets (credentials for connecting to servers/services). Use when the user asks to store, rotate, list, or delete a secret, or when another tool (e.g. a Server) needs a secret reference. |
