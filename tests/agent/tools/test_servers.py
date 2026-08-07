@@ -121,3 +121,28 @@ async def test_create_server_rejects_unknown_provider(tmp_path: Path) -> None:
     tool = CreateServerTool(store)
     result = await tool.execute(name="n", providerId="telnet", dry_run=False)
     assert result.is_error
+
+
+@pytest.mark.asyncio
+async def test_create_server_dry_run_rejects_unknown_provider(tmp_path: Path) -> None:
+    """The dry_run preview must validate too, not just the real create --
+    an invalid providerId should surface before the user ever confirms."""
+    store = ServerStore(tmp_path)
+    tool = CreateServerTool(store)
+
+    result = await tool.execute(name="n", providerId="telnet")
+
+    assert result.is_error
+    assert store.list_servers() == []
+
+
+@pytest.mark.asyncio
+async def test_update_server_dry_run_rejects_unknown_provider(tmp_path: Path) -> None:
+    store = ServerStore(tmp_path)
+    server = store.create({"name": "old", "providerId": "ssh"})
+    tool = UpdateServerTool(store)
+
+    result = await tool.execute(server_id=server.id, name="new", providerId="telnet")
+
+    assert result.is_error
+    assert store.get(server.id).name == "old"

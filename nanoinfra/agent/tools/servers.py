@@ -24,7 +24,7 @@ from nanoinfra.agent.tools.schema import (
     tool_parameters_schema,
 )
 from nanoinfra.servers.lookup import resolve_server
-from nanoinfra.servers.normalize import ServerValidationError
+from nanoinfra.servers.normalize import ServerValidationError, normalize_server_input
 from nanoinfra.servers.store import ServerStore
 
 if TYPE_CHECKING:
@@ -175,6 +175,12 @@ class CreateServerTool(Tool):
         **kwargs: Any,
     ) -> Any:
         raw = {"name": name, "providerId": providerId, "config": config or {}, "secretRef": secretRef, "tags": tags or []}
+        try:
+            # "0" * 32 is a throwaway id for validation only -- store.create()
+            # below mints the real one and re-normalizes independently.
+            normalize_server_input(raw, server_id="0" * 32)
+        except ServerValidationError as exc:
+            return ToolResult.error(f"Invalid server payload: {exc}")
         if dry_run:
             return (
                 f"Preview (not created): name={name!r} providerId={providerId!r} config={config or {}}\n"
@@ -238,6 +244,10 @@ class UpdateServerTool(Tool):
         if current is None:
             return ToolResult.error(f"No server with id {server_id!r}.")
         raw = {"name": name, "providerId": providerId, "config": config or {}, "secretRef": secretRef, "tags": tags or []}
+        try:
+            normalize_server_input(raw, server_id=server_id)
+        except ServerValidationError as exc:
+            return ToolResult.error(f"Invalid server payload: {exc}")
         if dry_run:
             return (
                 f"Preview (not saved): {current.name!r} -> name={name!r} providerId={providerId!r}\n"
