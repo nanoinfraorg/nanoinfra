@@ -16,7 +16,7 @@ from typing import Any, cast
 
 from loguru import logger
 
-from nanoinfra.servers.normalize import normalize_server_input
+from nanoinfra.servers.normalize import ServerValidationError, normalize_server_input
 from nanoinfra.servers.types import Server, ServerSummary
 from nanoinfra.utils.helpers import (
     _write_text_atomic,  # pyright: ignore[reportPrivateUsage]
@@ -91,9 +91,22 @@ class ServerStore:
             logger.warning("Skipping malformed server file {}", path)
             return None
 
+    def _check_name_unique(self, name: str, *, exclude_id: str | None) -> None:
+        """Names are the de facto foreign key a future name-based lookup
+        (get_server, the Diagrams target picker) relies on -- a collision
+        should be caught here rather than left to silently return whichever
+        record happens to match first."""
+        needle = name.lower()
+        for existing in self.list_servers():
+            if exclude_id is not None and existing.id == exclude_id:
+                continue
+            if existing.name.lower() == needle:
+                raise ServerValidationError(f"a server named {name!r} already exists")
+
     def create(self, raw: dict[str, Any]) -> Server:
         server_id = uuid.uuid4().hex
         server = normalize_server_input(raw, server_id=server_id)
+        self._check_name_unique(server.name, exclude_id=None)
         now = _now_iso()
         server.created_at = now
         server.updated_at = now
@@ -105,6 +118,7 @@ class ServerStore:
         if existing is None:
             return None
         server = normalize_server_input(raw, server_id=server_id)
+        self._check_name_unique(server.name, exclude_id=server_id)
         server.created_at = existing.created_at
         server.updated_at = _now_iso()
         self._write(server)

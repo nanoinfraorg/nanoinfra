@@ -78,3 +78,48 @@ def test_list_servers_skips_corrupt_file(tmp_path: Path):
     summaries = store.list_servers()
     assert len(summaries) == 1
     assert summaries[0].name == "good"
+
+
+def test_create_rejects_duplicate_name(tmp_path: Path):
+    store = ServerStore(tmp_path)
+    store.create({"name": "prod-web-01", "providerId": "ssh"})
+    with pytest.raises(ServerValidationError, match="already exists"):
+        store.create({"name": "prod-web-01", "providerId": "ssh"})
+
+
+def test_create_rejects_duplicate_name_case_insensitively(tmp_path: Path):
+    store = ServerStore(tmp_path)
+    store.create({"name": "Prod-Web-01", "providerId": "ssh"})
+    with pytest.raises(ServerValidationError, match="already exists"):
+        store.create({"name": "prod-web-01", "providerId": "ssh"})
+
+
+def test_update_rejects_name_collision_with_different_server(tmp_path: Path):
+    store = ServerStore(tmp_path)
+    store.create({"name": "one", "providerId": "ssh"})
+    two = store.create({"name": "two", "providerId": "ssh"})
+
+    with pytest.raises(ServerValidationError, match="already exists"):
+        store.update(two.id, {"name": "one", "providerId": "ssh"})
+
+
+def test_update_allows_renaming_to_its_own_current_name(tmp_path: Path):
+    store = ServerStore(tmp_path)
+    server = store.create({"name": "same", "providerId": "ssh"})
+
+    updated = store.update(server.id, {"name": "same", "providerId": "api"})
+
+    assert updated is not None
+    assert updated.name == "same"
+    assert updated.provider_id == "api"
+
+
+def test_create_rejects_duplicate_name_after_truncation(tmp_path: Path):
+    """Two names that only become identical after _MAX_NAME_LENGTH (120)
+    truncation must still be caught -- the uniqueness check runs against
+    the already-truncated name, not the raw payload."""
+    store = ServerStore(tmp_path)
+    base = "x" * 120
+    store.create({"name": base, "providerId": "ssh"})
+    with pytest.raises(ServerValidationError, match="already exists"):
+        store.create({"name": base + "-extra-that-gets-truncated-away", "providerId": "ssh"})
