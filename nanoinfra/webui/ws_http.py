@@ -35,6 +35,7 @@ from nanoinfra.secrets.normalize import SecretValidationError
 from nanoinfra.secrets.postgres_backend import PostgresSecretsNotConfiguredError
 from nanoinfra.secrets.store import SecretStore
 from nanoinfra.security.workspace_access import WorkspaceScope
+from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.normalize import ServerValidationError
 from nanoinfra.servers.store import ServerStore
 from nanoinfra.triggers.local_types import LocalTrigger
@@ -275,6 +276,13 @@ class GatewayHTTPHandler:
         seed_example_diagram_if_new_workspace(self.diagrams)
         self.secrets = SecretStore(skills_workspace_path)
         self.servers = ServerStore(skills_workspace_path)
+        self.jobs = JobStore(skills_workspace_path)
+        reconciled = self.jobs.reconcile_interrupted_jobs()
+        if reconciled:
+            logger.warning(
+                "Reconciled {} interrupted server job(s) from a prior restart",
+                reconciled,
+            )
         self.skill_state_action = skill_state_action
         self._skill_install_lock = asyncio.Lock()
         self._title_retry_in_flight: set[str] = set()
