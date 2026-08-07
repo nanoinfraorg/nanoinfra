@@ -22,6 +22,16 @@ HTTP/SSE MCP transports are part of this boundary: validate configured MCP URLs 
 
 **Rule**: Do not add direct `httpx.get` / `requests.get` calls in tools. Route through the existing web fetch utilities or replicate the `validate_url_target` check.
 
+## Server Execution Backends
+
+`execute_on_server` (`agent/tools/server_execution.py`) is the one place a `secretRef` is decrypted to a real credential, which it hands to a connection backend (`servers/execution/`). Two boundaries protect it, and one accepted risk remains recorded here.
+
+Target validation goes through `servers/network_guard.py`, **not** `security/network.py`. That guard is deliberately narrower: it blocks loopback, link-local, cloud metadata (`169.254.0.0/16`), the unspecified address, and their IPv4-mapped IPv6 forms, but explicitly allows RFC1918, because inventoried infrastructure legitimately lives there. Every entry in `_HOST_FIELDS_BY_PROVIDER` must name exactly the config field the corresponding backend actually dials — a guard that validates a field the backend ignores is a bypass, not defense in depth (`ssm` has no dialed address at all and is authorized via IAM instead). The `api` backend additionally pins each request to the operator-configured `baseUrl`'s origin, since `urljoin` would otherwise let an agent-supplied absolute path send the decrypted credential to an arbitrary host.
+
+**Accepted risk — SSH host-key verification is disabled.** `servers/execution/ssh_backend.py` connects with `known_hosts=None`, so no host key is verified. There is no host-key trust store anywhere in this codebase to check against yet, and this was a deliberate design decision for the initial Servers execution engine rather than an oversight. The consequence: an attacker with a network position between the gateway and the target host can impersonate that host, capture the decrypted credential passed as an SSH password or private key, and tamper with the command output the agent reports back. Closing this needs a per-Server known-hosts store (or an operator-supplied `known_hosts` path in the Server config) validated before connecting.
+
+**Rule**: Do not widen `network_guard.py` to accept loopback/link-local/metadata, do not route Server execution through `security/network.py` (it blocks RFC1918 and would break the module), and do not add a new provider without a matching `_HOST_FIELDS_BY_PROVIDER` entry plus a case in `tests/servers/execution/test_guard_backend_consistency.py`.
+
 ## Shell Sandbox
 
 `tools/sandbox.py` provides optional command wrapping. The only backend currently shipped is `bwrap` (bubblewrap), intended for containerized deployments. On Windows and bare-metal Linux without `bwrap`, commands run in the native shell with workspace restriction as an application-level guard only.
