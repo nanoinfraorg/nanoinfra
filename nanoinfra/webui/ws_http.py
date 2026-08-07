@@ -30,6 +30,10 @@ from nanoinfra.diagrams.normalize import DiagramValidationError
 from nanoinfra.diagrams.seed import seed_example_diagram_if_new_workspace
 from nanoinfra.diagrams.store import DiagramStore
 from nanoinfra.runtime_context import public_history_messages
+from nanoinfra.secrets.crypto import SecretsNotConfiguredError
+from nanoinfra.secrets.normalize import SecretValidationError
+from nanoinfra.secrets.postgres_backend import PostgresSecretsNotConfiguredError
+from nanoinfra.secrets.store import SecretStore
 from nanoinfra.security.workspace_access import WorkspaceScope
 from nanoinfra.triggers.local_types import LocalTrigger
 from nanoinfra.utils.subagent_channel_display import scrub_subagent_messages_for_channel
@@ -91,6 +95,13 @@ from nanoinfra.webui.http_utils import (
 )
 from nanoinfra.webui.ingress_policy import WebUIIngressPolicy
 from nanoinfra.webui.media_gateway import WebUIMediaGateway
+from nanoinfra.webui.secrets_api import (
+    create_webui_secret,
+    delete_webui_secret,
+    update_webui_secret,
+    webui_secret_detail_payload,
+    webui_secrets_payload,
+)
 from nanoinfra.webui.session_automations import (
     all_automations_payload,
     serialize_automation_jobs,
@@ -127,6 +138,7 @@ from nanoinfra.webui.workspaces import WebUIWorkspaceController
 _SLOW_WEBUI_HTTP_LOG_MS = 1_000
 _AUTOMATION_VALUES_HEADER = "X-Nanoinfra-Automation-Values"
 _DIAGRAM_VALUES_HEADER = "X-Nanoinfra-Diagram-Values"
+_SECRET_VALUES_HEADER = "X-Nanoinfra-Secret-Values"
 
 # Fix for #5190: On Windows, mimetypes.guess_type() reads the registry key
 # HKEY_CLASSES_ROOT\.js\Content Type, which is commonly set to 'text/plain'
@@ -251,6 +263,7 @@ class GatewayHTTPHandler:
         # constructor parameter for what is always the same value.
         self.diagrams = DiagramStore(skills_workspace_path)
         seed_example_diagram_if_new_workspace(self.diagrams)
+        self.secrets = SecretStore(skills_workspace_path)
         self.skill_state_action = skill_state_action
         self._skill_install_lock = asyncio.Lock()
         self._title_retry_in_flight: set[str] = set()
@@ -338,6 +351,11 @@ class GatewayHTTPHandler:
 
         # Diagram routes
         response = self._dispatch_diagram_routes(request, got)
+        if response is not None:
+            return response
+
+        # Secret routes
+        response = self._dispatch_secret_routes(request, got)
         if response is not None:
             return response
 
@@ -992,6 +1010,74 @@ class GatewayHTTPHandler:
             return _http_error(404, "diagram not found")
         return _http_json_response({"deleted": True})
 
+    # -- Secret routes ---------------------------------------------------------
+
+    def _dispatch_secret_routes(self, request: WsRequest, got: str) -> Response | None:
+        if got == "/api/webui/secrets":
+            return self._handle_webui_secrets(request)
+        if got == "/api/webui/secrets/create":
+            return self._handle_webui_secret_create(request)
+        m = re.match(r"^/api/webui/secrets/([^/]+)/update$", got)
+        if m:
+            return self._handle_webui_secret_update(request, m.group(1))
+        m = re.match(r"^/api/webui/secrets/([^/]+)/delete$", got)
+        if m:
+            return self._handle_webui_secret_delete(request, m.group(1))
+        m = re.match(r"^/api/webui/secrets/([^/]+)$", got)
+        if m:
+            return self._handle_webui_secret_detail(request, m.group(1))
+        return None
+
+    def _handle_webui_secrets(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        return _http_json_response(webui_secrets_payload(self.secrets))
+
+    def _handle_webui_secret_detail(self, request: WsRequest, secret_id: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        payload = webui_secret_detail_payload(self.secrets, secret_id)
+        if payload is None:
+            return _http_error(404, "secret not found")
+        return _http_json_response(payload)
+
+    def _handle_webui_secret_create(self, request: WsRequest) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        values = _secret_values_from_request(request)
+        if values is None:
+            return _http_error(400, "invalid secret payload")
+        try:
+            payload = create_webui_secret(self.secrets, values)
+        except SecretValidationError as exc:
+            return _http_error(400, str(exc))
+        except (SecretsNotConfiguredError, PostgresSecretsNotConfiguredError) as exc:
+            return _http_error(409, str(exc))
+        return _http_json_response(payload)
+
+    def _handle_webui_secret_update(self, request: WsRequest, secret_id: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        values = _secret_values_from_request(request)
+        if values is None:
+            return _http_error(400, "invalid secret payload")
+        try:
+            payload = update_webui_secret(self.secrets, secret_id, values)
+        except SecretValidationError as exc:
+            return _http_error(400, str(exc))
+        except (SecretsNotConfiguredError, PostgresSecretsNotConfiguredError) as exc:
+            return _http_error(409, str(exc))
+        if payload is None:
+            return _http_error(404, "secret not found")
+        return _http_json_response(payload)
+
+    def _handle_webui_secret_delete(self, request: WsRequest, secret_id: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if not delete_webui_secret(self.secrets, secret_id):
+            return _http_error(404, "secret not found")
+        return _http_json_response({"deleted": True})
+
     # -- Media routes -------------------------------------------------------
 
     def _dispatch_media_routes(self, request: WsRequest, got: str) -> Response | None:
@@ -1328,6 +1414,23 @@ def _diagram_values_from_request(request: WsRequest) -> dict[str, Any] | None:
     so a missing or malformed header is treated the same: an invalid payload.
     """
     raw = _case_insensitive_header(request.headers, _DIAGRAM_VALUES_HEADER)
+    if not raw:
+        return None
+    try:
+        values = json.loads(raw)
+    except Exception:
+        try:
+            values = json.loads(unquote(raw))
+        except Exception:
+            return None
+    return cast(dict[str, Any], values) if isinstance(values, dict) else None
+
+
+def _secret_values_from_request(request: WsRequest) -> dict[str, Any] | None:
+    """Read the full secret body from ``X-Nanoinfra-Secret-Values`` -- same
+    shape as ``_diagram_values_from_request``, a missing/malformed header is
+    always an invalid payload (create/update need a complete body)."""
+    raw = _case_insensitive_header(request.headers, _SECRET_VALUES_HEADER)
     if not raw:
         return None
     try:
