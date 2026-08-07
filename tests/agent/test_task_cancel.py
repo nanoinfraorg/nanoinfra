@@ -609,11 +609,17 @@ class TestSubagentAnnounceSessionKey:
         assert msg.chat_id == "discord:333"
 
     @pytest.mark.asyncio
-    async def test_session_key_flows_through_run_subagent(self):
+    async def test_session_key_flows_through_run_subagent(self, tmp_path):
         """Verify session_key in origin propagates from _run_subagent to _announce_result."""
-        from nanoinfra.agent.subagent import SubagentStatus
+        from nanoinfra.agent.subagent import SubagentManager, SubagentStatus
+        from nanoinfra.bus.queue import MessageBus
 
-        mgr, bus = self._make_mgr()
+        bus = MessageBus()
+        mgr = SubagentManager(
+            workspace=tmp_path,
+            bus=bus,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        )
 
         async def fake_run(spec):
             return SimpleNamespace(
@@ -621,6 +627,8 @@ class TestSubagentAnnounceSessionKey:
                 final_content="done",
                 error=None,
                 tool_events=[],
+                messages=[],
+                usage={},
             )
 
         mgr.runner.run = AsyncMock(side_effect=fake_run)
