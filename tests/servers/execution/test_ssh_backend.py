@@ -194,3 +194,36 @@ async def test_connection_error_is_reported_not_raised():
     assert result.exit_code is None
     assert result.error is not None
     assert "connection refused" in result.error
+
+
+@pytest.mark.asyncio
+async def test_connect_forces_binary_mode_so_decode_matches_asyncssh_streams():
+    """Regression test for a real bug found via a live SSH connection (not
+    caught by any mock, since fixtures here always returned bytes to match
+    the code's assumption): asyncssh defaults create_process() streams to
+    encoding="utf-8" (text mode), so process.stdout/stderr.read() returns
+    str -- and _drain()'s `chunk.decode(...)` then raises
+    AttributeError: 'str' object has no attribute 'decode'. The backend
+    must explicitly request encoding=None (binary mode) so its own
+    decode(errors="replace") is what actually runs, not asyncssh's
+    stricter default."""
+    fake_process = MagicMock()
+    fake_process.stdout = _FakeStreamReader([b""])
+    fake_process.stderr = _FakeStreamReader([b""])
+    fake_process.wait = AsyncMock(return_value=MagicMock(exit_status=0))
+    fake_process.__aenter__ = AsyncMock(return_value=fake_process)
+    fake_process.__aexit__ = AsyncMock(return_value=False)
+
+    fake_conn = MagicMock()
+    fake_conn.create_process = AsyncMock(return_value=fake_process)
+    fake_conn.__aenter__ = AsyncMock(return_value=fake_conn)
+    fake_conn.__aexit__ = AsyncMock(return_value=False)
+
+    connect_mock = AsyncMock(return_value=fake_conn)
+    with patch("asyncssh.connect", connect_mock):
+        backend = SSHBackend()
+        result = await backend.run(_server(), "echo hi", None, on_activity=lambda _c: None)
+
+    assert result.error is None
+    _, kwargs = connect_mock.call_args
+    assert kwargs.get("encoding") is None

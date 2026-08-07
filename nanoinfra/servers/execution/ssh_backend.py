@@ -45,7 +45,19 @@ class SSHBackend:
         port = int(server.config.get("port") or 22)
         username = server.config.get("username") or None
 
-        connect_kwargs: dict[str, object] = {"host": host, "port": port, "username": username, "known_hosts": None}
+        connect_kwargs: dict[str, object] = {
+            "host": host,
+            "port": port,
+            "username": username,
+            "known_hosts": None,
+            # asyncssh defaults to encoding="utf-8" with errors="strict" on its
+            # process streams -- create_process().stdout/stderr would then
+            # yield already-decoded str chunks, and a remote command emitting
+            # one invalid UTF-8 byte would raise instead of returning bad
+            # output. Force binary mode so _drain()'s own decode(errors=
+            # "replace") is what actually handles malformed output.
+            "encoding": None,
+        }
         if secret_value:
             if _looks_like_private_key(secret_value):
                 connect_kwargs["client_keys"] = [asyncssh.import_private_key(secret_value)]
