@@ -8,7 +8,7 @@ configured. The caller (store.py) encrypts ``value`` and fills in
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from nanoinfra.secrets.types import Secret
 
@@ -25,7 +25,7 @@ def normalize_secret_input(raw: Any, *, secret_id: str) -> tuple[Secret, str]:
     """Validate an untrusted payload; returns a ``Secret`` (ciphertext=b"") plus the plaintext value."""
     if not isinstance(raw, dict):
         raise SecretValidationError("secret payload must be an object")
-    payload: dict[str, Any] = raw
+    payload = cast(dict[str, Any], raw)
 
     name = str(payload.get("name") or "").strip()
     if not name:
