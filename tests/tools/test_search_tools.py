@@ -370,6 +370,8 @@ async def test_subagent_registers_grep(tmp_path: Path) -> None:
             final_content="done",
             tool_events=[],
             error=None,
+            messages=[],
+            usage={},
         )
 
     mgr.runner.run = fake_run
