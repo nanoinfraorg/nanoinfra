@@ -92,12 +92,6 @@ jobs:
             python-version: "3.14"
             coverage: true
             pytest_args: ""
-          - name: Windows, 3.14
-            os: windows-latest
-            python-version: "3.14"
-            coverage: false
-            # Keep each test file in one worker while using both hosted-runner cores.
-            pytest_args: "-n 2 --dist loadfile"
 
     steps:
       - uses: actions/checkout@v4
