@@ -71,6 +71,7 @@ const OAUTH_CODE_HEADER = "X-Nanoinfra-OAuth-Code";
 const OAUTH_CALLBACK_HEADER = "X-Nanoinfra-OAuth-Callback";
 const PROVIDER_VALUES_HEADER = "X-Nanoinfra-Provider-Values";
 const DIAGRAM_VALUES_HEADER = "X-Nanoinfra-Diagram-Values";
+const SECRET_VALUES_HEADER = "X-Nanoinfra-Secret-Values";
 
 export class ApiError extends Error {
   status: number;
@@ -1194,6 +1195,68 @@ export async function deleteDiagramApi(
 ): Promise<{ deleted: boolean }> {
   return request<{ deleted: boolean }>(
     `${base}/api/webui/diagrams/${encodeURIComponent(id)}/delete`,
+    token,
+  );
+}
+
+export interface SecretSummary {
+  id: string;
+  name: string;
+  kind: string;
+  providerId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SecretsPayload {
+  secrets: SecretSummary[];
+}
+
+export interface SecretDetailPayload {
+  secret: SecretSummary;
+}
+
+export async function fetchSecrets(token: string, base: string = ""): Promise<SecretsPayload> {
+  return request<SecretsPayload>(
+    `${base}/api/webui/secrets`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function createSecret(
+  token: string,
+  values: { name: string; kind: string; providerId: string; value: string },
+  base: string = "",
+): Promise<SecretDetailPayload> {
+  return request<SecretDetailPayload>(
+    `${base}/api/webui/secrets/create`,
+    token,
+    { headers: { [SECRET_VALUES_HEADER]: encodeURIComponent(JSON.stringify(values)) } },
+  );
+}
+
+export async function updateSecret(
+  token: string,
+  id: string,
+  values: { name: string; kind: string; providerId: string; value: string },
+  base: string = "",
+): Promise<SecretDetailPayload> {
+  return request<SecretDetailPayload>(
+    `${base}/api/webui/secrets/${encodeURIComponent(id)}/update`,
+    token,
+    { headers: { [SECRET_VALUES_HEADER]: encodeURIComponent(JSON.stringify(values)) } },
+  );
+}
+
+export async function deleteSecretApi(
+  token: string,
+  id: string,
+  base: string = "",
+): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(
+    `${base}/api/webui/secrets/${encodeURIComponent(id)}/delete`,
     token,
   );
 }
