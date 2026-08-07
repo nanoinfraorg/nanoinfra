@@ -1,15 +1,17 @@
 ---
 name: servers
-description: Read, discuss, and manage the server inventory (host, connection method, which secret to authenticate with). Use when the user asks to add, view, edit, or remove a server, or when a Diagram's target list needs a real server.
+description: Read, discuss, and manage the server inventory (host, connection method, which secret to authenticate with). Use when the user asks to add, view, edit, or remove a server, run a command on a server, or when a Diagram's target list needs a real server.
 ---
 
 # Servers
 
-Tools: `list_servers`, `get_server`, `create_server`, `update_server`, `delete_server`.
+Tools: `list_servers`, `get_server`, `create_server`, `update_server`, `delete_server`, `execute_on_server`.
 
-## What this is (and isn't) yet
+## Execution
 
-This is inventory only: where a server is and how to reach it. There is no tool yet that actually connects to a server and runs something on it -- if the user asks you to do that, tell them it isn't built yet rather than attempting to fabricate a connection.
+`execute_on_server` actually connects to a server and runs a command/action, via whichever provider that server uses. This is the highest-consequence tool available: **never** set `dry_run=false` without the user's explicit confirmation of the exact command and server shown in the preview, and never retry a failed/timed-out run with a different command without a fresh confirmation for that new command specifically.
+
+A job's record (status, output, exit code) persists to disk before execution starts. If it comes back `timed_out` or `failed`, say so plainly -- don't retry silently.
 
 ## Credentials
 
