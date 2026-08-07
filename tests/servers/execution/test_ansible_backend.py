@@ -120,6 +120,29 @@ async def test_run_uses_group_as_host_pattern_when_no_inventory_host():
 
 
 @pytest.mark.asyncio
+async def test_run_refuses_when_no_inventory_host_or_group_instead_of_targeting_all():
+    """The old `or "all"` fallback ran the command against the operator's entire
+    inventory whenever both target fields were missing -- while the job record and
+    the tool's confirmation named a single server. Nothing may run in that case.
+    (`host` is deliberately not an ansible-runner target field, so a host-only
+    config lands here too.)"""
+    server = Server(
+        id="a" * 32, name="n", provider_id="ansible-runner",
+        config={"host": "10.0.1.5", "projectPath": "/srv/ansible/project"},
+        secret_ref=None, tags=[], created_at="t", updated_at="t",
+    )
+
+    with patch("ansible_runner.run") as run_mock:
+        backend = AnsibleRunnerBackend()
+        result = await backend.run(server, "uptime", None, on_activity=lambda _c: None)
+
+    run_mock.assert_not_called()
+    assert result.exit_code is None
+    assert result.error is not None
+    assert "inventoryHost or group" in result.error
+
+
+@pytest.mark.asyncio
 async def test_run_passes_secret_value_as_ssh_key():
     fake_runner = _fake_runner(rc=0, stdout_text="ok")
 
