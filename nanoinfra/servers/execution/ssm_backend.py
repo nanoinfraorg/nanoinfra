@@ -31,15 +31,19 @@ model:
   still reported as a failure.
 """
 
+# pyright: reportMissingTypeStubs=false
 from __future__ import annotations
 
 import asyncio
+from typing import Any, Callable, cast
 
 import boto3
 from botocore.exceptions import ClientError
 
 from nanoinfra.servers.execution.base import ExecutionResult
 from nanoinfra.servers.types import Server
+
+boto3_module = cast(Any, boto3)
 
 DEFAULT_IDLE_TIMEOUT_S = 180
 _TERMINAL_STATUSES = {"Success", "Failed", "Cancelled", "TimedOut"}
@@ -51,16 +55,16 @@ class SSMBackend:
         self,
         server: Server,
         command: str,
-        secret_value,  # noqa: ANN001 -- unused: SSM auth is IAM-role-based, not secretRef-based
+        secret_value: str | None,  # unused: SSM auth is IAM-role-based, not secretRef-based
         *,
-        on_activity,  # noqa: ANN001
+        on_activity: Callable[[str], None],
         poll_interval_s: float = _DEFAULT_POLL_INTERVAL_S,
     ) -> ExecutionResult:
         instance_id = server.config.get("instanceId", "")
         region = server.config.get("region") or None
 
         try:
-            client = await asyncio.to_thread(boto3.client, "ssm", region_name=region)
+            client = await asyncio.to_thread(boto3_module.client, "ssm", region_name=region)
             sent = await asyncio.to_thread(
                 client.send_command,
                 InstanceIds=[instance_id],
@@ -75,7 +79,8 @@ class SSMBackend:
                         client.get_command_invocation, CommandId=command_id, InstanceId=instance_id
                     )
                 except ClientError as exc:
-                    if exc.response.get("Error", {}).get("Code") == "InvocationDoesNotExist":
+                    error_response = cast(dict[str, Any], exc.response)
+                    if error_response.get("Error", {}).get("Code") == "InvocationDoesNotExist":
                         # Eventual consistency -- the invocation hasn't propagated to
                         # the read path yet. Not a failure, just not ready: keep polling.
                         await asyncio.sleep(poll_interval_s)
