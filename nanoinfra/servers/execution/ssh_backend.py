@@ -21,7 +21,7 @@ from typing import Any, Callable
 
 import asyncssh
 
-from nanoinfra.servers.execution.base import ExecutionResult
+from nanoinfra.servers.execution.base import BoundedOutput, ExecutionResult
 from nanoinfra.servers.types import Server
 
 DEFAULT_IDLE_TIMEOUT_S = 120
@@ -57,10 +57,14 @@ class SSHBackend:
             async with conn:
                 process = await conn.create_process(command)
                 async with process:
-                    stdout_parts: list[str] = []
-                    stderr_parts: list[str] = []
+                    # Bounded per stream: this is the one backend that streams
+                    # unbounded remote output into gateway memory. The tool
+                    # applies the final combined cap (truncate_output) before
+                    # anything is persisted or returned.
+                    stdout_parts = BoundedOutput()
+                    stderr_parts = BoundedOutput()
 
-                    async def _drain(stream: Any, sink: list[str]) -> None:
+                    async def _drain(stream: Any, sink: BoundedOutput) -> None:
                         while True:
                             chunk = await stream.read(_READ_CHUNK_SIZE)
                             if not chunk:
@@ -84,9 +88,9 @@ class SSHBackend:
                         _drain(process.stderr, stderr_parts),
                     )
                     completed = await process.wait()
-                    output = "".join(stdout_parts)
-                    if stderr_parts:
-                        output += "\nSTDERR:\n" + "".join(stderr_parts)
+                    output = stdout_parts.text()
+                    if stderr_parts.total_chars:
+                        output += "\nSTDERR:\n" + stderr_parts.text()
                     return ExecutionResult(exit_code=completed.exit_status, output=output, error=None)
         except Exception as exc:  # noqa: BLE001 -- connection/auth failures must return, not raise
             return ExecutionResult(exit_code=None, output="", error=str(exc))
