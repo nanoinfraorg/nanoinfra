@@ -542,12 +542,12 @@ function MarketplaceSkillRow({
           {skill.metric === "installs_24h"
             ? t("settings.skills.marketplaceInstalls24h", {
                 count: skill.installs,
-                formattedCount: skill.installs.toLocaleString(),
+                formattedCount: skill.installs.toLocaleString("en-US"),
                 defaultValue: "{{formattedCount}} installs / 24h",
               })
             : t("settings.skills.marketplaceInstalls", {
                 count: skill.installs,
-                formattedCount: skill.installs.toLocaleString(),
+                formattedCount: skill.installs.toLocaleString("en-US"),
                 defaultValue: "{{formattedCount}} installs",
               })}
         </div>
