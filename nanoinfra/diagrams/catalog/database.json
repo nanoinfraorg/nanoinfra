@@ -23,6 +23,26 @@
         { "key": "instanceId", "label": "Instance ID", "kind": "text" },
         { "key": "credentials", "label": "Credentials", "kind": "secret" }
       ]
+    },
+    {
+      "id": "azure-postgresql",
+      "label": "Azure Database for PostgreSQL",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [
+        { "key": "serverName", "label": "Server name", "kind": "text" },
+        { "key": "credentials", "label": "Credentials", "kind": "secret" }
+      ]
+    },
+    {
+      "id": "cloud-sql",
+      "label": "Google Cloud SQL for PostgreSQL",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [
+        { "key": "instanceConnectionName", "label": "Instance connection name", "placeholder": "project:region:instance", "kind": "text" },
+        { "key": "credentials", "label": "Credentials", "kind": "secret" }
+      ]
     }
   ]
 }

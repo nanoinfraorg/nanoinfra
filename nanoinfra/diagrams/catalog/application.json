@@ -47,6 +47,26 @@
       "kind": "api",
       "integration": { "type": "api" },
       "fields": [{ "key": "endpoint", "label": "Endpoint", "placeholder": "https://api.example.com", "kind": "text" }]
+    },
+    {
+      "id": "ecs-fargate",
+      "label": "AWS ECS Fargate",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "myorg/myapp:latest", "kind": "text" },
+        { "key": "taskCpu", "label": "Task CPU / memory", "placeholder": "1 vCPU / 2GB", "kind": "text" }
+      ]
+    },
+    {
+      "id": "app-service",
+      "label": "Azure App Service",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [
+        { "key": "image", "label": "Image tag", "placeholder": "myorg/myapp:latest", "kind": "text" },
+        { "key": "planTier", "label": "Plan tier", "placeholder": "P1v3", "kind": "text" }
+      ]
     }
   ]
 }

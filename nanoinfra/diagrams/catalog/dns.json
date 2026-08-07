@@ -17,6 +17,20 @@
       "kind": "api",
       "integration": { "type": "api" },
       "fields": [{ "key": "hostedZoneId", "label": "Hosted zone ID", "kind": "text" }]
+    },
+    {
+      "id": "azure-dns",
+      "label": "Azure DNS",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "resourceGroup", "label": "Resource group", "placeholder": "rg-prod-dns", "kind": "text" }]
+    },
+    {
+      "id": "cloud-dns",
+      "label": "Google Cloud DNS",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "project", "label": "GCP project", "placeholder": "my-project-id", "kind": "text" }]
     }
   ]
 }

@@ -50,7 +50,7 @@ def test_workspace_provider_addition_appends_to_existing_type(tmp_path: Path):
     dns = next(t for t in catalog if t.id == "dns")
     provider_ids = {p.id for p in dns.providers}
     # The addition is appended, the built-in providers are untouched.
-    assert provider_ids == {"cloudflare", "route53", "powerdns"}
+    assert provider_ids == {"cloudflare", "route53", "azure-dns", "cloud-dns", "powerdns"}
 
     powerdns = next(p for p in dns.providers if p.id == "powerdns")
     assert powerdns.label == "PowerDNS"
@@ -73,8 +73,11 @@ def test_workspace_provider_addition_overrides_existing_provider_by_id(tmp_path:
 
     catalog = load_catalog(tmp_path)
     cache = next(t for t in catalog if t.id == "cache")
-    assert len(cache.providers) == 1
-    assert cache.providers[0].label == "Redis (custom build)"
+    # Only "redis" is overridden by id; the other built-in providers are untouched.
+    provider_ids = {p.id for p in cache.providers}
+    assert provider_ids == {"redis", "elasticache", "azure-cache", "memorystore"}
+    redis = next(p for p in cache.providers if p.id == "redis")
+    assert redis.label == "Redis (custom build)"
 
 
 def test_workspace_provider_addition_for_unknown_type_is_skipped(tmp_path: Path):

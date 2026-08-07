@@ -435,7 +435,272 @@ _DR_DIAGRAM: dict[str, Any] = {
     ],
 }
 
-EXAMPLE_DIAGRAMS: list[dict[str, Any]] = [_WEB_APP_DIAGRAM, _DB_CLUSTER_DIAGRAM, _NFS_HA_DIAGRAM, _DR_DIAGRAM]
+_AWS_ECOMMERCE_DIAGRAM: dict[str, Any] = {
+    "name": "Example: e-commerce on AWS",
+    "targets": [],
+    "nodes": [
+        {
+            "id": "dns-route53",
+            "position": {"x": 40, "y": 20},
+            "data": {"label": "Route 53", "componentTypeId": "dns", "providerId": "route53", "config": {}},
+        },
+        {
+            "id": "alb",
+            "position": {"x": 20, "y": 140},
+            "data": {
+                "label": "Application Load Balancer",
+                "componentTypeId": "load_balancer",
+                "providerId": "alb",
+                "config": {"targetGroup": "storefront-tg"},
+            },
+        },
+        {
+            "id": "ecs-app",
+            "position": {"x": 20, "y": 260},
+            "data": {
+                "label": "Storefront API (ECS Fargate)",
+                "componentTypeId": "application",
+                "providerId": "ecs-fargate",
+                "config": {"image": "myorg/storefront:latest", "taskCpu": "2 vCPU / 4GB"},
+            },
+        },
+        {
+            "id": "rds-orders",
+            "position": {"x": -140, "y": 400},
+            "data": {
+                "label": "Orders DB (RDS PostgreSQL)",
+                "componentTypeId": "database",
+                "providerId": "rds",
+                "config": {"instanceId": "orders-db-prod"},
+            },
+        },
+        {
+            "id": "elasticache-sessions",
+            "position": {"x": 180, "y": 400},
+            "data": {
+                "label": "Session cache (ElastiCache)",
+                "componentTypeId": "cache",
+                "providerId": "elasticache",
+                "config": {"clusterId": "sessions-cache"},
+            },
+        },
+        {
+            "id": "s3-assets",
+            "position": {"x": 20, "y": 520},
+            "data": {
+                "label": "Product images (S3)",
+                "componentTypeId": "storage",
+                "providerId": "s3",
+                "config": {"bucket": "acme-shop-assets"},
+            },
+        },
+    ],
+    "edges": [
+        {"id": "e1", "source": "dns-route53", "target": "alb", "label": "HTTPS"},
+        {"id": "e2", "source": "alb", "target": "ecs-app", "label": "Route HTTP"},
+        {"id": "e3", "source": "ecs-app", "target": "rds-orders", "label": "Read/Write"},
+        {"id": "e4", "source": "ecs-app", "target": "elasticache-sessions", "label": "Cache/Session"},
+        {"id": "e5", "source": "ecs-app", "target": "s3-assets", "label": "Read/Write"},
+    ],
+}
+
+_AZURE_BLOG_DIAGRAM: dict[str, Any] = {
+    "name": "Example: blog on Azure",
+    "targets": [],
+    "nodes": [
+        {
+            "id": "azure-dns",
+            "position": {"x": 40, "y": 20},
+            "data": {
+                "label": "Azure DNS",
+                "componentTypeId": "dns",
+                "providerId": "azure-dns",
+                "config": {"resourceGroup": "rg-blog-prod"},
+            },
+        },
+        {
+            "id": "app-gateway",
+            "position": {"x": 20, "y": 140},
+            "data": {
+                "label": "Application Gateway",
+                "componentTypeId": "load_balancer",
+                "providerId": "app-gateway",
+                "config": {"backendPool": "blog-app-pool"},
+            },
+        },
+        {
+            "id": "app-service",
+            "position": {"x": 20, "y": 260},
+            "data": {
+                "label": "Blog (App Service)",
+                "componentTypeId": "application",
+                "providerId": "app-service",
+                "config": {"image": "myorg/blog:latest", "planTier": "P1v3"},
+            },
+        },
+        {
+            "id": "azure-postgresql",
+            "position": {"x": -140, "y": 400},
+            "data": {
+                "label": "Posts DB (Azure PostgreSQL)",
+                "componentTypeId": "database",
+                "providerId": "azure-postgresql",
+                "config": {"serverName": "blog-pg-prod"},
+            },
+        },
+        {
+            "id": "azure-blob",
+            "position": {"x": 180, "y": 400},
+            "data": {
+                "label": "Media (Blob Storage)",
+                "componentTypeId": "storage",
+                "providerId": "azure-blob",
+                "config": {"container": "blog-media"},
+            },
+        },
+    ],
+    "edges": [
+        {"id": "e1", "source": "azure-dns", "target": "app-gateway", "label": "HTTPS"},
+        {"id": "e2", "source": "app-gateway", "target": "app-service", "label": "Route HTTP"},
+        {"id": "e3", "source": "app-service", "target": "azure-postgresql", "label": "Read/Write"},
+        {"id": "e4", "source": "app-service", "target": "azure-blob", "label": "Read/Write"},
+    ],
+}
+
+# The "something else" pick -- a GKE-native microservices API, not another
+# blog/e-commerce shape. Uses cloud-managed services at the edge/data layer
+# (Cloud DNS/LB, Cloud SQL, Memorystore, Cloud Storage) but self-hosted
+# in-cluster tooling for everything K8s-internal (ingress, service, API
+# gateway, metrics) -- the realistic split for an actual GKE deployment, and
+# the first seed example to touch ingress_controller/k8s_service/
+# auth_gateway/monitoring at all.
+_GCP_MICROSERVICES_DIAGRAM: dict[str, Any] = {
+    "name": "Example: GKE microservices API on GCP",
+    "targets": [],
+    "nodes": [
+        {
+            "id": "cloud-dns",
+            "position": {"x": 40, "y": 20},
+            "data": {
+                "label": "Cloud DNS",
+                "componentTypeId": "dns",
+                "providerId": "cloud-dns",
+                "config": {"project": "acme-platform"},
+            },
+        },
+        {
+            "id": "gcp-lb",
+            "position": {"x": 20, "y": 140},
+            "data": {
+                "label": "Cloud Load Balancing",
+                "componentTypeId": "load_balancer",
+                "providerId": "gcp-lb",
+                "config": {"backendService": "orders-api-backend"},
+            },
+        },
+        {
+            "id": "nginx-ingress",
+            "position": {"x": 20, "y": 260},
+            "data": {
+                "label": "Ingress Controller",
+                "componentTypeId": "ingress_controller",
+                "providerId": "nginx-ingress",
+                "config": {"image": "registry.k8s.io/ingress-nginx/controller:v1.11.2", "rateLimit": "100 req/s per IP"},
+            },
+        },
+        {
+            "id": "kong",
+            "position": {"x": 20, "y": 380},
+            "data": {
+                "label": "API Gateway (Kong)",
+                "componentTypeId": "auth_gateway",
+                "providerId": "kong",
+                "config": {"image": "kong:3.7", "authType": "JWT"},
+            },
+        },
+        {
+            "id": "k8s-svc",
+            "position": {"x": 20, "y": 500},
+            "data": {
+                "label": "orders-api Service",
+                "componentTypeId": "k8s_service",
+                "providerId": "cluster-ip",
+                "config": {"port": "8000", "targetPort": "8000"},
+            },
+        },
+        {
+            "id": "orders-api",
+            "position": {"x": 20, "y": 620},
+            "data": {
+                "label": "Orders API (GKE pod)",
+                "componentTypeId": "application",
+                "providerId": "custom-docker-app",
+                "config": {"image": "myorg/orders-api:latest", "replicas": "3–10"},
+            },
+        },
+        {
+            "id": "cloud-sql",
+            "position": {"x": -220, "y": 760},
+            "data": {
+                "label": "Orders DB (Cloud SQL)",
+                "componentTypeId": "database",
+                "providerId": "cloud-sql",
+                "config": {"instanceConnectionName": "acme-platform:us-central1:orders-db"},
+            },
+        },
+        {
+            "id": "memorystore",
+            "position": {"x": 80, "y": 760},
+            "data": {
+                "label": "Session cache (Memorystore)",
+                "componentTypeId": "cache",
+                "providerId": "memorystore",
+                "config": {"instanceId": "orders-cache"},
+            },
+        },
+        {
+            "id": "gcs",
+            "position": {"x": 380, "y": 760},
+            "data": {
+                "label": "Order exports (Cloud Storage)",
+                "componentTypeId": "storage",
+                "providerId": "gcs",
+                "config": {"bucket": "acme-orders-exports"},
+            },
+        },
+        {
+            "id": "prometheus",
+            "position": {"x": 500, "y": 620},
+            "data": {
+                "label": "Prometheus (metrics)",
+                "componentTypeId": "monitoring",
+                "providerId": "prometheus",
+                "config": {"image": "prom/prometheus:v2.54.1", "scrapeInterval": "15s"},
+            },
+        },
+    ],
+    "edges": [
+        {"id": "e1", "source": "cloud-dns", "target": "gcp-lb", "label": "DNS"},
+        {"id": "e2", "source": "gcp-lb", "target": "nginx-ingress", "label": "Route HTTP"},
+        {"id": "e3", "source": "nginx-ingress", "target": "kong", "label": "Proxy"},
+        {"id": "e4", "source": "kong", "target": "k8s-svc", "label": "Authenticated request"},
+        {"id": "e5", "source": "k8s-svc", "target": "orders-api", "label": "Route to pod"},
+        {"id": "e6", "source": "orders-api", "target": "cloud-sql", "label": "Read/Write"},
+        {"id": "e7", "source": "orders-api", "target": "memorystore", "label": "Cache/Session"},
+        {"id": "e8", "source": "orders-api", "target": "gcs", "label": "Read/Write"},
+        {"id": "e9", "source": "prometheus", "target": "orders-api", "label": "scrapes metrics"},
+    ],
+}
+
+EXAMPLE_DIAGRAMS: list[dict[str, Any]] = [
+    _WEB_APP_DIAGRAM,
+    _DB_CLUSTER_DIAGRAM,
+    _NFS_HA_DIAGRAM,
+    _DR_DIAGRAM,
+    _AWS_ECOMMERCE_DIAGRAM,
+    _AZURE_BLOG_DIAGRAM,
+    _GCP_MICROSERVICES_DIAGRAM,
+]
 
 
 def seed_example_diagram_if_new_workspace(store: DiagramStore) -> None:

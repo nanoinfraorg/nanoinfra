@@ -17,6 +17,20 @@
       "kind": "docker",
       "integration": { "type": "internal" },
       "fields": [{ "key": "image", "label": "Image tag", "placeholder": "nginx:1.27", "kind": "text" }]
+    },
+    {
+      "id": "app-gateway",
+      "label": "Azure Application Gateway",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "backendPool", "label": "Backend pool", "kind": "text" }]
+    },
+    {
+      "id": "gcp-lb",
+      "label": "Google Cloud Load Balancing",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "backendService", "label": "Backend service", "kind": "text" }]
     }
   ]
 }

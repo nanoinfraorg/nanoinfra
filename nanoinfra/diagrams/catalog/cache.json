@@ -13,6 +13,27 @@
         { "key": "image", "label": "Image tag", "placeholder": "redis:7", "kind": "text" },
         { "key": "persistence", "label": "Persistence", "placeholder": "appendonly yes (AOF), RDB snapshots, none...", "kind": "text" }
       ]
+    },
+    {
+      "id": "elasticache",
+      "label": "AWS ElastiCache for Redis",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "clusterId", "label": "Cluster ID", "kind": "text" }]
+    },
+    {
+      "id": "azure-cache",
+      "label": "Azure Cache for Redis",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "hostname", "label": "Hostname", "kind": "text" }]
+    },
+    {
+      "id": "memorystore",
+      "label": "Google Cloud Memorystore for Redis",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "instanceId", "label": "Instance ID", "kind": "text" }]
     }
   ]
 }
