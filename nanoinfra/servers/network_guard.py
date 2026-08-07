@@ -21,13 +21,36 @@ _BLOCKED_NETWORKS = [
     ipaddress.ip_network("0.0.0.0/8"),
     ipaddress.ip_network("127.0.0.0/8"),
     ipaddress.ip_network("169.254.0.0/16"),  # link-local, includes cloud metadata (169.254.169.254)
+    ipaddress.ip_network("::/128"),  # unspecified; may route to the local host
     ipaddress.ip_network("::1/128"),
     ipaddress.ip_network("fe80::/10"),
 ]
 
 
+def _normalize_addr(
+    addr: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    """Normalize IPv4-mapped IPv6 addresses to their IPv4 form.
+
+    ``::ffff:169.254.169.254`` is semantically identical to
+    ``169.254.169.254``, but Python's ipaddress compares across address
+    families by returning False rather than raising -- so the mapped form
+    matches neither ``169.254.0.0/16`` nor any IPv6 network in the list
+    above, and would sail straight through this guard. Same trap the
+    general SSRF guard (nanoinfra/security/network.py) documents for
+    ``::ffff:127.0.0.1``; the logic is deliberately duplicated rather
+    than imported, because that module's blocklist (which blocks all of
+    RFC1918) is the wrong policy for Server targets -- see this module's
+    docstring.
+    """
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped
+    return addr
+
+
 def _is_blocked(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    return any(addr in net for net in _BLOCKED_NETWORKS)
+    normalized = _normalize_addr(addr)
+    return any(normalized in net for net in _BLOCKED_NETWORKS)
 
 
 def validate_server_target(host: str) -> tuple[bool, str]:
