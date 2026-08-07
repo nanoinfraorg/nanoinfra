@@ -193,6 +193,17 @@ function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps)
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // A "Saved" state on the button itself, not just the small timestamp text
+  // elsewhere in the header -- that text sits far from where a click lands,
+  // easy to miss as confirmation the click actually did anything.
+  const [justSaved, setJustSaved] = useState(false);
+  const justSavedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (justSavedTimeoutRef.current) clearTimeout(justSavedTimeoutRef.current);
+    };
+  }, []);
 
   const selectedNode = useMemo(
     () => (selection?.kind === "node" ? nodes.find((n) => n.id === selection.id) ?? null : null),
@@ -242,6 +253,9 @@ function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps)
       const saved = await onSave(diagramAsData);
       setDiagramId(saved.id);
       setLastSavedAt(new Date().toLocaleTimeString());
+      setJustSaved(true);
+      if (justSavedTimeoutRef.current) clearTimeout(justSavedTimeoutRef.current);
+      justSavedTimeoutRef.current = setTimeout(() => setJustSaved(false), 2000);
       onSaved(saved);
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : String(e));
@@ -420,9 +434,15 @@ function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps)
               type="button"
               onClick={() => void handleSave()}
               disabled={saving}
-              className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
+              className={[
+                "flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                justSaved
+                  ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  : "border-border/45 bg-settings-surface text-foreground hover:bg-muted/70",
+              ].join(" ")}
             >
-              <Save className="h-3.5 w-3.5" /> {saving ? "Saving…" : "Save"}
+              {justSaved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+              {saving ? "Saving…" : justSaved ? "Saved" : "Save"}
             </button>
           </div>
         </div>
