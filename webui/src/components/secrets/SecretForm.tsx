@@ -47,7 +47,10 @@ export function SecretForm({ secret, onBack, onSave }: SecretFormProps) {
       await onSave({ name: name.trim(), kind, providerId, value });
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        setError("Secrets isn't configured on this server (missing NANOINFRA_SECRETS_KEY).");
+        // e.message carries the real backend detail (crypto.py distinguishes
+        // "unset" from "set but not a valid Fernet key: <reason>") -- don't
+        // collapse both cases into one generic string.
+        setError(e.message || "Secrets isn't configured on this server (missing NANOINFRA_SECRETS_KEY).");
       } else {
         setError(e instanceof Error ? e.message : String(e));
       }
