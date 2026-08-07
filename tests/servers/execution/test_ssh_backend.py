@@ -55,7 +55,7 @@ async def test_run_returns_exit_code_and_output_and_reports_activity():
     assert result.exit_code == 0
     assert "hello" in result.output
     assert "world" in result.output
-    assert activity_chunks  # at least one chunk reported as activity
+    assert activity_chunks == ["hello\n", "world\n"]
 
 
 @pytest.mark.asyncio
@@ -75,8 +75,12 @@ async def test_run_passes_secret_value_as_password_when_no_key_markers():
     connect_mock = AsyncMock(return_value=fake_conn)
     with patch("asyncssh.connect", connect_mock):
         backend = SSHBackend()
-        await backend.run(_server(), "echo hi", "s3cr3t-password", on_activity=lambda _c: None)
+        result = await backend.run(
+            _server(), "echo hi", "s3cr3t-password", on_activity=lambda _c: None
+        )
 
+    assert result.exit_code == 0
+    assert result.error is None
     _, kwargs = connect_mock.call_args
     assert kwargs.get("password") == "s3cr3t-password"
     assert "client_keys" not in kwargs or not kwargs["client_keys"]
@@ -101,8 +105,10 @@ async def test_run_passes_secret_value_as_private_key_when_pem_shaped():
     with patch("asyncssh.connect", connect_mock), patch("asyncssh.import_private_key") as import_key:
         import_key.return_value = "parsed-key-object"
         backend = SSHBackend()
-        await backend.run(_server(), "echo hi", pem_key, on_activity=lambda _c: None)
+        result = await backend.run(_server(), "echo hi", pem_key, on_activity=lambda _c: None)
 
+    assert result.exit_code == 0
+    assert result.error is None
     import_key.assert_called_once_with(pem_key)
     _, kwargs = connect_mock.call_args
     assert kwargs.get("client_keys") == ["parsed-key-object"]
