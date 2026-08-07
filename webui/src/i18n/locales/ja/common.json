@@ -68,7 +68,10 @@
     "skills": {
       "title": "スキル"
     },
-    "diagrams": "インフラ図"
+    "diagrams": "インフラ図",
+    "infrastructure": "インフラ",
+    "servers": "サーバー",
+    "secrets": "シークレット"
   },
   "settings": {
     "backToChat": "チャットに戻る",

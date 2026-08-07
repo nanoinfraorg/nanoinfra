@@ -68,7 +68,10 @@
     "skills": {
       "title": "Compétences"
     },
-    "diagrams": "Diagrammes Infra"
+    "diagrams": "Diagrammes Infra",
+    "infrastructure": "Infrastructure",
+    "servers": "Serveurs",
+    "secrets": "Secrets"
   },
   "settings": {
     "backToChat": "Retour au chat",

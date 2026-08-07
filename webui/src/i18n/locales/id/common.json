@@ -68,7 +68,10 @@
     "skills": {
       "title": "Keterampilan"
     },
-    "diagrams": "Diagram Infra"
+    "diagrams": "Diagram Infra",
+    "infrastructure": "Infrastruktur",
+    "servers": "Server",
+    "secrets": "Rahasia"
   },
   "settings": {
     "backToChat": "Kembali ke chat",
