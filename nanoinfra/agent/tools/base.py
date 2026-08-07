@@ -204,6 +204,11 @@ class Tool(ABC):
     _plugin_discoverable: bool = True
     _scopes: set[str] = {"core"}
 
+    # Argument names masked before a tool call is persisted to session
+    # history, streamed to progress/UI channels, or logged — execute()
+    # still receives the real values for this call.
+    sensitive_params: frozenset[str] = frozenset()
+
     @classmethod
     def config_cls(cls) -> type[BaseModel] | None:
         return None
