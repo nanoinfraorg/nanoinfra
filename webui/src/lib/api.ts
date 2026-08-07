@@ -1260,3 +1260,19 @@ export async function deleteSecretApi(
     token,
   );
 }
+
+export interface ServerSummary {
+  id: string;
+  name: string;
+  providerId: string;
+  tags: string[];
+  updatedAt: string;
+}
+
+export interface ServersPayload {
+  servers: ServerSummary[];
+}
+
+export async function fetchServers(token: string, base: string = ""): Promise<ServersPayload> {
+  return request<ServersPayload>(`${base}/api/webui/servers`, token, undefined, API_READ_TIMEOUT_MS);
+}
