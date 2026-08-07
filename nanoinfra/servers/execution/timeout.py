@@ -16,7 +16,7 @@ import asyncio
 import time
 from collections.abc import Coroutine
 from contextlib import suppress
-from typing import Any
+from typing import Any, Callable
 
 from nanoinfra.servers.execution.base import ExecutionResult
 
@@ -24,19 +24,26 @@ _DEFAULT_POLL_INTERVAL_S = 1.0
 
 
 class IdleTimeoutTracker:
-    def __init__(self, idle_timeout_s: float, absolute_ceiling_s: float = 1800) -> None:
+    def __init__(
+        self,
+        idle_timeout_s: float,
+        absolute_ceiling_s: float = 1800,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.idle_timeout_s = idle_timeout_s
         self.absolute_ceiling_s = absolute_ceiling_s
-        self._start = time.monotonic()
+        self._clock = clock
+        self._start = self._clock()
         self._last_activity = self._start
 
     def touch(self, _chunk: str = "") -> None:
         """Signature accepts an (unused) chunk so it can be passed directly
         as an ExecutionBackend's on_activity callback."""
-        self._last_activity = time.monotonic()
+        self._last_activity = self._clock()
 
     def remaining_s(self) -> float:
-        now = time.monotonic()
+        now = self._clock()
         idle_remaining = self.idle_timeout_s - (now - self._last_activity)
         ceiling_remaining = self.absolute_ceiling_s - (now - self._start)
         return max(0.0, min(idle_remaining, ceiling_remaining))
@@ -57,6 +64,10 @@ async def run_with_idle_timeout(
         while True:
             remaining = tracker.remaining_s()
             if remaining <= 0:
+                # Deliberate tie-break: if the backend coroutine finishes at the exact
+                # instant the deadline hits, we still discard its result and report
+                # timed_out=True -- "timeout wins" on ties, rather than racing to see
+                # which check the event loop happens to schedule first.
                 task.cancel()
                 with suppress(asyncio.CancelledError):
                     await task
