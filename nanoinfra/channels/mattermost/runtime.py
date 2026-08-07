@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import httpx
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from nanoinfra.bus.events import OutboundMessage
 from nanoinfra.bus.queue import MessageBus
@@ -52,6 +52,7 @@ class MattermostConfig(Base):
     allow_from_match_mode: str = "id"
     allow_from: list[str] = Field(default_factory=list)
     group_policy: str = "mention"
+    group_policy_in_thread: str = "open"
     group_allow_from: list[str] = Field(default_factory=list)
     reply_in_thread: bool = True
     include_thread_context: bool = True
@@ -63,6 +64,22 @@ class MattermostConfig(Base):
     send_progress: bool = True
     send_tool_hints: bool = True
     dm: MattermostDMConfig = Field(default_factory=MattermostDMConfig)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _inherit_thread_policy(cls, data: Any) -> Any:
+        """Preserve the existing group policy unless a thread override is set."""
+        if not isinstance(data, dict):
+            return data
+        raw = cast(dict[str, Any], data)
+        if "groupPolicyInThread" in raw or "group_policy_in_thread" in raw:
+            return raw
+        values = dict(raw)
+        values["group_policy_in_thread"] = values.get(
+            "groupPolicy",
+            values.get("group_policy", "mention"),
+        )
+        return values
 
 
 def _server_url_to_ws_url(server_url: str) -> str:
@@ -249,8 +266,10 @@ class MattermostChannel(BaseChannel):
                 )
             return
 
-        if not is_dm and not self._should_respond_in_channel(message_text, channel_id):
-            return
+        if not is_dm:
+            in_thread = bool(root_id)
+            if not self._should_respond_in_channel(message_text, channel_id, in_thread=in_thread):
+                return
 
         message_text = self._strip_bot_mention(message_text)
 
@@ -365,12 +384,18 @@ class MattermostChannel(BaseChannel):
             return chat_id in self.config.group_allow_from
         return True
 
-    def _should_respond_in_channel(self, text: str, chat_id: str) -> bool:
-        if self.config.group_policy == "open":
+    def _should_respond_in_channel(
+        self, text: str, chat_id: str, *, in_thread: bool = False,
+    ) -> bool:
+        policy = (
+            self.config.group_policy_in_thread if in_thread
+            else self.config.group_policy
+        )
+        if policy == "open":
             return True
-        if self.config.group_policy == "mention":
+        if policy == "mention":
             return self._is_mentioned(text)
-        if self.config.group_policy == "allowlist":
+        if policy == "allowlist":
             return chat_id in self.config.group_allow_from
         return False
 
