@@ -34,6 +34,7 @@ Pick the row that matches what you want to accomplish next:
 | Enable web search | [Configure Web Search](./guides/configure-web-search.md) |
 | Add an MCP tool server | [Configure MCP Tools](./guides/configure-mcp-tools.md) |
 | Generate images | [Image Generation](./image-generation.md) |
+| Store credentials and let the agent connect to a server (SSH, Ansible, SSM, API) | [Secrets and Servers](./secrets-and-servers.md) |
 | Schedule work or create a local trigger | [Automations](./automations.md) |
 | Understand and manage long-term memory | [Memory](./memory.md) |
 | Run nanoinfra continuously | [Deployment](./deployment.md) |

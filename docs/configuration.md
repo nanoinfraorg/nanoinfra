@@ -204,6 +204,10 @@ These variables are process-level switches. Set them in the same terminal, servi
 | `NANOINFRA_SECRETS_KEY` | unset | Master encryption key (Fernet) for the Secrets module. nanoinfra never generates or stores this key — you generate it yourself and set it in the same environment that starts the gateway (service unit, container, or `.env`): `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Without it, the gateway still starts fine; every Secrets operation just returns a clean "not configured" error until it's set. |
 | `NANOINFRA_SECRETS_POSTGRES_DSN` | unset | Postgres connection string for secrets stored with `providerId="postgres"` (shared across a deployment). Optional — `providerId="local"` secrets work fully without it; only Postgres-backed secrets fail with "not configured" if it's unset. Requires the `secrets-postgres` extra: `nanoinfra plugins enable secrets-postgres` (or `pip install nanoinfra[secrets-postgres]`). |
 
+### Servers module (execution backends)
+
+No dedicated environment variables — `execute_on_server` resolves its credential from the Secrets module (above) and connects via whichever provider a Server record specifies. Each remote-connection provider needs its own optional library, all bundled under one `servers` extra: `nanoinfra plugins enable servers` (or `pip install nanoinfra[servers]`) installs `asyncssh` (the `ssh` provider), `ansible-runner` (the `ansible-runner` provider), and `boto3` (the `ssm` provider). The `api` provider needs nothing extra — it uses the already-core `httpx`. A missing library only breaks the one provider that needs it; the gateway starts fine either way, and inventory CRUD (`list_servers`/`get_server`/`create_server`/`update_server`/`delete_server`) never needs any of them.
+
 ### Installer, build, and WebUI development
 
 | Variable | Default | Description |
