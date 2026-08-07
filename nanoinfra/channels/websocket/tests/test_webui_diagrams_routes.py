@@ -100,9 +100,13 @@ async def test_diagram_crud_round_trip(bus: MagicMock, tmp_path: Path) -> None:
         token = channel.gateway.tokens.issue_api_token(300)
         auth = {"Authorization": f"Bearer {token}"}
 
-        empty = await _http_get(f"{base_url}/api/webui/diagrams", headers=auth)
-        assert empty.status_code == 200
-        assert empty.json() == {"diagrams": []}
+        # A brand-new workspace gets auto-seeded with example diagrams (see
+        # seed_example_diagram_if_new_workspace) -- this test goes through the
+        # same real startup path as the gateway, so it sees them too. Compare
+        # against this baseline rather than asserting an empty list.
+        initial = await _http_get(f"{base_url}/api/webui/diagrams", headers=auth)
+        assert initial.status_code == 200
+        baseline_ids = {s["id"] for s in initial.json()["diagrams"]}
 
         created = await _http_get(
             f"{base_url}/api/webui/diagrams/create",
@@ -126,8 +130,10 @@ async def test_diagram_crud_round_trip(bus: MagicMock, tmp_path: Path) -> None:
         listed = await _http_get(f"{base_url}/api/webui/diagrams", headers=auth)
         assert listed.status_code == 200
         summaries = listed.json()["diagrams"]
-        assert [s["id"] for s in summaries] == [diagram_id]
-        assert summaries[0]["nodeCount"] == 1
+        new_ids = [s["id"] for s in summaries if s["id"] not in baseline_ids]
+        assert new_ids == [diagram_id]
+        new_summary = next(s for s in summaries if s["id"] == diagram_id)
+        assert new_summary["nodeCount"] == 1
 
         detail = await _http_get(f"{base_url}/api/webui/diagrams/{diagram_id}", headers=auth)
         assert detail.status_code == 200
