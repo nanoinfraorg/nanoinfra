@@ -442,17 +442,16 @@ function SidebarActionButton({
           collapsed
             ? "max-w-0 -translate-x-1 opacity-0"
             : "max-w-[12rem] translate-x-0 opacity-100",
-          // A trailing chevron/disclosure indicator needs the label to grow
-          // and push it to the row's far end -- other rows have no trailing
-          // content, so their own layout (icon+label, left-aligned) is
-          // unaffected by this.
-          trailing && "flex-1",
         )}
       >
         {label}
       </span>
       {trailing && !collapsed ? (
-        <span className="flex shrink-0 items-center justify-center" aria-hidden>
+        // ml-auto pushes just this element (not the label) to the row's far
+        // end, so the label keeps its normal left-hugging/truncate behavior
+        // identical to every other row -- only rows that pass `trailing`
+        // render this at all.
+        <span className="ml-auto flex shrink-0 items-center justify-center" aria-hidden>
           {trailing}
         </span>
       ) : null}
