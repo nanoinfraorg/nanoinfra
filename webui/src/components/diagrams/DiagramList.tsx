@@ -21,7 +21,7 @@ export function DiagramList({ diagrams, onOpen, onNew, onDelete }: DiagramListPr
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex flex-col">
           <span className="text-[14px] font-semibold text-foreground">
-            {t("sidebar.diagrams", { defaultValue: "Infra Diagrams" })}
+            {t("sidebar.diagrams", { defaultValue: "Diagrams" })}
           </span>
           <span className="text-[11px] text-muted-foreground">
             {diagrams.length > 0 ? `${diagrams.length} saved` : "No diagrams yet"}

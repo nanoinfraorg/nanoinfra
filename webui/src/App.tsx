@@ -1964,7 +1964,7 @@ function Shell({
     }
     if (view === "diagrams") {
       document.title = t("app.documentTitle.chat", {
-        title: t("sidebar.diagrams", { defaultValue: "Infra Diagrams" }),
+        title: t("sidebar.diagrams", { defaultValue: "Diagrams" }),
       });
       return;
     }

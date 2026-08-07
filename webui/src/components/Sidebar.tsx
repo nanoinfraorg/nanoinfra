@@ -228,7 +228,7 @@ export function Sidebar(props: SidebarProps) {
           <>
             <SidebarActionButton
               collapsed={collapsed}
-              label={t("sidebar.diagrams", { defaultValue: "Infra Diagrams" })}
+              label={t("sidebar.diagrams", { defaultValue: "Diagrams" })}
               onClick={props.onOpenDiagrams}
               onIntent={props.onSettingsIntent}
               active={props.activeUtility === "diagrams"}
@@ -256,29 +256,26 @@ export function Sidebar(props: SidebarProps) {
           </>
         ) : (
           <div>
-            <button
-              type="button"
+            <SidebarActionButton
+              collapsed={false}
+              label={t("sidebar.infrastructure", { defaultValue: "Infrastructure" })}
               onClick={() => setInfraExpanded((v) => !v)}
-              aria-expanded={infraExpanded}
-              className={cn(SIDEBAR_SELECTION_ACTION_ITEM_CLASS, "flex w-full items-center gap-2.5")}
-            >
-              <Network className="h-4 w-4 shrink-0" />
-              <span className="min-w-0 flex-1 truncate text-left">
-                {t("sidebar.infrastructure", { defaultValue: "Infrastructure" })}
-              </span>
-              <ChevronDown
-                className={cn(
-                  "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
-                  infraExpanded && "rotate-180",
-                )}
-                aria-hidden
-              />
-            </button>
+              ariaExpanded={infraExpanded}
+              icon={<Network className="h-4 w-4" />}
+              trailing={
+                <ChevronDown
+                  className={cn(
+                    "h-3.5 w-3.5 text-muted-foreground transition-transform",
+                    infraExpanded && "rotate-180",
+                  )}
+                />
+              }
+            />
             {infraExpanded ? (
               <div className="ml-3 mt-0.5 flex flex-col gap-0.5 border-l border-border/45 pl-3">
                 <SidebarActionButton
                   collapsed={false}
-                  label={t("sidebar.diagrams", { defaultValue: "Infra Diagrams" })}
+                  label={t("sidebar.diagrams", { defaultValue: "Diagrams" })}
                   onClick={props.onOpenDiagrams}
                   onIntent={props.onSettingsIntent}
                   active={props.activeUtility === "diagrams"}
@@ -386,6 +383,8 @@ function SidebarActionButton({
   ariaKeyShortcuts,
   onIntent,
   selectionRef,
+  trailing,
+  ariaExpanded,
 }: {
   collapsed: boolean;
   label: string;
@@ -397,6 +396,9 @@ function SidebarActionButton({
   ariaKeyShortcuts?: string;
   onIntent?: () => void;
   selectionRef?: RefObject<HTMLButtonElement>;
+  /** Extra content after the label, e.g. a disclosure chevron. Hidden when collapsed, same as the label. */
+  trailing?: ReactNode;
+  ariaExpanded?: boolean;
 }) {
   const title = shortcut ? `${label} (${shortcut})` : collapsed ? label : undefined;
 
@@ -407,6 +409,7 @@ function SidebarActionButton({
       variant={null}
       aria-label={label}
       aria-current={active ? "page" : undefined}
+      aria-expanded={ariaExpanded}
       aria-keyshortcuts={ariaKeyShortcuts}
       title={title}
       onClick={() => onClick()}
@@ -439,10 +442,20 @@ function SidebarActionButton({
           collapsed
             ? "max-w-0 -translate-x-1 opacity-0"
             : "max-w-[12rem] translate-x-0 opacity-100",
+          // A trailing chevron/disclosure indicator needs the label to grow
+          // and push it to the row's far end -- other rows have no trailing
+          // content, so their own layout (icon+label, left-aligned) is
+          // unaffected by this.
+          trailing && "flex-1",
         )}
       >
         {label}
       </span>
+      {trailing && !collapsed ? (
+        <span className="flex shrink-0 items-center justify-center" aria-hidden>
+          {trailing}
+        </span>
+      ) : null}
     </Button>
   );
 }
