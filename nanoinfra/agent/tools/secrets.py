@@ -146,6 +146,8 @@ def _create_update_error(exc: Exception) -> ToolResult:
 class CreateSecretTool(Tool):
     """Preview (default) or create a new stored secret."""
 
+    sensitive_params = frozenset({"value"})
+
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
         return cls(SecretStore(Path(ctx.workspace)))
@@ -202,6 +204,8 @@ class CreateSecretTool(Tool):
 )
 class UpdateSecretTool(Tool):
     """Preview (default) or persist a full update to an existing secret."""
+
+    sensitive_params = frozenset({"value"})
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:

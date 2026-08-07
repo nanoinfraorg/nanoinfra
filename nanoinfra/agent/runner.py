@@ -141,6 +141,32 @@ class AgentRunner:
         self.context_governor = ContextGovernor()
 
     @staticmethod
+    def _tool_calls_for_context(
+        tool_calls: list[ToolCallRequest], tools: ToolRegistry
+    ) -> list[ToolCallRequest]:
+        """Mask each tool call's ``sensitive_params`` before it reaches ``context.tool_calls``.
+
+        Every consumer of ``context.tool_calls`` (persisted assistant message,
+        checkpoints, progress/UI hints, logging) reads from here, not from
+        ``response.tool_calls`` — which keeps the real arguments for the
+        current turn's actual tool execution.
+        """
+        get_tool = cast(Callable[[str], Any] | None, getattr(tools, "get", None))
+        result: list[ToolCallRequest] = []
+        for tc in tool_calls:
+            tool = get_tool(tc.name) if callable(get_tool) else None
+            raw_sensitive = getattr(tool, "sensitive_params", None)
+            # Guard against test doubles / plugin tools whose `.sensitive_params`
+            # isn't a real (frozen)set — treat anything else as "no redaction".
+            sensitive: frozenset[str] = (
+                cast(frozenset[str], raw_sensitive)
+                if isinstance(raw_sensitive, (frozenset, set))
+                else frozenset()
+            )
+            result.append(tc.redacted(sensitive) if sensitive else tc)
+        return result
+
+    @staticmethod
     def _merge_message_content(left: Any, right: Any) -> str | list[dict[str, Any]]:
         if isinstance(left, str) and isinstance(right, str):
             return f"{left}\n\n{right}" if left else right
@@ -490,7 +516,7 @@ class AgentRunner:
             )
             conversation_state.observe_response(response, messages)
             context.response = response
-            context.tool_calls = list(response.tool_calls)
+            context.tool_calls = self._tool_calls_for_context(response.tool_calls, spec.tools)
 
             original_content = response.content
             reasoning_text, cleaned_content = extract_reasoning(
@@ -508,13 +534,13 @@ class AgentRunner:
                 context.streamed_reasoning = True
 
             if response.should_execute_tools:
-                context.tool_calls = list(response.tool_calls)
+                context.tool_calls = self._tool_calls_for_context(response.tool_calls, spec.tools)
                 if hook.wants_streaming():
                     await hook.on_stream_end(context, resuming=True)
 
                 assistant_message = build_assistant_message(
                     response.content or "",
-                    tool_calls=[tc.to_openai_tool_call() for tc in response.tool_calls],
+                    tool_calls=[tc.to_openai_tool_call() for tc in context.tool_calls],
                     reasoning_content=response.reasoning_content,
                     thinking_blocks=response.thinking_blocks,
                 )
@@ -531,7 +557,7 @@ class AgentRunner:
                         "model": spec.runtime.model,
                         "assistant_message": assistant_message,
                         "completed_tool_results": [],
-                        "pending_tool_calls": [tc.to_openai_tool_call() for tc in response.tool_calls],
+                        "pending_tool_calls": [tc.to_openai_tool_call() for tc in context.tool_calls],
                     },
                 )
 
@@ -668,7 +694,7 @@ class AgentRunner:
                 raw_usage = self._merge_usage(raw_usage, retry_usage)
                 context.response = response
                 context.usage = dict(raw_usage)
-                context.tool_calls = list(response.tool_calls)
+                context.tool_calls = self._tool_calls_for_context(response.tool_calls, spec.tools)
                 original_content = response.content
                 clean = hook.finalize_content(context, response.content)
 
