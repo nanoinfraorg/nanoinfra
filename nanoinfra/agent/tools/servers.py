@@ -102,8 +102,9 @@ class GetServerTool(Tool):
     def description(self) -> str:
         return (
             "Fetch a server's full record by id or name: connection provider, config, "
-            "the secret id it authenticates with (secretRef -- an id, not a credential "
-            "value; use get_secret if you need that secret's metadata), tags, timestamps."
+            "the secret id it authenticates with (secretRef -- an opaque id, never a "
+            "credential value; Secrets has no agent-facing tool, so this id can't be "
+            "resolved to a name or metadata from chat), tags, timestamps."
         )
 
     @property
@@ -122,7 +123,12 @@ class GetServerTool(Tool):
         name=StringSchema("Name for the server (unique).", min_length=1),
         providerId=StringSchema("Connection method.", enum=_PROVIDER_ENUM),
         config=_CONFIG_SCHEMA,
-        secretRef=StringSchema("Id of a Secret to authenticate with (from list_secrets/get_secret).", nullable=True),
+        secretRef=StringSchema(
+            "Id of a Secret to authenticate with. Secrets has no agent-facing tool -- "
+            "get this id from the user (they wire it up in the WebUI's Secrets view), "
+            "never invent one.",
+            nullable=True,
+        ),
         tags=ArraySchema(StringSchema(""), description="Grouping tags, e.g. ['prod', 'web'].", nullable=True),
         dry_run=BooleanSchema(
             description=(
