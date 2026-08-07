@@ -30,15 +30,32 @@ if TYPE_CHECKING:
 
 _ABSOLUTE_CEILING_S = 1800
 
+# Providers with a real network-address concept at this layer -- if
+# _target_host() can't find one for these, that's not "nothing to check"
+# (unlike ssm, which is validated via IAM/instance-profile instead of a
+# dialed address); it means execute() must refuse rather than proceed
+# unguarded. Keys are the config field name(s) shown to the user in the
+# refusal message.
+_HOST_FIELDS_BY_PROVIDER: dict[str, tuple[str, ...]] = {
+    "ssh": ("host",),
+    "ansible-runner": ("host", "inventoryHost"),
+    "api": ("baseUrl",),
+}
+_KNOWN_PROVIDER_IDS = frozenset({"ssh", "ansible-runner", "ssm", "api"})
+
 
 def _backend_and_default_timeout(provider_id: str) -> tuple[ExecutionBackend, int]:
-    # Every backend class is imported lazily, inside its own branch --
-    # nanoinfra/agent/tools/loader.py's pkgutil scan imports every tool
-    # module unconditionally to discover Tool subclasses, so a top-level
-    # `from ...ssh_backend import SSHBackend`-style import here would make
-    # the *entire agent* fail to start if even one of asyncssh/
-    # ansible-runner/boto3 (all optional, the new `servers` extra) isn't
-    # installed. base.py and timeout.py have no such dependency, so
+    # Every backend class is imported lazily, inside its own branch -- an
+    # unguarded top-level `from ...ssh_backend import SSHBackend`-style
+    # import here would make loading THIS tool module fail if even one of
+    # asyncssh/ansible-runner/boto3 (all optional, the new `servers`
+    # extra) isn't installed. nanoinfra/agent/tools/loader.py's pkgutil
+    # scan wraps each tool module's import in try/except, so that failure
+    # mode is "this one tool silently goes missing from the tool list",
+    # not an agent-wide crash -- still worth avoiding, since a partially
+    # installed `servers` extra would otherwise make ALL FOUR providers
+    # unavailable instead of just the one actually missing a library.
+    # base.py and timeout.py have no such dependency, so
     # ExecutionBackend/IdleTimeoutTracker/run_with_idle_timeout stay as
     # ordinary top-of-file imports above.
     if provider_id == "ssh":
@@ -68,7 +85,15 @@ def _target_host(provider_id: str, config: dict[str, str]) -> str | None:
     validation -- None for providers with no single "host" concept at
     this layer (ssm targets an AWS instance id via IAM, not a raw
     network address the local process dials; ansible-runner's
-    inventoryHost is validated the same way ssh's host is)."""
+    inventoryHost is validated the same way ssh's host is).
+
+    For ssh/ansible-runner/api, None does NOT mean "nothing to validate"
+    -- those providers DO have a checkable network address; None here
+    just means the server's config didn't supply one (e.g. an
+    ansible-runner server configured with only `group`). Callers must
+    treat that case as "cannot validate, refuse" rather than "validated,
+    proceed" -- see _HOST_FIELDS_BY_PROVIDER and execute()'s use of it.
+    """
     if provider_id in ("ssh", "ansible-runner"):
         return config.get("host") or config.get("inventoryHost")
     if provider_id == "api":
@@ -154,11 +179,31 @@ class ExecuteOnServerTool(Tool):
                 "and dry_run=false only after the user explicitly confirms."
             )
 
+        if server.provider_id not in _KNOWN_PROVIDER_IDS:
+            return ToolResult.error(f"Unknown providerId: {server.provider_id!r}.")
+
         target_host = _target_host(server.provider_id, server.config)
         if target_host:
             ok, error = validate_server_target(target_host)
             if not ok:
                 return ToolResult.error(f"Refusing to execute: {error}")
+        elif server.provider_id in _HOST_FIELDS_BY_PROVIDER:
+            # This provider DOES have a network-address concept (unlike
+            # ssm, validated via IAM instead) but the config didn't supply
+            # one -- e.g. an ansible-runner server configured with only
+            # `group`, no host/inventoryHost. Refuse rather than proceed
+            # unguarded straight into secret decryption and the backend.
+            fields = "/".join(_HOST_FIELDS_BY_PROVIDER[server.provider_id])
+            configured_keys = ", ".join(sorted(server.config.keys())) or "nothing"
+            return ToolResult.error(
+                f"Cannot validate network target: server config has no {fields} to check "
+                f"(found only: {configured_keys})."
+            )
+
+        try:
+            idle_timeout_override = int(timeout_s) if timeout_s else None
+        except ValueError:
+            return ToolResult.error(f"Invalid timeout_s: {timeout_s!r} is not an integer.")
 
         secret_value: str | None = None
         if server.secret_ref:
@@ -169,7 +214,7 @@ class ExecuteOnServerTool(Tool):
                 )
 
         backend, default_idle_timeout = _backend_and_default_timeout(server.provider_id)
-        idle_timeout = int(timeout_s) if timeout_s else default_idle_timeout
+        idle_timeout = idle_timeout_override if idle_timeout_override is not None else default_idle_timeout
 
         job = self.jobs.create(
             server_id=server.id, provider_id=server.provider_id, command=command, timeout_s=idle_timeout
