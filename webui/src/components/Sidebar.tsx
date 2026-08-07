@@ -1,6 +1,7 @@
 import {
   type ReactNode,
   type RefObject,
+  useEffect,
   useRef,
   useState,
 } from "react";
@@ -8,9 +9,12 @@ import {
   Archive,
   Brain,
   CalendarClock,
+  ChevronDown,
+  KeyRound,
   Menu,
   Network,
   Search,
+  Server,
   Settings,
   SquarePen,
   Blocks,
@@ -49,9 +53,11 @@ interface SidebarProps {
   onOpenSkills: () => void;
   onOpenAutomations: () => void;
   onOpenDiagrams: () => void;
+  onOpenServers: () => void;
+  onOpenSecrets: () => void;
   onSettingsIntent?: () => void;
   onOpenSearch: () => void;
-  activeUtility?: "apps" | "skills" | "automations" | "diagrams" | null;
+  activeUtility?: "apps" | "skills" | "automations" | "diagrams" | "servers" | "secrets" | null;
   onToggleArchived: () => void;
   onCollapse: () => void;
   onExpand?: () => void;
@@ -91,6 +97,21 @@ export function Sidebar(props: SidebarProps) {
   const { t } = useTranslation();
   const [menuPortalContainer, setMenuPortalContainer] =
     useState<HTMLElement | null>(null);
+  const [infraExpanded, setInfraExpanded] = useState(
+    () =>
+      props.activeUtility === "diagrams"
+      || props.activeUtility === "servers"
+      || props.activeUtility === "secrets",
+  );
+  useEffect(() => {
+    if (
+      props.activeUtility === "diagrams"
+      || props.activeUtility === "servers"
+      || props.activeUtility === "secrets"
+    ) {
+      setInfraExpanded(true);
+    }
+  }, [props.activeUtility]);
   const collapsed = Boolean(props.collapsed);
   const toggleLabel = t("thread.header.toggleSidebar");
   const newChatShortcut = newChatShortcutLabel();
@@ -203,15 +224,89 @@ export function Sidebar(props: SidebarProps) {
           selectionRef={activeActionRef}
           icon={<CalendarClock className="h-4 w-4" />}
         />
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.diagrams", { defaultValue: "Infra Diagrams" })}
-          onClick={props.onOpenDiagrams}
-          onIntent={props.onSettingsIntent}
-          active={props.activeUtility === "diagrams"}
-          selectionRef={activeActionRef}
-          icon={<Network className="h-4 w-4" />}
-        />
+        {collapsed ? (
+          <>
+            <SidebarActionButton
+              collapsed={collapsed}
+              label={t("sidebar.diagrams", { defaultValue: "Infra Diagrams" })}
+              onClick={props.onOpenDiagrams}
+              onIntent={props.onSettingsIntent}
+              active={props.activeUtility === "diagrams"}
+              selectionRef={activeActionRef}
+              icon={<Network className="h-4 w-4" />}
+            />
+            <SidebarActionButton
+              collapsed={collapsed}
+              label={t("sidebar.servers", { defaultValue: "Servers" })}
+              onClick={props.onOpenServers}
+              onIntent={props.onSettingsIntent}
+              active={props.activeUtility === "servers"}
+              selectionRef={activeActionRef}
+              icon={<Server className="h-4 w-4" />}
+            />
+            <SidebarActionButton
+              collapsed={collapsed}
+              label={t("sidebar.secrets", { defaultValue: "Secrets" })}
+              onClick={props.onOpenSecrets}
+              onIntent={props.onSettingsIntent}
+              active={props.activeUtility === "secrets"}
+              selectionRef={activeActionRef}
+              icon={<KeyRound className="h-4 w-4" />}
+            />
+          </>
+        ) : (
+          <div>
+            <button
+              type="button"
+              onClick={() => setInfraExpanded((v) => !v)}
+              aria-expanded={infraExpanded}
+              className={cn(SIDEBAR_SELECTION_ACTION_ITEM_CLASS, "flex w-full items-center gap-2.5")}
+            >
+              <Network className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-left">
+                {t("sidebar.infrastructure", { defaultValue: "Infrastructure" })}
+              </span>
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+                  infraExpanded && "rotate-180",
+                )}
+                aria-hidden
+              />
+            </button>
+            {infraExpanded ? (
+              <div className="ml-3 mt-0.5 flex flex-col gap-0.5 border-l border-border/45 pl-3">
+                <SidebarActionButton
+                  collapsed={false}
+                  label={t("sidebar.diagrams", { defaultValue: "Infra Diagrams" })}
+                  onClick={props.onOpenDiagrams}
+                  onIntent={props.onSettingsIntent}
+                  active={props.activeUtility === "diagrams"}
+                  selectionRef={activeActionRef}
+                  icon={<Network className="h-4 w-4" />}
+                />
+                <SidebarActionButton
+                  collapsed={false}
+                  label={t("sidebar.servers", { defaultValue: "Servers" })}
+                  onClick={props.onOpenServers}
+                  onIntent={props.onSettingsIntent}
+                  active={props.activeUtility === "servers"}
+                  selectionRef={activeActionRef}
+                  icon={<Server className="h-4 w-4" />}
+                />
+                <SidebarActionButton
+                  collapsed={false}
+                  label={t("sidebar.secrets", { defaultValue: "Secrets" })}
+                  onClick={props.onOpenSecrets}
+                  onIntent={props.onSettingsIntent}
+                  active={props.activeUtility === "secrets"}
+                  selectionRef={activeActionRef}
+                  icon={<KeyRound className="h-4 w-4" />}
+                />
+              </div>
+            ) : null}
+          </div>
+        )}
         {props.archivedCount ? (
           <SidebarActionButton
             collapsed={collapsed}

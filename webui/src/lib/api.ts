@@ -71,6 +71,8 @@ const OAUTH_CODE_HEADER = "X-Nanoinfra-OAuth-Code";
 const OAUTH_CALLBACK_HEADER = "X-Nanoinfra-OAuth-Callback";
 const PROVIDER_VALUES_HEADER = "X-Nanoinfra-Provider-Values";
 const DIAGRAM_VALUES_HEADER = "X-Nanoinfra-Diagram-Values";
+const SECRET_VALUES_HEADER = "X-Nanoinfra-Secret-Values";
+const SERVER_VALUES_HEADER = "X-Nanoinfra-Server-Values";
 
 export class ApiError extends Error {
   status: number;
@@ -1194,6 +1196,151 @@ export async function deleteDiagramApi(
 ): Promise<{ deleted: boolean }> {
   return request<{ deleted: boolean }>(
     `${base}/api/webui/diagrams/${encodeURIComponent(id)}/delete`,
+    token,
+  );
+}
+
+export interface SecretSummary {
+  id: string;
+  name: string;
+  kind: string;
+  providerId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SecretsPayload {
+  secrets: SecretSummary[];
+}
+
+export interface SecretDetailPayload {
+  secret: SecretSummary;
+}
+
+export async function fetchSecrets(token: string, base: string = ""): Promise<SecretsPayload> {
+  return request<SecretsPayload>(
+    `${base}/api/webui/secrets`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function createSecret(
+  token: string,
+  values: { name: string; kind: string; providerId: string; value: string },
+  base: string = "",
+): Promise<SecretDetailPayload> {
+  return request<SecretDetailPayload>(
+    `${base}/api/webui/secrets/create`,
+    token,
+    { headers: { [SECRET_VALUES_HEADER]: encodeURIComponent(JSON.stringify(values)) } },
+  );
+}
+
+export async function updateSecret(
+  token: string,
+  id: string,
+  values: { name: string; kind: string; providerId: string; value: string },
+  base: string = "",
+): Promise<SecretDetailPayload> {
+  return request<SecretDetailPayload>(
+    `${base}/api/webui/secrets/${encodeURIComponent(id)}/update`,
+    token,
+    { headers: { [SECRET_VALUES_HEADER]: encodeURIComponent(JSON.stringify(values)) } },
+  );
+}
+
+export async function deleteSecretApi(
+  token: string,
+  id: string,
+  base: string = "",
+): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(
+    `${base}/api/webui/secrets/${encodeURIComponent(id)}/delete`,
+    token,
+  );
+}
+
+export interface ServerSummary {
+  id: string;
+  name: string;
+  providerId: string;
+  tags: string[];
+  updatedAt: string;
+}
+
+export interface ServersPayload {
+  servers: ServerSummary[];
+}
+
+export async function fetchServers(token: string, base: string = ""): Promise<ServersPayload> {
+  return request<ServersPayload>(`${base}/api/webui/servers`, token, undefined, API_READ_TIMEOUT_MS);
+}
+
+export interface ServerDetail extends ServerSummary {
+  createdAt: string;
+  config: Record<string, string>;
+  secretRef: string | null;
+}
+
+export interface ServerDetailPayload {
+  server: ServerDetail;
+}
+
+export interface ServerValues {
+  name: string;
+  providerId: string;
+  config: Record<string, string>;
+  secretRef: string | null;
+  tags: string[];
+}
+
+export async function fetchServer(
+  token: string,
+  id: string,
+  base: string = "",
+): Promise<ServerDetailPayload> {
+  return request<ServerDetailPayload>(
+    `${base}/api/webui/servers/${encodeURIComponent(id)}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function createServer(
+  token: string,
+  values: ServerValues,
+  base: string = "",
+): Promise<ServerDetailPayload> {
+  return request<ServerDetailPayload>(
+    `${base}/api/webui/servers/create`,
+    token,
+    { headers: { [SERVER_VALUES_HEADER]: encodeURIComponent(JSON.stringify(values)) } },
+  );
+}
+
+export async function updateServer(
+  token: string,
+  id: string,
+  values: ServerValues,
+  base: string = "",
+): Promise<ServerDetailPayload> {
+  return request<ServerDetailPayload>(
+    `${base}/api/webui/servers/${encodeURIComponent(id)}/update`,
+    token,
+    { headers: { [SERVER_VALUES_HEADER]: encodeURIComponent(JSON.stringify(values)) } },
+  );
+}
+
+export async function deleteServerApi(
+  token: string,
+  id: string,
+  base: string = "",
+): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(
+    `${base}/api/webui/servers/${encodeURIComponent(id)}/delete`,
     token,
   );
 }

@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, cast
@@ -95,6 +95,29 @@ class ToolCallRequest:
         if self.function_provider_specific_fields:
             tool_call["function"]["provider_specific_fields"] = self.function_provider_specific_fields
         return tool_call
+
+    def redacted(self, sensitive_params: frozenset[str]) -> ToolCallRequest:
+        """Return a copy with the named argument keys masked.
+
+        For anything that persists, streams, logs, or replays this call to
+        the model on a later turn — never for the execution call itself,
+        which must keep reading the original, unredacted request.
+        """
+        if not sensitive_params:
+            return self
+        args: Any = self.arguments
+        if isinstance(args, str):
+            try:
+                args = cast(dict[str, Any], json.loads(args)) if args.strip() else {}
+            except Exception:
+                return self
+        if not isinstance(args, dict):
+            return self
+        masked = {
+            k: ("[REDACTED]" if k in sensitive_params else v)
+            for k, v in cast(dict[str, Any], args).items()
+        }
+        return replace(self, arguments=masked)
 
 
 def parse_tool_arguments(arguments: Any) -> Any:

@@ -90,7 +90,15 @@ const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
 const PAIRING_POLL_INTERVAL_MS = 5_000;
 const PAIRING_IDLE_POLL_INTERVAL_MS = 15_000;
 const PAIRING_DISMISS_SNOOZE_MS = 30_000;
-type ShellView = "chat" | "settings" | "apps" | "automations" | "skills" | "diagrams";
+type ShellView =
+  | "chat"
+  | "settings"
+  | "apps"
+  | "automations"
+  | "skills"
+  | "diagrams"
+  | "servers"
+  | "secrets";
 type ShellRoute = {
   view: ShellView;
   activeKey: string | null;
@@ -109,6 +117,14 @@ const SettingsView = lazy(async () => {
 const DiagramsView = lazy(async () => {
   const module = await import("@/components/diagrams/DiagramsView");
   return { default: module.DiagramsView };
+});
+const ServersView = lazy(async () => {
+  const module = await import("@/components/servers/ServersView");
+  return { default: module.ServersView };
+});
+const SecretsView = lazy(async () => {
+  const module = await import("@/components/secrets/SecretsView");
+  return { default: module.SecretsView };
 });
 const SessionSearchDialog = lazy(async () => {
   const module = await import("@/components/SessionSearchDialog");
@@ -237,6 +253,12 @@ function readShellRoute(): ShellRoute {
   if (path === "/diagrams") {
     const diagramId = params.get("d")?.trim() || null;
     return { view: "diagrams", activeKey, settingsSection: "overview", diagramId };
+  }
+  if (path === "/servers") {
+    return { view: "servers", activeKey, settingsSection: "overview" };
+  }
+  if (path === "/secrets") {
+    return { view: "secrets", activeKey, settingsSection: "overview" };
   }
   if (path.startsWith("/chat/")) {
     const encoded = path.slice("/chat/".length);
@@ -1701,6 +1723,18 @@ function Shell({
     setMobileSidebarOpen(false);
   }, [activeKey, navigate]);
 
+  const onOpenServers = useCallback(() => {
+    setSessionSearchOpen(false);
+    navigate({ view: "servers", activeKey, settingsSection: "overview" });
+    setMobileSidebarOpen(false);
+  }, [activeKey, navigate]);
+
+  const onOpenSecrets = useCallback(() => {
+    setSessionSearchOpen(false);
+    navigate({ view: "secrets", activeKey, settingsSection: "overview" });
+    setMobileSidebarOpen(false);
+  }, [activeKey, navigate]);
+
   const onSettingsSectionChange = useCallback(
     (section: SettingsSectionKey) => {
       navigate({
@@ -1934,6 +1968,18 @@ function Shell({
       });
       return;
     }
+    if (view === "servers") {
+      document.title = t("app.documentTitle.chat", {
+        title: t("sidebar.servers", { defaultValue: "Servers" }),
+      });
+      return;
+    }
+    if (view === "secrets") {
+      document.title = t("app.documentTitle.chat", {
+        title: t("sidebar.secrets", { defaultValue: "Secrets" }),
+      });
+      return;
+    }
     document.title = activeSession
       ? t("app.documentTitle.chat", { title: headerTitle })
       : t("app.documentTitle.base");
@@ -1958,10 +2004,17 @@ function Shell({
     onOpenAutomations,
     onOpenSkills,
     onOpenDiagrams,
+    onOpenServers,
+    onOpenSecrets,
     onSettingsIntent,
     onOpenSearch: onOpenSessionSearch,
     activeUtility:
-      view === "apps" || view === "automations" || view === "skills" || view === "diagrams"
+      view === "apps"
+      || view === "automations"
+      || view === "skills"
+      || view === "diagrams"
+      || view === "servers"
+      || view === "secrets"
         ? view
         : null,
     onToggleArchived,
@@ -2161,7 +2214,21 @@ function Shell({
                 </Suspense>
               </div>
             )}
-            {view !== "chat" && view !== "diagrams" && (
+            {view === "servers" && (
+              <div className="absolute inset-0 flex flex-col">
+                <Suspense fallback={<SurfaceLoadingFallback />}>
+                  <ServersView />
+                </Suspense>
+              </div>
+            )}
+            {view === "secrets" && (
+              <div className="absolute inset-0 flex flex-col">
+                <Suspense fallback={<SurfaceLoadingFallback />}>
+                  <SecretsView />
+                </Suspense>
+              </div>
+            )}
+            {view !== "chat" && view !== "diagrams" && view !== "servers" && view !== "secrets" && (
               <div className="absolute inset-0 flex flex-col">
                 <Suspense fallback={<SurfaceLoadingFallback />}>
                   <SettingsView

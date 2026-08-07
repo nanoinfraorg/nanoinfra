@@ -68,7 +68,10 @@
     "skills": {
       "title": "技能"
     },
-    "diagrams": "基礎設施圖"
+    "diagrams": "基礎設施圖",
+    "infrastructure": "基礎設施",
+    "servers": "伺服器",
+    "secrets": "密鑰"
   },
   "settings": {
     "backToChat": "返回聊天",
