@@ -1,11 +1,17 @@
 """Static tripwire for the "only store.py ever decrypts a secret" convention.
 
 This convention is documented in several places (module docstrings in
-store.py, secrets_api.py, agent/tools/secrets.py) but was, until now,
-unenforced -- nothing stopped a future change from adding a second call
-site for ``crypto.decrypt``/``SecretStore.resolve_plaintext`` outside
-store.py, silently reopening a path for plaintext to leak into a REST
-response or agent tool result.
+store.py, secrets_api.py) but was, until now, unenforced -- nothing stopped
+a future change from adding a second call site for
+``crypto.decrypt``/``SecretStore.resolve_plaintext`` outside store.py,
+silently reopening a path for plaintext to leak into a REST response.
+
+Secrets has no agent-facing tool/skill at all -- it's WebUI/REST-only, so
+the LLM never sees a plaintext value, not even for the one turn a chat
+skill would have required. ``resolve_plaintext`` exists on ``SecretStore``
+for the Servers execution engine (a future caller, not yet built) to
+decrypt a secret in-process immediately before connecting -- this test
+guards that seam staying singular as that caller lands.
 
 Deliberately a plain substring/regex scan over file contents, not an AST
 walk -- simple and good enough to catch a regression; sophisticated enough
@@ -25,7 +31,6 @@ _ALLOWED_FILE = _REPO_ROOT / "nanoinfra" / "secrets" / "store.py"
 _SCAN_TARGETS = [
     _REPO_ROOT / "nanoinfra" / "secrets",
     _REPO_ROOT / "nanoinfra" / "webui" / "secrets_api.py",
-    _REPO_ROOT / "nanoinfra" / "agent" / "tools" / "secrets.py",
 ]
 
 
