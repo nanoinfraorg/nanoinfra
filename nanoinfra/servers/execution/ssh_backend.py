@@ -48,7 +48,6 @@ class SSHBackend:
         connect_kwargs: dict[str, object] = {
             "host": host,
             "port": port,
-            "username": username,
             "known_hosts": None,
             # asyncssh defaults to encoding="utf-8" with errors="strict" on its
             # process streams -- create_process().stdout/stderr would then
@@ -58,6 +57,12 @@ class SSHBackend:
             # "replace") is what actually handles malformed output.
             "encoding": None,
         }
+        if username:
+            # asyncssh's connect() expects this key omitted, not set to None,
+            # when no username is configured -- passing username=None raises
+            # TypeError: 'NoneType' object is not iterable. Omitting it lets
+            # asyncssh fall back to its own default (the local process user).
+            connect_kwargs["username"] = username
         if secret_value:
             if _looks_like_private_key(secret_value):
                 connect_kwargs["client_keys"] = [asyncssh.import_private_key(secret_value)]

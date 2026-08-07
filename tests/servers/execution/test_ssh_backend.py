@@ -227,3 +227,44 @@ async def test_connect_forces_binary_mode_so_decode_matches_asyncssh_streams():
     assert result.error is None
     _, kwargs = connect_mock.call_args
     assert kwargs.get("encoding") is None
+
+
+@pytest.mark.asyncio
+async def test_connect_omits_username_key_when_not_configured():
+    """Regression test for a real bug found via a live SSH connection: a
+    Server with no `username` in its config left connect_kwargs["username"]
+    set to the literal value None, and asyncssh.connect(username=None, ...)
+    raises TypeError: 'NoneType' object is not iterable (confirmed against
+    the real asyncssh library, not just a mock). Omitting the key entirely
+    lets asyncssh fall back to its own default (the local process user)."""
+    server = Server(
+        id="a" * 32,
+        name="no-username-server",
+        provider_id="ssh",
+        config={"host": "10.0.1.5", "port": "22"},
+        secret_ref=None,
+        tags=[],
+        created_at="t",
+        updated_at="t",
+    )
+
+    fake_process = MagicMock()
+    fake_process.stdout = _FakeStreamReader([b""])
+    fake_process.stderr = _FakeStreamReader([b""])
+    fake_process.wait = AsyncMock(return_value=MagicMock(exit_status=0))
+    fake_process.__aenter__ = AsyncMock(return_value=fake_process)
+    fake_process.__aexit__ = AsyncMock(return_value=False)
+
+    fake_conn = MagicMock()
+    fake_conn.create_process = AsyncMock(return_value=fake_process)
+    fake_conn.__aenter__ = AsyncMock(return_value=fake_conn)
+    fake_conn.__aexit__ = AsyncMock(return_value=False)
+
+    connect_mock = AsyncMock(return_value=fake_conn)
+    with patch("asyncssh.connect", connect_mock):
+        backend = SSHBackend()
+        result = await backend.run(server, "echo hi", None, on_activity=lambda _c: None)
+
+    assert result.error is None
+    _, kwargs = connect_mock.call_args
+    assert "username" not in kwargs
