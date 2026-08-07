@@ -104,7 +104,7 @@ class SecretStore:
         if not _VALID_ID_RE.match(secret_id):
             # Ids are validated before touching any path or SQL parameter --
             # this also skips a pointless Postgres round-trip for every
-            # name-based lookup miss (e.g. from _resolve_secret).
+            # name-based lookup miss.
             return None
         if self._postgres_configured():
             return PostgresBackend().get(secret_id)
@@ -112,9 +112,9 @@ class SecretStore:
 
     def _check_name_unique(self, name: str, *, exclude_id: str | None) -> None:
         """Names must be unique across BOTH providers -- a collision should
-        be caught regardless of where the colliding secret lives, since
-        name-based lookup (``_resolve_secret`` in the agent tools) would
-        otherwise silently return whichever one happens to match first."""
+        be caught regardless of where the colliding secret lives, since a
+        future name-based lookup would otherwise silently return whichever
+        one happens to match first."""
         needle = name.lower()
         for existing in self.list_secrets():
             if exclude_id is not None and existing.id == exclude_id:
@@ -173,9 +173,10 @@ class SecretStore:
 
     def resolve_plaintext(self, secret_id: str) -> str | None:
         """Decrypt a secret's value. The ONLY method in this module that
-        calls crypto.decrypt -- callers outside this class (REST routes,
-        agent tools) must never call crypto.decrypt directly; this is the
-        single seam future execution code (Servers module) goes through."""
+        calls crypto.decrypt -- callers outside this class must never call
+        crypto.decrypt directly; this is the single seam future execution
+        code (Servers module) goes through. Secrets has no agent-facing
+        tool at all, so this is never reached from a chat turn."""
         secret = self.get(secret_id)
         if secret is None:
             return None
