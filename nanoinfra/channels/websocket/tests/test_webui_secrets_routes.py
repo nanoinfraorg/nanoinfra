@@ -90,6 +90,15 @@ def _no_secret_leak(payload: Any) -> None:
             _no_secret_leak(item)
 
 
+def _assert_no_plaintext_leak(resp: Any, *plaintext_values: str) -> None:
+    """Assert none of the given plaintext values appear literally anywhere
+    in the raw response body -- not just under the "value"/"ciphertext"
+    keys ``_no_secret_leak`` checks. Catches a leak under some other key
+    name, or a value echoed verbatim into a 400 error message."""
+    for plaintext in plaintext_values:
+        assert plaintext not in resp.text, (plaintext, resp.text)
+
+
 @pytest.fixture()
 def bus() -> MagicMock:
     b = MagicMock()
@@ -150,6 +159,7 @@ async def test_secret_crud_round_trip(bus: MagicMock, tmp_path: Path) -> None:
             },
         )
         assert created.status_code == 200
+        _assert_no_plaintext_leak(created, "sk-super-secret-value")
         created_json = created.json()
         _no_secret_leak(created_json)
         secret_id = created_json["secret"]["id"]
@@ -158,6 +168,7 @@ async def test_secret_crud_round_trip(bus: MagicMock, tmp_path: Path) -> None:
 
         listed = await _http_get(f"{base_url}/api/webui/secrets", headers=auth)
         assert listed.status_code == 200
+        _assert_no_plaintext_leak(listed, "sk-super-secret-value")
         listed_json = listed.json()
         _no_secret_leak(listed_json)
         summaries = listed_json["secrets"]
@@ -165,6 +176,7 @@ async def test_secret_crud_round_trip(bus: MagicMock, tmp_path: Path) -> None:
 
         detail = await _http_get(f"{base_url}/api/webui/secrets/{secret_id}", headers=auth)
         assert detail.status_code == 200
+        _assert_no_plaintext_leak(detail, "sk-super-secret-value")
         detail_json = detail.json()
         _no_secret_leak(detail_json)
         assert detail_json["secret"]["kind"] == "api_key"
@@ -184,6 +196,7 @@ async def test_secret_crud_round_trip(bus: MagicMock, tmp_path: Path) -> None:
             },
         )
         assert updated.status_code == 200
+        _assert_no_plaintext_leak(updated, "sk-super-secret-value", "sk-new-secret-value")
         updated_json = updated.json()
         _no_secret_leak(updated_json)
         assert updated_json["secret"]["name"] == "Renamed"
@@ -272,11 +285,12 @@ async def test_secret_create_rejects_missing_name(bus: MagicMock, tmp_path: Path
             headers={
                 **auth,
                 "X-Nanoinfra-Secret-Values": json.dumps(
-                    {"kind": "password", "providerId": "local", "value": "v"}
+                    {"kind": "password", "providerId": "local", "value": "value-should-not-leak-missing-name"}
                 ),
             },
         )
         assert resp.status_code == 400
+        _assert_no_plaintext_leak(resp, "value-should-not-leak-missing-name")
     finally:
         await channel.stop()
         await server_task
@@ -296,11 +310,17 @@ async def test_secret_create_rejects_bad_kind(bus: MagicMock, tmp_path: Path) ->
             headers={
                 **auth,
                 "X-Nanoinfra-Secret-Values": json.dumps(
-                    {"name": "x", "kind": "not-a-kind", "providerId": "local", "value": "v"}
+                    {
+                        "name": "x",
+                        "kind": "not-a-kind",
+                        "providerId": "local",
+                        "value": "value-should-not-leak-bad-kind",
+                    }
                 ),
             },
         )
         assert resp.status_code == 400
+        _assert_no_plaintext_leak(resp, "value-should-not-leak-bad-kind")
     finally:
         await channel.stop()
         await server_task
@@ -338,7 +358,12 @@ async def test_secret_update_rejects_bad_kind_on_existing_secret(bus: MagicMock,
             headers={
                 **auth,
                 "X-Nanoinfra-Secret-Values": json.dumps(
-                    {"name": "x", "kind": "password", "providerId": "local", "value": "v"}
+                    {
+                        "name": "x",
+                        "kind": "password",
+                        "providerId": "local",
+                        "value": "value-should-not-leak-existing",
+                    }
                 ),
             },
         )
@@ -349,11 +374,17 @@ async def test_secret_update_rejects_bad_kind_on_existing_secret(bus: MagicMock,
             headers={
                 **auth,
                 "X-Nanoinfra-Secret-Values": json.dumps(
-                    {"name": "x", "kind": "not-a-kind", "providerId": "local", "value": "v"}
+                    {
+                        "name": "x",
+                        "kind": "not-a-kind",
+                        "providerId": "local",
+                        "value": "value-should-not-leak-update-bad-kind",
+                    }
                 ),
             },
         )
         assert resp.status_code == 400
+        _assert_no_plaintext_leak(resp, "value-should-not-leak-existing", "value-should-not-leak-update-bad-kind")
     finally:
         await channel.stop()
         await server_task
@@ -378,11 +409,12 @@ async def test_secret_create_returns_409_when_key_not_configured(
             headers={
                 **auth,
                 "X-Nanoinfra-Secret-Values": json.dumps(
-                    {"name": "x", "kind": "password", "providerId": "local", "value": "v"}
+                    {"name": "x", "kind": "password", "providerId": "local", "value": "value-should-not-leak-409"}
                 ),
             },
         )
         assert resp.status_code == 409
+        _assert_no_plaintext_leak(resp, "value-should-not-leak-409")
     finally:
         await channel.stop()
         await server_task

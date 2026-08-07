@@ -3,9 +3,9 @@
 Pattern mirrors nanoinfra/agent/tools/diagrams.py: dry_run-by-default for
 mutations, create() builds from ctx.workspace. Every result funnels through
 Secret.to_public_dict() -- there is no code path in this file that touches
-Secret.ciphertext or calls crypto.decrypt. resolve_plaintext() exists on
-SecretStore for a *future* caller (the Servers execution engine); it is
-intentionally never imported here.
+Secret.ciphertext or reaches into the crypto module's decrypt function. The
+store's plaintext-resolving method exists for a *future* caller (the
+Servers execution engine); it is intentionally never imported here.
 """
 
 # pyright: reportIncompatibleMethodOverride=false
