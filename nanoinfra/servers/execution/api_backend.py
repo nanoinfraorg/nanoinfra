@@ -6,6 +6,13 @@ Reuses validate_server_target (Task 1) on the parsed hostname before
 ever making a request -- the same "block metadata/loopback, allow
 RFC1918" policy every other provider gets, not the general SSRF guard.
 
+The lenient guard is only defensible because the request can never leave
+the operator-configured baseUrl's origin: run() pins scheme/host/port to
+baseUrl's and refuses anything else. Without that pin the *effective*
+URL is per-request agent input (urljoin happily accepts an absolute URL
+in ``command``), so "baseUrl is operator-set" would say nothing about
+where the decrypted credential actually goes.
+
 Note on a directive checked and rejected during implementation: an
 earlier instruction for this task said to validate the full URL via
 nanoinfra.security.network.validate_url_target instead, since this
@@ -34,6 +41,7 @@ from nanoinfra.servers.types import Server
 
 DEFAULT_IDLE_TIMEOUT_S = 30
 _VALID_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+_DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
 def _parse_command(command: str) -> tuple[str, str]:
@@ -41,6 +49,19 @@ def _parse_command(command: str) -> tuple[str, str]:
     if len(parts) == 2 and parts[0].upper() in _VALID_METHODS:
         return parts[0].upper(), parts[1]
     return "GET", command.strip()
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    """(scheme, host, port) with the scheme's default port filled in, so
+    ``http://h`` and ``http://h:80`` compare equal."""
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    host = (parsed.hostname or "").lower()
+    try:
+        port = parsed.port
+    except ValueError:  # malformed port in the URL -- not this operator's baseUrl
+        port = None
+    return scheme, host, port or _DEFAULT_PORTS.get(scheme)
 
 
 class ApiBackend:
@@ -55,6 +76,26 @@ class ApiBackend:
         base_url = server.config.get("baseUrl", "")
         method, path = _parse_command(command)
         url = urljoin(base_url if base_url.endswith("/") else base_url + "/", path.lstrip("/"))
+
+        # urljoin() lets an *absolute* URL in the agent-supplied command replace
+        # the operator's baseUrl outright (urljoin("http://10.0.1.5/",
+        # "http://attacker.example/x") == "http://attacker.example/x"). Since the
+        # next few lines attach the decrypted secretRef as a Bearer token, that
+        # would be a one-call credential exfiltration primitive -- and the target
+        # guard is no backstop, because it deliberately allows public addresses
+        # for this provider. So: the effective request must stay on exactly the
+        # origin the operator configured. Checked before the Authorization header
+        # is even constructed, let alone sent.
+        if _origin(url) != _origin(base_url):
+            return ExecutionResult(
+                exit_code=None,
+                output="",
+                error=(
+                    "Refusing to request a different origin than the server's configured "
+                    f"baseUrl ({base_url!r}): the command's path resolved to {url!r}. "
+                    "Pass a path, not an absolute URL."
+                ),
+            )
 
         hostname = urlparse(url).hostname or ""
         ok, error = validate_server_target(hostname)
