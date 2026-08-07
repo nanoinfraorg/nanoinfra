@@ -58,9 +58,7 @@ export function SecretsView() {
     <div className="flex h-full min-h-0 w-full flex-col">
       {error ? (
         <div className="border-b border-border bg-destructive/10 px-4 py-2 text-[12px] text-destructive">
-          {error === "HTTP 409"
-            ? "Secrets isn't configured on this server (missing NANOINFRA_SECRETS_KEY)."
-            : `Failed to load secrets: ${error}`}
+          {`Failed to load secrets: ${error}`}
         </div>
       ) : null}
       <SecretList secrets={secrets} onOpen={handleOpen} onNew={handleNew} onDelete={handleDelete} />

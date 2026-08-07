@@ -1,6 +1,7 @@
 import {
   type ReactNode,
   type RefObject,
+  useEffect,
   useRef,
   useState,
 } from "react";
@@ -102,6 +103,15 @@ export function Sidebar(props: SidebarProps) {
       || props.activeUtility === "servers"
       || props.activeUtility === "secrets",
   );
+  useEffect(() => {
+    if (
+      props.activeUtility === "diagrams"
+      || props.activeUtility === "servers"
+      || props.activeUtility === "secrets"
+    ) {
+      setInfraExpanded(true);
+    }
+  }, [props.activeUtility]);
   const collapsed = Boolean(props.collapsed);
   const toggleLabel = t("thread.header.toggleSidebar");
   const newChatShortcut = newChatShortcutLabel();

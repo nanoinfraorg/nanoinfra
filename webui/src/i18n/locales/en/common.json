@@ -66,6 +66,9 @@
     "apps": "Apps",
     "automations": "Automations",
     "diagrams": "Infra Diagrams",
+    "infrastructure": "Infrastructure",
+    "servers": "Servers",
+    "secrets": "Secrets",
     "skills": {
       "title": "Skills"
     }

@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { ChevronLeft, Save } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
-import type { SecretSummary } from "@/lib/api";
+import { ApiError, type SecretSummary } from "@/lib/api";
 import type { SecretValues } from "@/hooks/useSecrets";
 
 const KIND_OPTIONS: Array<{ value: string; label: string }> = [
@@ -46,7 +46,11 @@ export function SecretForm({ secret, onBack, onSave }: SecretFormProps) {
     try {
       await onSave({ name: name.trim(), kind, providerId, value });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (e instanceof ApiError && e.status === 409) {
+        setError("Secrets isn't configured on this server (missing NANOINFRA_SECRETS_KEY).");
+      } else {
+        setError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
       setSaving(false);
     }
