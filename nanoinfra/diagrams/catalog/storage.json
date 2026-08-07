@@ -27,6 +27,20 @@
         { "key": "claimName", "label": "Claim name", "placeholder": "models-pvc", "kind": "text" },
         { "key": "size", "label": "Size", "placeholder": "50Gi", "kind": "text" }
       ]
+    },
+    {
+      "id": "azure-blob",
+      "label": "Azure Blob Storage",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "container", "label": "Container", "kind": "text" }]
+    },
+    {
+      "id": "gcs",
+      "label": "Google Cloud Storage",
+      "kind": "api",
+      "integration": { "type": "api" },
+      "fields": [{ "key": "bucket", "label": "Bucket", "kind": "text" }]
     }
   ]
 }
