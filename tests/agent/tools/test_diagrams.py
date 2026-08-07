@@ -13,18 +13,12 @@ from nanoinfra.agent.tools.diagrams import (
     ListDiagramComponentsTool,
     ListDiagramsTool,
     UpdateDiagramTool,
-    _node_footprint,
+    _boxes_overlap,
+    _resolve_overlaps,
 )
 from nanoinfra.agent.tools.loader import ToolLoader
 from nanoinfra.diagrams.store import DiagramStore
-
-
-def _boxes_overlap(a, b) -> bool:
-    aw, ah = _node_footprint(a)
-    bw, bh = _node_footprint(b)
-    ax, ay = a.position["x"], a.position["y"]
-    bx, by = b.position["x"], b.position["y"]
-    return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
+from nanoinfra.diagrams.types import DiagramNode, DiagramNodeData
 
 
 def _assert_no_overlaps(nodes) -> None:
@@ -430,3 +424,66 @@ async def test_create_diagram_auto_arranges_new_nodes(tmp_path: Path) -> None:
     saved = store.get(summaries[0].id)
     positions = {node.id: (node.position["x"], node.position["y"]) for node in saved.nodes}
     assert len(set(positions.values())) == 3, f"nodes must not collide: {positions}"
+
+
+@pytest.mark.asyncio
+async def test_update_diagram_resolves_overlap_caused_by_repositioned_existing_node(tmp_path: Path) -> None:
+    """Regression guard for a real incident: _auto_layout_new_nodes only ever
+    protects node ids it's told are brand-new -- an *existing* node's position
+    is trusted verbatim, on the assumption the model copied it forward
+    unchanged from get_diagram. When it didn't (nudged an old sibling instead
+    of leaving it alone, e.g. to "make room" for a new one), that collision
+    had no safety net and needed a manual Auto Layout in the visual editor to
+    fix. _resolve_overlaps is the net: it only kicks in when siblings actually
+    overlap, and re-packs that whole sibling set deterministically."""
+    store = DiagramStore(tmp_path)
+    diagram_id = _seed_diagram(store)
+    before = store.get(diagram_id)
+    assert before is not None
+
+    web = next(n.to_dict() for n in before.nodes if n.id == "web")
+    group = next(n.to_dict() for n in before.nodes if n.id == "group")
+    # The model moves the *existing* "web" node on top of "group" instead of
+    # copying its position forward unchanged, while adding one new sibling.
+    web["position"] = dict(group["position"])
+    new_nodes = [web, group, {
+        "id": "cache-1",
+        "position": {"x": 0, "y": 0},
+        "data": {"label": "Cache", "componentTypeId": "cache", "providerId": "redis", "config": {}},
+    }]
+
+    tool = UpdateDiagramTool(store, tmp_path)
+    result = await tool.execute(diagram_id=diagram_id, nodes=new_nodes, edges=[], dry_run=False)
+    assert not getattr(result, "is_error", False)
+
+    after = store.get(diagram_id)
+    _assert_no_overlaps(after.nodes)
+
+
+def _plain_node(node_id: str, x: float, y: float) -> DiagramNode:
+    return DiagramNode(
+        id=node_id,
+        position={"x": x, "y": y},
+        data=DiagramNodeData(label=node_id, component_type_id="cache", provider_id="redis"),
+    )
+
+
+def test_resolve_overlaps_leaves_a_non_overlapping_layout_untouched() -> None:
+    nodes = [_plain_node("a", 40.0, 40.0), _plain_node("b", 500.0, 40.0)]
+    original = [dict(n.position) for n in nodes]
+
+    _resolve_overlaps(nodes)
+
+    assert [dict(n.position) for n in nodes] == original
+
+
+def test_resolve_overlaps_repacks_only_the_colliding_sibling_set() -> None:
+    overlapping = [_plain_node("a", 0.0, 0.0), _plain_node("b", 0.0, 0.0)]
+    untouched = [_plain_node("c", 40.0, 40.0)]
+    untouched[0].parent_id = "other-group"
+    nodes = overlapping + untouched
+
+    _resolve_overlaps(nodes)
+
+    assert not _boxes_overlap(overlapping[0], overlapping[1])
+    assert untouched[0].position == {"x": 40.0, "y": 40.0}

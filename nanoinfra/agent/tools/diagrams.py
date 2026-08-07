@@ -158,6 +158,63 @@ def _auto_layout_new_nodes(nodes: list[Any], new_ids: set[str]) -> None:
             row_height = max(row_height, height)
 
 
+def _boxes_overlap(a: Any, b: Any) -> bool:
+    aw, ah = _node_footprint(a)
+    bw, bh = _node_footprint(b)
+    ax, ay = a.position.get("x", 0.0), a.position.get("y", 0.0)
+    bx, by = b.position.get("x", 0.0), b.position.get("y", 0.0)
+    return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
+
+
+def _has_overlap(siblings: list[Any]) -> bool:
+    return any(_boxes_overlap(a, b) for i, a in enumerate(siblings) for b in siblings[i + 1 :])
+
+
+def _resolve_overlaps(nodes: list[Any]) -> None:
+    """Last-resort safety net, run after ``_auto_layout_new_nodes``: that
+    function only repositions node ids it was told are brand-new, trusting
+    everything else at face value. If the model *also* re-guessed a position
+    for a node that already existed -- e.g. nudging siblings around to "make
+    room" instead of copying them forward unchanged, as it was told to --
+    those coordinates have no protection and can collide (this happened for
+    real: a diagram needed a manual Auto Layout in the visual editor to
+    un-overlap after an agent update).
+
+    Only touches sibling groups that actually overlap; an already-sane
+    layout is left alone. When one does, every sibling in it (not just the
+    colliding pair) is re-shelf-packed in their existing top-to-bottom,
+    left-to-right order, so the result stays recognizable rather than
+    scrambled.
+    """
+    by_id = {node.id: node for node in nodes}
+    by_parent: dict[str | None, list[Any]] = {}
+    for node in nodes:
+        by_parent.setdefault(node.parent_id, []).append(node)
+
+    for parent_id, siblings in by_parent.items():
+        if len(siblings) < 2 or not _has_overlap(siblings):
+            continue
+        siblings.sort(key=lambda node: (node.position.get("y", 0.0), node.position.get("x", 0.0)))
+
+        container_width = _DEFAULT_CONTAINER_WIDTH
+        parent = by_id.get(parent_id) if parent_id else None
+        if parent is not None and parent.style:
+            container_width = parent.style.get("width", _DEFAULT_CONTAINER_WIDTH)
+
+        cursor_x = _LAYOUT_MARGIN
+        row_y = _GROUP_HEADER_CLEARANCE if parent_id else _LAYOUT_MARGIN
+        row_height = 0.0
+        for node in siblings:
+            width, height = _node_footprint(node)
+            if cursor_x > _LAYOUT_MARGIN and cursor_x + width > container_width:
+                row_y += row_height + _LAYOUT_MARGIN
+                cursor_x = _LAYOUT_MARGIN
+                row_height = 0.0
+            node.position = {"x": cursor_x, "y": row_y}
+            cursor_x += width + _LAYOUT_MARGIN
+            row_height = max(row_height, height)
+
+
 def _fit_groups_to_children(nodes: list[Any]) -> None:
     """Grow (never shrink) a group's style so it visually contains every child,
     since ``_auto_layout_new_nodes`` may have placed new children further out
@@ -444,6 +501,7 @@ class UpdateDiagramTool(Tool):
 
         new_ids = {node.id for node in candidate.nodes} - {node.id for node in current.nodes}
         _auto_layout_new_nodes(candidate.nodes, new_ids)
+        _resolve_overlaps(candidate.nodes)
         _fit_groups_to_children(candidate.nodes)
 
         catalog_types = load_catalog(self.workspace, skills_workspace_path=self.workspace)
@@ -536,6 +594,7 @@ class CreateDiagramTool(Tool):
 
         new_ids = {node.id for node in candidate.nodes}
         _auto_layout_new_nodes(candidate.nodes, new_ids)
+        _resolve_overlaps(candidate.nodes)
         _fit_groups_to_children(candidate.nodes)
 
         catalog_types = load_catalog(self.workspace, skills_workspace_path=self.workspace)
