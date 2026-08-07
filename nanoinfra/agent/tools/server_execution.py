@@ -12,13 +12,20 @@ command/output/error fields, not a log line).
 
 from __future__ import annotations
 
+import time
+from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from nanoinfra.agent.tools.base import Tool, ToolResult, tool_parameters
 from nanoinfra.agent.tools.schema import BooleanSchema, StringSchema, tool_parameters_schema
 from nanoinfra.secrets.store import SecretStore
-from nanoinfra.servers.execution.base import ABSOLUTE_CEILING_S, ExecutionBackend, truncate_output
+from nanoinfra.servers.execution.base import (
+    ABSOLUTE_CEILING_S,
+    BoundedOutput,
+    ExecutionBackend,
+    truncate_output,
+)
 from nanoinfra.servers.execution.timeout import IdleTimeoutTracker, run_with_idle_timeout
 from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.lookup import resolve_server
@@ -50,6 +57,18 @@ _HOST_FIELDS_BY_PROVIDER: dict[str, tuple[str, ...]] = {
     "api": ("baseUrl",),
 }
 _KNOWN_PROVIDER_IDS = frozenset({"ssh", "ansible-runner", "ssm", "api"})
+
+# Providers whose on_activity chunks are the command's own output arriving
+# incrementally, rather than a single status token at completion.
+_STREAMING_PROVIDERS = frozenset({"ssh"})
+
+# How often partial output is checkpointed to the job file while a command runs.
+_PARTIAL_OUTPUT_PERSIST_INTERVAL_S = 5.0
+
+# Providers whose work cannot actually be stopped when this tool gives up waiting
+# (both wrap a blocking call in asyncio.to_thread; see timeout.py's module
+# docstring). Their timeout message must not imply the command was stopped.
+_UNSTOPPABLE_ON_TIMEOUT = frozenset({"ansible-runner", "ssm"})
 
 
 def _backend_and_default_timeout(provider_id: str) -> tuple[ExecutionBackend, int]:
@@ -240,9 +259,38 @@ class ExecuteOnServerTool(Tool):
         self.jobs.mark_running(job.id)
 
         tracker = IdleTimeoutTracker(idle_timeout_s=idle_timeout, absolute_ceiling_s=ABSOLUTE_CEILING_S)
+
+        # Only streaming providers' on_activity chunks are the command's real
+        # output (see base.py's ExecutionBackend docstring -- the others pass a
+        # short status token exactly once at completion), so only those are worth
+        # accumulating. Two things depend on this buffer: the timeout path
+        # returning what was read before it fired instead of nothing, and the
+        # periodic JobStore.update_output() below, which is what makes a job
+        # record survive a crash mid-run with something better than "".
+        streams_output = server.provider_id in _STREAMING_PROVIDERS
+        partial = BoundedOutput()
+        last_persist_at = time.monotonic()
+
+        def on_activity(chunk: str) -> None:
+            nonlocal last_persist_at
+            tracker.touch(chunk)
+            if not streams_output:
+                return
+            partial.append(chunk)
+            now = time.monotonic()
+            if now - last_persist_at < _PARTIAL_OUTPUT_PERSIST_INTERVAL_S:
+                return
+            last_persist_at = now
+            # Throttled: this is a synchronous atomic write with an fsync, and
+            # chunks can arrive every few kilobytes. Failing to checkpoint
+            # partial output must never take down a running command.
+            with suppress(OSError, KeyError, ValueError):
+                self.jobs.update_output(job.id, partial.text())
+
         result = await run_with_idle_timeout(
-            backend.run(server, command, secret_value, on_activity=tracker.touch),
+            backend.run(server, command, secret_value, on_activity=on_activity),
             tracker,
+            partial_output=(partial.text if streams_output else None),
         )
 
         # One cap for every backend, applied to the same string that gets both
@@ -252,8 +300,28 @@ class ExecuteOnServerTool(Tool):
         output = truncate_output(result.output)
 
         if result.timed_out:
-            self.jobs.complete(job.id, exit_code=None, output=output, error="Timed out", status="timed_out")
-            return ToolResult.error(f"Timed out running {command!r} on {server.name!r}.")
+            # Honesty, not confidence: for ansible-runner and ssm, "timed out"
+            # only means this tool stopped waiting. The work itself keeps going
+            # (an uncancellable pool thread, or a command already accepted by
+            # SSM), so telling the user it stopped would invite a retry that puts
+            # two copies of the same command in flight.
+            caveat = (
+                " The remote command may still be running and this tool cannot confirm it has "
+                "stopped -- check on it before retrying."
+                if server.provider_id in _UNSTOPPABLE_ON_TIMEOUT
+                else ""
+            )
+            self.jobs.complete(
+                job.id,
+                exit_code=None,
+                output=output,
+                error=f"Timed out.{caveat}",
+                status="timed_out",
+            )
+            partial_note = f"\nPartial output before the timeout:\n{output}" if output else ""
+            return ToolResult.error(
+                f"Timed out running {command!r} on {server.name!r}.{caveat}{partial_note}"
+            )
         if result.error:
             self.jobs.complete(job.id, exit_code=result.exit_code, output=output, error=result.error, status="failed")
             return ToolResult.error(f"Failed running {command!r} on {server.name!r}: {result.error}")

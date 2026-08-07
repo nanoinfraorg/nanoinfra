@@ -1,11 +1,13 @@
 # tests/agent/tools/test_server_execution.py
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from nanoinfra.agent.tools import server_execution
 from nanoinfra.agent.tools.server_execution import ExecuteOnServerTool
 from nanoinfra.secrets import crypto
 from nanoinfra.secrets.store import SecretStore
@@ -247,7 +249,7 @@ async def test_timeout_marks_job_timed_out_not_failed(tmp_path: Path) -> None:
         exit_code=None, output="", error="Idle/absolute timeout exceeded", timed_out=True
     )
 
-    async def _fake_run_with_idle_timeout(coro, tracker):  # noqa: ANN001, ARG001
+    async def _fake_run_with_idle_timeout(coro, tracker, **kwargs):  # noqa: ANN001, ANN003, ARG001
         coro.close()
         return timeout_result
 
@@ -264,6 +266,106 @@ async def test_timeout_marks_job_timed_out_not_failed(tmp_path: Path) -> None:
     jobs = JobStore(tmp_path).list_jobs()
     assert len(jobs) == 1
     assert jobs[0].status == "timed_out"
+
+
+@pytest.mark.asyncio
+async def test_timed_out_job_keeps_the_output_streamed_before_the_timeout(tmp_path: Path) -> None:
+    """The durable-job record used to persist output="" for a timed-out run, even
+    though the backend had streamed real output through on_activity first."""
+    server_store = ServerStore(tmp_path)
+    server_store.create({"name": "prod-web-01", "providerId": "ssh", "config": {"host": "10.0.1.5"}})
+    tool = _tool(tmp_path)
+
+    async def streams_then_hangs(_self, server, command, secret_value, *, on_activity):  # noqa: ANN001, ANN202, ARG001
+        on_activity("progress-line-1\n")
+        on_activity("progress-line-2\n")
+        await asyncio.sleep(999)
+        return ExecutionResult(exit_code=0, output="unreachable", error=None)
+
+    with patch(
+        "nanoinfra.servers.execution.ssh_backend.SSHBackend.run", new=streams_then_hangs
+    ):
+        result = await tool.execute(
+            server_id_or_name="prod-web-01", command="tail -f log", timeout_s="1", dry_run=False
+        )
+
+    assert result.is_error
+    assert "progress-line-1" in str(result)
+    job = JobStore(tmp_path).list_jobs()[0]
+    assert job.status == "timed_out"
+    assert "progress-line-1\nprogress-line-2\n" in job.output
+
+
+@pytest.mark.asyncio
+async def test_streamed_output_is_checkpointed_to_the_job_file_while_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """JobStore.update_output() exists so a crash mid-run leaves the most recent
+    known output on disk; it previously had no callers at all, making that
+    docstring's durability claim false."""
+    monkeypatch.setattr(server_execution, "_PARTIAL_OUTPUT_PERSIST_INTERVAL_S", 0.0)
+    server_store = ServerStore(tmp_path)
+    server_store.create({"name": "prod-web-01", "providerId": "ssh", "config": {"host": "10.0.1.5"}})
+    tool = _tool(tmp_path)
+
+    on_disk_mid_run: list[str] = []
+
+    async def streams_then_checks(_self, server, command, secret_value, *, on_activity):  # noqa: ANN001, ANN202, ARG001
+        on_activity("streamed-chunk\n")
+        on_disk_mid_run.append(JobStore(tmp_path).list_jobs()[0].output)
+        return ExecutionResult(exit_code=0, output="streamed-chunk\n", error=None)
+
+    with patch("nanoinfra.servers.execution.ssh_backend.SSHBackend.run", new=streams_then_checks):
+        await tool.execute(server_id_or_name="prod-web-01", command="tail -f log", dry_run=False)
+
+    assert on_disk_mid_run == ["streamed-chunk\n"]
+
+
+@pytest.mark.asyncio
+async def test_timeout_message_admits_it_cannot_stop_ansible_or_ssm_work(tmp_path: Path) -> None:
+    """asyncio.to_thread cannot be cancelled: after a reported timeout the ansible
+    play (or the already-sent SSM command) is still running. Saying otherwise
+    invites a retry that puts two copies of the command in flight."""
+    server_store = ServerStore(tmp_path)
+    server_store.create(
+        {"name": "ssm-box", "providerId": "ssm", "config": {"instanceId": "i-0123456789abcdef0"}}
+    )
+    tool = _tool(tmp_path)
+
+    async def hangs(_self, server, command, secret_value, *, on_activity):  # noqa: ANN001, ANN202, ARG001
+        await asyncio.sleep(999)
+        return ExecutionResult(exit_code=0, output="unreachable", error=None)
+
+    with patch("nanoinfra.servers.execution.ssm_backend.SSMBackend.run", new=hangs):
+        result = await tool.execute(
+            server_id_or_name="ssm-box", command="uptime", timeout_s="1", dry_run=False
+        )
+
+    assert result.is_error
+    assert "may still be running" in str(result)
+    job = JobStore(tmp_path).list_jobs()[0]
+    assert job.error is not None and "may still be running" in job.error
+
+
+@pytest.mark.asyncio
+async def test_ssh_timeout_message_does_not_hedge(tmp_path: Path) -> None:
+    """SSH's connection really is torn down by cancellation, so its message must not
+    inherit the ansible/ssm caveat."""
+    server_store = ServerStore(tmp_path)
+    server_store.create({"name": "prod-web-01", "providerId": "ssh", "config": {"host": "10.0.1.5"}})
+    tool = _tool(tmp_path)
+
+    async def hangs(_self, server, command, secret_value, *, on_activity):  # noqa: ANN001, ANN202, ARG001
+        await asyncio.sleep(999)
+        return ExecutionResult(exit_code=0, output="unreachable", error=None)
+
+    with patch("nanoinfra.servers.execution.ssh_backend.SSHBackend.run", new=hangs):
+        result = await tool.execute(
+            server_id_or_name="prod-web-01", command="sleep 999", timeout_s="1", dry_run=False
+        )
+
+    assert result.is_error
+    assert "may still be running" not in str(result)
 
 
 @pytest.mark.asyncio
