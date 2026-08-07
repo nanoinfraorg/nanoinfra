@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from nanoinfra.servers.types import Server
 
@@ -17,7 +17,7 @@ class ServerValidationError(ValueError):
 def normalize_server_input(raw: Any, *, server_id: str) -> Server:
     if not isinstance(raw, dict):
         raise ServerValidationError("server payload must be an object")
-    payload: dict[str, Any] = raw
+    payload = cast(dict[str, Any], raw)
 
     name = str(payload.get("name") or "").strip()
     if not name:
@@ -28,17 +28,19 @@ def normalize_server_input(raw: Any, *, server_id: str) -> Server:
     if provider_id not in _VALID_PROVIDERS:
         raise ServerValidationError(f"providerId must be one of {sorted(_VALID_PROVIDERS)}, got {provider_id!r}")
 
-    raw_config = payload.get("config") or {}
-    if not isinstance(raw_config, dict):
+    raw_config_value: Any = payload.get("config") or {}
+    if not isinstance(raw_config_value, dict):
         raise ServerValidationError("config must be an object")
+    raw_config = cast(dict[str, Any], raw_config_value)
     config = {str(k): str(v) for k, v in raw_config.items()}
 
     secret_ref = payload.get("secretRef")
     secret_ref = str(secret_ref) if secret_ref else None
 
-    raw_tags = payload.get("tags") or []
-    if not isinstance(raw_tags, list):
+    raw_tags_value: Any = payload.get("tags") or []
+    if not isinstance(raw_tags_value, list):
         raise ServerValidationError("tags must be an array")
+    raw_tags = cast(list[Any], raw_tags_value)
     tags = [str(t) for t in raw_tags]
 
     return Server(

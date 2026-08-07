@@ -18,8 +18,8 @@ from loguru import logger
 
 from nanoinfra.servers.normalize import normalize_server_input
 from nanoinfra.servers.types import Server, ServerSummary
-from nanoinfra.utils.helpers import (  # pyright: ignore[reportPrivateUsage]
-    _write_text_atomic,
+from nanoinfra.utils.helpers import (
+    _write_text_atomic,  # pyright: ignore[reportPrivateUsage]
     ensure_dir,
 )
 
