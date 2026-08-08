@@ -1644,6 +1644,17 @@ function Shell({
     [activeKey, navigate, sessions, sidebarState.archived_keys, updateSidebarState],
   );
 
+  const onReorderSessions = useCallback(
+    (sessionOrder: string[]) => {
+      void updateSidebarState((current) => ({
+        ...current,
+        session_order: sessionOrder,
+        view: { ...current.view, sort: "manual" },
+      }));
+    },
+    [updateSidebarState],
+  );
+
   const onToggleArchived = useCallback(() => {
     void updateSidebarState((current) => ({
       ...current,
@@ -2000,6 +2011,7 @@ function Shell({
     onTogglePin,
     onRequestRename,
     onToggleArchive,
+    onReorderSessions,
     onToggleGroup,
     onRequestRenameProject,
     onNewChatInProject,
@@ -2024,6 +2036,7 @@ function Shell({
     onToggleArchived,
     pinnedKeys: sidebarState.pinned_keys,
     archivedKeys: sidebarState.archived_keys,
+    sessionOrder: sidebarState.session_order,
     titleOverrides: sidebarState.title_overrides,
     projectNameOverrides: sidebarState.project_name_overrides,
     collapsedGroups: sidebarState.collapsed_groups,

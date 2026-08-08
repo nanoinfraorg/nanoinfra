@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
+import { SESSION_DRAG_TYPE } from "@/lib/session-drag";
 import type { ChatSummary, CliAppInfo, McpPresetInfo, SlashCommand } from "@/lib/types";
 
 vi.mock("@/lib/imageEncode", () => ({
@@ -1588,6 +1589,81 @@ describe("ThreadComposer", () => {
         title: "收费设计",
       }],
     });
+  });
+
+  it("turns a dropped sidebar session into the shared structured mention", () => {
+    const onSend = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={onSend}
+        placeholder="Type your message..."
+        sessions={[session("pricing", "收费设计", "讨论云存储")]}
+      />,
+    );
+
+    const input = screen.getByLabelText("Message input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "Compare notes" } });
+    input.setSelectionRange(7, 7);
+    const dataTransfer = {
+      types: [SESSION_DRAG_TYPE],
+      effectAllowed: "copy",
+      dropEffect: "none",
+      files: [],
+      getData: (type: string) => (
+        type === SESSION_DRAG_TYPE ? "websocket:pricing" : ""
+      ),
+    };
+
+    fireEvent.dragEnter(input, { dataTransfer });
+    fireEvent.dragOver(input, { dataTransfer });
+
+    expect(input).toHaveValue("Compare notes");
+    expect(screen.getByTestId("composer-session-drag-preview"))
+      .toHaveTextContent("@收费设计");
+
+    fireEvent.dragEnd(document);
+    expect(screen.queryByTestId("composer-session-drag-preview")).not.toBeInTheDocument();
+
+    fireEvent.dragEnter(input, { dataTransfer });
+    fireEvent.dragOver(input, { dataTransfer });
+
+    fireEvent.drop(input, { dataTransfer });
+
+    expect(input).toHaveValue("Compare @收费设计 notes");
+    expect(screen.queryByTestId("composer-session-drag-preview")).not.toBeInTheDocument();
+    expect(screen.getByTestId("composer-session-mention-收费设计"))
+      .toHaveTextContent("@收费设计");
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(onSend).toHaveBeenCalledWith("Compare @收费设计 notes", undefined, {
+      sessionMentions: [{
+        name: "收费设计",
+        session_key: "websocket:pricing",
+        title: "收费设计",
+      }],
+    });
+  });
+
+  it("rejects session drops that are unavailable to the composer", () => {
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        sessions={[]}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+    const dataTransfer = {
+      types: [SESSION_DRAG_TYPE],
+      effectAllowed: "copyMove",
+      dropEffect: "copy",
+      files: [],
+      getData: () => "websocket:current",
+    };
+
+    expect(fireEvent.dragEnter(input, { dataTransfer })).toBe(true);
+    expect(fireEvent.dragOver(input, { dataTransfer })).toBe(true);
+    expect(screen.queryByTestId("composer-session-drag-preview")).not.toBeInTheDocument();
   });
 
   it("disambiguates duplicate and capability-colliding session names", () => {
