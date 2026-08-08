@@ -269,24 +269,25 @@ Browse the [repo docs](./docs/README.md) for the latest features and GitHub deve
 
 ## Releases
 
-**Latest release: [v0.5.0 - The Keyring Release](https://github.com/bet0x/nanoinfra/releases/tag/v0.5.0)**
+**Latest release: [v0.6.0 - The Continuity Release](https://github.com/bet0x/nanoinfra/releases/tag/v0.6.0)**
 
-The Keyring Release adds encrypted Secrets storage and a Server inventory the agent can actually connect to and run things on — with a WebUI to manage both.
+The Continuity Release keeps context from getting lost — across background subagent runs, across the composer, and across a trusted reverse proxy.
 
-- Secrets: encrypted-at-rest credential storage (local or Postgres-backed), write-only by design — no tool or API response ever returns a decrypted value, and there's no agent-facing tool at all for creating or rotating one, only the WebUI
-- Servers: an inventory of hosts and how to reach them (SSH, Ansible Runner, AWS SSM, or a configured HTTP API), each optionally tied to a Secret for authentication
-- `execute_on_server` lets the agent actually connect and run a command or action on an inventoried server — durable job records survive a gateway restart, with idle-aware timeouts and a network guard that blocks metadata/loopback targets
-- New "Infrastructure" section in the WebUI sidebar (Diagrams, Servers, Secrets) and the Diagrams target picker now lists real inventoried servers instead of a placeholder
+- Durable subagent transcripts: every background subagent run now leaves a full conversation transcript under `memory/subagents/`, so you can see exactly what it did or debug why it failed, even after the run ends
+- Drag a session onto the composer to attach it as a reference the agent can read, and manually reorder the sidebar by drag — that order now persists
+- Trusted-proxy bootstrap auth: let a reverse proxy (Cloudflare Access or similar) assert identity so the WebUI trusts it instead of requiring its own login
+- Two real session-retention/Dream bugs fixed: proactive channel deliveries no longer get silently dropped during trimming, and short idle sessions are no longer skipped by consolidation forever
+- Mattermost thread-vs-channel group policy, hardened WhatsApp media handling, and per-request hosted web/X search toggles
 
-[Read the v0.5.0 release notes](https://github.com/bet0x/nanoinfra/releases/tag/v0.5.0)
+[Read the v0.6.0 release notes](https://github.com/bet0x/nanoinfra/releases/tag/v0.6.0)
 
 ## Recent Updates
 
+- **2026-08-07** Durable subagent transcripts, drag-to-attach sessions, trusted-proxy auth, and session-retention/Dream data-loss fixes.
 - **2026-08-07** Secrets and Servers: encrypted credential storage, a server inventory, and agent-driven remote execution (SSH/Ansible Runner/SSM/API) with durable job tracking.
 - **2026-08-04** Infra Diagrams: visual designer with real persistence, a dynamic component catalog, and agent tools with an approval gate.
 - **2026-07-24** Guided first-run setup, inline subagents, and model switching from the composer.
 - **2026-07-23** Grok OAuth with hosted X Search, live image settings, and clearer fallback models.
-- **2026-07-22** Parallel Search, live configuration reloads, richer app discovery, and a smoother mobile WebUI.
 
 For older updates, see the [release archive](./docs/release-archive.md) or [GitHub releases](https://github.com/bet0x/nanoinfra/releases).
 
