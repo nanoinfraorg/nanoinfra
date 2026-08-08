@@ -12,6 +12,7 @@ const getSessionAutomationsSpy = vi.fn<(key: string) => Promise<SessionAutomatio
 const toggleThemeSpy = vi.fn();
 const updateUrlSpy = vi.fn();
 const attachSpy = vi.fn();
+const setSidebarStateSpy = vi.fn();
 const runStatusHandlers = new Set<(chatId: string, startedAt: number | null) => void>();
 const sessionUpdateHandlers = new Set<(chatId: string, scope?: string) => void>();
 let mockSessions: ChatSummary[] = [];
@@ -217,6 +218,7 @@ vi.mock("@/lib/nanoinfra-client", () => {
     sendMessage = vi.fn();
     newChat = vi.fn();
     attach = attachSpy;
+    setSidebarState = setSidebarStateSpy;
     close = vi.fn();
     updateUrl = updateUrlSpy;
     updateMaxFrameBytes = vi.fn();
@@ -244,6 +246,7 @@ describe("App layout", () => {
     getSessionAutomationsSpy.mockReset().mockResolvedValue([]);
     toggleThemeSpy.mockReset();
     attachSpy.mockReset();
+    setSidebarStateSpy.mockReset();
     runStatusHandlers.clear();
     sessionUpdateHandlers.clear();
     window.history.replaceState(null, "", "/");
@@ -1391,13 +1394,6 @@ describe("App layout", () => {
         if (href === "/api/webui/sidebar-state") {
           return { ok: true, json: async () => initialState };
         }
-        if (href.startsWith("/api/webui/sidebar-state/update?")) {
-          const encoded = new URLSearchParams(href.split("?", 2)[1]).get("state");
-          return {
-            ok: true,
-            json: async () => JSON.parse(encoded ?? "{}"),
-          };
-        }
         return { ok: false, status: 404 };
       }),
     );
@@ -1417,12 +1413,11 @@ describe("App layout", () => {
       expect(within(sidebar).getByText("Archived")).toBeInTheDocument(),
     );
     expect(within(sidebar).getByRole("button", { name: /^First chat$/ })).toBeInTheDocument();
-    const updateUrl = vi.mocked(fetch).mock.calls
-      .map(([url]) => String(url))
-      .find((url) => url.startsWith("/api/webui/sidebar-state/update?"));
-    expect(updateUrl).toBeTruthy();
-    const encoded = new URLSearchParams(updateUrl?.split("?", 2)[1]).get("state");
-    expect(JSON.parse(encoded ?? "{}").view.show_archived).toBe(true);
+    expect(setSidebarStateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        view: expect.objectContaining({ show_archived: true }),
+      }),
+    );
 
     expect(within(sidebar).queryByRole("button", { name: "View" })).not.toBeInTheDocument();
   });
