@@ -174,6 +174,7 @@ class ChannelManager:
                 workspace_path=workspace,
                 default_restrict_to_workspace=self.config.tools.restrict_to_workspace,
                 disabled_skills=set(self.config.agents.defaults.disabled_skills),
+                nanoinfra_skills_base_url=self.config.skills_marketplace.nanoinfra_base_url,
                 runtime_model_name=self._webui_runtime_model_name,
                 runtime_surface=self._webui_runtime_surface,
                 runtime_capabilities_overrides=self._webui_runtime_capabilities,

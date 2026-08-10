@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import os
 import re
 import shutil
@@ -13,7 +12,7 @@ import time
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 
 import httpx
 
@@ -23,16 +22,19 @@ from nanoinfra.security.workspace_policy import WorkspaceBoundaryError, require_
 
 _PROVIDER_ALL = "all"
 _PROVIDER_SKILLS_SH = "skills_sh"
-_PROVIDER_SKILLHUB = "skillhub"
-_PROVIDERS = {_PROVIDER_ALL, _PROVIDER_SKILLS_SH, _PROVIDER_SKILLHUB}
+_PROVIDER_NANOINFRA = "nanoinfra"
+_PROVIDERS = {_PROVIDER_ALL, _PROVIDER_SKILLS_SH, _PROVIDER_NANOINFRA}
 _SEARCH_URL = "https://skills.sh/api/search"
 _TRENDING_URL = "https://skills.sh/api/skills/trending/0"
 _SKILL_PAGE_BASE_URL = "https://www.skills.sh"
-_SKILLHUB_API_BASE_URL = "https://api.skillhub.cn"
-_SKILLHUB_SEARCH_URL = f"{_SKILLHUB_API_BASE_URL}/api/v1/search"
-_SKILLHUB_TRENDING_URL = f"{_SKILLHUB_API_BASE_URL}/api/v1/showcase/trending"
-_SKILLHUB_DOWNLOAD_URL = f"{_SKILLHUB_API_BASE_URL}/api/v1/download"
-_SKILLHUB_PAGE_BASE_URL = "https://skillhub.cn"
+# Default base URL of the self-hosted nanoinfra skills-server catalog
+# (submission pipeline + security scan shield + versioning, see
+# nanoinfraorg/skills-server). Callers normally pass the configured value
+# from Config.skills_marketplace.nanoinfra_base_url; this default matches
+# that schema field's own default, so the bare module-level constant is only
+# ever a fallback for a caller that doesn't thread config through (e.g. a
+# script or test invoking these functions directly).
+_DEFAULT_NANOINFRA_BASE_URL = "https://skills.nanoinfra.org"
 _ALL_TIME_URLS = (
     "https://skills.sh/api/skills/all-time/0",
     "https://skills.sh/api/skills/all-time/1",
@@ -43,13 +45,12 @@ _SOURCE_RE = re.compile(
     r"[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,98}[A-Za-z0-9])?$"
 )
 _SKILL_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-_VERSION_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._+-]{0,63})$")
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _INSTALL_TIMEOUT_SECONDS = 120
 _WEEKLY_CACHE_TTL_SECONDS = 300
-_SKILLHUB_MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
-_SKILLHUB_MAX_UNPACKED_BYTES = 100 * 1024 * 1024
-_SKILLHUB_MAX_FILES = 1_000
+_NANOINFRA_MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
+_NANOINFRA_MAX_UNPACKED_BYTES = 100 * 1024 * 1024
+_NANOINFRA_MAX_FILES = 1_000
 # The skills CLI's OpenClaw adapter copies into <workspace>/skills, nanoinfra's layout too.
 _CLI_AGENT = "openclaw"
 _weekly_cache: dict[tuple[str, str], list[int]] = {}
@@ -81,17 +82,18 @@ async def trending_marketplace_skills(
     *,
     limit: int = 8,
     provider: str = _PROVIDER_ALL,
+    nanoinfra_base_url: str = _DEFAULT_NANOINFRA_BASE_URL,
 ) -> dict[str, Any]:
     """Return provider-aware marketplace rankings without mixing metric semantics."""
     selected = _valid_provider(provider)
-    if selected == _PROVIDER_SKILLHUB:
-        return await _trending_skillhub_skills(workspace_path, limit=limit)
+    if selected == _PROVIDER_NANOINFRA:
+        return await _trending_nanoinfra_skills(workspace_path, limit=limit, base_url=nanoinfra_base_url)
     if selected == _PROVIDER_SKILLS_SH:
         return await _trending_skills_sh_skills(workspace_path, limit=limit)
 
     results = await asyncio.gather(
         _trending_skills_sh_skills(workspace_path, limit=limit),
-        _trending_skillhub_skills(workspace_path, limit=limit),
+        _trending_nanoinfra_skills(workspace_path, limit=limit, base_url=nanoinfra_base_url),
         return_exceptions=True,
     )
     payloads = [result for result in results if isinstance(result, dict)]
@@ -163,6 +165,7 @@ async def search_marketplace_skills(
     *,
     limit: int = 20,
     provider: str = _PROVIDER_ALL,
+    nanoinfra_base_url: str = _DEFAULT_NANOINFRA_BASE_URL,
 ) -> dict[str, Any]:
     """Search one or all catalogs and annotate locally installed results."""
     normalized = " ".join(query.split())
@@ -172,14 +175,14 @@ async def search_marketplace_skills(
         raise SkillsMarketplaceError("search query is too long")
 
     selected = _valid_provider(provider)
-    if selected == _PROVIDER_SKILLHUB:
-        return await _search_skillhub_skills(normalized, workspace_path, limit=limit)
+    if selected == _PROVIDER_NANOINFRA:
+        return await _search_nanoinfra_skills(normalized, workspace_path, limit=limit, base_url=nanoinfra_base_url)
     if selected == _PROVIDER_SKILLS_SH:
         return await _search_skills_sh_skills(normalized, workspace_path, limit=limit)
 
     results = await asyncio.gather(
         _search_skills_sh_skills(normalized, workspace_path, limit=limit),
-        _search_skillhub_skills(normalized, workspace_path, limit=limit),
+        _search_nanoinfra_skills(normalized, workspace_path, limit=limit, base_url=nanoinfra_base_url),
         return_exceptions=True,
     )
     payloads = [result for result in results if isinstance(result, dict)]
@@ -239,55 +242,57 @@ async def _search_skills_sh_skills(
     }
 
 
-async def _search_skillhub_skills(
+async def _search_nanoinfra_skills(
     normalized: str,
     workspace_path: Path,
     *,
     limit: int,
+    base_url: str,
 ) -> dict[str, Any]:
     try:
-        async with _skillhub_client() as client:
-            response = await client.get(
-                _SKILLHUB_SEARCH_URL,
-                params={"q": normalized, "limit": min(max(limit, 1), 50)},
-            )
+        async with _nanoinfra_client(base_url) as client:
+            response = await client.get("/api/v1/search", params={"q": normalized})
             response.raise_for_status()
             payload = _response_json_object(response) or {}
     except (httpx.HTTPError, ValueError) as exc:
         raise SkillsMarketplaceError(
-            "SkillHub search is temporarily unavailable",
+            "the nanoinfra skills catalog is temporarily unavailable",
             status=502,
         ) from exc
 
     installed = _installed_skill_names(workspace_path)
-    rows = payload.get("results", [])
-    skills = [
-        skill
-        for row in rows
-        if isinstance(row, dict)
-        if (skill := _skillhub_skill(cast(dict[str, Any], row), installed)) is not None
-    ]
+    rows = payload.get("skills", [])
+    skills: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        skill = _nanoinfra_skill(cast(dict[str, Any], row), installed, base_url=base_url)
+        if skill is not None:
+            skills.append(skill)
+        if len(skills) >= min(max(limit, 1), 50):
+            break
     return {
         "query": normalized,
         "skills": skills,
-        "provider": _PROVIDER_SKILLHUB,
+        "provider": _PROVIDER_NANOINFRA,
         "install_supported": True,
     }
 
 
-async def _trending_skillhub_skills(
+async def _trending_nanoinfra_skills(
     workspace_path: Path,
     *,
     limit: int,
+    base_url: str,
 ) -> dict[str, Any]:
     try:
-        async with _skillhub_client() as client:
-            response = await client.get(_SKILLHUB_TRENDING_URL)
+        async with _nanoinfra_client(base_url) as client:
+            response = await client.get("/api/v1/trending")
             response.raise_for_status()
             payload = _response_json_object(response) or {}
     except (httpx.HTTPError, ValueError) as exc:
         raise SkillsMarketplaceError(
-            "SkillHub trending skills are temporarily unavailable",
+            "the nanoinfra skills catalog is temporarily unavailable",
             status=502,
         ) from exc
 
@@ -297,7 +302,7 @@ async def _trending_skillhub_skills(
     for rank, row in enumerate(rows, start=1):
         if not isinstance(row, dict):
             continue
-        skill = _skillhub_skill(cast(dict[str, Any], row), installed, rank=rank)
+        skill = _nanoinfra_skill(cast(dict[str, Any], row), installed, rank=rank, base_url=base_url)
         if skill is not None:
             skills.append(skill)
         if len(skills) >= min(max(limit, 1), 20):
@@ -305,7 +310,7 @@ async def _trending_skillhub_skills(
     return {
         "skills": skills,
         "period": "trending",
-        "provider": _PROVIDER_SKILLHUB,
+        "provider": _PROVIDER_NANOINFRA,
         "install_supported": True,
     }
 
@@ -338,11 +343,12 @@ async def install_marketplace_skill(
     *,
     provider: str = _PROVIDER_SKILLS_SH,
     version: str = "",
+    nanoinfra_base_url: str = _DEFAULT_NANOINFRA_BASE_URL,
 ) -> dict[str, Any]:
     """Install one normalized marketplace result into ``<workspace>/skills``."""
     selected = _valid_provider(provider, allow_all=False)
-    if selected == _PROVIDER_SKILLHUB:
-        return await _install_skillhub_skill(skill_id, version, workspace_path)
+    if selected == _PROVIDER_NANOINFRA:
+        return await _install_nanoinfra_skill(skill_id, workspace_path, base_url=nanoinfra_base_url)
     return await _install_skills_sh_skill(source, skill_id, workspace_path)
 
 
@@ -435,15 +441,24 @@ async def _install_skills_sh_skill(
     return {"installed": True, "already_installed": False, "name": skill_id}
 
 
-async def _install_skillhub_skill(
+async def _install_nanoinfra_skill(
     skill_id: str,
-    requested_version: str,
     workspace_path: Path,
+    *,
+    base_url: str,
 ) -> dict[str, Any]:
+    """Install a skill published on the nanoinfra skills-server catalog.
+
+    Unlike the old SkillHub integration, there is no separate
+    signature/fingerprint endpoint to verify the download against: the
+    catalog already ran the archive through its own submission pipeline and
+    security scan shield before ever publishing it (see
+    nanoinfraorg/skills-server's docs/architecture.md). Path-safety
+    validation on extraction still applies here regardless -- a network
+    response is never trusted just because of who served it.
+    """
     if not _valid_skill_id(skill_id):
-        raise SkillsMarketplaceError("invalid SkillHub skill name")
-    if requested_version and _VERSION_RE.fullmatch(requested_version) is None:
-        raise SkillsMarketplaceError("invalid SkillHub skill version")
+        raise SkillsMarketplaceError("invalid skill name")
 
     loader = SkillsLoader(workspace_path)
     existing = {entry["name"]: entry for entry in loader.list_skills(filter_unavailable=False)}
@@ -452,7 +467,7 @@ async def _install_skillhub_skill(
             "installed": True,
             "already_installed": True,
             "name": skill_id,
-            "provider": _PROVIDER_SKILLHUB,
+            "provider": _PROVIDER_NANOINFRA,
         }
 
     workspace = workspace_path.expanduser().resolve()
@@ -469,52 +484,30 @@ async def _install_skillhub_skill(
     target = skills_root / skill_id
 
     try:
-        async with _skillhub_client() as client:
-            version = requested_version or await _skillhub_latest_version(client, skill_id)
-            signature = await _skillhub_signature(client, skill_id, version)
-            expected_hash = signature.get("content_hash")
-            if not isinstance(expected_hash, str) or not re.fullmatch(
-                r"[0-9a-fA-F]{64}",
-                expected_hash,
-            ):
-                raise SkillsMarketplaceError(
-                    "SkillHub did not provide a valid package fingerprint",
-                    status=502,
-                )
-
+        async with _nanoinfra_client(base_url) as client:
             with tempfile.TemporaryDirectory(
-                prefix=".skillhub-install-",
+                prefix=".nanoinfra-install-",
                 dir=skills_root,
             ) as temporary:
                 temporary_path = Path(temporary)
                 archive_path = temporary_path / f"{skill_id}.zip"
                 stage_path = temporary_path / "stage"
-                await _download_skillhub_archive(
-                    client,
-                    skill_id,
-                    version,
-                    archive_path,
-                )
-                actual_hash = _validate_skillhub_archive(archive_path)
-                if actual_hash.lower() != expected_hash.lower():
-                    raise SkillsMarketplaceError(
-                        "SkillHub package fingerprint did not match",
-                        status=502,
-                    )
-                _extract_skillhub_archive(archive_path, stage_path)
+                await _download_nanoinfra_archive(client, skill_id, archive_path)
+                _validate_nanoinfra_archive(archive_path)
+                _extract_nanoinfra_archive(archive_path, stage_path)
                 if target.exists():
                     return {
                         "installed": True,
                         "already_installed": True,
                         "name": skill_id,
-                        "provider": _PROVIDER_SKILLHUB,
+                        "provider": _PROVIDER_NANOINFRA,
                     }
                 os.replace(stage_path, target)
     except SkillsMarketplaceError:
         raise
     except (httpx.HTTPError, OSError, zipfile.BadZipFile) as exc:
         raise SkillsMarketplaceError(
-            "SkillHub skill installation failed",
+            "nanoinfra skill installation failed",
             status=502,
         ) from exc
 
@@ -535,107 +528,49 @@ async def _install_skillhub_skill(
         "installed": True,
         "already_installed": False,
         "name": skill_id,
-        "provider": _PROVIDER_SKILLHUB,
-        "version": version,
+        "provider": _PROVIDER_NANOINFRA,
     }
 
 
-async def _skillhub_latest_version(client: httpx.AsyncClient, skill_id: str) -> str:
-    response = await client.get(
-        f"{_SKILLHUB_API_BASE_URL}/api/v1/skills/{quote(skill_id, safe='')}"
-    )
-    response.raise_for_status()
-    payload = _response_json_object(response) or {}
-    raw_latest = payload.get("latestVersion", {})
-    latest = cast(dict[str, Any], raw_latest) if isinstance(raw_latest, dict) else {}
-    version = latest.get("version")
-    if not isinstance(version, str) or _VERSION_RE.fullmatch(version) is None:
-        raise SkillsMarketplaceError(
-            "SkillHub did not return a valid skill version",
-            status=502,
-        )
-    return version
-
-
-async def _skillhub_signature(
+async def _download_nanoinfra_archive(
     client: httpx.AsyncClient,
     skill_id: str,
-    version: str,
-) -> dict[str, Any]:
-    response = await client.get(
-        f"{_SKILLHUB_API_BASE_URL}/api/v1/open/skills/"
-        f"{quote(skill_id, safe='')}/versions/{quote(version, safe='')}/signature"
-    )
-    response.raise_for_status()
-    payload = _response_json_object(response)
-    if payload is None:
-        raise SkillsMarketplaceError(
-            "SkillHub returned an invalid package fingerprint",
-            status=502,
-        )
-    return payload
-
-
-async def _download_skillhub_archive(
-    client: httpx.AsyncClient,
-    skill_id: str,
-    version: str,
     destination: Path,
 ) -> None:
-    redirect = await client.get(
-        _SKILLHUB_DOWNLOAD_URL,
-        params={"slug": skill_id, "version": version},
-    )
-    if redirect.status_code not in {301, 302, 303, 307, 308}:
-        redirect.raise_for_status()
-        raise SkillsMarketplaceError(
-            "SkillHub returned an unexpected download response",
-            status=502,
-        )
-    location = redirect.headers.get("location", "")
-    if not _valid_skillhub_download_url(location):
-        raise SkillsMarketplaceError(
-            "SkillHub returned an unsafe download location",
-            status=502,
-        )
+    """Stream a skill's zip archive from the catalog's own download endpoint.
 
+    Unlike SkillHub's flow (a redirect to a separate object-storage host,
+    which had to be validated against a pinned hostname allowlist), the
+    nanoinfra skills-server serves the archive directly from the same host
+    -- there is no redirect to validate.
+    """
     received = 0
     async with client.stream(
         "GET",
-        location,
-        headers={"Accept": "application/zip,application/octet-stream"},
+        f"/api/v1/skills/{quote(skill_id, safe='')}/download",
     ) as response:
+        if response.status_code == 404:
+            raise SkillsMarketplaceError("skill not found on the nanoinfra catalog", status=404)
         response.raise_for_status()
         declared = response.headers.get("content-length")
-        if declared and declared.isdigit() and int(declared) > _SKILLHUB_MAX_DOWNLOAD_BYTES:
-            raise SkillsMarketplaceError("SkillHub package is too large", status=413)
+        if declared and declared.isdigit() and int(declared) > _NANOINFRA_MAX_DOWNLOAD_BYTES:
+            raise SkillsMarketplaceError("nanoinfra skill package is too large", status=413)
         with destination.open("wb") as output:
             async for chunk in response.aiter_bytes():
                 received += len(chunk)
-                if received > _SKILLHUB_MAX_DOWNLOAD_BYTES:
-                    raise SkillsMarketplaceError("SkillHub package is too large", status=413)
+                if received > _NANOINFRA_MAX_DOWNLOAD_BYTES:
+                    raise SkillsMarketplaceError("nanoinfra skill package is too large", status=413)
                 output.write(chunk)
 
 
-def _valid_skillhub_download_url(value: str) -> bool:
-    try:
-        parsed = urlparse(value)
-        hostname = (parsed.hostname or "").lower()
-        port = parsed.port
-    except ValueError:
-        return False
-    return (
-        parsed.scheme == "https"
-        and parsed.username is None
-        and parsed.password is None
-        and port in {None, 443}
-        and hostname.endswith(".myqcloud.com")
-    )
+def _validated_zip_entries(archive: zipfile.ZipFile) -> list[tuple[zipfile.ZipInfo, str]]:
+    """Path-safety-validate every entry in a downloaded skill archive.
 
-
-def _validated_skillhub_entries(
-    archive: zipfile.ZipFile,
-) -> list[tuple[zipfile.ZipInfo, str]]:
+    Rejects zip-slip/absolute/traversal paths, symlinks, duplicate paths,
+    and archives exceeding the file-count or unpacked-size caps. Used for
+    nanoinfra skills-server installs; skills.sh installs go through the
+    separate `npx skills` CLI, which handles its own extraction.
+    """
     entries: list[tuple[zipfile.ZipInfo, str]] = []
     seen: set[str] = set()
     unpacked = 0
@@ -655,66 +590,42 @@ def _validated_skillhub_entries(
             or kind not in {0, stat.S_IFREG, stat.S_IFDIR}
         ):
             raise SkillsMarketplaceError(
-                f"SkillHub package contains an unsafe path: {raw_name}",
+                f"skill package contains an unsafe path: {raw_name}",
                 status=422,
             )
         if info.is_dir():
             continue
         if normalized in seen:
             raise SkillsMarketplaceError(
-                f"SkillHub package contains a duplicate path: {normalized}",
+                f"skill package contains a duplicate path: {normalized}",
                 status=422,
             )
         seen.add(normalized)
         unpacked += info.file_size
-        if len(entries) >= _SKILLHUB_MAX_FILES:
-            raise SkillsMarketplaceError("SkillHub package contains too many files", status=413)
-        if unpacked > _SKILLHUB_MAX_UNPACKED_BYTES:
+        if len(entries) >= _NANOINFRA_MAX_FILES:
+            raise SkillsMarketplaceError("skill package contains too many files", status=413)
+        if unpacked > _NANOINFRA_MAX_UNPACKED_BYTES:
             raise SkillsMarketplaceError(
-                "SkillHub package expands beyond the size limit", status=413
+                "skill package expands beyond the size limit", status=413
             )
         entries.append((info, normalized))
     if "SKILL.md" not in seen:
         raise SkillsMarketplaceError(
-            "SkillHub package does not contain a root SKILL.md",
+            "skill package does not contain a root SKILL.md",
             status=422,
         )
     return entries
 
 
-def _validate_skillhub_archive(archive_path: Path) -> str:
-    hashed: list[tuple[str, str]] = []
+def _validate_nanoinfra_archive(archive_path: Path) -> None:
     with zipfile.ZipFile(archive_path, "r") as archive:
-        for info, normalized in _validated_skillhub_entries(archive):
-            if _skillhub_hash_ignored(normalized):
-                continue
-            digest = hashlib.sha256()
-            with archive.open(info, "r") as source:
-                for chunk in iter(lambda: source.read(1024 * 1024), b""):
-                    digest.update(chunk)
-            hashed.append((normalized, digest.hexdigest()))
-    combined = hashlib.sha256()
-    for normalized, digest in sorted(hashed):
-        combined.update(f"{normalized}:{digest}\n".encode())
-    return combined.hexdigest()
+        _validated_zip_entries(archive)  # raises on any unsafe entry
 
 
-def _skillhub_hash_ignored(path: str) -> bool:
-    parts = PurePosixPath(path).parts
-    basename = parts[-1] if parts else ""
-    return (
-        path == "_meta.json"
-        or "__MACOSX" in parts
-        or basename == ".DS_Store"
-        or basename.startswith("._")
-        or basename.lower() == "thumbs.db"
-    )
-
-
-def _extract_skillhub_archive(archive_path: Path, destination: Path) -> None:
+def _extract_nanoinfra_archive(archive_path: Path, destination: Path) -> None:
     destination.mkdir()
     with zipfile.ZipFile(archive_path, "r") as archive:
-        for info, normalized in _validated_skillhub_entries(archive):
+        for info, normalized in _validated_zip_entries(archive):
             target = destination.joinpath(*PurePosixPath(normalized).parts)
             target.parent.mkdir(parents=True, exist_ok=True)
             with archive.open(info, "r") as source, target.open("wb") as output:
@@ -732,8 +643,9 @@ def _skills_client() -> httpx.AsyncClient:
     )
 
 
-def _skillhub_client() -> httpx.AsyncClient:
+def _nanoinfra_client(base_url: str) -> httpx.AsyncClient:
     return httpx.AsyncClient(
+        base_url=base_url,
         transport=PinnedDNSAsyncTransport(),
         timeout=httpx.Timeout(30.0, connect=10.0),
         follow_redirects=False,
@@ -780,55 +692,45 @@ def _marketplace_skill(
     return skill
 
 
-def _skillhub_skill(
+def _nanoinfra_skill(
     row: dict[str, Any],
     installed: set[str],
     *,
     rank: int | None = None,
+    base_url: str,
 ) -> dict[str, Any] | None:
-    skill_id = row.get("slug")
+    """Map one row of a nanoinfra skills-server API response (search,
+    trending) into the shape the WebUI's marketplace UI already expects.
+
+    Response shape (see nanoinfraorg/skills-server's docs/api.md):
+    ``{"skill_id", "display_name", "description", "current_version",
+    "status", "published_at", "github_path", "downloads", "created_at"}``.
+    A quarantined skill never appears in search/trending results at all --
+    the catalog itself excludes those -- so there's no quarantine flag to
+    thread through here.
+    """
+    skill_id = row.get("skill_id")
     if not isinstance(skill_id, str) or not _valid_skill_id(skill_id):
         return None
-    display_name = row.get("displayName") or row.get("name") or skill_id
+    display_name = row.get("display_name") or skill_id
     if not isinstance(display_name, str) or not display_name.strip():
         display_name = skill_id
 
-    namespace = row.get("namespace")
-    namespace_payload = cast(dict[str, Any], namespace) if isinstance(namespace, dict) else {}
-    handle = namespace_payload.get("handle")
-    if not isinstance(handle, str) or not handle.strip():
-        owner = row.get("owner_name") or row.get("ownerName")
-        handle = owner if isinstance(owner, str) and owner.strip() else "community"
-    source = f"@{handle.strip()}/{skill_id}"
-
-    installs = row.get("installs")
     downloads = row.get("downloads")
-    publisher = row.get("publisher")
-    publisher_payload = cast(dict[str, Any], publisher) if isinstance(publisher, dict) else {}
-    verified = publisher_payload.get("verified") is True
-    labels = row.get("labels")
-    labels_payload = cast(dict[str, Any], labels) if isinstance(labels, dict) else {}
-    requires_api_key = str(labels_payload.get("requires_api_key", "")).lower() == "true"
-    version = row.get("version")
-    if not isinstance(version, str) or _VERSION_RE.fullmatch(version) is None:
-        version = ""
+    version = row.get("current_version")
 
     skill: dict[str, Any] = {
-        "id": f"{_PROVIDER_SKILLHUB}:{skill_id}",
+        "id": f"{_PROVIDER_NANOINFRA}:{skill_id}",
         "skill_id": skill_id,
         "name": display_name.strip(),
-        "source": source,
-        "provider": _PROVIDER_SKILLHUB,
-        "installs": installs if isinstance(installs, int) and installs >= 0 else 0,
-        "downloads": downloads if isinstance(downloads, int) and downloads >= 0 else 0,
-        "url": f"{_SKILLHUB_PAGE_BASE_URL}/{quote(handle.strip(), safe='')}/"
-        f"{quote(skill_id, safe='')}",
+        "source": _PROVIDER_NANOINFRA,
+        "provider": _PROVIDER_NANOINFRA,
+        "installs": downloads if isinstance(downloads, int) and downloads >= 0 else 0,
+        "url": f"{base_url.rstrip('/')}/skills/{quote(skill_id, safe='')}",
         "installed": skill_id in installed,
         "install_supported": True,
         "metric": "installs_total",
-        "version": version,
-        "verified": verified,
-        "requires_api_key": requires_api_key,
+        "version": str(version) if isinstance(version, int) else "",
     }
     if rank is not None:
         skill["rank"] = rank

@@ -357,7 +357,7 @@ function ProviderFilter({
   onChange: (provider: MarketplaceProvider) => void;
 }) {
   const { t } = useTranslation();
-  const providers: MarketplaceProvider[] = ["all", "skills_sh", "skillhub"];
+  const providers: MarketplaceProvider[] = ["all", "skills_sh", "nanoinfra"];
   return (
     <div
       className="flex w-fit items-center gap-0.5 rounded-full bg-settings-surface p-1"
@@ -406,7 +406,7 @@ function MarketplaceSkillGroups({
   const { t } = useTranslation();
   const providers: Array<Exclude<MarketplaceProvider, "all">> = [
     "skills_sh",
-    "skillhub",
+    "nanoinfra",
   ];
   if (!grouped) {
     return (
@@ -607,7 +607,7 @@ function ProviderDot({
     <span
       className={cn(
         "h-1.5 w-1.5 shrink-0 rounded-full",
-        provider === "skillhub" ? "bg-[#006EFF]" : "bg-foreground/55",
+        provider === "nanoinfra" ? "bg-primary" : "bg-foreground/55",
       )}
       aria-hidden
     />
@@ -615,11 +615,11 @@ function ProviderDot({
 }
 
 function providerLabel(provider: Exclude<MarketplaceProvider, "all">): string {
-  return provider === "skillhub" ? "SkillHub" : "skills.sh";
+  return provider === "nanoinfra" ? "nanoinfra" : "skills.sh";
 }
 
 function providerUrl(provider: Exclude<MarketplaceProvider, "all">): string {
-  return provider === "skillhub" ? "https://skillhub.cn" : "https://skills.sh/trending";
+  return provider === "nanoinfra" ? "https://skills.nanoinfra.org" : "https://skills.sh/trending";
 }
 
 function TrendSparkline({ values }: { values?: number[] }) {

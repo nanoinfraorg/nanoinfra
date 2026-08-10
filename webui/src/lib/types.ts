@@ -242,7 +242,7 @@ export interface MarketplaceSkillSummary {
   rank?: number;
 }
 
-export type MarketplaceProvider = "all" | "skills_sh" | "skillhub";
+export type MarketplaceProvider = "all" | "skills_sh" | "nanoinfra";
 
 export interface SkillsSearchPayload {
   query: string;

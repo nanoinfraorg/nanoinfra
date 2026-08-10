@@ -322,6 +322,16 @@ class HeartbeatConfig(Base):
     keep_recent_messages: int = 8
 
 
+class SkillsMarketplaceConfig(Base):
+    """WebUI Agent Skills marketplace configuration."""
+
+    # Base URL of the self-hosted nanoinfra skills-server catalog (submission
+    # pipeline + security scan shield + versioning), used alongside skills.sh
+    # as a marketplace provider. Override to point at a different deployment
+    # (e.g. a self-hosted instance).
+    nanoinfra_base_url: str = "https://skills.nanoinfra.org"
+
+
 class ApiConfig(Base):
     """OpenAI-compatible API server configuration."""
 
@@ -417,6 +427,7 @@ class Config(BaseSettings):
     transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
+    skills_marketplace: SkillsMarketplaceConfig = Field(default_factory=SkillsMarketplaceConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     model_presets: dict[str, ModelPresetConfig] = Field(

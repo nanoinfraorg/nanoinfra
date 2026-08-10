@@ -1,4 +1,3 @@
-import hashlib
 import io
 import zipfile
 from pathlib import Path
@@ -9,13 +8,14 @@ import pytest
 
 from nanoinfra.webui.skills_marketplace import (
     SkillsMarketplaceError,
-    _valid_skillhub_download_url,
-    _validated_skillhub_entries,
+    _validated_zip_entries,
     install_marketplace_skill,
     marketplace_skill_trends,
     search_marketplace_skills,
     trending_marketplace_skills,
 )
+
+_NANOINFRA_BASE_URL = "https://skills.nanoinfra.org"
 
 
 @pytest.mark.asyncio
@@ -97,7 +97,7 @@ async def test_search_marketplace_skills_filters_and_marks_installed(
 
 
 @pytest.mark.asyncio
-async def test_search_skillhub_skills_normalizes_provider_metadata(
+async def test_search_nanoinfra_skills_normalizes_provider_metadata(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -109,19 +109,20 @@ async def test_search_skillhub_skills_normalizes_provider_metadata(
 
         def json(self) -> dict[str, Any]:
             return {
-                "results": [
+                "query": "linux",
+                "skills": [
                     {
-                        "slug": "ima-skills",
-                        "name": "ima-skills",
-                        "namespace": {"handle": "tencent-adm"},
-                        "source": "enterprise",
-                        "version": "1.1.8",
-                        "installs": 11831,
-                        "downloads": 142525,
-                        "publisher": {"verified": True},
-                        "labels": {"requires_api_key": "true"},
+                        "skill_id": "linux-commands",
+                        "display_name": "linux-commands",
+                        "description": "Reference guide for common Linux shell commands.",
+                        "current_version": 1,
+                        "status": "published",
+                        "published_at": "2026-08-10T20:25:39Z",
+                        "github_path": "linux-commands/",
+                        "downloads": 3,
+                        "created_at": "2026-08-10T20:25:16Z",
                     }
-                ]
+                ],
             }
 
     class FakeClient:
@@ -141,32 +142,30 @@ async def test_search_skillhub_skills_normalizes_provider_metadata(
     )
 
     payload = await search_marketplace_skills(
-        " ima ",
+        " linux ",
         tmp_path,
-        provider="skillhub",
+        provider="nanoinfra",
+        nanoinfra_base_url=_NANOINFRA_BASE_URL,
     )
 
     assert seen == {
-        "url": "https://api.skillhub.cn/api/v1/search",
-        "params": {"q": "ima", "limit": 20},
+        "url": "/api/v1/search",
+        "params": {"q": "linux"},
     }
-    assert payload["provider"] == "skillhub"
+    assert payload["provider"] == "nanoinfra"
     assert payload["skills"] == [
         {
-            "id": "skillhub:ima-skills",
-            "skill_id": "ima-skills",
-            "name": "ima-skills",
-            "source": "@tencent-adm/ima-skills",
-            "provider": "skillhub",
-            "installs": 11831,
-            "downloads": 142525,
-            "url": "https://skillhub.cn/tencent-adm/ima-skills",
+            "id": "nanoinfra:linux-commands",
+            "skill_id": "linux-commands",
+            "name": "linux-commands",
+            "source": "nanoinfra",
+            "provider": "nanoinfra",
+            "installs": 3,
+            "url": "https://skills.nanoinfra.org/skills/linux-commands",
             "installed": False,
             "install_supported": True,
             "metric": "installs_total",
-            "version": "1.1.8",
-            "verified": True,
-            "requires_api_key": True,
+            "version": "1",
         }
     ]
 
@@ -368,32 +367,20 @@ async def test_install_marketplace_skill_uses_official_cli_and_workspace(
 
 
 @pytest.mark.asyncio
-async def test_install_skillhub_skill_checks_fingerprint_and_extracts_safely(
+async def test_install_nanoinfra_skill_downloads_and_extracts_safely(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     archive_buffer = io.BytesIO()
-    skill_content = b"---\nname: ima-skills\ndescription: Tencent knowledge skill.\n---\n"
+    skill_content = b"---\nname: linux-commands\ndescription: Linux command reference.\n---\n"
     with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("SKILL.md", skill_content)
-        archive.writestr("_meta.json", b'{"version":"1.1.8"}')
     archive_bytes = archive_buffer.getvalue()
-    file_hash = hashlib.sha256(skill_content).hexdigest()
-    content_hash = hashlib.sha256(f"SKILL.md:{file_hash}\n".encode()).hexdigest()
 
     class FakeResponse:
-        def __init__(
-            self,
-            *,
-            payload: dict[str, Any] | None = None,
-            status_code: int = 200,
-            headers: dict[str, str] | None = None,
-            content: bytes = b"",
-        ) -> None:
-            self.payload = payload or {}
+        def __init__(self, *, status_code: int = 200, headers: dict[str, str] | None = None) -> None:
             self.status_code = status_code
             self.headers = headers or {}
-            self.content = content
 
         def raise_for_status(self) -> None:
             if self.status_code >= 400:
@@ -403,9 +390,6 @@ async def test_install_skillhub_skill_checks_fingerprint_and_extracts_safely(
                     response=httpx.Response(self.status_code),
                 )
 
-        def json(self) -> dict[str, Any]:
-            return self.payload
-
         async def __aenter__(self) -> "FakeResponse":
             return self
 
@@ -413,8 +397,8 @@ async def test_install_skillhub_skill_checks_fingerprint_and_extracts_safely(
             pass
 
         async def aiter_bytes(self):
-            yield self.content[:12]
-            yield self.content[12:]
+            yield archive_bytes[:12]
+            yield archive_bytes[12:]
 
     class FakeClient:
         async def __aenter__(self) -> "FakeClient":
@@ -423,40 +407,10 @@ async def test_install_skillhub_skill_checks_fingerprint_and_extracts_safely(
         async def __aexit__(self, *_args: object) -> None:
             pass
 
-        async def get(
-            self,
-            url: str,
-            *,
-            params: dict[str, str] | None = None,
-        ) -> FakeResponse:
-            if url.endswith("/signature"):
-                return FakeResponse(payload={"signed": True, "content_hash": content_hash})
-            assert url == "https://api.skillhub.cn/api/v1/download"
-            assert params == {"slug": "ima-skills", "version": "1.1.8"}
-            return FakeResponse(
-                status_code=302,
-                headers={
-                    "location": (
-                        "https://skillhub-1388575217.cos.accelerate.myqcloud.com/"
-                        "skills/ima-skills.zip"
-                    )
-                },
-            )
-
-        def stream(
-            self,
-            method: str,
-            url: str,
-            *,
-            headers: dict[str, str],
-        ) -> FakeResponse:
+        def stream(self, method: str, url: str) -> FakeResponse:
             assert method == "GET"
-            assert url.endswith("/skills/ima-skills.zip")
-            assert "application/zip" in headers["Accept"]
-            return FakeResponse(
-                headers={"content-length": str(len(archive_bytes))},
-                content=archive_bytes,
-            )
+            assert url == "/api/v1/skills/linux-commands/download"
+            return FakeResponse(headers={"content-length": str(len(archive_bytes))})
 
     monkeypatch.setattr(
         "nanoinfra.webui.skills_marketplace.httpx.AsyncClient",
@@ -465,42 +419,22 @@ async def test_install_skillhub_skill_checks_fingerprint_and_extracts_safely(
 
     result = await install_marketplace_skill(
         "",
-        "ima-skills",
+        "linux-commands",
         tmp_path,
-        provider="skillhub",
-        version="1.1.8",
+        provider="nanoinfra",
+        nanoinfra_base_url=_NANOINFRA_BASE_URL,
     )
 
     assert result == {
         "installed": True,
         "already_installed": False,
-        "name": "ima-skills",
-        "provider": "skillhub",
-        "version": "1.1.8",
+        "name": "linux-commands",
+        "provider": "nanoinfra",
     }
-    assert (tmp_path / "skills" / "ima-skills" / "SKILL.md").read_bytes() == skill_content
+    assert (tmp_path / "skills" / "linux-commands" / "SKILL.md").read_bytes() == skill_content
 
 
-@pytest.mark.parametrize(
-    ("url", "valid"),
-    [
-        ("https://skillhub.cos.myqcloud.com/skills/example.zip", True),
-        ("https://skillhub.cos.myqcloud.com:443/skills/example.zip", True),
-        ("http://skillhub.cos.myqcloud.com/skills/example.zip", False),
-        ("https://myqcloud.com/skills/example.zip", False),
-        ("https://skillhub.cos.myqcloud.com.evil.example/skill.zip", False),
-        ("https://user@skillhub.cos.myqcloud.com/skill.zip", False),
-        ("https://skillhub.cos.myqcloud.com:not-a-port/skill.zip", False),
-    ],
-)
-def test_skillhub_download_url_allows_only_pinned_cloud_hosts(
-    url: str,
-    valid: bool,
-) -> None:
-    assert _valid_skillhub_download_url(url) is valid
-
-
-def test_skillhub_archive_rejects_path_traversal() -> None:
+def test_nanoinfra_archive_rejects_path_traversal() -> None:
     archive_buffer = io.BytesIO()
     with zipfile.ZipFile(archive_buffer, "w") as archive:
         archive.writestr("SKILL.md", "---\nname: safe\n---\n")
@@ -509,7 +443,7 @@ def test_skillhub_archive_rejects_path_traversal() -> None:
 
     with zipfile.ZipFile(archive_buffer) as archive:
         with pytest.raises(SkillsMarketplaceError, match="unsafe path"):
-            _validated_skillhub_entries(archive)
+            _validated_zip_entries(archive)
 
 
 @pytest.mark.asyncio
@@ -553,8 +487,8 @@ async def test_install_marketplace_skill_rejects_symlinked_skills_root(
             "",
             "ima-skills",
             workspace,
-            provider="skillhub",
-            version="1.1.8",
+            provider="nanoinfra",
+            nanoinfra_base_url=_NANOINFRA_BASE_URL,
         )
 
     assert exc_info.value.status == 403
