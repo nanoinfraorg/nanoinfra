@@ -248,6 +248,7 @@ class GatewayHTTPHandler:
         workspaces: WebUIWorkspaceController,
         skills_workspace_path: Path,
         disabled_skills: set[str] | None = None,
+        nanoinfra_skills_base_url: str = "https://skills.nanoinfra.org",
         cron_service: CronService | None = None,
         local_trigger_store: LocalTriggerStore | None = None,
         cron_pending_job_ids: Callable[[str], set[str]] | None = None,
@@ -272,6 +273,7 @@ class GatewayHTTPHandler:
         self.disabled_skills: set[str] = (
             disabled_skills if disabled_skills is not None else set()
         )
+        self.nanoinfra_skills_base_url = nanoinfra_skills_base_url
         # Diagrams are workspace-scoped the same way skills are — reuse the
         # already-threaded workspace path rather than adding a duplicate
         # constructor parameter for what is always the same value.
@@ -1283,6 +1285,7 @@ class GatewayHTTPHandler:
                 query,
                 self.skills_workspace_path,
                 provider=provider,
+                nanoinfra_base_url=self.nanoinfra_skills_base_url,
             )
         except SkillsMarketplaceError as exc:
             return _http_error(exc.status, exc.message)
@@ -1299,6 +1302,7 @@ class GatewayHTTPHandler:
             payload = await trending_marketplace_skills(
                 self.skills_workspace_path,
                 provider=provider,
+                nanoinfra_base_url=self.nanoinfra_skills_base_url,
             )
         except SkillsMarketplaceError as exc:
             return _http_error(exc.status, exc.message)
@@ -1343,6 +1347,7 @@ class GatewayHTTPHandler:
                     self.skills_workspace_path,
                     provider=provider,
                     version=version,
+                    nanoinfra_base_url=self.nanoinfra_skills_base_url,
                 )
             except SkillsMarketplaceError as exc:
                 return _http_error(exc.status, exc.message)

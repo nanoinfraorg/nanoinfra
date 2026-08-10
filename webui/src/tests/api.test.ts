@@ -324,10 +324,10 @@ describe("webui API helpers", () => {
   });
 
   it("fetches a provider marketplace leaderboard", async () => {
-    await fetchTrendingMarketplaceSkills("tok", "skillhub");
+    await fetchTrendingMarketplaceSkills("tok", "nanoinfra");
 
     expect(fetch).toHaveBeenCalledWith(
-      "/api/webui/skills/trending?provider=skillhub",
+      "/api/webui/skills/trending?provider=nanoinfra",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),
@@ -351,14 +351,14 @@ describe("webui API helpers", () => {
   it("encodes provider install coordinates", async () => {
     await installMarketplaceSkill(
       "tok",
-      "skillhub",
+      "nanoinfra",
       "@tencent/skills",
       "ima-skills",
       "1.1.8",
     );
 
     expect(fetch).toHaveBeenCalledWith(
-      "/api/webui/skills/install?provider=skillhub&source=%40tencent%2Fskills&skill=ima-skills&version=1.1.8",
+      "/api/webui/skills/install?provider=nanoinfra&source=%40tencent%2Fskills&skill=ima-skills&version=1.1.8",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),

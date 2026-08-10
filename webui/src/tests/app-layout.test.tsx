@@ -666,19 +666,17 @@ describe("App layout", () => {
             rank: 18,
           },
           {
-            id: "skillhub:ima-skills",
+            id: "nanoinfra:ima-skills",
             skill_id: "ima-skills",
             name: "ima-skills",
-            source: "@tencent-adm/ima-skills",
-            provider: "skillhub",
-            installs: 11_831,
-            downloads: 142_525,
-            url: "https://skillhub.cn/tencent-adm/ima-skills",
+            source: "nanoinfra",
+            provider: "nanoinfra",
+            installs: 142_525,
+            url: "https://skills.nanoinfra.org/skills/ima-skills",
             installed: false,
             install_supported: true,
             metric: "installs_total",
-            version: "1.1.8",
-            verified: true,
+            version: "3",
             rank: 1,
           },
         ],
@@ -706,18 +704,17 @@ describe("App layout", () => {
             metric: "installs_total",
           },
           {
-            id: "skillhub:react",
+            id: "nanoinfra:react",
             skill_id: "react",
             name: "React",
-            source: "@ivangdavila/react",
-            provider: "skillhub",
-            installs: 693,
-            downloads: 7_718,
-            url: "https://skillhub.cn/ivangdavila/react",
+            source: "nanoinfra",
+            provider: "nanoinfra",
+            installs: 7_718,
+            url: "https://skills.nanoinfra.org/skills/react",
             installed: false,
             install_supported: true,
             metric: "installs_total",
-            version: "1.0.4",
+            version: "2",
           },
         ],
       },
@@ -741,16 +738,16 @@ describe("App layout", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("find-skills")).toBeInTheDocument();
     expect(screen.getByText("ima-skills")).toBeInTheDocument();
-    expect(screen.getAllByText("SkillHub")).toHaveLength(2);
+    expect(screen.getAllByText("nanoinfra")).toHaveLength(2);
     expect(screen.getAllByText("skills.sh")).toHaveLength(2);
     expect(screen.getByText(/14,481 installs \/ 24h/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "SkillHub" }));
+    fireEvent.click(screen.getByRole("tab", { name: "nanoinfra" }));
     expect(screen.getByText("ima-skills")).toBeInTheDocument();
     expect(screen.queryByText("find-skills")).not.toBeInTheDocument();
     expect(
       vi.mocked(fetch).mock.calls.some(
         ([input]) =>
-          String(input) === "/api/webui/skills/trending?provider=skillhub",
+          String(input) === "/api/webui/skills/trending?provider=nanoinfra",
       ),
     ).toBe(false);
     fireEvent.click(screen.getByRole("tab", { name: "All" }));
