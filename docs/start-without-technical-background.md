@@ -61,13 +61,13 @@ Copy the command for your system, paste it into the terminal, and press Enter. C
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bet0x/nanoinfra/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | sh
 ```
 
 **Windows PowerShell**
 
 ```powershell
-irm https://raw.githubusercontent.com/bet0x/nanoinfra/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.ps1 | iex
 ```
 
 The installer downloads the stable nanoinfra package into an isolated Python environment. On a fresh local desktop, it then starts the WebUI and opens your browser. This can take a few minutes on the first run. Keep the terminal open. It prints the exact command used to run nanoinfra; if `nanoinfra` is not found later, reuse that whole command instead of switching to a different Python command.

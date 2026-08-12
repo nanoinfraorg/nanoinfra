@@ -25,7 +25,7 @@ from nanoinfra.security.network import (
 from nanoinfra.utils.helpers import detect_image_mime
 
 _OPENROUTER_ATTRIBUTION_HEADERS = {
-    "HTTP-Referer": "https://github.com/bet0x/nanoinfra",
+    "HTTP-Referer": "https://github.com/nanoinfraorg/nanoinfra",
     "X-OpenRouter-Title": "nanoinfra",
     "X-OpenRouter-Categories": "cli-agent,personal-agent",
 }

@@ -55,7 +55,7 @@ Keep setup boring and reliable. The goal is to get you into the code quickly:
 
 ```bash
 # Clone the repository
-git clone https://github.com/bet0x/nanoinfra.git
+git clone https://github.com/nanoinfraorg/nanoinfra.git
 cd nanoinfra
 
 # Install with dev dependencies
@@ -136,9 +136,9 @@ explicitly in the PR description so it can be discussed before merge.
 
 If you have questions, ideas, or half-formed insights, you are warmly welcome here.
 
-Please feel free to open an [issue](https://github.com/bet0x/nanoinfra/issues) or reach out:
+Please feel free to open an [issue](https://github.com/nanoinfraorg/nanoinfra/issues) or reach out:
 
 - Maintainer: Alberto Ferrer — <albertof@barrahome.org>
-- GitHub: [bet0x/nanoinfra](https://github.com/bet0x/nanoinfra)
+- GitHub: [nanoinfraorg/nanoinfra](https://github.com/nanoinfraorg/nanoinfra)
 
 Thank you for spending your time and care on nanoinfra. We would love for more people to participate in this community, and we genuinely welcome contributions of all sizes.

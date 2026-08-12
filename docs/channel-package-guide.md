@@ -773,7 +773,7 @@ String and secret fields default to `""`, list fields to `[]`, and boolean field
 ## Local Development
 
 ```bash
-git clone https://github.com/bet0x/nanoinfra.git
+git clone https://github.com/nanoinfraorg/nanoinfra.git
 cd nanoinfra
 python -m pip install -e .
 nanoinfra plugins list    # should show the package as "webhook"

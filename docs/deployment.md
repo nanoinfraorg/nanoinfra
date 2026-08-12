@@ -35,7 +35,7 @@ Run nanoinfra online without managing a server. The blueprint deploys the gatewa
 > [!IMPORTANT]
 > This setup requires a paid Render service because persistent disks are not available on the free tier. During setup, provide `ANTHROPIC_API_KEY` and set `NANOINFRA_WEB_TOKEN` to a strong private password (for example, generate one with `openssl rand -hex 32`).
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/bet0x/nanoinfra)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/nanoinfraorg/nanoinfra)
 
 [Review the deployment blueprint](../render.yaml)
 
@@ -64,7 +64,7 @@ If deployment fails, open the service **Logs** page first. A missing model key f
 > If you get **Permission denied**, fix ownership on the host first: `sudo chown -R 1000:1000 ~/.nanoinfra`, or pass `--user $(id -u):$(id -g)` to match your host UID. Podman users can use `--userns=keep-id` instead.
 >
 > [!IMPORTANT]
-> Official Docker usage currently means building from this repository with the included `Dockerfile`. Docker Hub images under third-party namespaces are not maintained or verified by bet0x/nanoinfra; do not mount API keys or bot tokens into them unless you trust the publisher.
+> Official Docker usage currently means building from this repository with the included `Dockerfile`. Docker Hub images under third-party namespaces are not maintained or verified by nanoinfraorg/nanoinfra; do not mount API keys or bot tokens into them unless you trust the publisher.
 
 > [!IMPORTANT]
 > The gateway and WebSocket channel default to `host: "127.0.0.1"` in `config.json` (set in `nanoinfra/config/schema.py`). Docker `-p` port forwarding cannot reach a container's loopback interface, so for the host or LAN to reach the exposed ports you must set both binds to `0.0.0.0` in `~/.nanoinfra/config.json` before starting the container. To serve the bundled WebUI from Docker, bind the WebSocket channel externally and protect bootstrap with `tokenIssueSecret`:
