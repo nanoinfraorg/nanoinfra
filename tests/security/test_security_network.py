@@ -249,7 +249,7 @@ def test_pin_resolved_url_dns_prevents_second_resolution_rebind():
 
 def test_allows_normal_https():
     with patch("nanoinfra.security.network.socket.getaddrinfo", _fake_resolve("github.com", ["140.82.121.3"])):
-        ok, err = validate_url_target("https://github.com/bet0x/nanoinfra")
+        ok, err = validate_url_target("https://github.com/nanoinfraorg/nanoinfra")
         assert ok
 
 

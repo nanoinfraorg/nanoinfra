@@ -5,11 +5,11 @@
 
 <div align="center">
   <p>
-    <a href="https://github.com/bet0x/nanoinfra"><img src="https://img.shields.io/github/stars/bet0x/nanoinfra?style=flat&logo=github" alt="GitHub stars"></a>
+    <a href="https://github.com/nanoinfraorg/nanoinfra"><img src="https://img.shields.io/github/stars/nanoinfraorg/nanoinfra?style=flat&logo=github" alt="GitHub stars"></a>
     <a href="https://pypi.org/project/nanoinfra/"><img src="https://img.shields.io/pypi/v/nanoinfra" alt="PyPI version"></a>
-    <a href="https://github.com/bet0x/nanoinfra/actions/workflows/ci.yml"><img src="https://github.com/bet0x/nanoinfra/actions/workflows/ci.yml/badge.svg?branch=main" alt="Test Suite"></a>
+    <a href="https://github.com/nanoinfraorg/nanoinfra/actions/workflows/ci.yml"><img src="https://github.com/nanoinfraorg/nanoinfra/actions/workflows/ci.yml/badge.svg?branch=main" alt="Test Suite"></a>
     <a href="https://pypi.org/project/nanoinfra/"><img src="https://img.shields.io/badge/python-%3E%3D3.11-blue" alt="Python 3.11 or newer"></a>
-    <a href="./LICENSE"><img src="https://img.shields.io/github/license/bet0x/nanoinfra" alt="MIT License"></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/github/license/nanoinfraorg/nanoinfra" alt="MIT License"></a>
   </p>
   <p>
     <a href="./COMMUNICATION.md">GitHub / Email</a>
@@ -70,13 +70,13 @@ If terminals, API keys, or config files are new to you, use the guided zero-back
 macOS / Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bet0x/nanoinfra/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/bet0x/nanoinfra/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.ps1 | iex
 ```
 
 The default command installs or upgrades `nanoinfra` from PyPI. On a fresh local desktop, it then starts `nanoinfra webui` so you can configure the first provider and model in **Settings → Models**. SSH, headless, existing-config, and older-release paths keep the terminal setup wizard. The installer avoids system-wide pip installs by using an active virtual environment, `uv`, `pipx`, or a managed venv under `~/.nanoinfra/venv`. It also prints the exact command it used to run nanoinfra; reuse that full command below if `nanoinfra` is not on `PATH`.
@@ -84,21 +84,21 @@ The default command installs or upgrades `nanoinfra` from PyPI. On a fresh local
 To preview the plan without changing your environment, pass `--dry-run`; combine it with `--dev` when you want to preview the main-branch install.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bet0x/nanoinfra/main/scripts/install.sh | sh -s -- --dry-run
+curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | sh -s -- --dry-run
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/bet0x/nanoinfra/main/scripts/install.ps1))) --dry-run
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.ps1))) --dry-run
 ```
 
 To install the current `main` branch instead, pass `--dev`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bet0x/nanoinfra/main/scripts/install.sh | sh -s -- --dev
+curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | sh -s -- --dev
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/bet0x/nanoinfra/main/scripts/install.ps1))) --dev
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.ps1))) --dev
 ```
 
 If you prefer to inspect the script first, open [`scripts/install.sh`](./scripts/install.sh) or [`scripts/install.ps1`](./scripts/install.ps1).
@@ -122,7 +122,7 @@ If pip reports `externally-managed-environment` on macOS or Linux, use the one-c
 `bun` or `npm` must be available. From an activated virtual environment:
 
 ```bash
-git clone https://github.com/bet0x/nanoinfra.git
+git clone https://github.com/nanoinfraorg/nanoinfra.git
 cd nanoinfra
 python -m pip install .
 ```
@@ -215,7 +215,7 @@ If nanoinfra worked for you, a star on GitHub is the simplest way to support the
 
 Deploy nanoinfra's gateway and bundled WebUI from the repository's ready-to-use Blueprint:
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/bet0x/nanoinfra)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/nanoinfraorg/nanoinfra)
 
 Render will ask for `ANTHROPIC_API_KEY` and a private `NANOINFRA_WEB_TOKEN`, then provision persistent storage for sessions, memory, and WebUI history. Persistent disks require a paid Render service.
 
@@ -269,7 +269,7 @@ Browse the [repo docs](./docs/README.md) for the latest features and GitHub deve
 
 ## Releases
 
-**Latest release: [v0.6.0 - The Continuity Release](https://github.com/bet0x/nanoinfra/releases/tag/v0.6.0)**
+**Latest release: [v0.6.0 - The Continuity Release](https://github.com/nanoinfraorg/nanoinfra/releases/tag/v0.6.0)**
 
 The Continuity Release keeps context from getting lost — across background subagent runs, across the composer, and across a trusted reverse proxy.
 
@@ -279,7 +279,7 @@ The Continuity Release keeps context from getting lost — across background sub
 - Two real session-retention/Dream bugs fixed: proactive channel deliveries no longer get silently dropped during trimming, and short idle sessions are no longer skipped by consolidation forever
 - Mattermost thread-vs-channel group policy, hardened WhatsApp media handling, and per-request hosted web/X search toggles
 
-[Read the v0.6.0 release notes](https://github.com/bet0x/nanoinfra/releases/tag/v0.6.0)
+[Read the v0.6.0 release notes](https://github.com/nanoinfraorg/nanoinfra/releases/tag/v0.6.0)
 
 ## Recent Updates
 
@@ -289,15 +289,15 @@ The Continuity Release keeps context from getting lost — across background sub
 - **2026-07-24** Guided first-run setup, inline subagents, and model switching from the composer.
 - **2026-07-23** Grok OAuth with hosted X Search, live image settings, and clearer fallback models.
 
-For older updates, see the [release archive](./docs/release-archive.md) or [GitHub releases](https://github.com/bet0x/nanoinfra/releases).
+For older updates, see the [release archive](./docs/release-archive.md) or [GitHub releases](https://github.com/nanoinfraorg/nanoinfra/releases).
 
 ## 🤝 Contribute
 
 Use nanoinfra for a real task, report what broke, and then pick a focused improvement.
 
 - Read [CONTRIBUTING.md](./CONTRIBUTING.md) for the development workflow.
-- Browse [open issues](https://github.com/bet0x/nanoinfra/issues) for problems to investigate.
-- Open a [pull request](https://github.com/bet0x/nanoinfra/pulls) for a focused fix or integration.
+- Browse [open issues](https://github.com/nanoinfraorg/nanoinfra/issues) for problems to investigate.
+- Open a [pull request](https://github.com/nanoinfraorg/nanoinfra/pulls) for a focused fix or integration.
 
 ## Contact
 
@@ -305,8 +305,8 @@ Nanoinfra is a fork of [nanobot](https://github.com/re-bin/nanobot), the origina
 
 ### Contributors
 
-<a href="https://github.com/bet0x/nanoinfra/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=bet0x/nanoinfra&max=100&columns=12&updated=20260210" alt="Contributors" />
+<a href="https://github.com/nanoinfraorg/nanoinfra/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=nanoinfraorg/nanoinfra&max=100&columns=12&updated=20260210" alt="Contributors" />
 </a>
 
 <p align="center">

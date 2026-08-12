@@ -21,13 +21,13 @@ The recommended installer keeps nanoinfra out of the system Python environment. 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bet0x/nanoinfra/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | sh
 ```
 
 **Windows PowerShell**
 
 ```powershell
-irm https://raw.githubusercontent.com/bet0x/nanoinfra/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.ps1 | iex
 ```
 
 The installer chooses an active virtual environment, `uv`, `pipx`, or a managed environment under `~/.nanoinfra/venv`. It installs the stable PyPI release unless you explicitly pass `--dev`. At the end it prints the exact command it used to run nanoinfra; if `nanoinfra` is not on `PATH`, reuse that full command in the examples below.
@@ -153,7 +153,7 @@ If pip reports `externally-managed-environment`, use the recommended installer, 
 `bun` or `npm` must be available. Activate a virtual environment first, then run:
 
 ```bash
-git clone https://github.com/bet0x/nanoinfra.git
+git clone https://github.com/nanoinfraorg/nanoinfra.git
 cd nanoinfra
 python -m pip install .
 nanoinfra webui
@@ -209,7 +209,7 @@ Upgrade with the same method you used to install:
 
 ```bash
 # Recommended installer
-curl -fsSL https://raw.githubusercontent.com/bet0x/nanoinfra/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | sh
 
 # Or one of these
 uv tool upgrade nanoinfra

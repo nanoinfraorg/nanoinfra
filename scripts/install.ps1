@@ -8,7 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Package = "nanoinfra"
-$MainSource = "https://github.com/bet0x/nanoinfra/archive/refs/heads/main.zip"
+$MainSource = "https://github.com/nanoinfraorg/nanoinfra/archive/refs/heads/main.zip"
 $InstallTarget = $Package
 $InstallSource = "PyPI"
 $script:NanoinfraRunner = $null

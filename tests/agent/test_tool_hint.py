@@ -309,7 +309,7 @@ class TestToolHintMaxLength:
 
 
 class TestToolHintMalformedCalls:
-    """Malformed tool calls must not crash hint formatting (see bet0x/nanoinfra)."""
+    """Malformed tool calls must not crash hint formatting (see nanoinfraorg/nanoinfra)."""
 
     def test_none_name_is_skipped(self):
         """A tool call with name=None should be skipped, not raise AttributeError."""

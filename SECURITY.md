@@ -5,7 +5,7 @@
 If you discover a security vulnerability in nanoinfra, please report it by:
 
 1. **DO NOT** open a public GitHub issue
-2. Create a private security advisory on GitHub (https://github.com/bet0x/nanoinfra/security/advisories) or contact the maintainer directly: Alberto Ferrer <albertof@barrahome.org>
+2. Create a private security advisory on GitHub (https://github.com/nanoinfraorg/nanoinfra/security/advisories) or contact the maintainer directly: Alberto Ferrer <albertof@barrahome.org>
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
@@ -268,8 +268,8 @@ Before deploying nanoinfra:
 **Last Updated**: 2026-07-21
 
 For the latest security updates and announcements, check:
-- GitHub Security Advisories: https://github.com/bet0x/nanoinfra/security/advisories
-- Release Notes: https://github.com/bet0x/nanoinfra/releases
+- GitHub Security Advisories: https://github.com/nanoinfraorg/nanoinfra/security/advisories
+- Release Notes: https://github.com/nanoinfraorg/nanoinfra/releases
 
 ## License
 
