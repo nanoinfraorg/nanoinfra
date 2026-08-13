@@ -35,21 +35,10 @@ tool-call format first.
 Stop any existing Ollama process, then start a single-slot debug server. A single
 slot makes the cache sequence easier to read.
 
-**macOS or Linux**
-
 ```bash
 OLLAMA_CONTEXT_LENGTH=16384 \
 OLLAMA_NUM_PARALLEL=1 \
 OLLAMA_DEBUG=1 \
-ollama serve
-```
-
-**Windows PowerShell**
-
-```powershell
-$env:OLLAMA_CONTEXT_LENGTH = "16384"
-$env:OLLAMA_NUM_PARALLEL = "1"
-$env:OLLAMA_DEBUG = "1"
 ollama serve
 ```
 

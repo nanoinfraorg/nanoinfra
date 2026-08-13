@@ -123,7 +123,7 @@ In practice:
 If your PR touches `.github/workflows/`, please keep the CI within
 GitHub Actions' free tier:
 
-- Use only standard GitHub-hosted runners (`ubuntu-latest`, `windows-latest`)
+- Use only standard GitHub-hosted runners (`ubuntu-latest`)
 - Avoid macOS runners, larger runners (`*-cores`, `*-xlarge`, `*-gpu`),
   and self-hosted runners
 - Avoid uploading large artifacts or using long retention

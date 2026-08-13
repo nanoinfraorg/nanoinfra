@@ -335,9 +335,6 @@ Enable Matrix support first:
 nanoinfra plugins enable matrix
 ```
 
-> [!NOTE]
-> Matrix encryption is disabled by default on Windows because `matrix-nio[e2e]` depends on `python-olm`, which has no pre-built Windows wheel. Use macOS, Linux, or WSL2 if you need Matrix E2EE.
-
 **1. Create/choose a Matrix account**
 
 - Create or reuse a Matrix account on your homeserver (for example `matrix.org`).
@@ -1012,7 +1009,7 @@ signal-cli -a +1234567890 daemon --http localhost:8080
 > - `group.policy`: `"open"` (all groups) or `"allowlist"` (only listed group IDs).
 > - `group.requireMention`: When `true` (default), the bot only responds in groups when @mentioned.
 > - `group.allowFrom`: List of allowed group IDs (used when group policy is `"allowlist"`).
-> - `attachmentsDir`: Override the directory where signal-cli stores inbound attachments. Defaults to `~/.local/share/signal-cli/attachments` (the Linux default). Set this if signal-cli runs with a custom `XDG_DATA_HOME` or on macOS/Windows.
+> - `attachmentsDir`: Override the directory where signal-cli stores inbound attachments. Defaults to `~/.local/share/signal-cli/attachments` (the Linux default). Set this if signal-cli runs with a custom `XDG_DATA_HOME` or on macOS.
 > - `groupMessageBufferSize`: Number of recent group messages kept for context (default `20`, must be > 0).
 
 **3. Run**

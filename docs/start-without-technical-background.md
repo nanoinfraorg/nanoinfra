@@ -4,7 +4,7 @@ This walkthrough is for people who have not used a terminal, API key, or JSON co
 
 ## What You Will Need
 
-- A Windows, macOS, or Linux computer.
+- A macOS or Linux computer.
 - Python 3.11 or newer.
 - An account or endpoint that can run an AI model.
 - The API key, login, endpoint, and model name required by that service. A local model such as Ollama may not require an API key.
@@ -25,13 +25,12 @@ An API key is password-like. Do not post it in an issue, screenshot, chat, or pu
 
 ## 1. Install Python
 
-Download Python from [python.org](https://www.python.org/downloads/) if you do not already have version 3.11 or newer. On Windows, enable **Add python.exe to PATH** if the installer shows that option.
+Download Python from [python.org](https://www.python.org/downloads/) if you do not already have version 3.11 or newer.
 
 Open a terminal:
 
 | System | How |
 |---|---|
-| Windows | Press `Win`, type `PowerShell`, and open Windows PowerShell |
 | macOS | Press `Command+Space`, type `Terminal`, and press Enter |
 | Linux | Open your application menu and search for Terminal |
 
@@ -41,7 +40,7 @@ Check Python:
 python --version
 ```
 
-The result should start with `Python 3.11` or a newer number. If the command is not found, close and reopen the terminal. You can also try `python3 --version` on macOS/Linux or `py --version` on Windows.
+The result should start with `Python 3.11` or a newer number. If the command is not found, close and reopen the terminal. You can also try `python3 --version`.
 
 ## 2. Prepare Your Model Details
 
@@ -62,12 +61,6 @@ Copy the command for your system, paste it into the terminal, and press Enter. C
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | sh
-```
-
-**Windows PowerShell**
-
-```powershell
-irm https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.ps1 | iex
 ```
 
 The installer downloads the stable nanoinfra package into an isolated Python environment. On a fresh local desktop, it then starts the WebUI and opens your browser. This can take a few minutes on the first run. Keep the terminal open. It prints the exact command used to run nanoinfra; if `nanoinfra` is not found later, reuse that whole command instead of switching to a different Python command.

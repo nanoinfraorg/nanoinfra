@@ -13,13 +13,18 @@ Example valid usage:
 { "providers": { "openrouter": { "apiKey": "${OPENROUTER_KEY}" } } }
 ```
 
-## Windows Compatibility
+## Windows Is Not Supported
 
-nanoinfra explicitly supports Windows. Key differences to keep in mind:
-- `ExecTool` defaults to PowerShell on Windows (`pwsh` when available, otherwise Windows PowerShell); pass `shell="cmd"` for cmd.exe syntax or cmd built-ins (`shell.py`).
-- `cli/commands.py` forces `sys.stdout`/`stderr` to UTF-8 on startup to handle emoji and multilingual input.
-- MCP stdio server commands are normalized for Windows path separators (`mcp.py`).
-- Always use `pathlib.Path` for path manipulation; do not assume `/` separators.
+nanoinfra supports Linux and macOS only. The documentation and installer no longer cover Windows.
+
+The platform branches are still in the code and are deliberately left alone — do not treat them as dead code to delete, and do not extend them either:
+- `_IS_WINDOWS` in `shell.py` (roughly a dozen call sites: shell selection, process groups, signals, sandbox).
+- Shell-launcher normalization for `npx`/`npm`/`pnpm`/`yarn`/`bunx` in `mcp.py`.
+- The `win32` branch in `cli/commands.py` that forces `sys.stdout`/`stderr` to UTF-8 at startup.
+- `spawn`-vs-`exec` selection in `command/builtin.py`.
+- `sys_platform` dependency markers in `channels/matrix/manifest.py` and `channels/telegram/manifest.py`.
+
+Bug reports about Windows behavior are out of scope. Always use `pathlib.Path` for path manipulation regardless; do not assume `/` separators.
 
 ## Prompt Templates
 

@@ -73,12 +73,6 @@ macOS / Linux:
 curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | sh
 ```
 
-Windows PowerShell:
-
-```powershell
-irm https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.ps1 | iex
-```
-
 The default command installs or upgrades `nanoinfra` from PyPI. On a fresh local desktop, it then starts `nanoinfra webui` so you can configure the first provider and model in **Settings → Models**. SSH, headless, existing-config, and older-release paths keep the terminal setup wizard. The installer avoids system-wide pip installs by using an active virtual environment, `uv`, `pipx`, or a managed venv under `~/.nanoinfra/venv`. It also prints the exact command it used to run nanoinfra; reuse that full command below if `nanoinfra` is not on `PATH`.
 
 To preview the plan without changing your environment, pass `--dry-run`; combine it with `--dev` when you want to preview the main-branch install.
@@ -87,21 +81,13 @@ To preview the plan without changing your environment, pass `--dry-run`; combine
 curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | sh -s -- --dry-run
 ```
 
-```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.ps1))) --dry-run
-```
-
 To install the current `main` branch instead, pass `--dev`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | sh -s -- --dev
 ```
 
-```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.ps1))) --dev
-```
-
-If you prefer to inspect the script first, open [`scripts/install.sh`](./scripts/install.sh) or [`scripts/install.ps1`](./scripts/install.ps1).
+If you prefer to inspect the script first, open [`scripts/install.sh`](./scripts/install.sh).
 
 **Install with `uv`**
 
@@ -127,7 +113,7 @@ cd nanoinfra
 python -m pip install .
 ```
 
-On Windows, if pip reports that it cannot launch `npm`, run `cd webui`, `npm.cmd install --package-lock=false`, `npm.cmd run build`, and `cd ..` in order, then retry the install. Contributors who need an editable checkout should follow [`CONTRIBUTING.md`](./CONTRIBUTING.md) and [`webui/README.md`](./webui/README.md).
+Contributors who need an editable checkout should follow [`CONTRIBUTING.md`](./CONTRIBUTING.md) and [`webui/README.md`](./webui/README.md).
 
 Verify the install:
 

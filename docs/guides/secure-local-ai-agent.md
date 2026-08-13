@@ -39,7 +39,7 @@ Start with workspace restriction:
 }
 ```
 
-`bwrap` is Linux-only and requires bubblewrap. On macOS or Windows, keep
+`bwrap` is Linux-only and requires bubblewrap. On macOS, keep
 `restrictToWorkspace` enabled and review shell access carefully.
 
 ## Production notes
