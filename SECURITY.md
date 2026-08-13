@@ -33,7 +33,7 @@ chmod 600 ~/.nanoinfra/config.json
 ```
 
 **Recommendations:**
-- **Prefer environment variable references** (`${VAR}`) in config — the config file stores the `${VAR}` placeholder, and the plaintext value only exists in memory at runtime. See [Configuration: Environment Variables for Secrets](https://nanoinfra.org/docs/configuration#environment-variables-for-secrets) for details.
+- **Prefer environment variable references** (`${VAR}`) in config — the config file stores the `${VAR}` placeholder, and the plaintext value only exists in memory at runtime. See [Configuration: Environment Variables for Secrets](https://docs.nanoinfra.org/configuration/#environment-variables-for-secrets) for details.
 - When plaintext keys are stored in `~/.nanoinfra/config.json`, set file permissions to `0600` (`chmod 600`)
 - Consider using an OS keyring/credential manager for production deployments
 - Rotate API keys regularly
