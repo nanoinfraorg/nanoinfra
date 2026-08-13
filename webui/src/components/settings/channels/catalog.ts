@@ -77,8 +77,8 @@ export type ChannelConfigOption = {
   label: string;
 };
 
-const NANOINFRA_DOCS_URL = "https://nanoinfra.wiki/docs/latest";
-const CHAT_APPS_DOCS_URL = `${NANOINFRA_DOCS_URL}/getting-started/chat-apps`;
+const NANOINFRA_DOCS_URL = "https://nanoinfra.org/docs";
+const CHAT_APPS_DOCS_URL = `${NANOINFRA_DOCS_URL}/chat-apps`;
 
 export function chatAppGuideUrl(sectionId: string): string {
   return `${CHAT_APPS_DOCS_URL}#${sectionId}`;

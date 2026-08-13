@@ -62,7 +62,10 @@ def _version_payload() -> dict[str, Any]:
 
 
 _DOCS_STABLE_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:\.post\d+)?$")
-_DOCS_LATEST_URL = "https://nanoinfra.wiki/docs/latest"
+# The published docs site (nanoinfraorg/docs) is flat and not yet versioned, so
+# URLs carry no version segment and page slugs are the bare document name.
+# Once `docusaurus docs:version` runs, base_url becomes f"{_DOCS_BASE_URL}/{version}".
+_DOCS_BASE_URL = "https://nanoinfra.org/docs"
 
 
 def _docs_version(version: str) -> str:
@@ -74,14 +77,12 @@ def _docs_version(version: str) -> str:
 
 
 def _docs_payload() -> dict[str, Any]:
-    """Return version-aware documentation links for the WebUI."""
-    docs_version = _docs_version(__version__)
-    base_url = f"https://nanoinfra.wiki/docs/{docs_version}"
+    """Return documentation links for the WebUI."""
     return {
-        "version": docs_version,
-        "base_url": base_url,
-        "chat_apps_url": f"{base_url}/getting-started/chat-apps",
-        "latest_url": _DOCS_LATEST_URL,
+        "version": _docs_version(__version__),
+        "base_url": _DOCS_BASE_URL,
+        "chat_apps_url": f"{_DOCS_BASE_URL}/chat-apps",
+        "latest_url": _DOCS_BASE_URL,
     }
 
 

@@ -80,9 +80,9 @@ def test_settings_payload_includes_versioned_docs(
 
     assert payload["docs"] == {
         "version": "0.2.3",
-        "base_url": "https://nanoinfra.wiki/docs/0.2.3",
-        "chat_apps_url": "https://nanoinfra.wiki/docs/0.2.3/getting-started/chat-apps",
-        "latest_url": "https://nanoinfra.wiki/docs/latest",
+        "base_url": "https://nanoinfra.org/docs",
+        "chat_apps_url": "https://nanoinfra.org/docs/chat-apps",
+        "latest_url": "https://nanoinfra.org/docs",
     }
 
 

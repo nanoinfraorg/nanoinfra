@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - docs/**
       - .agent/**
       - .github/ISSUE_TEMPLATE/**
       - AGENTS.md
@@ -17,7 +16,6 @@ on:
   pull_request:
     branches: [main]
     paths-ignore:
-      - docs/**
       - .agent/**
       - .github/ISSUE_TEMPLATE/**
       - AGENTS.md
@@ -66,7 +64,7 @@ jobs:
           if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null &&
             changed_files="$(git diff --name-only --no-renames "$diff_range")" &&
             [[ -n "$changed_files" ]] &&
-            ! grep -qvE '^(webui/|nanoinfra/channels/[^/]+/webui/|docs/)' <<< "$changed_files"; then
+            ! grep -qvE '^(webui/|nanoinfra/channels/[^/]+/webui/)' <<< "$changed_files"; then
             python_required=false
           fi
 

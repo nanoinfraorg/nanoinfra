@@ -2,20 +2,20 @@
 
 This directory contains the React/TypeScript source for the nanoinfra WebUI. If
 you installed `nanoinfra` from PyPI and only want to use the bundled browser UI,
-read the user guide in [`docs/webui.md`](../docs/webui.md). You do not need
+read the user guide in [`docs/webui.md`](https://nanoinfra.org/docs/webui). You do not need
 Node.js, Bun, Vite, or anything in this directory unless you are changing the
 frontend.
 
-For the project overview, install guide, and general docs map, see the root [`README.md`](../README.md) and [`docs/README.md`](../docs/README.md).
+For the project overview, install guide, and general docs map, see the root [`README.md`](../README.md) and [`docs/README.md`](https://nanoinfra.org/docs/).
 
 ## Pick a Path
 
 | Goal | Start with | Opens at |
 |---|---|---|
-| Use the bundled browser UI | [`docs/webui.md`](../docs/webui.md) | `http://127.0.0.1:8765` |
-| Use the WebUI from another device | [`docs/webui.md#lan-access`](../docs/webui.md#lan-access) | `http://<your-ip>:8765` |
+| Use the bundled browser UI | [`docs/webui.md`](https://nanoinfra.org/docs/webui) | `http://127.0.0.1:8765` |
+| Use the WebUI from another device | [`docs/webui.md#lan-access`](https://nanoinfra.org/docs/webui#lan-access) | `http://<your-ip>:8765` |
 | Change WebUI source code | [Develop the WebUI (Vite HMR)](#develop-the-webui-vite-hmr) | `http://127.0.0.1:5173` |
-| Debug setup failures | [`docs/troubleshooting.md#webui-problems`](../docs/troubleshooting.md#webui-problems) | Diagnosis order and common fixes |
+| Debug setup failures | [`docs/troubleshooting.md#webui-problems`](https://nanoinfra.org/docs/troubleshooting#webui-problems) | Diagnosis order and common fixes |
 
 The source app is built with Vite + React 18 + TypeScript + Tailwind 3 +
 shadcn/ui. It talks to the gateway over the WebSocket multiplex protocol and
