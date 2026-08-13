@@ -241,14 +241,6 @@ export LANGFUSE_PUBLIC_KEY="pk-lf-..."
 export LANGFUSE_BASE_URL="https://cloud.langfuse.com"
 ```
 
-For PowerShell:
-
-```powershell
-$env:LANGFUSE_SECRET_KEY = "sk-lf-..."
-$env:LANGFUSE_PUBLIC_KEY = "pk-lf-..."
-$env:LANGFUSE_BASE_URL = "https://cloud.langfuse.com"
-```
-
 When `LANGFUSE_SECRET_KEY` is set and the `langfuse` package is installed, nanoinfra uses `langfuse.openai.AsyncOpenAI` for OpenAI-compatible providers so model requests are sent to Langfuse in the background. If the secret key is set but `langfuse` is missing, nanoinfra logs a warning and falls back to the regular OpenAI client.
 
 Use the Langfuse region or self-hosted URL that matches your project. The [Langfuse OpenAI SDK docs](https://langfuse.com/integrations/model-providers/openai-py) use `LANGFUSE_BASE_URL` for cloud regions and self-hosted instances.
@@ -2022,7 +2014,7 @@ For API keys, tokens, and other secrets, see [Environment Variables for Secrets]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `tools.restrictToWorkspace` | `false` | When `true`, enables nanoinfra's application-level workspace guards for workspace-aware tools. File tools resolve paths under the active workspace; selected internal roots can be added as read-only or explicitly write-enabled roots, and media uploads are read-only by default. Shell execution rejects workspace-external `working_dir` values and applies best-effort command path checks, but this is not an OS sandbox. |
-| `tools.exec.sandbox` | `""` | Sandbox backend for shell commands. Set to `"bwrap"` to wrap exec calls in a [bubblewrap](https://github.com/containers/bubblewrap) sandbox — the process can only see the workspace (read-write) and media directory (read-only); config files and API keys are hidden. Automatically enables workspace restriction for file tools. **Linux only** — requires `bwrap` installed (`apt install bubblewrap`; pre-installed in the Docker image). Not available on macOS or Windows (bwrap depends on Linux kernel namespaces). |
+| `tools.exec.sandbox` | `""` | Sandbox backend for shell commands. Set to `"bwrap"` to wrap exec calls in a [bubblewrap](https://github.com/containers/bubblewrap) sandbox — the process can only see the workspace (read-write) and media directory (read-only); config files and API keys are hidden. Automatically enables workspace restriction for file tools. **Linux only** — requires `bwrap` installed (`apt install bubblewrap`; pre-installed in the Docker image). Not available on macOS (bwrap depends on Linux kernel namespaces). |
 | `tools.exec.enable` | `true` | When `false`, the shell `exec` tool is not registered at all. Use this to completely disable shell command execution. |
 | `tools.exec.timeout` | `60` | Default hard timeout in seconds for shell commands. Config values may exceed the per-call tool cap; set `0` to disable the hard timeout for trusted long-running commands. |
 | `tools.exec.pathPrepend` | `""` | Extra directories to prepend to `PATH` when running shell commands. Use this when configured tools should win executable lookup precedence, such as a Python virtual environment's `bin` or `Scripts` directory. |
@@ -2143,7 +2135,7 @@ The heartbeat job is backed by the same cron service as user-created reminders. 
 | `gateway.heartbeat.enabled` | `true` | Register the built-in heartbeat cron job on gateway startup. |
 | `gateway.heartbeat.intervalS` | `1800` | Seconds between heartbeat checks. |
 | `gateway.heartbeat.keepRecentMessages` | `8` | Number of recent heartbeat-session messages to retain after each run. |
-| `gateway.restartMode` | `auto` | Restart strategy for `/restart`: `auto` uses `spawn` on Windows foreground runs and `exec` elsewhere. Use `exit` with Windows service wrappers such as WinSW or nssm so the service manager owns the restart. |
+| `gateway.restartMode` | `auto` | Restart strategy for `/restart`: `auto` uses `exec`, replacing the current process. Use `exit` when a service manager such as systemd owns the restart. |
 
 ### Custom heartbeat evaluator prompt
 

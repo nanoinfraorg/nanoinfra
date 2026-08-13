@@ -42,17 +42,8 @@ Environment variables keep API keys out of the config file.
 
 Use the variable name shown by the recipe you picked. The commands below use `OPENROUTER_API_KEY` only as an example; an OpenAI direct recipe uses `OPENAI_API_KEY`, an Anthropic direct recipe uses `ANTHROPIC_API_KEY`, and a custom endpoint can use any variable name you reference in `config.json`.
 
-**macOS / Linux**
-
 ```bash
 export OPENROUTER_API_KEY="sk-or-v1-..."
-nanoinfra agent -m "Hello!"
-```
-
-**Windows PowerShell**
-
-```powershell
-$env:OPENROUTER_API_KEY = "sk-or-v1-..."
 nanoinfra agent -m "Hello!"
 ```
 
@@ -558,15 +549,6 @@ Set the environment variables before starting nanoinfra:
 export LANGFUSE_SECRET_KEY="sk-lf-..."
 export LANGFUSE_PUBLIC_KEY="pk-lf-..."
 export LANGFUSE_BASE_URL="https://cloud.langfuse.com"
-nanoinfra agent -m "Hello!"
-```
-
-PowerShell:
-
-```powershell
-$env:LANGFUSE_SECRET_KEY = "sk-lf-..."
-$env:LANGFUSE_PUBLIC_KEY = "pk-lf-..."
-$env:LANGFUSE_BASE_URL = "https://cloud.langfuse.com"
 nanoinfra agent -m "Hello!"
 ```
 

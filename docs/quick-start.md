@@ -24,15 +24,9 @@ The recommended installer keeps nanoinfra out of the system Python environment. 
 curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | sh
 ```
 
-**Windows PowerShell**
-
-```powershell
-irm https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.ps1 | iex
-```
-
 The installer chooses an active virtual environment, `uv`, `pipx`, or a managed environment under `~/.nanoinfra/venv`. It installs the stable PyPI release unless you explicitly pass `--dev`. At the end it prints the exact command it used to run nanoinfra; if `nanoinfra` is not on `PATH`, reuse that full command in the examples below.
 
-If you prefer to inspect the scripts first, open [`install.sh`](../scripts/install.sh) or [`install.ps1`](../scripts/install.ps1).
+If you prefer to inspect the script first, open [`install.sh`](../scripts/install.sh).
 
 ## 2. Configure Your Model
 
@@ -159,8 +153,6 @@ python -m pip install .
 nanoinfra webui
 ```
 
-On Windows, if `python -m pip install .` reports that it cannot launch `npm`, run `cd webui`, `npm.cmd install --package-lock=false`, `npm.cmd run build`, and `cd ..` in order, then retry the install.
-
 The source path follows current `main` and can be newer than the published package. A non-editable install triggers the build hook that bundles the current WebUI. For editable Python or frontend development, follow [`../CONTRIBUTING.md`](../CONTRIBUTING.md) and [`../webui/README.md`](../webui/README.md).
 
 If the package is installed but the shell cannot find `nanoinfra`, use the runner that owns the installation. The recommended installer prints the exact command to reuse. Common forms are:
@@ -171,7 +163,7 @@ pipx run --spec nanoinfra nanoinfra --version
 ~/.nanoinfra/venv/bin/python -m nanoinfra --version
 ```
 
-On Windows, the managed-environment form is `& "$HOME\.nanoinfra\venv\Scripts\python.exe" -m nanoinfra --version`. Replace `--version` with `webui`, `onboard --wizard`, or any other arguments you need. Use plain `python -m nanoinfra` only when that Python executable belongs to the environment where nanoinfra was installed.
+Replace `--version` with `webui`, `onboard --wizard`, or any other arguments you need. Use plain `python -m nanoinfra` only when that Python executable belongs to the environment where nanoinfra was installed.
 
 ## Manual Configuration Fallback
 

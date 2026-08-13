@@ -34,6 +34,6 @@ Target validation goes through `servers/network_guard.py`, **not** `security/net
 
 ## Shell Sandbox
 
-`tools/sandbox.py` provides optional command wrapping. The only backend currently shipped is `bwrap` (bubblewrap), intended for containerized deployments. On Windows and bare-metal Linux without `bwrap`, commands run in the native shell with workspace restriction as an application-level guard only.
+`tools/sandbox.py` provides optional command wrapping. The only backend currently shipped is `bwrap` (bubblewrap), intended for containerized deployments. On macOS and bare-metal Linux without `bwrap`, commands run in the native shell with workspace restriction as an application-level guard only.
 
 **Rule**: If adding a new sandbox backend, implement `_wrap_<name>(command, workspace, cwd) -> str` and register it in `_BACKENDS`.

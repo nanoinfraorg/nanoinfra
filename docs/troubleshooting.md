@@ -67,19 +67,18 @@ If `nanoinfra status` looks right but `nanoinfra agent -m "Hello!"` fails, the i
 
 ## Installation Problems
 
-Use the same Python command for install checks and module fallback. On macOS/Linux that may be `python3`; on Windows it may be `python` or `py`.
+Use the same Python command for install checks and module fallback; that may be `python` or `python3`.
 
 | Symptom | Check |
 |---|---|
-| `python: command not found` | Try `python3 --version` on macOS/Linux or `py --version` on Windows. Then replace `python` in docs commands with the command that worked. |
-| `curl: command not found` | The macOS/Linux one-command installer could not download the script. Install curl, or use a manual isolated install such as `uv tool install nanoinfra` or `pipx install nanoinfra`. |
-| `irm` is not recognized | PowerShell could not run the download helper. Use manual install: `uv tool install nanoinfra`, `pipx install nanoinfra`, or `py -m pip install nanoinfra` inside an environment you control. |
+| `python: command not found` | Try `python3 --version`. Then replace `python` in docs commands with the command that worked. |
+| `curl: command not found` | The one-command installer could not download the script. Install curl, or use a manual isolated install such as `uv tool install nanoinfra` or `pipx install nanoinfra`. |
 | Could not download `raw.githubusercontent.com` | Your network, proxy, or firewall blocked the installer script download. Use manual install from PyPI, or configure your proxy and rerun the command. |
-| `nanoinfra: command not found` | Use the module form, for example `python -m nanoinfra ...`, `python3 -m nanoinfra ...`, or `py -m nanoinfra ...`. Reinstall with the same Python command, or add that Python's scripts directory to `PATH`. |
-| `No module named nanoinfra` | You are running a different Python than the one used for installation. Run `python -m pip show nanoinfra`, `python3 -m pip show nanoinfra`, or `py -m pip show nanoinfra`, matching the command that installed nanoinfra. |
+| `nanoinfra: command not found` | Use the module form, for example `python -m nanoinfra ...` or `python3 -m nanoinfra ...`. Reinstall with the same Python command, or add that Python's scripts directory to `PATH`. |
+| `No module named nanoinfra` | You are running a different Python than the one used for installation. Run `python -m pip show nanoinfra` or `python3 -m pip show nanoinfra`, matching the command that installed nanoinfra. |
 | `pip is not available` | When the installer uses a virtual environment, it tries `python -m ensurepip --upgrade`. If that fails, install pip for that Python, or use a Python installer/distribution that includes pip. |
 | `externally-managed-environment` | Your system Python blocks global pip installs. Use the one-command installer, `uv tool install nanoinfra`, `pipx install nanoinfra`, or create a virtual environment; do not add `--break-system-packages` for nanoinfra. |
-| Installer chose the wrong Python | Set `PYTHON` before running the installer, such as `curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | PYTHON=python3 sh` or `$env:PYTHON="py"` before the PowerShell command. |
+| Installer chose the wrong Python | Set `PYTHON` before running the installer, such as `curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | PYTHON=python3 sh`. |
 | Editable source install does not update | From the repo root, run `python -m pip install -e .` again with the Python command used for development, then check `python -m nanoinfra --version` or `nanoinfra --version`. |
 | WebUI build tools missing | They are only needed for WebUI development. Packaged installs already include the WebUI bundle. |
 

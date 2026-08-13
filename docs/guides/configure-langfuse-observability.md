@@ -41,15 +41,6 @@ export LANGFUSE_BASE_URL="https://cloud.langfuse.com"
 nanoinfra agent -m "Hello!"
 ```
 
-PowerShell:
-
-```powershell
-$env:LANGFUSE_SECRET_KEY = "sk-lf-..."
-$env:LANGFUSE_PUBLIC_KEY = "pk-lf-..."
-$env:LANGFUSE_BASE_URL = "https://cloud.langfuse.com"
-nanoinfra agent -m "Hello!"
-```
-
 ## Production notes
 
 - Langfuse is configured with environment variables, not `config.json`.
