@@ -77,8 +77,9 @@ export type ChannelConfigOption = {
   label: string;
 };
 
-const NANOINFRA_DOCS_URL = "https://nanoinfra.org/docs";
-const CHAT_APPS_DOCS_URL = `${NANOINFRA_DOCS_URL}/chat-apps`;
+const NANOINFRA_DOCS_URL = "https://docs.nanoinfra.org";
+// Trailing slash: the docs host 301s the slashless form.
+const CHAT_APPS_DOCS_URL = `${NANOINFRA_DOCS_URL}/chat-apps/`;
 
 export function chatAppGuideUrl(sectionId: string): string {
   return `${CHAT_APPS_DOCS_URL}#${sectionId}`;
@@ -91,5 +92,8 @@ export function docsUrlWithBase(
   if (!url || !chatAppsDocsUrl) return url;
   if (!url.startsWith(CHAT_APPS_DOCS_URL)) return url;
   const anchor = url.includes("#") ? `#${url.split("#").pop()}` : "";
-  return `${chatAppsDocsUrl.replace(/\/$/, "")}${anchor}`;
+  // Normalise however many trailing slashes the caller supplied, then put
+  // exactly one back: the docs host 301s the slashless form, and an anchor has
+  // to sit after the slash to survive that redirect.
+  return `${chatAppsDocsUrl.replace(/\/+$/, "")}/${anchor}`;
 }

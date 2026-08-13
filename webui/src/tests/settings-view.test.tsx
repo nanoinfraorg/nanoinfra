@@ -118,9 +118,9 @@ function settingsPayload(): SettingsPayload {
     },
     docs: {
       version: "0.2.2",
-      base_url: "https://nanoinfra.org/docs",
-      chat_apps_url: "https://nanoinfra.org/docs/chat-apps",
-      latest_url: "https://nanoinfra.org/docs",
+      base_url: "https://docs.nanoinfra.org",
+      chat_apps_url: "https://docs.nanoinfra.org/chat-apps/",
+      latest_url: "https://docs.nanoinfra.org",
     },
   };
 }
@@ -1548,7 +1548,7 @@ describe("SettingsView Apps catalog", () => {
     expect(await screen.findByRole("button", { name: "View Discord settings" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Discord setup" })).toHaveAttribute(
       "href",
-      "https://nanoinfra.org/docs/chat-apps#discord",
+      "https://docs.nanoinfra.org/chat-apps/#discord",
     );
     expect(screen.getByRole("switch", { name: "Discord channel" })).toBeDisabled();
     fireEvent.change(screen.getByPlaceholderText("Discord bot token"), {
@@ -1712,7 +1712,7 @@ describe("SettingsView Apps catalog", () => {
     expect(await screen.findByRole("button", { name: "View Telegram settings" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Telegram setup" })).toHaveAttribute(
       "href",
-      "https://nanoinfra.org/docs/chat-apps#telegram",
+      "https://docs.nanoinfra.org/chat-apps/#telegram",
     );
   });
 
