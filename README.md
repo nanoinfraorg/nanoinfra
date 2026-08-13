@@ -18,7 +18,9 @@
 
 # nanoinfra
 
-🐈 **nanoinfra** is an ultra-lightweight, open-source, self-hosted personal AI agent framework written in Python. It runs in a WebUI, terminal, or chat apps and combines tools, long-term memory, MCP integrations, model routing, multi-agent delegation, scheduled automation, and an OpenAI-compatible API in a small, readable core.
+**nanoinfra** is an ultra-lightweight, open-source, self-hosted AI agent for infrastructure work, written in Python. It keeps an inventory of your servers, the credentials to reach them, and the tools to act on them over SSH, Ansible, AWS SSM, or an HTTP endpoint — reachable from a WebUI, a terminal, or sixteen chat apps. Tools, long-term memory, MCP integrations, model routing, multi-agent delegation, scheduled automation, and an OpenAI-compatible API sit in a core small enough to audit.
+
+Root access, on a short leash: the agent reaches your hosts with credentials you hold, behind sender allowlists, a kernel sandbox, and mutating tools that default to a dry run — while running unprivileged itself.
 
 ## Start Here
 
