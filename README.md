@@ -24,13 +24,13 @@
 
 | You want to... | Go to |
 |---|---|
-| Install nanoinfra with no terminal/config background | [Start Without Technical Background](./docs/start-without-technical-background.md) |
+| Install nanoinfra with no terminal/config background | [Start Without Technical Background](https://nanoinfra.org/docs/start-without-technical-background) |
 | Install quickly and get one CLI reply | [Install](#-install) and [Quick Start](#-quick-start) |
 | Open the bundled browser UI | [WebUI](#-webui) |
-| Connect Telegram, Discord, WeChat, Slack, Email, Mattermost, or another chat app | [Chat Apps](./docs/chat-apps.md) |
-| Configure providers, fallback models, Langfuse, MCP, web tools, or security | [Docs](./docs/README.md) and [Configuration](./docs/configuration.md) |
-| Understand or extend the internals | [Architecture](./docs/architecture.md) and [Development](./docs/development.md) |
-| Deploy to the cloud or keep nanoinfra running as a service | [Deployment](./docs/deployment.md) |
+| Connect Telegram, Discord, WeChat, Slack, Email, Mattermost, or another chat app | [Chat Apps](https://nanoinfra.org/docs/chat-apps) |
+| Configure providers, fallback models, Langfuse, MCP, web tools, or security | [Docs](https://nanoinfra.org/docs/) and [Configuration](https://nanoinfra.org/docs/configuration) |
+| Understand or extend the internals | [Architecture](https://nanoinfra.org/docs/architecture) and [Development](https://nanoinfra.org/docs/development) |
+| Deploy to the cloud or keep nanoinfra running as a service | [Deployment](https://nanoinfra.org/docs/deployment) |
 
 ## What can nanoinfra do?
 
@@ -63,7 +63,7 @@ Pick **one** install method:
 
 Prerequisites: Python 3.11 or newer. Git is only needed for a source install. Published packages already include the WebUI; a current-source install needs `bun` or `npm` to build it.
 
-If terminals, API keys, or config files are new to you, use the guided zero-background walkthrough in [Start Without Technical Background](./docs/start-without-technical-background.md) instead of this compact README path.
+If terminals, API keys, or config files are new to you, use the guided zero-background walkthrough in [Start Without Technical Background](https://nanoinfra.org/docs/start-without-technical-background) instead of this compact README path.
 
 **One-command setup**
 
@@ -164,7 +164,7 @@ nanoinfra gateway
 
 This skips WebUI setup and browser opening, then runs the same complete gateway in the current terminal. It is the familiar entry point if you are coming from OpenClaw or already operate agents as long-lived services. The WebUI remains available when its channel is configured; open it manually when needed.
 
-Use `nanoinfra gateway --background` for the same direct entry point without keeping the terminal attached. For automatic startup and supervision by the operating system, see [Deployment](./docs/deployment.md).
+Use `nanoinfra gateway --background` for the same direct entry point without keeping the terminal attached. For automatic startup and supervision by the operating system, see [Deployment](https://nanoinfra.org/docs/deployment).
 
 **Prefer to work entirely in the terminal?**
 
@@ -182,16 +182,16 @@ nanoinfra agent -m "Hello!"
 
 The one-shot form is useful for a quick provider check, shell scripts, and local automation. If you have not configured a model yet, run `nanoinfra webui` and open **Settings → Models** first.
 
-Need manual JSON, another device on your LAN, or help with provider/model matching? Continue with [Install and Quick Start](./docs/quick-start.md), [WebUI](./docs/webui.md), or [Troubleshooting](./docs/troubleshooting.md).
+Need manual JSON, another device on your LAN, or help with provider/model matching? Continue with [Install and Quick Start](https://nanoinfra.org/docs/quick-start), [WebUI](https://nanoinfra.org/docs/webui), or [Troubleshooting](https://nanoinfra.org/docs/troubleshooting).
 
 If nanoinfra worked for you, a star on GitHub is the simplest way to support the project.
 
-- Want a pasteable provider setup? See [Provider Cookbook](./docs/provider-cookbook.md)
-- Want to understand provider/model matching? See [Providers and Models](./docs/providers.md)
-- Want web search, MCP, security settings, or more config options? See [Configuration](./docs/configuration.md)
-- Want to run locally? See [Ollama](./docs/providers.md#ollama), [vLLM or another local OpenAI-compatible server](./docs/providers.md#vllm-or-other-local-openai-compatible-server), and the full [provider reference](./docs/configuration.md#providers).
-- Want to run nanoinfra in chat apps like Telegram, Discord, WeChat or Feishu? See [Chat Apps](./docs/chat-apps.md)
-- Want Docker or Linux service deployment? See [Deployment](./docs/deployment.md)
+- Want a pasteable provider setup? See [Provider Cookbook](https://nanoinfra.org/docs/provider-cookbook)
+- Want to understand provider/model matching? See [Providers and Models](https://nanoinfra.org/docs/providers)
+- Want web search, MCP, security settings, or more config options? See [Configuration](https://nanoinfra.org/docs/configuration)
+- Want to run locally? See [Ollama](https://nanoinfra.org/docs/providers#ollama), [vLLM or another local OpenAI-compatible server](https://nanoinfra.org/docs/providers#vllm-or-other-local-openai-compatible-server), and the full [provider reference](https://nanoinfra.org/docs/configuration#providers).
+- Want to run nanoinfra in chat apps like Telegram, Discord, WeChat or Feishu? See [Chat Apps](https://nanoinfra.org/docs/chat-apps)
+- Want Docker or Linux service deployment? See [Deployment](https://nanoinfra.org/docs/deployment)
 
 <a id="deploy-to-render"></a>
 
@@ -207,7 +207,7 @@ Render will ask for `ANTHROPIC_API_KEY` and a private `NANOINFRA_WEB_TOKEN`, the
 
 **Self-host**
 
-Prefer your own infrastructure? Follow the [deployment guide](./docs/deployment.md) for Docker, Docker Compose, Linux services, and macOS LaunchAgent setup.
+Prefer your own infrastructure? Follow the [deployment guide](https://nanoinfra.org/docs/deployment) for Docker, Docker Compose, Linux services, and macOS LaunchAgent setup.
 
 ## 🌐 WebUI
 
@@ -224,7 +224,7 @@ Use it to:
 - switch models and workspaces without leaving the conversation;
 - configure providers, chat channels, Apps, Skills, and Automations from one place.
 
-See the [WebUI guide](./docs/webui.md) for LAN access, background operation, workspace controls, and the full feature tour. Working on the frontend itself? Use [`webui/README.md`](./webui/README.md).
+See the [WebUI guide](https://nanoinfra.org/docs/webui) for LAN access, background operation, workspace controls, and the full feature tour. Working on the frontend itself? Use [`webui/README.md`](./webui/README.md).
 
 ## 🏗️ Architecture
 
@@ -236,22 +236,22 @@ See the [WebUI guide](./docs/webui.md) for LAN access, background operation, wor
 
 ## 📚 Docs
 
-Browse the [repo docs](./docs/README.md) for the latest features and GitHub development version.
+Browse the [repo docs](https://nanoinfra.org/docs/) for the latest features and GitHub development version.
 
-- Use task-oriented guides: [Guides](./docs/guides/README.md)
-- Start with no technical background: [Start Without Technical Background](./docs/start-without-technical-background.md)
-- Start from zero with developer basics: [Install and Quick Start](./docs/quick-start.md)
-- Understand the runtime model: [Concepts](./docs/concepts.md)
-- Read the source-level map: [Architecture](./docs/architecture.md)
-- Choose a provider/model: [Providers and Models](./docs/providers.md)
-- Copy provider setup recipes: [Provider Cookbook](./docs/provider-cookbook.md)
-- Debug setup and runtime failures: [Troubleshooting](./docs/troubleshooting.md)
-- Talk to your nanoinfra with familiar chat apps: [Chat App AI Agent](./docs/guides/chat-app-ai-agent.md) · [Chat Apps](./docs/chat-apps.md)
-- Schedule or trigger agent work: [Automations](./docs/automations.md)
-- Store credentials and let the agent connect to a server: [Secrets and Servers](./docs/secrets-and-servers.md)
-- Configure providers, web search, MCP, and runtime behavior: [Configuration](./docs/configuration.md)
-- Integrate nanoinfra with local tools and automations: [OpenAI-Compatible API](./docs/openai-api.md) · [Python SDK](./docs/python-sdk.md)
-- Run nanoinfra with Docker or as a Linux service: [Deployment](./docs/deployment.md)
+- Use task-oriented guides: [Guides](https://nanoinfra.org/docs/guides/)
+- Start with no technical background: [Start Without Technical Background](https://nanoinfra.org/docs/start-without-technical-background)
+- Start from zero with developer basics: [Install and Quick Start](https://nanoinfra.org/docs/quick-start)
+- Understand the runtime model: [Concepts](https://nanoinfra.org/docs/concepts)
+- Read the source-level map: [Architecture](https://nanoinfra.org/docs/architecture)
+- Choose a provider/model: [Providers and Models](https://nanoinfra.org/docs/providers)
+- Copy provider setup recipes: [Provider Cookbook](https://nanoinfra.org/docs/provider-cookbook)
+- Debug setup and runtime failures: [Troubleshooting](https://nanoinfra.org/docs/troubleshooting)
+- Talk to your nanoinfra with familiar chat apps: [Chat App AI Agent](https://nanoinfra.org/docs/guides/chat-app-ai-agent) · [Chat Apps](https://nanoinfra.org/docs/chat-apps)
+- Schedule or trigger agent work: [Automations](https://nanoinfra.org/docs/automations)
+- Store credentials and let the agent connect to a server: [Secrets and Servers](https://nanoinfra.org/docs/secrets-and-servers)
+- Configure providers, web search, MCP, and runtime behavior: [Configuration](https://nanoinfra.org/docs/configuration)
+- Integrate nanoinfra with local tools and automations: [OpenAI-Compatible API](https://nanoinfra.org/docs/openai-api) · [Python SDK](https://nanoinfra.org/docs/python-sdk)
+- Run nanoinfra with Docker or as a Linux service: [Deployment](https://nanoinfra.org/docs/deployment)
 
 ## Releases
 
@@ -275,7 +275,7 @@ The Continuity Release keeps context from getting lost — across background sub
 - **2026-07-24** Guided first-run setup, inline subagents, and model switching from the composer.
 - **2026-07-23** Grok OAuth with hosted X Search, live image settings, and clearer fallback models.
 
-For older updates, see the [release archive](./docs/release-archive.md) or [GitHub releases](https://github.com/nanoinfraorg/nanoinfra/releases).
+For older updates, see the [release archive](https://nanoinfra.org/docs/release-archive) or [GitHub releases](https://github.com/nanoinfraorg/nanoinfra/releases).
 
 ## 🤝 Contribute
 

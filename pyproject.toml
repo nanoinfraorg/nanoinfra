@@ -67,7 +67,7 @@ dependencies = [
 Homepage = "https://github.com/nanoinfraorg/nanoinfra"
 Repository = "https://github.com/nanoinfraorg/nanoinfra"
 Issues = "https://github.com/nanoinfraorg/nanoinfra/issues"
-Changelog = "https://github.com/nanoinfraorg/nanoinfra/blob/main/docs/release-archive.md"
+Changelog = "https://nanoinfra.org/docs/release-archive"
 
 [project.optional-dependencies]
 api = [
