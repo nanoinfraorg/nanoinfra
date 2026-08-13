@@ -427,7 +427,11 @@ class Config(BaseSettings):
     transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
-    skills_marketplace: SkillsMarketplaceConfig = Field(default_factory=SkillsMarketplaceConfig)
+    skills_marketplace: SkillsMarketplaceConfig = Field(
+        default_factory=SkillsMarketplaceConfig,
+        validation_alias=AliasChoices("skillsMarketplace", "skills_marketplace"),
+        serialization_alias="skillsMarketplace",
+    )
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     model_presets: dict[str, ModelPresetConfig] = Field(
