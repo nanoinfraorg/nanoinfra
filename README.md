@@ -257,20 +257,20 @@ Browse the [repo docs](https://docs.nanoinfra.org/) for the latest features and 
 
 ## Releases
 
-**Latest release: [v0.6.0 - The Continuity Release](https://github.com/nanoinfraorg/nanoinfra/releases/tag/v0.6.0)**
+**Latest release: [v0.7.0 - The Homestead Release](https://github.com/nanoinfraorg/nanoinfra/releases/tag/v0.7.0)**
 
-The Continuity Release keeps context from getting lost — across background subagent runs, across the composer, and across a trusted reverse proxy.
+The Homestead Release moves nanoinfra onto infrastructure it owns, and narrows what it claims to be.
 
-- Durable subagent transcripts: every background subagent run now leaves a full conversation transcript under `memory/subagents/`, so you can see exactly what it did or debug why it failed, even after the run ends
-- Drag a session onto the composer to attach it as a reference the agent can read, and manually reorder the sidebar by drag — that order now persists
-- Trusted-proxy bootstrap auth: let a reverse proxy (Cloudflare Access or similar) assert identity so the WebUI trusts it instead of requiring its own login
-- Two real session-retention/Dream bugs fixed: proactive channel deliveries no longer get silently dropped during trimming, and short idle sessions are no longer skipped by consolidation forever
-- Mattermost thread-vs-channel group policy, hardened WhatsApp media handling, and per-request hosted web/X search toggles
+- The project lives under its own organisation at [nanoinfraorg](https://github.com/nanoinfraorg), the documentation has its own site at [docs.nanoinfra.org](https://docs.nanoinfra.org), and skills come from a self-hosted catalog at [skills.nanoinfra.org](https://skills.nanoinfra.org) instead of a third-party registry
+- nanoinfra is positioned as what it actually is: an agent for **infrastructure** work — server inventory, credentials, remote execution, topology diagrams — not a general-purpose assistant that happens to have a shell tool
+- **Windows support is dropped.** The PowerShell installer and every Windows instruction are gone; supported platforms are Linux and macOS. The platform branches remain in the code but are unsupported and untested
+- `skillsMarketplace` is now accepted as a camelCase config key. It was the only top-level key that rejected the camelCase spelling every other key allows, so the documented style failed validation on that one key
 
-[Read the v0.6.0 release notes](https://github.com/nanoinfraorg/nanoinfra/releases/tag/v0.6.0)
+[Read the v0.7.0 release notes](https://github.com/nanoinfraorg/nanoinfra/releases/tag/v0.7.0)
 
 ## Recent Updates
 
+- **2026-08-13** Moved to the nanoinfraorg organisation, docs at docs.nanoinfra.org, a self-hosted skills catalog, and Windows support dropped.
 - **2026-08-07** Durable subagent transcripts, drag-to-attach sessions, trusted-proxy auth, and session-retention/Dream data-loss fixes.
 - **2026-08-07** Secrets and Servers: encrypted credential storage, a server inventory, and agent-driven remote execution (SSH/Ansible Runner/SSM/API) with durable job tracking.
 - **2026-08-04** Infra Diagrams: visual designer with real persistence, a dynamic component catalog, and agent tools with an approval gate.
