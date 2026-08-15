@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, cast
 
 from loguru import logger
 
+from nanoinfra.agent.redaction import redact_text, workspace_secret_sentinels
 from nanoinfra.runtime_context import public_history_messages
 from nanoinfra.session.manager import MIN_COMPACTED_REPLAY_MESSAGES, Session, SessionManager
 from nanoinfra.utils.gitstore import GitStore
@@ -297,10 +298,17 @@ class MemoryStore:
         applied as a final safety net: individual callers should cap their own
         content more tightly; this default only exists to catch unintentional
         large writes (e.g. an LLM echoing its input back as a "summary").
+
+        Every write to history.jsonl passes through here, so this is also the
+        one place that scrubs known credential values out of the durable
+        transcript (see nanoinfra/agent/redaction.py). Redaction is
+        best-effort.
         """
         limit = max_chars if max_chars is not None else _HISTORY_ENTRY_HARD_CAP
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-        raw = entry.rstrip()
+        # Scrub before the cap. truncate_text keeps a head, so a cap applied
+        # first could cut through a credential and leave part of it durable.
+        raw = redact_text(entry, workspace_secret_sentinels(self.workspace)).rstrip()
         if len(raw) > limit:
             if not self._oversize_logged:
                 self._oversize_logged = True
