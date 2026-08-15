@@ -65,6 +65,10 @@ EXPANDER_PARSER = "in-repo-parser"
 # No inventory is read at all. ssh, ssm, and api name their one host in the
 # config, so nothing expands anything and neither expander answered.
 EXPANDER_CONFIG = "config"
+# ansible answered from its own configuration, because the config named no local inventory
+# file. Authoritative for the same reason EXPANDER_ANSIBLE is, and worth telling apart in a
+# record: a reviewer sees which inventory the answer came from (#37).
+EXPANDER_ANSIBLE_CONFIG = "ansible-inventory-config"
 
 # Not a scope. The label a record carries when the resolver cannot name the hosts.
 # It must stay distinct from the three scopes, because "I do not know" and "one
@@ -251,8 +255,7 @@ def _resolve_ansible(server: Server) -> ScopeResolution:
             "Server config has no inventoryHost or group to target. The whole inventory "
             "is never inferred from a missing field."
         )
-    path = _inventory_path(server.config.get("projectPath") or ".")
-    inventory, expander = _read_inventory(path)
+    inventory, expander = _read_inventory_for(server.config.get("projectPath") or ".")
     hosts, unbounded = _expand_pattern(pattern, inventory)
     # Hosts stay sorted so one config always reports one host order. #14 shows
     # these names to a human, and an unstable order reads like a changed target.
@@ -323,6 +326,32 @@ class _InventoryBuilder:
         return hosts
 
 
+
+def _read_inventory_for(project_path: str) -> tuple[_Inventory, str]:
+    """The inventory for this config, from the best source available (#37).
+
+    A local inventory file is the source the backend passes ansible, so it wins. Without one,
+    ansible still reads ansible.cfg and /etc/ansible/hosts, and refusing outright there would
+    withhold interactive actions that work today.
+
+    So ask ansible from its own configuration instead of guessing. That answer is authoritative
+    for the same reason #30 prefers the binary at all: a resolver that contradicts ansible is
+    worse than a resolver that asks it.
+
+    An absent binary with no local inventory leaves the host set genuinely unknown, and the
+    caller must refuse rather than proceed. #37 exists because that case used to proceed.
+    """
+    try:
+        path = _inventory_path(project_path)
+    except ScopeResolutionError:
+        binary = _ansible_inventory_binary()
+        if binary is None:
+            raise
+        # No -i. ansible reads its own configuration, which is exactly what the play will use.
+        return _ansible_inventory(binary, None), EXPANDER_ANSIBLE_CONFIG
+    return _read_inventory(path)
+
+
 def _inventory_path(project_path: str) -> Path:
     """The inventory file or directory the backend passes ansible.
 
@@ -367,7 +396,7 @@ def _read_inventory(path: Path) -> tuple[_Inventory, str]:
     return _ansible_inventory(binary, path), EXPANDER_ANSIBLE
 
 
-def _ansible_inventory(binary: str, path: Path) -> _Inventory:
+def _ansible_inventory(binary: str, path: Path | None) -> _Inventory:
     """Ask ansible itself for the inventory. No play runs and no host is contacted.
 
     ``--list`` reads the inventory and prints every group. The pattern stays here and
@@ -383,14 +412,17 @@ def _ansible_inventory(binary: str, path: Path) -> _Inventory:
         returncode, stdout, stderr = _run_ansible_inventory(binary, path, workdir)
     if returncode != 0:
         raise ScopeResolutionError(
-            f"Cannot read inventory {path}: {_ANSIBLE_INVENTORY_BIN} exited {returncode} "
+            f"Cannot read inventory {path or 'from the ansible configuration'}: "
+            f"{_ANSIBLE_INVENTORY_BIN} exited {returncode} "
             f"({_stderr_summary(stderr)}). The parser does not answer here, because an "
             "answer that contradicts ansible is worse than no answer."
         )
     return _inventory_from_json(stdout, path)
 
 
-def _run_ansible_inventory(binary: str, path: Path, workdir: str) -> tuple[int, str, str]:
+def _run_ansible_inventory(
+    binary: str, path: Path | None, workdir: str
+) -> tuple[int, str, str]:
     """Run the binary once, and report its exit code with its output.
 
     Output arrives as bytes and decodes with replacement. ansible reports an
@@ -400,8 +432,13 @@ def _run_ansible_inventory(binary: str, path: Path, workdir: str) -> tuple[int, 
     try:
         # A fixed argv and no shell. The only value from a config is the inventory
         # path, and it arrives as one argument that ansible reads and never runs.
+        # No --inventory when path is None: ansible then reads its own configuration, which
+        # is the inventory the play will use (#37).
+        argv = [binary, "--list"]
+        if path is not None:
+            argv += ["--inventory", str(path)]
         completed = subprocess.run(
-            [binary, "--list", "--inventory", str(path)],
+            argv,
             capture_output=True,
             cwd=workdir,
             env={**os.environ, **_UNPARSED_IS_FAILED_ENV},
@@ -415,7 +452,8 @@ def _run_ansible_inventory(binary: str, path: Path, workdir: str) -> tuple[int, 
         # Detection already found the binary, so this is a broken install or a hung
         # run, not an absent one. Both leave the host set unknown.
         raise ScopeResolutionError(
-            f"Cannot read inventory {path}: {_ANSIBLE_INVENTORY_BIN} did not answer ({exc}). "
+            f"Cannot read inventory {path or 'from the ansible configuration'}: "
+            f"{_ANSIBLE_INVENTORY_BIN} did not answer ({exc}). "
             "The parser does not answer for a binary that is installed and failed."
         ) from exc
     return (
@@ -436,8 +474,11 @@ def _stderr_summary(stderr: str) -> str:
     return "it printed no error"
 
 
-def _inventory_from_json(stdout: str, path: Path) -> _Inventory:
+def _inventory_from_json(stdout: str, path: Path | None) -> _Inventory:
     """Build the flattened inventory from what ansible-inventory printed.
+
+    ``path`` is None when ansible answered from its own configuration (#37). It names the
+    source in an error message and nothing else.
 
     One builder serves both expanders, so the children chains, the cycle guard, and
     the `all` group behave identically. Only the source of the names differs.
@@ -466,7 +507,9 @@ def _inventory_from_json(stdout: str, path: Path) -> _Inventory:
     return builder.build(str(path))
 
 
-def _load_json_group(name: str, body: object, path: Path, builder: _InventoryBuilder) -> None:
+def _load_json_group(
+    name: str, body: object, path: Path | None, builder: _InventoryBuilder
+) -> None:
     builder.ensure_group(name)
     if body is None:
         return
@@ -495,7 +538,7 @@ def _load_json_group(name: str, body: object, path: Path, builder: _InventoryBui
         )
 
 
-def _meta_hosts(body: object, path: Path) -> list[str]:
+def _meta_hosts(body: object, path: Path | None) -> list[str]:
     """The host names under ``_meta.hostvars``.
 
     The resolver skips every other key under _meta on purpose. ansible-core 2.21
@@ -518,7 +561,7 @@ def _meta_hosts(body: object, path: Path) -> list[str]:
     return [str(name) for name in cast(dict[object, object], hostvars)]
 
 
-def _json_names(value: object, key: str, group: str, path: Path) -> list[str]:
+def _json_names(value: object, key: str, group: str, path: Path | None) -> list[str]:
     """The names ansible listed under one group key, as a plain list."""
     if value is None:
         return []
@@ -854,6 +897,7 @@ def _no_match_error(term: str, pattern: str, inventory: _Inventory) -> ScopeReso
 __all__ = [
     "ALL",
     "EXPANDER_ANSIBLE",
+    "EXPANDER_ANSIBLE_CONFIG",
     "EXPANDER_CONFIG",
     "EXPANDER_PARSER",
     "GROUP",

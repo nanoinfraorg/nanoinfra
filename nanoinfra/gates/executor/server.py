@@ -194,11 +194,21 @@ class Executor:
         try:
             resolution = resolve_scope(server)
         except ScopeResolutionError as exc:
-            if interactive:
-                return True, "", None
+            # No context is tolerated here, interactive included (#37). This branch used to
+            # allow an interactive action, on the reasoning that the guard already refuses a
+            # pattern it cannot expand. The guard does not: an `inventoryHost` holding a plain
+            # address takes the single-address path, passes, and then fails resolution when the
+            # config names no local inventory. The action then ran with a host set nothing had
+            # seen, and the `all` refusal never ran either, because it needs a resolution.
+            #
+            # #37 also removed the reason this was tolerated. The resolver now asks ansible from
+            # its own configuration when no local inventory exists, which is the inventory the
+            # play will use, so a deployment that relies on ansible.cfg still resolves.
             return (
                 False,
-                f"The target did not resolve, so no grant can cover it ({exc}).",
+                f"The host set did not resolve, so the blast radius is unknown ({exc}). "
+                "Add an inventory the resolver can read, or install ansible-core so the "
+                "resolver can ask ansible for its own configuration.",
                 None,
             )
 

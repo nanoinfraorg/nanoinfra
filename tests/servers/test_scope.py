@@ -32,6 +32,7 @@ from nanoinfra.servers import scope
 from nanoinfra.servers.scope import (
     ALL,
     EXPANDER_ANSIBLE,
+    EXPANDER_ANSIBLE_CONFIG,
     EXPANDER_CONFIG,
     EXPANDER_PARSER,
     GROUP,
@@ -740,17 +741,40 @@ def test_a_host_ansible_names_only_under_meta_still_counts(
 def test_a_missing_inventory_refuses_before_ansible_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """The path check stays ahead of both expanders.
+    """Without a local inventory, ansible answers from its own configuration (#37).
 
-    Without <projectPath>/inventory, ansible falls back to ansible.cfg or
-    /etc/ansible/hosts and answers about an inventory the backend never passes it.
+    This asserted the opposite, on the reasoning that ansible would answer about an inventory
+    the backend never passes it. That reasoning is wrong for the absent case, and
+    ansible_runner's own source settles it: RunnerConfig.prepare_inventory leaves
+    ``self.inventory`` as None when ``<private_data_dir>/inventory`` does not exist, so the play
+    passes no -i and reads ansible.cfg or /etc/ansible/hosts. Asking ansible-inventory with no
+    -i therefore answers about exactly the inventory the play will use.
+
+    Refusing here instead was the #37 hole: an interactive action then ran with a host set the
+    resolver never saw, and the `all`-scope refusal never ran because it needs a resolution.
     """
     fake = _fake_ansible(monkeypatch)
 
+    resolution = resolve_scope(_ansible(str(tmp_path), group="web"))
+
+    assert resolution.expander == EXPANDER_ANSIBLE_CONFIG
+    # One call, and it names no inventory: ansible reads its own configuration.
+    assert len(fake.calls) == 1
+    assert "--inventory" not in fake.calls[0][0]
+
+
+def test_a_missing_inventory_refuses_when_ansible_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """No local inventory and no binary leaves the host set genuinely unknown.
+
+    The caller must refuse rather than proceed, which is the protective half of what this file
+    asserted before #37.
+    """
+    monkeypatch.setattr(scope, "_ansible_inventory_binary", lambda: None)
+
     with pytest.raises(ScopeResolutionError, match="No inventory at"):
         resolve_scope(_ansible(str(tmp_path), group="web"))
-
-    assert fake.calls == []
 
 
 def test_unsupported_pattern_syntax_is_an_error_with_the_binary_too(
