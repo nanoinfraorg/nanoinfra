@@ -11,6 +11,14 @@ approves an address nothing connects to.
 Each case below drives the real backend with a mocked transport and
 compares what it *actually* tried to reach against what ``_target_host()``
 would have handed to ``validate_server_target``.
+
+The rule has two forms, because a backend targets two kinds of field
+(#9). An ADDRESS field (``host``/``inventoryHost``/``baseUrl``) must equal
+the one value the backend dials. A PATTERN field (``group``) names an
+inventory label, so the guard expands it with #4's resolver and checks
+every host it names: its rule compares host SETS instead, and the label
+itself must never pass as an address. Both forms answer the same
+question. Does the guard check what the backend reaches?
 """
 
 from __future__ import annotations
@@ -35,6 +43,7 @@ from nanoinfra.secrets import crypto
 from nanoinfra.secrets.store import SecretStore
 from nanoinfra.servers.execution.base import ExecutionResult
 from nanoinfra.servers.job_store import JobStore
+from nanoinfra.servers.scope import resolve_scope
 from nanoinfra.servers.store import ServerStore
 from nanoinfra.servers.types import Server
 
@@ -53,6 +62,21 @@ _NON_TARGET_KEYS = {"port", "username", "projectPath", "region"}
 # Every host-shaped key any provider uses, for the "an unlisted field must not
 # satisfy the guard" direction of the check.
 _ALL_HOST_SHAPED_KEYS = ("host", "inventoryHost", "baseUrl")
+
+# Listed fields that name an inventory PATTERN rather than an address (#9). One
+# validate_server_target call cannot check these: the guard expands the pattern first and
+# checks every host it names, so their consistency rule compares host sets.
+_PATTERN_FIELDS: dict[str, tuple[str, ...]] = {"ansible-runner": ("group",)}
+
+# One group of three, written as addresses so the guard parses them and no test needs DNS.
+_GROUP_INVENTORY = "[web]\n10.0.1.11\n10.0.1.12\n10.0.1.13\n"
+
+
+def _address_fields(provider_id: str) -> tuple[str, ...]:
+    patterns = _PATTERN_FIELDS.get(provider_id, ())
+    return tuple(
+        field for field in _HOST_FIELDS_BY_PROVIDER.get(provider_id, ()) if field not in patterns
+    )
 
 
 
@@ -178,15 +202,20 @@ async def test_guard_checks_exactly_what_the_backend_dials(provider_id: str) -> 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("provider_id", "field"),
-    [(provider, field) for provider, fields in _HOST_FIELDS_BY_PROVIDER.items() for field in fields],
+    [
+        (provider, field)
+        for provider in _HOST_FIELDS_BY_PROVIDER
+        for field in _address_fields(provider)
+    ],
 )
-async def test_each_listed_host_field_alone_matches_what_the_backend_dials(
+async def test_each_listed_address_field_alone_matches_what_the_backend_dials(
     provider_id: str, field: str
 ) -> None:
-    """A field this table names as checkable must, on its own, be the thing the
-    backend dials. ansible-runner used to list "host" here: the guard validated it
-    while the backend, which never reads that key, fell through to the entire
-    inventory ("all")."""
+    """An address field this table names must, on its own, be the thing the backend
+    dials. ansible-runner used to list "host" here: the guard validated it while the
+    backend, which never reads that key, fell through to the entire inventory ("all").
+
+    Pattern fields are held to the set form of the same rule below."""
     config = {
         key: value
         for key, value in _CONFIGS[provider_id].items()
@@ -200,6 +229,72 @@ async def test_each_listed_host_field_alone_matches_what_the_backend_dials(
         f"{provider_id} configured with only {field!r}: guard validates {guarded!r}, "
         f"backend dials {dialed!r}"
     )
+
+
+@pytest.mark.asyncio
+async def test_a_pattern_field_guards_every_host_the_backend_pattern_reaches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The set form of the rule (#9), checked in one real execution.
+
+    The backend hands ansible a pattern, so "what it dials" is every host that pattern
+    covers in the inventory it passes. The guard must therefore check that whole set. One
+    validated host beside a pattern that reaches three is the same bypass this module exists
+    for, only wider.
+    """
+    monkeypatch.setenv("NANOINFRA_SECRETS_KEY", crypto.generate_key_for_setup())
+    project = tmp_path / "ansible-project"
+    project.mkdir()
+    (project / "inventory").write_text(_GROUP_INVENTORY, encoding="utf-8")
+    config = {"group": "web", "projectPath": str(project)}
+    ServerStore(tmp_path).create(
+        {"name": "ansible-group", "providerId": "ansible-runner", "config": dict(config)}
+    )
+    tool = ExecuteOnServerTool(
+        servers=ServerStore(tmp_path), secrets=SecretStore(tmp_path), jobs=JobStore(tmp_path)
+    )
+    checked: list[str] = []
+
+    def recording_guard(host: str) -> tuple[bool, str]:
+        checked.append(host)
+        return True, ""
+
+    runner = MagicMock()
+    runner.rc = 0
+    runner.status = "successful"
+    runner.stdout.read.return_value = "ok"
+
+    with (
+        patch("nanoinfra.agent.tools.server_execution.validate_server_target", new=recording_guard),
+        patch("ansible_runner.run", return_value=runner) as run_mock,
+    ):
+        result = await tool.execute(
+            server_id_or_name="ansible-group", command="true", dry_run=False
+        )
+
+    assert "ok" in str(result)
+    _, kwargs = run_mock.call_args
+    dialed = kwargs["host_pattern"]
+    reached = resolve_scope(_server("ansible-runner", config)).hosts
+    assert sorted(checked) == sorted(reached), (
+        f"guard checked {sorted(checked)}, backend pattern {dialed!r} reaches {sorted(reached)}"
+    )
+    # The label itself is never an argument to the guard. A resolvable name that happens to
+    # match a group would otherwise pass as an address while the group covered other hosts.
+    assert dialed not in checked
+
+
+def test_a_pattern_field_is_listed_but_never_passes_as_an_address() -> None:
+    """A pattern field stays in the table, because the backend targets it.
+
+    Two halves. Absent from the table, nothing would owe it a check and a config carrying
+    only that field would reach a backend unguarded. Treated as an address, the guard would
+    validate a label instead of the hosts behind it.
+    """
+    for provider_id, patterns in _PATTERN_FIELDS.items():
+        for field in patterns:
+            assert field in _HOST_FIELDS_BY_PROVIDER[provider_id]
+            assert _target_host(provider_id, {field: "web"}) is None
 
 
 @pytest.mark.parametrize("provider_id", sorted(_CONFIGS))
