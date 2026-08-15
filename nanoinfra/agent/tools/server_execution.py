@@ -42,18 +42,23 @@ from nanoinfra.servers.execution.timeout import IdleTimeoutTracker, run_with_idl
 from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.lookup import resolve_server
 from nanoinfra.servers.network_guard import validate_server_target
-from nanoinfra.servers.scope import ScopeResolutionError, resolve_scope, resolve_scope_label
+from nanoinfra.servers.scope import (
+    ALL,
+    ScopeResolutionError,
+    resolve_scope,
+    resolve_scope_label,
+)
 from nanoinfra.servers.store import ServerStore
 
 if TYPE_CHECKING:
     from nanoinfra.agent.tools.context import ToolContext
 
 # Providers with a real network-address concept at this layer -- if
-# _target_host() can't find one for these, that's not "nothing to check"
-# (unlike ssm, which is validated via IAM/instance-profile instead of a
-# dialed address); it means execute() must refuse rather than proceed
-# unguarded. Keys are the config field name(s) shown to the user in the
-# refusal message.
+# neither _target_host() nor _group_pattern() finds one for these, that's
+# not "nothing to check" (unlike ssm, which is validated via
+# IAM/instance-profile instead of a dialed address); it means execute()
+# must refuse rather than proceed unguarded. Keys are the config field
+# name(s) shown to the user in the refusal message.
 #
 # Each entry must name EXACTLY the config field(s) the corresponding
 # backend actually reads to decide what to connect to -- nothing more.
@@ -64,9 +69,17 @@ if TYPE_CHECKING:
 # group-only ansible config and satisfy the guard with an address
 # nothing ever connects to. tests/servers/execution/
 # test_guard_backend_consistency.py holds this table to that rule.
+#
+# A field is checkable in one of two ways (#9). "host"/"inventoryHost"/
+# "baseUrl" name an address, so the guard checks that one value.
+# "group" names an inventory pattern, so the guard expands it with #4's
+# resolver first and then checks EVERY host it names. A pattern field
+# therefore belongs here too: the backend targets it, so the guard owes
+# it a check. What it must never get is the single-address check, because
+# a validated label is not a validated host set.
 _HOST_FIELDS_BY_PROVIDER: dict[str, tuple[str, ...]] = {
     "ssh": ("host",),
-    "ansible-runner": ("inventoryHost",),
+    "ansible-runner": ("inventoryHost", "group"),
     "api": ("baseUrl",),
 }
 _KNOWN_PROVIDER_IDS = frozenset({"ssh", "ansible-runner", "ssm", "api"})
@@ -147,13 +160,17 @@ def _backend_and_default_timeout(provider_id: str) -> tuple[ExecutionBackend, in
     raise ValueError(f"Unknown providerId: {provider_id!r}")
 
 
-def _preview_line(server: Any, command: str, target_host: str | None) -> str:
+def _preview_line(server: Any, command: str, validated_target: str | None) -> str:
     """The resolved action in one line. Both preview cases show it (#10).
 
     A withheld preview needs the action and not only the verdict: this line is what tells an
     operator which grant to write, and it tells the caller that the command was understood.
+
+    ``validated_target`` is what the guard really checked, and never what the config says. For
+    a group that is the resolved host set (#9), because a grant lists hosts and a pattern
+    names none of them.
     """
-    validated = f" validated target={target_host!r}" if target_host else ""
+    validated = f" validated target={validated_target!r}" if validated_target else ""
     return (
         f"Preview (not executed): server={server.name!r} (id={server.id!r}) "
         f"provider={server.provider_id!r} command={command!r}{validated}"
@@ -175,12 +192,12 @@ def _target_host(provider_id: str, config: dict[str, str]) -> str | None:
 
     For ssh/ansible-runner/api, None does NOT mean "nothing to validate"
     -- those providers DO have a checkable network address; None here
-    just means the server's config didn't supply one (e.g. an
-    ansible-runner server configured with only `group`, which is an
-    inventory-file label rather than an address there is anything to
-    resolve). Callers must treat that case as "cannot validate, refuse"
-    rather than "validated, proceed" -- see _HOST_FIELDS_BY_PROVIDER and
-    execute()'s use of it.
+    just means the server's config supplied no single address. That case
+    splits in two (#9). An ansible-runner config with only `group` names
+    an inventory pattern, so _group_pattern() takes it and the guard
+    checks every host the pattern resolves to. Anything else is "cannot
+    validate, refuse" rather than "validated, proceed" -- see
+    _HOST_FIELDS_BY_PROVIDER and execute()'s use of it.
     """
     if provider_id == "ssh":
         return config.get("host")
@@ -191,6 +208,47 @@ def _target_host(provider_id: str, config: dict[str, str]) -> str | None:
 
         return urlparse(config.get("baseUrl", "")).hostname
     return None
+
+
+def _group_pattern(provider_id: str, config: dict[str, str]) -> str | None:
+    """The inventory pattern the backend targets when it dials no single address.
+
+    Only ansible-runner has one. AnsibleRunnerBackend reads
+    ``inventoryHost or group`` (ansible_backend.py:58), so ``group`` is
+    the real target exactly when ``inventoryHost`` is absent or empty.
+    This function mirrors that precedence, because a guard that expands
+    the other field describes hosts nothing connects to.
+
+    The pattern itself is never a valid argument to
+    validate_server_target(). It is a label, and a label carries no
+    address. execute() expands it first.
+    """
+    if provider_id != "ansible-runner":
+        return None
+    if config.get("inventoryHost"):
+        return None
+    return config.get("group") or None
+
+
+# How many resolved hosts a preview names before it counts the rest. #4's resolver permits a
+# pattern to reach hundreds of hosts, and a result that lists every one of them buries the
+# action an operator is trying to read.
+_MAX_LABELLED_HOSTS = 8
+
+
+def _targets_label(pattern: str, hosts: tuple[str, ...]) -> str:
+    """The pattern beside the hosts the guard really checked.
+
+    Both halves matter. The pattern alone hides the blast radius, and the hosts alone hide
+    what the backend dials. An operator who reads a withheld group action needs the hosts to
+    write a grant, because a grant lists hosts (#24).
+    """
+    shown = ", ".join(hosts[:_MAX_LABELLED_HOSTS])
+    remaining = len(hosts) - _MAX_LABELLED_HOSTS
+    if remaining > 0:
+        shown = f"{shown}, +{remaining} more"
+    noun = "host" if len(hosts) == 1 else "hosts"
+    return f"{pattern} -> {len(hosts)} {noun}: {shown}"
 
 
 @tool_parameters(
@@ -286,21 +344,43 @@ class ExecuteOnServerTool(Tool):
         if preview_requested:
             return _Disposition.PREVIEW_ON_REQUEST, ""
 
-        # Only unattended contexts are enforced (#8). The interactive default is `approve`,
-        # and no approval path exists before #13 and #27. Enforcing interactive here would
-        # withhold every interactive remote command with no way for a human to answer.
         execution_context = current_request_execution_context()
-        if execution_context == EXECUTION_CONTEXT_INTERACTIVE:
-            return _Disposition.EXECUTE, ""
+        interactive = execution_context == EXECUTION_CONTEXT_INTERACTIVE
 
         try:
             resolution = resolve_scope(server)
         except ScopeResolutionError as exc:
+            if interactive:
+                # An interactive call whose scope will not resolve keeps today's behaviour.
+                # The guard above already refuses a pattern it cannot expand, and refusing
+                # here as well would withhold interactive calls that work now, over a fact
+                # the resolver cannot see (ansible's own ansible.cfg fallback).
+                return _Disposition.EXECUTE, ""
             return (
                 _Disposition.PREVIEW_WITHHELD,
                 "The target did not resolve, so the host set cannot be checked against a "
                 f"standing grant ({exc}).",
             )
+
+        # `all` scope has no path to execution, in any context. #7 types the field as
+        # deny-only and #8 states the rule as absolute, so this check runs before the
+        # interactive short-circuit below. That short-circuit exists because an interactive
+        # `approve` has no approval surface before #13 and #27, and `all` has no approval
+        # path by design, so the reason for the short-circuit does not reach this case.
+        # #9 made group execution reachable, which is what turned this into a live hole.
+        if resolution.scope == ALL:
+            return (
+                _Disposition.PREVIEW_WITHHELD,
+                f"The pattern names an unbounded host set, so its scope is `all`. No policy "
+                f"permits `all` scope, and no approval path exists for it. It resolved to "
+                f"{len(resolution.hosts)} host(s) now, and it would cover a host added later.",
+            )
+
+        # Only unattended contexts are enforced past this point (#8). The interactive default
+        # is `approve`, and no approval path exists before #13 and #27. Enforcing interactive
+        # here would withhold every interactive remote command with no way to answer.
+        if interactive:
+            return _Disposition.EXECUTE, ""
 
         decision = evaluate(
             load_policy(),
@@ -340,17 +420,52 @@ class ExecuteOnServerTool(Tool):
             return ToolResult.error(f"Unknown providerId: {server.provider_id!r}.")
 
         target_host = _target_host(server.provider_id, server.config)
+        pattern = _group_pattern(server.provider_id, server.config)
+        # What the guard actually checked, for the preview and the record below. It is the
+        # dialed address for one host, and the resolved host set for a group.
+        validated_target = target_host
         if target_host:
             ok, error = validate_server_target(target_host)
             if not ok:
                 return ToolResult.error(f"Refusing to execute: {error}")
+        elif pattern:
+            # A group is an inventory label, so there is no address to check yet (#9).
+            # #4's resolver names the hosts behind the label, and it reads the same
+            # inventory file the backend passes to ansible. It opens no connection.
+            try:
+                hosts = resolve_scope(server).hosts
+            except ScopeResolutionError as exc:
+                # An unexpandable pattern is not an empty one. An unreadable inventory
+                # leaves the host set unknown, and an unknown host set cannot be guarded,
+                # so the old refusal still stands here.
+                return ToolResult.error(
+                    f"Cannot validate network target: cannot expand {pattern!r} to the hosts "
+                    f"it names ({exc})"
+                )
+            for host in hosts:
+                # Every host, and not the first one. A guard that checks one address while
+                # the backend dials fourteen is a bypass, exactly as this module's
+                # _HOST_FIELDS_BY_PROVIDER comment warns for the single-host case.
+                ok, error = validate_server_target(host)
+                if not ok:
+                    # The whole group stops. ansible takes one pattern, so there is no way
+                    # to run on the rest only, and a partial run on hosts nobody cleared is
+                    # worse than no run. The message says so, because an operator who reads
+                    # "blocked" must not assume the other hosts went ahead.
+                    return ToolResult.error(
+                        f"Refusing to execute: {error}. The pattern {pattern!r} names "
+                        f"{len(hosts)} hosts, and one blocked host refuses all of them. "
+                        "No host ran."
+                    )
+            # The whole set passed, so the group may proceed to the gate below.
+            validated_target = _targets_label(pattern, hosts)
         elif server.provider_id in _HOST_FIELDS_BY_PROVIDER:
             # This provider DOES have a network-address concept (unlike
-            # ssm, validated via IAM instead) but the config didn't supply
-            # one -- e.g. an ansible-runner server configured with only
-            # `group`, which is an inventory label, not an address. Refuse
-            # rather than proceed unguarded into secret decryption and the
-            # backend.
+            # ssm, validated via IAM instead) but the config supplied
+            # neither an address nor a pattern -- e.g. an ansible-runner
+            # server carrying only `host`, a key the backend never reads.
+            # Refuse rather than proceed unguarded into secret decryption
+            # and the backend.
             fields = "/".join(_HOST_FIELDS_BY_PROVIDER[server.provider_id])
             configured_keys = ", ".join(sorted(server.config.keys())) or "nothing"
             return ToolResult.error(
@@ -378,12 +493,13 @@ class ExecuteOnServerTool(Tool):
             server_id=server.id,
             server_name=server.name,
             provider_id=server.provider_id,
-            target=target_host,
-            # #4's blast radius, beside the one address the guard checked. `target`
-            # names what this process dials. `scope` names how many hosts the action
-            # reaches, which for ansible-runner is a resolved inventory fact rather
-            # than a config field. resolve_scope_label() reads local files only and
-            # never raises, so a log-only record cannot fail an execution.
+            target=validated_target,
+            # #4's blast radius, beside what the guard checked. `target` names what this
+            # process reaches, which for a group is the resolved host set rather than the
+            # pattern (#9). `scope` names how many hosts the action reaches, which for
+            # ansible-runner is a resolved inventory fact rather than a config field.
+            # resolve_scope_label() reads local files only and never raises, so a log-only
+            # record cannot fail an execution.
             scope=resolve_scope_label(server),
             command_digest=command_digest(command),
         )
@@ -400,7 +516,9 @@ class ExecuteOnServerTool(Tool):
         disposition, reason = self._decide(server, command, preview_requested=dry_run)
 
         if disposition is _Disposition.PREVIEW_ON_REQUEST:
-            return f"{_preview_line(server, command, target_host)}\n{PREVIEW_ON_REQUEST_NOTE}"
+            return (
+                f"{_preview_line(server, command, validated_target)}\n{PREVIEW_ON_REQUEST_NOTE}"
+            )
 
         if disposition is _Disposition.PREVIEW_WITHHELD:
             # An error result, because the caller asked for something it did not get. The
@@ -408,7 +526,7 @@ class ExecuteOnServerTool(Tool):
             # be able to tell a look from a stopped action.
             return ToolResult.error(
                 f"Did not execute on {server.name!r}. {reason}\n"
-                f"{_preview_line(server, command, target_host)}\n"
+                f"{_preview_line(server, command, validated_target)}\n"
                 f"{PREVIEW_WITHHELD_NOTE}"
             )
 
