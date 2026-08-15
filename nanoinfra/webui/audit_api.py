@@ -14,6 +14,11 @@ completion record says what happened next, and it carries the exit code and the 
 ``decision`` field names the kind, so one filter isolates the completions. ``follows`` names the
 decision record a completion follows, so a reader pairs the two rows by an id.
 
+A record names two people after #79, and the viewer keeps them apart. ``actor`` is the person who
+answered, and a path this deployment trusts authenticated them. ``origin_actor`` is the person the
+request came from, and it is the agent's claim about itself. The filter accepts the second one, so
+a reviewer can ask "every action this person raised" here rather than with a shell.
+
 Filters fail closed. A value the log never writes matches nothing, so a typo narrows the answer to
 nothing rather than widening it to every record.
 """
@@ -82,6 +87,7 @@ def audit_page(
     capability_class: str | None = None,
     execution_context: str | None = None,
     session_id: str | None = None,
+    origin_actor: str | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
     limit: int = DEFAULT_LIMIT,
@@ -92,6 +98,10 @@ def audit_page(
     Newest first because an operator opens this after something happened, so the last decision
     leads. ``total`` counts every record the filters matched, not the page, so the viewer can
     show how much it is not displaying.
+
+    ``origin_actor`` answers "every action this person raised" (#79). It is free text and not a
+    choice, because the value is a person and no list of people exists here. The match is exact,
+    like every other filter, so a record that names nobody never matches a name.
     """
     records = _all_records(store)
     matched = [
@@ -103,6 +113,7 @@ def audit_page(
             capability_class=capability_class,
             execution_context=execution_context,
             session_id=session_id,
+            origin_actor=origin_actor,
             since=since,
             until=until,
         )
@@ -148,6 +159,7 @@ def _matches(
     capability_class: str | None,
     execution_context: str | None,
     session_id: str | None,
+    origin_actor: str | None,
     since: datetime | None,
     until: datetime | None,
 ) -> bool:
@@ -156,6 +168,7 @@ def _matches(
         ("capability_class", capability_class),
         ("execution_context", execution_context),
         ("session_id", session_id),
+        ("origin_actor", origin_actor),
     ):
         if wanted is not None and record.get(key) != wanted:
             return False
@@ -221,6 +234,7 @@ class AuditReadSurface:
             capability_class=_first(query, "capabilityClass"),
             execution_context=_first(query, "executionContext"),
             session_id=_first(query, "sessionId"),
+            origin_actor=_first(query, "originActor"),
             since=_moment(_first(query, "since")),
             until=_moment(_first(query, "until")),
             limit=_positive_int(_first(query, "limit"), DEFAULT_LIMIT),
@@ -261,6 +275,11 @@ def _for_viewer(record: Mapping[str, Any], *, holds_text: bool) -> dict[str, Any
         "approvalPath": record.get("approval_path"),
         # #13 records this even when policy allowed the action, so the viewer keeps it visible.
         "samePath": bool(record.get("same_path")),
+        # The two identities of #79. `actor` is the person who answered, and a trusted path
+        # authenticated them. `originActor` is the person the request came from, and it is the
+        # agent's claim about itself. The viewer says which is which, because a reader treats a
+        # name in a log as authenticated unless something says otherwise.
+        "originActor": record.get("origin_actor"),
         "actor": record.get("actor"),
         "capabilityClass": record.get("capability_class"),
         "scope": record.get("scope"),

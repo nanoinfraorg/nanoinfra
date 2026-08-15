@@ -145,6 +145,36 @@ def test_the_same_path_flag_survives_to_the_viewer(tmp_path: Path) -> None:
     assert page["records"][0]["same_path"] is True
 
 
+def test_an_origin_actor_filter_answers_every_action_one_person_raised(tmp_path: Path) -> None:
+    """The question #79 exists for. ``actor`` answers who approved, and this answers who asked."""
+    store = _store(tmp_path)
+    _record(store, reason="theirs", origin_actor="webui:paula@example.com")
+    _record(store, reason="mine", origin_actor="webui:alberto@example.com")
+
+    page = audit_page(store, origin_actor="webui:alberto@example.com")
+
+    assert [r["reason"] for r in page["records"]] == ["mine"]
+
+
+def test_an_unknown_origin_actor_matches_nothing(tmp_path: Path) -> None:
+    """The filter fails closed like every other one. A typo must not widen the answer."""
+    store = _store(tmp_path)
+    _record(store, origin_actor="webui:alberto@example.com")
+
+    page = audit_page(store, origin_actor="webui:alberto@exampel.com")
+
+    assert page["records"] == []
+
+
+def test_an_origin_actor_filter_never_matches_a_record_that_names_nobody(tmp_path: Path) -> None:
+    """A record with no origin identity holds ``null``, and a name must not match that."""
+    store = _store(tmp_path)
+    _record(store, origin_actor=None)
+
+    assert audit_page(store, origin_actor="webui:alberto@example.com")["records"] == []
+    assert len(audit_page(store)["records"]) == 1
+
+
 def test_the_page_carries_a_digest_and_not_the_command(tmp_path: Path) -> None:
     store = _store(tmp_path)
     _record(store, command="mysql -u root -p'hunter2'")

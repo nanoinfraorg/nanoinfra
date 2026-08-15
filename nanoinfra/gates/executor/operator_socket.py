@@ -343,6 +343,11 @@ class ApprovalService:
 
         A write failure here must not swallow the refusal. The answer already failed, and the
         action already waits, so the log line is the only thing at risk.
+
+        The record names both people (#79). ``actor`` is the person whose answer did not count,
+        and ``origin_actor`` is the person the suspended request came from. The pending record
+        holds the second one, so a record that left it out would say the origin identity is
+        unknown where this process knows it.
         """
         if self.audit is None:
             return
@@ -354,6 +359,7 @@ class ApprovalService:
                 session_id=approval.session_id,
                 tool="execute_on_server",
                 origin_path=approval.origin_path,
+                origin_actor=approval.origin_actor,
                 approval_path=approval_path,
                 actor=actor,
                 scope=approval.scope,

@@ -1232,6 +1232,7 @@ export async function fetchGatesAudit(
   if (query.decision) params.set("decision", query.decision);
   if (query.capabilityClass) params.set("capabilityClass", query.capabilityClass);
   if (query.executionContext) params.set("executionContext", query.executionContext);
+  if (query.originActor) params.set("originActor", query.originActor);
   if (query.since) params.set("since", query.since);
   const suffix = params.toString();
   return request<GatesAuditPage>(

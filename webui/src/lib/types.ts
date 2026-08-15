@@ -578,6 +578,11 @@ export interface GatesAuditRecord {
   originPath: string | null;
   approvalPath: string | null;
   samePath: boolean;
+  /**
+   * The person the request came from, and the agent's claim about itself. `actor` is the person
+   * who answered, and a trusted path authenticated them. This one nothing verified.
+   */
+  originActor: string | null;
   actor: string | null;
   capabilityClass: string | null;
   scope: string | null;
@@ -667,6 +672,8 @@ export interface GatesAuditQuery {
   decision?: string;
   capabilityClass?: string;
   executionContext?: string;
+  /** One person, to read every action they raised. It is free text and not a choice. */
+  originActor?: string;
   since?: string | null;
 }
 

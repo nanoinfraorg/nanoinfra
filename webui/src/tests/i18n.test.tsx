@@ -321,6 +321,15 @@ const LOCALIZED_IDENTITY_KEYS = [
   "settings.gates.approvers.notAnAccountId",
   "settings.gates.approvers.blank",
 ];
+// Who raised an action, in the audit viewer (#79). A reviewer reads a name in a log as
+// authenticated unless something says otherwise, so the sentence that calls it a claim of the
+// agent has to arrive in the reviewer's own language.
+const LOCALIZED_ORIGIN_ACTOR_KEYS = [
+  "settings.gates.audit.filter.raisedBy",
+  "settings.gates.audit.filter.raisedByPlaceholder",
+  "settings.gates.audit.field.originActor",
+  "settings.gates.audit.originActorNote",
+];
 const ACCIDENTALLY_SPANISH_SETTINGS_KEYS = [
   "settings.help.provider",
   "settings.help.configPath",
@@ -603,6 +612,7 @@ describe("webui i18n", () => {
         ...LOCALIZED_NEW_SURFACE_KEYS,
         ...LOCALIZED_APPROVALS_KEYS,
         ...LOCALIZED_IDENTITY_KEYS,
+        ...LOCALIZED_ORIGIN_ACTOR_KEYS,
       ].filter(
         (key) => current.get(key) === english.get(key),
       );

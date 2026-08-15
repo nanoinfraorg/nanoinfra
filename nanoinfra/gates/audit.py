@@ -41,6 +41,16 @@ the text, and output carries the same risk. It also holds no grant, no approval,
 and no secret ref. The decision record it names holds those answers, so one authorization
 cannot read two ways.
 
+**Two identities, and one of them is a claim (#79).** ``actor`` names the person who answered,
+and a path this deployment trusts authenticated them. ``origin_actor`` names the person the
+request came from, and **it is an assertion of the agent that nothing here verified.**
+``nanoinfra/gates/executor/protocol.py`` says the same about ``origin_path``: a compromised agent
+can claim any origin, and it can claim any person with it. So a reviewer reads ``origin_actor``
+as a claim of the request rather than as an authentication, and #68 states what a deployment
+gives up when it lets that claim widen who may answer. Both record kinds carry the field, so one
+filter on a person shows a decision and the outcome that followed it. Neither field ever holds
+blank text: an empty name reads as a person, so "nobody" is ``null``.
+
 **Separate from the transcripts.** These records belong under ``gates/audit/`` in the data
 dir. They never enter the session history, and they have their own retention. This module
 also stays independent of ``nanoinfra/bus/runtime_events.py``. That bus is in-memory pub/sub
@@ -199,6 +209,7 @@ class AuditStore:
         session_id: str | None = None,
         origin_path: str | None = None,
         approval_path: str | None = None,
+        origin_actor: str | None = None,
         actor: str | None = None,
         scope: str | None = None,
         hosts: Sequence[str] | None = None,
@@ -234,6 +245,18 @@ class AuditStore:
         an action before an answer exists. A blank string must never stand for that: empty text
         reads as a name.
 
+        ``origin_actor`` names **the person the request came from** (#79). It is the second half
+        of the question a reviewer asks with #68 on: who asked, and who approved. **The value is
+        an assertion of the agent, and nothing here verified it.** The executor treats
+        ``origin_path`` the same way, and ``origin_actor`` inherits that exactly: a compromised
+        agent can claim any person. A reviewer who reads a name in this field must read it as a
+        claim rather than as an authentication. ``actor`` is the other case: a path that this
+        deployment trusts authenticated that person before the answer counted.
+
+        The value is ``None`` where the origin path authenticated nobody. This method turns blank
+        text into ``None``, so no writer can put an empty name in the log. #67 keeps the two apart
+        on the wire for that reason, and the record holds the same line.
+
         ``same_path`` and ``host_count`` are not parameters on purpose. Both derive from
         other fields, so a derived value cannot contradict them. #13 keys an out-of-band
         approval on the two paths. The record must not claim a separate path that the two
@@ -259,6 +282,9 @@ class AuditStore:
             "origin_path": origin_path,
             "approval_path": approval_path,
             "same_path": _same_path(origin_path, approval_path),
+            # Who asked, beside who answered (#79). The gate strips this value before it compares
+            # it, so the record holds the text that decided.
+            "origin_actor": _named_or_none(origin_actor),
             "actor": actor,
             "capability_class": capability_class,
             "scope": scope,
@@ -292,10 +318,23 @@ class AuditStore:
         """Append the outcome of one action as its own record and return it (#46).
 
         ``follows`` is the decision record that authorized the action, as :meth:`record`
-        returned it. This method copies the fields a reviewer reads on a filtered row: the
-        session, the capability class, the execution context, the scope, the hosts, the command
-        digest, and the tool. A copy cannot disagree with the decision, because the decision is
-        the only source.
+        returned it, and it is the only source, so a copy cannot disagree with it.
+
+        **One rule decides which fields travel: a fact about the action is copied, and a step of
+        the authorization is not** (#83). So the session, the class, the context, the scope, the
+        hosts, the command digest, the tool, the origin path and the origin identity all travel.
+        ``actor``, ``approval_path``, ``grant_id``, ``approval_id`` and ``token_nonce`` stay on
+        the decision.
+
+        The rule exists for two reasons that point the same way. #46 keeps the authorization on
+        one record, so one authorization cannot read two ways. And a reviewer filters the log on a
+        fact — a person, a channel, a host, a session — and must see the outcome of every action
+        that fact names. A field that stayed behind would make one filter answer with the decision
+        and hide the row that says what happened, which is the gap #46 exists to close.
+
+        ``same_path`` derives from the two paths rather than travelling, so it reports null here.
+        A completion knows where the request came from and not who answered it, and null is the
+        honest answer to a comparison this record cannot make.
 
         ``exit_code`` takes ``None`` when the action ended and the outcome is unknown. A
         timeout, a lost transport, and a killed executor all end that way. The record still
@@ -317,6 +356,13 @@ class AuditStore:
             execution_context=_text(follows.get("execution_context")) or "",
             tool=_text(follows.get("tool")),
             session_id=_text(follows.get("session_id")),
+            # A fact about the action travels, and a step of the authorization does not (#83).
+            # The origin path names where the request came from, like the session and the hosts.
+            # The answering path and `actor` name who authorized it, so they stay on the
+            # decision, and `same_path` then derives to null here rather than claim a comparison
+            # this record cannot make.
+            origin_path=_text(follows.get("origin_path")),
+            origin_actor=_text(follows.get("origin_actor")),
             scope=_text(follows.get("scope")),
             hosts=_host_list(follows.get("hosts")),
             # The digest, and never the text. The decision record holds the text under the
@@ -497,6 +543,20 @@ def _host_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(host) for host in cast("list[Any]", value)]
     return []
+
+
+def _named_or_none(value: str | None) -> str | None:
+    """Return the name a caller passed, or ``None`` when it named nobody -- #79.
+
+    Blank text is never a name. A record that held ``""`` would read as a person whose name is
+    empty, and a reviewer cannot tell that apart from a person the log failed to write. #67 keeps
+    ``None`` and ``""`` apart on the wire for the same reason. The rule sits here rather than at
+    each call site, so one writer cannot break it for the whole log.
+    """
+    if value is None:
+        return None
+    named = value.strip()
+    return named or None
 
 
 def _same_path(origin_path: str | None, approval_path: str | None) -> bool | None:
