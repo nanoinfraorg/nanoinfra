@@ -237,6 +237,7 @@ class BaseChannel(ABC):
         session_key: str | None = None,
         is_dm: bool = False,
         authorization_id: str | None = None,
+        authenticated_sender: str | None = None,
     ) -> None:
         """Handle a message after checking its authorization subject.
 
@@ -244,6 +245,12 @@ class BaseChannel(ABC):
         where access is scoped to another entity (for example, a group or room)
         can pass that entity as ``authorization_id`` without changing the
         sender's identity.  When omitted, authorization remains sender-based.
+
+        ``authenticated_sender`` is who this channel **verified**, and a channel
+        passes it only for a value it verified itself (#81). It stays ``None``
+        for a channel whose ``sender_id`` is already authenticated, and for one
+        that authenticates nobody. An approval reads it, and no routing decision
+        does, so a channel that omits it changes nothing else.
         """
         permission_id = authorization_id if authorization_id is not None else sender_id
         if not self.is_allowed(permission_id):
@@ -288,6 +295,7 @@ class BaseChannel(ABC):
             content=content,
             media=media or [],
             metadata=meta,
+            authenticated_sender=authenticated_sender,
             session_key_override=session_key,
         )
 

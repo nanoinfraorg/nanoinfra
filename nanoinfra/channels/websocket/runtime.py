@@ -76,6 +76,7 @@ from nanoinfra.webui.http_utils import (
 from nanoinfra.webui.http_utils import (
     query_first as _query_first,
 )
+from nanoinfra.webui.latch_api import PATH_ACTOR
 from nanoinfra.webui.latch_api import operator_actor as _operator_actor
 from nanoinfra.webui.mcp_presets_api import normalize_mcp_preset_mentions
 from nanoinfra.webui.metadata import (
@@ -101,6 +102,20 @@ _WEBUI_HTTP_OPEN_TIMEOUT_S = 360.0
 # the right holder: it dies with the socket, so a refused handshake grows no table here. A dict
 # keyed by connection would need a cleanup that a refused handshake never reaches.
 _HANDSHAKE_ACTOR_ATTR = "_nanoinfra_handshake_actor"
+
+
+def _verified_sender(connection: Any) -> str | None:
+    """The actor this handshake verified, or None when it verified no person (#81).
+
+    ``client_id`` is a query parameter the browser chooses, and it falls back to ``anon-<uuid>``,
+    so it names nobody. An approval must read a value the gateway checked instead.
+
+    A deployment with no proxy resolves the actor ``webui``, which is the true actor of a shared
+    token and not a person. This answers None there, because a name that authenticates nobody
+    must not reach an authority comparison as if it did.
+    """
+    actor = str(getattr(connection, _HANDSHAKE_ACTOR_ATTR, "") or "").strip()
+    return actor if actor and actor != PATH_ACTOR else None
 
 
 def _handshake_actor(identity: str) -> str:
@@ -919,6 +934,9 @@ class WebSocketChannel(BaseChannel):
                 # sending pairing codes to an already-authenticated client.
                 await self._handle_message(
                     sender_id=client_id,
+                    # client_id is a query parameter the browser chooses, so it is a routing
+                    # label (#81). An approval reads the actor this handshake verified.
+                    authenticated_sender=_verified_sender(connection),
                     chat_id=default_chat_id,
                     content=content,
                     metadata={"remote": getattr(connection, "remote_address", None)},
@@ -1198,6 +1216,7 @@ class WebSocketChannel(BaseChannel):
                         metadata[RUNTIME_CONTEXT_INPUT_META] = context_blocks
                 await self._handle_message(
                     sender_id=client_id,
+                    authenticated_sender=_verified_sender(connection),
                     chat_id=cid,
                     content=content,
                     media=media_paths or None,

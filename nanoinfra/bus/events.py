@@ -27,13 +27,28 @@ class InboundMessage:
     """Message received from a chat channel."""
 
     channel: str  # telegram, discord, slack, whatsapp
-    sender_id: str  # User identifier
+    #: A routing label, and never proof of who somebody is. It keys a session, it matches a
+    #: channel ``allowFrom`` list, and it reaches the pairing store. Some channels authenticate
+    #: it and some do not: the WebSocket channel reads it from a query parameter the browser
+    #: chooses. Read ``authenticated_sender`` for an authorization decision
+    #: (nanoinfraorg/nanoinfra#81).
+    sender_id: str
     chat_id: str  # Chat/channel identifier
     content: str  # Message text
     timestamp: datetime = field(default_factory=datetime.now)
     media: list[str] = field(default_factory=list)  # Media URLs
     metadata: dict[str, Any] = field(default_factory=dict)  # Channel-specific data
     session_key_override: str | None = None  # Optional override for thread-scoped sessions
+    #: Who the channel itself authenticated, when the channel authenticated anybody (#81).
+    #:
+    #: ``None`` means this channel proves no identity, and it must never read as a blank name. A
+    #: channel sets this only from a value it verified: the WebSocket channel sets the actor its
+    #: handshake resolved, where the peer address and the assertion signature were both checked.
+    #:
+    #: This field exists because ``sender_id`` could not carry both meanings. It keys sessions
+    #: for every deployment, so narrowing it to authenticated identities would change session
+    #: identity on upgrade for every WebUI user.
+    authenticated_sender: str | None = None
 
     @property
     def session_key(self) -> str:

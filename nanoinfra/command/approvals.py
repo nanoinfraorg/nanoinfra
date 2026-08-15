@@ -14,9 +14,12 @@ priority command before every other branch, so the text never reaches a model tu
 reaches the transcript. The model therefore cannot read an answer and cannot write one. A tool
 would be the opposite of this: a tool is a thing the model calls.
 
-**The actor comes from the channel.** ``InboundMessage.channel`` and ``InboundMessage.sender_id``
-carry the identity the channel authenticated. No argument of the command names an actor, and no
-argument names a path. The executor matches that identity against ``gates.approvers`` on the
+**The actor comes from the channel, and from the half of it the channel authenticated.** No
+argument of the command names an actor, and no argument names a path. ``sender_id`` is a routing
+label, and it is proof of a person only on a channel that authenticates it: Telegram does, and the
+WebSocket channel reads that value from a query parameter the browser chooses (#81). So a channel
+that verifies an identity sets ``InboundMessage.authenticated_sender``, this module prefers it, and a
+channel that proves nobody answers no approval at all. The executor matches that identity against ``gates.approvers`` on the
 channel that carried the answer, so a sender the config does not name answers nothing.
 
 A channel ``allowFrom`` list and the pairing store grant nothing here. Both carry reachability,
@@ -57,7 +60,7 @@ from typing import TYPE_CHECKING, Callable
 
 from loguru import logger
 
-from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.bus.events import InboundMessage, OutboundMessage
 from nanoinfra.gates.executor.operator_socket import (
     OperatorClient,
     OperatorUnavailableError,
@@ -117,15 +120,53 @@ def _telegram_actor(sender_id: str) -> str:
 _SENDER_RULES: dict[str, Callable[[str], str]] = {"telegram": _telegram_actor}
 
 
-def approval_actor(channel: str, sender_id: str) -> str:
+#: Which channels prove no identity through ``sender_id`` (#81). The WebSocket channel reads
+#: that value from a query parameter the browser chooses, and it falls back to ``anon-<uuid>``,
+#: so it is a routing label and never proof of a person. Such a channel answers an approval
+#: only through ``authenticated_sender``, which the channel sets from a value it verified.
+_SENDER_ID_AUTHENTICATES_NOBODY = frozenset({"websocket"})
+
+
+def approval_actor(message: InboundMessage) -> str:
     """The identity ``gates.approvers`` names for one inbound message.
 
-    The value is the channel's own authenticated sender id. A deployment lists that exact
-    string, because ``check_approval`` compares it exactly (#13).
+    The value is what the channel **authenticated**, and a deployment lists that exact string,
+    because ``check_approval`` compares it exactly (#13).
+
+    Two sources, in one order. ``authenticated_sender`` wins whenever a channel sets it, because
+    a channel that sets it is telling us which of its two values it verified. Otherwise
+    ``sender_id`` answers, because Telegram authenticates its numeric account id and most
+    channels are that shape.
+
+    A channel in ``_SENDER_ID_AUTHENTICATES_NOBODY`` with no authenticated sender answers the
+    empty string, which matches no approver. The empty answer is the refusal: a caller reads it
+    and sends the operator to a surface that does work, rather than comparing a label the client
+    chose against an authority list.
     """
-    rule = _SENDER_RULES.get(channel.strip())
-    sender = sender_id.strip()
+    channel = message.channel.strip()
+    verified = (message.authenticated_sender or "").strip()
+    if verified:
+        rule = _SENDER_RULES.get(channel)
+        return rule(verified) if rule is not None else verified
+    if channel in _SENDER_ID_AUTHENTICATES_NOBODY:
+        return ""
+    rule = _SENDER_RULES.get(channel)
+    sender = message.sender_id.strip()
     return rule(sender) if rule is not None else sender
+
+
+def unauthenticated_channel_refusal(channel: str) -> str:
+    """What an operator reads when their channel proves no identity (#81).
+
+    A refusal that said only "denied" would send an operator to file a bug about a rule that is
+    protecting them. This one names the surface that works: the WebUI reads the identity its own
+    handshake verified, and #27 answers there.
+    """
+    return (
+        f"The {channel!r} channel authenticates no person for an approval, so this command "
+        "answers nothing. Answer from the Approvals inbox in the WebUI, which reads the identity "
+        "the gateway verified, or from a channel that authenticates its sender."
+    )
 
 
 class ApprovalAnswerSurface:
@@ -145,14 +186,19 @@ class ApprovalAnswerSurface:
             raise TypeError("an approval answer surface needs the OperatorClient from the gateway")
         self._client: OperatorClient = client
 
-    async def approve(self, *, channel: str, sender_id: str, request_id: str) -> str:
+    async def approve(self, *, message: InboundMessage, request_id: str) -> str:
         """Approve one action, and return the sentence the operator reads.
 
         The digest comes from the executor's own pending view, and never from the message. An
         operator who had to retype a 64-character digest on a phone would deny by default, and
         a denial that costs less than an approval is the wrong incentive.
         """
-        actor = approval_actor(channel, sender_id)
+        channel = message.channel.strip()
+        actor = approval_actor(message)
+        if not actor:
+            # The channel proved no identity (#81). Refuse here rather than send a label the
+            # client chose to the executor, which would compare it against the approver list.
+            return unauthenticated_channel_refusal(channel)
         try:
             views = await asyncio.to_thread(self._client.pending)
         except OperatorUnavailableError as exc:
@@ -184,14 +230,19 @@ class ApprovalAnswerSurface:
         return _refused(response.refusal, response.error)
 
     async def deny(
-        self, *, channel: str, sender_id: str, request_id: str, reason: str = ""
+        self, *, message: InboundMessage, request_id: str, reason: str = ""
     ) -> str:
         """Deny one action, and return the sentence the operator reads.
 
         One socket call, and one field fewer than an approval. A denial is terminal (#15), so
         the executor applies the same identity check and the same path check.
         """
-        actor = approval_actor(channel, sender_id)
+        channel = message.channel.strip()
+        actor = approval_actor(message)
+        if not actor:
+            # The channel proved no identity (#81). Refuse here rather than send a label the
+            # client chose to the executor, which would compare it against the approver list.
+            return unauthenticated_channel_refusal(channel)
         try:
             response = await asyncio.to_thread(
                 self._client.deny,
@@ -225,11 +276,7 @@ def register_approval_commands(router: CommandRouter, *, surface: ApprovalAnswer
             return _reply(ctx, _USAGE)
         return _reply(
             ctx,
-            await surface.approve(
-                channel=ctx.msg.channel,
-                sender_id=ctx.msg.sender_id,
-                request_id=request_id,
-            ),
+            await surface.approve(message=ctx.msg, request_id=request_id),
         )
 
     async def handle_deny(ctx: CommandContext) -> OutboundMessage | None:
@@ -238,12 +285,7 @@ def register_approval_commands(router: CommandRouter, *, surface: ApprovalAnswer
             return _reply(ctx, _USAGE)
         return _reply(
             ctx,
-            await surface.deny(
-                channel=ctx.msg.channel,
-                sender_id=ctx.msg.sender_id,
-                request_id=request_id,
-                reason=reason,
-            ),
+            await surface.deny(message=ctx.msg, request_id=request_id, reason=reason),
         )
 
     router.priority(APPROVE_COMMAND, handle_approve)
@@ -303,5 +345,6 @@ __all__ = [
     "DENY_PREFIX",
     "ApprovalAnswerSurface",
     "approval_actor",
+    "unauthenticated_channel_refusal",
     "register_approval_commands",
 ]

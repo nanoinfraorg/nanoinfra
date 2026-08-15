@@ -137,7 +137,7 @@ async def test_the_sender_id_carries_the_account_the_actor_rule_reads() -> None:
 
     msg = bus.inbound[0]
     assert msg.sender_id == f"{_APPROVER_ACCOUNT}|{_APPROVER_USERNAME}"
-    assert approval_actor(msg.channel, msg.sender_id) == _APPROVER_ACCOUNT
+    assert approval_actor(msg) == _APPROVER_ACCOUNT
 
 
 async def test_a_sender_outside_allow_from_never_reaches_the_bus() -> None:

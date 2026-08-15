@@ -66,7 +66,10 @@ LATCH_VALUES_HEADER = "X-Nanoinfra-Latch-Values"
 
 # What the actor reads as when no proxy asserts an identity. The path is then the only true
 # statement about who cleared the latch.
-_PATH_ACTOR = "webui"
+#: The actor of a deployment that authenticated a shared token and no person. Public,
+#: because the WebSocket channel compares against it to decide whether a handshake named
+#: anybody (#81), and a second copy of the string would drift.
+PATH_ACTOR = "webui"
 
 # How many refused attempts one entry carries. The count is authoritative and comes from #32,
 # so this bound costs detail on a long history and never costs the number an operator reads.
@@ -79,7 +82,7 @@ _MAX_ATTEMPTS = 50
 # agree: a cap that cut ``webui:<claim>`` would write a name that belongs to nobody, and the
 # seam already refuses an identity it cannot name whole (#63). So this cap can only fire for a
 # caller that built an actor some other way, and it never cuts the answer of ``operator_actor``.
-_MAX_ACTOR_CHARS = len(_PATH_ACTOR) + 1 + MAX_IDENTITY_CHARS
+_MAX_ACTOR_CHARS = len(PATH_ACTOR) + 1 + MAX_IDENTITY_CHARS
 _MAX_REASON_CHARS = 500
 
 _DENIED = "denied"
@@ -209,8 +212,8 @@ def operator_actor(request: Any) -> str:
     """
     asserted = str(getattr(request, TRUSTED_PROXY_IDENTITY_ATTR, "") or "").strip()
     if not asserted:
-        return _PATH_ACTOR
-    return f"{_PATH_ACTOR}:{asserted}"
+        return PATH_ACTOR
+    return f"{PATH_ACTOR}:{asserted}"
 
 
 def _detail_from_log(
