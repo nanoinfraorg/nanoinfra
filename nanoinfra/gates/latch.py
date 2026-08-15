@@ -37,14 +37,29 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import cast
+from typing import Protocol, cast
 
 from loguru import logger
 
 from nanoinfra.agent.tools.base import ToolResult
+
+
+class RestoredLatchState(Protocol):
+    """What ``new_denial_latch`` needs from a restored state (#32).
+
+    Structural on purpose. ``nanoinfra.gates.latch_restore`` imports this module, so importing
+    its concrete type here would close a cycle. A protocol keeps the types real without one.
+    """
+
+    @property
+    def latched(self) -> Mapping[tuple[str, str], float]: ...
+
+    @property
+    def refusals(self) -> Mapping[tuple[str, str], int]: ...
+
 
 # The marker the runner keys on. It reads as a machine token so it cannot collide with prose,
 # and it stays out of the sentence a human reads.
@@ -382,6 +397,7 @@ def new_denial_latch(
     *,
     record: Callable[[LatchEvent], None] | None = None,
     clock: Callable[[], float] = time.time,
+    restored: RestoredLatchState | None = None,
 ) -> tuple[DenialLatch, LatchController]:
     """Build the two halves, and split them at birth (rule 3).
 
@@ -391,9 +407,34 @@ def new_denial_latch(
 
     ``clock`` stamps records for a human to read, so a wall clock is right here. It drives no
     expiry, because rule 3 says elapsed time clears nothing.
+
+    ``restored`` seeds the state from the audit log at start (#32). A restart used to drop
+    every latch, and the agent can cause a restart, so the deny-restart-retry loop bypassed
+    this module. The value comes from ``nanoinfra.gates.latch_restore.restore_latches``. It is
+    read by attribute rather than imported by type, because that module imports this one and a
+    type import here would close a cycle.
     """
     state = _LatchState(clock=clock, record=record)
+    if restored is not None:
+        _seed(state, restored)
     return DenialLatch(state), LatchController(state)
+
+
+def _seed(state: _LatchState, restored: RestoredLatchState) -> None:
+    """Copy restored latches into a fresh state.
+
+    A restored latch keeps its refusal count, so the banner in #28 does not reset to zero and
+    hide a session that keeps trying. The reason text says the latch predates this process,
+    because an operator who reads the banner needs to know that.
+    """
+    latched = dict(restored.latched)
+    refusals = dict(restored.refusals)
+    for key, at in latched.items():
+        state.entries[key] = _Entry(
+            reason="Denied before the last gateway restart, and restored from the audit log.",
+            at=float(at),
+            refusals=int(refusals.get(key, 0)),
+        )
 
 
 __all__ = [
@@ -401,6 +442,7 @@ __all__ = [
     "DenialLatch",
     "LatchController",
     "LatchEvent",
+    "RestoredLatchState",
     "LatchEventKind",
     "TerminalDenial",
     "is_terminal_denial",

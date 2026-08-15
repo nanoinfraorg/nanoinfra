@@ -27,7 +27,7 @@ from nanoinfra.cli.webui_support import (
     _webui_channel_enabled,
     _webui_endpoint_reachable,
 )
-from nanoinfra.config.paths import is_default_workspace
+from nanoinfra.config.paths import get_data_dir, is_default_workspace
 from nanoinfra.config.schema import Config
 from nanoinfra.security.network import is_loopback_host
 from nanoinfra.session.keys import UNIFIED_SESSION_KEY, last_channel_from_metadata
@@ -58,6 +58,30 @@ def _echo_gate_policy(config: Any, cron: Any) -> None:
             logger.warning(warning)
     except Exception as exc:  # noqa: BLE001 -- a diagnostic must not break boot
         logger.debug("gates: could not report the effective policy: {}", exc)
+
+
+def _restore_gate_latches(config: Any) -> Any:
+    """Rebuild denial latches from the audit log (#32).
+
+    A restart used to drop every latch, and the agent can cause a restart: ExecTool is
+    mutate.local, #8 does not gate that class, and a supervisor brings the gateway back. So
+    deny, restart, retry was a loop that no human rate-limits.
+
+    A failure here returns a degraded state rather than no state. An unreadable audit log must
+    not read as "no latches", so every gated action then waits for an operator.
+    """
+    from nanoinfra.gates.audit import AuditStore
+    from nanoinfra.gates.latch_restore import RestoredLatches, restore_latches
+
+    try:
+        store = AuditStore(get_data_dir() / "gates", config=config.gates.audit)
+        restored = restore_latches(store)
+    except Exception as exc:  # noqa: BLE001 -- fail closed, and say so
+        logger.warning("gates: latch restore failed, latches stay closed: {}", exc)
+        return RestoredLatches(degraded=True)
+
+    logger.info(restored.summary())
+    return restored
 
 
 def _signal_name(signum: int) -> str:
@@ -648,6 +672,10 @@ def _run_gateway(
     # silent defaults, because Config accepts extras. So an operator who wrote a
     # permissive block must read the truth here, and not at the next scheduled run.
     _echo_gate_policy(config, cron)
+    # #32: a restart used to drop every denial latch, and the agent can cause a restart.
+    # The audit log is the only store a model cannot un-append, so latch state comes back
+    # from there. The state is reported now, and #33 hands it to the gate.
+    _restore_gate_latches(config)
 
     # Create channel manager (forwards SessionManager so the WebSocket channel
     # can serve the embedded webui's REST surface).
