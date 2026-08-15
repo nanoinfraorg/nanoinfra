@@ -6,6 +6,7 @@ import asyncio
 import ipaddress
 import re
 import socket
+import threading
 from contextlib import contextmanager, suppress
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -261,10 +262,30 @@ class UnsafeURLRequestError(httpx.RequestError):
     """Raised when an outgoing request is rejected by URL safety validation."""
 
 
+# One holder of the DNS pin per process. `pin_resolved_url_dns` patches `socket.getaddrinfo`,
+# which is a process global, so two holders at once would let one exit restore the other's
+# original resolver while a request still ran unpinned.
+#
+# A threading lock is the only primitive that reaches that far. The class used one asyncio.Lock,
+# and an asyncio.Lock binds to the first event loop that contends on it: a second loop then raised
+# "bound to a different event loop", and a second thread with its own loop was not guarded at all.
+_PIN_LOCK = threading.Lock()
+
+
+async def _acquire_pin() -> None:
+    """Take the process-wide pin, and keep this loop responsive while it waits.
+
+    The uncontended case takes the lock with no thread hop, which is every request in a
+    single-loop process. A waiter blocks in a worker thread instead, so one loop never stalls
+    because another loop holds the pin.
+    """
+    if _PIN_LOCK.acquire(blocking=False):
+        return
+    await asyncio.to_thread(_PIN_LOCK.acquire)
+
+
 class PinnedDNSAsyncTransport(httpx.AsyncBaseTransport):
     """HTTPX transport that pins each request to the IPs validated for its URL."""
-
-    _resolver_lock = asyncio.Lock()
 
     def __init__(
         self,
@@ -280,9 +301,14 @@ class PinnedDNSAsyncTransport(httpx.AsyncBaseTransport):
         ok, error, resolved_ips = resolve_url_target(url, allow_loopback=self._allow_loopback)
         if not ok:
             raise UnsafeURLRequestError(error, request=request)
-        async with self._resolver_lock:
+        await _acquire_pin()
+        try:
             with pin_resolved_url_dns(url, resolved_ips):
                 return await self._inner.handle_async_request(request)
+        finally:
+            # A raise must release the pin. A pin nothing releases stops every later request in
+            # this process.
+            _PIN_LOCK.release()
 
     async def aclose(self) -> None:
         await self._inner.aclose()
