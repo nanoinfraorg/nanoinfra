@@ -653,7 +653,16 @@ async def test_the_read_route_refuses_a_write_method(tmp_path: Path, executor: A
     assert response.status_code == 405
 
 
-async def test_the_answer_route_refuses_a_read_method(tmp_path: Path, executor: Any) -> None:
+async def test_the_answer_route_serves_the_method_the_transport_sends(
+    tmp_path: Path, executor: Any
+) -> None:
+    """This route demanded a POST, and the transport sends none.
+
+    The HTTP layer of the WebSocket channel serves GET alone. A POST reaches no route at all: the
+    server closes the connection with no response. So a POST requirement made the inbox unable to
+    answer anything, in every deployment, and no in-process test could see it. The answer travels
+    as a GET with a values header, the same as every other write in this repository.
+    """
     handler = _handler(tmp_path)
     running = executor()
     approval = running.suspend()
@@ -670,8 +679,8 @@ async def test_the_answer_route_refuses_a_read_method(tmp_path: Path, executor: 
         ),
     )
 
-    assert response.status_code == 405
-    assert running.surface().pending()["count"] == 1
+    assert response.status_code == 200
+    assert running.surface().pending()["count"] == 0
 
 
 async def test_the_answer_route_takes_the_actor_from_the_trusted_proxy(

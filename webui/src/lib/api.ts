@@ -1171,11 +1171,13 @@ export async function clearGatesLatch(
   values: GatesLatchClearValues,
   base: string = "",
 ): Promise<GatesLatchClearPayload> {
+  // A GET, and the values travel in a header. The HTTP layer of the WebSocket channel serves GET
+  // alone: a POST reaches no route, the server closes the connection with no response, and the
+  // operator reads "the gateway did not answer". Every write in this client works the same way.
   return request<GatesLatchClearPayload>(
     `${base}/api/webui/gates/latches/clear`,
     token,
     {
-      method: "POST",
       headers: {
         [LATCH_VALUES_HEADER]: JSON.stringify(values),
       },
@@ -1211,7 +1213,7 @@ export async function answerGatesApproval(
     `${base}/api/webui/gates/approvals/answer`,
     token,
     {
-      method: "POST",
+      // A GET for the same reason the latch clear is one: this transport serves no POST.
       headers: {
         [APPROVAL_VALUES_HEADER]: JSON.stringify(values),
       },

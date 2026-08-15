@@ -1309,6 +1309,11 @@ class GatewayHTTPHandler:
             return None
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
+        # The websockets Request carries no method, so a method guard is defence for a transport
+        # that one day does. It must never be the only control that keeps a write out of a read
+        # route. Over this transport every request arrives as a GET, and a POST reaches no route at
+        # all: the server closes the connection with no response. The answer route required a POST
+        # and was therefore unreachable, so the inbox could answer nothing.
         method = str(getattr(request, "method", "") or "").upper()
         if got == APPROVALS_READ_PATH:
             if method and method not in ("GET", "HEAD"):
@@ -1316,8 +1321,6 @@ class GatewayHTTPHandler:
             if self.approvals is None:
                 return _http_error(503, "the executor is not available on this gateway")
             return _http_json_response(self.approvals.pending())
-        if method and method != "POST":
-            return _http_error(405, "an approval answer is a POST")
         if self.approvals is None:
             return _http_error(503, "the executor is not available on this gateway")
         values = approval_values_from_request(request)
