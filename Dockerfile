@@ -63,9 +63,18 @@ COPY render-config.json ./
 #   nanoinfra-exec  the executor. Holds the plaintext credentials and writes the
 #                   audit log. No shell and no home of its own: it never logs in,
 #                   and its state lives in the shared data dir.
-#   nanoinfra-ipc   the shared group. Its only members are these two accounts, and
-#                   its only job is the executor socket directory (see entrypoint.sh).
-#                   The group carries no read rights on either account's files.
+#   nanoinfra-fetch the fetcher (item 16, nanoinfraorg/nanoinfra#19). web_fetch and
+#                   web_search run there, so untrusted web content enters this account.
+#                   It holds no credential and reaches no inventory host.
+#   nanoinfra-ipc   the executor's group. Its only members are the agent and the
+#                   executor, and its only job is the executor socket directory (see
+#                   entrypoint.sh). It carries no read rights on either account's files.
+#   nanoinfra-fetch-ipc  the fetcher's group, and the reason there are two groups. A
+#                   member of nanoinfra-ipc traverses the executor's socket directory and
+#                   connects to its socket. The fetcher inside that group could therefore
+#                   run a command on every inventory host, which is the one thing this
+#                   split exists to prevent. The agent belongs to both groups. Neither
+#                   helper belongs to the other's group.
 #
 # WARNING, and it is deliberate that this is written down. /app/.venv stays writable
 # by the agent, because an enabled channel may install its declared dependencies at
@@ -75,10 +84,15 @@ COPY render-config.json ./
 # it. A fully enforced split needs the executor on its own read-only interpreter.
 RUN useradd -m -u 1000 -s /bin/bash nanoinfra && \
     groupadd --system nanoinfra-ipc && \
+    groupadd --system nanoinfra-fetch-ipc && \
     useradd --system --uid 1001 --user-group --no-create-home \
         --home-dir /home/nanoinfra --shell /usr/sbin/nologin nanoinfra-exec && \
+    useradd --system --uid 1002 --user-group --no-create-home \
+        --home-dir /nonexistent --shell /usr/sbin/nologin nanoinfra-fetch && \
     usermod --append --groups nanoinfra-ipc nanoinfra && \
     usermod --append --groups nanoinfra-ipc nanoinfra-exec && \
+    usermod --append --groups nanoinfra-fetch-ipc nanoinfra && \
+    usermod --append --groups nanoinfra-fetch-ipc nanoinfra-fetch && \
     mkdir -p /home/nanoinfra/.nanoinfra && \
     chown -R nanoinfra:nanoinfra /home/nanoinfra /app/.venv
 
