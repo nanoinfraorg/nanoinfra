@@ -29,6 +29,33 @@ interface SecretFormProps {
  * API — so this form always starts with an empty value field, even when
  * editing, and always requires a fresh value before it will save.
  */
+const PUBLIC_KEY_PREFIXES = ["ssh-", "ecdsa-", "sk-"];
+
+/**
+ * Say what is wrong with an ssh_key value, or null when nothing is.
+ *
+ * An operator pasted a public key, then pasted a private key whose newlines a single-line input
+ * had replaced with spaces. Both stored fine and both answered `Permission denied` from the host,
+ * which reads as a server problem. The store refuses each one now, and this repeats the check here
+ * so the operator reads it before the save rather than after a failed action.
+ */
+export function privateKeyProblem(kind: string, value: string): string | null {
+  if (kind !== "ssh_key") return null;
+  const text = value.trim();
+  if (text.length === 0) return null;
+  const firstWord = text.split(/\s/)[0] ?? "";
+  if (PUBLIC_KEY_PREFIXES.some((prefix) => firstWord.startsWith(prefix))) {
+    return "This is a public key. An ssh_key secret holds the private half, so paste the key that starts with -----BEGIN.";
+  }
+  if (!text.startsWith("-----BEGIN")) {
+    return "A private key starts with -----BEGIN. Paste the whole file, including both marker lines.";
+  }
+  if (!text.includes("\n")) {
+    return "This key holds no line breaks, so no ssh client can parse it. Paste it again, or read it from the file with cat.";
+  }
+  return null;
+}
+
 export function SecretForm({ secret, onBack, onSave }: SecretFormProps) {
   const [name, setName] = useState(secret?.name ?? "");
   const [kind, setKind] = useState(secret?.kind ?? KIND_OPTIONS[0].value);
@@ -37,7 +64,12 @@ export function SecretForm({ secret, onBack, onSave }: SecretFormProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSave = name.trim().length > 0 && value.trim().length > 0 && !saving;
+  // The same rules the store enforces, checked before the request leaves. An operator must not
+  // learn about a collapsed paste from a `Permission denied` on a host hours later.
+  const needsMultiline = kind === "ssh_key";
+  const valueProblem = privateKeyProblem(kind, value);
+  const canSave =
+    name.trim().length > 0 && value.trim().length > 0 && !saving && valueProblem === null;
 
   const handleSave = useCallback(async () => {
     if (!canSave) return;
@@ -121,14 +153,37 @@ export function SecretForm({ secret, onBack, onSave }: SecretFormProps) {
             <span className="text-[11px] font-medium text-foreground/85">
               {secret ? "New value" : "Value"}
             </span>
-            <Input
-              type="password"
+            {/*
+              A textarea, and not a single-line input. An operator pasted an SSH private key into
+              the old input twice. The first time the paste could not fit, so they stored the
+              public half. The second time the input replaced every newline with a space, and no
+              ssh client can parse that. Both values answered `Permission denied` from the host,
+              which reads as a server problem rather than a form problem.
+
+              The value is not masked while it is typed. A key an operator pastes from their own
+              file is theirs to see, and masking cost more than it bought: it hid the collapse.
+              The value still never returns from the server once saved.
+            */}
+            <textarea
               autoComplete="off"
+              spellCheck={false}
+              rows={needsMultiline ? 8 : 2}
               value={value}
               onChange={(event) => setValue(event.target.value)}
-              placeholder={secret ? "Enter a new value to save" : "Enter secret value"}
-              className="mt-1 h-9 rounded-[10px] border-border/60 bg-muted/35 text-[13px]"
+              placeholder={
+                needsMultiline
+                  ? "-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----"
+                  : secret
+                    ? "Enter a new value to save"
+                    : "Enter secret value"
+              }
+              className="mt-1 w-full rounded-[10px] border border-border/60 bg-muted/35 px-2.5 py-2 font-mono text-[12px] leading-5 text-foreground outline-none"
             />
+            {valueProblem ? (
+              <span className="mt-1 block text-[11px] leading-4 text-destructive-text">
+                {valueProblem}
+              </span>
+            ) : null}
             <span className="mt-1 block text-[11px] leading-4 text-muted-foreground">
               {secret
                 ? "Secret values are never displayed again once saved — updating always requires a fresh value."
