@@ -1,0 +1,125 @@
+# An identity in front of the gateway -- nanoinfraorg/nanoinfra#75, #76, #77, #78.
+#
+# This stack is an example. It is not a deployment. Read README.md first.
+#
+# Three services, and each one does a job no other one does:
+#
+#   dex                signs the ID token, and holds the user list
+#   oauth2-proxy       runs the OIDC flow, and asserts the token as a header
+#   nanoinfra-gateway  verifies the signature, and reads the identity
+#
+# Every published port binds to host loopback. The gateway publishes no port,
+# because a second door into the gateway answers a request that carries no
+# identity. Every secret here is a named placeholder. Replace each one.
+
+name: nanoinfra-auth-example
+
+networks:
+  auth:
+    # The gateway trusts one peer address, so that address must be the same
+    # after every start. A fixed subnet gives each service a fixed address, and
+    # `trustedPeerCidrs` in config.json then names the proxy and nothing else.
+    # A host that already uses this subnet changes it here and in config.json.
+    ipam:
+      config:
+        - subnet: 10.89.0.0/24
+
+volumes:
+  # The gateway writes sessions, the gate audit log and its helper sockets here.
+  # A named volume keeps that state out of the reader's own ~/.nanoinfra, so this
+  # example cannot touch the installation the reader already runs.
+  gateway-data:
+
+services:
+  dex:
+    image: ghcr.io/dexidp/dex:v2.41.1
+    container_name: nanoinfra-auth-dex
+    restart: unless-stopped
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    volumes:
+      # Read-only, because this file is the user list. Dex reads it at start and
+      # writes it never.
+      - ./dex.yaml:/etc/dex/config.yaml:ro
+    ports:
+      # The browser loads the login form from Dex itself, so this port is
+      # published. Loopback only, because the form takes a password.
+      - "127.0.0.1:5556:5556"
+    networks:
+      auth:
+        ipv4_address: 10.89.0.2
+        aliases:
+          # The issuer is one string, and two parties read it. The browser
+          # follows it to the login form, and oauth2-proxy dials it for the
+          # discovery document. This name answers for both: a browser resolves
+          # any `.localhost` name to loopback, and Docker resolves this alias to
+          # the container.
+          - dex.localhost
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    container_name: nanoinfra-auth-proxy
+    restart: unless-stopped
+    depends_on:
+      - dex
+    command:
+      # Two files, because neither one holds what the other one must. The alpha
+      # file is the only place that names a request header of our own choice.
+      - --config=/etc/oauth2-proxy/oauth2-proxy.cfg
+      - --alpha-config=/etc/oauth2-proxy/oauth2-proxy.alpha.yaml
+    environment:
+      # This secret encrypts the session cookie. Write the real value into
+      # examples/auth/.env, which git ignores, rather than into this file.
+      OAUTH2_PROXY_COOKIE_SECRET: "${OAUTH2_PROXY_COOKIE_SECRET:-REPLACE-ME-cookie-secret-32-bytes}"
+    volumes:
+      - ./oauth2-proxy.cfg:/etc/oauth2-proxy/oauth2-proxy.cfg:ro
+      - ./oauth2-proxy.alpha.yaml:/etc/oauth2-proxy/oauth2-proxy.alpha.yaml:ro
+      # This file is the list that decides who reaches the agent at all. It is
+      # not the list that decides whose approval counts. README.md separates the
+      # two jobs.
+      - ./oauth2-proxy.emails:/etc/oauth2-proxy/oauth2-proxy.emails:ro
+    ports:
+      # The only door. The reader opens http://127.0.0.1:4180/.
+      - "127.0.0.1:4180:4180"
+    networks:
+      auth:
+        ipv4_address: 10.89.0.3
+
+  nanoinfra-gateway:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: nanoinfra-auth-gateway
+    restart: unless-stopped
+    command: ["gateway"]
+    depends_on:
+      - dex
+    environment:
+      # The model provider key. It arrives as an environment variable, so
+      # config.json holds no secret and a reader can copy that file safely.
+      # Write the real value into examples/auth/.env.
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-REPLACE-ME-provider-api-key}"
+    volumes:
+      - gateway-data:/home/nanoinfra/.nanoinfra
+      # Read-only, because this file names who may approve an action. The agent
+      # runs in this container, so a writable copy would let the agent edit the
+      # list that judges the agent. The Settings panel of the WebUI cannot save
+      # while this mount is read-only. That is the cost, and it is the right one.
+      - ./config.json:/home/nanoinfra/.nanoinfra/config.json:ro
+    # No `ports` key. oauth2-proxy reaches port 8765 on the network above, and a
+    # published port would accept a browser that ran no OIDC flow.
+    networks:
+      auth:
+        ipv4_address: 10.89.0.4
+    cap_drop:
+      - ALL
+    # These five exist for the boot phase only. The container starts as root, and
+    # the entrypoint needs them to put the executor on its own account. A uid
+    # change clears the permitted set, so neither the agent nor the executor
+    # holds one afterwards. docker-compose.yml in the repository root carries the
+    # full reason, capability by capability.
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
