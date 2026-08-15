@@ -64,6 +64,7 @@ from nanoinfra.webui.settings_api import (
     settings_usage_payload,
     update_agent_settings,
     update_api_settings,
+    update_gates_settings,
     update_image_generation_settings,
     update_model_call_order,
     update_model_configuration,
@@ -84,6 +85,8 @@ _CHANNEL_VALUES_HEADER = "X-Nanoinfra-Channel-Values"
 _CHANNEL_VALUES_HEADER_MAX_BYTES = 64 * 1024
 _API_SERVICE_VALUES_HEADER = "X-Nanoinfra-API-Service-Values"
 _API_SERVICE_VALUES_HEADER_MAX_BYTES = 8 * 1024
+_GATES_VALUES_HEADER = "X-Nanoinfra-Gates-Values"
+_GATES_VALUES_HEADER_MAX_BYTES = 64 * 1024
 _OAUTH_CODE_HEADER = "X-Nanoinfra-OAuth-Code"
 _OAUTH_CALLBACK_HEADER = "X-Nanoinfra-OAuth-Callback"
 _OAUTH_RESPONSE_HEADER_MAX_BYTES = 8 * 1024
@@ -186,6 +189,8 @@ class WebUISettingsRouter:
             return self._handle_settings_transcription_update(request)
         if path == "/api/settings/network-safety/update":
             return self._handle_settings_network_safety_update(request)
+        if path == "/api/settings/gates/update":
+            return self._handle_settings_gates_update(request)
         if path == "/api/settings/cli-apps":
             return await self._handle_settings_cli_apps(request)
         if path == "/api/settings/cli-apps/install":
@@ -684,6 +689,27 @@ class WebUISettingsRouter:
             return self._unauthorized()
         try:
             payload = update_network_safety_settings(self._query(request))
+        except WebUISettingsError as e:
+            return self._error_response(e.status, e.message)
+        return self._json_response(self._with_restart_state(payload, section="runtime"))
+
+    def _parse_gates_settings_query(self, request: WsRequest) -> QueryParams:
+        """Read the gate policy from a header, because a URL cannot carry a policy document."""
+        query = self._query(request)
+        raw = request.headers.get(_GATES_VALUES_HEADER)
+        if not raw:
+            return query
+        if len(raw.encode("utf-8")) > _GATES_VALUES_HEADER_MAX_BYTES:
+            raise WebUISettingsError("gate policy payload is too large")
+        merged = {key: list(values) for key, values in query.items()}
+        merged["policy"] = [raw]
+        return merged
+
+    def _handle_settings_gates_update(self, request: WsRequest) -> Response:
+        if not self._authorized(request):
+            return self._unauthorized()
+        try:
+            payload = update_gates_settings(self._parse_gates_settings_query(request))
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
         return self._json_response(self._with_restart_state(payload, section="runtime"))

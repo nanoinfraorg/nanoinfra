@@ -18,10 +18,12 @@ import threading
 import time
 from collections.abc import Iterable
 from contextlib import suppress
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, get_args
+from urllib.parse import unquote
 from zoneinfo import ZoneInfo
 
 import httpx
+from pydantic import ValidationError
 
 from nanoinfra import __version__
 from nanoinfra.agent.tools.web import SEARCH_PROVIDER_OPTIONS
@@ -30,6 +32,7 @@ from nanoinfra.audio.transcription_registry import (
     resolve_transcription_provider,
     transcription_provider_names,
 )
+from nanoinfra.config.gates import ContextPolicy, GatesConfig, ScopePolicy
 from nanoinfra.config.loader import (
     get_config_path,
     load_config,
@@ -1116,6 +1119,71 @@ def _transcription_provider_rows(config: Config) -> list[dict[str, Any]]:
     return rows
 
 
+def _gates_decision_choices() -> dict[str, list[str]]:
+    """Read the legal decisions from the schema, and not from a second list.
+
+    ``all`` returns one value only. The panel then renders fixed text for that field, so no
+    control can widen the scope. A schema change moves the option list without a UI change.
+    """
+    scope_fields = ScopePolicy.model_fields
+    context_fields = ContextPolicy.model_fields
+    return {
+        "mutate.remote": [str(value) for value in get_args(scope_fields["host"].annotation)],
+        "mutate.inventory": [
+            str(value) for value in get_args(context_fields["mutate_inventory"].annotation)
+        ],
+        "credential.access": [
+            str(value) for value in get_args(context_fields["credential_access"].annotation)
+        ],
+        "all": [str(value) for value in get_args(scope_fields["all"].annotation)],
+    }
+
+
+def _gates_default_markers(
+    effective: dict[str, Any],
+    defaults: dict[str, Any],
+    *,
+    prefix: str = "",
+) -> dict[str, bool]:
+    """Mark every field that still holds the shipped default value.
+
+    A default must not look like a choice. An operator who cannot tell a default from their own
+    decision cannot review their own policy, so the panel needs the origin of each value. A list
+    field compares as one value, because the operator adds or removes a whole row.
+    """
+    markers: dict[str, bool] = {}
+    for key, value in effective.items():
+        path = f"{prefix}{key}"
+        other = defaults.get(key)
+        if isinstance(value, dict) and isinstance(other, dict):
+            markers.update(
+                _gates_default_markers(
+                    cast(dict[str, Any], value),
+                    cast(dict[str, Any], other),
+                    prefix=f"{path}.",
+                )
+            )
+            continue
+        markers[path] = value == other
+    return markers
+
+
+def _gates_payload(gates: GatesConfig) -> dict[str, Any]:
+    """Return the effective gate policy, the origin of each value, and the legal decisions.
+
+    ``policy`` keeps the config key spelling: camelCase, plus the dotted capability-class names
+    from the schema aliases. The panel reads, writes, and displays one vocabulary, so nothing
+    translates keys between the panel, the save path, and config.json.
+    """
+    policy = gates.model_dump(mode="json", by_alias=True)
+    defaults = GatesConfig().model_dump(mode="json", by_alias=True)
+    return {
+        "policy": policy,
+        "from_default": _gates_default_markers(policy, defaults),
+        "choices": _gates_decision_choices(),
+    }
+
+
 def settings_payload(
     *,
     requires_restart: bool = False,
@@ -1333,6 +1401,7 @@ def settings_payload(
             "exec_sandbox": exec_config.sandbox or None,
             "exec_path_prepend_set": bool(exec_config.path_prepend),
             "exec_path_append_set": bool(exec_config.path_append),
+            "gates": _gates_payload(config.gates),
         },
         "requires_restart": requires_restart,
         "version": _version_payload(),
@@ -2055,6 +2124,107 @@ def update_network_safety_settings(query: QueryParams) -> dict[str, Any]:
         except ValueError as exc:
             raise WebUISettingsError(str(exc)) from exc
     return settings_payload(requires_restart=changed)
+
+
+def _gates_error_path(location: Iterable[Any]) -> str:
+    """Build the config key path for one validation failure."""
+    parts: list[str] = []
+    for item in location:
+        if isinstance(item, int):
+            parts.append(f"[{item}]")
+        elif parts:
+            parts.append(f".{item}")
+        else:
+            parts.append(str(item))
+    return "".join(parts)
+
+
+def _gates_error_message(exc: ValidationError) -> str:
+    """Name the key that failed. The operator then finds it in the panel and in config.json."""
+    errors = exc.errors()
+    if not errors:
+        return "gates: the policy is invalid"
+    first = errors[0]
+    path = _gates_error_path(first.get("loc") or ())
+    detail = str(first.get("msg") or "the value is invalid")
+    return f"gates.{path}: {detail}" if path else f"gates: {detail}"
+
+
+def _gates_required_text(value: str, key: str) -> str:
+    text = value.strip()
+    if not text:
+        raise WebUISettingsError(f"gates.{key}: this value must not be empty")
+    return text
+
+
+def _gates_normalize(gates: GatesConfig) -> None:
+    """Trim the list values, and refuse a row that names nothing.
+
+    A blank row reads as policy and enforces nothing. ``commands`` holds exact resolved command
+    strings, so a blank command matches no command at all. A grant with no host and a grant with
+    no context also match nothing. The save refuses each one instead of a silent dead row.
+    """
+    for index, approver in enumerate(gates.approvers):
+        approver.channel = _gates_required_text(approver.channel, f"approvers[{index}].channel")
+        approver.sender = _gates_required_text(approver.sender, f"approvers[{index}].sender")
+    gates.approval_paths = [
+        _gates_required_text(path, f"approvalPaths[{index}]")
+        for index, path in enumerate(gates.approval_paths)
+    ]
+    if gates.audit.retention_days < 1:
+        raise WebUISettingsError("gates.audit.retentionDays: use 1 day or more")
+    for index, grant in enumerate(gates.standing_grants):
+        key = f"standingGrants[{index}]"
+        if grant.id is not None:
+            grant.id = _gates_required_text(grant.id, f"{key}.id")
+        if not grant.contexts:
+            raise WebUISettingsError(f"gates.{key}.contexts: name at least one context")
+        grant.hosts = [
+            _gates_required_text(host, f"{key}.hosts[{position}]")
+            for position, host in enumerate(grant.hosts)
+        ]
+        if not grant.hosts:
+            raise WebUISettingsError(f"gates.{key}.hosts: name at least one host")
+        grant.commands = [
+            _gates_required_text(command, f"{key}.commands[{position}]")
+            for position, command in enumerate(grant.commands)
+        ]
+        if not grant.commands:
+            raise WebUISettingsError(f"gates.{key}.commands: name at least one command")
+
+
+def update_gates_settings(query: QueryParams) -> dict[str, Any]:
+    """Write the gate policy after a full round trip through ``GatesConfig``.
+
+    The schema refuses the invalid policy here, before the write. ``extra="forbid"`` catches a
+    mistyped key, and the ``Literal`` fields catch a widened ``all`` scope. Both become a named
+    error, so a mistake never becomes absent policy or a wider scope.
+    """
+    raw = _query_first(query, "policy")
+    if raw is None:
+        raise WebUISettingsError("policy is required")
+    try:
+        parsed: object = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        # A host name can hold a non-ASCII character, and a header must stay ASCII. The WebUI
+        # therefore percent-encodes the policy, as it does for the provider values header.
+        try:
+            parsed = json.loads(unquote(raw))
+        except json.JSONDecodeError:
+            raise WebUISettingsError("policy must be a JSON object") from exc
+    if not isinstance(parsed, dict):
+        raise WebUISettingsError("policy must be a JSON object")
+    try:
+        gates = GatesConfig.model_validate(cast(dict[str, Any], parsed))
+    except ValidationError as exc:
+        raise WebUISettingsError(_gates_error_message(exc)) from exc
+    _gates_normalize(gates)
+
+    config = load_config()
+    config.gates = gates
+    save_config(config)
+    # The gateway builds the gate runtime once at start, so a new policy needs a restart.
+    return settings_payload(requires_restart=True)
 
 
 def update_web_search_settings(query: QueryParams) -> dict[str, Any]:
