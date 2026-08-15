@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import os
 import site
 import ssl
@@ -56,6 +57,15 @@ _WRITES_TO_THE_REAL_INSTALLATION: list[tuple[str, str]] = []
 # an operator to bisect the suite by hand.
 _current_test_id = "before the first test"
 
+# One number per home directory. A counter needs no directory scan, and an xdist worker is its
+# own process, so two workers never read one counter.
+#
+# The number carries no test name, and that is deliberate rather than lazy. A home path reaches
+# a child process through HOME, and `tests/tools/test_exec_platform.py::test_secrets_excluded`
+# asserts that no value in the environment of a shell holds the word "secret". A directory named
+# after that test failed it. The guard below already names the test for the case that matters.
+_home_counter = itertools.count()
+
 
 @pytest.fixture(autouse=True)
 def _isolate_nanoinfra_log_activation() -> Iterator[None]:
@@ -67,10 +77,22 @@ def _isolate_nanoinfra_log_activation() -> Iterator[None]:
         logger.enable("nanoinfra")
 
 
+@pytest.fixture(scope="session")
+def _isolated_home_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """One directory that holds the home of every test in this worker (#45).
+
+    ``tmp_path_factory.mktemp`` scans the whole root to find the next number, so the price of one
+    call grows with the number of calls: 0.7 ms at the thousandth test and 3.1 ms at the seven
+    thousandth, which measured 21 seconds of a three minute run and rises as the suite grows. A
+    counter needs no scan.
+    """
+    return tmp_path_factory.mktemp("homes")
+
+
 @pytest.fixture(autouse=True)
 def _isolate_the_operator_installation(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path_factory: pytest.TempPathFactory,
+    _isolated_home_root: Path,
     request: pytest.FixtureRequest,
 ) -> Iterator[None]:
     """Give every test its own home, so the real installation is out of reach (#45).
@@ -97,7 +119,8 @@ def _isolate_the_operator_installation(
     """
     from nanoinfra.config import loader
 
-    home = tmp_path_factory.mktemp("home")
+    home = _isolated_home_root / f"{next(_home_counter):05d}"
+    home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setenv("PYTHONUSERBASE", REAL_USER_BASE)
