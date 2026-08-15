@@ -65,9 +65,11 @@ chmod 600 ~/.nanoinfra/config.json
 - Use WhatsApp sender IDs as full phone numbers with country code and no leading `+`
 - Review access logs regularly for unauthorized access attempts
 
+**Reachability, not authority:** `allowFrom` (`nanoinfra/channels/base.py:217`) and the pairing store (`nanoinfra/pairing/store.py`) decide who can reach the bot. They do not decide who can approve a privileged action. Operators put teammates in `allowFrom` so that those teammates can send messages to the bot. The pairing store adds an approved sender at runtime, after the bot delivers a code in chat. An approval decision for a privileged action must read neither list. Do not call `is_allowed()` or `is_approved()` to authorize an action.
+
 ### 3. Shell Command Execution
 
-The `exec` tool can execute shell commands. While dangerous command patterns are blocked, you should:
+The `exec` tool runs shell commands. The tool refuses a small set of literal destructive patterns (`nanoinfra/agent/tools/shell.py`). That check is not a security boundary. A model that writes shell can express the same effect in a form that the pattern list does not hold. Treat the check as a guard against an accident. Then apply these controls:
 
 - ✅ **Enable the bwrap sandbox** (`"tools.exec.sandbox": "bwrap"`) for kernel-level isolation (Linux only)
 - ✅ Review all tool usage in agent logs
@@ -86,16 +88,23 @@ On Linux, set `"tools.exec.sandbox": "bwrap"` to wrap every shell command in a [
 - System directories (`/usr`, `/bin`, `/lib`) → **read-only** (commands still work)
 - Config files and API keys (`~/.nanoinfra/config.json`) → **hidden** (masked by tmpfs)
 
+**The sandbox does not cover remote execution.** bwrap confines the gateway process. bwrap does not constrain remote execution. The command `ssh prod-db 'systemctl stop postgres'` meets every bwrap constraint. The sandbox creates no network namespace, so a command inside the sandbox still reaches the network.
+
+The `execute_on_server` tool opens its connection from the gateway process itself. `wrap_command` (`nanoinfra/agent/tools/sandbox.py`) never wraps that connection. A workspace bind, a masked config directory, and a read-only `/usr` do not limit a host that the agent reaches over SSH. The strongest control in this document does not cover the strongest available action.
+
 Requires `bwrap` installed (`apt install bubblewrap`). Pre-installed in the official Docker image. **Not available on macOS or Windows** — bubblewrap depends on Linux kernel namespaces.
 
 Enabling the sandbox also automatically activates `restrictToWorkspace` for file tools.
 
-**Blocked patterns:**
-- `rm -rf /` - Root filesystem deletion
+**Patterns the `exec` tool refuses** (`nanoinfra/agent/tools/shell.py`):
+- Recursive removal (`rm -r`, `rm -rf`, `rm -fr`) against any target, not only `/`
 - Fork bombs
-- Filesystem formatting (`mkfs.*`)
-- Raw disk writes
-- Other destructive operations
+- Filesystem format commands (`mkfs`, `diskpart`, standalone `format`)
+- Raw disk writes (`dd if=`, redirects to `/dev/sd*`)
+- System power commands (`shutdown`, `reboot`, `poweroff`)
+- Direct writes to nanoinfra internal state files
+
+The list holds literal patterns. Another spelling of the same command passes the check. The list applies to the local `exec` tool only. `execute_on_server` does not consult it. See [Known Limitations](#known-limitations).
 
 ### 4. File System Access
 
@@ -189,7 +198,7 @@ For production use:
 **Production:**
 - Use dedicated API keys with spending limits
 - Restrict file system access
-- Enable audit logging
+- Monitor the application log, because nanoinfra ships no audit log yet (see [Known Limitations](#known-limitations))
 - Regular security reviews
 - Monitor for unusual activity
 
@@ -220,12 +229,13 @@ If you suspect a security breach:
 
 ✅ **Input Validation**
 - Path traversal protection on file operations
-- Dangerous command pattern detection
 - Input length limits on HTTP requests
+- Remote execution targets validated by `nanoinfra/servers/network_guard.py`, which blocks loopback, link-local, cloud metadata, and the unspecified address. The guard allows RFC1918 on purpose. The `ssm` provider dials no address and relies on IAM instead
 
 ✅ **Authentication**
 - Allow-list based access control — in `v0.1.4.post3` and earlier empty `allowFrom` allowed all; since `v0.1.4.post4` it denies all (`["*"]` explicitly allows all)
 - Failed authentication attempt logging
+- The allow-list and the pairing store control reachability only. They authorize no action. See [Channel Access Control](#2-channel-access-control)
 
 ✅ **Resource Protection**
 - Command execution timeouts (60s default)
@@ -244,8 +254,9 @@ If you suspect a security breach:
 1. **No Rate Limiting** - Users can send unlimited messages (add your own if needed)
 2. **Plain Text Config** - API keys stored in plain text in `config.json` (prefer `${VAR}` env references when possible, or use keyring for production)
 3. **No Session Management** - No automatic session expiry
-4. **Limited Command Filtering** - Only blocks obvious dangerous patterns (enable the bwrap sandbox for kernel-level isolation on Linux)
-5. **No Audit Trail** - Limited security event logging (enhance as needed)
+4. **Command Pattern Match Is Not A Boundary** - The `exec` tool refuses a small set of literal destructive patterns (`nanoinfra/agent/tools/shell.py`). This is not a boundary against a model that composes shell. `rm -rf /`, fork bombs, and `mkfs.*` are all expressible in forms that a matcher does not catch. The list applies to the local `exec` tool only, and `execute_on_server` does not consult it. Enable the bwrap sandbox for kernel-level isolation of local commands on Linux.
+5. **No Audit Trail** - Security event logs are limited. nanoinfra writes the decision that a capability gate would make into the application log (`nanoinfra/agent/tools/capabilities.py`). nanoinfra enforces no gate decision today. No append-only audit store exists yet, and no retention setting exists for one.
+6. **No Gate On Remote Execution** - `execute_on_server` is the highest-consequence tool in the system. The tool defaults to `dry_run=true`, and its description tells the model to get an explicit user confirmation first. That default is a model-visible convention, not an enforced control. Neither bwrap nor the `exec` pattern list applies to this path. The network guard blocks loopback, link-local, and metadata targets only, and it allows RFC1918 on purpose.
 
 ## Security Checklist
 
@@ -255,17 +266,22 @@ Before deploying nanoinfra:
 - [ ] Config file permissions set to 0600
 - [ ] `allowFrom` lists configured for all channels
 - [ ] Running as non-root user
-- [ ] Exec sandbox enabled (`"tools.exec.sandbox": "bwrap"`) on Linux deployments
+- [ ] Exec sandbox enabled (`"tools.exec.sandbox": "bwrap"`) on Linux deployments — this covers local commands only
 - [ ] File system permissions properly restricted
 - [ ] Dependencies updated to latest secure versions
 - [ ] Logs monitored for security events
 - [ ] Rate limits configured on API providers
 - [ ] Backup and disaster recovery plan in place
 - [ ] Security review of custom skills/tools
+- [ ] `gates.unattended` reviewed for every unattended context (cron automations, sustained goals, subagents)
+- [ ] Standing grants scoped to non-production hosts where possible
+- [ ] Audit retention set for the gate records
+
+nanoinfra does not enforce the capability gate yet. The gate proposal (nanoinfraorg/nanoinfra#2) defines `gates.unattended`, the standing grants, and the audit records. Review the last three items when your release ships those settings.
 
 ## Updates
 
-**Last Updated**: 2026-07-21
+**Last Updated**: 2026-08-14
 
 For the latest security updates and announcements, check:
 - GitHub Security Advisories: https://github.com/nanoinfraorg/nanoinfra/security/advisories
