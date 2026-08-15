@@ -194,23 +194,37 @@ def _address_matches_network(
     return mapped is not None and mapped in network
 
 
-def is_trusted_proxy_authenticated_request(
+def trusted_proxy_peer_assertion(
     connection: Any,
     headers: Any,
-    config: Any,
-) -> bool:
-    """Return True when a configured proxy peer presents a non-empty assertion."""
-    trusted_proxy_auth = getattr(config, "trusted_proxy_auth", None)
+    trusted_proxy_auth: Any,
+) -> str:
+    """Return the raw assertion when a trusted proxy peer sent one, else an empty string.
+
+    This is the peer check and nothing more. It proves that the TCP peer sits inside
+    ``trustedPeerCidrs`` and that the assertion header is not empty. It proves **nothing about
+    the person**, so it must not be read as an authentication (nanoinfraorg/nanoinfra#58).
+
+    The function used to answer a boolean named ``is_trusted_proxy_authenticated_request``, and
+    that name was the whole gap: anything that reached the gateway from the trusted CIDR could
+    invent a person. ``assertion_identity.TrustedProxyAuthenticator`` is the only caller that
+    turns this string into an identity, and on the ``jwt`` path it verifies a signature first.
+
+    ``trusted_proxy_auth`` is the block itself rather than the channel config, so a caller
+    cannot pass a config whose block is missing and receive a value.
+    """
     if trusted_proxy_auth is None:
-        return False
+        return ""
     address = _connection_ip(connection)
     if address is None:
-        return False
+        return ""
     networks = getattr(trusted_proxy_auth, "_trusted_peer_networks", ())
     if not any(_address_matches_network(address, network) for network in networks):
-        return False
+        return ""
     assertion_header = getattr(trusted_proxy_auth, "assertion_header", "")
-    return bool(case_insensitive_header(headers, assertion_header))
+    if not assertion_header:
+        return ""
+    return case_insensitive_header(headers, assertion_header)
 
 
 def _host_without_port(value: str) -> str:

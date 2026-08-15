@@ -47,6 +47,10 @@ from nanoinfra.webui.approvals_api import (
     ApprovalsOperatorSurface,
     approval_values_from_request,
 )
+from nanoinfra.webui.assertion_identity import (
+    TrustedProxyAuthenticator,
+    build_trusted_proxy_authenticator,
+)
 from nanoinfra.webui.audit_api import (
     AUDIT_READ_PATH,
     AuditReadSurface,
@@ -88,9 +92,6 @@ from nanoinfra.webui.http_utils import (
 )
 from nanoinfra.webui.http_utils import (
     is_localhost as _is_localhost,
-)
-from nanoinfra.webui.http_utils import (
-    is_trusted_proxy_authenticated_request as _is_trusted_proxy_authenticated_request,
 )
 from nanoinfra.webui.http_utils import (
     issue_route_secret_matches as _issue_route_secret_matches,
@@ -279,6 +280,13 @@ class GatewayHTTPHandler:
         log: Any = logger,
     ) -> None:
         self.config = config
+        # The seam that turns a proxy assertion into an identity (#62), built on first use and
+        # kept while the config block stays the same object. The WebSocket handshake reads it
+        # through this handler as well, so both admission points share one JWKS cache and one
+        # rate limit. A replaced block rebuilds it, because a stale authenticator would keep
+        # verifying against the issuer an operator has already changed.
+        self._trusted_proxy: TrustedProxyAuthenticator | None = None
+        self._trusted_proxy_block: Any = None
         self.session_manager = session_manager
         self.static_dist_path = static_dist_path
         self.runtime_model_name = runtime_model_name
@@ -361,6 +369,18 @@ class GatewayHTTPHandler:
 
     # -- Token management ---------------------------------------------------
 
+    def trusted_proxy_authenticator(self) -> TrustedProxyAuthenticator | None:
+        """The identity seam for the current config block, or None when no proxy is configured."""
+        proxy = cast(Any, getattr(self.config, "trusted_proxy_auth", None))
+        if proxy is None:
+            self._trusted_proxy = None
+            self._trusted_proxy_block = None
+            return None
+        if self._trusted_proxy_block is not proxy:
+            self._trusted_proxy = build_trusted_proxy_authenticator(self.config, log=self._log)
+            self._trusted_proxy_block = proxy
+        return self._trusted_proxy
+
     def check_api_token(self, request: WsRequest) -> bool:
         if getattr(request, "_nanoinfra_trusted_proxy_authenticated", False):
             return True
@@ -373,11 +393,15 @@ class GatewayHTTPHandler:
         got, _ = _parse_request_path(request.path)
         started = time.perf_counter()
         response: Any | None = None
-        setattr(
-            request,
-            "_nanoinfra_trusted_proxy_authenticated",
-            _is_trusted_proxy_authenticated_request(connection, request.headers, self.config),
-        )
+        # One evaluation per request, before any route reads it. A `jwt` assertion needs a key
+        # and therefore an await, so this is the only place that can decide it, and every route
+        # below reads the two attributes rather than repeating the check.
+        identity = ""
+        authenticator = self.trusted_proxy_authenticator()
+        if authenticator is not None:
+            identity = await authenticator.authenticate(connection, request.headers)
+        setattr(request, "_nanoinfra_trusted_proxy_authenticated", bool(identity))
+        setattr(request, "_nanoinfra_trusted_proxy_identity", identity)
 
         try:
             response = await self._dispatch_resolved(connection, request, got)
@@ -504,10 +528,11 @@ class GatewayHTTPHandler:
     def _handle_bootstrap(self, connection: Any, request: Any) -> Response:
         secret = self.config.token_issue_secret.strip() or self.config.token.strip()
         is_local_browser = _is_local_browser_request(connection, request.headers)
-        is_proxy_authenticated = _is_trusted_proxy_authenticated_request(
-            connection,
-            request.headers,
-            self.config,
+        # ``dispatch`` decided this already. Reading the flag rather than repeating the check
+        # keeps one evaluation per request: a second one would verify the same signature twice
+        # and log a refusal twice, and the two could disagree if either call site drifted.
+        is_proxy_authenticated = bool(
+            getattr(request, "_nanoinfra_trusted_proxy_authenticated", False)
         )
         if not is_proxy_authenticated:
             if secret:

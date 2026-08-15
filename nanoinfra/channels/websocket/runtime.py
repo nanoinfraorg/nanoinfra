@@ -12,7 +12,7 @@ import uuid
 from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, Self, TypeGuard, cast
+from typing import Any, Literal, Self, TypeGuard, cast
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import Field, PrivateAttr, field_validator, model_validator
@@ -59,12 +59,10 @@ from nanoinfra.session.webui_turns import (
     websocket_turn_transcript_persistence_failed,
     websocket_turn_wall_started_at,
 )
+from nanoinfra.webui.assertion_identity import describe_trusted_proxy_posture
 from nanoinfra.webui.cli_apps_api import normalize_cli_app_mentions
 from nanoinfra.webui.forking import handle_webui_fork_chat
 from nanoinfra.webui.gateway_services import GatewayServices
-from nanoinfra.webui.http_utils import (
-    is_trusted_proxy_authenticated_request as _is_trusted_proxy_authenticated_request,
-)
 from nanoinfra.webui.http_utils import (
     normalize_config_path as _normalize_config_path,
 )
@@ -113,11 +111,53 @@ def _is_routing_assertion_header(value: str) -> bool:
     return normalized in _ROUTING_ASSERTION_HEADERS or normalized.startswith("x-forwarded-")
 
 
+# The fields only a ``jwt`` block reads, and the camelCase name an operator wrote. A ``plain``
+# block that carries one of these refuses, because a field that does nothing must not look like
+# a field that does something: an operator who writes allowedIdentities under ``plain`` believes
+# the gateway enforces it, and on that path the proxy alone decides (#62).
+_JWT_ONLY_FIELDS: tuple[tuple[str, str], ...] = (
+    ("issuer", "issuer"),
+    ("audience", "audience"),
+    ("jwks_url", "jwksUrl"),
+    ("jwks", "jwks"),
+    ("identity_claim", "identityClaim"),
+    ("allowed_identities", "allowedIdentities"),
+    ("required_claims", "requiredClaims"),
+    ("allow_any_verified_identity", "allowAnyVerifiedIdentity"),
+)
+
+# The sentence every refusal below ends with. It is a constant because the wording is the
+# feature: an operator who reads it can either finish the block or choose the older posture.
+_PLAIN_ESCAPE_HATCH = (
+    'write "assertionFormat": "plain" to keep the older CIDR-only trust, '
+    "in which the proxy alone decides who reaches the agent"
+)
+
+
 class TrustedProxyAuthConfig(Base):
-    """Authentication assertions accepted from explicitly trusted proxy peers."""
+    """Authentication assertions accepted from explicitly trusted proxy peers.
+
+    ``assertionFormat`` decides what arrives. ``jwt`` is the default and its signature is
+    verified (#58). ``plain`` keeps the older CIDR-only trust, because a bare string carries no
+    signature and no amount of code makes one verifiable.
+
+    The schema refuses a half-written ``jwt`` block rather than failing the first handshake. An
+    operator reads a startup failure that names the field. Nobody reads a handshake that
+    silently never works.
+    """
 
     trusted_peer_cidrs: list[str] = Field(min_length=1)
     assertion_header: str = Field(min_length=1)
+    assertion_format: Literal["jwt", "plain"] = "jwt"
+    issuer: str = ""
+    audience: str = ""
+    jwks_url: str = ""
+    jwks: dict[str, Any] | None = None
+    identity_claim: str = "email"
+    # Who may enter, which is not the same list as whose approval counts (#62).
+    allowed_identities: list[str] = Field(default_factory=list[str])
+    required_claims: dict[str, str] = Field(default_factory=dict[str, str])
+    allow_any_verified_identity: bool = False
     _trusted_peer_networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = PrivateAttr(
         default=()
     )
@@ -155,11 +195,107 @@ class TrustedProxyAuthConfig(Base):
             )
         return value
 
+    @field_validator("issuer", "audience", "identity_claim", "jwks_url")
+    @classmethod
+    def strip_text_field(cls, value: str) -> str:
+        """Strip every text field, so a blank string reaches one rule instead of three.
+
+        A value of ``"   "`` is not a value. Accepting one would put an empty issuer into an
+        exact compare, and every token would then match it.
+        """
+        return value.strip()
+
+    @field_validator("jwks_url")
+    @classmethod
+    def validate_jwks_url(cls, value: str) -> str:
+        if not value:
+            return ""
+        parsed = urlsplit(value)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise ValueError("jwksUrl must be an absolute http:// or https:// URL with a host")
+        return value
+
+    @field_validator("jwks")
+    @classmethod
+    def validate_static_jwks(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Refuse a static key set that holds no usable RS256 signing key.
+
+        This fails closed at load. Such a block would refuse every assertion at run time
+        instead, and a handshake that never works reaches no operator.
+        """
+        if value is None:
+            return None
+        from nanoinfra.webui.assertion_jwt import key_set_from_jwks
+
+        if not key_set_from_jwks(value):
+            raise ValueError("jwks holds no usable RS256 signing key with a kid")
+        return value
+
+    @field_validator("allowed_identities")
+    @classmethod
+    def validate_allowed_identities(cls, values: list[str]) -> list[str]:
+        cleaned = [value.strip() for value in values if value.strip()]
+        if len(cleaned) != len(values):
+            raise ValueError("allowedIdentities must hold no blank entry")
+        return cleaned
+
     @model_validator(mode="after")
     def compile_trusted_peer_networks(self) -> Self:
         self._trusted_peer_networks = tuple(
             ipaddress.ip_network(value, strict=False) for value in self.trusted_peer_cidrs
         )
+        return self
+
+    @model_validator(mode="after")
+    def validate_assertion_format_fields(self) -> Self:
+        """Refuse a block that half declares one posture and half declares the other.
+
+        ``model_fields_set`` names the fields the operator wrote, so a default never counts as
+        a declaration. That distinction matters for ``identityClaim``, which has a default and
+        must still be refused when a ``plain`` block names it.
+        """
+        if self.assertion_format == "plain":
+            written = [
+                alias for name, alias in _JWT_ONLY_FIELDS if name in self.model_fields_set
+            ]
+            if written:
+                raise ValueError(
+                    f'assertionFormat is "plain", so {", ".join(written)} '
+                    "would be read by nothing; remove them, or set "
+                    '"assertionFormat": "jwt" to have the assertion verified'
+                )
+            return self
+
+        missing = [
+            alias
+            for name, alias in (
+                ("issuer", "issuer"),
+                ("audience", "audience"),
+                ("identity_claim", "identityClaim"),
+            )
+            if not str(getattr(self, name, "")).strip()
+        ]
+        if missing:
+            raise ValueError(
+                f'assertionFormat "jwt" requires {", ".join(missing)}; {_PLAIN_ESCAPE_HATCH}'
+            )
+        if bool(self.jwks_url) == (self.jwks is not None):
+            # Two sources are two answers for one kid, and none is no answer at all.
+            raise ValueError(
+                f'assertionFormat "jwt" requires exactly one of jwksUrl or jwks; '
+                f"{_PLAIN_ESCAPE_HATCH}"
+            )
+        if not (self.allowed_identities or self.required_claims or self.allow_any_verified_identity):
+            # #62. There is no implicit "every verified identity may enter". In trusted-proxy
+            # mode the assertion alone authorizes the handshake and the REST routes, so a block
+            # that names nobody would hand a chat session to every account the provider signs
+            # for. gates.approvers is a different list and gives no warning about this one.
+            raise ValueError(
+                'assertionFormat "jwt" requires allowedIdentities or requiredClaims, because '
+                "the assertion alone authorizes a chat session with the agent; set "
+                '"allowAnyVerifiedIdentity": true to state that every identity the provider '
+                "signs for may enter"
+            )
         return self
 
 
@@ -546,18 +682,26 @@ class WebSocketChannel(BaseChannel):
                 client_id = client_id[:128]
             if not self.is_allowed(client_id):
                 return connection.respond(403, "Forbidden")
-            return self._authorize_websocket_handshake(connection, query, request.headers)
+            return await self._authorize_websocket_handshake(connection, query, request.headers)
 
         # Everything else goes to the HTTP handler
         return await self._http_router.dispatch(connection, request)
 
-    def _authorize_websocket_handshake(
+    async def _authorize_websocket_handshake(
         self,
         connection: ServerConnection,
         query: dict[str, list[str]],
         headers: Any = None,
     ) -> Any:
-        if _is_trusted_proxy_authenticated_request(connection, headers or {}, self.config):
+        """Admit a handshake, and say nothing to the client about why it was refused.
+
+        The trusted-proxy check runs first and it is awaited, because a `jwt` assertion needs a
+        signing key and a key can need a fetch (#59). A refusal falls through to the token
+        checks below, so an unauthorized client reads the same 401 it would read with no
+        assertion header at all. It learns that it is not authorized and it learns no rule.
+        """
+        proxy = self._http_router.trusted_proxy_authenticator()
+        if proxy is not None and await proxy.authenticate(connection, headers or {}):
             self._webui_connections.add(connection)
             return None
 
@@ -617,6 +761,13 @@ class WebSocketChannel(BaseChannel):
                 else f"{scheme}://{self.config.host}:{self.config.port}{self.config.path}"
             ),
         )
+        # The identity posture, named at every start (#62). A posture an operator can forget
+        # about is a posture that surprises them at the first approval that does not count.
+        posture = describe_trusted_proxy_posture(self.config.trusted_proxy_auth)
+        if posture.warn:
+            self.logger.warning(posture.message)
+        else:
+            self.logger.info(posture.message)
         if self.config.token_issue_path:
             self.logger.info(
                 "WebSocket token issue route: {}",

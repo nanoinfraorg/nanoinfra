@@ -189,9 +189,20 @@ def operator_actor(request: Any, config: Any) -> str:
     """
     if not getattr(request, "_nanoinfra_trusted_proxy_authenticated", False):
         return _PATH_ACTOR
-    proxy = getattr(config, "trusted_proxy_auth", None)
-    header = str(getattr(proxy, "assertion_header", "") or "")
-    asserted = case_insensitive_header(request.headers, header).strip() if header else ""
+    # ``ws_http.dispatch`` resolved the identity once, and on the `jwt` path that meant
+    # verifying a signature and applying the access rules (#58, #62). This reads the answer
+    # rather than the header, because the header on that path carries the whole token, and an
+    # actor named after a token prefix names nobody.
+    asserted = str(getattr(request, "_nanoinfra_trusted_proxy_identity", "") or "").strip()
+    if not asserted:
+        proxy = getattr(config, "trusted_proxy_auth", None)
+        # The `plain` path is the one case where the header value *is* the identity, and it is
+        # read here only for a caller that set the flag without resolving an identity. A `jwt`
+        # block falls through to the path actor instead, which is the fail-closed answer.
+        if str(getattr(proxy, "assertion_format", "jwt") or "") != "plain":
+            return _PATH_ACTOR
+        header = str(getattr(proxy, "assertion_header", "") or "")
+        asserted = case_insensitive_header(request.headers, header).strip() if header else ""
     if not asserted:
         return _PATH_ACTOR
     return f"{_PATH_ACTOR}:{asserted[:_MAX_ACTOR_CHARS]}"

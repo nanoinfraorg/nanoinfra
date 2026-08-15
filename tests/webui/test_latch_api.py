@@ -523,7 +523,8 @@ def test_the_actor_is_the_path_when_no_proxy_asserts_an_identity() -> None:
     assert operator_actor(request, SimpleNamespace(trusted_proxy_auth=None)) == "webui"
 
 
-def test_a_trusted_proxy_assertion_names_the_operator() -> None:
+def test_a_plain_assertion_names_the_operator_from_the_header() -> None:
+    """On the ``plain`` path the header value is the identity, because nothing else exists."""
     request = SimpleNamespace(
         path=LATCH_CLEAR_PATH,
         headers=Headers([("Cf-Access-Authenticated-User-Email", "ops@example.com")]),
@@ -531,11 +532,54 @@ def test_a_trusted_proxy_assertion_names_the_operator() -> None:
     setattr(request, "_nanoinfra_trusted_proxy_authenticated", True)
     config = SimpleNamespace(
         trusted_proxy_auth=SimpleNamespace(
-            assertion_header="Cf-Access-Authenticated-User-Email"
+            assertion_header="Cf-Access-Authenticated-User-Email",
+            assertion_format="plain",
         )
     )
 
     assert operator_actor(request, config) == "webui:ops@example.com"
+
+
+def test_a_verified_assertion_names_the_identity_the_dispatch_resolved() -> None:
+    """On the ``jwt`` path the header holds the whole token, so the actor comes from the claim.
+
+    ``ws_http.dispatch`` verified the signature and applied the access rules, and it recorded
+    the claim value on the request (#58, #62). Reading the header here would name the actor
+    after a token prefix.
+    """
+    token = "eyJhbGciOiAiUlMyNTYifQ.eyJlbWFpbCI6ICJvcHNAZXhhbXBsZS5jb20ifQ.c2ln"
+    request = SimpleNamespace(
+        path=LATCH_CLEAR_PATH,
+        headers=Headers([("X-Access-Token", token)]),
+    )
+    setattr(request, "_nanoinfra_trusted_proxy_authenticated", True)
+    setattr(request, "_nanoinfra_trusted_proxy_identity", "ops@example.com")
+    config = SimpleNamespace(
+        trusted_proxy_auth=SimpleNamespace(
+            assertion_header="X-Access-Token",
+            assertion_format="jwt",
+        )
+    )
+
+    assert operator_actor(request, config) == "webui:ops@example.com"
+
+
+def test_a_verified_path_with_no_resolved_identity_falls_back_to_the_path() -> None:
+    """Fail closed. A `jwt` header is a token, and a token prefix is not a person."""
+    token = "eyJhbGciOiAiUlMyNTYifQ.eyJlbWFpbCI6ICJvcHNAZXhhbXBsZS5jb20ifQ.c2ln"
+    request = SimpleNamespace(
+        path=LATCH_CLEAR_PATH,
+        headers=Headers([("X-Access-Token", token)]),
+    )
+    setattr(request, "_nanoinfra_trusted_proxy_authenticated", True)
+    config = SimpleNamespace(
+        trusted_proxy_auth=SimpleNamespace(
+            assertion_header="X-Access-Token",
+            assertion_format="jwt",
+        )
+    )
+
+    assert operator_actor(request, config) == "webui"
 
 
 def test_an_untrusted_peer_cannot_name_itself() -> None:
@@ -546,7 +590,8 @@ def test_an_untrusted_peer_cannot_name_itself() -> None:
     )
     config = SimpleNamespace(
         trusted_proxy_auth=SimpleNamespace(
-            assertion_header="Cf-Access-Authenticated-User-Email"
+            assertion_header="Cf-Access-Authenticated-User-Email",
+            assertion_format="plain",
         )
     )
 

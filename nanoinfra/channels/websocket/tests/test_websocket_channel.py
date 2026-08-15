@@ -541,18 +541,19 @@ async def test_plain_websocket_message_does_not_mark_webui(bus: MagicMock) -> No
     assert RUNTIME_CONTEXT_INPUT_META not in msg.metadata
 
 
-def test_only_bootstrap_tokens_mark_webui_connections(bus: MagicMock) -> None:
+async def test_only_bootstrap_tokens_mark_webui_connections(bus: MagicMock) -> None:
+    """The handshake awaits, because a `jwt` assertion needs a signing key (#58, #59)."""
     channel = _ch(bus)
     webui_connection = MagicMock()
     client_connection = MagicMock()
     webui_token = channel.gateway.tokens.issue_token(300, audience="webui")
     client_token = channel.gateway.tokens.issue_token(300)
 
-    assert channel._authorize_websocket_handshake(
+    assert await channel._authorize_websocket_handshake(
         webui_connection,
         {"token": [webui_token]},
     ) is None
-    assert channel._authorize_websocket_handshake(
+    assert await channel._authorize_websocket_handshake(
         client_connection,
         {"token": [client_token]},
     ) is None
