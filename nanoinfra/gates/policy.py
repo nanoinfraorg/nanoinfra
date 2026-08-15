@@ -73,7 +73,20 @@ class Decision:
     resolved_targets: tuple[str, ...] = ()
 
 
-def _resolved_grant_hosts(servers: Any, grant_hosts: Sequence[str]) -> set[str]:
+def resolve_scope_for_grant_host(server: Any) -> Any:
+    """Resolve one grant host. A seam, so a caller can count the resolves (#35).
+
+    A real resolve runs `ansible-inventory` and costs about a quarter of a second, so the number
+    of calls per decision is a property worth testing rather than guessing.
+    """
+    from nanoinfra.servers.scope import resolve_scope
+
+    return resolve_scope(server)
+
+
+def _resolved_grant_hosts(
+    servers: Any, grant_hosts: Sequence[str], cache: dict[str, set[str]] | None = None
+) -> set[str]:
     """Resolve each grant host through the resolver the action used (#24).
 
     A grant lists inventory names, and a name is mutable. #23 stops an unattended context
@@ -87,16 +100,28 @@ def _resolved_grant_hosts(servers: Any, grant_hosts: Sequence[str]) -> set[str]:
     because a resolved action never carries a bare inventory label.
     """
     from nanoinfra.servers.lookup import resolve_server
-    from nanoinfra.servers.scope import ScopeResolutionError, resolve_scope
+    from nanoinfra.servers.scope import ScopeResolutionError
 
     resolved: set[str] = set()
     for entry in grant_hosts:
+        # One resolve per host per decision (#35). Every grant is checked against the same
+        # action, so several grants naming one host would otherwise each pay for it. The cache
+        # lives for this call and no longer: #24 re-resolves on purpose, so an inventory write
+        # between two actions must still invalidate a match.
+        if cache is not None and entry in cache:
+            resolved.update(cache[entry])
+            continue
         server = resolve_server(servers, entry)
         if server is None:
             resolved.add(entry)
+            if cache is not None:
+                cache[entry] = {entry}
             continue
         try:
-            resolved.update(resolve_scope(server).hosts)
+            hosts = set(resolve_scope_for_grant_host(server).hosts)
+            resolved.update(hosts)
+            if cache is not None:
+                cache[entry] = hosts
         except ScopeResolutionError:
             # A grant host that will not resolve cannot be checked, so it grants nothing.
             # Dropping it is the fail-closed direction: the action's own hosts stay
@@ -130,6 +155,7 @@ def _grant_matches(
     hosts: Sequence[str],
     command: str,
     servers: Any = None,
+    cache: dict[str, set[str]] | None = None,
 ) -> bool:
     """True when this grant covers the whole action.
 
@@ -144,7 +170,11 @@ def _grant_matches(
     # With an inventory, compare resolved targets (#24). Without one, compare labels: an
     # inventory write reaches no host, so #23's caller has nothing to resolve, and every
     # caller before #24 already compared labels.
-    allowed = _resolved_grant_hosts(servers, grant_hosts) if servers is not None else set(grant_hosts)
+    allowed = (
+        _resolved_grant_hosts(servers, grant_hosts, cache)
+        if servers is not None
+        else set(grant_hosts)
+    )
     return all(host in allowed for host in hosts)
 
 
@@ -155,12 +185,18 @@ def _matching_grant_id(
     hosts: Sequence[str],
     command: str,
     servers: Any = None,
+    cache: dict[str, set[str]] | None = None,
 ) -> str | None:
     for index, grant in enumerate(gates.standing_grants):
         if context_key not in grant.contexts:
             continue
         if _grant_matches(
-            grant.hosts, grant.commands, hosts=hosts, command=command, servers=servers
+            grant.hosts,
+            grant.commands,
+            hosts=hosts,
+            command=command,
+            servers=servers,
+            cache=cache,
         ):
             return grant.id or f"grant[{index}]"
     return None
@@ -183,6 +219,8 @@ def evaluate(
     is correct for #23's inventory writes, since an inventory write reaches no host.
     """
     host_tuple = tuple(hosts)
+    # One resolve per grant host for this decision, and nothing survives the call (#35).
+    resolve_cache: dict[str, set[str]] = {}
     unattended = execution_context != EXECUTION_CONTEXT_INTERACTIVE
     context_key = "unattended" if unattended else "interactive"
 
@@ -229,7 +267,12 @@ def evaluate(
     # grant instead.
     if configured in ("grant", "approve"):
         grant_id = _matching_grant_id(
-            gates, context_key=context_key, hosts=host_tuple, command=command, servers=servers
+            gates,
+            context_key=context_key,
+            hosts=host_tuple,
+            command=command,
+            servers=servers,
+            cache=resolve_cache,
         )
         if grant_id is not None:
             return Decision(
@@ -249,7 +292,12 @@ def evaluate(
         # A grant that matches everything except the matrix is the most confusing state an
         # operator can reach: they wrote the grant, and nothing happened. Name the key.
         shadowed = _matching_grant_id(
-            gates, context_key=context_key, hosts=host_tuple, command=command, servers=servers
+            gates,
+            context_key=context_key,
+            hosts=host_tuple,
+            command=command,
+            servers=servers,
+            cache=resolve_cache,
         )
         if shadowed is not None:
             return Decision(
