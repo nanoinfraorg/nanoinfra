@@ -34,6 +34,10 @@ async def test_outbound_no_longer_carries_generated_media(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Media delivery is now the LLM's responsibility via the message tool."""
+    # set_config_path writes a module global, and the data dir derives from it. monkeypatch
+    # records the value first, so this path leaves with the test rather than re-pointing the
+    # data dir of every later test in the session.
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", None)
     set_config_path(tmp_path / "config.json")
     monkeypatch.setattr(
         "nanoinfra.agent.tools.image_generation.get_image_gen_provider",

@@ -2,16 +2,113 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
+import socket
+import threading
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Callable, Iterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from nanoinfra.agent.loop import AgentLoop
+from nanoinfra.agent.tools.server_execution import EXECUTOR_SOCKET_ENV
 from nanoinfra.bus.queue import MessageBus
+from nanoinfra.gates.executor.protocol import read_frame, write_frame
+from nanoinfra.gates.executor.scrub import answer_scrub
+from nanoinfra.gates.executor.scrub_protocol import (
+    decode_scrub_request,
+    default_scrub_socket_path,
+    encode_scrub_response,
+)
 from nanoinfra.providers.base import LLMProvider
+
+
+@pytest.fixture(autouse=True)
+def _executor_socket_under_tmp_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Keep every executor socket this suite names inside tmp_path.
+
+    The redaction path asks the executor to scrub a transcript (#41), and the client resolves
+    its socket from this variable. Without the variable a test would reach the executor of the
+    workstation it runs on.
+    """
+    monkeypatch.setenv(EXECUTOR_SOCKET_ENV, str(tmp_path / "run" / "executor.sock"))
+
+
+class ScrubService:
+    """A scrub socket for one workspace, for a test that asserts a transcript scrubs.
+
+    The executor performs the scrub after #41, so a boundary test needs a scrubber. This runs
+    the real answer path of ``nanoinfra/gates/executor/scrub.py`` in a thread of the test
+    process, and it stops before the test ends.
+
+    The accept deadline is short on purpose. A close from another thread does not always wake a
+    blocked accept, and a leaked thread would outlive the test.
+    """
+
+    def __init__(self, workspace: Path, socket_path: Path) -> None:
+        self.socket_path = socket_path
+        self.requests = 0
+        self._workspace = workspace
+        self._stop = threading.Event()
+        socket_path.parent.mkdir(parents=True, exist_ok=True)
+        self._listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._listener.settimeout(0.05)
+        self._listener.bind(str(socket_path))
+        self._listener.listen(8)
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self) -> None:
+        while not self._stop.is_set():
+            try:
+                conn, _ = self._listener.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                return
+            self.requests += 1
+            with conn:
+                with contextlib.suppress(OSError, ValueError):
+                    request = decode_scrub_request(read_frame(conn))
+                    answer = answer_scrub(request, workspace=self._workspace)
+                    write_frame(conn, encode_scrub_response(answer))
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=10)
+        self._listener.close()
+        with contextlib.suppress(OSError):
+            self.socket_path.unlink()
+
+
+@pytest.fixture
+def scrub_service(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> Iterator[Callable[[Path | str], ScrubService]]:
+    """Return a factory that starts one scrub service for one workspace.
+
+    The factory also names the execute socket, because the client derives the scrub path from
+    it. One test starts one service, since one variable names one path.
+    """
+    services: list[ScrubService] = []
+
+    def _start(workspace: Path | str) -> ScrubService:
+        execute_socket = tmp_path / "run" / "e.sock"
+        monkeypatch.setenv(EXECUTOR_SOCKET_ENV, str(execute_socket))
+        service = ScrubService(Path(workspace), default_scrub_socket_path(execute_socket))
+        services.append(service)
+        return service
+
+    try:
+        yield _start
+    finally:
+        for service in services:
+            service.stop()
 
 
 @pytest.fixture

@@ -72,7 +72,7 @@ def _workspace(tmp_path: Path, *, with_secret: bool = False) -> Path:
     }
     if with_secret:
         secret = SecretStore(tmp_path).create(
-            {"name": "web-key", "kind": "ssh_key", "providerId": "local", "value": _SECRET}
+            {"name": "web-key", "kind": "password", "providerId": "local", "value": _SECRET}
         )
         raw["secretRef"] = secret.id
     ServerStore(tmp_path).create(raw)

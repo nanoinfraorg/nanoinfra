@@ -140,7 +140,7 @@ async def test_a_decryption_writes_no_log_only_observation_any_more(
     that decision. tests/gates/test_credential_access.py asserts what the record holds.
     """
     secret = SecretStore(tmp_path).create(
-        {"name": "web-key", "kind": "ssh_key", "providerId": "local", "value": _SECRET_VALUE}
+        {"name": "web-key", "kind": "password", "providerId": "local", "value": _SECRET_VALUE}
     )
     _server(tmp_path, secret_ref=secret.id)
     fake = ExecutionResult(exit_code=0, output="ok", error=None)
@@ -157,7 +157,7 @@ async def test_no_observation_carries_a_secret_value(
     tmp_path: Path, observations: list[dict[str, Any]]
 ) -> None:
     secret = SecretStore(tmp_path).create(
-        {"name": "web-key", "kind": "ssh_key", "providerId": "local", "value": _SECRET_VALUE}
+        {"name": "web-key", "kind": "password", "providerId": "local", "value": _SECRET_VALUE}
     )
     _server(tmp_path, secret_ref=secret.id)
     fake = ExecutionResult(exit_code=0, output="ok", error=None)

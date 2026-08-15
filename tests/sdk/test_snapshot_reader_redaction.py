@@ -34,6 +34,12 @@ def _configured_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NANOINFRA_SECRETS_KEY", crypto.generate_key_for_setup())
 
 
+@pytest.fixture(autouse=True)
+def _scrub_service_for_the_workspace(scrub_service: Any, tmp_path: Path) -> None:
+    """The executor performs the scrub (#41), so every test here starts one."""
+    scrub_service(tmp_path / "workspace")
+
+
 @pytest.fixture
 def bot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """An embedded agent with one stored Secret and one session holding its value."""
@@ -49,7 +55,9 @@ def bot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     SecretStore(workspace).create(
-        {"name": "web-key", "kind": "ssh_key", "providerId": "local", "value": _SECRET}
+        # kind="password", because the value is a password-shaped string. An ssh_key
+        # secret has to hold a PEM private key.
+        {"name": "web-key", "kind": "password", "providerId": "local", "value": _SECRET}
     )
     provider = MagicMock(name="provider")
     provider.get_default_model.return_value = "test-model"

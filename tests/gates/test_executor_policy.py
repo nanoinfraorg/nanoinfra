@@ -95,7 +95,7 @@ async def test_an_unattended_call_without_a_grant_is_refused(tmp_path: Path) -> 
 async def test_a_refused_call_never_decrypts_a_credential(tmp_path: Path) -> None:
     """The gate runs before resolve_plaintext. A denial must not touch the secret store."""
     secret = SecretStore(tmp_path).create(
-        {"name": "web-key", "kind": "ssh_key", "providerId": "local", "value": "s3cr3t"}
+        {"name": "web-key", "kind": "password", "providerId": "local", "value": "s3cr3t"}
     )
     _server(tmp_path, secret_ref=secret.id)
 

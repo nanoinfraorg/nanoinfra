@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Callable
 from unittest.mock import MagicMock
 
 import pytest
@@ -24,6 +25,10 @@ from nanoinfra.webui.transcript import append_transcript_object
 
 _SECRET = "s3cr3t-key-material"
 
+# The executor performs the scrub after #41, so each test here starts one. The service runs the
+# executor's own answer path, and the text crosses a real socket.
+_Scrubber = Callable[[Path], object]
+
 
 @pytest.fixture(autouse=True)
 def _configured_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -33,7 +38,9 @@ def _configured_key(monkeypatch: pytest.MonkeyPatch) -> None:
 def _stored_secret(workspace: Path) -> str:
     """A real Secret, because redaction resolves sentinels from the workspace store."""
     secret = SecretStore(workspace).create(
-        {"name": "web-key", "kind": "ssh_key", "providerId": "local", "value": _SECRET}
+        # kind="password", because the value is a password-shaped string. An ssh_key
+        # secret has to hold a PEM private key.
+        {"name": "web-key", "kind": "password", "providerId": "local", "value": _SECRET}
     )
     return secret.name
 
@@ -43,8 +50,11 @@ def _loop(tmp_path: Path) -> AgentLoop:
     return AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path, model="test-model")
 
 
-def test_a_saved_turn_carries_no_secret_value(tmp_path: Path) -> None:
+def test_a_saved_turn_carries_no_secret_value(
+    tmp_path: Path, scrub_service: _Scrubber
+) -> None:
     name = _stored_secret(tmp_path)
+    scrub_service(tmp_path)
     loop = _loop(tmp_path)
     session = Session(key="s1", messages=[])
     # The assistant declaration has to be there. Persistence drops a tool result whose
@@ -77,9 +87,49 @@ def test_a_saved_turn_carries_no_secret_value(tmp_path: Path) -> None:
     assert name in persisted
 
 
-def test_a_saved_turn_keeps_ordinary_content(tmp_path: Path) -> None:
+def test_a_saved_turn_withholds_its_text_when_no_executor_answers(tmp_path: Path) -> None:
+    """#41 at the chat transcript. No scrub service runs in this test.
+
+    The old code persisted the turn unscrubbed and logged a warning. The turn now persists with
+    a marker in place of each text, so the file holds no value that nobody scrubbed.
+    """
+    _stored_secret(tmp_path)
+    loop = _loop(tmp_path)
+    session = Session(key="s1", messages=[])
+    messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "execute_on_server", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-1",
+            "name": "execute_on_server",
+            "content": f"connected with {_SECRET} and ran uptime",
+        },
+    ]
+
+    loop._save_turn(session, messages, 0)
+
+    persisted = json.dumps(session.messages)
+    assert _SECRET not in persisted
+    assert "withheld" in persisted
+    assert '"tool_call_id": "call-1"' in persisted
+
+
+def test_a_saved_turn_keeps_ordinary_content(
+    tmp_path: Path, scrub_service: _Scrubber
+) -> None:
     """Redaction must remove the value and nothing else."""
     _stored_secret(tmp_path)
+    scrub_service(tmp_path)
     loop = _loop(tmp_path)
     session = Session(key="s1", messages=[])
 
@@ -88,9 +138,12 @@ def test_a_saved_turn_keeps_ordinary_content(tmp_path: Path) -> None:
     assert "restart nginx please" in json.dumps(session.messages)
 
 
-def test_a_saved_turn_scrubs_a_tool_call_argument(tmp_path: Path) -> None:
+def test_a_saved_turn_scrubs_a_tool_call_argument(
+    tmp_path: Path, scrub_service: _Scrubber
+) -> None:
     """A resolved command rides in tool_calls arguments, which sensitive_params never covered."""
     _stored_secret(tmp_path)
+    scrub_service(tmp_path)
     loop = _loop(tmp_path)
     session = Session(key="s1", messages=[])
     messages = [
@@ -115,9 +168,12 @@ def test_a_saved_turn_scrubs_a_tool_call_argument(tmp_path: Path) -> None:
     assert _SECRET not in json.dumps(session.messages)
 
 
-def test_the_reasoning_pane_transcript_carries_no_secret_value(tmp_path: Path) -> None:
+def test_the_reasoning_pane_transcript_carries_no_secret_value(
+    tmp_path: Path, scrub_service: _Scrubber
+) -> None:
     """The second durable file. `/api/sessions/{key}/webui-thread` reads it back."""
     name = _stored_secret(tmp_path)
+    scrub_service(tmp_path)
 
     append_transcript_object(
         "websocket:chat-1",
@@ -132,8 +188,11 @@ def test_the_reasoning_pane_transcript_carries_no_secret_value(tmp_path: Path) -
     assert name in written
 
 
-def test_the_reasoning_pane_transcript_keeps_ordinary_text(tmp_path: Path) -> None:
+def test_the_reasoning_pane_transcript_keeps_ordinary_text(
+    tmp_path: Path, scrub_service: _Scrubber
+) -> None:
     _stored_secret(tmp_path)
+    scrub_service(tmp_path)
 
     append_transcript_object(
         "websocket:chat-2", {"event": "assistant", "text": "nginx restarted"}, workspace=tmp_path
@@ -178,8 +237,11 @@ def test_the_recorder_passes_its_workspace_to_the_writer() -> None:
     assert "workspace=workspace_path" in inspect.getsource(gateway_services)
 
 
-def test_the_recorder_redacts_through_its_own_append(tmp_path: Path) -> None:
+def test_the_recorder_redacts_through_its_own_append(
+    tmp_path: Path, scrub_service: _Scrubber
+) -> None:
     name = _stored_secret(tmp_path)
+    scrub_service(tmp_path)
     from nanoinfra.webui.transcript import WebUITranscriptRecorder, read_transcript_lines
 
     recorder = WebUITranscriptRecorder(workspace=tmp_path)

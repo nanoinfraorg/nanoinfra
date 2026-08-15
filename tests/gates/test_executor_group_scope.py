@@ -217,7 +217,7 @@ async def test_one_metadata_host_refuses_the_whole_group(tmp_path: Path) -> None
     three, so a blocked host inside the group stops the action before it can start.
     """
     secret = SecretStore(tmp_path).create(
-        {"name": "ansible-key", "kind": "ssh_key", "providerId": "local", "value": "s3cr3t"}
+        {"name": "ansible-key", "kind": "password", "providerId": "local", "value": "s3cr3t"}
     )
     _group_server(
         tmp_path,
