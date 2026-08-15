@@ -124,10 +124,10 @@ export function LatchBanner({ sessionKey, token }: LatchBannerProps) {
                 label,
               })}
             </p>
-            <p className="mt-0.5 text-destructive/80">
+            <p className="mt-0.5 text-destructive-text/80">
               {deniedSentence(t, entry)} {refusedSentence(t, entry.refusals)}
             </p>
-            <p className="mt-0.5 text-destructive/80">
+            <p className="mt-0.5 text-destructive-text/80">
               {t("thread.latch.mustClear", {
                 defaultValue: "The agent cannot ask again until you clear this.",
               })}
@@ -170,7 +170,7 @@ function Shell({ children }: { children: ReactNode }) {
       role="alert"
       className={cn(
         "mb-2 flex items-start gap-2 rounded-lg border border-destructive/30",
-        "bg-destructive/10 px-3 py-2 text-[12px] leading-5 text-destructive",
+        "bg-destructive/10 px-3 py-2 text-[12px] leading-5 text-destructive-text",
         "animate-in fade-in-0 slide-in-from-bottom-1",
       )}
     >
@@ -185,14 +185,14 @@ function Attempts({ entry }: { entry: GatesLatchEntry }) {
   return (
     <div className="mt-2 rounded-md bg-destructive/10 px-2 py-1.5">
       {entry.reason ? (
-        <p className="text-destructive/80">
+        <p className="text-destructive-text/80">
           {t("thread.latch.reason", { defaultValue: "Reason: {{reason}}", reason: entry.reason })}
         </p>
       ) : null}
       {entry.attempts.length ? (
         <ul className="mt-1 space-y-0.5">
           {entry.attempts.map((attempt, index) => (
-            <li key={`${attempt.at ?? index}-${index}`} className="text-destructive/80">
+            <li key={`${attempt.at ?? index}-${index}`} className="text-destructive-text/80">
               {[fmtDateTime(attempt.at), attempt.tool, attempt.digest]
                 .filter((part) => !!part)
                 .join(" · ")}
@@ -200,7 +200,7 @@ function Attempts({ entry }: { entry: GatesLatchEntry }) {
           ))}
         </ul>
       ) : (
-        <p className="mt-1 text-destructive/80">
+        <p className="mt-1 text-destructive-text/80">
           {t("thread.latch.noAttempts", {
             defaultValue: "The audit log holds no attempt detail.",
           })}

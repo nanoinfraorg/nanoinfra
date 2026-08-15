@@ -193,9 +193,8 @@ function UserDeliveryStatus({
             aria-label={`${label}: ${title}`}
             className={cn(
               "inline-flex items-center gap-1 rounded-sm text-[12px] leading-none",
-              "text-destructive/80 transition-colors hover:text-destructive",
+              "text-destructive-text/80 transition-colors hover:text-destructive-text",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              "dark:text-red-400/80 dark:hover:text-red-400",
             )}
           >
             <CircleAlert className="h-3.5 w-3.5" aria-hidden />

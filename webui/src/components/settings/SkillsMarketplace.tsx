@@ -225,7 +225,7 @@ export function SkillsMarketplace({
       </div>
 
       {error ? (
-        <div className="rounded-[14px] bg-destructive/10 px-3 py-2.5 text-[13px] text-destructive">
+        <div className="rounded-[14px] bg-destructive/10 px-3 py-2.5 text-[13px] text-destructive-text">
           {error}
         </div>
       ) : null}

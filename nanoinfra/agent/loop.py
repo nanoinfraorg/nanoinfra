@@ -190,25 +190,21 @@ def _redacted_for_session(
 ) -> list[dict[str, Any]]:
     """Scrub stored secret values out of the messages a turn persists (#17).
 
-    Sentinels come from the workspace Secret store, so an unset key yields none and no work.
-    A failure must never lose a turn: the transcript is how an operator reconstructs what
-    happened, so a redaction error logs and the turn persists unredacted.
+    The executor holds the sentinels and performs the scrub (#41). A workspace with no stored
+    secret asks nothing, so the common case costs no round trip.
+
+    A turn that no scrubber answered persists its text as a marker. That direction is the point
+    of #41: the old code logged the failure and persisted the turn unredacted, which is fail
+    open on the one path #17 exists to close. The record keeps its shape, so the turn is still
+    there and the marker says why its text is not.
     """
-    from nanoinfra.agent.redaction import redact_messages, workspace_secret_sentinels
+    from nanoinfra.agent.redaction import TranscriptRedactor
 
-    if workspace is None:
-        return list(messages)
-
-    try:
-        sentinels = workspace_secret_sentinels(workspace)
-        if not sentinels:
-            return list(messages)
-        # max_tool_result_chars=None: this loop applies the session's own bound a few lines
-        # later, and two different bounds on one string would truncate twice.
-        return redact_messages(messages, sentinels, max_tool_result_chars=None)
-    except Exception as exc:  # noqa: BLE001 -- a lost turn is worse than an unredacted one
-        logger.warning("Could not redact a turn before persistence: {}", exc)
-        return list(messages)
+    # max_tool_result_chars=None: this loop applies the session's own bound a few lines later,
+    # and two different bounds on one string would truncate twice.
+    return TranscriptRedactor.for_workspace(workspace).messages(
+        messages, max_tool_result_chars=None
+    )
 
 
 class AgentLoop:

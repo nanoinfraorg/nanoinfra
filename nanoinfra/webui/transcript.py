@@ -682,15 +682,19 @@ def append_transcript_object(
 
     ``workspace`` enables redaction (#17). This file is a second durable transcript, read back
     by /api/sessions/{key}/webui-thread, so a resolved credential in remote output landed here
-    as well as in the chat transcript. Sentinels come from that workspace's Secret store.
+    as well as in the chat transcript. The executor performs the scrub (#41).
 
     The argument is optional because a caller outside a workspace scope has nothing to resolve
     sentinels from. Such a caller redacts nothing, which is a real limit, so every caller that
     holds a workspace passes it.
+
+    The rotation reads the event name from the caller's own object rather than from the record.
+    A withheld record holds a marker in place of every text, and the name of an event is not a
+    text a scrub decides.
     """
     record = _redacted_transcript_record(_record_for_append(obj), workspace)
     _append_to_active_transcript(session_key, record)
-    if record.get("event") == "turn_end":
+    if obj.get("event") == "turn_end":
         _rotate_active_transcript_if_needed(session_key)
 
 
@@ -699,21 +703,15 @@ def _redacted_transcript_record(
 ) -> dict[str, Any]:
     """Scrub stored secret values out of one transcript event (#17).
 
-    A failure must not lose the event. The pane is how an operator reads a turn back, so a
-    redaction error logs and the event persists unredacted.
+    The scrub runs in the executor (#41), so this process holds no secret value. An event that
+    no executor scrubbed keeps its keys and holds a marker in place of each text. The pane is
+    how an operator reads a turn back, and an unscrubbed event there could hold a credential.
     """
     if workspace is None:
         return record
-    from nanoinfra.agent.redaction import redact_mapping, workspace_secret_sentinels
+    from nanoinfra.agent.redaction import TranscriptRedactor
 
-    try:
-        sentinels = workspace_secret_sentinels(workspace)
-        if not sentinels:
-            return record
-        return redact_mapping(record, sentinels)
-    except Exception as exc:  # noqa: BLE001 -- a lost event is worse than an unredacted one
-        logger.warning("Could not redact a transcript event: {}", exc)
-        return record
+    return TranscriptRedactor.for_workspace(workspace).mapping(record)
 
 
 def normalize_webui_turn_id(value: Any) -> str:

@@ -124,7 +124,7 @@ export function WorkspaceProjectPicker({
           <span className="truncate">{projectLabel}</span>
         </button>
         {pathError || error ? (
-          <span role="alert" className="ml-2 min-w-0 truncate text-[11.5px] font-medium text-destructive">
+          <span role="alert" className="ml-2 min-w-0 truncate text-[11.5px] font-medium text-destructive-text">
             {pathError ?? error}
           </span>
         ) : null}
@@ -212,7 +212,7 @@ export function WorkspaceProjectPicker({
               </Button>
             </form>
             {pathError || error ? (
-              <p role="alert" className="px-1 text-[11.5px] font-medium text-destructive">
+              <p role="alert" className="px-1 text-[11.5px] font-medium text-destructive-text">
                 {pathError ?? error}
               </p>
             ) : null}

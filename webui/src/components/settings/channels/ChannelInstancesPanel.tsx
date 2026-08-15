@@ -313,7 +313,7 @@ export function ChannelInstancesPanel({
       {customization.footer}
 
       {notice ? (
-        <div className="mt-3 rounded-[12px] border border-destructive/20 px-3 py-2 text-[12px] leading-5 text-destructive">
+        <div className="mt-3 rounded-[12px] border border-destructive/20 px-3 py-2 text-[12px] leading-5 text-destructive-text">
           {notice}
         </div>
       ) : null}

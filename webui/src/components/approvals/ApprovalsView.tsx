@@ -352,7 +352,7 @@ function Notice({
     <div
       className={cn(
         "mt-2 flex items-start gap-2 rounded-md px-3 py-2 text-[12px] leading-5",
-        tone === "warning" && "bg-destructive/10 text-destructive",
+        tone === "warning" && "bg-destructive/10 text-destructive-text",
         tone === "done" && "bg-muted/60 text-foreground",
         tone === "quiet" && "bg-muted/40 text-muted-foreground",
       )}

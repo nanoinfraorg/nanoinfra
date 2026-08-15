@@ -24,6 +24,11 @@ approval that stopped every other action would be a denial of service on the who
 one action holds one inventory read for the whole wait, so the command that runs after an
 approval is the command the operator read.
 
+**The transcript scrub lives here too (#41).** The agent used to decrypt every secret of the
+workspace to build its redaction sentinels, which put the whole credential store in the process
+the model runs in. ``nanoinfra/gates/executor/scrub.py`` holds that work now, and it answers on a
+third socket. The agent sends one text and reads the scrubbed text back.
+
 **``credential.access`` decides before the decryption (#39).** ``_run`` asks the class before
 ``resolve_plaintext`` reads the secret store, and before a backend opens a transport. The
 decision covers the decryption alone, so a server with no ``secretRef`` reaches no credential
@@ -68,6 +73,8 @@ from nanoinfra.gates.executor.protocol import (
     read_frame,
     write_frame,
 )
+from nanoinfra.gates.executor.scrub import bind_scrub_socket, serve_scrub_socket
+from nanoinfra.gates.executor.scrub_protocol import default_scrub_socket_path
 from nanoinfra.gates.pending import ApprovalState, PendingApprovalStore
 from nanoinfra.gates.policy import (
     ActionAuthorization,
@@ -814,11 +821,17 @@ def serve_forever(
     workspace: Path | str,
     max_requests: int | None = None,
     operator_socket_path: Path | str | None = None,
+    scrub_socket_path: Path | str | None = None,
 ) -> None:
-    """Bind both sockets and serve until terminated.
+    """Bind the three sockets and serve until terminated.
 
-    Two listeners run. The execute socket takes requests from the agent. The operator socket
-    takes answers from a human (#38), and only the executor owns it.
+    Three listeners run. The execute socket takes requests from the agent. The operator socket
+    takes answers from a human (#38), and only the executor owns it. The scrub socket takes one
+    transcript text at a time from the agent (#41), because this process holds the sentinels.
+
+    The scrub socket binds before the execute socket. A caller that waits for the execute socket
+    therefore finds the scrub socket bound, and no early turn withholds its text for a socket
+    that is one moment late.
 
     Each connection gets its own thread. A pending approval holds one connection for the whole
     wait, so a serial loop would let one unanswered action stop every other action. That is a
@@ -868,6 +881,21 @@ def serve_forever(
     )
     operator_thread.start()
 
+    scrub_path = (
+        Path(scrub_socket_path)
+        if scrub_socket_path is not None
+        else default_scrub_socket_path(path)
+    )
+    # The same rule as the operator socket. A scrub socket nobody bound makes every persist
+    # withhold its text, so the failure must stop this process rather than degrade every turn.
+    scrub_listener = bind_scrub_socket(scrub_path)
+    threading.Thread(
+        target=serve_scrub_socket,
+        args=(scrub_listener, Path(workspace)),
+        name="nanoinfra-scrub-listener",
+        daemon=True,
+    ).start()
+
     served = 0
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
         server.bind(str(path))
@@ -885,8 +913,11 @@ def serve_forever(
                 ).start()
         finally:
             operator_listener.close()
+            scrub_listener.close()
             with contextlib.suppress(OSError):
                 operator_path.unlink()
+            with contextlib.suppress(OSError):
+                scrub_path.unlink()
             with contextlib.suppress(OSError):
                 path.unlink()
 

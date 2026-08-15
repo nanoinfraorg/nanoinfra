@@ -136,7 +136,7 @@ export function SecretForm({ secret, onBack, onSave }: SecretFormProps) {
             </span>
           </label>
 
-          {error ? <span className="text-[12px] text-destructive">{error}</span> : null}
+          {error ? <span className="text-[12px] text-destructive-text">{error}</span> : null}
 
           <div className="mt-1 flex items-center gap-2">
             <button

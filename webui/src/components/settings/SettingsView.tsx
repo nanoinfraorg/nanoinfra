@@ -2445,7 +2445,7 @@ export function SettingsView({
               )}
             >
               {error ? (
-                <div className="rounded-[18px] border border-destructive/20 bg-destructive/5 px-4 py-3 text-[13px] text-destructive">
+                <div className="rounded-[18px] border border-destructive/20 bg-destructive/5 px-4 py-3 text-[13px] text-destructive-text">
                   {error}
                 </div>
               ) : null}
@@ -2607,7 +2607,7 @@ function SettingsSidebar({
             type="button"
             variant="ghost"
             onClick={onLogout}
-            className="h-9 w-full justify-start gap-2 rounded-[10px] px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-destructive/8 hover:text-destructive"
+            className="h-9 w-full justify-start gap-2 rounded-[10px] px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-destructive/8 hover:text-destructive-text"
           >
             <LogOut className="h-4 w-4" aria-hidden />
             {t("app.account.logout")}
@@ -2874,7 +2874,7 @@ function VersionCheckRow({ currentVersion }: { currentVersion?: string }) {
           </span>
         ) : null}
         {result?.type === "error" ? (
-          <span className="text-[12px] text-destructive">{result.message}</span>
+          <span className="text-[12px] text-destructive-text">{result.message}</span>
         ) : null}
       </div>
     </div>
@@ -3120,7 +3120,7 @@ function ProviderOAuthLoginDialog({
           {error ? (
             <p
               role="alert"
-              className="rounded-[14px] border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-[12px] text-destructive"
+              className="rounded-[14px] border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-[12px] text-destructive-text"
             >
               {error}
             </p>
@@ -3786,7 +3786,7 @@ function ModelsSettings({
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="self-start rounded-full text-muted-foreground hover:text-destructive"
+                  className="self-start rounded-full text-muted-foreground hover:text-destructive-text"
                   disabled={selectedPresetReferenced || saving || orderSaving}
                   title={
                     selectedPresetReferenced
@@ -4326,7 +4326,7 @@ function ProvidersSettings({
               />
             ) : null}
             {supportName && capabilityError ? (
-              <p className="text-[12px] text-destructive">{capabilityError}</p>
+              <p className="text-[12px] text-destructive-text">{capabilityError}</p>
             ) : null}
             {isOauthProvider ? (
               <>
@@ -5202,7 +5202,7 @@ function WebSettings({
           </div>
         ) : null}
         {capabilityError ? (
-          <p className="mb-3 text-[12px] text-destructive">{capabilityError}</p>
+          <p className="mb-3 text-[12px] text-destructive-text">{capabilityError}</p>
         ) : null}
         <SettingsGroup>
           <SettingsRow
@@ -5513,7 +5513,7 @@ function AutomationsSettings({
       </section>
 
       {error ? (
-        <div className="flex items-center gap-2 rounded-[18px] border border-destructive/20 bg-destructive/5 px-4 py-3 text-[13px] text-destructive">
+        <div className="flex items-center gap-2 rounded-[18px] border border-destructive/20 bg-destructive/5 px-4 py-3 text-[13px] text-destructive-text">
           <CircleAlert className="h-4 w-4 shrink-0" aria-hidden />
           <span>{error}</span>
         </div>
@@ -5800,7 +5800,7 @@ function AutomationDetailPanel({
           </div>
 
           {job.state.last_error ? (
-            <div className="rounded-[16px] border border-destructive/20 bg-destructive/8 px-3 py-2 text-[12px] leading-5 text-destructive">
+            <div className="rounded-[16px] border border-destructive/20 bg-destructive/8 px-3 py-2 text-[12px] leading-5 text-destructive-text">
               {job.state.last_error}
             </div>
           ) : null}
@@ -6184,7 +6184,7 @@ function AutomationEditDialog({
               ) : null}
 
               {validation ? (
-                <div className="rounded-[12px] bg-destructive/8 px-3 py-2 text-[12px] text-destructive">
+                <div className="rounded-[12px] bg-destructive/8 px-3 py-2 text-[12px] text-destructive-text">
                   {validation}
                 </div>
               ) : null}
@@ -6895,7 +6895,7 @@ function DismissibleStatusMessage({
       className={cn(
         "flex items-center justify-between gap-3 rounded-[12px] border py-2.5 pl-4 pr-2 text-[13px]",
         isError
-          ? "border-destructive/20 bg-destructive/5 text-destructive"
+          ? "border-destructive/20 bg-destructive/5 text-destructive-text"
           : "border-border/55 bg-muted/35 text-muted-foreground",
       )}
     >
@@ -6908,7 +6908,7 @@ function DismissibleStatusMessage({
         className={cn(
           "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors",
           isError
-            ? "text-destructive/70 hover:bg-destructive/10 hover:text-destructive"
+            ? "text-destructive-text/70 hover:bg-destructive/10 hover:text-destructive-text"
             : "text-muted-foreground/70 hover:bg-muted hover:text-foreground",
         )}
       >
@@ -7825,7 +7825,7 @@ const AppsActionButton = forwardRef<HTMLButtonElement, {
       className={cn(
         "h-9 w-9 rounded-full text-muted-foreground transition-colors",
         tone === "installed" && "bg-transparent hover:bg-muted/70 hover:text-foreground",
-        tone === "danger" && "bg-transparent hover:bg-destructive/10 hover:text-destructive",
+        tone === "danger" && "bg-transparent hover:bg-destructive/10 hover:text-destructive-text",
         tone === "default" && "bg-muted/70 hover:bg-muted hover:text-foreground",
       )}
     >
@@ -8683,7 +8683,7 @@ function RuntimeSettings({
             )}
           </SettingsRow>
         </SettingsGroup>
-        {capabilityError ? <p className="mt-2 text-[12px] text-destructive">{capabilityError}</p> : null}
+        {capabilityError ? <p className="mt-2 text-[12px] text-destructive-text">{capabilityError}</p> : null}
       </section>
 
       <section>
@@ -9829,7 +9829,7 @@ function SettingsStatusMessage({
       className={cn(
         "inline-flex items-center gap-2",
         tone === "accent" && "font-medium text-blue-600 dark:text-blue-300",
-        tone === "danger" && "font-medium text-destructive",
+        tone === "danger" && "font-medium text-destructive-text",
       )}
     >
       {tone ? (

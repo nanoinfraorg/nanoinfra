@@ -469,7 +469,7 @@ function SkillDetailSheet({
                 {t("settings.skills.loadingDetail", { defaultValue: "Loading skill details..." })}
               </div>
             ) : loadFailed ? (
-              <div className="mt-8 rounded-[16px] bg-destructive/10 px-3 py-3 text-sm text-destructive">
+              <div className="mt-8 rounded-[16px] bg-destructive/10 px-3 py-3 text-sm text-destructive-text">
                 {t("settings.skills.loadFailed", { defaultValue: "Could not load skill details." })}
               </div>
             ) : (
@@ -525,7 +525,7 @@ function SkillDetailSheet({
                 </div>
 
                 {actionError ? (
-                  <div className="rounded-[14px] bg-destructive/10 px-3 py-2.5 text-[13px] text-destructive">
+                  <div className="rounded-[14px] bg-destructive/10 px-3 py-2.5 text-[13px] text-destructive-text">
                     {actionError}
                   </div>
                 ) : null}
@@ -558,8 +558,8 @@ function SkillDetailSheet({
                       disabled={actionBusy}
                       onClick={() => setDeleteOpen(true)}
                       className={cn(
-                        "h-10 w-full shrink-0 rounded-full border-destructive/20 text-destructive",
-                        "hover:bg-destructive/8 hover:text-destructive sm:h-9 sm:w-auto",
+                        "h-10 w-full shrink-0 rounded-full border-destructive/20 text-destructive-text",
+                        "hover:bg-destructive/8 hover:text-destructive-text sm:h-9 sm:w-auto",
                       )}
                     >
                       <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden />

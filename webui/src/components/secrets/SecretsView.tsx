@@ -57,7 +57,7 @@ export function SecretsView() {
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
       {error ? (
-        <div className="border-b border-border bg-destructive/10 px-4 py-2 text-[12px] text-destructive">
+        <div className="border-b border-border bg-destructive/10 px-4 py-2 text-[12px] text-destructive-text">
           {`Failed to load secrets: ${error}`}
         </div>
       ) : null}
