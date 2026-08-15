@@ -18,9 +18,11 @@ agent, and the approver list gives no warning, because it was never the list for
 ``jwt`` block declares who may enter, the schema refuses a block that names nobody, and
 ``allowAnyVerifiedIdentity`` is the only way to open it.
 
-Three things live here:
+Four things live here:
 
 * ``admit_identity`` is the access decision, and it is pure. No clock, no key, no socket.
+* ``named_identity`` is the one rule about the identity itself: this gateway names it whole or
+  it names nobody (#63). Both assertion formats end there, so one answer holds for both.
 * ``TrustedProxyAuthenticator`` is the one seam the gateway holds. It reads the peer address,
   the header, the signature and the access rules, and it answers with an identity or with
   nothing. A failure is never a fall back to the anonymous ``webui`` actor, because a forged
@@ -45,7 +47,7 @@ from nanoinfra.webui.assertion_jwt import (
     read_key_id,
     verify_assertion,
 )
-from nanoinfra.webui.http_utils import trusted_proxy_peer_assertion
+from nanoinfra.webui.http_utils import MAX_IDENTITY_CHARS, trusted_proxy_peer_assertion
 
 if TYPE_CHECKING:
     from nanoinfra.channels.websocket.runtime import TrustedProxyAuthConfig
@@ -127,6 +129,43 @@ def admit_identity(
     return identity
 
 
+def named_identity(identity: str) -> str:
+    """Answer the identity this gateway can name in full, or raise ``AssertionRefusedError``.
+
+    Two values refuse here, and both would otherwise reach a route as the anonymous ``webui``
+    actor of a deployment that authenticated a shared token (#63):
+
+    * an identity longer than ``MAX_IDENTITY_CHARS``, which no record can hold whole;
+    * an identity of blank space, which proves a peer address and names nobody.
+
+    The length rule is the live one. A cut name is its reason: ``gates.approvers`` compares the
+    whole string, so a truncated identity names a person who does not exist, and two identities
+    that share one prefix would collapse into one authority. The bound is above the longest
+    address RFC 5321 permits, so no legal email address refuses.
+
+    The blank rule is a second lock. ``case_insensitive_header`` already strips what it reads, so
+    a header of blank space arrives here as nothing and never reaches this function. The check
+    stays for a caller that reads a header some other way, because the answer must fail closed
+    rather than depend on a strip two modules away.
+
+    The detail reports the length rather than the value. The value is attacker-chosen, and the
+    refusal that names it already logs it once.
+    """
+    named = identity.strip()
+    if not named:
+        raise AssertionRefusedError(
+            AssertionRefusal.NO_IDENTITY_CLAIM,
+            "the assertion holds no identity, so it names nobody",
+        )
+    if len(named) > MAX_IDENTITY_CHARS:
+        raise AssertionRefusedError(
+            AssertionRefusal.IDENTITY_TOO_LONG,
+            f"the identity is {len(named)} characters and the bound is {MAX_IDENTITY_CHARS}. "
+            "A name this gateway cannot record whole is a name it must not record at all.",
+        )
+    return named
+
+
 class TrustedProxyAuthenticator:
     """The one seam that turns a request into an identity, for both assertion formats.
 
@@ -157,10 +196,16 @@ class TrustedProxyAuthenticator:
         assertion = trusted_proxy_peer_assertion(connection, headers, self._config)
         if not assertion:
             return ""
-        if self._config.assertion_format != "jwt":
-            return assertion
         try:
-            return await self._verified_identity(assertion)
+            resolved = (
+                await self._verified_identity(assertion)
+                if self._config.assertion_format == "jwt"
+                else assertion
+            )
+            # Both formats end here, so one rule decides which identities this gateway can
+            # name. The ``plain`` path needs it as much as the ``jwt`` path: a header value is
+            # no shorter than a claim, and a name this gateway cut belongs to nobody.
+            return named_identity(resolved)
         except AssertionRefusedError as refusal:
             # One line per refusal, and the line never carries the token: a log reaches more
             # accounts than a live credential should. The reason and the value it read are
@@ -286,4 +331,5 @@ __all__ = [
     "admit_identity",
     "build_trusted_proxy_authenticator",
     "describe_trusted_proxy_posture",
+    "named_identity",
 ]

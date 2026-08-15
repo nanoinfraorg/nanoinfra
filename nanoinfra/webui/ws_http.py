@@ -70,6 +70,10 @@ from nanoinfra.webui.file_preview import (
 )
 from nanoinfra.webui.gateway_tokens import GatewayTokenStore, token_response_payload
 from nanoinfra.webui.http_utils import (
+    TRUSTED_PROXY_AUTHENTICATED_ATTR,
+    TRUSTED_PROXY_IDENTITY_ATTR,
+)
+from nanoinfra.webui.http_utils import (
     case_insensitive_header as _case_insensitive_header,
 )
 from nanoinfra.webui.http_utils import (
@@ -382,7 +386,7 @@ class GatewayHTTPHandler:
         return self._trusted_proxy
 
     def check_api_token(self, request: WsRequest) -> bool:
-        if getattr(request, "_nanoinfra_trusted_proxy_authenticated", False):
+        if getattr(request, TRUSTED_PROXY_AUTHENTICATED_ATTR, False):
             return True
         return self.tokens.check_api_token(request)
 
@@ -400,8 +404,12 @@ class GatewayHTTPHandler:
         authenticator = self.trusted_proxy_authenticator()
         if authenticator is not None:
             identity = await authenticator.authenticate(connection, request.headers)
-        setattr(request, "_nanoinfra_trusted_proxy_authenticated", bool(identity))
-        setattr(request, "_nanoinfra_trusted_proxy_identity", identity)
+        # The flag is derived from the identity rather than decided beside it, so the two can
+        # never disagree. A request this gateway admitted with no name would reach every route
+        # below as the shared ``webui`` actor, and a forged assertion would then buy whatever
+        # the shared token holds (#63).
+        setattr(request, TRUSTED_PROXY_AUTHENTICATED_ATTR, bool(identity))
+        setattr(request, TRUSTED_PROXY_IDENTITY_ATTR, identity)
 
         try:
             response = await self._dispatch_resolved(connection, request, got)
@@ -531,9 +539,7 @@ class GatewayHTTPHandler:
         # ``dispatch`` decided this already. Reading the flag rather than repeating the check
         # keeps one evaluation per request: a second one would verify the same signature twice
         # and log a refusal twice, and the two could disagree if either call site drifted.
-        is_proxy_authenticated = bool(
-            getattr(request, "_nanoinfra_trusted_proxy_authenticated", False)
-        )
+        is_proxy_authenticated = bool(getattr(request, TRUSTED_PROXY_AUTHENTICATED_ATTR, False))
         if not is_proxy_authenticated:
             if secret:
                 if not _issue_route_secret_matches(request.headers, secret):
@@ -1297,7 +1303,7 @@ class GatewayHTTPHandler:
         if values is None:
             return _http_error(400, "invalid latch payload")
         try:
-            cleared = self.latch.clear(values, actor=operator_actor(request, self.config))
+            cleared = self.latch.clear(values, actor=operator_actor(request))
         except LatchClearError as exc:
             return _http_error(400, str(exc))
         return _http_json_response(cleared)
@@ -1352,9 +1358,7 @@ class GatewayHTTPHandler:
         if values is None:
             return _http_error(400, "invalid approval payload")
         try:
-            answered = self.approvals.answer(
-                values, actor=operator_actor(request, self.config)
-            )
+            answered = self.approvals.answer(values, actor=operator_actor(request))
         except ApprovalAnswerError as exc:
             return _http_error(400, str(exc))
         return _http_json_response(answered)

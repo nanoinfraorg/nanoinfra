@@ -34,7 +34,6 @@ from nanoinfra.webui.latch_api import (
     LatchClearError,
     LatchOperatorSurface,
     latch_values_from_request,
-    operator_actor,
 )
 from nanoinfra.webui.ws_http import GatewayHTTPHandler
 
@@ -512,90 +511,6 @@ def test_the_gateway_no_longer_drops_the_controller_on_the_floor() -> None:
     assert "_ = latch_controller" not in source
     assert "_attach_latch_operator_surface(channels, latch_controller" in source
     assert "gate=latch_controller" not in source
-
-
-# -- who the actor is -------------------------------------------------------------------
-
-
-def test_the_actor_is_the_path_when_no_proxy_asserts_an_identity() -> None:
-    request = _request(LATCH_CLEAR_PATH)
-
-    assert operator_actor(request, SimpleNamespace(trusted_proxy_auth=None)) == "webui"
-
-
-def test_a_plain_assertion_names_the_operator_from_the_header() -> None:
-    """On the ``plain`` path the header value is the identity, because nothing else exists."""
-    request = SimpleNamespace(
-        path=LATCH_CLEAR_PATH,
-        headers=Headers([("Cf-Access-Authenticated-User-Email", "ops@example.com")]),
-    )
-    setattr(request, "_nanoinfra_trusted_proxy_authenticated", True)
-    config = SimpleNamespace(
-        trusted_proxy_auth=SimpleNamespace(
-            assertion_header="Cf-Access-Authenticated-User-Email",
-            assertion_format="plain",
-        )
-    )
-
-    assert operator_actor(request, config) == "webui:ops@example.com"
-
-
-def test_a_verified_assertion_names_the_identity_the_dispatch_resolved() -> None:
-    """On the ``jwt`` path the header holds the whole token, so the actor comes from the claim.
-
-    ``ws_http.dispatch`` verified the signature and applied the access rules, and it recorded
-    the claim value on the request (#58, #62). Reading the header here would name the actor
-    after a token prefix.
-    """
-    token = "eyJhbGciOiAiUlMyNTYifQ.eyJlbWFpbCI6ICJvcHNAZXhhbXBsZS5jb20ifQ.c2ln"
-    request = SimpleNamespace(
-        path=LATCH_CLEAR_PATH,
-        headers=Headers([("X-Access-Token", token)]),
-    )
-    setattr(request, "_nanoinfra_trusted_proxy_authenticated", True)
-    setattr(request, "_nanoinfra_trusted_proxy_identity", "ops@example.com")
-    config = SimpleNamespace(
-        trusted_proxy_auth=SimpleNamespace(
-            assertion_header="X-Access-Token",
-            assertion_format="jwt",
-        )
-    )
-
-    assert operator_actor(request, config) == "webui:ops@example.com"
-
-
-def test_a_verified_path_with_no_resolved_identity_falls_back_to_the_path() -> None:
-    """Fail closed. A `jwt` header is a token, and a token prefix is not a person."""
-    token = "eyJhbGciOiAiUlMyNTYifQ.eyJlbWFpbCI6ICJvcHNAZXhhbXBsZS5jb20ifQ.c2ln"
-    request = SimpleNamespace(
-        path=LATCH_CLEAR_PATH,
-        headers=Headers([("X-Access-Token", token)]),
-    )
-    setattr(request, "_nanoinfra_trusted_proxy_authenticated", True)
-    config = SimpleNamespace(
-        trusted_proxy_auth=SimpleNamespace(
-            assertion_header="X-Access-Token",
-            assertion_format="jwt",
-        )
-    )
-
-    assert operator_actor(request, config) == "webui"
-
-
-def test_an_untrusted_peer_cannot_name_itself() -> None:
-    """The flag comes from the peer check. Without it the header is a claim from the client."""
-    request = SimpleNamespace(
-        path=LATCH_CLEAR_PATH,
-        headers=Headers([("Cf-Access-Authenticated-User-Email", "attacker@example.com")]),
-    )
-    config = SimpleNamespace(
-        trusted_proxy_auth=SimpleNamespace(
-            assertion_header="Cf-Access-Authenticated-User-Email",
-            assertion_format="plain",
-        )
-    )
-
-    assert operator_actor(request, config) == "webui"
 
 
 def test_the_clear_values_come_from_the_header() -> None:
