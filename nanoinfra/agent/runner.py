@@ -19,6 +19,7 @@ from nanoinfra.agent.context_governance import (
 )
 from nanoinfra.agent.hook import AgentHook, AgentHookContext, AgentRunHookContext
 from nanoinfra.agent.tools.registry import ToolRegistry, is_tool_error_result
+from nanoinfra.gates.latch import is_terminal_denial
 from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
@@ -1601,6 +1602,14 @@ class AgentRunner:
         workspace_violation_counts: dict[str, int],
     ) -> tuple[Any, dict[str, str], BaseException | None] | None:
         """Classify safety-boundary failures, or return ``None`` to pass through."""
+        if is_terminal_denial(raw_text):
+            # A capability gate denial is terminal (#15). Each caller of this classifier
+            # otherwise appends "try a different approach". That hint is the brute-force retry.
+            # The model sends a changed command, and the gate becomes an oracle. So the denial
+            # text passes through unchanged, and it ends the action and not the run.
+            event["detail"] = self._event_detail("terminal_denial: ", raw_text)
+            return raw_text, event, None
+
         if self._is_ssrf_violation(raw_text):
             logger.warning(
                 "Tool {} blocked by SSRF guard; returning non-retryable tool error: {}",
