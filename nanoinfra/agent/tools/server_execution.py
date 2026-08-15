@@ -1,11 +1,11 @@
 """The agent tool that actually connects to and runs something on a
-Server. Highest-consequence tool in this codebase -- dry_run defaults
-to true and is worded strongly, same convention as
-nanoinfra/agent/tools/diagrams.py's UpdateDiagramTool, but this is the
-one place in the whole system where a secretRef gets resolved to a
-real credential value; that value is passed to the backend and never
-placed anywhere else (not the returned ToolResult, not the ServerJob's
-command/output/error fields, not a log line).
+Server. Highest-consequence tool in this codebase -- a call previews by
+default, and the gate rather than the caller decides whether a call
+executes (#10); this is also the one place in the whole system where a
+secretRef gets resolved to a real credential value; that value is
+passed to the backend and never placed anywhere else (not the returned
+ToolResult, not the ServerJob's command/output/error fields, not a log
+line).
 """
 
 # pyright: reportIncompatibleMethodOverride=false
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import time
 from contextlib import suppress
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -77,6 +78,33 @@ _STREAMING_PROVIDERS = frozenset({"ssh"})
 # How often partial output is checkpointed to the job file while a command runs.
 _PARTIAL_OUTPUT_PERSIST_INTERVAL_S = 5.0
 
+class _Disposition(Enum):
+    """What the gate decided one call is (#10). Never what the caller asked for.
+
+    execute() branches on this value and never on ``dry_run``, so the argument cannot label
+    a call safe. A caller asks. The gate answers, and the tool reports the answer.
+    """
+
+    EXECUTE = "execute"
+    PREVIEW_ON_REQUEST = "preview_on_request"
+    PREVIEW_WITHHELD = "preview_withheld"
+
+
+# The two sentences that keep the two previews apart (#10). One says a caller asked to
+# look. The other says the gate stopped an action. They are constants, and a test pins
+# them, because an operator who cannot tell the cases apart learns that a preview means
+# nothing.
+PREVIEW_ON_REQUEST_NOTE = (
+    "Nothing was run, because this call asked for a preview. A preview needs no permission: "
+    "it reaches no host and resolves no credential."
+)
+PREVIEW_WITHHELD_NOTE = (
+    "Nothing was run, and nobody asked for a preview. This call asked to execute, and the "
+    "capability gate did not permit execution, so the action is shown instead. The same "
+    "call gets the same answer, and no argument on the call changes it. Only operator "
+    "policy does."
+)
+
 # Providers whose work cannot actually be stopped when this tool gives up waiting
 # (both wrap a blocking call in asyncio.to_thread; see timeout.py's module
 # docstring). Their timeout message must not imply the command was stopped.
@@ -117,6 +145,19 @@ def _backend_and_default_timeout(provider_id: str) -> tuple[ExecutionBackend, in
 
         return ApiBackend(), DEFAULT_IDLE_TIMEOUT_S
     raise ValueError(f"Unknown providerId: {provider_id!r}")
+
+
+def _preview_line(server: Any, command: str, target_host: str | None) -> str:
+    """The resolved action in one line. Both preview cases show it (#10).
+
+    A withheld preview needs the action and not only the verdict: this line is what tells an
+    operator which grant to write, and it tells the caller that the command was understood.
+    """
+    validated = f" validated target={target_host!r}" if target_host else ""
+    return (
+        f"Preview (not executed): server={server.name!r} (id={server.id!r}) "
+        f"provider={server.provider_id!r} command={command!r}{validated}"
+    )
 
 
 def _target_host(provider_id: str, config: dict[str, str]) -> str | None:
@@ -166,13 +207,17 @@ def _target_host(provider_id: str, config: dict[str, str]) -> str | None:
             "Optional override for the idle/absolute timeout in seconds. Omit to use the provider's default.",
             nullable=True,
         ),
+        # Kept in the schema on purpose (#10). Old sessions and transcripts carry the
+        # argument, so removing it would break a replay for no gain. It asks, and it
+        # authorizes nothing: execute() reads it only as a request for a preview.
         dry_run=BooleanSchema(
             description=(
-                "Defaults to true: resolve the server and preview exactly what would "
-                "run (server, provider, command) without connecting to anything. "
-                "Only pass dry_run=false after the user has explicitly confirmed. "
-                "Never set dry_run=false on the first call -- this is the only tool "
-                "in the system that actually connects to remote infrastructure."
+                "Defaults to true: ask for a preview of exactly what would run (server, "
+                "provider, command) without connecting to anything. This argument only "
+                "asks. dry_run=false is a request for execution and not a grant of it: the "
+                "capability gate decides whether a call executes, and it may answer a "
+                "request to execute with a preview instead. This is the only tool in the "
+                "system that actually connects to remote infrastructure."
             ),
             default=True,
         ),
@@ -180,7 +225,11 @@ def _target_host(provider_id: str, config: dict[str, str]) -> str | None:
     )
 )
 class ExecuteOnServerTool(Tool):
-    """Preview (default) or actually run a command/action on a Server."""
+    """Preview (default) or actually run a command/action on a Server.
+
+    The gate owns the choice between the two (#10). A caller requests, and this tool
+    reports what the gate decided.
+    """
 
     capability_class = "mutate.remote"
 
@@ -203,35 +252,54 @@ class ExecuteOnServerTool(Tool):
         return (
             "Connect to an inventoried server and run a command/action on it, via "
             "whichever connection provider that server uses (ssh/ansible-runner/ssm/api). "
-            "Defaults to dry_run=true -- preview the resolved server/provider/command "
-            "without connecting to anything, then only proceed with dry_run=false and "
-            "the same arguments after the user explicitly confirms. This is the highest-"
-            "consequence tool in the system: never infer approval, never retry with a "
-            "different command without a fresh confirmation."
+            "Defaults to a preview -- the resolved server/provider/command, with nothing "
+            "connected to. Ask for a preview freely. You do not decide execution: the "
+            "capability gate decides it from operator policy, and it may answer a request "
+            "to execute with a preview. This is the highest-consequence tool in the "
+            "system: never infer approval, never call a command safe, and never retry the "
+            "same purpose with a different command after a refusal."
         )
 
-    def _gate_refusal(self, server: Any, command: str) -> ToolResult | None:
-        """Ask the gate. Return a refusal to hand back, or None to proceed.
+    def _decide(
+        self, server: Any, command: str, *, preview_requested: bool
+    ) -> tuple[_Disposition, str]:
+        """Decide preview or execution for one call, and say why (#10).
+
+        ``preview_requested`` is what the caller asked for. It is a request and never an
+        authorization, so it can only reduce a call to a preview. It can never turn a
+        preview into an execution, which is why ``dry_run=false`` arrives at the policy
+        below rather than past it.
+
+        A requested preview asks no policy question at all. Such a call reaches no host and
+        resolves no credential, so a refusal there would block reading and teach nobody
+        anything.
 
         The host set comes from #4's resolver rather than from the single dialed address,
         because a grant must cover every host the action reaches. A pattern that will not
-        expand refuses: an unexpandable pattern is not an empty one, and an unknown host set
-        cannot be checked against a grant.
+        expand withholds execution: an unexpandable pattern is not an empty one, and an
+        unknown host set cannot be checked against a grant.
 
         Note for operators until #24 lands: a grant's ``hosts`` must list the *resolved*
         targets, which for ssh is the address in ``config.host``. #24 resolves grant hosts
         through the same resolver so an inventory name matches too.
         """
+        if preview_requested:
+            return _Disposition.PREVIEW_ON_REQUEST, ""
+
+        # Only unattended contexts are enforced (#8). The interactive default is `approve`,
+        # and no approval path exists before #13 and #27. Enforcing interactive here would
+        # withhold every interactive remote command with no way for a human to answer.
         execution_context = current_request_execution_context()
         if execution_context == EXECUTION_CONTEXT_INTERACTIVE:
-            return None
+            return _Disposition.EXECUTE, ""
 
         try:
             resolution = resolve_scope(server)
         except ScopeResolutionError as exc:
-            return ToolResult.error(
-                f"Refusing to execute on {server.name!r}: the target did not resolve, so the "
-                f"host set cannot be checked against a standing grant ({exc})."
+            return (
+                _Disposition.PREVIEW_WITHHELD,
+                "The target did not resolve, so the host set cannot be checked against a "
+                f"standing grant ({exc}).",
             )
 
         decision = evaluate(
@@ -243,10 +311,11 @@ class ExecuteOnServerTool(Tool):
             command=command,
         )
         if decision.outcome is Outcome.ALLOW:
-            return None
+            return _Disposition.EXECUTE, decision.reason
         # An unattended context has no interactive fallback. A prompt with nobody present
-        # becomes a hang or a rubber stamp, and both are worse than a narrow grant.
-        return ToolResult.error(f"Refusing to execute on {server.name!r}. {decision.reason}")
+        # becomes a hang or a rubber stamp, and both are worse than a narrow grant. So an
+        # `approve` decision withholds execution here too, exactly like a `deny`.
+        return _Disposition.PREVIEW_WITHHELD, decision.reason
 
     async def execute(
         self,
@@ -294,8 +363,11 @@ class ExecuteOnServerTool(Tool):
         # Log-only in M1 (#3): record the decision the gate *would* make, and enforce
         # nothing. Positioned after the refusals above -- those calls never reach a
         # gate, so recording them would inflate the count an operator uses to size
-        # #8's breakage -- and before the dry_run branch, because a preview is still a
-        # mutate.remote call. Only the recorded decision distinguishes the two.
+        # #8's breakage -- and before the disposition below, because a preview is still
+        # a mutate.remote call. Only the recorded decision distinguishes the two.
+        #
+        # `decision` names what the CALL asked for, and not what the gate answered. #16
+        # owns the record of the answer. So the count stays comparable across M1 and M2.
         record_observation(
             capability_class=MUTATE_REMOTE,
             decision="preview" if dry_run else "would_gate",
@@ -313,29 +385,29 @@ class ExecuteOnServerTool(Tool):
             command_digest=command_digest(command),
         )
 
-        if dry_run:
-            validated = f" validated target={target_host!r}" if target_host else ""
-            return (
-                f"Preview (not executed): server={server.name!r} (id={server.id!r}) "
-                f"provider={server.provider_id!r} command={command!r}{validated}\n"
-                "Nothing was run. Call execute_on_server again with the same arguments "
-                "and dry_run=false only after the user explicitly confirms."
-            )
-
-        # The gate (#8). Ordering carries the security property, not just tidiness:
-        # this runs after the refusals and the network guard, so a denial names the
-        # real resolved target -- and before the lazy backend import, before
-        # resolve_plaintext(), and before jobs.create(). A denied action must not
-        # decrypt a credential on its way to a refusal, and must not leave a job
-        # record implying that it ran.
+        # The gate (#8, #10). Ordering carries the security property, not just tidiness:
+        # this runs after the refusals and the network guard, so a withheld action names
+        # the real resolved target -- and before the lazy backend import, before
+        # resolve_plaintext(), and before jobs.create(). A withheld action must not
+        # decrypt a credential on its way to a preview, and must not leave a job record
+        # implying that it ran.
         #
-        # Only unattended contexts are enforced here. The interactive default is
-        # `approve`, and no approval path exists before #13 and #14. Enforcing
-        # interactive now would refuse every interactive remote command with no way
-        # for a human to answer.
-        refusal = self._gate_refusal(server, command)
-        if refusal is not None:
-            return refusal
+        # The branch reads the gate's disposition and never `dry_run`. That is the whole
+        # of #10: the argument asks, and this decides.
+        disposition, reason = self._decide(server, command, preview_requested=dry_run)
+
+        if disposition is _Disposition.PREVIEW_ON_REQUEST:
+            return f"{_preview_line(server, command, target_host)}\n{PREVIEW_ON_REQUEST_NOTE}"
+
+        if disposition is _Disposition.PREVIEW_WITHHELD:
+            # An error result, because the caller asked for something it did not get. The
+            # two preview messages stay separate sentences: a caller and an operator must
+            # be able to tell a look from a stopped action.
+            return ToolResult.error(
+                f"Did not execute on {server.name!r}. {reason}\n"
+                f"{_preview_line(server, command, target_host)}\n"
+                f"{PREVIEW_WITHHELD_NOTE}"
+            )
 
         # Resolved before the secret: this lazily imports the provider's optional
         # library, and if it isn't installed there is no point decrypting a
@@ -441,4 +513,4 @@ class ExecuteOnServerTool(Tool):
         return f"Ran {command!r} on {server.name!r} (exit code {result.exit_code}):\n{output}"
 
 
-__all__ = ["ExecuteOnServerTool"]
+__all__ = ["PREVIEW_ON_REQUEST_NOTE", "PREVIEW_WITHHELD_NOTE", "ExecuteOnServerTool"]
