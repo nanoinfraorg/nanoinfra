@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import socket
 import threading
-import time
 from pathlib import Path
 
 import pytest
@@ -44,10 +43,13 @@ def _reply(**over: object) -> FetchResponse:
 def _serve_once(
     socket_path: Path, reply: FetchResponse, received: list[object]
 ) -> threading.Thread:
+    ready = threading.Event()
+
     def serve() -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
             server.bind(str(socket_path))
             server.listen(1)
+            ready.set()
             conn, _ = server.accept()
             with conn:
                 received.append(decode_request(read_frame(conn)))
@@ -55,7 +57,7 @@ def _serve_once(
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    _wait_for(socket_path)
+    _wait_for_listen(ready)
     return thread
 
 
@@ -117,16 +119,19 @@ def test_a_missing_socket_raises_fetcher_unavailable(tmp_path: Path) -> None:
 def test_a_socket_that_dies_mid_reply_raises_fetcher_unavailable(tmp_path: Path) -> None:
     socket_path = tmp_path / "fetch.sock"
 
+    ready = threading.Event()
+
     def serve() -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
             server.bind(str(socket_path))
             server.listen(1)
+            ready.set()
             conn, _ = server.accept()
             conn.close()
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    _wait_for(socket_path)
+    _wait_for_listen(ready)
 
     with pytest.raises(FetcherUnavailableError):
         FetcherClient(socket_path).search(query="nanoinfra")
@@ -138,10 +143,13 @@ def test_one_request_per_connection(tmp_path: Path) -> None:
     socket_path = tmp_path / "fetch.sock"
     connections: list[int] = []
 
+    ready = threading.Event()
+
     def serve() -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
             server.bind(str(socket_path))
             server.listen(2)
+            ready.set()
             for _ in range(2):
                 conn, _ = server.accept()
                 with conn:
@@ -151,7 +159,7 @@ def test_one_request_per_connection(tmp_path: Path) -> None:
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    _wait_for(socket_path)
+    _wait_for_listen(ready)
 
     client = FetcherClient(socket_path)
     client.search(query="one")
@@ -161,10 +169,15 @@ def test_one_request_per_connection(tmp_path: Path) -> None:
     assert connections == [1, 1]
 
 
-def _wait_for(path: Path, timeout_s: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        if path.exists():
-            return
-        time.sleep(0.01)
-    raise AssertionError(f"{path} never appeared")
+def _wait_for_listen(ready: threading.Event, timeout_s: float = 10.0) -> None:
+    """Wait until the server thread has called listen().
+
+    The old helper waited for the socket file. `bind()` creates that file and `listen()` accepts a
+    peer after it, so a connect between the two fails with ConnectionRefusedError. CI caught that on
+    Python 3.14 while every other version passed.
+
+    A probe connection is the wrong fix here. These tests count the connections the client makes,
+    and a probe would spend one of them. The server thread says when it is ready instead.
+    """
+    if not ready.wait(timeout_s):
+        raise AssertionError("the server thread never reached listen()")

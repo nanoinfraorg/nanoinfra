@@ -75,10 +75,13 @@ def test_the_client_carries_a_request_and_returns_the_reply(tmp_path: Path) -> N
     replies = ExecuteResponse(ok=True, output="up 3 days", exit_code=0, error=None, reason="")
     received: list[str] = []
 
+    ready = threading.Event()
+
     def serve() -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
             server.bind(str(socket_path))
             server.listen(1)
+            ready.set()
             conn, _ = server.accept()
             with conn:
                 request = decode_request(read_frame(conn))
@@ -87,7 +90,7 @@ def test_the_client_carries_a_request_and_returns_the_reply(tmp_path: Path) -> N
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    _wait_for(socket_path)
+    _wait_for_listen(ready)
 
     response = ExecutorClient(socket_path).execute(
         server_id_or_name="prod-web-01",
@@ -115,10 +118,13 @@ def test_a_reply_that_arrives_long_after_the_connect_still_reaches_the_caller(
     socket_path = tmp_path / "exec.sock"
     reply = ExecuteResponse(ok=True, output="ran", exit_code=0, error=None, reason="")
 
+    ready = threading.Event()
+
     def serve() -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
             server.bind(str(socket_path))
             server.listen(1)
+            ready.set()
             conn, _ = server.accept()
             with conn:
                 read_frame(conn)
@@ -127,7 +133,7 @@ def test_a_reply_that_arrives_long_after_the_connect_still_reaches_the_caller(
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    _wait_for(socket_path)
+    _wait_for_listen(ready)
 
     response = ExecutorClient(socket_path, connect_timeout_s=0.05).execute(
         server_id_or_name="prod-web-01",
@@ -162,16 +168,19 @@ def test_a_missing_socket_raises_executor_unavailable(tmp_path: Path) -> None:
 def test_a_socket_that_dies_mid_reply_raises_executor_unavailable(tmp_path: Path) -> None:
     socket_path = tmp_path / "exec.sock"
 
+    ready = threading.Event()
+
     def serve() -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
             server.bind(str(socket_path))
             server.listen(1)
+            ready.set()
             conn, _ = server.accept()
             conn.close()
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    _wait_for(socket_path)
+    _wait_for_listen(ready)
 
     with pytest.raises(ExecutorUnavailableError):
         ExecutorClient(socket_path).execute(
@@ -194,10 +203,13 @@ def test_the_request_carries_the_channel_that_raised_it(tmp_path: Path) -> None:
     socket_path = tmp_path / "exec.sock"
     seen: list[str | None] = []
 
+    ready = threading.Event()
+
     def serve() -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
             server.bind(str(socket_path))
             server.listen(1)
+            ready.set()
             conn, _ = server.accept()
             with conn:
                 seen.append(decode_request(read_frame(conn)).origin_path)
@@ -210,7 +222,7 @@ def test_the_request_carries_the_channel_that_raised_it(tmp_path: Path) -> None:
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    _wait_for(socket_path)
+    _wait_for_listen(ready)
 
     context = RequestContext(channel="telegram", chat_id="c1", session_key="s1")
     with request_context(context):
@@ -232,10 +244,13 @@ def test_a_request_with_no_bound_context_names_no_path(tmp_path: Path) -> None:
     socket_path = tmp_path / "exec.sock"
     seen: list[str | None] = []
 
+    ready = threading.Event()
+
     def serve() -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
             server.bind(str(socket_path))
             server.listen(1)
+            ready.set()
             conn, _ = server.accept()
             with conn:
                 seen.append(decode_request(read_frame(conn)).origin_path)
@@ -248,7 +263,7 @@ def test_a_request_with_no_bound_context_names_no_path(tmp_path: Path) -> None:
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    _wait_for(socket_path)
+    _wait_for_listen(ready)
 
     ExecutorClient(socket_path).execute(
         server_id_or_name="prod-web-01",
@@ -287,12 +302,15 @@ def test_the_client_holds_no_credential_and_no_backend() -> None:
     assert [name for name in _FORBIDDEN_IMPORTS if name in imported] == []
 
 
-def _wait_for(path: Path, timeout_s: float = 10.0) -> None:
-    import time
+def _wait_for_listen(ready: threading.Event, timeout_s: float = 10.0) -> None:
+    """Wait until the server thread has called listen().
 
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        if path.exists():
-            return
-        time.sleep(0.01)
-    raise AssertionError(f"{path} never appeared")
+    Existence is not readiness. `bind()` creates the socket file and `listen()` accepts a peer after
+    it, so a connect between the two fails with ConnectionRefusedError. CI met that race in the
+    fetcher client tests on Python 3.14, and these tests hold the same shape.
+
+    The client is the code under test here, so the retry cannot live in it. The server thread says
+    when it is ready instead.
+    """
+    if not ready.wait(timeout_s):
+        raise AssertionError("the server thread never reached listen()")
