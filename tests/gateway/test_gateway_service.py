@@ -202,6 +202,71 @@ def test_uninstall_systemd_removes_unit_and_reloads(tmp_path):
     ]
 
 
+def test_systemd_unit_starts_the_supervisor_when_one_is_given(tmp_path):
+    """Item 15 (#18): one service, one entry point, and that entry point is the supervisor."""
+    installer = GatewayServiceInstaller(platform_name="Linux", home=tmp_path)
+
+    result = installer.install(
+        GatewayServiceOptions(
+            start=GatewayStartOptions(port=18790, workspace="/srv/nanoinfra"),
+            python_executable="/venv/bin/python",
+            supervisor_command=(
+                "/venv/bin/python",
+                "-m",
+                "nanoinfra.gates.executor",
+                "--socket",
+                "/run/nanoinfra-exec/executor.sock",
+                "--workspace",
+                "/srv/nanoinfra",
+            ),
+        ),
+        dry_run=True,
+    )
+
+    assert result.ok is True
+    assert result.content is not None
+    assert (
+        "ExecStart=/venv/bin/python -m nanoinfra.gates.executor "
+        "--socket /run/nanoinfra-exec/executor.sock --workspace /srv/nanoinfra"
+    ) in result.content
+    assert "gateway" not in result.content.split("ExecStart=")[1].splitlines()[0]
+    assert 'WorkingDirectory=/srv/nanoinfra' in result.content
+    assert not (tmp_path / ".config").exists()
+
+
+def test_launchd_plist_starts_the_supervisor_when_one_is_given(tmp_path):
+    installer = GatewayServiceInstaller(platform_name="Darwin", home=tmp_path)
+
+    result = installer.install(
+        GatewayServiceOptions(
+            start=GatewayStartOptions(port=18790),
+            supervisor_command=("/opt/python", "-m", "nanoinfra.supervisor"),
+        ),
+        dry_run=True,
+    )
+
+    assert result.ok is True
+    assert result.content is not None
+    payload = plistlib.loads(result.content.encode("utf-8"))
+    assert payload["ProgramArguments"] == ["/opt/python", "-m", "nanoinfra.supervisor"]
+
+
+def test_units_keep_the_gateway_command_without_a_supervisor(tmp_path):
+    """The default must not change before the supervisor entry point exists."""
+    installer = GatewayServiceInstaller(platform_name="Linux", home=tmp_path)
+
+    result = installer.install(
+        GatewayServiceOptions(
+            start=GatewayStartOptions(port=18790),
+            python_executable="/venv/bin/python",
+        ),
+        dry_run=True,
+    )
+
+    assert result.content is not None
+    assert "ExecStart=/venv/bin/python -m nanoinfra gateway --foreground --port 18790" in result.content
+
+
 def test_auto_manager_rejects_windows_services(tmp_path):
     installer = GatewayServiceInstaller(platform_name="Windows", home=tmp_path)
 

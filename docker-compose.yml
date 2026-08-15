@@ -8,6 +8,23 @@ x-common-config: &common-config
     - ~/.nanoinfra:/home/nanoinfra/.nanoinfra
   cap_drop:
     - ALL
+  # These five capabilities exist for the boot phase only. The container starts as
+  # root, and entrypoint.sh needs them to build the item 15 (#18) privilege split:
+  #   SETUID, SETGID   place the executor on nanoinfra-exec and the agent on
+  #                    nanoinfra. Without these the drop from root fails and the
+  #                    entrypoint refuses to run, because it never runs as root.
+  #   CHOWN, FOWNER    hand the credential store and the audit log to the executor
+  #                    account, and set the mode that keeps the agent out.
+  #   DAC_OVERRIDE     create those directories inside the mounted data dir, which
+  #                    belongs to the agent account and not to root.
+  # A uid change clears the permitted set, so neither the agent nor the executor
+  # holds any of these once it runs.
+  cap_add:
+    - SETUID
+    - SETGID
+    - CHOWN
+    - FOWNER
+    - DAC_OVERRIDE
 
 services:
   nanoinfra-gateway:

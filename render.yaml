@@ -16,6 +16,16 @@ services:
     # $HOME/.nanoinfra/config.json (so the runtime data_dir lands on the persistent
     # disk), chowns the root-owned mount, drops to the non-root nanoinfra user, and
     # appends the --config flag itself.
+    #
+    # This is also the supervisor path for item 15 (nanoinfraorg/nanoinfra#18).
+    # Render runs one service, so one entry point must start both processes of the
+    # privilege split. The kept ENTRYPOINT is that entry point: entrypoint.sh starts
+    # the executor as the nanoinfra-exec account, then it execs the gateway as the
+    # nanoinfra account. The two uids are what make the split kernel-enforced, and a
+    # root start is the only way to place two processes on two accounts. So the
+    # command below stays the agent's command, and the supervision sits in the
+    # entrypoint above it. The entrypoint logs the split it achieved, so a deploy
+    # that lacks the second account is visible in the Render logs.
     dockerCommand: gateway
     # Deploy-to-Render templates should not auto-deploy on every repo push
     # (Render's recommendation); trigger deploys manually or via the Dashboard.

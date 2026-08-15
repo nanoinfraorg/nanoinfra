@@ -233,3 +233,34 @@ async def test_an_unreadable_policy_refuses_an_unattended_write(tmp_path: Path) 
 
     assert result.is_error
     assert store.get(server.id).config["host"] == "10.0.1.5"
+
+
+@pytest.mark.asyncio
+async def test_an_unattended_inventory_write_is_a_terminal_denial(tmp_path: Path) -> None:
+    """Migrated from test_gate_wiring.py when #18 split the remote path out.
+
+    The inventory tools stayed agent-side, so their refusal still has to be terminal: without
+    that, the runner appends "try a different approach" and the retry oracle returns.
+    """
+    from nanoinfra.gates.latch import TerminalDenial
+    from nanoinfra.gates.runtime import build_gate_runtime
+
+    runtime, _controller = build_gate_runtime(GatesConfig(), root=tmp_path / "gates")
+    server = _existing(tmp_path)
+    store = _store(tmp_path)
+
+    with (
+        patch(_POLICY_TARGET, return_value=GatesConfig()),
+        request_context(_ctx(EXECUTION_CONTEXT_AUTOMATION)),
+    ):
+        result = await UpdateServerTool(store, gate=runtime).execute(
+            server_id=server.id,
+            name="prod-web-01",
+            providerId="ssh",
+            config={"host": "10.9.9.9"},
+            dry_run=False,
+        )
+
+    assert isinstance(result, TerminalDenial)
+    assert store.get(server.id).config["host"] == "10.0.1.5"
+    assert "denied" in [r["decision"] for r in runtime.audit.read_all()]

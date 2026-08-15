@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from nanoinfra.gates.executor.client import ExecutorClient, ExecutorUnavailable
+from nanoinfra.gates.executor.client import ExecutorClient, ExecutorUnavailableError
 from nanoinfra.gates.executor.protocol import (
     ExecuteResponse,
     decode_request,
@@ -107,7 +107,7 @@ def test_a_missing_socket_raises_executor_unavailable(tmp_path: Path) -> None:
     Those two need different words for an operator, and conflating them would read as a policy
     decision when it is a deployment fault.
     """
-    with pytest.raises(ExecutorUnavailable):
+    with pytest.raises(ExecutorUnavailableError):
         ExecutorClient(tmp_path / "absent.sock").execute(
             server_id_or_name="prod-web-01",
             command="uptime",
@@ -132,7 +132,7 @@ def test_a_socket_that_dies_mid_reply_raises_executor_unavailable(tmp_path: Path
     thread.start()
     _wait_for(socket_path)
 
-    with pytest.raises(ExecutorUnavailable):
+    with pytest.raises(ExecutorUnavailableError):
         ExecutorClient(socket_path).execute(
             server_id_or_name="prod-web-01",
             command="uptime",

@@ -4,10 +4,11 @@ agent-supplied command string to reference).
 
 The only config fields this backend reads to decide what it targets are
 ``inventoryHost`` and ``group``, in that order -- ``host`` is not an
-ansible-runner config key and is deliberately ignored, so the guard in
-nanoinfra/agent/tools/server_execution.py checks ``inventoryHost`` and
-nothing else. Keep those two in sync (see
-tests/servers/execution/test_guard_backend_consistency.py).
+ansible-runner config key and is deliberately ignored. Both fields are
+patterns here, so the guard expands whichever one this backend will use
+and then checks every host it names. That guard moved into the executor
+with #18: see ``_guard`` in nanoinfra/gates/executor/server.py, and
+tests/gates/test_executor_guard_consistency.py holds it to this rule.
 
 ansible_runner.run() is synchronous and blocks until the whole play
 finishes, so it's wrapped in asyncio.to_thread. on_activity fires at

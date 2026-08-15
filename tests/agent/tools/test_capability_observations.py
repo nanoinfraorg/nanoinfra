@@ -8,19 +8,15 @@ fields that item 2 (#4) and item 3 (#5) have not built yet.
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from loguru import logger
 
 from nanoinfra.agent.tools.capabilities import (
-    CREDENTIAL_ACCESS,
     MUTATE_INVENTORY,
-    MUTATE_REMOTE,
 )
 from nanoinfra.agent.tools.context import (
     EXECUTION_CONTEXT_INTERACTIVE,
@@ -35,7 +31,6 @@ from nanoinfra.agent.tools.servers import (
 )
 from nanoinfra.secrets import crypto
 from nanoinfra.secrets.store import SecretStore
-from nanoinfra.servers.execution.base import ExecutionResult
 from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.lookup import resolve_server
 from nanoinfra.servers.store import ServerStore
@@ -102,96 +97,6 @@ def _ssh_server(tmp_path: Path, *, secret_ref: str | None = None) -> None:
 
 
 @pytest.mark.asyncio
-async def test_preview_records_one_observation_marked_preview(
-    tmp_path: Path, observations: list[dict[str, Any]]
-) -> None:
-    """The class does not drop for a preview. Only the decision says it was one."""
-    _ssh_server(tmp_path)
-
-    with patch("nanoinfra.servers.execution.ssh_backend.SSHBackend.run", new=AsyncMock()):
-        await _tool(tmp_path).execute(server_id_or_name="prod-web-01", command="uptime")
-
-    assert len(observations) == 1
-    assert observations[0]["capability_class"] == MUTATE_REMOTE
-    assert observations[0]["decision"] == "preview"
-
-
-@pytest.mark.asyncio
-async def test_execution_records_the_decision_the_gate_would_make(
-    tmp_path: Path, observations: list[dict[str, Any]]
-) -> None:
-    _ssh_server(tmp_path)
-    fake = ExecutionResult(exit_code=0, output="ok", error=None)
-
-    with patch(
-        "nanoinfra.servers.execution.ssh_backend.SSHBackend.run", new=AsyncMock(return_value=fake)
-    ):
-        await _tool(tmp_path).execute(
-            server_id_or_name="prod-web-01", command="uptime", dry_run=False
-        )
-
-    assert [o["decision"] for o in observations] == ["would_gate"]
-
-
-@pytest.mark.asyncio
-async def test_credential_access_is_recorded_at_the_resolution_site(
-    tmp_path: Path, observations: list[dict[str, Any]]
-) -> None:
-    """A secretRef resolving to plaintext is its own class, emitted where it happens."""
-    secret = SecretStore(tmp_path).create(
-        {"name": "web-key", "kind": "ssh_key", "providerId": "local", "value": _SECRET_VALUE}
-    )
-    _ssh_server(tmp_path, secret_ref=secret.id)
-    fake = ExecutionResult(exit_code=0, output="ok", error=None)
-
-    with patch(
-        "nanoinfra.servers.execution.ssh_backend.SSHBackend.run", new=AsyncMock(return_value=fake)
-    ):
-        await _tool(tmp_path).execute(
-            server_id_or_name="prod-web-01", command="uptime", dry_run=False
-        )
-
-    assert [o["capability_class"] for o in observations] == [MUTATE_REMOTE, CREDENTIAL_ACCESS]
-
-
-@pytest.mark.asyncio
-async def test_no_observation_carries_a_secret_value(
-    tmp_path: Path, observations: list[dict[str, Any]]
-) -> None:
-    secret = SecretStore(tmp_path).create(
-        {"name": "web-key", "kind": "ssh_key", "providerId": "local", "value": _SECRET_VALUE}
-    )
-    _ssh_server(tmp_path, secret_ref=secret.id)
-    fake = ExecutionResult(exit_code=0, output="ok", error=None)
-
-    with patch(
-        "nanoinfra.servers.execution.ssh_backend.SSHBackend.run", new=AsyncMock(return_value=fake)
-    ):
-        await _tool(tmp_path).execute(
-            server_id_or_name="prod-web-01", command="uptime", dry_run=False
-        )
-
-    assert observations
-    assert all(_SECRET_VALUE not in str(o) for o in observations)
-
-
-@pytest.mark.asyncio
-async def test_observation_carries_a_command_digest_not_the_command_text(
-    tmp_path: Path, observations: list[dict[str, Any]]
-) -> None:
-    """Item 13 (#16) stores digests by default, because commands embed secrets."""
-    _ssh_server(tmp_path)
-    command = "mysql -u root -p'hunter2' -e 'select 1'"
-
-    with patch("nanoinfra.servers.execution.ssh_backend.SSHBackend.run", new=AsyncMock()):
-        await _tool(tmp_path).execute(server_id_or_name="prod-web-01", command=command)
-
-    expected = "sha256:" + hashlib.sha256(command.encode()).hexdigest()
-    assert observations[0]["command_digest"] == expected
-    assert all("hunter2" not in str(o) for o in observations)
-
-
-@pytest.mark.asyncio
 async def test_inventory_preview_records_a_mutate_inventory_observation(
     tmp_path: Path, observations: list[dict[str, Any]]
 ) -> None:
@@ -248,21 +153,3 @@ async def test_create_and_delete_are_recorded_too(
 
     assert [o["tool"] for o in observations] == ["create_server", "delete_server"]
     assert {o["capability_class"] for o in observations} == {MUTATE_INVENTORY}
-
-
-@pytest.mark.asyncio
-async def test_a_call_refused_before_the_gate_records_nothing(
-    tmp_path: Path, observations: list[dict[str, Any]]
-) -> None:
-    """The recorder sits after the existing refusals, so it logs reachable calls only."""
-    ServerStore(tmp_path).create(
-        {"name": "metadata-server", "providerId": "ssh", "config": {"host": "169.254.169.254"}}
-    )
-
-    with patch("nanoinfra.servers.execution.ssh_backend.SSHBackend.run", new=AsyncMock()):
-        result = await _tool(tmp_path).execute(
-            server_id_or_name="metadata-server", command="uptime"
-        )
-
-    assert result.is_error
-    assert observations == []

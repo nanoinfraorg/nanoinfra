@@ -1,4 +1,27 @@
-"""Install and manage OS-level gateway services."""
+"""Install and manage OS-level gateway services.
+
+Item 15 (nanoinfraorg/nanoinfra#18) splits the agent from the executor. A single-service
+deployment then needs one entry point that starts both processes, and that entry point is the
+supervisor. So one unit still installs, and the unit starts the supervisor rather than the
+gateway when the caller passes a supervisor command.
+
+The supervisor owns its own flags, so this module never builds that command. The caller
+passes it whole through ``GatewayServiceOptions.supervisor_command``. Only the executor's
+entry point is fixed, and it reads::
+
+    python -m nanoinfra.gates.executor --socket <path> --workspace <path>
+
+The #18 supervisor is a Python API rather than a program, so today the gateway command is
+already the one entry point that brings up both processes. The seam below waits for a
+supervisor that owns a command of its own, and it keeps this module out of the business of
+guessing one.
+
+One warning about the uid split. A ``systemd --user`` unit and a LaunchAgent both run as the
+account that installs them, so both processes hold one uid. One process can then ptrace the
+other and read its memory. On these two managers the split is organisational, not enforced.
+A kernel-enforced split needs a system unit with ``User=`` per process, or the container
+layout in ``entrypoint.sh``, where a root start places the two processes on two accounts.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +42,14 @@ ServiceManagerKind = Literal["auto", "systemd", "launchd"]
 
 @dataclass(frozen=True)
 class GatewayServiceOptions:
-    """Inputs used to render one system service."""
+    """Inputs used to render one system service.
+
+    ``supervisor_command`` is the #18 hook. An empty value keeps the gateway command, so an
+    existing install renders exactly as before. A caller that supplies the supervisor command
+    gets a unit that starts the supervisor, and the supervisor starts the agent and the
+    executor. The command arrives whole because this module must not guess the supervisor's
+    flags.
+    """
 
     start: GatewayStartOptions
     name: str = "nanoinfra-gateway"
@@ -27,6 +57,7 @@ class GatewayServiceOptions:
     enable: bool = True
     start_now: bool = True
     python_executable: str = sys.executable
+    supervisor_command: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -85,7 +116,7 @@ class GatewayServiceInstaller:
     ) -> GatewayServiceResult:
         unit_name = _systemd_unit_name(options.name)
         path = self.home / ".config" / "systemd" / "user" / unit_name
-        command = build_gateway_command(options.python_executable, options.start)
+        command = _entry_command(options)
         content = _systemd_unit_content(
             description=f"Nanoinfra Gateway ({options.name})",
             command=command,
@@ -139,7 +170,7 @@ class GatewayServiceInstaller:
         stderr_path = self.home / ".nanoinfra" / "logs" / f"{log_stem}.launchd.err.log"
         payload = {
             "Label": label,
-            "ProgramArguments": build_gateway_command(options.python_executable, options.start),
+            "ProgramArguments": _entry_command(options),
             "WorkingDirectory": _working_directory_text(options.start),
             "RunAtLoad": bool(options.enable),
             "KeepAlive": {"SuccessfulExit": False},
@@ -200,6 +231,18 @@ class GatewayServiceInstaller:
 
     def _run_best_effort(self, command_args: tuple[str, ...]) -> None:
         self._subprocess_run(list(command_args), check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _entry_command(options: GatewayServiceOptions) -> list[str]:
+    """Return the one command the unit starts.
+
+    This is the #18 seam. The supervisor is the entry point for a single-service deployment,
+    because one unit must bring up the agent and the executor together. Until a caller passes
+    that command, the unit starts the gateway exactly as before.
+    """
+    if options.supervisor_command:
+        return list(options.supervisor_command)
+    return build_gateway_command(options.python_executable, options.start)
 
 
 def _platform_name() -> str:
