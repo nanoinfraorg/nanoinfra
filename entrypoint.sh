@@ -32,6 +32,11 @@ executor_module="nanoinfra.gates.executor"
 # execution transports out of the address space that reads a page. The log says which of the two
 # this start produced, because an operator must never read silence as a guarantee.
 fetch_user="nanoinfra-fetch"
+# The fetcher's own IPC group. NOT nanoinfra-ipc: a member of the executor's group traverses the
+# executor's socket directory and connects to its socket. The fetcher is the process that
+# untrusted web content enters, so a fetcher inside that group could run a command on every
+# inventory host. The agent belongs to both groups. Neither helper belongs to the other's.
+fetch_ipc_group="nanoinfra-fetch-ipc"
 fetch_socket_dir="/run/nanoinfra-fetch"
 fetch_socket_path="$fetch_socket_dir/fetcher.sock"
 # The fetcher's entry point is fixed by #19, the same shape as the executor's.
@@ -256,6 +261,20 @@ resolve_fetcher_user() {
     printf '%s' "nanoinfra"
 }
 
+# Pick the group that owns the fetcher's socket directory (#19).
+#
+# The fetcher's own group wins when the image has it. An image built before that group exists runs
+# the fetcher as the agent, so the agent's own group is the right owner there. This never returns
+# the executor's group, because that group is a path from the fetcher to a host command.
+resolve_fetcher_group() {
+    if id -g "$fetch_ipc_group" >/dev/null 2>&1 || getent group "$fetch_ipc_group" >/dev/null 2>&1
+    then
+        printf '%s' "$fetch_ipc_group"
+        return
+    fi
+    printf '%s' "nanoinfra"
+}
+
 # Hand the fetcher's socket directory to the fetcher's account, and keep every other account out.
 #
 # The ownership direction matters for the same reason it does for the executor. Only a directory's
@@ -263,12 +282,12 @@ resolve_fetcher_user() {
 # agent reaches through it to a known socket name.
 prepare_fetcher_paths() {
     mkdir -p "$fetch_socket_dir" || return 1
-    chown "$fetch_run_user:$ipc_group" "$fetch_socket_dir" || return 1
+    chown "$fetch_run_user:$fetch_run_group" "$fetch_socket_dir" || return 1
     # Mode 2710, the same four reasons as the executor's socket directory:
     #   owner rwx  the fetcher binds, unlinks, and rebinds its socket.
     #   group --x  the agent traverses to a known socket name. It cannot list or create.
     #   other ---  every other account is refused before it reaches the socket.
-    #   setgid     each new socket inherits group nanoinfra-ipc, so a rebind keeps the agent in.
+    #   setgid     each new socket inherits the fetcher's group, so a rebind keeps the agent in.
     chmod 2710 "$fetch_socket_dir" || return 1
 }
 
@@ -403,6 +422,8 @@ if [ "$(id -u)" = "0" ]; then
             warn_fetcher_split_not_enforced "the resolved fetcher account is the executor account"
             fetch_run_user="nanoinfra"
         fi
+        # The group the agent shares with the fetcher, and never the executor's group.
+        fetch_run_group=$(resolve_fetcher_group)
         if [ "$fetch_run_user" = "nanoinfra" ]; then
             warn_fetcher_split_not_enforced "no separate $fetch_user account runs the fetcher"
         else
@@ -421,7 +442,8 @@ if [ "$(id -u)" = "0" ]; then
                 # The fetcher creates its own socket, and a rebind can widen or narrow the mode.
                 # So this start re-applies the owner, the group, and the two modes while it still
                 # holds root. Without the group write bit the agent cannot connect at all.
-                chown "$fetch_run_user:$ipc_group" "$fetch_socket_dir" "$fetch_socket_path" \
+                chown "$fetch_run_user:$fetch_run_group" "$fetch_socket_dir" \
+                    "$fetch_socket_path" \
                     2>/dev/null || \
                     echo "[entrypoint] warning: chown $fetch_socket_dir failed"
                 chmod 2710 "$fetch_socket_dir" 2>/dev/null || \
