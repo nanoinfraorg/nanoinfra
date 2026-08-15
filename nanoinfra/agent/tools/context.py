@@ -143,3 +143,7 @@ class ToolContext:
     timezone: str = "UTC"
     workspace_sandbox: WorkspaceSandboxStatus | None = None
     runtime_events: RuntimeEventBus | None = None
+    # The gate runtime from nanoinfra/gates/runtime.py (#33). Typed loosely on purpose:
+    # that module imports the agent tree, so a real annotation here would close a cycle.
+    # It carries the gate half only, so nothing reached through a tool can clear a latch.
+    gate: Any = None

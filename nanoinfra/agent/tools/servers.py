@@ -47,7 +47,7 @@ _CONFIG_SCHEMA = ObjectSchema(
 )
 
 
-def _inventory_gate_refusal(tool: str, dry_run: bool) -> ToolResult | None:
+def _inventory_gate_refusal(tool: str, dry_run: bool, gate: Any = None) -> Any:
     """Ask the gate before an inventory write (#23). Return a refusal, or None to proceed.
 
     An inventory write changes the meaning of every later remote action against that record,
@@ -74,7 +74,29 @@ def _inventory_gate_refusal(tool: str, dry_run: bool) -> ToolResult | None:
     )
     if decision.outcome is Outcome.ALLOW:
         return None
-    return ToolResult.error(f"Refusing {tool}. {decision.reason}")
+
+    text = f"Refusing {tool}. {decision.reason}"
+    session_id = _session_id()
+    if gate is None or not session_id:
+        # No runtime, so the refusal stays a plain error. It still refuses.
+        return ToolResult.error(text)
+    try:
+        return gate.refuse_action(
+            session_id=session_id,
+            capability_class=MUTATE_INVENTORY,
+            tool=tool,
+            reason=decision.reason,
+            execution_context=current_request_execution_context(),
+        )
+    except OSError as exc:
+        return ToolResult.error(f"{text}\nThe audit record also failed to write: {exc}")
+
+
+def _session_id() -> str | None:
+    from nanoinfra.agent.tools.context import current_request_context
+
+    ctx = current_request_context()
+    return ctx.session_key if ctx else None
 
 
 def _record_inventory_observation(tool: str, dry_run: bool, **fields: Any) -> None:
@@ -105,10 +127,12 @@ class ListServersTool(Tool):
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
-        return cls(ServerStore(Path(ctx.workspace)))
+        return cls(ServerStore(Path(ctx.workspace)), ctx.gate)
 
-    def __init__(self, store: ServerStore) -> None:
+    def __init__(self, store: ServerStore, gate: Any = None) -> None:
         self.store = store
+        # The gate runtime (#33). Only the write tools use it, and a read tool ignores it.
+        self.gate = gate
 
     @property
     def name(self) -> str:
@@ -148,10 +172,12 @@ class GetServerTool(Tool):
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
-        return cls(ServerStore(Path(ctx.workspace)))
+        return cls(ServerStore(Path(ctx.workspace)), ctx.gate)
 
-    def __init__(self, store: ServerStore) -> None:
+    def __init__(self, store: ServerStore, gate: Any = None) -> None:
         self.store = store
+        # The gate runtime (#33). Only the write tools use it, and a read tool ignores it.
+        self.gate = gate
 
     @property
     def name(self) -> str:
@@ -206,10 +232,12 @@ class CreateServerTool(Tool):
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
-        return cls(ServerStore(Path(ctx.workspace)))
+        return cls(ServerStore(Path(ctx.workspace)), ctx.gate)
 
-    def __init__(self, store: ServerStore) -> None:
+    def __init__(self, store: ServerStore, gate: Any = None) -> None:
         self.store = store
+        # The gate runtime (#33). Only the write tools use it, and a read tool ignores it.
+        self.gate = gate
 
     @property
     def name(self) -> str:
@@ -243,7 +271,7 @@ class CreateServerTool(Tool):
         except ServerValidationError as exc:
             return ToolResult.error(f"Invalid server payload: {exc}")
         _record_inventory_observation(self.name, dry_run, server_name=name, provider_id=providerId)
-        refusal = _inventory_gate_refusal(self.name, dry_run)
+        refusal = _inventory_gate_refusal(self.name, dry_run, self.gate)
         if refusal is not None:
             return refusal
         if dry_run:
@@ -278,10 +306,12 @@ class UpdateServerTool(Tool):
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
-        return cls(ServerStore(Path(ctx.workspace)))
+        return cls(ServerStore(Path(ctx.workspace)), ctx.gate)
 
-    def __init__(self, store: ServerStore) -> None:
+    def __init__(self, store: ServerStore, gate: Any = None) -> None:
         self.store = store
+        # The gate runtime (#33). Only the write tools use it, and a read tool ignores it.
+        self.gate = gate
 
     @property
     def name(self) -> str:
@@ -318,7 +348,7 @@ class UpdateServerTool(Tool):
         _record_inventory_observation(
             self.name, dry_run, server_id=server_id, server_name=name, provider_id=providerId
         )
-        refusal = _inventory_gate_refusal(self.name, dry_run)
+        refusal = _inventory_gate_refusal(self.name, dry_run, self.gate)
         if refusal is not None:
             return refusal
         if dry_run:
@@ -353,10 +383,12 @@ class DeleteServerTool(Tool):
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
-        return cls(ServerStore(Path(ctx.workspace)))
+        return cls(ServerStore(Path(ctx.workspace)), ctx.gate)
 
-    def __init__(self, store: ServerStore) -> None:
+    def __init__(self, store: ServerStore, gate: Any = None) -> None:
         self.store = store
+        # The gate runtime (#33). Only the write tools use it, and a read tool ignores it.
+        self.gate = gate
 
     @property
     def name(self) -> str:
@@ -381,7 +413,7 @@ class DeleteServerTool(Tool):
             server_name=server.name,
             provider_id=server.provider_id,
         )
-        refusal = _inventory_gate_refusal(self.name, dry_run)
+        refusal = _inventory_gate_refusal(self.name, dry_run, self.gate)
         if refusal is not None:
             return refusal
         if dry_run:

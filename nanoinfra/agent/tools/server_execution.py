@@ -160,6 +160,19 @@ def _backend_and_default_timeout(provider_id: str) -> tuple[ExecutionBackend, in
     raise ValueError(f"Unknown providerId: {provider_id!r}")
 
 
+
+def _grant_id_from(reason: str) -> str | None:
+    """Pull the grant id out of the policy reason, for the audit record (#16).
+
+    The evaluator names the grant in its reason sentence. Reading it back keeps the tool from
+    depending on the reason's shape anywhere else, and a miss simply records no grant id.
+    """
+    marker = "Standing grant "
+    if not reason.startswith(marker):
+        return None
+    return reason[len(marker) :].split(" ", 1)[0] or None
+
+
 def _preview_line(server: Any, command: str, validated_target: str | None) -> str:
     """The resolved action in one line. Both preview cases show it (#10).
 
@@ -294,12 +307,28 @@ class ExecuteOnServerTool(Tool):
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
         workspace = Path(ctx.workspace)
-        return cls(servers=ServerStore(workspace), secrets=SecretStore(workspace), jobs=JobStore(workspace))
+        return cls(
+            servers=ServerStore(workspace),
+            secrets=SecretStore(workspace),
+            jobs=JobStore(workspace),
+            gate=ctx.gate,
+        )
 
-    def __init__(self, *, servers: ServerStore, secrets: SecretStore, jobs: JobStore) -> None:
+    def __init__(
+        self,
+        *,
+        servers: ServerStore,
+        secrets: SecretStore,
+        jobs: JobStore,
+        gate: Any = None,
+    ) -> None:
         self.servers = servers
         self.secrets = secrets
         self.jobs = jobs
+        # The gate runtime from #33: the latch, the audit store, and the tokens. None in an
+        # embedded or a test construction, and policy alone then decides. Typed loosely
+        # because nanoinfra/gates/runtime.py imports this tree.
+        self.gate = gate
 
     @property
     def name(self) -> str:
@@ -318,9 +347,84 @@ class ExecuteOnServerTool(Tool):
             "same purpose with a different command after a refusal."
         )
 
+
+    def _session_id(self) -> str | None:
+        from nanoinfra.agent.tools.context import current_request_context
+
+        ctx = current_request_context()
+        return ctx.session_key if ctx else None
+
+    def _latched_refusal(self) -> Any:
+        """Return a refusal when this session's class is latched, or None (#33).
+
+        A latched class must not reach a policy question. A question can produce a prompt, and
+        a fresh prompt is the oracle #15 removes.
+        """
+        session_id = self._session_id()
+        if self.gate is None or not session_id:
+            return None
+        return self.gate.latched_refusal(
+            session_id=session_id, capability_class=MUTATE_REMOTE, tool=self.name
+        )
+
+    def _deny(self, text: str, *, server: Any, command: str, reason: str, resolution: Any) -> Any:
+        """Turn a withheld execution into a terminal denial that latches and records (#33).
+
+        Without a gate runtime the result stays a plain error, which is the behaviour before
+        #33 and still refuses the action.
+        """
+        session_id = self._session_id()
+        if self.gate is None or not session_id:
+            return ToolResult.error(text)
+        try:
+            return self.gate.refuse_action(
+                session_id=session_id,
+                capability_class=MUTATE_REMOTE,
+                tool=self.name,
+                reason=reason or "the gate did not permit execution",
+                execution_context=current_request_execution_context(),
+                scope=getattr(resolution, "scope", None),
+                hosts=getattr(resolution, "hosts", None),
+                command=command,
+            )
+        except OSError as exc:
+            # The record failed, and the action is refused either way. Say both things.
+            return ToolResult.error(f"{text}\nThe audit record also failed to write: {exc}")
+
+    def _record_allowed(
+        self, *, server: Any, command: str, reason: str, resolution: Any
+    ) -> Any:
+        """Record an allowed action, and refuse it when the record cannot be written (#33).
+
+        #16 raises on a write failure so a caller can fail closed. An action that nothing
+        recorded must not reach a host, because the audit log is the only account of it.
+        """
+        if self.gate is None:
+            return None
+        try:
+            self.gate.record_decision(
+                outcome=Outcome.ALLOW,
+                capability_class=MUTATE_REMOTE,
+                execution_context=current_request_execution_context(),
+                session_id=self._session_id(),
+                tool=self.name,
+                scope=getattr(resolution, "scope", None),
+                hosts=getattr(resolution, "hosts", None),
+                command=command,
+                reason=reason or None,
+                grant_id=_grant_id_from(reason),
+            )
+        except OSError as exc:
+            return ToolResult.error(
+                f"Did not execute on {server.name!r}. The gate permitted the action, and the "
+                f"audit record could not be written ({exc}). An action that nothing records "
+                "does not run."
+            )
+        return None
+
     def _decide(
         self, server: Any, command: str, *, preview_requested: bool
-    ) -> tuple[_Disposition, str]:
+    ) -> tuple[_Disposition, str, Any]:
         """Decide preview or execution for one call, and say why (#10).
 
         ``preview_requested`` is what the caller asked for. It is a request and never an
@@ -342,7 +446,7 @@ class ExecuteOnServerTool(Tool):
         through the same resolver so an inventory name matches too.
         """
         if preview_requested:
-            return _Disposition.PREVIEW_ON_REQUEST, ""
+            return _Disposition.PREVIEW_ON_REQUEST, "", None
 
         execution_context = current_request_execution_context()
         interactive = execution_context == EXECUTION_CONTEXT_INTERACTIVE
@@ -355,11 +459,12 @@ class ExecuteOnServerTool(Tool):
                 # The guard above already refuses a pattern it cannot expand, and refusing
                 # here as well would withhold interactive calls that work now, over a fact
                 # the resolver cannot see (ansible's own ansible.cfg fallback).
-                return _Disposition.EXECUTE, ""
+                return _Disposition.EXECUTE, "", None
             return (
                 _Disposition.PREVIEW_WITHHELD,
                 "The target did not resolve, so the host set cannot be checked against a "
                 f"standing grant ({exc}).",
+                None,
             )
 
         # `all` scope has no path to execution, in any context. #7 types the field as
@@ -374,13 +479,14 @@ class ExecuteOnServerTool(Tool):
                 f"The pattern names an unbounded host set, so its scope is `all`. No policy "
                 f"permits `all` scope, and no approval path exists for it. It resolved to "
                 f"{len(resolution.hosts)} host(s) now, and it would cover a host added later.",
+                resolution,
             )
 
         # Only unattended contexts are enforced past this point (#8). The interactive default
         # is `approve`, and no approval path exists before #13 and #27. Enforcing interactive
         # here would withhold every interactive remote command with no way to answer.
         if interactive:
-            return _Disposition.EXECUTE, ""
+            return _Disposition.EXECUTE, "", resolution
 
         decision = evaluate(
             load_policy(),
@@ -394,11 +500,11 @@ class ExecuteOnServerTool(Tool):
             servers=self.servers,
         )
         if decision.outcome is Outcome.ALLOW:
-            return _Disposition.EXECUTE, decision.reason
+            return _Disposition.EXECUTE, decision.reason, resolution
         # An unattended context has no interactive fallback. A prompt with nobody present
         # becomes a hang or a rubber stamp, and both are worse than a narrow grant. So an
         # `approve` decision withholds execution here too, exactly like a `deny`.
-        return _Disposition.PREVIEW_WITHHELD, decision.reason
+        return _Disposition.PREVIEW_WITHHELD, decision.reason, resolution
 
     async def execute(
         self,
@@ -513,7 +619,16 @@ class ExecuteOnServerTool(Tool):
         #
         # The branch reads the gate's disposition and never `dry_run`. That is the whole
         # of #10: the argument asks, and this decides.
-        disposition, reason = self._decide(server, command, preview_requested=dry_run)
+        # The latch answers before policy (#33). Re-asking policy could produce a fresh
+        # prompt, and a fresh prompt is the brute-force oracle #15 removes.
+        if not dry_run:
+            latched = self._latched_refusal()
+            if latched is not None:
+                return latched
+
+        disposition, reason, resolution = self._decide(
+            server, command, preview_requested=dry_run
+        )
 
         if disposition is _Disposition.PREVIEW_ON_REQUEST:
             return (
@@ -524,11 +639,20 @@ class ExecuteOnServerTool(Tool):
             # An error result, because the caller asked for something it did not get. The
             # two preview messages stay separate sentences: a caller and an operator must
             # be able to tell a look from a stopped action.
-            return ToolResult.error(
+            text = (
                 f"Did not execute on {server.name!r}. {reason}\n"
                 f"{_preview_line(server, command, validated_target)}\n"
                 f"{PREVIEW_WITHHELD_NOTE}"
             )
+            return self._deny(
+                text, server=server, command=command, reason=reason, resolution=resolution
+            )
+
+        recorded = self._record_allowed(
+            server=server, command=command, reason=reason, resolution=resolution
+        )
+        if recorded is not None:
+            return recorded
 
         # Resolved before the secret: this lazily imports the provider's optional
         # library, and if it isn't installed there is no point decrypting a
