@@ -20,7 +20,7 @@
 
 **nanoinfra** is an ultra-lightweight, open-source, self-hosted AI agent for infrastructure work, written in Python. It keeps an inventory of your servers, the credentials to reach them, and the tools to act on them over SSH, Ansible, AWS SSM, or an HTTP endpoint — reachable from a WebUI, a terminal, or sixteen chat apps. Tools, long-term memory, MCP integrations, model routing, multi-agent delegation, scheduled automation, and an OpenAI-compatible API sit in a core small enough to audit.
 
-Root access, on a short leash: the agent reaches your hosts with credentials you hold, behind sender allowlists, a kernel sandbox, and mutating tools that default to a dry run — while running unprivileged itself.
+Root access, on a short leash: the agent reaches your hosts with credentials you hold, and a capability gate in a separate process decides on every remote command. An unattended turn reaches no host by default, an unusual one waits for a person on a second authenticated path, and a refusal is terminal for that session. The agent process holds neither the credentials nor the transports, and it runs unprivileged itself.
 
 ## Start Here
 
@@ -257,19 +257,23 @@ Browse the [repo docs](https://docs.nanoinfra.org/) for the latest features and 
 
 ## Releases
 
-**Latest release: [v0.7.0 - The Homestead Release](https://github.com/nanoinfraorg/nanoinfra/releases/tag/v0.7.0)**
+**Latest release: [v0.9.0 - The Short Leash Release](https://github.com/nanoinfraorg/nanoinfra/releases/tag/v0.9.0)**
 
-The Homestead Release moves nanoinfra onto infrastructure it owns, and narrows what it claims to be.
+The Short Leash Release makes the security posture on the landing page true in the code. Every mutating and remote-execution tool now passes a gate, and the agent process no longer holds the credentials or the transports it used to.
 
-- The project lives under its own organisation at [nanoinfraorg](https://github.com/nanoinfraorg), the documentation has its own site at [docs.nanoinfra.org](https://docs.nanoinfra.org), and skills come from a self-hosted catalog at [skills.nanoinfra.org](https://skills.nanoinfra.org) instead of a third-party registry
-- nanoinfra is positioned as what it actually is: an agent for **infrastructure** work — server inventory, credentials, remote execution, topology diagrams — not a general-purpose assistant that happens to have a shell tool
-- **Windows support is dropped.** The PowerShell installer and every Windows instruction are gone; supported platforms are Linux and macOS. The platform branches remain in the code but are unsupported and untested
-- `skillsMarketplace` is now accepted as a camelCase config key. It was the only top-level key that rejected the camelCase spelling every other key allows, so the documented style failed validation on that one key
+- **Capability gates.** Each tool carries a capability class (`read`, `mutate.local`, `mutate.inventory`, `mutate.remote`, `credential.access`), and each action resolves a scope of `host`, `group`, or `all`. Policy lives in a `gates` block in `config.json`, and an unattended context denies remote execution by default. `all` scope is denied with no runtime path at all
+- **The agent asks, and another process decides.** Remote execution, web fetch and search, and stdio MCP servers each run in their own process behind a Unix socket, under their own account, and under a Landlock policy. The agent process holds no credential store and no transport, so a prompt injection that reaches a tool reaches neither
+- **A human approves an unusual action, on a different path.** An `approve` decision suspends the action and waits. The approval must arrive from an authenticated path other than the one the request came from, it covers the exact resolved command and host list the executor rendered, and it expires. Recurring work uses standing grants in config instead, so a human is prompted for the unusual case and keeps reading the prompt
+- **A denial is terminal.** A refused action latches its capability class for that session, so the agent cannot retry with a slightly different command until something gets through. Only an operator clears the latch, and the latch survives a restart because it rebuilds from the audit log
+- **Every decision is on the record.** An append-only audit log holds one record per decision, including denials, expiries, and latched refusals. It holds a command digest by default, because a resolved command routinely embeds a secret
+- **Three new surfaces in the WebUI:** the gate policy panel in Settings, the latch banner in a session, and the audit log viewer. Plus an approvals inbox with its own route and an unread count
+- Credential values no longer reach a transcript, a reasoning pane, or an SDK snapshot. `export_unredacted_with_secrets` is the one documented exception
 
-[Read the v0.7.0 release notes](https://github.com/nanoinfraorg/nanoinfra/releases/tag/v0.7.0)
+[Read the v0.9.0 release notes](https://github.com/nanoinfraorg/nanoinfra/releases/tag/v0.9.0)
 
 ## Recent Updates
 
+- **2026-08-15** Capability gates on every mutating tool, remote execution and web access in their own confined processes, human approval on a second path, terminal denials, and an append-only audit log.
 - **2026-08-13** Moved to the nanoinfraorg organisation, docs at docs.nanoinfra.org, a self-hosted skills catalog, and Windows support dropped.
 - **2026-08-07** Durable subagent transcripts, drag-to-attach sessions, trusted-proxy auth, and session-retention/Dream data-loss fixes.
 - **2026-08-07** Secrets and Servers: encrypted credential storage, a server inventory, and agent-driven remote execution (SSH/Ansible Runner/SSM/API) with durable job tracking.
