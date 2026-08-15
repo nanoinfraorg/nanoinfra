@@ -273,6 +273,7 @@ The Short Leash Release makes the security posture on the landing page true in t
 
 ## Recent Updates
 
+- **2026-08-15** v0.9.1 fixes what v0.9.0 shipped broken: the latch clear and the approvals inbox could not answer over the WebSocket transport, an allowed action refused its own credential, the Secrets form could not take an SSH private key, and a diagnosed traceback could write a plaintext credential into a log file.
 - **2026-08-15** Capability gates on every mutating tool, remote execution and web access in their own confined processes, human approval on a second path, terminal denials, and an append-only audit log.
 - **2026-08-13** Moved to the nanoinfraorg organisation, docs at docs.nanoinfra.org, a self-hosted skills catalog, and Windows support dropped.
 - **2026-08-07** Durable subagent transcripts, drag-to-attach sessions, trusted-proxy auth, and session-retention/Dream data-loss fixes.

@@ -9,6 +9,7 @@ names every helper it must cover.
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -54,10 +55,27 @@ def test_no_helper_child_survives_a_cli_test_run(
     leaked = [
         line
         for line in listing.stdout.splitlines()
-        if session_root in line and "--socket" in line
+        if session_root in line and "--socket" in line and _is_orphan(line.split()[0])
     ]
 
     assert leaked == [], f"a test left a helper child alive: {leaked}"
+
+
+def _is_orphan(pid: str) -> bool:
+    """Report whether *pid* lost its parent, which is what a leak looks like.
+
+    A `tests/gates` test starts a real helper on purpose and stops it, and a parallel run puts one
+    of those beside this check. Such a child still has its live parent, so the parent is what tells
+    a leak from a neighbour at work.
+    """
+    try:
+        status = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    for line in status.splitlines():
+        if line.startswith("PPid:"):
+            return line.split()[1] == "1"
+    return False
 
 
 def test_a_spawned_gateway_starts_no_helper(helper_external_env: tuple[str, ...]) -> None:
