@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from loguru import logger
 
-from nanoinfra.agent.tools.capabilities import CREDENTIAL_ACCESS, MUTATE_REMOTE
+from nanoinfra.agent.tools.capabilities import MUTATE_REMOTE
 from nanoinfra.config.gates import GatesConfig
 from nanoinfra.gates.executor.protocol import ExecuteRequest
 from nanoinfra.gates.executor.server import Executor
@@ -85,10 +85,16 @@ def _interactive_allow() -> GatesConfig:
     until an operator answers on a second path. The log-only observation is what these tests
     check, so they declare the permission. An explicit policy also keeps the developer's own
     config out of the answer.
+
+    ``credential.access`` needs the same declaration (#39), or that class refuses the action
+    before the decryption. #7 names four decision values, and nanoinfra/config/gates.py spells
+    two of them for this key, so the value goes on by assignment. Another change owns that file.
     """
-    return GatesConfig.model_validate(
+    gates = GatesConfig.model_validate(
         {"interactive": {"mutate.remote": {"host": "allow", "group": "allow"}}}
     )
+    gates.interactive.credential_access = "allow"  # type: ignore[assignment]
+    return gates
 
 
 def _executor(tmp_path: Path) -> Executor:
@@ -124,12 +130,14 @@ async def test_execution_records_the_decision_the_gate_would_make(
 
 
 @pytest.mark.asyncio
-async def test_credential_access_is_recorded_at_the_resolution_site(
+async def test_a_decryption_writes_no_log_only_observation_any_more(
     tmp_path: Path, observations: list[dict[str, Any]]
 ) -> None:
-    """A secretRef resolving to plaintext is its own class, emitted where it happens.
+    """#39 replaced the observation at the decryption site with a real audit record.
 
-    That site now lives in the executor, which is the only process holding a plaintext.
+    The old observation said ``would_gate`` after the plaintext already existed, so it described
+    a gate that nothing enforced. The class now decides before the decryption, and #16 records
+    that decision. tests/gates/test_credential_access.py asserts what the record holds.
     """
     secret = SecretStore(tmp_path).create(
         {"name": "web-key", "kind": "ssh_key", "providerId": "local", "value": _SECRET_VALUE}
@@ -138,9 +146,10 @@ async def test_credential_access_is_recorded_at_the_resolution_site(
     fake = ExecutionResult(exit_code=0, output="ok", error=None)
 
     with patch(_BACKEND, new=AsyncMock(return_value=fake)):
-        await _executor(tmp_path).handle(_request())
+        response = await _executor(tmp_path).handle(_request())
 
-    assert [o["capability_class"] for o in observations] == [MUTATE_REMOTE, CREDENTIAL_ACCESS]
+    assert response.ok
+    assert [o["capability_class"] for o in observations] == [MUTATE_REMOTE]
 
 
 @pytest.mark.asyncio

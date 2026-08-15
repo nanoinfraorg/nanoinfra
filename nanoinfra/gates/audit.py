@@ -177,10 +177,12 @@ class AuditStore:
         actor: str | None = None,
         scope: str | None = None,
         hosts: Sequence[str] | None = None,
+        secret_ref: str | None = None,
         command: str | None = None,
         command_digest: str | None = None,
         reason: str | None = None,
         grant_id: str | None = None,
+        approval_id: str | None = None,
         token_nonce: str | None = None,
         exit_code: int | None = None,
         duration_ms: int | None = None,
@@ -191,6 +193,12 @@ class AuditStore:
         ``command`` takes the resolved command string. The store digests it here, so no
         caller has to remember the rule. The text reaches the file only under the opt-in.
         ``command_digest`` covers the caller that holds a digest and no text.
+
+        ``secret_ref`` and ``approval_id`` belong to a ``credential.access`` decision (#39).
+        The first names the credential a decryption covered, and it is an id rather than a
+        value. The second names the suspended action a human answered, so a reviewer can ask
+        which approval authorized one decryption. Neither one is a bearer value. The nonce
+        stays out of this log for that exact reason, and ``token_nonce`` predates this rule.
 
         ``same_path`` and ``host_count`` are not parameters on purpose. Both derive from
         other fields, so a derived value cannot contradict them. #13 keys an out-of-band
@@ -215,10 +223,12 @@ class AuditStore:
             "scope": scope,
             "hosts": host_list,
             "host_count": len(host_list),
+            "secret_ref": secret_ref,
             "command_digest": digest,
             "decision": decision,
             "reason": reason,
             "grant_id": grant_id,
+            "approval_id": approval_id,
             "token_nonce": token_nonce,
             "exit_code": exit_code,
             "duration_ms": duration_ms,

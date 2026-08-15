@@ -23,6 +23,13 @@ Two consequences shape this module. Each connection now gets its own thread, bec
 approval that stopped every other action would be a denial of service on the whole agent. And
 one action holds one inventory read for the whole wait, so the command that runs after an
 approval is the command the operator read.
+
+**``credential.access`` decides before the decryption (#39).** ``_run`` asks the class before
+``resolve_plaintext`` reads the secret store, and before a backend opens a transport. The
+decision covers the decryption alone, so a server with no ``secretRef`` reaches no credential
+decision. Nobody answers a second prompt. ``_decide`` and ``_suspend`` each hand ``_run`` the
+authorization the action already carries. The record then names the grant, or the approval, that
+satisfied the class.
 """
 
 from __future__ import annotations
@@ -62,7 +69,14 @@ from nanoinfra.gates.executor.protocol import (
     write_frame,
 )
 from nanoinfra.gates.pending import ApprovalState, PendingApprovalStore
-from nanoinfra.gates.policy import Decision, Outcome, evaluate, load_policy
+from nanoinfra.gates.policy import (
+    ActionAuthorization,
+    Decision,
+    Outcome,
+    evaluate,
+    evaluate_credential_access,
+    load_policy,
+)
 from nanoinfra.gates.prompt import PromptRenderError, render_approval_prompt
 from nanoinfra.gates.tokens import ApprovalTokenStore
 from nanoinfra.secrets.store import SecretStore
@@ -203,6 +217,7 @@ class Executor:
             request,
             reason=decision.reason,
             resolution=resolution,
+            grant_id=decision.grant_id,
         )
         if recorded is not None:
             return recorded
@@ -210,7 +225,16 @@ class Executor:
         if decision.outcome is not Outcome.ALLOW:
             return _withheld(server, request, decision.reason)
 
-        return await self._run(server, request, idle_override)
+        # A matched grant is the authorization this action carries into the credential
+        # decision (#39). A plain `allow` on the matrix carries none, and that case refuses
+        # there rather than here.
+        return await self._run(
+            server,
+            request,
+            idle_override,
+            resolution=resolution,
+            authorization=ActionAuthorization(grant_id=decision.grant_id),
+        )
 
     async def _suspend(
         self, server: Any, request: ExecuteRequest, resolution: Any, idle_override: int | None
@@ -346,11 +370,24 @@ class Executor:
             actor=outcome.actor,
             approval_path=outcome.approval_path,
             origin_path=request.origin_path,
+            approval_id=approval.request_id,
         )
         if recorded is not None:
             return recorded
 
-        return await self._run(server, request, idle_override)
+        # The approval a human just gave is the authorization this action carries into the
+        # credential decision (#39). One action costs one human decision.
+        return await self._run(
+            server,
+            request,
+            idle_override,
+            resolution=resolution,
+            authorization=ActionAuthorization(
+                approval_id=approval.request_id,
+                actor=outcome.actor,
+                approval_path=outcome.approval_path,
+            ),
+        )
 
     def _refuse(
         self,
@@ -387,9 +424,13 @@ class Executor:
         *,
         reason: str,
         resolution: Any,
+        capability_class: str = MUTATE_REMOTE,
         actor: str | None = None,
         approval_path: str | None = None,
         origin_path: str | None = None,
+        secret_ref: str | None = None,
+        grant_id: str | None = None,
+        approval_id: str | None = None,
     ) -> ExecuteResponse | None:
         """Write the audit record, or refuse the action when the write fails.
 
@@ -402,23 +443,30 @@ class Executor:
 
         ``decision`` is the operator's vocabulary rather than an enum name, because #32 rebuilds
         a latch from these strings and #29 shows them to a person.
+
+        ``capability_class`` defaults to the action's class. A credential decision passes its
+        own class instead (#39), because one action holds two decisions and a reviewer must read
+        which one refused.
         """
         if self.audit is None:
             return None
         try:
             self.audit.record(
                 decision=decision,
-                capability_class=MUTATE_REMOTE,
+                capability_class=capability_class,
                 execution_context=request.execution_context,
                 session_id=request.session_id,
                 tool="execute_on_server",
                 scope=getattr(resolution, "scope", None),
                 hosts=list(getattr(resolution, "hosts", ()) or ()),
+                secret_ref=secret_ref,
                 command=request.command,
                 reason=reason or None,
                 actor=actor,
                 origin_path=origin_path,
                 approval_path=approval_path,
+                grant_id=grant_id,
+                approval_id=approval_id,
             )
         except OSError as exc:
             return _error(
@@ -496,31 +544,80 @@ class Executor:
             )
         return decision, resolution
 
+    def _credential_gate(
+        self,
+        server: Any,
+        request: ExecuteRequest,
+        resolution: Any,
+        authorization: ActionAuthorization,
+    ) -> ExecuteResponse | None:
+        """Decide one decryption and record it -- #39. Returns None when the credential resolves.
+
+        A refusal names the class and the server's ``secretRef``, so an operator reads which
+        credential stayed encrypted. The record answers "which approval authorized this
+        decryption?": it holds the decision, the ``secretRef``, and the grant or the approval
+        that satisfied the class.
+
+        No record holds the plaintext, and this code never sees one. It runs before the secret
+        store opens (#18).
+        """
+        decision = evaluate_credential_access(
+            self.gates_loader(),
+            execution_context=request.execution_context,
+            authorization=authorization,
+        )
+        allowed = decision.outcome is Outcome.ALLOW
+        reason = f"{decision.reason} The server names secret {server.secret_ref!r}."
+        recorded = self._record(
+            _DECISION_ALLOW if allowed else _DECISION_DENIED,
+            server,
+            request,
+            reason=reason,
+            resolution=resolution,
+            capability_class=CREDENTIAL_ACCESS,
+            secret_ref=server.secret_ref,
+            grant_id=decision.grant_id,
+            approval_id=decision.approval_id,
+            actor=authorization.actor,
+            approval_path=authorization.approval_path,
+            origin_path=request.origin_path,
+        )
+        if recorded is not None:
+            return recorded
+        return None if allowed else _withheld(server, request, reason)
+
     async def _run(
-        self, server: Any, request: ExecuteRequest, idle_override: int | None
+        self,
+        server: Any,
+        request: ExecuteRequest,
+        idle_override: int | None,
+        *,
+        resolution: Any,
+        authorization: ActionAuthorization,
     ) -> ExecuteResponse:
-        """Resolve the credential, dial the host, and record the job."""
+        """Decide the credential, resolve it, dial the host, and record the job.
+
+        ``authorization`` is what already authorized this action. Both arguments are required,
+        so a new call site cannot reach a decryption with the authorization left out (#39).
+        """
         backend, default_idle = _backend_for(server.provider_id)
         idle_timeout = idle_override if idle_override is not None else default_idle
 
         secret_value: str | None = None
         if server.secret_ref:
+            # The credential decision, before the store opens and before a transport does
+            # (#39). A server with no secretRef reaches no decision at all, because the class
+            # covers the decryption rather than the action.
+            refusal = self._credential_gate(server, request, resolution, authorization)
+            if refusal is not None:
+                return refusal
+            # The one place a plaintext exists, and it exists only in this process (#18).
             secret_value = SecretStore(self.workspace).resolve_plaintext(server.secret_ref)
             if secret_value is None:
                 return _error(
                     f"Server {server.name!r} references secret {server.secret_ref!r}, "
                     "which no longer exists."
                 )
-            # The one place a plaintext exists, and it exists only in this process (#18).
-            record_observation(
-                capability_class=CREDENTIAL_ACCESS,
-                decision="would_gate",
-                tool="execute_on_server",
-                server_id=server.id,
-                server_name=server.name,
-                secret_ref=server.secret_ref,
-                command_digest=command_digest(request.command),
-            )
 
         jobs = JobStore(self.workspace)
         job = jobs.create(
