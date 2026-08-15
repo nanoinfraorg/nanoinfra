@@ -2027,6 +2027,40 @@ class AgentLoop:
 
         return filtered
 
+    def _bounded_tool_result(self, message: dict[str, Any]) -> dict[str, Any]:
+        """Return a copy of one ``role="tool"`` record at the transcript budget (#55).
+
+        Two paths write such a record. ``_save_turn`` writes the record of a turn that ended,
+        and ``_restore_runtime_checkpoint`` writes the record of a turn that a restart
+        interrupted. Both call this, so a restart cannot change the size of what persists.
+
+        The in-flight budget is the larger one, and it is larger for a reason: the model reads
+        the result of the tool it just called. The transcript budget is what an operator needs
+        to see what the tool did, months later, in a file that holds every other turn as well.
+        ``ContextGovernor.normalize_tool_result`` exempts ``read_file`` from the in-flight
+        offload, so an unbounded result does reach this point.
+
+        ``self.max_tool_result_chars`` is the budget, and it is the only budget: this method and
+        ``_sanitize_persisted_blocks`` both read that one attribute, which ``__init__`` sets from
+        ``AgentDefaults``. No path repeats the number.
+
+        ``truncate_text`` returns the text it received when the text already fits, so this
+        method needs no length test of its own.
+
+        The input is never mutated. The runner holds these same dicts in the message list of a
+        turn that may still be running.
+        """
+        entry = dict(message)
+        content = cast(object, entry.get("content"))
+        if isinstance(content, str):
+            entry["content"] = truncate_text_fn(content, self.max_tool_result_chars)
+        elif isinstance(content, list):
+            entry["content"] = self._sanitize_persisted_blocks(
+                cast(list[object], content),
+                should_truncate_text=True,
+            )
+        return entry
+
     def _save_turn(
         self,
         session: Session,
@@ -2093,19 +2127,14 @@ class AgentLoop:
                     )
                     continue
                 fulfilled_tool_call_ids.add(tool_call_id_str)
-                if isinstance(content, str) and len(content) > self.max_tool_result_chars:
-                    entry["content"] = truncate_text_fn(content, self.max_tool_result_chars)
-                elif isinstance(content, list):
-                    filtered = self._sanitize_persisted_blocks(
-                        cast(list[object], content),
-                        should_truncate_text=True,
-                    )
-                    if not filtered:
-                        # Preserve the tool_call/result pair after block filtering.
-                        filtered = [
-                            {"type": "text", "text": "[tool result omitted during persistence]"}
-                        ]
-                    entry["content"] = filtered
+                entry = self._bounded_tool_result(entry)
+                if entry.get("content") == []:
+                    # Preserve the tool_call/result pair after block filtering. The test names
+                    # the empty list rather than any falsy value, because an empty string is a
+                    # legal result and keeps its own shape.
+                    entry["content"] = [
+                        {"type": "text", "text": "[tool result omitted during persistence]"}
+                    ]
             elif role == "user":
                 if isinstance(content, list):
                     filtered = self._sanitize_persisted_blocks(
@@ -2174,6 +2203,11 @@ class AgentLoop:
         getattr, because a test builds a loop with ``AgentLoop.__new__`` and sets only the
         fields it exercises. ``_save_turn`` reads the workspace the same way, and the full
         reason is written there.
+
+        No size bound belongs here (#55). This is the write, and #51 requires that a checkpoint
+        which held no secret reaches the file byte for byte. A bound here would break that pin,
+        and it would shorten a payload the restore still has to close a turn with. The bound
+        runs in ``_restore_runtime_checkpoint``, where the payload becomes a message record.
         """
         session.metadata[self._RUNTIME_CHECKPOINT_KEY] = _redacted_checkpoint(
             payload, getattr(self, "workspace", None)
@@ -2210,6 +2244,18 @@ class AgentLoop:
         record restores as itself. A second pass would be a second implementation of one rule,
         and two implementations of one rule are how two paths start to disagree. It would also
         spend a round trip per text on the path that runs before the first request of a turn.
+
+        The size bound is the other case, and it does run here (#55). A scrub is a rule about a
+        value, and the checkpoint already obeyed it. A bound is a rule about a record, and the
+        checkpoint is not a record: it becomes one at this method. ``_save_turn`` bounds a tool
+        result, this method bounds the same shape through ``_bounded_tool_result``, and a
+        restart therefore changes no size in the transcript.
+
+        Only a tool result carries a bound, because only a tool result carries one on the
+        normal path. ``_save_turn`` reads the budget inside its ``role == "tool"`` branch, so
+        an assistant content and the arguments of a tool call persist whole there. This method
+        matches that rather than inventing a second rule. The arguments of a pending call never
+        reach the transcript at all: the record below carries a fixed sentence.
         """
         from datetime import datetime
 
@@ -2238,7 +2284,11 @@ class AgentLoop:
             restored_messages.append(restored)
         for message in completed_tool_results:
             if isinstance(message, dict):
-                restored = dict(cast(dict[str, Any], message))
+                # The bound runs here, and never at the checkpoint write (#55). The write is
+                # the obvious place and the wrong one, and the docstring of
+                # _set_runtime_checkpoint holds the reason. The entry becomes a message record
+                # at this line, so this is where the budget of a record applies.
+                restored = self._bounded_tool_result(cast(dict[str, Any], message))
                 restored.setdefault("timestamp", datetime.now().isoformat())
                 restored_messages.append(restored)
         for tool_call in pending_tool_calls:
