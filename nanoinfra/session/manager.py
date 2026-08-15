@@ -125,6 +125,121 @@ def _replayable_thinking_blocks(value: object) -> object:
     ]
 
 
+def _drop_unreplayable_thinking_blocks(entry: dict[str, Any]) -> bool:
+    """Remove the thinking blocks a provider may no longer receive, in place (#48).
+
+    Report whether the entry changed. Two replay paths read this: the message
+    history below, and the pending messages of a provider state (#52). Both send
+    an assistant record to a provider, so both drop the same block.
+
+    An empty list goes as well. A key with no block carries nothing, and a
+    provider that rejects an empty list would fail on a record that says
+    nothing.
+    """
+    if "thinking_blocks" not in entry:
+        return False
+    original = cast(object, entry["thinking_blocks"])
+    blocks = _replayable_thinking_blocks(original)
+    if blocks:
+        entry["thinking_blocks"] = blocks
+        return blocks != original
+    del entry["thinking_blocks"]
+    return True
+
+
+def _replayable_provider_state(
+    state: ProviderConversationState | None,
+) -> ProviderConversationState | None:
+    """Return the provider state a provider may still receive (#52).
+
+    The pending messages of a state replay to the provider on the next request,
+    so a thinking block the scrub changed reaches a provider through this path
+    as well. The scrub unsigned that block and marked it (#48), and a provider
+    needs a signature that matches the text, so the block goes here too.
+
+    The filter runs on the read side rather than the write side, for two
+    reasons. The file stays a faithful record of what the turn produced, which
+    is the same split #48 chose for a message. And a record written before this
+    change still holds a marked block, so a read-side filter covers the old
+    files as well as the new ones.
+    """
+    if state is None or not state.pending_messages:
+        return state
+    pending: list[dict[str, Any]] = []
+    changed = False
+    for message in state.pending_messages:
+        entry = dict(message)
+        changed = _drop_unreplayable_thinking_blocks(entry) or changed
+        pending.append(entry)
+    return state.with_pending_messages(pending) if changed else state
+
+
+def _persistable_provider_state_record(
+    state: ProviderConversationState,
+    workspace: Path | str | None,
+) -> dict[str, Any] | None:
+    """Return the private record for the file, or None to write no state (#52).
+
+    ``to_private_record`` copies ``pending_messages`` verbatim, and those are
+    Chat-style messages this repository built after the last committed turn. So
+    they hold tool arguments, tool output, and reasoning: exactly the content
+    #41 and #48 scrub on the message path of this same file. The scrub is the
+    one ``redact_messages`` performs, and the executor holds the sentinels, so
+    this process decrypts nothing (#41).
+
+    ``payload`` reaches the file as it is. It is the provider's own handle, and
+    only the provider that issued it knows which of its fields must stay
+    byte-exact. A wrong edit there breaks a replay the operator cannot recover,
+    and this module holds no provider to ask.
+
+    **A scrub that cannot run writes no state at all.** The message path
+    persists a marker in place of the text (#41), and that answer is wrong here.
+    A provider state is replay input rather than a record a human reads, so a
+    marker would send the model a sentence it never wrote. A missing state
+    degrades to a normal replay from the message history, so fail-closed costs
+    a provider-side cache and never the session.
+
+    The import is local, because ``nanoinfra.agent.redaction`` reaches this
+    module through its own imports. A module level import here closes a cycle.
+    """
+    record = state.to_private_record()
+    pending = cast(object, record.get("pending_messages"))
+    if not isinstance(pending, list) or not pending:
+        return record
+
+    from nanoinfra.agent.redaction import SCRUB_UNAVAILABLE_MARKER, TranscriptRedactor
+
+    redactor = TranscriptRedactor.for_workspace(workspace)
+    try:
+        # max_tool_result_chars=None: a pending message replays to the provider, and the
+        # persisted copy of the same message already carries the bound the agent loop applied.
+        # A second, smaller bound here would shorten what the provider receives.
+        scrubbed = redactor.messages(
+            cast("list[dict[str, Any]]", pending), max_tool_result_chars=None
+        )
+    except Exception as exc:  # noqa: BLE001 -- no scrub means no state persists
+        logger.warning("Persisted no provider state, because no scrub ran: {}", exc)
+        return None
+
+    # The redactor answers a marker rather than raising, so a marker is what a failure looks
+    # like from here. The test is a substring of a constant that module exports, and it costs
+    # one pass over a turn delta.
+    #
+    # Only a redactor that asks the executor can withhold anything, so a workspace with no
+    # stored secret pays nothing for this test and no text of its own can read as a failure.
+    # On the other path a record that quotes the marker for its own reasons loses its provider
+    # state, and that is the fail-closed direction: the cost is one cache, and the session
+    # replays from its message history.
+    if redactor.asks_the_executor:
+        marker_prefix = SCRUB_UNAVAILABLE_MARKER.split("{reason}", 1)[0]
+        if marker_prefix in json.dumps(scrubbed, ensure_ascii=False):
+            logger.warning("Persisted no provider state, because the scrub withheld a text")
+            return None
+
+    record["pending_messages"] = scrubbed
+    return record
+
+
 def _text_preview(content: object) -> str:
     """Return compact display text for session lists."""
     if isinstance(content, str):
@@ -326,13 +441,8 @@ class Session:
             for key in ("tool_calls", "tool_call_id", "name", "reasoning_content", "thinking_blocks"):
                 if key in message:
                     entry[key] = message[key]
-            if "thinking_blocks" in entry:
-                # A scrubbed block lost its signature (#48), so it replays as nothing.
-                blocks = _replayable_thinking_blocks(entry["thinking_blocks"])
-                if blocks:
-                    entry["thinking_blocks"] = blocks
-                else:
-                    del entry["thinking_blocks"]
+            # A scrubbed block lost its signature (#48), so it replays as nothing.
+            _drop_unreplayable_thinking_blocks(entry)
             out.append(entry)
 
         if max_tokens > 0 and out:
@@ -547,6 +657,10 @@ class JsonlSessionStore:
     """JSONL implementation of session persistence."""
 
     def __init__(self, workspace: Path):
+        # The workspace stays, because a save scrubs the pending messages of a provider state
+        # and the redactor needs it to tell a workspace with a stored secret from one without
+        # (#52). A workspace with no secret then costs no round trip.
+        self.workspace = workspace
         self.sessions_dir = ensure_dir(workspace / "sessions")
         self.legacy_sessions_dir = get_legacy_sessions_dir()
 
@@ -633,8 +747,9 @@ class JsonlSessionStore:
                             else 0
                         )
                     elif record_type == _PROVIDER_STATE_RECORD_TYPE:
-                        provider_state = ProviderConversationState.from_private_record(
-                            data.get("state")
+                        # A block the scrub unsigned reaches no provider (#52).
+                        provider_state = _replayable_provider_state(
+                            ProviderConversationState.from_private_record(data.get("state"))
                         )
                     else:
                         messages.append(data)
@@ -712,8 +827,9 @@ class JsonlSessionStore:
                             else 0
                         )
                     elif record_type == _PROVIDER_STATE_RECORD_TYPE:
-                        candidate = ProviderConversationState.from_private_record(
-                            data.get("state")
+                        # A block the scrub unsigned reaches no provider (#52).
+                        candidate = _replayable_provider_state(
+                            ProviderConversationState.from_private_record(data.get("state"))
                         )
                         if candidate is None:
                             skipped += 1
@@ -767,11 +883,17 @@ class JsonlSessionStore:
                 }
                 f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
                 if session.provider_state is not None:
-                    provider_state_line = {
-                        "_type": _PROVIDER_STATE_RECORD_TYPE,
-                        "state": session.provider_state.to_private_record(),
-                    }
-                    f.write(json.dumps(provider_state_line, ensure_ascii=False) + "\n")
+                    # The pending messages of a state scrub before they reach the file, and a
+                    # state nobody scrubbed writes no line at all (#52).
+                    state_record = _persistable_provider_state_record(
+                        session.provider_state, self.workspace
+                    )
+                    if state_record is not None:
+                        provider_state_line = {
+                            "_type": _PROVIDER_STATE_RECORD_TYPE,
+                            "state": state_record,
+                        }
+                        f.write(json.dumps(provider_state_line, ensure_ascii=False) + "\n")
                 for msg in session.messages:
                     f.write(json.dumps(msg, ensure_ascii=False) + "\n")
                 if fsync:

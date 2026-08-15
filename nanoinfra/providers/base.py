@@ -185,6 +185,15 @@ class ProviderConversationState:
     ``pending_messages`` are Chat-style messages produced after the most
     recent provider response and are materialized by the owning provider on
     the next request.
+
+    **The two halves take different rules at a persistence boundary
+    (nanoinfraorg/nanoinfra#52).** ``pending_messages`` are message shapes this
+    repository builds, so ``nanoinfra/agent/redaction.py`` knows every field of
+    them and a caller that persists them scrubs them first. ``payload`` belongs
+    to the provider that issued it. Only that provider knows which of its own
+    fields must stay byte-exact, such as an item id, a server-side call id, or
+    an encrypted reasoning blob, so a caller outside the provider edits none of
+    it. A wrong edit there breaks a replay the operator cannot recover.
     """
 
     kind: str
@@ -209,7 +218,18 @@ class ProviderConversationState:
         )
 
     def to_private_record(self) -> dict[str, Any]:
-        """Serialize for the private session sidecar, never for public history."""
+        """Serialize for the private session sidecar, never for public history.
+
+        **This copies ``pending_messages`` verbatim, and a caller that writes a
+        file scrubs them first (nanoinfraorg/nanoinfra#52).** The scrub does not
+        live here for three reasons. This method holds no workspace, and the
+        redactor needs one to decide whether a stored secret could exist at all.
+        The scrub reaches the executor over a socket, and this module is
+        imported by every provider, so the dependency would run the wrong way.
+        The fail-closed answer for a state nobody scrubbed is to write no state
+        at all, and a serializer that answers None is the wrong contract for
+        that. ``JsonlSessionStore.save`` owns all three, so it owns the scrub.
+        """
         return {
             "kind": self.kind,
             "provider": self.provider,
