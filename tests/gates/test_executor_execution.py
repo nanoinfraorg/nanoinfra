@@ -56,10 +56,17 @@ def _interactive_allow() -> GatesConfig:
     until an operator answers on a second path. These tests exercise execution mechanics, so
     they declare the permission rather than drive an approval. The approval path has its own
     tests in tests/gates/test_approval_gate.py.
+
+    ``credential.access`` needs the same declaration (#39). An action that reached ``allow`` on
+    the matrix carries no authorization for a decryption, so that class refuses it. #7 names
+    four decision values, and nanoinfra/config/gates.py spells two of them for this key, so the
+    value goes on by assignment. Another change owns that file.
     """
-    return GatesConfig.model_validate(
+    gates = GatesConfig.model_validate(
         {"interactive": {"mutate.remote": {"host": "allow", "group": "allow"}}}
     )
+    gates.interactive.credential_access = "allow"  # type: ignore[assignment]
+    return gates
 
 
 def _executor(tmp_path: Path, gates: GatesConfig | None = None) -> Executor:

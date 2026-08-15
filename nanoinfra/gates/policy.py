@@ -21,6 +21,12 @@ Three fail-closed rules run before any policy lookup:
 An unattended context has exactly one allow path: a standing grant that covers every
 resolved host and holds the resolved command exactly. There is no interactive fallback,
 because a prompt with nobody present becomes a hang or a rubber stamp.
+
+``credential.access`` is a decision about one decryption, and never about the action (#39).
+``evaluate_credential_access`` answers it, and that answer is ``allow`` or ``deny`` alone. A
+second ``approve`` outcome would prompt a human twice for one action, and #13 says a human who
+reads forty prompts a week stops reading them. So ``approve`` and ``grant`` read the
+authorization the action already carries.
 """
 
 from __future__ import annotations
@@ -71,6 +77,29 @@ class Decision:
     # beside the grant id, so a reviewer sees which addresses ran rather than which labels
     # the operator typed.
     resolved_targets: tuple[str, ...] = ()
+    # The suspended action a human answered, when that answer satisfied this decision (#39).
+    # It is the request id of the pending approval, and it is not the token nonce. The audit
+    # log has more readers than the approval path has, so the record names the approval and
+    # omits the means to spend it (#12).
+    approval_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ActionAuthorization:
+    """What already authorized the action that needs a credential -- #39.
+
+    The executor builds this from the ``mutate.remote`` decision it just took. A standing grant
+    covered the action, or a human approved it, or neither did. ``credential.access`` reads this
+    instead of a second prompt, because one action must cost one human decision.
+
+    ``actor`` and ``approval_path`` describe the human, and both stay empty for a grant. A grant
+    asks nobody, so a name there would invent an approver.
+    """
+
+    grant_id: str | None = None
+    approval_id: str | None = None
+    actor: str | None = None
+    approval_path: str | None = None
 
 
 def resolve_scope_for_grant_host(server: Any) -> Any:
@@ -239,10 +268,10 @@ def evaluate(
     policy = _context_policy(gates, unattended=unattended)
 
     if capability_class == CREDENTIAL_ACCESS:
-        return Decision(
-            _decision_for(policy.credential_access),
-            f"{capability_class} in a {context_key} context is {policy.credential_access}.",
-        )
+        # One implementation, and no second wording (#39). A caller that reaches the class
+        # through this function names no authorization, so `approve` and `grant` refuse here.
+        # The executor calls `evaluate_credential_access` directly and passes what it holds.
+        return evaluate_credential_access(gates, execution_context=execution_context)
 
     if capability_class == MUTATE_INVENTORY:
         # A standing grant carries no class, so it can never satisfy this. A grant that
@@ -315,6 +344,68 @@ def evaluate(
     return Decision(outcome, f"{capability_class} at {scope} scope is {configured}.")
 
 
+def evaluate_credential_access(
+    gates: GatesConfig,
+    *,
+    execution_context: str,
+    authorization: ActionAuthorization | None = None,
+) -> Decision:
+    """Decide one decryption -- #39. Call this before ``resolve_plaintext`` reads the store.
+
+    The answer is ``allow`` or ``deny``, and never ``approve``. A second prompt would ask a
+    human twice for one action, and #13 spends that attention elsewhere.
+
+    ``authorization`` holds the action's own decision. A standing grant satisfies ``grant`` and
+    ``approve``, because the operator declared that permission in advance (#11). A human
+    approval satisfies ``approve``. An action that reached ``allow`` on the matrix alone carries
+    neither, so both values refuse it.
+
+    A value this function does not model refuses. A hand-edited key must cost the decryption
+    rather than buy it.
+    """
+    unattended = execution_context != EXECUTION_CONTEXT_INTERACTIVE
+    context_key = "unattended" if unattended else "interactive"
+    # ``str`` on purpose, and not a cast. #7 names four decision values, and the schema spells
+    # two of them for this key today. This function models all four, so a widened schema needs
+    # no edit here, and a value nothing models still refuses below.
+    configured = str(_context_policy(gates, unattended=unattended).credential_access)
+    carried = authorization or ActionAuthorization()
+    key = f"gates.{context_key}.credential.access"
+
+    if configured == "allow":
+        return Decision(Outcome.ALLOW, f"{key} is 'allow', so the credential resolves.")
+
+    if configured in ("approve", "grant"):
+        # A grant answers both values, and an approval answers `approve` alone. The order
+        # matches #11: this code reads the pre-declared permission first, because it asks nobody.
+        if carried.grant_id is not None:
+            return Decision(
+                Outcome.ALLOW,
+                f"{key} is {configured!r}, and standing grant {carried.grant_id} covers this "
+                "action. That grant authorizes the credential the action needs.",
+                grant_id=carried.grant_id,
+            )
+        if configured == "approve" and carried.approval_id is not None:
+            return Decision(
+                Outcome.ALLOW,
+                f"{key} is 'approve', and {carried.actor!r} approved this action as "
+                f"{carried.approval_id}. That approval authorizes the credential it needs.",
+                approval_id=carried.approval_id,
+            )
+        return Decision(
+            Outcome.DENY,
+            f"The gate refuses {CREDENTIAL_ACCESS}: {key} is {configured!r}, and nothing "
+            "authorized this action. A human approval or a standing grant carries that "
+            f"authorization. Set {key} to 'allow', or declare a grant in gates.standingGrants.",
+        )
+
+    return Decision(
+        Outcome.DENY,
+        f"The gate refuses {CREDENTIAL_ACCESS}: {key} is {configured!r}. The credential stays "
+        "encrypted, so the action reaches no host.",
+    )
+
+
 def _missing_grant_reason(
     capability_class: str, scope: str, context_key: str, hosts: tuple[str, ...]
 ) -> str:
@@ -352,4 +443,11 @@ def load_policy() -> GatesConfig:
         return _GatesConfig()
 
 
-__all__ = ["Decision", "Outcome", "evaluate", "load_policy"]
+__all__ = [
+    "ActionAuthorization",
+    "Decision",
+    "Outcome",
+    "evaluate",
+    "evaluate_credential_access",
+    "load_policy",
+]

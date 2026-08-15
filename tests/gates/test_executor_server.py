@@ -85,10 +85,17 @@ def _interactive_allow() -> GatesConfig:
     The shipped interactive default is ``approve``, and #38 suspends an ``approve`` outcome
     until an operator answers on a second path. The wire and the split are what these tests
     check, so they declare the permission. tests/gates/test_approval_gate.py drives an approval.
+
+    ``credential.access`` needs the same declaration (#39), because that class refuses an action
+    which carries no authorization for a decryption. #7 names four decision values, and
+    nanoinfra/config/gates.py spells two of them for this key, so the value goes on by
+    assignment. Another change owns that file.
     """
-    return GatesConfig.model_validate(
+    gates = GatesConfig.model_validate(
         {"interactive": {"mutate.remote": {"host": "allow", "group": "allow"}}}
     )
+    gates.interactive.credential_access = "allow"  # type: ignore[assignment]
+    return gates
 
 
 def _executor(tmp_path: Path, gates: GatesConfig | None = None) -> Executor:
