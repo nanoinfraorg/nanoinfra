@@ -39,6 +39,14 @@ Deletion of a whole segment touches zero bytes of the records it keeps. The cost
 granularity. The oldest kept segment holds records up to one day past the limit. Retention
 over-keeps by less than a day, and an over-keep is the safe direction of error here.
 
+**The root is a directory, not a path.** #36 found that the agent account could rename the
+audit directory. Write rights on a parent allow a rename of any entry inside it, whatever the
+entry's own owner and mode are. The log then read as empty, and #32 rebuilt no latch from it.
+``entrypoint.sh`` closes the rename. A store opened with ``pin_root`` also holds the device
+and inode of the directory it opened, and it refuses to read or write when that pair changes.
+The refusal is an :class:`AuditRootChangedError`, which is an ``OSError``, so the executor refuses
+the action and the latch restore degrades. A rename then costs availability, not a latch.
+
 Nothing here reads config or the data dir on its own. The caller passes the root and the
 policy, so #8 wires one store and a test writes to a temporary directory.
 """
@@ -47,6 +55,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from collections.abc import Sequence
 from contextlib import suppress
 from datetime import UTC, date, datetime, timedelta
@@ -65,8 +74,13 @@ _SEGMENT_SUFFIX = ".jsonl"
 _SEGMENT_DATE_FORMAT = "%Y-%m-%d"
 
 # An audit record names hosts, actors, and sessions. Only the owner needs to read it.
-_FILE_MODE = 0o600
-_DIR_MODE = 0o700
+# The executor writes this log and the agent process reads it: #32 restores latches there, and
+# #29's viewer serves it. So the group reads and never writes, and other users get nothing. A
+# reader that cannot open a segment leaves the deployment permanently degraded, which is worse
+# than the bypass that would close. The log holds command digests by default, and full text
+# needs gates.audit.recordCommandText.
+_FILE_MODE = 0o640
+_DIR_MODE = 0o2750
 
 
 def segment_name(day: datetime) -> str:
@@ -74,12 +88,81 @@ def segment_name(day: datetime) -> str:
     return f"{_SEGMENT_PREFIX}{day.astimezone(UTC).strftime(_SEGMENT_DATE_FORMAT)}{_SEGMENT_SUFFIX}"
 
 
+class AuditRootChangedError(OSError):
+    """The audit root is not the directory the store opened -- #36.
+
+    An ``OSError`` subclass on purpose. Every caller of this store already fails closed on an
+    ``OSError``: the executor refuses the action it did not record, and ``restore_latches``
+    degrades and keeps every session latched. So no caller needs a new branch, and a moved
+    audit root costs availability instead of every latch the log holds.
+    """
+
+
+def root_identity(root: Path) -> tuple[int, int] | None:
+    """Return the device and inode pair of *root*, or ``None`` when no directory is there.
+
+    The pair is the identity of a directory, and the path is not. A rename keeps the pair and
+    changes the path. A rename aside plus a fresh ``mkdir`` keeps the path and changes the
+    pair. The second case is the #36 bypass, so a long-lived process must hold the pair.
+
+    A path that is not a directory answers ``None``. A file or a symlink to another directory
+    at the audit root is not the audit root, and it must not read as one.
+    """
+    try:
+        info = os.stat(root)
+    except OSError:
+        # An absent root and an unreadable one answer the same here. The caller compares this
+        # answer with the pinned pair, and neither one can equal a pinned pair.
+        return None
+    if not stat.S_ISDIR(info.st_mode):
+        return None
+    return (info.st_dev, info.st_ino)
+
+
 class AuditStore:
     """Append gate decisions to date-stamped JSONL segments under one root."""
 
-    def __init__(self, root: Path | str, *, config: AuditConfig | None = None) -> None:
+    def __init__(
+        self, root: Path | str, *, config: AuditConfig | None = None, pin_root: bool = False
+    ) -> None:
         self.root = Path(root)
         self.config = config or AuditConfig()
+        # Opt-in, because the pin guards one thing: a process that outlives a rename of its
+        # audit root. The executor is that process, and it takes the pin. A short-lived caller
+        # that opens the store, reads it, and exits gains nothing from a pin, and a pin there
+        # would turn an operator who moves the directory into a hard failure.
+        self.pin_root = pin_root
+        self.pinned_identity = root_identity(self.root) if pin_root else None
+
+    def verify_root(self) -> None:
+        """Raise :class:`AuditRootChangedError` when the root is not the pinned directory -- #36.
+
+        One ``stat`` call, so every record and every read can afford this check.
+
+        A pinned identity of ``None`` means the directory did not exist yet. There is nothing
+        to protect in that state, so the first directory this store sees becomes the pinned
+        one. A fresh install opens the store before the first record creates the root.
+        """
+        if not self.pin_root:
+            return
+        current = root_identity(self.root)
+        if self.pinned_identity is None:
+            self.pinned_identity = current
+            return
+        if current == self.pinned_identity:
+            return
+        logger.error(
+            "gates: the audit root {} changed identity (pinned {}, found {})",
+            self.root,
+            self.pinned_identity,
+            current,
+        )
+        raise AuditRootChangedError(
+            f"The audit root {self.root} is not the directory this process opened "
+            f"(pinned device and inode {self.pinned_identity}, found {current}). A rename or a "
+            "replacement of the audit root hides the records that the denial latches come from, "
+            "so this store refuses to read it or to write to it."
+        )
 
     def record(
         self,
@@ -177,10 +260,28 @@ class AuditStore:
         return removed
 
     def segments(self) -> list[Path]:
-        """Return the segment files, oldest first. The name sorts by date already."""
+        """Return the segment files, oldest first. The name sorts by date already.
+
+        The identity check comes before the ``is_dir`` test, because an absent root and a moved
+        root both fail that test. Only one of the two is a bypass, and it must not answer with
+        an empty list.
+        """
+        self.verify_root()
         if not self.root.is_dir():
             return []
-        return sorted(self.root.glob(f"{_SEGMENT_PREFIX}*{_SEGMENT_SUFFIX}"))
+        # os.scandir rather than Path.glob. glob swallows PermissionError and answers with an
+        # empty list, and an unreadable root then reads exactly like a fresh install. #32
+        # rebuilds latches from this log, so "empty" cleared every latch on every boot in the
+        # split container, through permissions alone and with no rename needed. An unreadable
+        # root must raise, so restore_latches degrades and every session stays latched.
+        with os.scandir(self.root) as entries:
+            names = [
+                entry.name
+                for entry in entries
+                if entry.name.startswith(_SEGMENT_PREFIX)
+                and entry.name.endswith(_SEGMENT_SUFFIX)
+            ]
+        return [self.root / name for name in sorted(names)]
 
     def read_all(self) -> list[dict[str, Any]]:
         """Return every readable record, oldest segment first."""
@@ -213,12 +314,19 @@ class AuditStore:
         return records
 
     def _append(self, segment: Path, payload: dict[str, Any], moment: datetime) -> None:
+        # The check runs before the mkdir. A store that recreates a moved root starts a fresh
+        # log, and a fresh log holds no latch. That is the #36 bypass.
+        self.verify_root()
         if not self.root.is_dir():
             self.root.mkdir(parents=True, exist_ok=True)
             # Set the mode on creation only. An operator who opens the directory to an
             # audit group must keep that change.
             with suppress(OSError):
                 os.chmod(self.root, _DIR_MODE)
+            # Pin the directory this store just created. A pin that waits for the next record
+            # leaves a window: another account could move this directory aside and put its own
+            # at the same path, and the next record would then adopt the replacement.
+            self.verify_root()
         # json.dumps escapes every control character, so a newline inside a field cannot
         # split one record into two lines.
         line = (json.dumps(payload, ensure_ascii=False, sort_keys=False) + "\n").encode("utf-8")
@@ -282,4 +390,4 @@ def _same_path(origin_path: str | None, approval_path: str | None) -> bool | Non
     return origin_path == approval_path
 
 
-__all__ = ["AuditStore", "segment_name"]
+__all__ = ["AuditRootChangedError", "AuditStore", "root_identity", "segment_name"]

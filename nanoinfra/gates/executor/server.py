@@ -469,11 +469,22 @@ def _audit_store() -> Any:
 
     It lives beside the gateway's data rather than in the workspace. The workspace is reachable
     by the agent's filesystem tools, and an audit log a model can edit is not an audit log.
+
+    ``pin_root`` holds the device and inode of that directory for the life of this process
+    (#36). A model cannot un-append a record, and it could still rename the directory that
+    holds every record, because write rights on a parent allow a rename of any entry inside it.
+    entrypoint.sh takes that write right away. This pin covers the case the layout cannot: an
+    executor that keeps running while its audit root moves underneath it. The store then raises
+    on every read and every write, ``_record`` refuses the action and names the cause, and the
+    latch restore degrades and keeps every session latched. The cost is availability, and the
+    alternative cost is every latch the log holds.
     """
     from nanoinfra.config.paths import get_data_dir
     from nanoinfra.gates.audit import AuditStore
 
-    return AuditStore(get_data_dir() / "gates", config=load_policy().audit)
+    store = AuditStore(get_data_dir() / "gates", config=load_policy().audit, pin_root=True)
+    logger.info("gates: executor audit root {} pinned as {}", store.root, store.pinned_identity)
+    return store
 
 
 def _serve_one(conn: socket.socket, executor: Executor) -> None:

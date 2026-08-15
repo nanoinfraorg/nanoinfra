@@ -14,6 +14,15 @@ Two states are different and must stay different. An empty log is a fresh instal
 holds no latches. An unreadable log cannot say which sessions to latch, so it degrades and
 every gated action waits for an operator. An unreadable audit log must never read as "no
 latches".
+
+**A moved log is not an empty log.** #36 found that the agent account could rename the audit
+directory, because write rights on a parent allow a rename of any entry inside it. The
+segments then vanish, and an absent log reads exactly like a fresh one. Nothing in this module
+can tell the two apart. A marker file, or a sentinel inside the directory, sits in the same
+renameable parent and moves with it. So the answer is not here. ``entrypoint.sh`` takes the
+write right on the parent away, and an ``AuditStore`` opened with ``pin_root`` raises
+``AuditRootChangedError`` once its root changes identity. That is an ``OSError``, so it takes the
+degraded path below, and a moved log then latches every session instead of none.
 """
 
 from __future__ import annotations

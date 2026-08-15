@@ -436,12 +436,23 @@ def test_a_torn_tail_costs_the_tail_only(tmp_path: Path) -> None:
     assert [r["decision"] for r in records] == ["deny", "approve"]
 
 
-def test_the_segment_is_readable_by_the_owner_only(tmp_path: Path) -> None:
+def test_the_segment_is_writable_by_the_owner_and_readable_by_the_group(
+    tmp_path: Path,
+) -> None:
+    """This asserted 0o600 until #18 split the processes, and owner-only broke the split.
+
+    The executor writes this log and the agent process reads it: #32 rebuilds denial latches
+    there and #29's viewer serves it. Under 0o600 the agent could not open a segment, `Path.glob`
+    swallowed the PermissionError, and every latch cleared on every boot.
+
+    The protective half of the original intent stands and is asserted here: the group cannot
+    write, and another user gets nothing. Only the read bit moved.
+    """
     store = _store(tmp_path)
 
     store.record(decision="deny", capability_class="read", execution_context="automation")
 
-    assert stat.S_IMODE(store.segments()[0].stat().st_mode) == 0o600
+    assert stat.S_IMODE(store.segments()[0].stat().st_mode) == 0o640
 
 
 def _write_many(root: str, writer: str, count: int, barrier: Any) -> None:

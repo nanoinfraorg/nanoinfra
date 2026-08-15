@@ -69,9 +69,10 @@ resolve_workspace() {
 #   $HOME/.nanoinfra/gates  the gate audit log (nanoinfra/gates/audit.py)
 # The executor holds the only plaintext and writes the only record, so it owns both. Mode 700
 # means the agent account cannot read either one.
-# One limit, stated rather than hidden: both roots sit inside directories the agent can write,
-# so the agent can still rename or remove those entries. It can never read the contents. A
-# layout that also protects availability needs both roots outside the agent's home.
+# harden_audit_parents below closes the rename of the audit directory (#36). One limit stays,
+# stated rather than hidden: the workspace is the agent's own directory, so the agent can still
+# rename or remove <workspace>/secrets. That costs the executor its credentials, and it never
+# reveals one. Confidentiality holds, and availability does not.
 prepare_executor_paths() {
     workspace="$1"
 
@@ -99,8 +100,75 @@ prepare_executor_paths() {
     chown nanoinfra:nanoinfra "$workspace" 2>/dev/null || \
         echo "[entrypoint] warning: chown $workspace failed"
     mkdir -p "$workspace/secrets" "$dir/gates" || return 1
-    chown -R "$exec_user:$exec_user" "$workspace/secrets" "$dir/gates" || return 1
-    chmod 700 "$workspace/secrets" "$dir/gates" || return 1
+    chown -R "$exec_user:$exec_user" "$workspace/secrets" || return 1
+    chmod 700 "$workspace/secrets" || return 1
+    # The audit log is written by the executor and READ by the agent. #32 rebuilds denial
+    # latches from it and #29 serves it in the WebUI, and both run in the agent process. At
+    # mode 700 the agent could not open a segment, Path.glob swallowed the PermissionError,
+    # and every latch cleared on every boot -- #32 was void here through permissions alone.
+    #
+    # So the shared group reads and never writes. The log holds command digests by default,
+    # and full command text needs gates.audit.recordCommandText, so a group read leaks little.
+    # Write stays with the executor, and the sticky parents below stop a rename.
+    chown -R "$exec_user:$ipc_group" "$dir/gates" || return 1
+    chmod 2750 "$dir/gates" || return 1
+    find "$dir/gates" -type f -exec chmod 640 {} + 2>/dev/null || true
+
+    harden_audit_parents || return 1
+}
+
+# Take the rename of the audit directory away from the agent account (item 34,
+# nanoinfraorg/nanoinfra#36).
+#
+# WHY THE PARENT MATTERS. Mode 700 on $dir/gates looks sufficient and is not. It settles who
+# reads the contents. It does not settle who moves the entry. A rename needs write rights on the
+# PARENT directory, and the kernel ignores the owner and the mode of the entry itself. The agent
+# account owned $HOME/.nanoinfra, so it could move the audit log aside without one byte of read
+# access. #32 rebuilds the denial latches from that log, an absent log reads exactly like an
+# empty one, and the agent got deny, rename, restart, retry.
+#
+# The agent must keep the data dir writable, because it creates config.json, sessions, media,
+# logs, and more in it. So this does not take the write right away. It adds the sticky bit, the
+# /tmp rule: in a sticky directory, only the owner of an entry, the owner of the directory, or
+# root may rename or delete that entry. root takes the directory, so the agent is not the
+# directory owner either, and $exec_user owns the gates entry. The agent therefore keeps every
+# entry it creates, and it cannot touch the executor's one.
+#
+# $HOME gets the same treatment. A rename of $HOME/.nanoinfra hides the audit root just as well
+# as a rename of $HOME/.nanoinfra/gates does. /home is root-owned already, so the chain ends
+# one level up.
+#
+# Group $ipc_group is the one group both accounts hold, so both keep write access here. The
+# executor also needs to traverse both directories to reach its own audit root, and this group
+# gives it that.
+#
+# The mode stays as open as it was. Both directories were 755, so 1775 adds the group write bit
+# and the sticky bit and takes nothing away. A host that bind-mounts ~/.nanoinfra keeps its read
+# and its list rights, and only the write right moves to the shared group.
+#
+# The Python half backs this up. The executor pins the device and inode of its audit root, so a
+# move it cannot prevent stops the executor instead of the latches (nanoinfra/gates/audit.py).
+#
+# Residual risk, and it is deliberate: root and an operator with a shell can still remove the
+# audit log. That act is visible, because the segments are then gone. The item is about the
+# agent account, and the agent account can no longer do it.
+harden_audit_parents() {
+    for parent in "$dir" "$HOME"; do
+        # A chmod on "" or on / would break the whole container, so it never runs. An unset HOME
+        # is the case that produces both, and it means this layout was never prepared correctly.
+        case "$parent" in
+            ""|"/")
+                echo "[entrypoint] warning: refusing to harden '$parent' — check HOME" >&2
+                return 1
+                ;;
+        esac
+        chown "root:$ipc_group" "$parent" || return 1
+        # 1775: owner root rwx, group $ipc_group rwx, other r-x, plus the sticky bit. The sticky
+        # bit is the whole point, and the group write bit keeps the agent working.
+        chmod 1775 "$parent" || return 1
+    done
+    echo "[entrypoint] audit log: $dir/gates belongs to $exec_user, and its parents are sticky"
+    echo "[entrypoint] audit log: root can still remove it, and a removal is visible"
 }
 
 # Start the executor and keep it up. A dead executor means every gated action fails, so a
