@@ -956,7 +956,13 @@
         "sender": "Expéditeur",
         "add": "Ajouter un approbateur",
         "remove": "Supprimer l’approbateur",
-        "note": "L’appartenance à une liste allowFrom d’un canal n’accorde rien ici. Seule cette liste décide qui peut approuver."
+        "note": "L’appartenance à une liste allowFrom d’un canal n’accorde rien ici. Seule cette liste décide qui peut approuver.",
+        "formNote": "Ce panneau n’ajoute aucun préfixe. Le contrôle compare la chaîne entière, donc il correspond à ce que vous écrivez ici et à rien d’autre.",
+        "webuiForm": "La forme WebUI est webui, ou webui: puis le claim.",
+        "chatForm": "La forme de chat est l’id de compte d’une personne.",
+        "bareClaim": "Cet expéditeur n’est que le claim, donc il ne correspond à personne. Écrivez webui: puis le claim.",
+        "notAnAccountId": "Un approbateur de chat est l’id de compte numérique fourni par le canal.",
+        "blank": "Cette ligne ne nomme aucun expéditeur, donc elle ne correspond à personne."
       },
       "paths": {
         "title": "Chemins authentifiés",
@@ -1135,7 +1141,11 @@
     "open": "Connecté",
     "reconnecting": "Reconnexion…",
     "closed": "Déconnecté",
-    "error": "Erreur de connexion"
+    "error": "Erreur de connexion",
+    "identity": {
+      "actor": "La passerelle lit ce chemin comme {{actor}}.",
+      "approverNote": "Une entrée d’approbateur doit nommer cette valeur exactement."
+    }
   },
   "thread": {
     "loadingConversation": "Chargement de la conversation…",

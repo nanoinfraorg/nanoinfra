@@ -202,6 +202,10 @@ vi.mock("@/lib/nanoinfra-client", () => {
     defaultChatId: string | null = null;
     connect = connectSpy;
     onStatus = () => () => {};
+    // The actor the gateway resolved (#70). The badge subscribes to it, so the double owes the
+    // method: a double that answers fewer members than the class is a passing test of nothing.
+    operatorActor: string | null = null;
+    onOperatorActor = () => () => {};
     onRuntimeModelUpdate = () => () => {};
     onError = () => () => {};
     onChat = () => () => {};

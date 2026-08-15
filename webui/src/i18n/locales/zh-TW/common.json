@@ -956,7 +956,13 @@
         "sender": "傳送者",
         "add": "新增核准者",
         "remove": "移除核准者",
-        "note": "出現在某頻道的 allowFrom 清單中不會在此授予任何權限。誰可以核准只由這份清單決定。"
+        "note": "出現在某頻道的 allowFrom 清單中不會在此授予任何權限。誰可以核准只由這份清單決定。",
+        "formNote": "本面板不會補任何前綴。閘門比較整個字串，只會相符於你在此處寫下的值。",
+        "webuiForm": "WebUI 的寫法是 webui，或者 webui: 後面接 claim。",
+        "chatForm": "聊天頻道的寫法是某個人的帳號 ID。",
+        "bareClaim": "此傳送者只有 claim，因此不會相符任何人。請寫 webui: 後面接 claim。",
+        "notAnAccountId": "聊天頻道的核准者是該頻道給出的數字帳號 ID。",
+        "blank": "此列沒有寫傳送者，因此不會相符任何人。"
       },
       "paths": {
         "title": "已驗證通道",
@@ -1135,7 +1141,11 @@
     "open": "已連線",
     "reconnecting": "重新連線中…",
     "closed": "已中斷連線",
-    "error": "連線錯誤"
+    "error": "連線錯誤",
+    "identity": {
+      "actor": "閘道把這條通道讀作 {{actor}}。",
+      "approverNote": "核准者項目必須原樣寫下該值。"
+    }
   },
   "thread": {
     "loadingConversation": "正在載入話題…",

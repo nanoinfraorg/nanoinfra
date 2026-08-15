@@ -310,6 +310,42 @@ async def test_the_handshake_admits_a_verified_operator(
     assert connection in channel._webui_connections
 
 
+async def test_the_handshake_names_the_verified_operator_for_the_webui(
+    signing_key: rsa.RSAPrivateKey,
+    static_jwks: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    """#70 shows this value, so the handshake has to resolve it once and keep it.
+
+    ``tests/channels/test_webui_identity_display.py`` proves that it reaches the browser. This
+    test proves that the ``jwt`` path names the person and not a prefix of the token.
+    """
+    channel = _channel(static_jwks, tmp_path, log=MagicMock())
+    connection = _Conn()
+
+    await channel._authorize_websocket_handshake(
+        connection, {}, {_HEADER: _token(signing_key)}
+    )
+
+    assert getattr(connection, "_nanoinfra_handshake_actor") == f"webui:{_OPERATOR}"
+
+
+async def test_a_refused_assertion_names_the_path_and_no_person(
+    signing_key: rsa.RSAPrivateKey,
+    static_jwks: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    """A refusal is never a name. The display then reads ``webui``, which is the true answer."""
+    channel = _channel(static_jwks, tmp_path, log=MagicMock())
+    connection = _Conn()
+
+    await channel._authorize_websocket_handshake(
+        connection, {}, {_HEADER: _token(signing_key, email=_STRANGER)}
+    )
+
+    assert getattr(connection, "_nanoinfra_handshake_actor") == "webui"
+
+
 @pytest.mark.parametrize(
     "header_value",
     ["not-a-jwt", "a.b.c", "", "   "],

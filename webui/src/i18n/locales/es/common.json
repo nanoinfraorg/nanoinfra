@@ -956,7 +956,13 @@
         "sender": "Remitente",
         "add": "Añadir un aprobador",
         "remove": "Quitar aprobador",
-        "note": "Estar en la lista allowFrom de un canal no concede nada aquí. Solo esta lista decide quién puede aprobar."
+        "note": "Estar en la lista allowFrom de un canal no concede nada aquí. Solo esta lista decide quién puede aprobar.",
+        "formNote": "Este panel no añade ningún prefijo. El control compara la cadena completa, así que coincide con lo que escribes aquí y con nada más.",
+        "webuiForm": "La forma de WebUI es webui, o webui: y luego el claim.",
+        "chatForm": "La forma de chat es el id de cuenta de una persona.",
+        "bareClaim": "Este remitente es solo el claim, así que no coincide con nadie. Escribe webui: y luego el claim.",
+        "notAnAccountId": "Un aprobador de chat es el id de cuenta numérico que da el canal.",
+        "blank": "Esta fila no nombra ningún remitente, así que no coincide con nadie."
       },
       "paths": {
         "title": "Rutas autenticadas",
@@ -1135,7 +1141,11 @@
     "open": "Conectado",
     "reconnecting": "Reconectando…",
     "closed": "Desconectado",
-    "error": "Error de conexión"
+    "error": "Error de conexión",
+    "identity": {
+      "actor": "El gateway lee esta ruta como {{actor}}.",
+      "approverNote": "Una entrada de aprobador debe nombrar ese valor exactamente."
+    }
   },
   "thread": {
     "loadingConversation": "Cargando conversación…",

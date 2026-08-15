@@ -66,6 +66,8 @@ function summarizeInboundWsPayload(ev: InboundEvent): unknown {
 type Unsubscribe = () => void;
 type EventHandler = (ev: InboundEvent) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
+/** ``null`` means the gateway has not answered yet, which is not the same as ``webui``. */
+type OperatorActorHandler = (actor: string | null) => void;
 type RuntimeModelHandler = (modelName: string | null, modelPreset?: string | null) => void;
 type SessionUpdateScope = "metadata" | "thread" | string;
 type SessionUpdateHandler = (
@@ -162,6 +164,7 @@ interface PendingMessageSend {
 export class NanoinfraClient {
   private socket: WebSocket | null = null;
   private statusHandlers = new Set<StatusHandler>();
+  private operatorActorHandlers = new Set<OperatorActorHandler>();
   private runtimeModelHandlers = new Set<RuntimeModelHandler>();
   private sessionUpdateHandlers = new Set<SessionUpdateHandler>();
   private runStatusHandlers = new Set<RunStatusHandler>();
@@ -208,6 +211,12 @@ export class NanoinfraClient {
   private currentUrl: string;
   private status_: ConnectionStatus = "idle";
   private readyChatId: string | null = null;
+  /**
+   * Who the gateway says this connection is (#70). It arrives on the ready frame, so it is a
+   * read of what the handshake resolved. This class never composes the value and never sends
+   * one: a display the browser could set would lie exactly when an operator needs it.
+   */
+  private operatorActor_: string | null = null;
   // Set by ``close()`` so the onclose handler knows the drop was intentional
   // and must not schedule a reconnect or flip status back to "reconnecting".
   private intentionallyClosed = false;
@@ -236,11 +245,24 @@ export class NanoinfraClient {
     }
   }
 
+  /** The actor the gateway resolved, or ``null`` while no ready frame has arrived. */
+  get operatorActor(): string | null {
+    return this.operatorActor_;
+  }
+
   onStatus(handler: StatusHandler): Unsubscribe {
     this.statusHandlers.add(handler);
     handler(this.status_);
     return () => {
       this.statusHandlers.delete(handler);
+    };
+  }
+
+  onOperatorActor(handler: OperatorActorHandler): Unsubscribe {
+    this.operatorActorHandlers.add(handler);
+    handler(this.operatorActor_);
+    return () => {
+      this.operatorActorHandlers.delete(handler);
     };
   }
 
@@ -883,6 +905,12 @@ export class NanoinfraClient {
     for (const handler of this.statusHandlers) handler(status);
   }
 
+  private setOperatorActor(actor: string | null): void {
+    if (this.operatorActor_ === actor) return;
+    this.operatorActor_ = actor;
+    for (const handler of this.operatorActorHandlers) handler(actor);
+  }
+
   private clearRunStatusesForReconnect(): void {
     if (this.runStartedAtByChatId.size === 0) return;
     const chatIds = [...this.runStartedAtByChatId.keys()];
@@ -983,6 +1011,13 @@ export class NanoinfraClient {
     if (parsed.event === "ready") {
       this.readyChatId = parsed.chat_id;
       this.knownChats.add(parsed.chat_id);
+      // An older gateway sends no actor. The value then stays unknown rather than reading as
+      // ``webui``, because ``webui`` is a fact about a deployment with no proxy.
+      this.setOperatorActor(
+        typeof parsed.operator_actor === "string" && parsed.operator_actor.trim()
+          ? parsed.operator_actor.trim()
+          : null,
+      );
       return;
     }
 

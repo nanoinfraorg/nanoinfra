@@ -1884,6 +1884,44 @@ describe("NanoinfraClient", () => {
     expect(errors).toEqual([]);
   });
 
+  it("reads the operator the gateway resolved from the ready frame", () => {
+    // #70. The value is a read of what the gateway resolved. The client never composes it,
+    // because a value the browser could set would lie exactly when an operator needs it.
+    const client = new NanoinfraClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const seen: Array<string | null> = [];
+    client.onOperatorActor((actor) => seen.push(actor));
+    client.connect();
+    lastSocket().fakeOpen();
+    lastSocket().fakeMessage({
+      event: "ready",
+      chat_id: "chat-a",
+      client_id: "tester",
+      operator_actor: "webui:alberto@example.com",
+    });
+
+    expect(client.operatorActor).toBe("webui:alberto@example.com");
+    expect(seen).toEqual([null, "webui:alberto@example.com"]);
+  });
+
+  it("keeps the operator unknown when an older gateway sends no actor", () => {
+    // An older gateway sends the frame with no field. Unknown must not read as ``webui``,
+    // because ``webui`` is a true answer about a deployment and this is an absent answer.
+    const client = new NanoinfraClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    lastSocket().fakeOpen();
+    lastSocket().fakeMessage({ event: "ready", chat_id: "chat-a", client_id: "tester" });
+
+    expect(client.operatorActor).toBeNull();
+  });
+
   it("surfaces 'reconnecting' only on an unexpected drop", async () => {
     const client = new NanoinfraClient({
       url: "ws://test",

@@ -956,7 +956,13 @@
         "sender": "Remetente",
         "add": "Adicionar um aprovador",
         "remove": "Remover aprovador",
-        "note": "Estar na lista allowFrom de um canal não concede nada aqui. Somente esta lista decide quem pode aprovar."
+        "note": "Estar na lista allowFrom de um canal não concede nada aqui. Somente esta lista decide quem pode aprovar.",
+        "formNote": "Este painel não adiciona prefixo. O controle compara a cadeia inteira, então ele corresponde ao que você escreve aqui e a nada mais.",
+        "webuiForm": "A forma do WebUI é webui, ou webui: e depois o claim.",
+        "chatForm": "A forma de chat é o id de conta de uma pessoa.",
+        "bareClaim": "Este remetente é só o claim, então não corresponde a ninguém. Escreva webui: e depois o claim.",
+        "notAnAccountId": "Um aprovador de chat é o id de conta numérico que o canal fornece.",
+        "blank": "Esta linha não nomeia remetente, então não corresponde a ninguém."
       },
       "paths": {
         "title": "Caminhos autenticados",
@@ -1135,7 +1141,11 @@
     "open": "Conectado",
     "reconnecting": "Reconectando…",
     "closed": "Desconectado",
-    "error": "Erro de conexão"
+    "error": "Erro de conexão",
+    "identity": {
+      "actor": "O gateway lê este caminho como {{actor}}.",
+      "approverNote": "Uma entrada de aprovador deve nomear esse valor exatamente."
+    }
   },
   "thread": {
     "loadingConversation": "Carregando conversa…",

@@ -41,7 +41,7 @@ from nanoinfra.gates.executor.operator_socket import (
     pending_view,
 )
 from nanoinfra.gates.pending import PendingApprovalStore
-from nanoinfra.gates.startup import policy_summary
+from nanoinfra.gates.startup import identity_posture_line, policy_summary
 from nanoinfra.gates.tokens import ApprovalTokenStore
 
 # Two people behind one proxy, in the prefixed form #47 uses for an asserted identity.
@@ -543,14 +543,18 @@ def test_the_startup_line_names_the_posture_when_the_flag_is_on() -> None:
     """A deployment that gives up a property must read that fact at every start.
 
     #8 exists because a mistyped block loads as silent defaults. A flag that widens who may
-    approve deserves the same treatment.
+    approve deserves the same treatment. #72 gives the posture a line of its own, so the fact
+    reaches the operator beside the trusted-proxy posture instead of inside the policy line.
     """
-    line = policy_summary(_one_path_gates(independence=True))
+    line = identity_posture_line(_one_path_gates(independence=True))
 
+    assert line is not None
     assert "gates.identityIndependence" in line
     assert "assertion of the agent" in line
+    assert "identityIndependence" not in policy_summary(_one_path_gates(independence=True))
 
 
 def test_the_startup_line_says_nothing_when_the_flag_is_off() -> None:
     """Silence is correct for the default. A line about every flag teaches nobody to read one."""
+    assert identity_posture_line(GatesConfig()) is None
     assert "identityIndependence" not in policy_summary(GatesConfig())
