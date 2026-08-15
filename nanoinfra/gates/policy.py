@@ -1,10 +1,13 @@
 """Evaluate gate policy -- nanoinfraorg/nanoinfra#8.
 
-One pure function decides. It reads the operator's policy (#7), the capability class (#3),
-the resolved scope (#4), and the execution context (#5). It performs no I/O, opens no
-transport, and resolves no secret, so the caller stays in charge of ordering. That matters:
-``ExecuteOnServerTool`` must ask before it decrypts a credential and before it writes a job
-record.
+One function decides. It reads the operator's policy (#7), the capability class (#3), the
+resolved scope (#4), and the execution context (#5). It opens no transport and resolves no
+secret, so the caller stays in charge of ordering. That matters: ``ExecuteOnServerTool`` must
+ask before it decrypts a credential and before it writes a job record.
+
+``evaluate`` reads the local inventory when a caller passes ``servers``, because #24 compares
+resolved targets rather than mutable labels. It reads no other file, and it never dials a
+host.
 
 Three fail-closed rules run before any policy lookup:
 
@@ -24,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -64,6 +67,42 @@ class Decision:
     outcome: Outcome
     reason: str
     grant_id: str | None = None
+    # The addresses a matched grant permitted, after resolution (#24). #16 records these
+    # beside the grant id, so a reviewer sees which addresses ran rather than which labels
+    # the operator typed.
+    resolved_targets: tuple[str, ...] = ()
+
+
+def _resolved_grant_hosts(servers: Any, grant_hosts: Sequence[str]) -> set[str]:
+    """Resolve each grant host through the resolver the action used (#24).
+
+    A grant lists inventory names, and a name is mutable. #23 stops an unattended context
+    from editing the inventory, but an interactive operator can still repoint a record. A
+    later automation must not inherit a redirected grant from that edit, so the comparison
+    uses resolved targets.
+
+    An entry that names no record stays in the set as its literal self. Two reasons. A grant
+    written before #24 lists addresses rather than names, and those configs must keep working.
+    A name that resolves to nothing must also match nothing, which the literal achieves,
+    because a resolved action never carries a bare inventory label.
+    """
+    from nanoinfra.servers.lookup import resolve_server
+    from nanoinfra.servers.scope import ScopeResolutionError, resolve_scope
+
+    resolved: set[str] = set()
+    for entry in grant_hosts:
+        server = resolve_server(servers, entry)
+        if server is None:
+            resolved.add(entry)
+            continue
+        try:
+            resolved.update(resolve_scope(server).hosts)
+        except ScopeResolutionError:
+            # A grant host that will not resolve cannot be checked, so it grants nothing.
+            # Dropping it is the fail-closed direction: the action's own hosts stay
+            # uncovered and the grant does not match.
+            continue
+    return resolved
 
 
 def _context_policy(gates: GatesConfig, *, unattended: bool) -> ContextPolicy:
@@ -90,6 +129,7 @@ def _grant_matches(
     *,
     hosts: Sequence[str],
     command: str,
+    servers: Any = None,
 ) -> bool:
     """True when this grant covers the whole action.
 
@@ -101,7 +141,10 @@ def _grant_matches(
         return False
     if not hosts:
         return False
-    allowed = set(grant_hosts)
+    # With an inventory, compare resolved targets (#24). Without one, compare labels: an
+    # inventory write reaches no host, so #23's caller has nothing to resolve, and every
+    # caller before #24 already compared labels.
+    allowed = _resolved_grant_hosts(servers, grant_hosts) if servers is not None else set(grant_hosts)
     return all(host in allowed for host in hosts)
 
 
@@ -111,11 +154,14 @@ def _matching_grant_id(
     context_key: str,
     hosts: Sequence[str],
     command: str,
+    servers: Any = None,
 ) -> str | None:
     for index, grant in enumerate(gates.standing_grants):
         if context_key not in grant.contexts:
             continue
-        if _grant_matches(grant.hosts, grant.commands, hosts=hosts, command=command):
+        if _grant_matches(
+            grant.hosts, grant.commands, hosts=hosts, command=command, servers=servers
+        ):
             return grant.id or f"grant[{index}]"
     return None
 
@@ -128,8 +174,14 @@ def evaluate(
     execution_context: str,
     hosts: Iterable[str],
     command: str,
+    servers: Any = None,
 ) -> Decision:
-    """Decide one action. Pure, and safe to call before any credential is resolved."""
+    """Decide one action. Safe to call before any credential is resolved.
+
+    ``servers`` is the inventory store. Pass it so a grant host resolves through the same
+    resolver the action used (#24). A caller that passes nothing gets label comparison, which
+    is correct for #23's inventory writes, since an inventory write reaches no host.
+    """
     host_tuple = tuple(hosts)
     unattended = execution_context != EXECUTION_CONTEXT_INTERACTIVE
     context_key = "unattended" if unattended else "interactive"
@@ -166,10 +218,15 @@ def evaluate(
     configured = getattr(policy.mutate_remote, scope)
     if configured == "grant":
         grant_id = _matching_grant_id(
-            gates, context_key=context_key, hosts=host_tuple, command=command
+            gates, context_key=context_key, hosts=host_tuple, command=command, servers=servers
         )
         if grant_id is not None:
-            return Decision(Outcome.ALLOW, f"Standing grant {grant_id} covers this action.", grant_id)
+            return Decision(
+                Outcome.ALLOW,
+                f"Standing grant {grant_id} covers this action.",
+                grant_id,
+                resolved_targets=host_tuple,
+            )
         return Decision(
             Outcome.DENY,
             _missing_grant_reason(capability_class, scope, context_key, host_tuple),
@@ -180,7 +237,7 @@ def evaluate(
         # A grant that matches everything except the matrix is the most confusing state an
         # operator can reach: they wrote the grant, and nothing happened. Name the key.
         shadowed = _matching_grant_id(
-            gates, context_key=context_key, hosts=host_tuple, command=command
+            gates, context_key=context_key, hosts=host_tuple, command=command, servers=servers
         )
         if shadowed is not None:
             return Decision(

@@ -309,6 +309,9 @@ class ExecuteOnServerTool(Tool):
             execution_context=execution_context,
             hosts=resolution.hosts,
             command=command,
+            # #24: the gate resolves each grant host through this same store, so a grant
+            # matches on the address the backend will dial and not on a mutable label.
+            servers=self.servers,
         )
         if decision.outcome is Outcome.ALLOW:
             return _Disposition.EXECUTE, decision.reason
