@@ -16,11 +16,19 @@ already the one entry point that brings up both processes. The seam below waits 
 supervisor that owns a command of its own, and it keeps this module out of the business of
 guessing one.
 
+Item 16 (nanoinfraorg/nanoinfra#19) adds the fetcher, and it needs no seam here. The gateway
+starts the fetcher itself, so a unit that runs the gateway command gets all three processes.
+``NANOINFRA_FETCHER_USER`` names the account for that child, and ``NANOINFRA_FETCHER_SOCKET``
+names where it listens. An operator sets either one with ``Environment=`` in a system unit.
+
 One warning about the uid split. A ``systemd --user`` unit and a LaunchAgent both run as the
 account that installs them, so both processes hold one uid. One process can then ptrace the
 other and read its memory. On these two managers the split is organisational, not enforced.
 A kernel-enforced split needs a system unit with ``User=`` per process, or the container
-layout in ``entrypoint.sh``, where a root start places the two processes on two accounts.
+layout in ``entrypoint.sh``, where a root start places the two processes on two accounts. The
+same warning covers the fetcher, and it matters less there: the fetcher holds no credential
+store and no transport to a host, so one uid costs less on that boundary than on the
+executor's.
 """
 
 from __future__ import annotations

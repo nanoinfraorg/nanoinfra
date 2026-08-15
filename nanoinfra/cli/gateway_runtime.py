@@ -1,11 +1,12 @@
 """Foreground gateway runtime and lifecycle helpers."""
 
 import asyncio
+import os
 import signal
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import typer
 from loguru import logger
@@ -37,9 +38,22 @@ from nanoinfra.utils.llm_runtime import LLMRuntime
 from nanoinfra.webui.build import BuildMode
 from nanoinfra.webui.sidebar_state import read_webui_sidebar_state
 
+if TYPE_CHECKING:
+    from nanoinfra.gates.fetcher.supervisor import FetcherProcess
+
 __all__ = ["_run_gateway"]
 
 console = Console()
+
+# The fetcher process (#19). web_fetch and web_search are thin clients of it, so an install with no
+# fetcher has no web tools. Three variables describe the deployment, and they copy the executor's
+# three in entrypoint.sh, because one shape means one thing for an operator to learn.
+#
+#   NANOINFRA_FETCHER_SOCKET    where the fetcher listens. The tool's client reads it.
+#   NANOINFRA_FETCHER_EXTERNAL  a fetcher already runs on its own account. Start no second one.
+#   NANOINFRA_FETCHER_USER      the account for the child.
+FETCHER_EXTERNAL_ENV = "NANOINFRA_FETCHER_EXTERNAL"
+FETCHER_USER_ENV = "NANOINFRA_FETCHER_USER"
 
 
 def _echo_gate_policy(config: Any, cron: Any) -> None:
@@ -120,6 +134,82 @@ def _attach_latch_operator_surface(channels: Any, controller: Any, audit: Any) -
             "gates: no WebUI channel is enabled, so no operator control can lift a denial "
             "latch. A latched session stays latched until a gateway with the WebUI runs."
         )
+
+
+def _start_fetcher_for_gateway(config: Any) -> "FetcherProcess | None":
+    """Start the process that answers web_fetch and web_search (#19).
+
+    A pip install runs no container entry point, so the gateway is the supervisor there. Without
+    this start, both web tools would report a deployment fault in every install that is not the
+    Docker image.
+
+    The child runs under another account when the deployment names one. Without a separate uid the
+    child still runs as a separate process. That alone takes the credential store and the four
+    execution transports out of the address space that reads a page.
+
+    A failed start logs an error and returns None. The gateway continues, because one broken tool
+    must not take the chat channels down. The tool then says the fetcher is not reachable.
+    """
+    from nanoinfra.agent.tools.web import FETCHER_SOCKET_ENV, default_socket_path
+    from nanoinfra.gates.fetcher.supervisor import FetcherStartError, start_fetcher
+
+    if not config.tools.web.enable:
+        logger.info("gates: the web tools are off, so the gateway starts no fetcher")
+        return None
+
+    socket_path = default_socket_path()
+    if os.environ.get(FETCHER_EXTERNAL_ENV):
+        # A container already placed the fetcher on its own account. A second fetcher would hold
+        # the agent's uid, and that undoes the split the first one claims.
+        logger.info(
+            "gates: a fetcher already runs on {}, so the gateway starts none", socket_path
+        )
+        return None
+
+    # The tool's client reads this path. The export happens before the start, so a later retry
+    # still finds the same socket.
+    os.environ[FETCHER_SOCKET_ENV] = str(socket_path)
+    user = os.environ.get(FETCHER_USER_ENV, "").strip() or None
+
+    try:
+        process = start_fetcher(
+            socket_path=socket_path, workspace=Path(config.workspace_path), user=user
+        )
+    except FetcherStartError as exc:
+        logger.error(
+            "gates: the fetcher did not start, so web_fetch and web_search fail: {}", exc
+        )
+        console.print(
+            "[red]Error: the fetcher did not start, so web_fetch and web_search fail.[/red]"
+        )
+        console.print(f"[red]{exc}[/red]")
+        return None
+
+    if user is None:
+        logger.info(
+            "gates: the fetcher runs as a separate process under the gateway's own account. "
+            "The kernel enforces no uid split here. Set {} to get one.",
+            FETCHER_USER_ENV,
+        )
+    logger.info("gates: the fetcher listens on {} (pid {})", process.socket_path, process.pid)
+    return process
+
+
+def _stop_fetcher(process: "FetcherProcess | None") -> None:
+    """Stop the fetcher this gateway started.
+
+    A fetcher that outlives its gateway holds the socket the next gateway needs. The call accepts
+    None, because a failed start still reaches this path.
+    """
+    if process is None:
+        return
+    try:
+        if not process.stop():
+            logger.warning(
+                "gates: the fetcher did not stop, so its socket may block the next start"
+            )
+    except OSError as exc:
+        logger.warning("gates: the fetcher did not stop: {}", exc)
 
 
 def _signal_name(signum: int) -> str:
@@ -462,6 +552,10 @@ def _run_gateway(
         runtime_events,
         route_policy=WebuiTurnRoutePolicy(session_manager),
     )
+
+    # The fetcher, started before the tools (#19). Both web tools resolve their socket path when
+    # the agent builds them, so the start has to happen first.
+    fetcher = _start_fetcher_for_gateway(config)
 
     # The gate runtime, built once (#33). latch_controller stays out of the agent: it is
     # the operator half, and #15 splits the halves so no tool path can clear a latch.
@@ -965,4 +1059,8 @@ def _run_gateway(
             finally:
                 restore_shutdown_handlers()
 
-    asyncio.run(run())
+    try:
+        asyncio.run(run())
+    finally:
+        # The fetcher is a child of this process, so it goes when the gateway goes.
+        _stop_fetcher(fetcher)

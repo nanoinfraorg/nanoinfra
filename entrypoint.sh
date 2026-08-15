@@ -17,6 +17,26 @@ socket_path="$socket_dir/executor.sock"
 # The executor's entry point is fixed by #18. Nothing else about the executor is assumed here.
 executor_module="nanoinfra.gates.executor"
 
+# Item 16 (nanoinfraorg/nanoinfra#19) splits the fetcher off as well. web_fetch and web_search run
+# in that process, and untrusted content enters there. So the fetcher gets its own account and its
+# own socket, and its account is never the executor's. Two processes under one uid give the kernel
+# nothing to enforce, because either one can ptrace the other and read its memory. The one account
+# that must never read a page is the account that decrypts credentials.
+#
+# The socket directory sits under /run for the reason the executor's does. Write rights on a parent
+# directory allow a rename of any entry inside it, so a socket directory under the agent's home
+# could be moved aside and replaced with the agent's own socket. /run is root-owned.
+#
+# An image built before the fetcher account exists still runs the fetcher, as a separate process
+# under the agent's account. A separate process alone takes the credential store and the four
+# execution transports out of the address space that reads a page. The log says which of the two
+# this start produced, because an operator must never read silence as a guarantee.
+fetch_user="nanoinfra-fetch"
+fetch_socket_dir="/run/nanoinfra-fetch"
+fetch_socket_path="$fetch_socket_dir/fetcher.sock"
+# The fetcher's entry point is fixed by #19, the same shape as the executor's.
+fetcher_module="nanoinfra.gates.fetcher"
+
 # Render deploy path (see render.yaml + render-config.json). Gated on Render's
 # automatic RENDER=true env var so local Docker/podman usage is unaffected.
 # Initializes the on-disk config from the committed template (wiring secrets via
@@ -223,6 +243,93 @@ wait_for_socket() {
     return 1
 }
 
+# Pick the account that runs the fetcher (#19).
+#
+# The named account wins when the image has it. Otherwise the agent's account runs the fetcher, and
+# the fetcher is still a separate process. The one account this never returns is the executor's,
+# because that account holds the plaintext credentials.
+resolve_fetcher_user() {
+    if [ "$fetch_user" != "$exec_user" ] && id "$fetch_user" >/dev/null 2>&1; then
+        printf '%s' "$fetch_user"
+        return
+    fi
+    printf '%s' "nanoinfra"
+}
+
+# Hand the fetcher's socket directory to the fetcher's account, and keep every other account out.
+#
+# The ownership direction matters for the same reason it does for the executor. Only a directory's
+# writer can create or replace a socket node inside it. So the fetcher owns the directory, and the
+# agent reaches through it to a known socket name.
+prepare_fetcher_paths() {
+    mkdir -p "$fetch_socket_dir" || return 1
+    chown "$fetch_run_user:$ipc_group" "$fetch_socket_dir" || return 1
+    # Mode 2710, the same four reasons as the executor's socket directory:
+    #   owner rwx  the fetcher binds, unlinks, and rebinds its socket.
+    #   group --x  the agent traverses to a known socket name. It cannot list or create.
+    #   other ---  every other account is refused before it reaches the socket.
+    #   setgid     each new socket inherits group nanoinfra-ipc, so a rebind keeps the agent in.
+    chmod 2710 "$fetch_socket_dir" || return 1
+}
+
+# Start the fetcher and keep it up. A dead fetcher means web_fetch and web_search fail, so a restart
+# beats a silent outage. Five failed starts in a row stop the retries, because a module that cannot
+# start at all must not fill the log for the life of the container. A run that lasted a minute counts
+# as a crash rather than a broken start, so it returns the full budget.
+#
+# umask 0007 is load-bearing here too. A connect() on a Unix socket needs write permission on the
+# socket file, so a socket created 0755 would refuse the agent. The setgid directory supplies the
+# group, and this umask supplies the group write bit.
+start_fetcher() {
+    fetch_workspace="$1"
+    (
+        umask 0007
+        failures=0
+        while [ "$failures" -lt 5 ]; do
+            started=$(date +%s)
+            setpriv --reuid="$fetch_run_user" --regid="$fetch_run_user" --init-groups \
+                python -m "$fetcher_module" --socket "$fetch_socket_path" \
+                --workspace "$fetch_workspace"
+            status=$?
+            if [ "$(($(date +%s) - started))" -ge 60 ]; then
+                failures=0
+            else
+                failures=$((failures + 1))
+            fi
+            echo "[entrypoint] warning: fetcher exited with status $status, restart in 5s" >&2
+            sleep 5
+        done
+        echo "[entrypoint] error: the fetcher failed 5 starts in a row, no more restarts" >&2
+        echo "[entrypoint] error: web_fetch and web_search stay unreachable until a restart" >&2
+    ) &
+    echo "[entrypoint] fetcher starting as $fetch_run_user on $fetch_socket_path"
+}
+
+# Report whether the fetcher socket came up. This never blocks the agent, and it never goes quiet.
+wait_for_fetcher_socket() {
+    attempt=0
+    while [ "$attempt" -lt 5 ]; do
+        if [ -S "$fetch_socket_path" ]; then
+            echo "[entrypoint] fetcher socket ready at $fetch_socket_path"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        sleep 1
+    done
+    echo "[entrypoint] warning: no fetcher socket at $fetch_socket_path after 5s" >&2
+    echo "[entrypoint] warning: web_fetch and web_search will fail until the fetcher answers" >&2
+    return 1
+}
+
+# Say plainly what the fetcher split does not have on this host (#19).
+warn_fetcher_split_not_enforced() {
+    echo "[entrypoint] warning: $1" >&2
+    echo "[entrypoint] warning: the fetcher shares the agent's uid, so either one can ptrace" >&2
+    echo "[entrypoint] warning: the other and read its memory. The #19 split is a process" >&2
+    echo "[entrypoint] warning: boundary here, and the kernel does not enforce it." >&2
+    echo "[entrypoint] warning: the fetcher still holds no credential store and no transport." >&2
+}
+
 # Say plainly what the deployment does not have. An operator must never read silence as a
 # guarantee, so a single-uid start states the property it lacks.
 warn_split_not_enforced() {
@@ -285,6 +392,52 @@ if [ "$(id -u)" = "0" ]; then
         fi
     fi
 
+    # The fetcher (#19). It starts on every root start, and it does not depend on the executor: an
+    # image with no executor account still needs web_fetch and web_search. The role=executor path
+    # runs one administrative command, and that command needs no fetcher.
+    if [ "$run_user" = "nanoinfra" ]; then
+        fetch_run_user=$(resolve_fetcher_user)
+        if [ "$fetch_run_user" = "$exec_user" ]; then
+            # A guard on the resolved value, and not only on the configured name. The account that
+            # decrypts credentials must never be the account that reads a page.
+            warn_fetcher_split_not_enforced "the resolved fetcher account is the executor account"
+            fetch_run_user="nanoinfra"
+        fi
+        if [ "$fetch_run_user" = "nanoinfra" ]; then
+            warn_fetcher_split_not_enforced "no separate $fetch_user account runs the fetcher"
+        else
+            echo "[entrypoint] fetcher account: $fetch_run_user (separate uid from the agent)"
+        fi
+        fetch_workspace=$(resolve_workspace "$@")
+        echo "[entrypoint] fetcher workspace: $fetch_workspace"
+        if ! prepare_fetcher_paths; then
+            # No export in this case. The Python gateway then starts a fetcher of its own under the
+            # agent's account, which is a working web tool rather than a broken one.
+            echo "[entrypoint] warning: the fetcher paths could not be prepared" >&2
+            echo "[entrypoint] warning: the gateway starts its own fetcher instead" >&2
+        else
+            start_fetcher "$fetch_workspace"
+            if wait_for_fetcher_socket; then
+                # The fetcher creates its own socket, and a rebind can widen or narrow the mode.
+                # So this start re-applies the owner, the group, and the two modes while it still
+                # holds root. Without the group write bit the agent cannot connect at all.
+                chown "$fetch_run_user:$ipc_group" "$fetch_socket_dir" "$fetch_socket_path" \
+                    2>/dev/null || \
+                    echo "[entrypoint] warning: chown $fetch_socket_dir failed"
+                chmod 2710 "$fetch_socket_dir" 2>/dev/null || \
+                    echo "[entrypoint] warning: chmod $fetch_socket_dir failed"
+                chmod 660 "$fetch_socket_path" 2>/dev/null || \
+                    echo "[entrypoint] warning: chmod $fetch_socket_path failed"
+            fi
+            # The socket path travels in the environment so the tool's client does not guess it.
+            # NANOINFRA_FETCHER_EXTERNAL tells the gateway that a fetcher already runs, so it must
+            # not start a second one. Both variables go out even when the socket is late, because a
+            # retry may still succeed and a second fetcher would hold the agent's uid.
+            export NANOINFRA_FETCHER_SOCKET="$fetch_socket_path"
+            export NANOINFRA_FETCHER_EXTERNAL=1
+        fi
+    fi
+
     if setpriv --reuid="$run_user" --regid="$run_user" --init-groups true 2>/dev/null; then
         echo "[entrypoint] dropping privileges to $run_user via setpriv"
         exec setpriv --reuid="$run_user" --regid="$run_user" --init-groups nanoinfra "$@"
@@ -296,6 +449,11 @@ fi
 # Already non-root. A start that is not root cannot place the two processes on two accounts,
 # so the split is not enforced here. Say it, then continue.
 warn_split_not_enforced "this container did not start as root"
+
+# The fetcher starts anyway, and the gateway starts it (#19). This script exports neither fetcher
+# variable here, so the Python side finds no external fetcher and supervises one of its own. That
+# child holds the agent's uid, and it is still a separate process with no credential store in it.
+warn_fetcher_split_not_enforced "this container did not start as root"
 
 # Make sure the data dir is writable before starting.
 if [ -d "$dir" ] && [ ! -w "$dir" ]; then
