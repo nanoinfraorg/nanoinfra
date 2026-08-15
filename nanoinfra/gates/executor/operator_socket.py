@@ -60,7 +60,12 @@ from nanoinfra.gates.tokens import ApprovalTokenStore
 if TYPE_CHECKING:
     from nanoinfra.config.gates import GatesConfig
 
-OPERATOR_PROTOCOL_VERSION = 1
+# Version 2 carries ``origin_actor`` on the pending view (#47, item 11). The field set changed,
+# so the version rose. The rule is the one the execute wire sets: a peer that shares the version
+# shares the field set. A tolerated difference between two peers is an ambiguity, and an ambiguity
+# in this position is a hole. The two peers ship in one package, so no rolling deploy needs the
+# older frame.
+OPERATOR_PROTOCOL_VERSION = 2
 
 OP_PENDING = "pending"
 OP_APPROVE = "approve"
@@ -118,11 +123,17 @@ class PendingView(TypedDict):
 
     ``payload`` holds the bytes #14 rendered, and ``target_digest`` binds them. An operator
     surface renders the payload and echoes the digest. It never summarises either one.
+
+    ``origin_actor`` names the person the origin path authenticated, and it is blank when the
+    channel authenticated nobody. The delivery watcher of #43 reads it to choose targets, because
+    ``gates.identityIndependence`` can admit an approver on the origin path. The value is the
+    agent's own assertion, so no operator surface presents it as a verified fact.
     """
 
     request_id: str
     session_id: str
     origin_path: str
+    origin_actor: str
     execution_context: str
     capability_class: str
     scope: str
@@ -175,6 +186,7 @@ def pending_view(approval: PendingApproval, *, now: float | None = None) -> Pend
         request_id=approval.request_id,
         session_id=approval.session_id,
         origin_path=approval.origin_path,
+        origin_actor=approval.origin_actor,
         execution_context=approval.execution_context,
         capability_class=approval.capability_class,
         scope=approval.scope,
@@ -309,6 +321,7 @@ class ApprovalService:
         check = check_approval(
             gates=self.gates_loader(),
             origin_path=approval.origin_path,
+            origin_actor=approval.origin_actor,
             approval_path=approval_path,
             sender=actor,
         )
@@ -460,8 +473,8 @@ def _checked_view(entry: object) -> PendingView:
         isinstance(host, str) for host in cast("list[object]", hosts)
     ):
         raise ProtocolError("a pending entry carries a host list that is not a list of names")
-    for name in ("request_id", "session_id", "origin_path", "execution_context",
-                 "capability_class", "scope", "payload", "target_digest"):
+    for name in ("request_id", "session_id", "origin_path", "origin_actor",
+                 "execution_context", "capability_class", "scope", "payload", "target_digest"):
         if not isinstance(fields[name], str):
             raise ProtocolError(f"a pending entry carries a non-string {name!r}")
     if not isinstance(fields["host_count"], int):

@@ -449,6 +449,91 @@ async def test_a_single_path_deployment_refuses_at_once_and_names_the_missing_pa
 
 
 @pytest.mark.asyncio
+async def test_a_single_path_deployment_with_two_people_suspends_and_then_runs(
+    tmp_path: Path,
+) -> None:
+    """#47 item 11, end to end. The identity travels from the frame to the answer.
+
+    The frame names the person who raised the turn, the executor puts that name on the
+    suspended action, and the answer of a second person on the one path counts. The test proves
+    the wiring as well as the rule: a rule nothing supplies would change nothing in production.
+    """
+    _ssh_server(tmp_path)
+    harness = _Harness(
+        tmp_path,
+        _gates(
+            approvalPaths=["webui"],
+            approvers=[
+                {"channel": "webui", "sender": "webui:alice@example.com"},
+                {"channel": "webui", "sender": "webui:bob@example.com"},
+            ],
+            identityIndependence=True,
+        ),
+    )
+
+    with patch(_SSH_BACKEND, new=AsyncMock(return_value=_ok())) as run:
+        task = asyncio.create_task(
+            harness.executor.handle(
+                _request(origin_path="webui", origin_actor="webui:alice@example.com")
+            )
+        )
+        record = await harness.wait_for_one_pending()
+        run.assert_not_called()
+
+        refused = harness.service.approve(
+            request_id=record.request_id,
+            actor="webui:alice@example.com",
+            approval_path="webui",
+            target_digest=record.target_digest,
+        )
+        answer = harness.service.approve(
+            request_id=record.request_id,
+            actor="webui:bob@example.com",
+            approval_path="webui",
+            target_digest=record.target_digest,
+        )
+        response = await task
+
+    assert record.origin_actor == "webui:alice@example.com"
+    assert not refused.ok  # the person who asked cannot answer, in any mode
+    assert refused.refusal == "same_actor_and_path"
+    assert answer.ok
+    assert response.ok
+    run.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_a_single_path_deployment_with_the_flag_off_still_refuses_at_once(
+    tmp_path: Path,
+) -> None:
+    """The same deployment without the flag. Two people on one path stay one path.
+
+    The refusal arrives before the suspension, so the flag decides whether the action waits.
+    """
+    _ssh_server(tmp_path)
+    harness = _Harness(
+        tmp_path,
+        _gates(
+            approvalPaths=["webui"],
+            approvers=[
+                {"channel": "webui", "sender": "webui:alice@example.com"},
+                {"channel": "webui", "sender": "webui:bob@example.com"},
+            ],
+        ),
+    )
+
+    with patch(_SSH_BACKEND, new=AsyncMock()) as run:
+        response = await harness.executor.handle(
+            _request(origin_path="webui", origin_actor="webui:alice@example.com")
+        )
+
+    assert not response.ok
+    assert "second authenticated path" in response.reason
+    run.assert_not_called()
+    assert harness.pending.pending() == ()
+
+
+@pytest.mark.asyncio
 async def test_a_deployment_with_no_approver_refuses_at_once(tmp_path: Path) -> None:
     _ssh_server(tmp_path)
     harness = _Harness(tmp_path, _gates(approvers=[]))

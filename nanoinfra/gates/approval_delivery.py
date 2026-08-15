@@ -26,10 +26,19 @@ renderer turns a line that holds two pipes into a drawn table. A command such as
 ``ps aux | grep nginx`` produces one, so an unfenced payload would reach an operator restyled.
 
 **Who receives one request.** Every approver in ``gates.approvers`` whose path authenticates an
-approver, and whose path is not the origin path of the request. A request that arrived on
-Telegram therefore reaches no Telegram approver, because an answer from there cannot count
-(#13 condition 3). ``allowFrom`` grants nobody a delivery and nobody an answer. It carries
-reachability, and this module reads it never.
+approver, and who could satisfy #13 condition 3. That is normally a path other than the origin
+path of the request. A request that arrived on Telegram therefore reaches no Telegram approver,
+because an answer from there cannot count. ``allowFrom`` grants nobody a delivery and nobody an
+answer. It carries reachability, and this module reads it never.
+
+``gates.identityIndependence`` widens that set, so this module reads the rule from
+``nanoinfra/gates/approvals.py`` rather than comparing paths itself. With the flag on, an approver
+on the **origin** path is a valid target when they are a different person. A watcher that kept the
+origin path out would then deliver to nobody on a single-path deployment, and the action would wait
+for the timeout. That hang is what #38 exists to stop, and it would appear in exactly the
+deployment the flag was turned on for. The person who raised the request is never a target: the
+gate refuses that answer, and an operator who answers and reads a refusal stops reading the
+message.
 
 **What the channel carries.** The rendered payload and a request id. No credential plaintext, and
 no token nonce. The executor resolves a ``secretRef`` after the answer, so the decrypted value
@@ -61,6 +70,7 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 from loguru import logger
 
 from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.gates.approvals import answer_is_independent
 from nanoinfra.gates.executor.operator_socket import (
     OperatorClient,
     OperatorUnavailableError,
@@ -99,15 +109,23 @@ class DeliveryTarget:
     chat_id: str
 
 
-def delivery_targets(*, gates: GatesConfig, origin_path: str) -> tuple[DeliveryTarget, ...]:
+def delivery_targets(
+    *, gates: GatesConfig, origin_path: str, origin_actor: str = ""
+) -> tuple[DeliveryTarget, ...]:
     """Which approvers may answer a request that arrived on *origin_path*.
 
     The three conditions of #13 decide, minus the identity that has not answered yet. The
-    approver comes from ``gates.approvers``, the path must be in ``gates.approvalPaths``, and
-    the path must differ from the origin. Config order survives, because it tells an operator
-    which path the deployment prefers.
+    approver comes from ``gates.approvers``, and the path must be in ``gates.approvalPaths``.
+    Condition 3 comes from ``answer_is_independent``, so this module holds no second copy of the
+    rule: a copy would drift, and a watcher that disagreed with the gate would either invite an
+    answer the gate refuses or hide the only answer it accepts.
+
+    ``origin_actor`` is the person the origin path authenticated, and it is blank when the
+    channel authenticated nobody. Config order survives, because it tells an operator which path
+    the deployment prefers.
     """
     origin = origin_path.strip()
+    who_origin = origin_actor.strip()
     authenticated = {entry.strip() for entry in gates.approval_paths if entry.strip()}
     targets: list[DeliveryTarget] = []
     seen: set[tuple[str, str]] = set()
@@ -116,7 +134,15 @@ def delivery_targets(*, gates: GatesConfig, origin_path: str) -> tuple[DeliveryT
         sender = approver.sender.strip()
         if not channel or not sender:
             continue
-        if channel == origin or channel not in authenticated:
+        if channel not in authenticated:
+            continue
+        if not answer_is_independent(
+            gates,
+            origin_path=origin,
+            origin_actor=who_origin,
+            approval_path=channel,
+            sender=sender,
+        ):
             continue
         if (channel, sender) in seen:
             continue
@@ -249,7 +275,11 @@ class ApprovalDeliveryWatcher:
         request_id = view["request_id"]
         content = render_delivery(view)
         delivered = 0
-        for target in delivery_targets(gates=gates, origin_path=view["origin_path"]):
+        for target in delivery_targets(
+            gates=gates,
+            origin_path=view["origin_path"],
+            origin_actor=view["origin_actor"],
+        ):
             key = (request_id, target.channel, target.chat_id)
             if key in self._delivered:
                 continue

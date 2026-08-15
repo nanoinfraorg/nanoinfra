@@ -266,6 +266,158 @@ def test_sender_matching_is_exact() -> None:
     assert trimmed.ok  # surrounding whitespace is transport noise, not identity
 
 
+# ------------------------------------------------- an approver is a person (#47, item 9)
+
+
+def _person_gates() -> GatesConfig:
+    """A deployment behind a proxy that asserts a person, in the prefixed form of #47.
+
+    The prefix keeps the path in the identity, so an audit record says which path
+    authenticated the person and a chat sender of the same text cannot collide with it.
+    """
+    return GatesConfig.model_validate(
+        {
+            "approvers": [{"channel": "webui", "sender": "webui:alberto@example.com"}],
+            "approvalPaths": ["webui", "telegram"],
+        }
+    )
+
+
+def test_a_person_in_the_prefixed_form_is_an_approver() -> None:
+    """``gates.approvers`` takes ``webui:<claim>`` with no new syntax and no parsing.
+
+    The whole string is the identity. The gate reads an opaque token, so the same list works
+    for a chat sender id and for an asserted email.
+    """
+    check = check_approval(
+        gates=_person_gates(),
+        origin_path="telegram",
+        approval_path="webui",
+        sender="webui:alberto@example.com",
+    )
+
+    assert check.ok
+    assert check.refusal is None
+
+
+def test_the_path_prefix_alone_is_not_the_person() -> None:
+    """A bare ``webui`` is the actor of a deployment with no proxy, and it is not this person.
+
+    A prefix match in either direction would let the shared token approve for a named person,
+    or a named person approve where the list names the shared token.
+    """
+    bare = check_approval(
+        gates=_person_gates(),
+        origin_path="telegram",
+        approval_path="webui",
+        sender="webui",
+    )
+    shared_token_list = GatesConfig.model_validate(
+        {
+            "approvers": [{"channel": "webui", "sender": "webui"}],
+            "approvalPaths": ["webui", "telegram"],
+        }
+    )
+    named = check_approval(
+        gates=shared_token_list,
+        origin_path="telegram",
+        approval_path="webui",
+        sender="webui:alberto@example.com",
+    )
+
+    assert bare.refusal == ApprovalRefusal.NOT_AN_APPROVER
+    assert named.refusal == ApprovalRefusal.NOT_AN_APPROVER
+
+
+def test_a_person_sender_matches_by_the_whole_string() -> None:
+    """An email is not case folded and not truncated at the domain.
+
+    ``alberto@example.com.attacker.test`` holds the listed value as a prefix, and
+    ``ALBERTO@example.com`` differs by case alone. Both are other people.
+    """
+    for lookalike in (
+        "webui:ALBERTO@example.com",
+        "webui:alberto@example.com.attacker.test",
+        "webui:alberto@example.co",
+        "alberto@example.com",
+        "webui:alberto",
+    ):
+        check = check_approval(
+            gates=_person_gates(),
+            origin_path="telegram",
+            approval_path="webui",
+            sender=lookalike,
+        )
+
+        assert check.refusal == ApprovalRefusal.NOT_AN_APPROVER, lookalike
+
+
+def test_the_refusal_names_the_sender_and_never_an_approver() -> None:
+    """#43 set this shape. A refusal that listed the set would say who to impersonate.
+
+    The sender that failed is already in the attacker's hands, so naming it costs nothing and
+    it tells an operator with a misconfigured proxy which identity arrived.
+    """
+    check = check_approval(
+        gates=_person_gates(),
+        origin_path="telegram",
+        approval_path="webui",
+        sender="webui:stranger@example.com",
+    )
+
+    assert "webui:stranger@example.com" in check.reason
+    assert "alberto@example.com" not in check.reason
+    assert "webui:alberto" not in check.reason
+    # The record travels to #16, so it must not carry the set either.
+    assert "alberto" not in repr(check.audit_fields())
+
+
+def test_a_blank_sender_in_the_approver_list_approves_nothing() -> None:
+    """A blank entry names nobody, so it must match nobody.
+
+    ``approval_feasible`` already skips a blank sender. A check that accepted one would let an
+    answer count on a deployment whose feasibility test said nobody could answer, and the two
+    functions must never disagree. The operator wire also carries ``actor`` as a plain string,
+    so a peer can send an empty one.
+    """
+    gates = GatesConfig.model_validate(
+        {
+            "approvers": [{"channel": "webui", "sender": "  "}],
+            "approvalPaths": ["webui", "telegram"],
+        }
+    )
+
+    check = check_approval(
+        gates=gates,
+        origin_path="telegram",
+        approval_path="webui",
+        sender="",
+    )
+
+    assert not check.ok
+    assert check.refusal == ApprovalRefusal.NOT_AN_APPROVER
+
+
+def test_a_blank_channel_in_the_approver_list_authenticates_nobody() -> None:
+    """The same rule on the other half of the pair. A blank path is not a path."""
+    gates = GatesConfig.model_validate(
+        {
+            "approvers": [{"channel": "  ", "sender": "  "}],
+            "approvalPaths": ["webui", "telegram"],
+        }
+    )
+
+    check = check_approval(
+        gates=gates,
+        origin_path="telegram",
+        approval_path=" ",
+        sender=" ",
+    )
+
+    assert not check.ok
+    assert check.refusal == ApprovalRefusal.NOT_AN_APPROVER
+
+
 def test_every_refusal_carries_a_reason_and_a_named_refusal() -> None:
     """#13 renders the reason and #16 records the refusal, so neither may be empty."""
     scenarios = [

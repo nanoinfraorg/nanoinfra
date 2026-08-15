@@ -79,6 +79,9 @@ def test_gates_payload_marks_every_shipped_default_as_a_default(
         "approvalPaths": True,
         # nanoinfraorg/nanoinfra#38 added the wait for a runtime approval.
         "approvalTimeoutS": True,
+        # nanoinfraorg/nanoinfra#47 item 11 added the identity rule. It ships off, and this
+        # marker is what tells an operator that nobody turned it on.
+        "identityIndependence": True,
         "interactive.mutate.remote.host": True,
         "interactive.mutate.remote.group": True,
         "interactive.mutate.remote.all": True,
@@ -128,6 +131,9 @@ def test_gates_payload_keeps_the_config_key_spelling(
         "approvalPaths": ["webui"],
         # nanoinfraorg/nanoinfra#38 added the wait for a runtime approval.
         "approvalTimeoutS": 120,
+        # nanoinfraorg/nanoinfra#47 item 11. The shipped value is false, because the origin
+        # identity is an assertion of the agent.
+        "identityIndependence": False,
         "interactive": {
             "mutate.remote": {"host": "approve", "group": "approve", "all": "deny"},
             "mutate.inventory": "allow",
