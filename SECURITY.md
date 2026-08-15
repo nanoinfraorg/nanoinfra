@@ -198,7 +198,7 @@ For production use:
 **Production:**
 - Use dedicated API keys with spending limits
 - Restrict file system access
-- Monitor the application log, because nanoinfra ships no audit log yet (see [Known Limitations](#known-limitations))
+- Review the gate audit log under `~/.nanoinfra/gates/`. nanoinfra appends one record per gate decision, and it keeps a denial, an expiry, and a latched refusal too. Set `gates.audit.retentionDays` for how long records stay
 - Regular security reviews
 - Monitor for unusual activity
 
@@ -247,6 +247,18 @@ If you suspect a security breach:
 - TLS for Telegram API
 - WhatsApp session secrets stay in the local session database
 
+### Transcript Redaction Is Best-Effort
+
+nanoinfra removes stored Secret values from the chat transcript, the reasoning-pane
+transcript, `memory/history.jsonl`, and the subagent transcripts. It replaces each value with a
+reference to the Secret name, so an operator can still tell which Secret a turn used. It also
+bounds persisted remote command output.
+
+The removal is best-effort. It matches a stored value, so it cannot catch a credential that a
+command re-encoded, split across two lines, or never stored in the Secret store. A Secret
+shorter than 8 characters is never matched, because a substring search that short would corrupt
+unrelated text.
+
 ## Known Limitations
 
 ⚠️ **Current Security Limitations:**
@@ -255,7 +267,7 @@ If you suspect a security breach:
 2. **Plain Text Config** - API keys stored in plain text in `config.json` (prefer `${VAR}` env references when possible, or use keyring for production)
 3. **No Session Management** - No automatic session expiry
 4. **Command Pattern Match Is Not A Boundary** - The `exec` tool refuses a small set of literal destructive patterns (`nanoinfra/agent/tools/shell.py`). This is not a boundary against a model that composes shell. `rm -rf /`, fork bombs, and `mkfs.*` are all expressible in forms that a matcher does not catch. The list applies to the local `exec` tool only, and `execute_on_server` does not consult it. Enable the bwrap sandbox for kernel-level isolation of local commands on Linux.
-5. **No Audit Trail** - Security event logs are limited. nanoinfra writes the decision that a capability gate would make into the application log (`nanoinfra/agent/tools/capabilities.py`). nanoinfra enforces no gate decision today. No append-only audit store exists yet, and no retention setting exists for one.
+5. **Audit Trail Covers The Gate Only** - nanoinfra appends one record per capability-gate decision to `~/.nanoinfra/gates/` (`nanoinfra/gates/audit.py`), with `gates.audit.retentionDays` for retention. That log covers gate decisions. It does not cover every security event, and other events still reach the application log only. Records hold a command digest, and full command text needs `gates.audit.recordCommandText`, because a resolved command often embeds a secret.
 6. **No Gate On Remote Execution** - `execute_on_server` is the highest-consequence tool in the system. The tool defaults to `dry_run=true`, and its description tells the model to get an explicit user confirmation first. That default is a model-visible convention, not an enforced control. Neither bwrap nor the `exec` pattern list applies to this path. The network guard blocks loopback, link-local, and metadata targets only, and it allows RFC1918 on purpose.
 
 ## Security Checklist
@@ -277,7 +289,7 @@ Before deploying nanoinfra:
 - [ ] Standing grants scoped to non-production hosts where possible
 - [ ] Audit retention set for the gate records
 
-nanoinfra does not enforce the capability gate yet. The gate proposal (nanoinfraorg/nanoinfra#2) defines `gates.unattended`, the standing grants, and the audit records. Review the last three items when your release ships those settings.
+nanoinfra enforces the capability gate for unattended contexts: a cron automation, a long-horizon goal, and a subagent all need a standing grant to run a remote command. Interactive turns are not gated yet, and the gate proposal (nanoinfraorg/nanoinfra#2) tracks that work.
 
 ## Updates
 

@@ -79,7 +79,9 @@ def build_gateway_services(
         logger=logger,
         attachment_limits=ingress.attachments,
     )
-    transcripts = WebUITranscriptRecorder(log=logger)
+    # workspace= enables transcript redaction (#17). Without it the reasoning-pane file
+    # keeps a resolved credential that the chat transcript already drops.
+    transcripts = WebUITranscriptRecorder(log=logger, workspace=workspace_path)
     workspaces = WebUIWorkspaceController(
         session_manager=session_manager,
         default_workspace=workspace_path,
