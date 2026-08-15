@@ -49,6 +49,25 @@ MAX_SOCKET_PATH_BYTES = 100
 # mode is not honoured on every platform, so the directory is the control that works everywhere.
 RUN_DIR_MODE = 0o700
 
+# The mode for a kernel-enforced split, where two accounts must both reach one directory.
+#
+#   owner rwx  the supervisor writes the state file and the log.
+#   group rwx  the child creates the socket, and the agent connects to it.
+#   other ---  every other local account stays out, the same as RUN_DIR_MODE.
+#   setgid     each new entry inherits the group, so the socket carries a group the agent holds.
+#   sticky     neither account removes the other's entries. This is the control that matters here:
+#              the executor is the authority (#18), so the agent must not replace its socket.
+#
+# The group is the supervisor's own group, and the spawn adds that group to the child. A host that
+# runs the agent under a shared primary group therefore opens this directory to that group. That is
+# wider than 0o700, and it applies only where a deployment asked for two accounts.
+SHARED_RUN_DIR_MODE = 0o3770
+
+# connect() on a Unix socket needs write access to the socket file. The child creates that file, so
+# the child's umask decides the mode. 0o007 keeps the group write bit and refuses every other
+# account.
+CHILD_UMASK = 0o007
+
 _POLL_INTERVAL_S = 0.02
 _PROBE_TIMEOUT_S = 0.5
 _STOP_TIMEOUT_S = 20
@@ -138,6 +157,11 @@ class ExecutorRuntime(ManagedProcessRuntime[ExecutorStartOptions]):
             kwargs["user"] = plan.uid
             if plan.gid is not None:
                 kwargs["group"] = plan.gid
+            # The agent connects to the socket the child creates, so both accounts need one
+            # shared group and a umask that keeps the group write bit. Without these two the
+            # executor binds a socket that refuses every connect from the agent.
+            kwargs["extra_groups"] = [os.getgid()]
+            kwargs["umask"] = CHILD_UMASK
         return kwargs
 
     def _is_pid_running(self, pid: int) -> bool:
@@ -187,7 +211,7 @@ class ExecutorProcess:
         if stopped:
             # A killed executor cannot unlink its own socket, and a stale socket file makes the
             # next bind fail. So clear the path once the child is gone.
-            self._socket_path.unlink(missing_ok=True)
+            _clear_stale_socket(self._socket_path)
         return stopped
 
     def read_log_tail(self, *, tail: int = 40) -> list[str]:
@@ -216,7 +240,7 @@ def start_executor(
     _prepare_run_dir(socket_path, plan=runtime.user_plan)
     if not runtime.status().running:
         # No executor holds this path, so any socket file here is a leftover from a killed child.
-        socket_path.unlink(missing_ok=True)
+        _clear_stale_socket(socket_path)
 
     options = ExecutorStartOptions(
         socket_path=str(socket_path),
@@ -236,7 +260,7 @@ def start_executor(
         # A half started child must not outlive this call. An orphan would hold the socket and
         # block the next start.
         runtime.stop(timeout_s=5)
-        socket_path.unlink(missing_ok=True)
+        _clear_stale_socket(socket_path)
         raise ExecutorStartError(f"{exc}. {_hint(runtime)}") from exc
 
     return ExecutorProcess(runtime=runtime, socket_path=socket_path)
@@ -262,18 +286,35 @@ def _check_socket_path(socket_path: Path) -> None:
 
 
 def _prepare_run_dir(socket_path: Path, *, plan: _UserPlan | None = None) -> Path:
-    """Make the directory that holds the socket private to one account."""
+    """Make the directory that holds the socket private to the accounts that need it.
+
+    One account needs one mode. Two accounts need a shared directory, because the child creates
+    the socket in it and the supervisor writes the state file and the log in it.
+
+    The supervisor keeps the directory in both cases, and the sticky bit carries the property that
+    matters: the agent cannot rename or remove the executor's socket. A directory the child owned
+    would take the state file and the log away from the supervisor instead.
+    """
     plan = plan or _UserPlan()
     run_dir = socket_path.parent
     run_dir.mkdir(parents=True, exist_ok=True)
     # mkdir applies the umask, and a directory that already exists may be wider still. chmod makes
     # the mode exact rather than a hope.
-    run_dir.chmod(RUN_DIR_MODE)
-    if plan.enforced and plan.uid is not None:
-        # The child binds the socket, so the child owns the directory. The mode still shuts out
-        # every other local uid.
-        os.chown(run_dir, plan.uid, plan.gid if plan.gid is not None else -1)
+    run_dir.chmod(SHARED_RUN_DIR_MODE if plan.enforced else RUN_DIR_MODE)
     return run_dir
+
+
+def _clear_stale_socket(socket_path: Path) -> None:
+    """Remove a socket no child holds, and tolerate a refusal.
+
+    The sticky bit on a two-account run directory refuses this unlink, because the socket belongs
+    to the executor account. That refusal is the property working as intended, and the child
+    removes its own socket before it binds. So a refusal must not end the start.
+    """
+    try:
+        socket_path.unlink(missing_ok=True)
+    except PermissionError:
+        logger.debug("the executor socket at %s belongs to the child, so it stays", socket_path)
 
 
 def _wait_for_socket(
@@ -382,8 +423,10 @@ def _hint(runtime: ExecutorRuntime, *, tail: int = 20) -> str:
 __all__ = [
     "DEFAULT_START_TIMEOUT_S",
     "EXECUTOR_MODULE",
+    "CHILD_UMASK",
     "MAX_SOCKET_PATH_BYTES",
     "RUN_DIR_MODE",
+    "SHARED_RUN_DIR_MODE",
     "ExecutorProcess",
     "ExecutorRuntime",
     "ExecutorStartError",
