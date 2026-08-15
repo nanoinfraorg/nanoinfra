@@ -5,6 +5,11 @@ from pathlib import Path
 
 import pytest
 
+from nanoinfra.agent.tools.context import (
+    EXECUTION_CONTEXT_INTERACTIVE,
+    RequestContext,
+    request_context,
+)
 from nanoinfra.agent.tools.loader import ToolLoader
 from nanoinfra.agent.tools.servers import (
     CreateServerTool,
@@ -15,6 +20,24 @@ from nanoinfra.agent.tools.servers import (
 )
 from nanoinfra.servers.store import ServerStore
 
+
+@pytest.fixture(autouse=True)
+def _interactive_turn():
+    """Bind an interactive turn so the #23 gate does not refuse these tests.
+
+    With no request context bound, execution_context falls back to unattended (#5), and #23
+    refuses an unattended inventory write. That refusal is correct. These tests exercise the
+    inventory CRUD mechanics rather than policy, so they declare a present operator. Policy is
+    covered by tests/agent/tools/test_inventory_gate.py.
+    """
+    ctx = RequestContext(
+        channel="telegram",
+        chat_id="c1",
+        session_key="s1",
+        execution_context=EXECUTION_CONTEXT_INTERACTIVE,
+    )
+    with request_context(ctx):
+        yield
 
 def _decode(value: object) -> object:
     return json.loads(str(value))
