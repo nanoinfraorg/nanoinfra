@@ -1,0 +1,285 @@
+"""The append-only record of every gate decision -- nanoinfraorg/nanoinfra#16.
+
+One line per decision, and the line covers a denial, an expiry, and a latched refusal too.
+A store that records only the allows answers no question an incident asks.
+
+**Append-only in the real sense.** A record goes to the file through ``O_APPEND`` and one
+``os.write`` call. ``nanoinfra/servers/job_store.py`` and ``nanoinfra/pairing/store.py``
+read the whole file, change it in memory, and write the whole file back. That shape suits
+those two stores, because each one owns mutable state. It is wrong here. A whole-file
+rewrite can lose every earlier record when the process dies mid-write. Lost earlier records
+are the one failure an audit log may not have. ``O_APPEND`` also removes the need for a
+lock, because the kernel puts each write at the true end of the file. A lock guards one
+process only, and #18 moves the gate into a separate executor process.
+
+The writer probes nothing before it appends. A tail probe cannot be race free while other
+writers append. A reader can observe a file size that a write in flight has not filled yet.
+The probe then reports a torn tail that does not exist. A false alarm in an audit log costs
+more than the case it guards. ``fsync`` runs per record, so only a power loss or a kernel
+death can tear a line, and the tear reaches the last line only. The next record after such
+a tear joins the stump, and both of those lines go. :meth:`AuditStore.read_all` names the
+file and the line number, and it returns every intact record around the damage.
+
+**Digest by default.** The record carries ``command_digest``. It carries ``command_text``
+only when ``gates.audit.record_command_text`` is true. Resolved commands routinely embed
+secrets, so a log that captures them becomes a second secret store. One closed gap must not
+open another gap.
+
+**Separate from the transcripts.** These records belong under ``gates/audit/`` in the data
+dir. They never enter the session history, and they have their own retention. This module
+also stays independent of ``nanoinfra/bus/runtime_events.py``. That bus is in-memory pub/sub
+for live WebUI state. It has no durability, and it is not the audit trail.
+
+**Retention by date-stamped segments.** Records go to ``gate-YYYY-MM-DD.jsonl``, one segment
+per UTC day. :meth:`AuditStore.prune` then deletes whole segments outside
+``gates.audit.retention_days``. The alternative is one file plus a filter-and-rewrite pass.
+That pass must read every record it keeps and write it again. It therefore reintroduces the
+exact rewrite this module refuses. It also changes bytes that an auditor may hold a hash of.
+Deletion of a whole segment touches zero bytes of the records it keeps. The cost is
+granularity. The oldest kept segment holds records up to one day past the limit. Retention
+over-keeps by less than a day, and an over-keep is the safe direction of error here.
+
+Nothing here reads config or the data dir on its own. The caller passes the root and the
+policy, so #8 wires one store and a test writes to a temporary directory.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from collections.abc import Sequence
+from contextlib import suppress
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+from loguru import logger
+
+# The digest format lives with the class vocabulary, so the log-only recorder in
+# nanoinfra/agent/tools/capabilities.py and this store always agree on one string.
+from nanoinfra.agent.tools.capabilities import command_digest as _command_digest
+from nanoinfra.config.gates import AuditConfig
+
+_SEGMENT_PREFIX = "gate-"
+_SEGMENT_SUFFIX = ".jsonl"
+_SEGMENT_DATE_FORMAT = "%Y-%m-%d"
+
+# An audit record names hosts, actors, and sessions. Only the owner needs to read it.
+_FILE_MODE = 0o600
+_DIR_MODE = 0o700
+
+
+def segment_name(day: datetime) -> str:
+    """Return the segment file name that holds a record from *day* (UTC)."""
+    return f"{_SEGMENT_PREFIX}{day.astimezone(UTC).strftime(_SEGMENT_DATE_FORMAT)}{_SEGMENT_SUFFIX}"
+
+
+class AuditStore:
+    """Append gate decisions to date-stamped JSONL segments under one root."""
+
+    def __init__(self, root: Path | str, *, config: AuditConfig | None = None) -> None:
+        self.root = Path(root)
+        self.config = config or AuditConfig()
+
+    def record(
+        self,
+        *,
+        decision: str,
+        capability_class: str,
+        execution_context: str,
+        tool: str | None = None,
+        session_id: str | None = None,
+        origin_path: str | None = None,
+        approval_path: str | None = None,
+        actor: str | None = None,
+        scope: str | None = None,
+        hosts: Sequence[str] | None = None,
+        command: str | None = None,
+        command_digest: str | None = None,
+        reason: str | None = None,
+        grant_id: str | None = None,
+        token_nonce: str | None = None,
+        exit_code: int | None = None,
+        duration_ms: int | None = None,
+        ts: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Write one decision and return the record as it went to disk.
+
+        ``command`` takes the resolved command string. The store digests it here, so no
+        caller has to remember the rule. The text reaches the file only under the opt-in.
+        ``command_digest`` covers the caller that holds a digest and no text.
+
+        ``same_path`` and ``host_count`` are not parameters on purpose. Both derive from
+        other fields, so a derived value cannot contradict them. #13 keys an out-of-band
+        approval on the two paths. The record must not claim a separate path that the two
+        paths themselves deny.
+
+        Raises ``OSError`` when the write fails. The caller then knows the decision reached
+        no durable record, so #8 can refuse the action instead of a run that nothing records.
+        """
+        moment = (ts or datetime.now(UTC)).astimezone(UTC)
+        host_list = [str(host) for host in (hosts or ())]
+        digest = _command_digest(command) if command is not None else command_digest
+        payload: dict[str, Any] = {
+            "ts": moment.isoformat(),
+            "session_id": session_id,
+            "execution_context": execution_context,
+            "origin_path": origin_path,
+            "approval_path": approval_path,
+            "same_path": _same_path(origin_path, approval_path),
+            "actor": actor,
+            "capability_class": capability_class,
+            "scope": scope,
+            "hosts": host_list,
+            "host_count": len(host_list),
+            "command_digest": digest,
+            "decision": decision,
+            "reason": reason,
+            "grant_id": grant_id,
+            "token_nonce": token_nonce,
+            "exit_code": exit_code,
+            "duration_ms": duration_ms,
+            "tool": tool,
+        }
+        if command is not None and self.config.record_command_text:
+            payload["command_text"] = command
+        self._append(self.root / segment_name(moment), payload, moment)
+        return payload
+
+    def prune(self, *, now: datetime | None = None) -> list[Path]:
+        """Delete whole segments outside ``retention_days`` and return what went away.
+
+        A retention of zero or less keeps every segment. An audit store must not empty
+        itself because one config value arrived as a zero or as a placeholder.
+        """
+        retention = self.config.retention_days
+        if retention <= 0:
+            return []
+        cutoff = (now or datetime.now(UTC)).astimezone(UTC).date() - timedelta(days=retention)
+        removed: list[Path] = []
+        for segment in self.segments():
+            day = _segment_date(segment)
+            if day is None:
+                # The name carries no date this module wrote. Keep the file, because a
+                # deletion here would destroy records that nothing can rebuild.
+                logger.warning("Keeping audit file with an unparsable date: {}", segment)
+                continue
+            if day >= cutoff:
+                continue
+            try:
+                segment.unlink()
+            except OSError as exc:
+                logger.warning("Could not delete expired audit segment {}: {}", segment, exc)
+                continue
+            removed.append(segment)
+        if removed:
+            logger.info("Pruned {} audit segment(s) older than {}", len(removed), cutoff)
+        return removed
+
+    def segments(self) -> list[Path]:
+        """Return the segment files, oldest first. The name sorts by date already."""
+        if not self.root.is_dir():
+            return []
+        return sorted(self.root.glob(f"{_SEGMENT_PREFIX}*{_SEGMENT_SUFFIX}"))
+
+    def read_all(self) -> list[dict[str, Any]]:
+        """Return every readable record, oldest segment first."""
+        records: list[dict[str, Any]] = []
+        for segment in self.segments():
+            records.extend(self._read_segment(segment))
+        return records
+
+    def _read_segment(self, segment: Path) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        try:
+            text = segment.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            logger.warning("Skipping unreadable audit segment {}: {}", segment, exc)
+            return records
+        for number, line in enumerate(text.splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError:
+                # A torn tail from a crash, or an edited file. One damaged line must
+                # never hide the intact records around it.
+                logger.warning("Skipping malformed audit line {}:{}", segment, number)
+                continue
+            if isinstance(parsed, dict):
+                records.append(dict(parsed))  # pyright: ignore[reportUnknownArgumentType]
+            else:
+                logger.warning("Skipping non-object audit line {}:{}", segment, number)
+        return records
+
+    def _append(self, segment: Path, payload: dict[str, Any], moment: datetime) -> None:
+        if not self.root.is_dir():
+            self.root.mkdir(parents=True, exist_ok=True)
+            # Set the mode on creation only. An operator who opens the directory to an
+            # audit group must keep that change.
+            with suppress(OSError):
+                os.chmod(self.root, _DIR_MODE)
+        # json.dumps escapes every control character, so a newline inside a field cannot
+        # split one record into two lines.
+        line = (json.dumps(payload, ensure_ascii=False, sort_keys=False) + "\n").encode("utf-8")
+        fresh = not segment.exists()
+        fd = os.open(segment, os.O_WRONLY | os.O_CREAT | os.O_APPEND, _FILE_MODE)
+        try:
+            if fresh:
+                # os.open masks the mode with the umask, so set the mode exactly.
+                with suppress(OSError):
+                    os.fchmod(fd, _FILE_MODE)
+            self._write_all(fd, line, segment)
+            # An audit record that a crash can drop is not evidence. Records arrive once
+            # per gate decision, so one fsync per record costs little.
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        if fresh:
+            # Rotation is the trim point. It arrives once a UTC day, so retention needs no
+            # scheduler. The record already landed, so a failed trim must not raise here
+            # and lose the decision the caller just made.
+            try:
+                self.prune(now=moment)
+            except OSError:
+                logger.exception("Audit retention pass failed in {}", self.root)
+
+    @staticmethod
+    def _write_all(fd: int, line: bytes, segment: Path) -> None:
+        """Write the whole record. One call keeps two concurrent writers apart."""
+        written = os.write(fd, line)
+        while written < len(line):
+            # A short write on a regular file is rare. The rest may now land after another
+            # writer's record. Say so, because the line then reads as malformed.
+            logger.warning(
+                "Short audit write to {} ({} of {} bytes)", segment, written, len(line)
+            )
+            chunk = os.write(fd, line[written:])
+            if chunk == 0:
+                # Zero progress means an endless loop. A hang in the gate path stops every
+                # turn, which is worse than one damaged line.
+                raise OSError(f"Audit write to {segment} made no progress")
+            written += chunk
+
+
+def _segment_date(segment: Path) -> date | None:
+    """Return the UTC day a segment holds, or ``None`` when the name does not say."""
+    stem = segment.name[len(_SEGMENT_PREFIX) : -len(_SEGMENT_SUFFIX)]
+    try:
+        return datetime.strptime(stem, _SEGMENT_DATE_FORMAT).date()
+    except ValueError:
+        return None
+
+
+def _same_path(origin_path: str | None, approval_path: str | None) -> bool | None:
+    """Compare the request path with the approval path.
+
+    The answer is ``None`` when no approval arrived, because ``False`` would read as a
+    failed out-of-band check on a call that nobody ever approved.
+    """
+    if origin_path is None or approval_path is None:
+        return None
+    return origin_path == approval_path
+
+
+__all__ = ["AuditStore", "segment_name"]
