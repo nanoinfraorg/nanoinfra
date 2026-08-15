@@ -136,6 +136,40 @@ def _attach_latch_operator_surface(channels: Any, controller: Any, audit: Any) -
         )
 
 
+def _attach_audit_read_surface(channels: Any, audit: Any) -> None:
+    """Hand the read of the gate audit log to the WebUI routes (#29).
+
+    The surface reads. It holds one method, and the route refuses every method that is not a
+    read, so an operator who can see a decision still cannot change one.
+
+    A deployment with no WebUI channel gets no viewer. The log keeps every record, and a shell
+    still reads it, so this warning is about the view and not about the enforcement.
+    """
+    from nanoinfra.webui.audit_api import AuditReadSurface
+
+    if audit is None:
+        logger.warning("gates: no audit store, so the WebUI cannot show a gate decision")
+        return
+    surface = AuditReadSurface(audit)
+    registry = getattr(channels, "channels", None)
+    channel_map = cast("dict[str, Any]", registry) if isinstance(registry, dict) else {}
+    attached = 0
+    for channel in channel_map.values():
+        http = getattr(getattr(channel, "gateway", None), "http", None)
+        attach = getattr(http, "attach_audit_surface", None)
+        if attach is None:
+            continue
+        attach(surface)
+        attached += 1
+    if attached:
+        logger.info("gates: the WebUI can read the gate audit log")
+    else:
+        logger.warning(
+            "gates: no WebUI channel is enabled, so the gate audit log has no viewer. Every "
+            "decision still reaches the log, and a shell still reads it."
+        )
+
+
 def _start_fetcher_for_gateway(config: Any) -> "FetcherProcess | None":
     """Start the process that answers web_fetch and web_search (#19).
 
@@ -828,8 +862,9 @@ def _run_gateway(
         webui_default_llm_runtime=_webui_default_llm_runtime,
     )
 
-    # The operator control for a denial latch (#28). It goes to the WebUI HTTP routes only.
+    # The operator surfaces of the gate (#28, #29). Both go to the WebUI HTTP routes only.
     _attach_latch_operator_surface(channels, latch_controller, gate_runtime.audit)
+    _attach_audit_read_surface(channels, gate_runtime.audit)
 
     def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""

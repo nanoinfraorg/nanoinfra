@@ -314,3 +314,25 @@ async def test_the_route_refuses_a_delete(tmp_path: Path) -> None:
     response = await _get(handler, AUDIT_READ_PATH, method="DELETE")
 
     assert response.status_code == 405
+
+
+def test_the_gateway_hands_the_audit_store_to_the_webui_handler(tmp_path: Path) -> None:
+    """The route exists, and only the gateway can fill it (#29).
+
+    A viewer that answered 503 in every deployment would be a route and not a feature. The
+    gateway attaches the read surface beside the latch surface, because both are operator
+    surfaces on the same handler.
+    """
+    from nanoinfra.cli.gateway_runtime import _attach_audit_read_surface
+
+    handler = _handler(tmp_path)
+    store = _store(tmp_path)
+    _denial(store)
+    channels = SimpleNamespace(
+        channels={"websocket": SimpleNamespace(gateway=SimpleNamespace(http=handler))}
+    )
+
+    _attach_audit_read_surface(channels, store)
+
+    assert handler.audit is not None
+    assert handler.audit.page({})["total"] == 1
