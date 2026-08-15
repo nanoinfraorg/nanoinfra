@@ -181,14 +181,9 @@ def test_update_gates_settings_writes_a_standing_grant_to_config(
     payload = update_gates_settings(_policy_query(policy))
 
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["gates"]["standingGrants"] == [
-        {
-            "id": None,
-            "contexts": ["unattended"],
-            "hosts": ["staging-web-01"],
-            "commands": ["systemctl reload nginx"],
-        }
-    ]
+    saved = raw["gates"]["standingGrants"]
+    assert [grant["hosts"] for grant in saved] == [["staging-web-01"]]
+    assert saved[0]["id"] is not None
     grants = load_config(path).gates.standing_grants
     assert [grant.commands for grant in grants] == [["systemctl reload nginx"]]
     reloaded = payload["advanced"]["gates"]["policy"]["standingGrants"]
@@ -468,3 +463,80 @@ async def test_gates_route_refuses_an_oversized_payload(
     assert response is not None
     assert response.status_code == 400
     assert "too large" in json.loads(response.body)["error"]
+
+
+def test_a_saved_grant_gains_an_id_the_audit_log_can_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#16 records the grant id beside the decision, so a grant with no id names nothing.
+
+    The panel has no id field, because an operator should not have to invent one. The save
+    derives it from the grant content, so the id is stable across a rewrite of the same grant.
+    """
+    path = _use_config(tmp_path, monkeypatch, {})
+    policy = _saved_policy(tmp_path, monkeypatch)
+    policy["standingGrants"] = [
+        {
+            "contexts": ["unattended"],
+            "hosts": ["staging-web-01"],
+            "commands": ["systemctl reload nginx"],
+        }
+    ]
+
+    update_gates_settings(_policy_query(policy))
+    first = json.loads(path.read_text(encoding="utf-8"))["gates"]["standingGrants"][0]["id"]
+    update_gates_settings(_policy_query(policy))
+    second = json.loads(path.read_text(encoding="utf-8"))["gates"]["standingGrants"][0]["id"]
+
+    assert first is not None
+    assert first.startswith("grant-")
+    assert first == second
+
+
+def test_an_operator_named_grant_keeps_its_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An id in config is the operator's own label, and a rewrite must not replace it."""
+    path = _use_config(tmp_path, monkeypatch, {})
+    policy = _saved_policy(tmp_path, monkeypatch)
+    policy["standingGrants"] = [
+        {
+            "id": "reload-web",
+            "contexts": ["unattended"],
+            "hosts": ["staging-web-01"],
+            "commands": ["systemctl reload nginx"],
+        }
+    ]
+
+    update_gates_settings(_policy_query(policy))
+
+    saved = json.loads(path.read_text(encoding="utf-8"))["gates"]["standingGrants"][0]
+    assert saved["id"] == "reload-web"
+
+
+def test_two_different_grants_get_two_different_ids(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An id that repeated would make an audit record ambiguous about which grant ran."""
+    path = _use_config(tmp_path, monkeypatch, {})
+    policy = _saved_policy(tmp_path, monkeypatch)
+    policy["standingGrants"] = [
+        {
+            "contexts": ["unattended"],
+            "hosts": ["staging-web-01"],
+            "commands": ["systemctl reload nginx"],
+        },
+        {
+            "contexts": ["unattended"],
+            "hosts": ["staging-web-02"],
+            "commands": ["systemctl reload nginx"],
+        },
+    ]
+
+    update_gates_settings(_policy_query(policy))
+
+    saved = json.loads(path.read_text(encoding="utf-8"))["gates"]["standingGrants"]
+    assert saved[0]["id"] != saved[1]["id"]
