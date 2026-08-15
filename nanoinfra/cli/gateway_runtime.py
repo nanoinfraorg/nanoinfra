@@ -42,6 +42,24 @@ __all__ = ["_run_gateway"]
 console = Console()
 
 
+def _echo_gate_policy(config: Any, cron: Any) -> None:
+    """Log the gate policy in force, and name the automations it refuses (#8).
+
+    Wrapped so a reporting failure never stops the gateway. An operator loses one log line
+    in that case, which is better than a boot that fails over a diagnostic.
+    """
+    from nanoinfra.gates.startup import policy_summary, refused_automation_warning
+
+    try:
+        logger.info(policy_summary(config.gates))
+        names = [job.id for job in cron.list_jobs()]
+        warning = refused_automation_warning(config.gates, automation_names=names)
+        if warning:
+            logger.warning(warning)
+    except Exception as exc:  # noqa: BLE001 -- a diagnostic must not break boot
+        logger.debug("gates: could not report the effective policy: {}", exc)
+
+
 def _signal_name(signum: int) -> str:
     with suppress(ValueError):
         return signal.Signals(signum).name
@@ -625,6 +643,11 @@ def _run_gateway(
         config.agents.defaults.disabled_skills = sorted(disabled_skills)
         agent.context.skills.disabled_skills = set(disabled_skills)
         agent.subagents.disabled_skills = set(disabled_skills)
+
+    # State the gate policy in force (#8). A mistyped top-level `gates` key loads as
+    # silent defaults, because Config accepts extras. So an operator who wrote a
+    # permissive block must read the truth here, and not at the next scheduled run.
+    _echo_gate_policy(config, cron)
 
     # Create channel manager (forwards SessionManager so the WebSocket channel
     # can serve the embedded webui's REST surface).
