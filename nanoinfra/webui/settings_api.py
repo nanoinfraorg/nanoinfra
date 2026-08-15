@@ -9,6 +9,7 @@ settings payload shape and the allowlisted config mutations exposed to WebUI.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -32,7 +33,7 @@ from nanoinfra.audio.transcription_registry import (
     resolve_transcription_provider,
     transcription_provider_names,
 )
-from nanoinfra.config.gates import ContextPolicy, GatesConfig, ScopePolicy
+from nanoinfra.config.gates import ContextPolicy, GatesConfig, ScopePolicy, StandingGrant
 from nanoinfra.config.loader import (
     get_config_path,
     load_config,
@@ -2191,6 +2192,29 @@ def _gates_normalize(gates: GatesConfig) -> None:
         ]
         if not grant.commands:
             raise WebUISettingsError(f"gates.{key}.commands: name at least one command")
+        if grant.id is None:
+            grant.id = _gates_grant_id(grant)
+
+
+def _gates_grant_id(grant: StandingGrant) -> str:
+    """Name a grant that the operator did not name.
+
+    #16 records the grant id beside the decision, so a grant with no id names nothing in the
+    audit log. The panel has no id field on purpose, because an operator should not invent a
+    label to satisfy a record.
+
+    The id comes from the grant content, so it stays the same across a rewrite of the same grant
+    and it differs between two grants. An edit yields a new id, which is correct: an edited grant
+    permits a different action, and an old audit record must not appear to name the new one.
+    """
+    material = "\n".join(
+        [
+            ",".join(sorted(grant.contexts)),
+            ",".join(sorted(grant.hosts)),
+            ",".join(grant.commands),
+        ]
+    )
+    return "grant-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:10]
 
 
 def update_gates_settings(query: QueryParams) -> dict[str, Any]:
