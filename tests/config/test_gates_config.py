@@ -121,6 +121,33 @@ def test_approvers_load_as_channel_and_sender_pairs() -> None:
     assert gates.approvers[0].sender == "operator-1"
 
 
+def test_approval_paths_default_to_the_webui_path_only() -> None:
+    """#13 needs to know which paths authenticate an approver, so the list is authority.
+
+    `webui` qualifies today. It has a real session concept, and it supports trusted-proxy
+    bootstrap auth (`7413ae89`). One path is also the common single-operator install, which
+    is why #13 answers such a deployment with a named missing-path error.
+    """
+    assert GatesConfig().approval_paths == ["webui"]
+
+
+def test_approval_paths_load_from_camel_case_and_snake_case() -> None:
+    camel = GatesConfig.model_validate({"approvalPaths": ["webui", "telegram"]})
+    snake = GatesConfig.model_validate({"approval_paths": ["webui", "telegram"]})
+
+    assert camel.approval_paths == ["webui", "telegram"]
+    assert snake.approval_paths == ["webui", "telegram"]
+
+
+def test_a_mistyped_approval_paths_key_fails_to_load_and_names_the_key() -> None:
+    """A typo must not fall back to the default list. That default would grant the WebUI
+    path while the operator believes a second path is live."""
+    with pytest.raises(ValidationError) as excinfo:
+        GatesConfig.model_validate({"approvalPath": ["webui"]})
+
+    assert "approvalPath" in str(excinfo.value)
+
+
 def test_the_root_config_exposes_a_gates_block() -> None:
     config = Config.model_validate(
         {"gates": {"standingGrants": [{"hosts": ["web-01"], "commands": ["uptime"]}]}}
