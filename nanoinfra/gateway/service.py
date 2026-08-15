@@ -16,10 +16,17 @@ already the one entry point that brings up both processes. The seam below waits 
 supervisor that owns a command of its own, and it keeps this module out of the business of
 guessing one.
 
-Item 16 (nanoinfraorg/nanoinfra#19) adds the fetcher, and it needs no seam here. The gateway
-starts the fetcher itself, so a unit that runs the gateway command gets all three processes.
-``NANOINFRA_FETCHER_USER`` names the account for that child, and ``NANOINFRA_FETCHER_SOCKET``
-names where it listens. An operator sets either one with ``Environment=`` in a system unit.
+Item 38 (nanoinfraorg/nanoinfra#40) makes that claim true, and it needs no seam here. The
+gateway starts the executor itself, so a unit that runs the gateway command reaches an
+executor. Before that item the seam was the only path, nothing supplied it, and a unit
+therefore started an agent whose every gated action refused. ``NANOINFRA_EXECUTOR_USER`` names
+the account for that child, and ``NANOINFRA_EXECUTOR_SOCKET`` names where it listens.
+
+Item 16 (nanoinfraorg/nanoinfra#19) adds the fetcher, and it needs no seam here either. The
+gateway starts the fetcher itself, so a unit that runs the gateway command gets all three
+processes. ``NANOINFRA_FETCHER_USER`` names the account for that child, and
+``NANOINFRA_FETCHER_SOCKET`` names where it listens. An operator sets any one of these four
+variables with ``Environment=`` in a system unit.
 
 One warning about the uid split. A ``systemd --user`` unit and a LaunchAgent both run as the
 account that installs them, so both processes hold one uid. One process can then ptrace the

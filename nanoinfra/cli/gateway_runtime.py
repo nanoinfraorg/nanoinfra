@@ -39,6 +39,7 @@ from nanoinfra.webui.build import BuildMode
 from nanoinfra.webui.sidebar_state import read_webui_sidebar_state
 
 if TYPE_CHECKING:
+    from nanoinfra.gates.executor.supervisor import ExecutorProcess
     from nanoinfra.gates.fetcher.supervisor import FetcherProcess
     from nanoinfra.gates.mcp_host.supervisor import MCPHostProcess
 
@@ -60,6 +61,12 @@ FETCHER_USER_ENV = "NANOINFRA_FETCHER_USER"
 # program, so the exec right lives in a third process instead of an exception in the docs.
 MCP_HOST_EXTERNAL_ENV = "NANOINFRA_MCP_HOST_EXTERNAL"
 MCP_HOST_USER_ENV = "NANOINFRA_MCP_HOST_USER"
+
+# The executor process (#18, #40). execute_on_server is a thin client of it, and the #27 approvals
+# inbox answers on a second socket of the same process. entrypoint.sh exports both names below, and
+# nothing read them before #40, so a pip install reached no executor at all.
+EXECUTOR_EXTERNAL_ENV = "NANOINFRA_EXECUTOR_EXTERNAL"
+EXECUTOR_USER_ENV = "NANOINFRA_EXECUTOR_USER"
 
 
 def _echo_gate_policy(config: Any, cron: Any) -> None:
@@ -346,6 +353,93 @@ def _start_mcp_host_for_gateway(config: Any) -> "MCPHostProcess | None":
 
     logger.info("gates: the MCP host listens on {} (pid {})", process.socket_path, process.pid)
     return process
+
+
+def _start_executor_for_gateway(config: Any) -> "ExecutorProcess | None":
+    """Start the process that answers execute_on_server and the approvals inbox (#40).
+
+    A pip install runs no container entry point, so the gateway is the supervisor there. Before
+    #40 only entrypoint.sh and the SDK (#21) started this child. So ``nanoinfra gateway`` reached
+    no executor, the tool reported the absence, and the #27 inbox reported a degraded state.
+
+    **The start is unconditional, and the other two children are not.** The fetcher waits for the
+    web tools, and the MCP host waits for a stdio server. Three facts make this child different.
+    ``execute_on_server`` is a registered tool in every install, so the config names no switch to
+    read. A server record appears at any time after boot, so a decision from the server store is
+    wrong the moment an operator adds a server, and no gateway restart follows that write. And the
+    #27 inbox needs the executor's second socket even before the first server exists. A condition
+    here would therefore have to guess the future, so the gateway starts the child every time.
+
+    The child runs under another account when the deployment names one. Without a separate uid the
+    child still runs as a separate process. That alone takes the credential store and the four
+    execution transports out of the address space that runs the model.
+
+    A failed start logs an error and returns None. The gateway continues, because one broken tool
+    must not take the chat channels down. Both surfaces then name the consequence: every gated
+    action refuses until an executor answers.
+    """
+    from nanoinfra.agent.tools.server_execution import EXECUTOR_SOCKET_ENV, default_socket_path
+    from nanoinfra.gates.executor.supervisor import ExecutorStartError, start_executor
+
+    socket_path = default_socket_path()
+    if os.environ.get(EXECUTOR_EXTERNAL_ENV):
+        # A container already placed the executor on its own account. A second executor would hold
+        # the agent's uid, and that undoes the split the first one claims.
+        logger.info(
+            "gates: an executor already runs on {}, so the gateway starts none", socket_path
+        )
+        return None
+
+    # The tool's client reads this path, and the #27 inbox derives its own socket from it. The
+    # export happens before the start, so a later retry still finds the same socket.
+    os.environ[EXECUTOR_SOCKET_ENV] = str(socket_path)
+    user = os.environ.get(EXECUTOR_USER_ENV, "").strip() or None
+
+    try:
+        process = start_executor(
+            socket_path=socket_path, workspace=Path(config.workspace_path), user=user
+        )
+    except ExecutorStartError as exc:
+        # Loud on both surfaces. A silent failure reads as a policy refusal, and an operator then
+        # looks for a grant to write instead of a process to start.
+        logger.error(
+            "gates: the executor did not start, so every gated action refuses until an executor "
+            "answers: {}",
+            exc,
+        )
+        console.print(
+            "[red]Error: the executor did not start, so every gated action refuses until an "
+            "executor answers.[/red]"
+        )
+        console.print(f"[red]{exc}[/red]")
+        return None
+
+    if user is None:
+        logger.info(
+            "gates: the executor runs as a separate process under the gateway's own account. "
+            "The kernel enforces no uid split here. Set {} to get one.",
+            EXECUTOR_USER_ENV,
+        )
+    logger.info("gates: the executor listens on {} (pid {})", process.socket_path, process.pid)
+    return process
+
+
+def _stop_executor(process: "ExecutorProcess | None") -> None:
+    """Stop the executor this gateway started.
+
+    An executor that outlives its gateway holds the socket the next gateway needs. It also holds
+    the credential store open for a process that nothing supervises. The call accepts None,
+    because a failed start still reaches this path.
+    """
+    if process is None:
+        return
+    try:
+        if not process.stop():
+            logger.warning(
+                "gates: the executor did not stop, so its socket may block the next start"
+            )
+    except OSError as exc:
+        logger.warning("gates: the executor did not stop: {}", exc)
 
 
 def _stop_mcp_host(process: "MCPHostProcess | None") -> None:
@@ -723,8 +817,10 @@ def _run_gateway(
         route_policy=WebuiTurnRoutePolicy(session_manager),
     )
 
-    # The fetcher, started before the tools (#19). Both web tools resolve their socket path when
-    # the agent builds them, so the start has to happen first.
+    # The three helper processes, started before the tools. Each tool resolves its socket path when
+    # the agent builds it, so every start has to happen first. The executor comes first of the
+    # three, because the #27 inbox below derives its own socket from the path this start exports.
+    executor = _start_executor_for_gateway(config)
     fetcher = _start_fetcher_for_gateway(config)
     mcp_host = _start_mcp_host_for_gateway(config)
 
@@ -1236,6 +1332,7 @@ def _run_gateway(
     try:
         asyncio.run(run())
     finally:
-        # The fetcher is a child of this process, so it goes when the gateway goes.
+        # All three are children of this process, so they go when the gateway goes.
         _stop_fetcher(fetcher)
         _stop_mcp_host(mcp_host)
+        _stop_executor(executor)
