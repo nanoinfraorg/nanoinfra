@@ -196,11 +196,12 @@ def serve_forever(
     restarts the fetcher must not need a human to delete one.
     """
     path = Path(socket_path)
-    # A private mode only on a directory this process creates. A two-uid deployment owns that
-    # decision: with separate accounts the directory is owned by the fetcher and carries setgid
-    # plus group traversal (2710), so the agent account can reach a known socket name without
-    # listing the directory. A blanket chmod here would lock the agent out, and a split the agent
-    # cannot talk to is worse than the mode it replaced.
+    # A private mode only on a directory this process creates. Whoever prepared the directory owns
+    # that decision, and the two supervisors answer it differently on purpose. entrypoint.sh gives
+    # the directory to the fetcher at 2710, because root prepared it and the agent only needs to
+    # traverse. The Python supervisor keeps the directory itself at 3770 with a sticky bit, because
+    # it writes its own state file and log in there. A blanket chmod here would break both, and a
+    # split the agent cannot talk to is worse than the mode it replaced.
     if not path.parent.exists():
         path.parent.mkdir(parents=True)
         os.chmod(path.parent, _SOCKET_DIR_MODE)
