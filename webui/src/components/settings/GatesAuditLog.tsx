@@ -17,50 +17,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CircleAlert, Loader2, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { fetchWithTimeout } from "@/lib/http";
+import { fetchGatesAudit } from "@/lib/api";
+import type { GatesAuditPage, GatesAuditRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const AUDIT_READ_PATH = "/api/webui/gates/audit";
-const TIMEOUT_MS = 20_000;
-
-/** Key spelling matches the route payload, so no layer translates a field name. */
-export interface AuditRecord {
-  ts: string | null;
-  sessionId: string | null;
-  executionContext: string | null;
-  originPath: string | null;
-  approvalPath: string | null;
-  samePath: boolean;
-  actor: string | null;
-  capabilityClass: string | null;
-  scope: string | null;
-  hosts: string[];
-  hostCount: number | null;
-  commandDigest: string | null;
-  commandText: string | null;
-  holdsCommandText: boolean;
-  decision: string | null;
-  reason: string | null;
-  grantId: string | null;
-  tokenNonce: string | null;
-  exitCode: number | null;
-  durationMs: number | null;
-  tool: string | null;
-}
-
-export interface AuditPage {
-  records: AuditRecord[];
-  total: number;
-  limit: number;
-  offset: number;
-  recordsCommandText: boolean;
-  choices: {
-    decision: string[];
-    capabilityClass: string[];
-    executionContext: string[];
-  };
-}
-
+/** The operator picks one range. Only this view knows what a range means in days. */
 interface Filters {
   decision: string;
   capabilityClass: string;
@@ -85,17 +46,6 @@ function sinceFor(days: string): string | null {
   return moment.toISOString();
 }
 
-function queryFor(filters: Filters): string {
-  const params = new URLSearchParams();
-  if (filters.decision) params.set("decision", filters.decision);
-  if (filters.capabilityClass) params.set("capabilityClass", filters.capabilityClass);
-  if (filters.executionContext) params.set("executionContext", filters.executionContext);
-  const since = sinceFor(filters.days);
-  if (since) params.set("since", since);
-  const query = params.toString();
-  return query ? `${AUDIT_READ_PATH}?${query}` : AUDIT_READ_PATH;
-}
-
 function timeLabel(ts: string | null): string {
   if (!ts) return "--";
   const moment = new Date(ts);
@@ -103,7 +53,7 @@ function timeLabel(ts: string | null): string {
   return moment.toLocaleString();
 }
 
-function targetLabel(record: AuditRecord): string {
+function targetLabel(record: GatesAuditRecord): string {
   if (record.hosts.length > 0) return record.hosts[0];
   return "--";
 }
@@ -111,7 +61,7 @@ function targetLabel(record: AuditRecord): string {
 export function GatesAuditLog({ token }: { token: string }) {
   const { t } = useTranslation();
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [page, setPage] = useState<AuditPage | null>(null);
+  const [page, setPage] = useState<GatesAuditPage | null>(null);
   const [unreachable, setUnreachable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
@@ -120,24 +70,17 @@ export function GatesAuditLog({ token }: { token: string }) {
     async (next: Filters) => {
       setLoading(true);
       try {
-        const res = await fetchWithTimeout(
-          queryFor(next),
-          {
-            headers: { Authorization: `Bearer ${token}` },
-            credentials: "same-origin",
-          },
-          TIMEOUT_MS,
-        );
-        if (!res.ok) {
-          // A gateway with no gate runtime answers 503. That is not an empty log, and the
-          // viewer must not render it as one.
-          setUnreachable(true);
-          setPage(null);
-          return;
-        }
+        const audit = await fetchGatesAudit(token, {
+          decision: next.decision,
+          capabilityClass: next.capabilityClass,
+          executionContext: next.executionContext,
+          since: sinceFor(next.days),
+        });
         setUnreachable(false);
-        setPage((await res.json()) as AuditPage);
+        setPage(audit);
       } catch {
+        // A gateway with no gate runtime answers 503. That is not an empty log, and the
+        // viewer must not render it as one.
         setUnreachable(true);
         setPage(null);
       } finally {
@@ -170,7 +113,8 @@ export function GatesAuditLog({ token }: { token: string }) {
     <section className="space-y-3" data-testid="gates-audit-log">
       <header className="space-y-1">
         <h3 className="text-[15px] font-medium text-foreground">
-          {t("settings.gates.audit.title", "Gate decisions")}
+          {/* The policy panel owns ``audit.title``. This viewer needs its own key. */}
+          {t("settings.gates.audit.logTitle", "Gate decisions")}
         </h3>
         <p className="text-[13px] text-muted-foreground">
           {t(
@@ -357,7 +301,7 @@ function FilterSelect({
   );
 }
 
-function RecordDetail({ record }: { record: AuditRecord }) {
+function RecordDetail({ record }: { record: GatesAuditRecord }) {
   const { t } = useTranslation();
   const rows: [string, string][] = [
     [t("settings.gates.audit.field.ts", "Time"), timeLabel(record.ts)],

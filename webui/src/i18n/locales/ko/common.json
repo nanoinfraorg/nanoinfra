@@ -897,6 +897,145 @@
       "selectProvider": "제공자 선택",
       "configureProvider": "제공자 설정",
       "languageAuto": "자동"
+    },
+    "gates": {
+      "title": "기능 게이트",
+      "columns": {
+        "policy": "정책"
+      },
+      "context": {
+        "interactive": "대화형",
+        "unattended": "무인"
+      },
+      "rows": {
+        "remote": "원격 실행",
+        "inventory": "인벤토리 쓰기",
+        "secret": "시크릿 읽기"
+      },
+      "scope": {
+        "host": "호스트 하나",
+        "group": "호스트 그룹",
+        "all": "모든 호스트"
+      },
+      "decision": {
+        "allow": "허용",
+        "approve": "승인",
+        "grant": "상시 권한만",
+        "deny": "거부"
+      },
+      "defaultMarker": "기본값",
+      "defaultMarkerTitle": "이 값은 제품 기본값입니다. 운영자가 설정한 값이 아닙니다.",
+      "fixed": "고정",
+      "notes": {
+        "allScope": "모든 호스트에는 값이 하나뿐입니다. 이 설계에는 범위를 무제한으로 넓히는 런타임 경로가 없습니다.",
+        "grantDecision": "상시 권한만은 상시 권한이 일치하는 작업만 허용합니다. 그 밖에는 무인 원격 명령을 허용하는 방법이 없습니다.",
+        "singlePath": "설정된 인증 경로가 두 개보다 적습니다. 그러면 그룹 작업에는 런타임 승인 경로가 없습니다. 아래에서 경로를 추가하거나 상시 권한을 선언하세요."
+      },
+      "approvers": {
+        "title": "승인자",
+        "empty": "승인자가 없습니다. 런타임에 작업을 승인할 운영자가 없으므로 승인 결정은 작업을 거부합니다.",
+        "channel": "채널",
+        "sender": "보낸 사람",
+        "add": "승인자 추가",
+        "remove": "승인자 삭제",
+        "note": "채널 allowFrom 목록에 있어도 여기서는 아무 권한이 없습니다. 누가 승인할 수 있는지는 이 목록만 결정합니다."
+      },
+      "paths": {
+        "title": "인증된 경로",
+        "empty": "인증된 경로가 없습니다. 승인을 전달할 경로가 없으므로 모든 승인 결정이 작업을 거부합니다.",
+        "field": "인증된 경로",
+        "add": "경로 추가",
+        "remove": "경로 삭제",
+        "note": "경로는 세션 개념이 있는 채널을 가리킵니다. 경로가 두 개면 한 계정이 승인의 양쪽을 모두 맡지 못합니다."
+      },
+      "grants": {
+        "title": "상시 권한",
+        "empty": "상시 권한이 없습니다. 어떤 자동화도 원격 명령을 실행할 수 없습니다.",
+        "hosts": "호스트",
+        "commands": "명령",
+        "add": "상시 권한 추가",
+        "remove": "상시 권한 삭제",
+        "note": "상시 권한은 원격 명령만 허용합니다. 인벤토리 쓰기는 허용할 수 없습니다."
+      },
+      "grantEditor": {
+        "title": "상시 권한",
+        "description": "상시 권한은 지정한 호스트에서 정확히 일치하는 명령 하나만 허용합니다. 다른 것은 허용하지 않습니다.",
+        "appliesTo": "적용 대상",
+        "hostField": "호스트",
+        "addHost": "호스트 추가",
+        "hostNote": "이 이름은 인벤토리 기록에서 옵니다. 게이트는 런타임에 확인된 주소를 비교하며 이름은 비교하지 않습니다.",
+        "commandField": "명령",
+        "addCommand": "명령 추가",
+        "commandNote": "정확히 일치할 때만 적용됩니다. 이 항목은 패턴이 아닙니다. 한 글자만 달라도 일치하지 않습니다.",
+        "removeValue": "{{field}} {{index}} 삭제",
+        "needContext": "컨텍스트를 하나 이상 선택하세요.",
+        "needHost": "호스트를 하나 이상 지정하세요.",
+        "needCommand": "명령을 하나 이상 지정하세요.",
+        "commit": "상시 권한 추가"
+      },
+      "audit": {
+        "title": "감사",
+        "retention": "기록 보관",
+        "retentionHelp": "게이트는 각 결정을 이 일수만큼 보관합니다.",
+        "days": "일",
+        "fullText": "명령 전문 기록",
+        "fullTextWarning": "확정된 명령에는 시크릿이 자주 들어 있습니다. 그러면 로그에도 함께 남습니다.",
+        "logTitle": "게이트 결정",
+        "subtitle": "게이트 결정 하나당 기록 하나이며 최신 항목이 먼저 나옵니다. 로그는 추가만 하므로 이 화면은 읽기만 합니다.",
+        "filter": {
+          "decision": "결정",
+          "class": "클래스",
+          "context": "컨텍스트",
+          "range": "기간",
+          "any": "전체"
+        },
+        "range": {
+          "any": "모든 기록",
+          "days": "최근 {{count}}일"
+        },
+        "column": {
+          "time": "시각",
+          "decision": "결정",
+          "class": "클래스",
+          "context": "컨텍스트",
+          "target": "대상",
+          "hosts": "호스트"
+        },
+        "samePath": "요청과 승인이 같은 채널로 도착했습니다.",
+        "samePathNote": "요청과 승인이 같은 채널로 도착했습니다. 계정 하나가 탈취되면 양쪽을 모두 쥐게 됩니다.",
+        "textWarning": "명령 전문 기록이 켜져 있어 이 기록에 시크릿이 있을 수 있습니다.",
+        "empty": "이 필터에 맞는 결정이 없습니다. 게이트는 내린 결정을 모두 기록하므로 기간을 넓히면 나올 수 있습니다.",
+        "unreachable": "이 gateway는 감사 로그를 읽을 수 없습니다. 게이트는 여전히 모든 결정을 적용할 수 있으므로, 빈 로그가 아니라 보이지 않는 화면으로 다루세요.",
+        "truncated": "일치하는 기록 {{total}}건 중 {{shown}}건을 표시합니다. 나머지를 보려면 필터를 좁히세요.",
+        "field": {
+          "ts": "시각",
+          "decision": "결정",
+          "reason": "이유",
+          "class": "기능 클래스",
+          "context": "실행 컨텍스트",
+          "session": "세션",
+          "tool": "도구",
+          "actor": "실행 주체",
+          "origin": "요청 경로",
+          "approval": "승인 경로",
+          "scope": "범위",
+          "grant": "상시 권한",
+          "hosts": "확인된 대상",
+          "digest": "명령 다이제스트",
+          "nonce": "토큰 논스",
+          "exit": "종료 코드",
+          "duration": "소요 시간"
+        }
+      },
+      "status": {
+        "saved": "저장했습니다. gateway는 다시 시작한 뒤 새 정책을 읽습니다.",
+        "unsaved": "저장하지 않은 정책 변경이 있습니다."
+      },
+      "actions": {
+        "save": "정책 저장",
+        "discard": "버리기",
+        "cancel": "취소"
+      }
     }
   },
   "chat": {
@@ -1255,6 +1394,24 @@
       "noResults": "일치하는 프롬프트가 없습니다.",
       "jumpTo": "프롬프트로 이동: {{label}}",
       "railAria": "사용자 프롬프트 탐색"
+    },
+    "latch": {
+      "title": "{{label}}이(가) 이 세션에서 잠겼습니다.",
+      "deniedAtBy": "{{at}}에 {{by}}이(가) 거부했습니다.",
+      "deniedAt": "{{at}}에 거부되었습니다.",
+      "deniedUnknownTimeBy": "감사 로그에 시각이 없는 시점에 {{by}}이(가) 거부했습니다.",
+      "deniedUnknownTime": "감사 로그에 시각이 없는 시점에 거부되었습니다.",
+      "refusedNone": "아직 거부된 시도가 없습니다.",
+      "refusedOne": "그 뒤 1건의 시도를 거부했습니다.",
+      "refusedMany": "그 뒤 {{count}}건의 시도를 거부했습니다.",
+      "mustClear": "잠금을 해제할 때까지 에이전트는 다시 요청할 수 없습니다.",
+      "clearRefused": "gateway가 이 잠금을 해제하지 않았습니다. 차단이 그대로 유지됩니다.",
+      "clearNoAnswer": "gateway가 응답하지 않았습니다. 차단이 그대로 유지됩니다.",
+      "viewAttempts": "시도 보기",
+      "hideAttempts": "시도 숨기기",
+      "clear": "해제",
+      "reason": "이유: {{reason}}",
+      "noAttempts": "감사 로그에 시도 상세가 없습니다."
     }
   },
   "message": {

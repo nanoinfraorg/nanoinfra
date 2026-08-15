@@ -897,6 +897,145 @@
       "selectProvider": "選擇供應商",
       "configureProvider": "設定供應商",
       "languageAuto": "自動"
+    },
+    "gates": {
+      "title": "能力閘門",
+      "columns": {
+        "policy": "政策"
+      },
+      "context": {
+        "interactive": "互動",
+        "unattended": "無人監督"
+      },
+      "rows": {
+        "remote": "遠端執行",
+        "inventory": "清單寫入",
+        "secret": "讀取機密"
+      },
+      "scope": {
+        "host": "單一主機",
+        "group": "主機群組",
+        "all": "所有主機"
+      },
+      "decision": {
+        "allow": "允許",
+        "approve": "核准",
+        "grant": "僅常設授權",
+        "deny": "拒絕"
+      },
+      "defaultMarker": "預設",
+      "defaultMarkerTitle": "此值來自出廠預設值，沒有維運人員設定過它。",
+      "fixed": "固定",
+      "notes": {
+        "allScope": "所有主機只有一個值。本設計沒有在執行時擴大到無限範圍的路徑。",
+        "grantDecision": "僅常設授權只在常設授權與操作相符時放行。除此之外沒有任何方式放行無人監督的遠端命令。",
+        "singlePath": "已設定的已驗證通道少於兩條。此時對主機群組的操作沒有執行時的核准通道。請在下方新增一條通道，或宣告一條常設授權。"
+      },
+      "approvers": {
+        "title": "核准者",
+        "empty": "沒有核准者。執行時沒有維運人員可以核准操作，因此核准決定會拒絕該操作。",
+        "channel": "頻道",
+        "sender": "傳送者",
+        "add": "新增核准者",
+        "remove": "移除核准者",
+        "note": "出現在某頻道的 allowFrom 清單中不會在此授予任何權限。誰可以核准只由這份清單決定。"
+      },
+      "paths": {
+        "title": "已驗證通道",
+        "empty": "沒有已驗證通道。沒有通道能承載核准，因此每個核准決定都會拒絕該操作。",
+        "field": "已驗證通道",
+        "add": "新增通道",
+        "remove": "移除通道",
+        "note": "通道指向具備工作階段概念的頻道。兩條通道可避免同一個帳號同時完成核准的兩端。"
+      },
+      "grants": {
+        "title": "常設授權",
+        "empty": "沒有常設授權。任何自動化都不能執行遠端命令。",
+        "hosts": "主機",
+        "commands": "命令",
+        "add": "新增常設授權",
+        "remove": "移除常設授權",
+        "note": "常設授權只放行遠端命令，不能放行清單寫入。"
+      },
+      "grantEditor": {
+        "title": "常設授權",
+        "description": "常設授權只在指定主機上放行一條完全相符的命令，不放行其他任何操作。",
+        "appliesTo": "適用於",
+        "hostField": "主機",
+        "addHost": "新增主機",
+        "hostNote": "這些名稱來自清單記錄。閘門在執行時比較解析後的位址，而不是名稱。",
+        "commandField": "命令",
+        "addCommand": "新增命令",
+        "commandNote": "僅完全相符。此欄位不是樣式。相差一個字元的命令即不相符。",
+        "removeValue": "移除{{field}} {{index}}",
+        "needContext": "請至少選擇一個情境。",
+        "needHost": "請至少填寫一台主機。",
+        "needCommand": "請至少填寫一條命令。",
+        "commit": "新增授權"
+      },
+      "audit": {
+        "title": "稽核",
+        "retention": "保留記錄",
+        "retentionHelp": "閘門依此天數保留每筆決定。",
+        "days": "天",
+        "fullText": "記錄完整命令內容",
+        "fullTextWarning": "解析後的命令常常包含機密，記錄檔隨之也會保存它們。",
+        "logTitle": "閘門決定",
+        "subtitle": "每筆閘門決定對應一筆記錄，最新的在前。記錄檔只會附加，因此此檢視僅供讀取。",
+        "filter": {
+          "decision": "決定",
+          "class": "類別",
+          "context": "情境",
+          "range": "時間範圍",
+          "any": "全部"
+        },
+        "range": {
+          "any": "所有記錄",
+          "days": "最近 {{count}} 天"
+        },
+        "column": {
+          "time": "時間",
+          "decision": "決定",
+          "class": "類別",
+          "context": "情境",
+          "target": "目標",
+          "hosts": "主機"
+        },
+        "samePath": "請求與核准來自同一個頻道。",
+        "samePathNote": "請求與核准來自同一個頻道。一個帳號被入侵即可同時掌握兩端。",
+        "textWarning": "完整命令內容已開啟，因此這筆記錄可能包含機密。",
+        "empty": "沒有決定符合這些篩選條件。閘門仍會記錄它做出的每筆決定，放寬時間範圍可能會顯示記錄。",
+        "unreachable": "此閘道無法讀取稽核記錄。閘門可能仍在執行每筆決定，請把這裡視為缺少的檢視，而不是空的記錄檔。",
+        "truncated": "共 {{total}} 筆相符記錄，目前顯示 {{shown}} 筆。請縮小篩選條件以檢視其餘記錄。",
+        "field": {
+          "ts": "時間",
+          "decision": "決定",
+          "reason": "原因",
+          "class": "能力類別",
+          "context": "執行情境",
+          "session": "工作階段",
+          "tool": "工具",
+          "actor": "操作者",
+          "origin": "來源通道",
+          "approval": "核准通道",
+          "scope": "範圍",
+          "grant": "常設授權",
+          "hosts": "解析後的目標",
+          "digest": "命令摘要",
+          "nonce": "權杖隨機值",
+          "exit": "結束代碼",
+          "duration": "耗時"
+        }
+      },
+      "status": {
+        "saved": "已儲存。閘道會在重新啟動後讀取新政策。",
+        "unsaved": "政策有未儲存的變更。"
+      },
+      "actions": {
+        "save": "儲存政策",
+        "discard": "捨棄",
+        "cancel": "取消"
+      }
     }
   },
   "chat": {
@@ -1255,6 +1394,24 @@
       "noResults": "找不到符合的提示詞。",
       "jumpTo": "跳到提示詞：{{label}}",
       "railAria": "使用者提示詞導覽"
+    },
+    "latch": {
+      "title": "{{label}} 已在此工作階段中鎖定。",
+      "deniedAtBy": "{{by}} 於 {{at}} 拒絕。",
+      "deniedAt": "於 {{at}} 被拒絕。",
+      "deniedUnknownTimeBy": "由 {{by}} 在稽核記錄未記載的時間拒絕。",
+      "deniedUnknownTime": "在稽核記錄未記載的時間被拒絕。",
+      "refusedNone": "尚無被拒絕的嘗試。",
+      "refusedOne": "之後已拒絕 1 次嘗試。",
+      "refusedMany": "之後已拒絕 {{count}} 次嘗試。",
+      "mustClear": "在你解除鎖定之前，智能體無法再次請求。",
+      "clearRefused": "閘道沒有解除此鎖定，封鎖仍然有效。",
+      "clearNoAnswer": "閘道沒有回應，封鎖仍然有效。",
+      "viewAttempts": "檢視嘗試",
+      "hideAttempts": "隱藏嘗試",
+      "clear": "解除",
+      "reason": "原因：{{reason}}",
+      "noAttempts": "稽核記錄沒有嘗試詳情。"
     }
   },
   "message": {

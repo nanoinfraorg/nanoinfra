@@ -898,6 +898,145 @@
       "selectProvider": "Seleccionar proveedor",
       "configureProvider": "Configurar proveedor",
       "languageAuto": "Automático"
+    },
+    "gates": {
+      "title": "Controles de capacidad",
+      "columns": {
+        "policy": "Política"
+      },
+      "context": {
+        "interactive": "Interactivo",
+        "unattended": "Desatendido"
+      },
+      "rows": {
+        "remote": "Ejecución remota",
+        "inventory": "Escrituras en el inventario",
+        "secret": "Leer un secreto"
+      },
+      "scope": {
+        "host": "un host",
+        "group": "grupo de hosts",
+        "all": "todos los hosts"
+      },
+      "decision": {
+        "allow": "Permitir",
+        "approve": "Aprobar",
+        "grant": "Solo concesión",
+        "deny": "Denegar"
+      },
+      "defaultMarker": "predeterminado",
+      "defaultMarkerTitle": "Este valor viene de un valor predeterminado de fábrica. Ningún operador lo definió.",
+      "fixed": "fijo",
+      "notes": {
+        "allScope": "Todos los hosts admite un solo valor. Este diseño no tiene ninguna vía en ejecución hacia un alcance sin límite.",
+        "grantDecision": "Solo concesión permite una acción cuando una concesión permanente coincide con ella. Nada más permite un comando remoto desatendido.",
+        "singlePath": "Hay menos de dos rutas autenticadas configuradas. Una acción sobre un grupo entonces no tiene ninguna vía de aprobación en ejecución. Añade una ruta abajo o declara una concesión permanente."
+      },
+      "approvers": {
+        "title": "Aprobadores",
+        "empty": "Sin aprobadores. Ningún operador puede aprobar una acción en ejecución. Una decisión de aprobación entonces rechaza la acción.",
+        "channel": "Canal",
+        "sender": "Remitente",
+        "add": "Añadir un aprobador",
+        "remove": "Quitar aprobador",
+        "note": "Estar en la lista allowFrom de un canal no concede nada aquí. Solo esta lista decide quién puede aprobar."
+      },
+      "paths": {
+        "title": "Rutas autenticadas",
+        "empty": "Sin rutas autenticadas. Ninguna ruta puede llevar una aprobación, así que toda decisión de aprobación rechaza la acción.",
+        "field": "Ruta autenticada",
+        "add": "Añadir una ruta",
+        "remove": "Quitar ruta",
+        "note": "Una ruta nombra un canal con concepto de sesión. Dos rutas evitan que una sola cuenta cubra las dos mitades de una aprobación."
+      },
+      "grants": {
+        "title": "Concesiones permanentes",
+        "empty": "Sin concesiones. Ninguna automatización puede ejecutar un comando remoto.",
+        "hosts": "Hosts",
+        "commands": "Comandos",
+        "add": "Añadir una concesión",
+        "remove": "Quitar concesión",
+        "note": "Una concesión permite un comando remoto y nada más. No puede permitir una escritura en el inventario."
+      },
+      "grantEditor": {
+        "title": "Concesión permanente",
+        "description": "Una concesión permite un comando exacto en los hosts indicados. No permite nada más.",
+        "appliesTo": "Se aplica a",
+        "hostField": "Host",
+        "addHost": "Añadir un host",
+        "hostNote": "Estos nombres vienen de los registros del inventario. El control compara la dirección resuelta en ejecución, no el nombre.",
+        "commandField": "Comando",
+        "addCommand": "Añadir un comando",
+        "commandNote": "Solo coincidencia exacta. Este campo no es un patrón. Un comando que cambia en un carácter no coincide.",
+        "removeValue": "quitar {{field}} {{index}}",
+        "needContext": "Selecciona uno o más contextos.",
+        "needHost": "Indica uno o más hosts.",
+        "needCommand": "Indica uno o más comandos.",
+        "commit": "Añadir concesión"
+      },
+      "audit": {
+        "title": "Auditoría",
+        "retention": "Conservar registros",
+        "retentionHelp": "El control conserva cada decisión durante estos días.",
+        "days": "días",
+        "fullText": "Registrar el texto completo del comando",
+        "fullTextWarning": "Los comandos resueltos suelen contener secretos. El registro entonces también los contiene.",
+        "logTitle": "Decisiones del control",
+        "subtitle": "Un registro por decisión del control, el más reciente primero. El registro solo añade, así que esta vista solo lee.",
+        "filter": {
+          "decision": "Decisión",
+          "class": "Clase",
+          "context": "Contexto",
+          "range": "Intervalo",
+          "any": "cualquiera"
+        },
+        "range": {
+          "any": "todos los registros",
+          "days": "últimos {{count}} días"
+        },
+        "column": {
+          "time": "Hora",
+          "decision": "Decisión",
+          "class": "Clase",
+          "context": "Contexto",
+          "target": "Destino",
+          "hosts": "Hosts"
+        },
+        "samePath": "La solicitud y la aprobación llegaron por un mismo canal.",
+        "samePathNote": "La solicitud y la aprobación llegaron por un mismo canal. Una sola cuenta comprometida entonces tiene las dos mitades.",
+        "textWarning": "El texto completo del comando está activo, así que este registro puede contener un secreto.",
+        "empty": "Ninguna decisión coincide con estos filtros. El control sigue registrando cada decisión que toma, así que un intervalo más amplio puede mostrar alguna.",
+        "unreachable": "Este gateway no puede leer el registro de auditoría. El control puede seguir aplicando cada decisión, así que trata esto como una vista ausente y no como un registro vacío.",
+        "truncated": "Se muestran {{shown}} de {{total}} registros coincidentes. Restringe los filtros para ver el resto.",
+        "field": {
+          "ts": "Hora",
+          "decision": "Decisión",
+          "reason": "Motivo",
+          "class": "Clase de capacidad",
+          "context": "Contexto de ejecución",
+          "session": "Sesión",
+          "tool": "Herramienta",
+          "actor": "Actor",
+          "origin": "Ruta de origen",
+          "approval": "Ruta de aprobación",
+          "scope": "Alcance",
+          "grant": "Concesión",
+          "hosts": "Destinos resueltos",
+          "digest": "Resumen del comando",
+          "nonce": "Nonce del token",
+          "exit": "Código de salida",
+          "duration": "Duración"
+        }
+      },
+      "status": {
+        "saved": "Guardado. El gateway lee la nueva política después de un reinicio.",
+        "unsaved": "Cambios de política sin guardar."
+      },
+      "actions": {
+        "save": "Guardar política",
+        "discard": "Descartar",
+        "cancel": "Cancelar"
+      }
     }
   },
   "chat": {
@@ -1256,6 +1395,24 @@
       "noResults": "No hay instrucciones coincidentes.",
       "jumpTo": "Ir a la instrucción: {{label}}",
       "railAria": "Navegación por instrucciones del usuario"
+    },
+    "latch": {
+      "title": "{{label}} está bloqueado para esta sesión.",
+      "deniedAtBy": "Denegado el {{at}} por {{by}}.",
+      "deniedAt": "Denegado el {{at}}.",
+      "deniedUnknownTimeBy": "Denegado por {{by}} en un momento que el registro de auditoría no indica.",
+      "deniedUnknownTime": "Denegado en un momento que el registro de auditoría no indica.",
+      "refusedNone": "Todavía no se rechazó ningún intento.",
+      "refusedOne": "1 intento rechazado desde entonces.",
+      "refusedMany": "{{count}} intentos rechazados desde entonces.",
+      "mustClear": "El agente no puede volver a pedirlo hasta que lo desbloquees.",
+      "clearRefused": "El gateway no desbloqueó esto. El bloqueo sigue activo.",
+      "clearNoAnswer": "El gateway no respondió. El bloqueo sigue activo.",
+      "viewAttempts": "Ver intentos",
+      "hideAttempts": "Ocultar intentos",
+      "clear": "Desbloquear",
+      "reason": "Motivo: {{reason}}",
+      "noAttempts": "El registro de auditoría no tiene detalle de los intentos."
     }
   },
   "message": {

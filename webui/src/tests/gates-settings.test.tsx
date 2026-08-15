@@ -1,12 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  GatesSettings,
-  type GatesPayload,
-  type GatesPolicy,
-} from "@/components/settings/GatesSettings";
-import type { SettingsPayload } from "@/lib/types";
+import { GatesSettings } from "@/components/settings/GatesSettings";
+import type { GatesPayload, GatesPolicy, SettingsPayload } from "@/lib/types";
 
 const DEFAULT_MARKER_PATHS = [
   "approvers",

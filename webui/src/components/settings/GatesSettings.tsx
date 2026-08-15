@@ -21,64 +21,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { fetchWithTimeout } from "@/lib/http";
-import type { SettingsPayload } from "@/lib/types";
+import { updateGatesPolicy } from "@/lib/api";
+import type {
+  GatesPayload,
+  GatesPolicy,
+  GatesStandingGrant,
+  SettingsPayload,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const GATES_VALUES_HEADER = "X-Nanoinfra-Gates-Values";
-const GATES_UPDATE_PATH = "/api/settings/gates/update";
-
-/** Key spelling matches config.json, so no layer translates a policy key. */
-export interface GatesScopePolicy {
-  host: string;
-  group: string;
-  all: string;
-}
-
-export interface GatesContextPolicy {
-  "mutate.remote": GatesScopePolicy;
-  "mutate.inventory": string;
-  "credential.access": string;
-}
-
-export interface GatesApprover {
-  channel: string;
-  sender: string;
-}
-
-export interface GatesStandingGrant {
-  id?: string | null;
-  contexts: string[];
-  hosts: string[];
-  commands: string[];
-}
-
-export interface GatesAuditPolicy {
-  retentionDays: number;
-  recordCommandText: boolean;
-}
-
-export interface GatesPolicy {
-  approvers: GatesApprover[];
-  approvalPaths: string[];
-  interactive: GatesContextPolicy;
-  unattended: GatesContextPolicy;
-  standingGrants: GatesStandingGrant[];
-  audit: GatesAuditPolicy;
-}
-
-export interface GatesPayload {
-  policy: GatesPolicy;
-  from_default: Record<string, boolean>;
-  choices: {
-    "mutate.remote": string[];
-    "mutate.inventory": string[];
-    "credential.access": string[];
-    all: string[];
-  };
-}
-
-type AdvancedWithGates = SettingsPayload["advanced"] & { gates?: GatesPayload };
 
 type ContextKey = "interactive" | "unattended";
 type ScopeField = "host" | "group" | "all";
@@ -88,25 +38,9 @@ const SCOPE_FIELDS: ScopeField[] = ["host", "group", "all"];
 
 /** Read the gate block. An older gateway sends no block, and then the panel stays away. */
 export function gatesPayloadFrom(settings: SettingsPayload): GatesPayload | null {
-  const advanced = settings.advanced as AdvancedWithGates;
-  const gates = advanced.gates;
+  const gates = settings.advanced.gates;
   if (!gates || !gates.policy || !gates.choices) return null;
   return gates;
-}
-
-async function saveGatesPolicy(token: string, policy: GatesPolicy): Promise<SettingsPayload> {
-  const response = await fetchWithTimeout(GATES_UPDATE_PATH, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      [GATES_VALUES_HEADER]: encodeURIComponent(JSON.stringify(policy)),
-    },
-    credentials: "same-origin",
-  });
-  if (!response.ok) {
-    const text = typeof response.text === "function" ? (await response.text()).trim() : "";
-    throw new Error(text || `HTTP ${response.status}`);
-  }
-  return (await response.json()) as SettingsPayload;
 }
 
 function clonePolicy(policy: GatesPolicy): GatesPolicy {
@@ -186,7 +120,7 @@ export function GatesSettings({
     setSaving(true);
     setError(null);
     try {
-      const payload = await saveGatesPolicy(token, draft);
+      const payload = await updateGatesPolicy(token, draft);
       setSaved(true);
       onSaved(payload);
     } catch (err) {
@@ -924,6 +858,7 @@ function GrantValueList({
   values: string[];
   onChange: (values: string[]) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div>
       <div className="text-[12px] font-medium text-muted-foreground">{title}</div>
@@ -943,7 +878,11 @@ function GrantValueList({
               className="h-9 flex-1 rounded-[10px] text-[13px]"
             />
             <RemoveButton
-              label={`${fieldLabel} ${index + 1} remove`}
+              label={t("settings.gates.grantEditor.removeValue", {
+                defaultValue: "{{field}} {{index}} remove",
+                field: fieldLabel,
+                index: index + 1,
+              })}
               onClick={() => onChange(values.filter((_entry, position) => position !== index))}
             />
           </div>

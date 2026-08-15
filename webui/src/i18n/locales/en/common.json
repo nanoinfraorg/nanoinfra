@@ -911,6 +911,145 @@
       "selectProvider": "Select provider",
       "configureProvider": "Configure provider",
       "languageAuto": "Auto"
+    },
+    "gates": {
+      "title": "Capability gates",
+      "columns": {
+        "policy": "Policy"
+      },
+      "context": {
+        "interactive": "Interactive",
+        "unattended": "Unattended"
+      },
+      "rows": {
+        "remote": "Remote execution",
+        "inventory": "Inventory writes",
+        "secret": "Read a secret"
+      },
+      "scope": {
+        "host": "one host",
+        "group": "host group",
+        "all": "all hosts"
+      },
+      "decision": {
+        "allow": "Allow",
+        "approve": "Approve",
+        "grant": "Grant only",
+        "deny": "Deny"
+      },
+      "defaultMarker": "default",
+      "defaultMarkerTitle": "This value comes from a shipped default. No operator set it.",
+      "fixed": "fixed",
+      "notes": {
+        "allScope": "All hosts has one value only. This design has no runtime path to unbounded scope.",
+        "grantDecision": "Grant only allows an action when a standing grant matches it. Nothing else allows an unattended remote command.",
+        "singlePath": "Fewer than two authenticated paths are configured. A group action then has no runtime approval path. Add a path below, or declare a standing grant."
+      },
+      "approvers": {
+        "title": "Approvers",
+        "empty": "No approvers. No operator can approve an action at run time. An approve decision then refuses the action.",
+        "channel": "Channel",
+        "sender": "Sender",
+        "add": "Add an approver",
+        "remove": "Remove approver",
+        "note": "Membership in a channel allowFrom list grants nothing here. Only this list decides who can approve."
+      },
+      "paths": {
+        "title": "Authenticated paths",
+        "empty": "No authenticated paths. No path can carry an approval, so every approve decision refuses the action.",
+        "field": "Authenticated path",
+        "add": "Add a path",
+        "remove": "Remove path",
+        "note": "A path names a channel with a session concept. Two paths keep one account from both halves of an approval."
+      },
+      "grants": {
+        "title": "Standing grants",
+        "empty": "No grants. No automation may run a remote command.",
+        "hosts": "Hosts",
+        "commands": "Commands",
+        "add": "Add a grant",
+        "remove": "Remove grant",
+        "note": "A grant permits a remote command and nothing else. It cannot permit an inventory write."
+      },
+      "grantEditor": {
+        "title": "Standing grant",
+        "description": "A grant permits one exact command on named hosts. It permits nothing else.",
+        "appliesTo": "Applies to",
+        "hostField": "Host",
+        "addHost": "Add a host",
+        "hostNote": "These names come from inventory records. The gate compares the resolved address at run time, not the name.",
+        "commandField": "Command",
+        "addCommand": "Add a command",
+        "commandNote": "Exact match only. This field is not a pattern. A command that differs by one character does not match.",
+        "removeValue": "{{field}} {{index}} remove",
+        "needContext": "Select one context or more.",
+        "needHost": "Name one host or more.",
+        "needCommand": "Name one command or more.",
+        "commit": "Add grant"
+      },
+      "audit": {
+        "title": "Audit",
+        "retention": "Keep records",
+        "retentionHelp": "The gate keeps each decision for this many days.",
+        "days": "days",
+        "fullText": "Record full command text",
+        "fullTextWarning": "Resolved commands often hold secrets. The log then holds them too.",
+        "logTitle": "Gate decisions",
+        "subtitle": "One record per gate decision, newest first. The log appends, so this view reads only.",
+        "filter": {
+          "decision": "Decision",
+          "class": "Class",
+          "context": "Context",
+          "range": "Range",
+          "any": "any"
+        },
+        "range": {
+          "any": "every record",
+          "days": "last {{count}} days"
+        },
+        "column": {
+          "time": "Time",
+          "decision": "Decision",
+          "class": "Class",
+          "context": "Context",
+          "target": "Target",
+          "hosts": "Hosts"
+        },
+        "samePath": "The request and the approval arrived on one channel.",
+        "samePathNote": "The request and the approval arrived on one channel. One compromised account then holds both halves.",
+        "textWarning": "Full command text is on, so this record may hold a secret.",
+        "empty": "No decision matches these filters. The gate still records every decision it makes, so a wider range may show one.",
+        "unreachable": "This gateway cannot reach the audit log. The gate may still enforce every decision, so treat this as a missing view and not as an empty log.",
+        "truncated": "Showing {{shown}} of {{total}} matching records. Narrow the filters to see the rest.",
+        "field": {
+          "ts": "Time",
+          "decision": "Decision",
+          "reason": "Reason",
+          "class": "Capability class",
+          "context": "Execution context",
+          "session": "Session",
+          "tool": "Tool",
+          "actor": "Actor",
+          "origin": "Origin path",
+          "approval": "Approval path",
+          "scope": "Scope",
+          "grant": "Grant",
+          "hosts": "Resolved targets",
+          "digest": "Command digest",
+          "nonce": "Token nonce",
+          "exit": "Exit code",
+          "duration": "Duration"
+        }
+      },
+      "status": {
+        "saved": "Saved. The gateway reads the new policy after a restart.",
+        "unsaved": "Unsaved policy changes."
+      },
+      "actions": {
+        "save": "Save policy",
+        "discard": "Discard",
+        "cancel": "Cancel"
+      }
     }
   },
   "chat": {
@@ -1269,6 +1408,24 @@
       "noResults": "No matching prompts.",
       "jumpTo": "Jump to prompt: {{label}}",
       "railAria": "User prompt navigation"
+    },
+    "latch": {
+      "title": "{{label}} is latched for this session.",
+      "deniedAtBy": "Denied {{at}} by {{by}}.",
+      "deniedAt": "Denied {{at}}.",
+      "deniedUnknownTimeBy": "Denied at a time the audit log does not state by {{by}}.",
+      "deniedUnknownTime": "Denied at a time the audit log does not state.",
+      "refusedNone": "No attempt was refused yet.",
+      "refusedOne": "1 attempt refused since.",
+      "refusedMany": "{{count}} attempts refused since.",
+      "mustClear": "The agent cannot ask again until you clear this.",
+      "clearRefused": "The gateway did not clear this latch. The block still holds.",
+      "clearNoAnswer": "The gateway did not answer. The block still holds.",
+      "viewAttempts": "View attempts",
+      "hideAttempts": "Hide attempts",
+      "clear": "Clear",
+      "reason": "Reason: {{reason}}",
+      "noAttempts": "The audit log holds no attempt detail."
     }
   },
   "message": {

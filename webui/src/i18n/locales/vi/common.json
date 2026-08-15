@@ -897,6 +897,145 @@
       "selectProvider": "Chọn nhà cung cấp",
       "configureProvider": "Cấu hình nhà cung cấp",
       "languageAuto": "Tự động"
+    },
+    "gates": {
+      "title": "Cổng năng lực",
+      "columns": {
+        "policy": "Chính sách"
+      },
+      "context": {
+        "interactive": "Tương tác",
+        "unattended": "Không có người trực"
+      },
+      "rows": {
+        "remote": "Thực thi từ xa",
+        "inventory": "Ghi vào danh mục",
+        "secret": "Đọc một secret"
+      },
+      "scope": {
+        "host": "một máy chủ",
+        "group": "nhóm máy chủ",
+        "all": "mọi máy chủ"
+      },
+      "decision": {
+        "allow": "Cho phép",
+        "approve": "Phê duyệt",
+        "grant": "Chỉ quyền cấp sẵn",
+        "deny": "Từ chối"
+      },
+      "defaultMarker": "mặc định",
+      "defaultMarkerTitle": "Giá trị này đến từ mặc định xuất xưởng. Không có người vận hành nào đặt nó.",
+      "fixed": "cố định",
+      "notes": {
+        "allScope": "Mọi máy chủ chỉ có một giá trị. Thiết kế này không có đường chạy nào dẫn tới phạm vi không giới hạn.",
+        "grantDecision": "Chỉ quyền cấp sẵn cho phép một hành động khi có quyền cấp sẵn khớp với nó. Không có cách nào khác cho phép một lệnh từ xa không có người trực.",
+        "singlePath": "Số đường đã xác thực được cấu hình ít hơn hai. Khi đó hành động trên một nhóm không có đường phê duyệt lúc chạy. Hãy thêm một đường bên dưới, hoặc khai báo một quyền cấp sẵn."
+      },
+      "approvers": {
+        "title": "Người phê duyệt",
+        "empty": "Không có người phê duyệt. Không người vận hành nào có thể phê duyệt hành động lúc chạy. Quyết định phê duyệt khi đó từ chối hành động.",
+        "channel": "Kênh",
+        "sender": "Người gửi",
+        "add": "Thêm người phê duyệt",
+        "remove": "Xóa người phê duyệt",
+        "note": "Có tên trong danh sách allowFrom của một kênh không cấp gì ở đây. Chỉ danh sách này quyết định ai được phê duyệt."
+      },
+      "paths": {
+        "title": "Đường đã xác thực",
+        "empty": "Không có đường đã xác thực. Không đường nào mang được phê duyệt, nên mọi quyết định phê duyệt đều từ chối hành động.",
+        "field": "Đường đã xác thực",
+        "add": "Thêm một đường",
+        "remove": "Xóa đường",
+        "note": "Một đường trỏ tới kênh có khái niệm phiên. Hai đường giúp một tài khoản không giữ cả hai nửa của một phê duyệt."
+      },
+      "grants": {
+        "title": "Quyền cấp sẵn",
+        "empty": "Không có quyền cấp sẵn. Không tự động hóa nào được chạy lệnh từ xa.",
+        "hosts": "Máy chủ",
+        "commands": "Lệnh",
+        "add": "Thêm quyền cấp sẵn",
+        "remove": "Xóa quyền cấp sẵn",
+        "note": "Một quyền cấp sẵn chỉ cho phép lệnh từ xa. Nó không thể cho phép ghi vào danh mục."
+      },
+      "grantEditor": {
+        "title": "Quyền cấp sẵn",
+        "description": "Một quyền cấp sẵn cho phép đúng một lệnh trên các máy chủ được nêu tên. Nó không cho phép gì khác.",
+        "appliesTo": "Áp dụng cho",
+        "hostField": "Máy chủ",
+        "addHost": "Thêm một máy chủ",
+        "hostNote": "Các tên này đến từ bản ghi danh mục. Cổng so sánh địa chỉ đã phân giải lúc chạy, không so sánh tên.",
+        "commandField": "Lệnh",
+        "addCommand": "Thêm một lệnh",
+        "commandNote": "Chỉ khớp chính xác. Trường này không phải mẫu. Một lệnh khác đi một ký tự thì không khớp.",
+        "removeValue": "xóa {{field}} {{index}}",
+        "needContext": "Hãy chọn một ngữ cảnh hoặc nhiều hơn.",
+        "needHost": "Hãy nêu tên một máy chủ hoặc nhiều hơn.",
+        "needCommand": "Hãy nêu tên một lệnh hoặc nhiều hơn.",
+        "commit": "Thêm quyền cấp sẵn"
+      },
+      "audit": {
+        "title": "Kiểm toán",
+        "retention": "Lưu bản ghi",
+        "retentionHelp": "Cổng lưu mỗi quyết định trong số ngày này.",
+        "days": "ngày",
+        "fullText": "Ghi toàn văn lệnh",
+        "fullTextWarning": "Lệnh đã phân giải thường chứa secret. Nhật ký khi đó cũng chứa chúng.",
+        "logTitle": "Quyết định của cổng",
+        "subtitle": "Mỗi quyết định của cổng là một bản ghi, mới nhất trước. Nhật ký chỉ ghi thêm, nên khung này chỉ đọc.",
+        "filter": {
+          "decision": "Quyết định",
+          "class": "Lớp",
+          "context": "Ngữ cảnh",
+          "range": "Khoảng thời gian",
+          "any": "tất cả"
+        },
+        "range": {
+          "any": "mọi bản ghi",
+          "days": "{{count}} ngày gần nhất"
+        },
+        "column": {
+          "time": "Thời điểm",
+          "decision": "Quyết định",
+          "class": "Lớp",
+          "context": "Ngữ cảnh",
+          "target": "Đích",
+          "hosts": "Máy chủ"
+        },
+        "samePath": "Yêu cầu và phê duyệt đến trên cùng một kênh.",
+        "samePathNote": "Yêu cầu và phê duyệt đến trên cùng một kênh. Một tài khoản bị chiếm khi đó giữ cả hai nửa.",
+        "textWarning": "Toàn văn lệnh đang bật, nên bản ghi này có thể chứa secret.",
+        "empty": "Không quyết định nào khớp với các bộ lọc này. Cổng vẫn ghi mọi quyết định mà nó đưa ra, nên khoảng thời gian rộng hơn có thể cho thấy một bản ghi.",
+        "unreachable": "Gateway này không đọc được nhật ký kiểm toán. Cổng có thể vẫn áp dụng mọi quyết định, vì vậy hãy coi đây là khung thiếu dữ liệu chứ không phải nhật ký rỗng.",
+        "truncated": "Đang hiện {{shown}} trong {{total}} bản ghi khớp. Hãy thu hẹp bộ lọc để xem phần còn lại.",
+        "field": {
+          "ts": "Thời điểm",
+          "decision": "Quyết định",
+          "reason": "Lý do",
+          "class": "Lớp năng lực",
+          "context": "Ngữ cảnh thực thi",
+          "session": "Phiên",
+          "tool": "Công cụ",
+          "actor": "Chủ thể",
+          "origin": "Đường xuất phát",
+          "approval": "Đường phê duyệt",
+          "scope": "Phạm vi",
+          "grant": "Quyền cấp sẵn",
+          "hosts": "Đích đã phân giải",
+          "digest": "Digest của lệnh",
+          "nonce": "Nonce của token",
+          "exit": "Mã thoát",
+          "duration": "Thời lượng"
+        }
+      },
+      "status": {
+        "saved": "Đã lưu. Gateway đọc chính sách mới sau khi khởi động lại.",
+        "unsaved": "Có thay đổi chính sách chưa lưu."
+      },
+      "actions": {
+        "save": "Lưu chính sách",
+        "discard": "Loại bỏ",
+        "cancel": "Hủy"
+      }
     }
   },
   "chat": {
@@ -1255,6 +1394,24 @@
       "noResults": "Không có lời nhắc phù hợp.",
       "jumpTo": "Nhảy tới lời nhắc: {{label}}",
       "railAria": "Điều hướng lời nhắc của người dùng"
+    },
+    "latch": {
+      "title": "{{label}} đang bị chốt cho phiên này.",
+      "deniedAtBy": "Bị từ chối lúc {{at}} bởi {{by}}.",
+      "deniedAt": "Bị từ chối lúc {{at}}.",
+      "deniedUnknownTimeBy": "Bị {{by}} từ chối vào lúc mà nhật ký kiểm toán không nêu.",
+      "deniedUnknownTime": "Bị từ chối vào lúc mà nhật ký kiểm toán không nêu.",
+      "refusedNone": "Chưa có lần thử nào bị từ chối.",
+      "refusedOne": "1 lần thử bị từ chối từ lúc đó.",
+      "refusedMany": "{{count}} lần thử bị từ chối từ lúc đó.",
+      "mustClear": "Tác nhân không thể yêu cầu lại cho tới khi bạn mở chốt này.",
+      "clearRefused": "Gateway không mở chốt này. Việc chặn vẫn còn.",
+      "clearNoAnswer": "Gateway không trả lời. Việc chặn vẫn còn.",
+      "viewAttempts": "Xem các lần thử",
+      "hideAttempts": "Ẩn các lần thử",
+      "clear": "Mở chốt",
+      "reason": "Lý do: {{reason}}",
+      "noAttempts": "Nhật ký kiểm toán không có chi tiết lần thử."
     }
   },
   "message": {

@@ -1,49 +1,27 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import type { TFunction } from "i18next";
 import { Ban } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { usePageVisibility } from "@/hooks/usePageVisibility";
+import { ApiError, clearGatesLatch, fetchGatesLatches } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
-import { fetchWithTimeout } from "@/lib/http";
+import type { GatesLatchEntry, GatesLatchPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const READ_PATH = "/api/webui/gates/latches";
-const CLEAR_PATH = "/api/webui/gates/latches/clear";
-const VALUES_HEADER = "X-Nanoinfra-Latch-Values";
 const POLL_MS = 15_000;
-const TIMEOUT_MS = 20_000;
 
 /**
  * Operator labels for the capability classes, from the gates policy panel (#25 §3).
- * An unknown class falls back to its own name, because a new class must still be readable.
+ * The panel owns this copy, so both surfaces read one key for each class. An unknown class falls
+ * back to its own name, because a new class must still be readable.
  */
-const CLASS_LABELS: Record<string, string> = {
-  "credential.access": "Read a secret",
-  "mutate.inventory": "Inventory writes",
-  "mutate.remote": "Remote execution",
+const CLASS_LABELS: Record<string, { key: string; fallback: string }> = {
+  "credential.access": { key: "settings.gates.rows.secret", fallback: "Read a secret" },
+  "mutate.inventory": { key: "settings.gates.rows.inventory", fallback: "Inventory writes" },
+  "mutate.remote": { key: "settings.gates.rows.remote", fallback: "Remote execution" },
 };
-
-interface LatchAttempt {
-  at: string | null;
-  digest: string | null;
-  tool: string | null;
-}
-
-interface LatchEntry {
-  attempts: LatchAttempt[];
-  capabilityClass: string;
-  deniedAt: string | null;
-  deniedBy: string | null;
-  reason: string | null;
-  refusals: number;
-  sessionId: string;
-}
-
-interface LatchPayload {
-  degraded: boolean;
-  latches: LatchEntry[];
-  summary: string;
-}
 
 interface LatchBannerProps {
   sessionKey: string;
@@ -68,7 +46,8 @@ interface ClearFailure {
  * resets to zero.
  */
 export function LatchBanner({ sessionKey, token }: LatchBannerProps) {
-  const [payload, setPayload] = useState<LatchPayload | null>(null);
+  const { t } = useTranslation();
+  const [payload, setPayload] = useState<GatesLatchPayload | null>(null);
   const [openClass, setOpenClass] = useState<string | null>(null);
   const [busyClass, setBusyClass] = useState<string | null>(null);
   const [clearFailure, setClearFailure] = useState<ClearFailure | null>(null);
@@ -78,17 +57,9 @@ export function LatchBanner({ sessionKey, token }: LatchBannerProps) {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetchWithTimeout(
-        READ_PATH,
-        {
-          headers: { Authorization: `Bearer ${tokenRef.current}` },
-          credentials: "same-origin",
-        },
-        TIMEOUT_MS,
-      );
-      // A gateway with no gate runtime answers 503. There is then no latch to show.
-      setPayload(res.ok ? ((await res.json()) as LatchPayload) : null);
+      setPayload(await fetchGatesLatches(tokenRef.current));
     } catch {
+      // A gateway with no gate runtime answers 503. There is then no latch to show.
       setPayload(null);
     }
   }, []);
@@ -103,43 +74,33 @@ export function LatchBanner({ sessionKey, token }: LatchBannerProps) {
   }, [load, pageVisible]);
 
   const clear = useCallback(
-    async (entry: LatchEntry) => {
+    async (entry: GatesLatchEntry) => {
       setBusyClass(entry.capabilityClass);
       setClearFailure(null);
       try {
-        const res = await fetchWithTimeout(
-          CLEAR_PATH,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${tokenRef.current}`,
-              [VALUES_HEADER]: JSON.stringify({
-                capabilityClass: entry.capabilityClass,
-                sessionId: entry.sessionId,
-              }),
-            },
-            credentials: "same-origin",
-          },
-          TIMEOUT_MS,
-        );
-        if (!res.ok) {
-          setClearFailure({
-            capabilityClass: entry.capabilityClass,
-            message: "The gateway did not clear this latch. The block still holds.",
-          });
-          return;
-        }
+        await clearGatesLatch(tokenRef.current, {
+          capabilityClass: entry.capabilityClass,
+          sessionId: entry.sessionId,
+        });
         await load();
-      } catch {
+      } catch (err) {
+        // An ApiError means the gateway answered and kept the latch. Any other error means the
+        // gateway sent no answer at all. The operator must read which one happened.
         setClearFailure({
           capabilityClass: entry.capabilityClass,
-          message: "The gateway did not answer. The block still holds.",
+          message: err instanceof ApiError
+            ? t("thread.latch.clearRefused", {
+              defaultValue: "The gateway did not clear this latch. The block still holds.",
+            })
+            : t("thread.latch.clearNoAnswer", {
+              defaultValue: "The gateway did not answer. The block still holds.",
+            }),
         });
       } finally {
         setBusyClass(null);
       }
     },
-    [load],
+    [load, t],
   );
 
   if (payload?.degraded) {
@@ -153,16 +114,23 @@ export function LatchBanner({ sessionKey, token }: LatchBannerProps) {
   return (
     <>
       {entries.map((entry) => {
-        const label = CLASS_LABELS[entry.capabilityClass] ?? entry.capabilityClass;
+        const label = classLabel(t, entry.capabilityClass);
         const open = openClass === entry.capabilityClass;
         return (
           <Shell key={entry.capabilityClass}>
-            <p className="font-medium">{label} is latched for this session.</p>
-            <p className="mt-0.5 text-destructive/80">
-              {deniedSentence(entry)} {refusedSentence(entry.refusals)}
+            <p className="font-medium">
+              {t("thread.latch.title", {
+                defaultValue: "{{label}} is latched for this session.",
+                label,
+              })}
             </p>
             <p className="mt-0.5 text-destructive/80">
-              The agent cannot ask again until you clear this.
+              {deniedSentence(t, entry)} {refusedSentence(t, entry.refusals)}
+            </p>
+            <p className="mt-0.5 text-destructive/80">
+              {t("thread.latch.mustClear", {
+                defaultValue: "The agent cannot ask again until you clear this.",
+              })}
             </p>
             {clearFailure?.capabilityClass === entry.capabilityClass ? (
               <p className="mt-1 font-medium">{clearFailure.message}</p>
@@ -175,7 +143,9 @@ export function LatchBanner({ sessionKey, token }: LatchBannerProps) {
                 className="h-7 px-2 text-[12px]"
                 onClick={() => setOpenClass(open ? null : entry.capabilityClass)}
               >
-                {open ? "Hide attempts" : "View attempts"}
+                {open
+                  ? t("thread.latch.hideAttempts", { defaultValue: "Hide attempts" })
+                  : t("thread.latch.viewAttempts", { defaultValue: "View attempts" })}
               </Button>
               <Button
                 variant="outline"
@@ -184,7 +154,7 @@ export function LatchBanner({ sessionKey, token }: LatchBannerProps) {
                 disabled={busyClass === entry.capabilityClass}
                 onClick={() => void clear(entry)}
               >
-                Clear
+                {t("thread.latch.clear", { defaultValue: "Clear" })}
               </Button>
             </div>
           </Shell>
@@ -210,10 +180,15 @@ function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-function Attempts({ entry }: { entry: LatchEntry }) {
+function Attempts({ entry }: { entry: GatesLatchEntry }) {
+  const { t } = useTranslation();
   return (
     <div className="mt-2 rounded-md bg-destructive/10 px-2 py-1.5">
-      {entry.reason ? <p className="text-destructive/80">Reason: {entry.reason}</p> : null}
+      {entry.reason ? (
+        <p className="text-destructive/80">
+          {t("thread.latch.reason", { defaultValue: "Reason: {{reason}}", reason: entry.reason })}
+        </p>
+      ) : null}
       {entry.attempts.length ? (
         <ul className="mt-1 space-y-0.5">
           {entry.attempts.map((attempt, index) => (
@@ -225,20 +200,52 @@ function Attempts({ entry }: { entry: LatchEntry }) {
           ))}
         </ul>
       ) : (
-        <p className="mt-1 text-destructive/80">The audit log holds no attempt detail.</p>
+        <p className="mt-1 text-destructive/80">
+          {t("thread.latch.noAttempts", {
+            defaultValue: "The audit log holds no attempt detail.",
+          })}
+        </p>
       )}
     </div>
   );
 }
 
-function deniedSentence(entry: LatchEntry): string {
-  const at = fmtDateTime(entry.deniedAt);
-  const when = at ? `Denied ${at}` : "Denied at a time the audit log does not state";
-  return entry.deniedBy ? `${when} by ${entry.deniedBy}.` : `${when}.`;
+function classLabel(t: TFunction, capabilityClass: string): string {
+  const label = CLASS_LABELS[capabilityClass];
+  if (!label) return capabilityClass;
+  return t(label.key, { defaultValue: label.fallback });
 }
 
-function refusedSentence(refusals: number): string {
-  if (refusals < 1) return "No attempt was refused yet.";
-  if (refusals === 1) return "1 attempt refused since.";
-  return `${refusals} attempts refused since.`;
+function deniedSentence(t: TFunction, entry: GatesLatchEntry): string {
+  const at = fmtDateTime(entry.deniedAt);
+  if (at && entry.deniedBy) {
+    return t("thread.latch.deniedAtBy", {
+      defaultValue: "Denied {{at}} by {{by}}.",
+      at,
+      by: entry.deniedBy,
+    });
+  }
+  if (at) return t("thread.latch.deniedAt", { defaultValue: "Denied {{at}}.", at });
+  if (entry.deniedBy) {
+    return t("thread.latch.deniedUnknownTimeBy", {
+      defaultValue: "Denied at a time the audit log does not state by {{by}}.",
+      by: entry.deniedBy,
+    });
+  }
+  return t("thread.latch.deniedUnknownTime", {
+    defaultValue: "Denied at a time the audit log does not state.",
+  });
+}
+
+function refusedSentence(t: TFunction, refusals: number): string {
+  if (refusals < 1) {
+    return t("thread.latch.refusedNone", { defaultValue: "No attempt was refused yet." });
+  }
+  if (refusals === 1) {
+    return t("thread.latch.refusedOne", { defaultValue: "1 attempt refused since." });
+  }
+  return t("thread.latch.refusedMany", {
+    defaultValue: "{{count}} attempts refused since.",
+    count: refusals,
+  });
 }
