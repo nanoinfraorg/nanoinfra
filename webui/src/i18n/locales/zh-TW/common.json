@@ -540,17 +540,31 @@
       "testForTools": "執行 [測試] 以檢視並選擇個別工具。"
     },
     "api": {
-      "title": "API 伺服器", "openaiCompatible": "OpenAI 相容 API", "description": "讓 SDK 與其他智能體透過本機 /v1 端點連線 nanoinfra。",
-      "start": "啟動 API 伺服器", "starting": "正在啟動…", "stop": "停止", "stopping": "正在停止…",
-      "access": "存取範圍", "thisDevice": "僅此裝置", "localNetwork": "區域網路",
-      "localHelp": "只有目前裝置可以連線。", "networkHelp": "區域網路內其他裝置可以連線，因此必須設定 API 金鑰。",
-      "port": "連接埠", "portHelp": "API 伺服器使用的本機連接埠。", "apiKey": "API 金鑰", "apiKeyHelp": "API 呼叫端會以 Bearer Token 傳送此金鑰。",
-      "apiKeyRequired": "向區域網路開放 API 前必須設定金鑰。", "apiKeyPlaceholder": "輸入 API 金鑰",
+      "title": "API 伺服器",
+      "openaiCompatible": "OpenAI 相容 API",
+      "description": "讓 SDK 與其他智能體透過本機 /v1 端點連線 nanoinfra。",
+      "start": "啟動 API 伺服器",
+      "starting": "正在啟動…",
+      "stop": "停止",
+      "stopping": "正在停止…",
+      "access": "存取範圍",
+      "thisDevice": "僅此裝置",
+      "localNetwork": "區域網路",
+      "localHelp": "只有目前裝置可以連線。",
+      "networkHelp": "區域網路內其他裝置可以連線，因此必須設定 API 金鑰。",
+      "port": "連接埠",
+      "portHelp": "API 伺服器使用的本機連接埠。",
+      "apiKey": "API 金鑰",
+      "apiKeyHelp": "API 呼叫端會以 Bearer Token 傳送此金鑰。",
+      "apiKeyRequired": "向區域網路開放 API 前必須設定金鑰。",
+      "apiKeyPlaceholder": "輸入 API 金鑰",
       "autoInstall": "啟動時會自動安裝 API 支援。"
     },
     "observability": {
-      "title": "可觀測性", "configured": "nanoinfra 已偵測到追蹤憑證。",
-      "environment": "設定 LANGFUSE_SECRET_KEY 和 LANGFUSE_PUBLIC_KEY 後重新啟動 nanoinfra。", "enable": "啟用追蹤支援"
+      "title": "可觀測性",
+      "configured": "nanoinfra 已偵測到追蹤憑證。",
+      "environment": "設定 LANGFUSE_SECRET_KEY 和 LANGFUSE_PUBLIC_KEY 後重新啟動 nanoinfra。",
+      "enable": "啟用追蹤支援"
     },
     "legal": {
       "thirdPartyBrands": "產品名稱、Logo 與品牌均為各自擁有者的財產。僅供識別之用，不代表任何形式的背書。"
@@ -903,7 +917,9 @@
     "gates": {
       "title": "能力閘門",
       "columns": {
-        "policy": "政策"
+        "policy": "政策",
+        "interactiveNote": "由人輸入的請求。",
+        "unattendedNote": "此處無人在場。cron 任務、心跳、Dream 和子代理在這裡執行。"
       },
       "context": {
         "interactive": "互動",
@@ -1037,6 +1053,12 @@
         "save": "儲存政策",
         "discard": "捨棄",
         "cancel": "取消"
+      },
+      "widen": {
+        "title": "放寬無人在場時的決定？",
+        "description": "無人值守的回合裡沒有人在場。cron 任務、心跳、Dream 和子代理在那裡執行，因此這會允許無人先行審閱的操作。",
+        "cancel": "保持不變",
+        "confirm": "放寬"
       }
     }
   },

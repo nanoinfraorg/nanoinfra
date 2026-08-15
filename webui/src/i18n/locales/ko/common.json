@@ -540,17 +540,31 @@
       "testForTools": "테스트를 실행해 개별 도구를 확인하고 선택하세요."
     },
     "api": {
-      "title": "API 서버", "openaiCompatible": "OpenAI 호환 API", "description": "로컬 /v1 엔드포인트로 SDK와 에이전트를 연결합니다.",
-      "start": "API 서버 시작", "starting": "시작 중...", "stop": "중지", "stopping": "중지 중...",
-      "access": "접근", "thisDevice": "이 기기", "localNetwork": "로컬 네트워크",
-      "localHelp": "이 기기만 연결할 수 있습니다.", "networkHelp": "다른 기기도 연결할 수 있으므로 API 키가 필요합니다.",
-      "port": "포트", "portHelp": "API가 사용할 로컬 포트입니다.", "apiKey": "API 키", "apiKeyHelp": "클라이언트는 Bearer 토큰으로 전송합니다.",
-      "apiKeyRequired": "네트워크에 공개하기 전에 필요합니다.", "apiKeyPlaceholder": "API 키 입력",
+      "title": "API 서버",
+      "openaiCompatible": "OpenAI 호환 API",
+      "description": "로컬 /v1 엔드포인트로 SDK와 에이전트를 연결합니다.",
+      "start": "API 서버 시작",
+      "starting": "시작 중...",
+      "stop": "중지",
+      "stopping": "중지 중...",
+      "access": "접근",
+      "thisDevice": "이 기기",
+      "localNetwork": "로컬 네트워크",
+      "localHelp": "이 기기만 연결할 수 있습니다.",
+      "networkHelp": "다른 기기도 연결할 수 있으므로 API 키가 필요합니다.",
+      "port": "포트",
+      "portHelp": "API가 사용할 로컬 포트입니다.",
+      "apiKey": "API 키",
+      "apiKeyHelp": "클라이언트는 Bearer 토큰으로 전송합니다.",
+      "apiKeyRequired": "네트워크에 공개하기 전에 필요합니다.",
+      "apiKeyPlaceholder": "API 키 입력",
       "autoInstall": "시작할 때 API 지원을 자동으로 설치합니다."
     },
     "observability": {
-      "title": "관측성", "configured": "nanoinfra이 추적 자격 증명을 사용할 수 있습니다.",
-      "environment": "LANGFUSE_SECRET_KEY와 LANGFUSE_PUBLIC_KEY를 설정한 뒤 nanoinfra을 다시 시작하세요.", "enable": "추적 지원 활성화"
+      "title": "관측성",
+      "configured": "nanoinfra이 추적 자격 증명을 사용할 수 있습니다.",
+      "environment": "LANGFUSE_SECRET_KEY와 LANGFUSE_PUBLIC_KEY를 설정한 뒤 nanoinfra을 다시 시작하세요.",
+      "enable": "추적 지원 활성화"
     },
     "legal": {
       "thirdPartyBrands": "제품 이름, 로고 및 브랜드는 각 소유자의 자산입니다. 사용은 식별 목적일 뿐 보증이나 제휴를 의미하지 않습니다."
@@ -903,7 +917,9 @@
     "gates": {
       "title": "기능 게이트",
       "columns": {
-        "policy": "정책"
+        "policy": "정책",
+        "interactiveNote": "사람이 이 요청을 입력했습니다.",
+        "unattendedNote": "사람이 없습니다. cron 작업, 하트비트, Dream, 서브에이전트가 여기서 실행됩니다."
       },
       "context": {
         "interactive": "대화형",
@@ -1037,6 +1053,12 @@
         "save": "정책 저장",
         "discard": "버리기",
         "cancel": "취소"
+      },
+      "widen": {
+        "title": "무인 결정을 넓히겠습니까?",
+        "description": "무인 턴에는 사람이 없습니다. cron 작업, 하트비트, Dream, 서브에이전트가 그곳에서 실행되므로 아무도 먼저 읽지 않는 작업을 허용합니다.",
+        "cancel": "그대로 두기",
+        "confirm": "넓히기"
       }
     }
   },

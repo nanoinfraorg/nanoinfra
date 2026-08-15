@@ -917,7 +917,9 @@
     "gates": {
       "title": "Controles de capacidade",
       "columns": {
-        "policy": "Política"
+        "policy": "Política",
+        "interactiveNote": "Uma pessoa digitou o pedido.",
+        "unattendedNote": "Nenhuma pessoa está presente. Um cron, o heartbeat, o Dream e um subagente rodam aqui."
       },
       "context": {
         "interactive": "Interativo",
@@ -1051,6 +1053,12 @@
         "save": "Salvar política",
         "discard": "Descartar",
         "cancel": "Cancelar"
+      },
+      "widen": {
+        "title": "Ampliar uma decisão sem pessoa?",
+        "description": "Nenhuma pessoa está presente em um turno sem supervisão. Um cron, o heartbeat, o Dream e um subagente rodam ali, então isso permite uma ação que ninguém lê antes.",
+        "cancel": "Manter como está",
+        "confirm": "Ampliar"
       }
     }
   },

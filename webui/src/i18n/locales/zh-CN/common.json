@@ -917,7 +917,9 @@
     "gates": {
       "title": "能力门禁",
       "columns": {
-        "policy": "策略"
+        "policy": "策略",
+        "interactiveNote": "由人输入的请求。",
+        "unattendedNote": "此处无人在场。cron 任务、心跳、Dream 和子代理在这里运行。"
       },
       "context": {
         "interactive": "交互",
@@ -1051,6 +1053,12 @@
         "save": "保存策略",
         "discard": "放弃更改",
         "cancel": "取消"
+      },
+      "widen": {
+        "title": "放宽无人在场时的决定？",
+        "description": "无人值守的回合里没有人在场。cron 任务、心跳、Dream 和子代理在那里运行，因此这会允许无人先行审阅的操作。",
+        "cancel": "保持不变",
+        "confirm": "放宽"
       }
     }
   },

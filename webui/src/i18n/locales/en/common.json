@@ -917,7 +917,9 @@
     "gates": {
       "title": "Capability gates",
       "columns": {
-        "policy": "Policy"
+        "policy": "Policy",
+        "interactiveNote": "A person typed the request.",
+        "unattendedNote": "No person is present. A cron job, the heartbeat, Dream, and a subagent run here."
       },
       "context": {
         "interactive": "Interactive",
@@ -1051,6 +1053,12 @@
         "save": "Save policy",
         "discard": "Discard",
         "cancel": "Cancel"
+      },
+      "widen": {
+        "title": "Widen an unattended decision?",
+        "description": "No person is present in an unattended turn. A cron job, the heartbeat, Dream, and a subagent run there, so this permits an action nobody reads first.",
+        "cancel": "Keep it as it is",
+        "confirm": "Widen it"
       }
     }
   },

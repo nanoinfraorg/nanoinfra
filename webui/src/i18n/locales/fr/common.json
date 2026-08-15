@@ -540,17 +540,31 @@
       "testForTools": "Exécutez Tester pour inspecter et choisir des outils individuels."
     },
     "api": {
-      "title": "Serveur API", "openaiCompatible": "API compatible OpenAI", "description": "Connectez des SDK et agents via un endpoint /v1 local.",
-      "start": "Démarrer le serveur API", "starting": "Démarrage...", "stop": "Arrêter", "stopping": "Arrêt...",
-      "access": "Accès", "thisDevice": "Cet appareil", "localNetwork": "Réseau local",
-      "localHelp": "Seul cet appareil peut se connecter.", "networkHelp": "D’autres appareils peuvent se connecter ; une clé API est requise.",
-      "port": "Port", "portHelp": "L’API utilise ce port local.", "apiKey": "Clé API", "apiKeyHelp": "Les clients l’envoient comme jeton Bearer.",
-      "apiKeyRequired": "Requise avant d’exposer l’API au réseau.", "apiKeyPlaceholder": "Saisissez une clé API",
+      "title": "Serveur API",
+      "openaiCompatible": "API compatible OpenAI",
+      "description": "Connectez des SDK et agents via un endpoint /v1 local.",
+      "start": "Démarrer le serveur API",
+      "starting": "Démarrage...",
+      "stop": "Arrêter",
+      "stopping": "Arrêt...",
+      "access": "Accès",
+      "thisDevice": "Cet appareil",
+      "localNetwork": "Réseau local",
+      "localHelp": "Seul cet appareil peut se connecter.",
+      "networkHelp": "D’autres appareils peuvent se connecter ; une clé API est requise.",
+      "port": "Port",
+      "portHelp": "L’API utilise ce port local.",
+      "apiKey": "Clé API",
+      "apiKeyHelp": "Les clients l’envoient comme jeton Bearer.",
+      "apiKeyRequired": "Requise avant d’exposer l’API au réseau.",
+      "apiKeyPlaceholder": "Saisissez une clé API",
       "autoInstall": "Le support API sera installé automatiquement au démarrage."
     },
     "observability": {
-      "title": "Observabilité", "configured": "Les identifiants de traçage sont disponibles pour nanoinfra.",
-      "environment": "Définissez LANGFUSE_SECRET_KEY et LANGFUSE_PUBLIC_KEY, puis redémarrez nanoinfra.", "enable": "Activer le traçage"
+      "title": "Observabilité",
+      "configured": "Les identifiants de traçage sont disponibles pour nanoinfra.",
+      "environment": "Définissez LANGFUSE_SECRET_KEY et LANGFUSE_PUBLIC_KEY, puis redémarrez nanoinfra.",
+      "enable": "Activer le traçage"
     },
     "legal": {
       "thirdPartyBrands": "Les noms, logos et marques de produits appartiennent à leurs propriétaires respectifs. Leur utilisation sert uniquement à l'identification et n'implique aucune approbation."
@@ -903,7 +917,9 @@
     "gates": {
       "title": "Contrôles de capacité",
       "columns": {
-        "policy": "Politique"
+        "policy": "Politique",
+        "interactiveNote": "Une personne a saisi la demande.",
+        "unattendedNote": "Personne n'est présent. Une tâche cron, le heartbeat, Dream et un sous-agent tournent ici."
       },
       "context": {
         "interactive": "Interactif",
@@ -1037,6 +1053,12 @@
         "save": "Enregistrer la politique",
         "discard": "Abandonner",
         "cancel": "Annuler"
+      },
+      "widen": {
+        "title": "Élargir une décision sans personne ?",
+        "description": "Personne n'est présent dans un tour sans surveillance. Une tâche cron, le heartbeat, Dream et un sous-agent y tournent, donc ceci autorise une action que personne ne lit d'abord.",
+        "cancel": "Le laisser tel quel",
+        "confirm": "L'élargir"
       }
     }
   },
@@ -1347,7 +1369,7 @@
       },
       "encoding": "Traitement…",
       "remove": "Retirer la pièce jointe",
-    "normalizedSizeHint": "{{orig}} → {{current}} (automatique)",
+      "normalizedSizeHint": "{{orig}} → {{current}} (automatique)",
       "textTooLarge": "Le texte du message est trop volumineux (maximum {{max}})",
       "imageRejected": {
         "unsupported_type": "Type de fichier non pris en charge",

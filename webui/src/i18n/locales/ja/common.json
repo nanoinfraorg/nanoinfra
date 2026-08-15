@@ -540,17 +540,31 @@
       "testForTools": "テストを実行して個別のツールを確認・選択します。"
     },
     "api": {
-      "title": "API サーバー", "openaiCompatible": "OpenAI 互換 API", "description": "ローカルの /v1 エンドポイントから SDK やエージェントを接続します。",
-      "start": "API サーバーを起動", "starting": "起動中...", "stop": "停止", "stopping": "停止中...",
-      "access": "アクセス", "thisDevice": "このデバイス", "localNetwork": "ローカルネットワーク",
-      "localHelp": "このデバイスだけが接続できます。", "networkHelp": "他のデバイスも接続できるため API キーが必要です。",
-      "port": "ポート", "portHelp": "API が使用するローカルポートです。", "apiKey": "API キー", "apiKeyHelp": "クライアントは Bearer トークンとして送信します。",
-      "apiKeyRequired": "ネットワークに公開する前に必要です。", "apiKeyPlaceholder": "API キーを入力",
+      "title": "API サーバー",
+      "openaiCompatible": "OpenAI 互換 API",
+      "description": "ローカルの /v1 エンドポイントから SDK やエージェントを接続します。",
+      "start": "API サーバーを起動",
+      "starting": "起動中...",
+      "stop": "停止",
+      "stopping": "停止中...",
+      "access": "アクセス",
+      "thisDevice": "このデバイス",
+      "localNetwork": "ローカルネットワーク",
+      "localHelp": "このデバイスだけが接続できます。",
+      "networkHelp": "他のデバイスも接続できるため API キーが必要です。",
+      "port": "ポート",
+      "portHelp": "API が使用するローカルポートです。",
+      "apiKey": "API キー",
+      "apiKeyHelp": "クライアントは Bearer トークンとして送信します。",
+      "apiKeyRequired": "ネットワークに公開する前に必要です。",
+      "apiKeyPlaceholder": "API キーを入力",
       "autoInstall": "起動時に API サポートを自動インストールします。"
     },
     "observability": {
-      "title": "可観測性", "configured": "nanoinfra がトレース認証情報を利用できます。",
-      "environment": "LANGFUSE_SECRET_KEY と LANGFUSE_PUBLIC_KEY を設定して nanoinfra を再起動してください。", "enable": "トレースサポートを有効化"
+      "title": "可観測性",
+      "configured": "nanoinfra がトレース認証情報を利用できます。",
+      "environment": "LANGFUSE_SECRET_KEY と LANGFUSE_PUBLIC_KEY を設定して nanoinfra を再起動してください。",
+      "enable": "トレースサポートを有効化"
     },
     "legal": {
       "thirdPartyBrands": "製品名、ロゴ、ブランドはそれぞれの所有者に帰属します。使用は識別のみを目的とし、承認を意味するものではありません。"
@@ -903,7 +917,9 @@
     "gates": {
       "title": "機能ゲート",
       "columns": {
-        "policy": "ポリシー"
+        "policy": "ポリシー",
+        "interactiveNote": "人がこの要求を入力しました。",
+        "unattendedNote": "人はいません。cron ジョブ、ハートビート、Dream、サブエージェントがここで動きます。"
       },
       "context": {
         "interactive": "対話",
@@ -1037,6 +1053,12 @@
         "save": "ポリシーを保存",
         "discard": "破棄",
         "cancel": "キャンセル"
+      },
+      "widen": {
+        "title": "無人時の決定を広げますか？",
+        "description": "無人のターンには人がいません。cron ジョブ、ハートビート、Dream、サブエージェントがそこで動くので、これは誰も先に読まない操作を許します。",
+        "cancel": "そのままにする",
+        "confirm": "広げる"
       }
     }
   },
