@@ -29,7 +29,14 @@ imports no audit store and no job store, so no path through it writes a record a
 
 **One request resolves the sentinels again.** A secret an operator created during the turn must
 be scrubbed out of that same turn, so no cache spans two requests. The cost is one store read
-per text, inside the process that already holds the key.
+per request, inside the process that already holds the key.
+
+**A batch keeps that property and gets cheaper (nanoinfraorg/nanoinfra#54).** ``answer_scrub_batch``
+resolves the sentinels once for the whole batch, so a walk over a hundred text carriers reads the
+store once rather than a hundred times. Nothing is cached between two requests, so a secret the
+operator created during the turn still scrubs out of that same turn. The saving is therefore free
+of the property it might have cost: the batch narrows the read count without widening the window
+in which a new secret goes unseen.
 """
 
 from __future__ import annotations
@@ -45,9 +52,12 @@ from loguru import logger
 from nanoinfra.agent.redaction import SecretSentinel, scrub_one_text, usable_sentinels
 from nanoinfra.gates.executor.protocol import ProtocolError, read_frame, write_frame
 from nanoinfra.gates.executor.scrub_protocol import (
+    ScrubBatchRequest,
+    ScrubBatchResponse,
     ScrubRequest,
     ScrubResponse,
-    decode_scrub_request,
+    decode_scrub_request_frame,
+    encode_scrub_batch_response,
     encode_scrub_response,
 )
 
@@ -95,27 +105,60 @@ def answer_scrub(request: ScrubRequest, *, workspace: Path | str) -> ScrubRespon
     try:
         sentinels = workspace_secret_sentinels(workspace)
     except Exception as exc:  # noqa: BLE001 -- a broken store refuses, and never answers nothing
-        # No traceback here, and that is deliberate. This loguru version takes ``diagnose``
-        # per handler only, and a diagnosed traceback prints the local variables of each
-        # frame. One of those locals is the text under scrub, and another is a decrypted
-        # value. So the record names the failure and holds no frame.
-        logger.warning(
-            "gates: the scrub service could not read its secret store: {}: {}",
-            type(exc).__name__,
-            exc,
-        )
-        return ScrubResponse(
-            ok=False,
-            text="",
-            error=(
-                f"the executor could not read its secret store ({type(exc).__name__}). "
-                "Its own log holds the detail."
-            ),
-        )
+        return ScrubResponse(ok=False, text="", error=_store_failure(exc))
     return ScrubResponse(
         ok=True,
         text=scrub_one_text(request.text, request.capability_class or None, sentinels),
         error=None,
+    )
+
+
+def answer_scrub_batch(
+    request: ScrubBatchRequest, *, workspace: Path | str
+) -> ScrubBatchResponse:
+    """Scrub every text of a batch in order, or say that the scrub did not run (#54).
+
+    The sentinels resolve once for the whole batch, which is the saving this verb exists for. No
+    sentinel survives the call, so the property ``answer_scrub`` holds still holds here: a secret
+    an operator created during the turn is scrubbed out of that same turn.
+
+    Each item keeps its own class, because one batch mixes the classes of several tools. A
+    ``credential.access`` result in the middle of a batch still drops whole (#17).
+
+    The answer holds one text per item, always, and in the order the items arrived. A failure
+    answers no text at all rather than a shorter list. A caller cannot tell a short list from a
+    reordered one, so a short list would let it pair one field's scrub with another field's text.
+    """
+    try:
+        sentinels = workspace_secret_sentinels(workspace)
+    except Exception as exc:  # noqa: BLE001 -- a broken store refuses, and never answers nothing
+        return ScrubBatchResponse(ok=False, texts=[], error=_store_failure(exc))
+    return ScrubBatchResponse(
+        ok=True,
+        texts=[
+            scrub_one_text(item.text, item.capability_class or None, sentinels)
+            for item in request.items
+        ],
+        error=None,
+    )
+
+
+def _store_failure(exc: BaseException) -> str:
+    """The sentence a refusal carries when the store did not read.
+
+    No traceback here, and that is deliberate. This loguru version takes ``diagnose`` per handler
+    only, and a diagnosed traceback prints the local variables of each frame. One of those locals
+    is the text under scrub, and another is a decrypted value. So the record names the failure and
+    holds no frame.
+    """
+    logger.warning(
+        "gates: the scrub service could not read its secret store: {}: {}",
+        type(exc).__name__,
+        exc,
+    )
+    return (
+        f"the executor could not read its secret store ({type(exc).__name__}). "
+        "Its own log holds the detail."
     )
 
 
@@ -200,10 +243,14 @@ def _answer_one_connection(conn: socket.socket, workspace: Path) -> None:
     """
     with conn:
         try:
-            request = decode_scrub_request(read_frame(conn))
+            request = decode_scrub_request_frame(read_frame(conn))
         except (OSError, ProtocolError) as exc:
             # OSError covers a peer that dies mid-frame. A dropped connection ends this thread
             # either way, and a caught one ends it without a traceback.
+            #
+            # The refusal goes out in the single-text shape. This side does not know which verb
+            # the peer meant, because reading the verb is the step that failed, and a refusal in
+            # the wrong shape still refuses: the client raises on a frame it cannot decode.
             logger.warning("gates: scrub socket refused a frame: {}", exc)
             with contextlib.suppress(OSError, ProtocolError):
                 write_frame(
@@ -214,25 +261,37 @@ def _answer_one_connection(conn: socket.socket, workspace: Path) -> None:
                 )
             return
 
+        # The answer keeps the shape of the verb that arrived. A batch request that got a
+        # single-text answer would look like a batch of one to a careless reader.
+        batched = isinstance(request, ScrubBatchRequest)
         try:
-            response = answer_scrub(request, workspace=workspace)
+            if isinstance(request, ScrubBatchRequest):
+                payload = encode_scrub_batch_response(
+                    answer_scrub_batch(request, workspace=workspace)
+                )
+            else:
+                payload = encode_scrub_response(answer_scrub(request, workspace=workspace))
         except Exception as exc:  # noqa: BLE001 -- one bad request must not end the process
-            # No traceback, for the reason answer_scrub gives: the frame locals hold the text.
+            # No traceback, for the reason _store_failure gives: the frame locals hold the text.
             logger.warning(
                 "gates: the scrub socket failed a request: {}: {}", type(exc).__name__, exc
             )
-            response = ScrubResponse(
-                ok=False,
-                text="",
-                error=f"The executor failed this scrub ({type(exc).__name__}).",
+            reason = f"The executor failed this scrub ({type(exc).__name__})."
+            payload = (
+                encode_scrub_batch_response(
+                    ScrubBatchResponse(ok=False, texts=[], error=reason)
+                )
+                if batched
+                else encode_scrub_response(ScrubResponse(ok=False, text="", error=reason))
             )
 
         with contextlib.suppress(OSError, ProtocolError):
-            write_frame(conn, encode_scrub_response(response))
+            write_frame(conn, payload)
 
 
 __all__ = [
     "answer_scrub",
+    "answer_scrub_batch",
     "bind_scrub_socket",
     "serve_scrub_forever",
     "serve_scrub_socket",

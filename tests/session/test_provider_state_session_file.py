@@ -12,15 +12,13 @@ messages still persist scrubbed. So another address space held the sentinels.
 
 **The scope of this module is the ``pending_messages`` half.** A provider state holds two kinds
 of thing. ``pending_messages`` are Chat-style messages this repository builds, and #52 scrubs
-them. ``payload`` is the provider's own handle, and #52 leaves it as it is.
+them. ``payload`` is the provider's own handle, and #52 left it as it was.
 
-A real Responses payload also holds plaintext, and no test here claims otherwise.
-``nanoinfra/providers/openai_responses/converters.py`` builds ``output_text``, ``arguments``,
-and ``function_call_output`` items out of the message text, and
-``build_responses_state`` stores those items as the payload. So a session on that provider
-still persists the resolved command inside its payload. That is a separate leak from the one #52
-closes, and it needs its own decision, because a scrub of a provider's own items needs the
-provider's schema and one round trip per item.
+#54 closed the payload half, and ``tests/session/test_responses_payload_session_file.py`` covers
+it. ``OPAQUE_PAYLOAD`` below therefore still reaches the file unchanged, and for a reason that is
+now narrower than #52 stated: every value in it is either a name #54 does not scrub or a text that
+holds no stored secret. A failure in this module names the pending-message half, which is what it
+is for.
 """
 
 from __future__ import annotations
@@ -50,10 +48,10 @@ PROVIDER = "openai_compat:openai:https://api.openai.com/v1"
 #: The command the model resolved. A resolved command routinely embeds a credential (#17).
 RESOLVED_COMMAND = f"mysql --host=db1 --user=app -p{SECRET_VALUE} --database=app -e 'select 1'"
 
-#: The provider's own handle. Every value in this fixture is opaque provider material: an item
-#: id, a server-side call id, and an encrypted reasoning blob. A wrong edit to any of them breaks
-#: a replay the operator cannot recover. The fixture holds no plaintext on purpose, so a failure
-#: below names the pending-message half rather than the payload leak the docstring describes.
+#: The provider's own handle. Every value in this fixture is an item id, a server-side call id, an
+#: encrypted reasoning blob, or an empty argument object. A wrong edit to any of them breaks a
+#: replay the operator cannot recover. The fixture holds no stored secret on purpose, so a failure
+#: below names the pending-message half and never the payload scrub #54 added.
 OPAQUE_PAYLOAD: dict[str, Any] = {
     "items": [
         {"type": "reasoning", "id": "rs_0af3", "encrypted_content": "gAAAAABo8Zk3encrypted"},
@@ -200,8 +198,8 @@ def test_the_provider_state_line_keeps_the_command_around_the_value(
     assert "--database=app" in persisted
 
 
-def test_the_opaque_payload_survives_the_scrub(deployment: _Deployment) -> None:
-    """The provider's own half is not ours to edit, so it reaches the file unchanged."""
+def test_a_payload_with_no_stored_secret_survives_the_scrub(deployment: _Deployment) -> None:
+    """A field #54 does not name, and a text that holds no secret, reach the file unchanged."""
     persisted = _saved_session_file(deployment.workspace, "websocket:state-3")
 
     assert _provider_state_record(persisted)["state"]["payload"] == OPAQUE_PAYLOAD

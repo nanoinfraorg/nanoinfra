@@ -178,19 +178,31 @@ def _persistable_provider_state_record(
     state: ProviderConversationState,
     workspace: Path | str | None,
 ) -> dict[str, Any] | None:
-    """Return the private record for the file, or None to write no state (#52).
+    """Return the private record for the file, or None to write no state (#52, #54).
+
+    Both halves of a state scrub now, and each one for its own reason.
 
     ``to_private_record`` copies ``pending_messages`` verbatim, and those are
     Chat-style messages this repository built after the last committed turn. So
     they hold tool arguments, tool output, and reasoning: exactly the content
-    #41 and #48 scrub on the message path of this same file. The scrub is the
-    one ``redact_messages`` performs, and the executor holds the sentinels, so
-    this process decrypts nothing (#41).
+    #41 and #48 scrub on the message path of this same file (#52).
 
-    ``payload`` reaches the file as it is. It is the provider's own handle, and
-    only the provider that issued it knows which of its fields must stay
-    byte-exact. A wrong edit there breaks a replay the operator cannot recover,
-    and this module holds no provider to ask.
+    ``payload`` is the provider's own handle, and #52 left it byte-exact on the
+    stated ground that only the provider that issued a field knows whether that
+    field must stay byte-exact. #54 measured that half and found message text in
+    it: the Responses builders write the resolved command into the items, and
+    ``pending_messages`` is empty on that path, so #52 covered none of it. The
+    named carriers therefore live with the provider that issues them, in
+    ``nanoinfra/providers/openai_responses/redaction.py``, and a payload of any
+    other kind still reaches the file byte-exact.
+
+    The executor holds the sentinels in both cases, so this process decrypts
+    nothing (#41).
+
+    **One round trip covers the whole record (#54).** A Responses payload holds
+    one item per message plus one per tool call, so the per-text wire would open
+    one connection per item on every save. ``in_one_batch`` collects every text
+    of both halves, asks once, and fills the answers back in.
 
     **A scrub that cannot run writes no state at all.** The message path
     persists a marker in place of the text (#41), and that answer is wrong here.
@@ -199,44 +211,77 @@ def _persistable_provider_state_record(
     degrades to a normal replay from the message history, so fail-closed costs
     a provider-side cache and never the session.
 
-    The import is local, because ``nanoinfra.agent.redaction`` reaches this
+    The imports are local, because ``nanoinfra.agent.redaction`` reaches this
     module through its own imports. A module level import here closes a cycle.
     """
     record = state.to_private_record()
-    pending = cast(object, record.get("pending_messages"))
-    if not isinstance(pending, list) or not pending:
-        return record
+    raw_pending = cast(object, record.get("pending_messages"))
+    raw_payload = cast(object, record.get("payload"))
+    # A field of an unexpected type stays out of the scrub and out of the rewrite below, so a
+    # malformed record reaches the file exactly as ``to_private_record`` built it.
+    pending: list[dict[str, Any]] = (
+        cast("list[dict[str, Any]]", raw_pending) if isinstance(raw_pending, list) else []
+    )
+    payload: dict[str, Any] | None = (
+        cast("dict[str, Any]", raw_payload) if isinstance(raw_payload, dict) else None
+    )
 
-    from nanoinfra.agent.redaction import SCRUB_UNAVAILABLE_MARKER, TranscriptRedactor
+    from nanoinfra.agent.redaction import (
+        SCRUB_UNAVAILABLE_MARKER,
+        TranscriptRedactor,
+        redact_messages,
+    )
+    from nanoinfra.providers.openai_responses.redaction import scrub_provider_state_payload
+
+    def _scrub_halves(
+        scrub: Callable[[str, str | None], str],
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        """Scrub both halves with one scrubber. ``in_one_batch`` runs this twice, so it is pure.
+
+        ``redact_messages`` is the module function rather than the redactor method, because the
+        method answers markers for a failure and this caller needs the failure itself. The
+        fail-closed answer here is no record, and only a raise can reach that.
+        """
+        messages = (
+            # max_tool_result_chars=None: a pending message replays to the provider, and the
+            # persisted copy of the same message already carries the bound the agent loop
+            # applied. A second, smaller bound here would shorten what the provider receives.
+            redact_messages(pending, scrub, max_tool_result_chars=None) if pending else pending
+        )
+        items = (
+            scrub_provider_state_payload(state.kind, payload, scrub)
+            if payload is not None
+            else None
+        )
+        return messages, items
 
     redactor = TranscriptRedactor.for_workspace(workspace)
     try:
-        # max_tool_result_chars=None: a pending message replays to the provider, and the
-        # persisted copy of the same message already carries the bound the agent loop applied.
-        # A second, smaller bound here would shorten what the provider receives.
-        scrubbed = redactor.messages(
-            cast("list[dict[str, Any]]", pending), max_tool_result_chars=None
-        )
+        scrubbed_pending, scrubbed_payload = redactor.in_one_batch(_scrub_halves)
     except Exception as exc:  # noqa: BLE001 -- no scrub means no state persists
         logger.warning("Persisted no provider state, because no scrub ran: {}", exc)
         return None
 
-    # The redactor answers a marker rather than raising, so a marker is what a failure looks
-    # like from here. The test is a substring of a constant that module exports, and it costs
-    # one pass over a turn delta.
+    # A marker can still arrive inside a pending message, because ``redact_message`` withholds a
+    # field it cannot scrub even when the scrubber itself did not raise (#52).
     #
-    # Only a redactor that asks the executor can withhold anything, so a workspace with no
-    # stored secret pays nothing for this test and no text of its own can read as a failure.
-    # On the other path a record that quotes the marker for its own reasons loses its provider
-    # state, and that is the fail-closed direction: the cost is one cache, and the session
-    # replays from its message history.
-    if redactor.asks_the_executor:
+    # The test covers the pending half only, and never the payload. The payload items are built
+    # from the session history, so an item can legitimately quote a marker the message path wrote
+    # in an earlier turn. A test there would drop the provider state of every session that ever
+    # withheld one text, for the rest of that session's life.
+    #
+    # Only a redactor that asks the executor can withhold anything, so a workspace with no stored
+    # secret pays nothing for this test.
+    if pending and redactor.asks_the_executor:
         marker_prefix = SCRUB_UNAVAILABLE_MARKER.split("{reason}", 1)[0]
-        if marker_prefix in json.dumps(scrubbed, ensure_ascii=False):
+        if marker_prefix in json.dumps(scrubbed_pending, ensure_ascii=False):
             logger.warning("Persisted no provider state, because the scrub withheld a text")
             return None
 
-    record["pending_messages"] = scrubbed
+    if pending:
+        record["pending_messages"] = scrubbed_pending
+    if scrubbed_payload is not None:
+        record["payload"] = scrubbed_payload
     return record
 
 
