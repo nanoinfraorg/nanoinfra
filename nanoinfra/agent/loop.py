@@ -184,6 +184,33 @@ class TurnContext:
         return self.session
 
 
+
+def _redacted_for_session(
+    messages: list[dict[str, Any]], workspace: Path | str | None
+) -> list[dict[str, Any]]:
+    """Scrub stored secret values out of the messages a turn persists (#17).
+
+    Sentinels come from the workspace Secret store, so an unset key yields none and no work.
+    A failure must never lose a turn: the transcript is how an operator reconstructs what
+    happened, so a redaction error logs and the turn persists unredacted.
+    """
+    from nanoinfra.agent.redaction import redact_messages, workspace_secret_sentinels
+
+    if workspace is None:
+        return list(messages)
+
+    try:
+        sentinels = workspace_secret_sentinels(workspace)
+        if not sentinels:
+            return list(messages)
+        # max_tool_result_chars=None: this loop applies the session's own bound a few lines
+        # later, and two different bounds on one string would truncate twice.
+        return redact_messages(messages, sentinels, max_tool_result_chars=None)
+    except Exception as exc:  # noqa: BLE001 -- a lost turn is worse than an unredacted one
+        logger.warning("Could not redact a turn before persistence: {}", exc)
+        return list(messages)
+
+
 class AgentLoop:
     """
     The agent loop is the core processing engine.
@@ -2010,7 +2037,18 @@ class AgentLoop:
             if m.get("role") == "tool" and m.get("tool_call_id")
         }
         last_assistant_idx: int | None = None
-        for m in messages[skip:]:
+        # Redact before the loop truncates anything (#17). The chat transcript is
+        # sessions/*.jsonl, and it holds role="tool" records, so a resolved credential in
+        # remote output landed here. The scrub runs first because truncation keeps a head and
+        # a tail, and a bound applied first can cut through a secret and leave both halves.
+        # getattr, because tests build a loop with AgentLoop.__new__ and set only the
+        # fields they exercise. Such a stand-in has no workspace and therefore no Secret
+        # store to resolve sentinels from, so it redacts nothing. A real loop always has
+        # one: __init__ requires the argument.
+        new_messages = _redacted_for_session(
+            messages[skip:], getattr(self, "workspace", None)
+        )
+        for m in new_messages:
             entry = dict(m)
             internal_meta = cast(object, entry.pop("_meta", None))
             runtime_context_meta = (
