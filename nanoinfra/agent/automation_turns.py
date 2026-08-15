@@ -4,13 +4,63 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
+from typing import Any
 
+from nanoinfra.agent.tools.context import (
+    EXECUTION_CONTEXT_AUTOMATION,
+    EXECUTION_CONTEXT_INTERACTIVE,
+)
 from nanoinfra.bus.events import InboundMessage, OutboundMessage
+from nanoinfra.session.automation_turns import automation_history_overrides
+from nanoinfra.session.goal_state import sustained_goal_turn
 
 
 class AutomationTurnError(RuntimeError):
     """Raised when an automation turn reaches the agent and finishes with an error."""
+
+
+# The channel nanoinfra/agent/subagent.py uses to announce a finished subagent. No person
+# sends on it, so a turn from it is never attended.
+SYSTEM_TURN_CHANNEL = "system"
+
+
+def is_automation_turn(message_metadata: Mapping[str, Any] | None) -> bool:
+    """True when a schedule or a trigger started this turn, not a person.
+
+    The answer comes from the registered automation specs. A new automation source counts
+    on the day it lands. A hardcoded list of the two current sources would read a third
+    source as interactive. That failure opens the gate.
+    """
+    _text, history_extra = automation_history_overrides(message_metadata)
+    return bool(history_extra)
+
+
+def execution_context_for_turn(
+    message_metadata: Mapping[str, Any] | None,
+    session_metadata: Mapping[str, Any] | None = None,
+    *,
+    channel: str | None = None,
+) -> str:
+    """Classify one agent turn for policy in nanoinfraorg/nanoinfra#5.
+
+    A cron run and a local trigger both arrive with nobody present. A sustained goal keeps
+    the agent at work long after the operator leaves the chat. That goal runs under the
+    request context of the turn that started it. So a goal turn cannot read as interactive
+    either. Only a live channel message earns ``interactive``.
+
+    The ``system`` channel is not a live channel. nanoinfra/agent/subagent.py announces a
+    finished subagent through it, so the turn carries model-authored content that no person
+    typed. Attended trust there would let a subagent's own output act on hosts at
+    interactive privilege, through the parent session.
+    """
+    if channel == SYSTEM_TURN_CHANNEL:
+        return EXECUTION_CONTEXT_AUTOMATION
+    if is_automation_turn(message_metadata):
+        return EXECUTION_CONTEXT_AUTOMATION
+    if sustained_goal_turn(session_metadata, message_metadata=message_metadata):
+        return EXECUTION_CONTEXT_AUTOMATION
+    return EXECUTION_CONTEXT_INTERACTIVE
 
 
 async def publish_next_deferred_turn(

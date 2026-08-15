@@ -25,6 +25,30 @@ _CURRENT_REQUEST_CONTEXT: ContextVar["RequestContext | None"] = ContextVar(
     default=None,
 )
 
+# Who drives the turn. Policy in nanoinfraorg/nanoinfra#8 and #13 keys on these values.
+# The channel alone cannot answer the question. A subagent inherits the origin channel of
+# the chat above it. That channel reads interactive for a run that nobody watches.
+EXECUTION_CONTEXT_INTERACTIVE = "interactive"
+EXECUTION_CONTEXT_AUTOMATION = "automation"
+EXECUTION_CONTEXT_SUBAGENT = "subagent"
+
+EXECUTION_CONTEXTS = frozenset({
+    EXECUTION_CONTEXT_INTERACTIVE,
+    EXECUTION_CONTEXT_AUTOMATION,
+    EXECUTION_CONTEXT_SUBAGENT,
+})
+
+# Nobody waits on these two. Policy treats them the same way. The record keeps them apart,
+# so an operator who debugs a denial sees which one ran.
+UNATTENDED_EXECUTION_CONTEXTS = frozenset({
+    EXECUTION_CONTEXT_AUTOMATION,
+    EXECUTION_CONTEXT_SUBAGENT,
+})
+
+# The value a construction site gets when it states nothing. Fail closed. New sites arrive
+# over time. An omission must cost a refusal. It must never buy attended trust.
+FAIL_CLOSED_EXECUTION_CONTEXT = EXECUTION_CONTEXT_AUTOMATION
+
 
 @dataclass(frozen=True)
 class RequestContext:
@@ -40,6 +64,24 @@ class RequestContext:
     turn_id: str | None = None
     workspace: Path | None = None
     attributes: dict[str, Any] = field(default_factory=dict)
+    # Last, and defaulted, so an existing positional call keeps its meaning. Only an
+    # explicit channel-driven turn may pass EXECUTION_CONTEXT_INTERACTIVE.
+    execution_context: str = FAIL_CLOSED_EXECUTION_CONTEXT
+
+    @property
+    def is_unattended(self) -> bool:
+        """True when no person waits on this turn."""
+        return is_unattended_execution_context(self.execution_context)
+
+
+def is_unattended_execution_context(value: str | None) -> bool:
+    """True when no person waits on a turn that carries *value*.
+
+    The test asks for ``interactive`` and refuses every other value. A membership test
+    against :data:`UNATTENDED_EXECUTION_CONTEXTS` would read a typo as attended. It would
+    read a value from a later item as attended too.
+    """
+    return value != EXECUTION_CONTEXT_INTERACTIVE
 
 
 @runtime_checkable
@@ -73,6 +115,17 @@ def current_request_context() -> RequestContext | None:
 def current_request_session_key() -> str | None:
     ctx = current_request_context()
     return ctx.session_key if ctx else None
+
+
+def current_request_execution_context() -> str:
+    """Return who drives the current turn, or the fail-closed value.
+
+    An unbound context proves nothing about a person being present, so the answer stays
+    unattended. The return type is never ``None``, so a caller cannot compare against a
+    missing value by accident.
+    """
+    ctx = current_request_context()
+    return ctx.execution_context if ctx else FAIL_CLOSED_EXECUTION_CONTEXT
 
 
 @dataclass
