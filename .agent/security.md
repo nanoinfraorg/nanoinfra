@@ -42,9 +42,21 @@ Target validation goes through `servers/network_guard.py`, **not** `security/net
 
 **Rule**: A new execution provider needs a scope-resolver case beside its `_guard` case. The case must map the fields that provider dials to `host`, `group`, or `all`. The reason matches the host-field rule above: a scope nothing resolves is a blast radius nobody bounded. Scope resolution lives in `servers/scope.py` (nanoinfraorg/nanoinfra#4). Add the case with the provider, not after it.
 
+## Answering an Approval
+
+A decision of `approve` suspends the action inside the executor, and a person answers it on the executor's operator socket. Two surfaces reach that socket: the WebUI inbox (nanoinfraorg/nanoinfra#27) and two chat commands, `/approve` and `/deny` (nanoinfraorg/nanoinfra#43). Both run inside the gateway process, which runs as the agent account, so **the file mode on the operator socket protects nothing on either path**. That is recorded here rather than implied away.
+
+Three rules carry the boundary instead. The answer crosses a process boundary into the executor, which owns the decision and never delegates it. The executor matches the actor against `gates.approvers` and the path against `gates.approvalPaths`, both from git-reviewed config. And no module under `agent/tools/` may reach either answer surface: `tests/command/test_approval_commands.py` and `tests/webui/test_approvals_api.py` walk the import graph to assert that. A tool that runs arbitrary code inside the gateway defeats the third rule, and the approver match is then the last one that holds.
+
+The identity is the channel's own authenticated sender, and no argument of either command names an actor or a path. `command/approvals.py` reads `InboundMessage.channel` and `InboundMessage.sender_id`. A channel that decorates its sender id needs an entry in `_SENDER_RULES` to read the authenticated half back out: Telegram appends `|<username>` for its own allowlist, and a username is user-controlled.
+
+**Rule**: Authority comes from `gates.approvers` alone. A channel `allowFrom` list carries reachability, and the pairing store is mutable at run time from chat, so neither one may ever gate an approval. Do not add a command argument, a tool argument, or a request field that names an actor or an approval path.
+
+**Rule**: Both commands stay in the router's priority tiers. A command that falls through to the dispatch tier becomes a model turn, and the answer then reaches the transcript, where a model can read it and write one.
+
 ## Stdio MCP Servers
 
-A stdio MCP server is a subprocess. The MCP host process (`gates/mcp_host/`) starts it, and no other process starts one. `agent/tools/mcp.py` opens one Unix socket per configured stdio server and speaks the host's frame protocol (`gates/mcp_host/protocol.py`). The agent sends a server name. The host reads the command, the arguments, the environment, and the working directory from its own config, so the agent cannot choose a program. One connection holds one session, and the stdio child dies with its connection, so a dead agent leaves no orphan server.
+A stdio MCP server is a subprocess. The MCP host process (`gates/mcp_host/`) starts it, and no other process starts one. `agent/tools/mcp.py` opens one Unix socket per configured stdio server and speaks the host's frame protocol (`gates/mcp_host/protocol.py`). The agent sends a server name. The host reads the command, the arguments, the environment, and the working directory from its own config, so the agent cannot choose a program. One connection holds one session, and the stdio child dies with its connection, so a dead agent leaves no orphan server. The kernel holds the case the host cannot: each child asks for `SIGKILL` on the death of its parent through `prctl(PR_SET_PDEATHSIG)`, so a host that somebody kills with `SIGKILL` also leaves nothing behind (nanoinfraorg/nanoinfra#50). The launcher that sets it then execs the configured command, so the pid does not change and the host still sees one direct child per session. A platform with no `prctl` logs once and keeps the connection rule alone.
 
 The host refuses every configured server that is not stdio (`load_stdio_settings`), and it imports no HTTP client. HTTP and SSE MCP transports stay in the agent behind the SSRF guards above, and nanoinfraorg/nanoinfra#22 changed nothing about them. The fetcher holds no part of this: it imports neither the MCP SDK nor `gates/mcp_host`, so "the fetcher cannot exec" stays literally true.
 
