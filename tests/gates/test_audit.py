@@ -23,8 +23,11 @@ from nanoinfra.gates.audit import AuditStore
 _FIXED_TS = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
 
 # Every line carries the same keys, so a reader can load the log into a table.
+# `record_id` names the record, and `follows` names the record a completion follows (#46).
 _EXPECTED_KEYS = {
     "ts",
+    "record_id",
+    "follows",
     "session_id",
     "execution_context",
     "origin_path",

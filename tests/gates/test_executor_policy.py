@@ -271,7 +271,8 @@ async def test_an_allowed_action_is_recorded_too(tmp_path: Path) -> None:
             _request(command=_GRANTED_COMMAND)
         )
 
-    assert [r["decision"] for r in audit.read_all()] == ["allow"]
+    # The completion record #46 appends when the action ends.
+    assert [r["decision"] for r in audit.read_all()] == ["allow", "completion"]
 
 
 @pytest.mark.asyncio

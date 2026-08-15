@@ -1022,6 +1022,7 @@
         "samePath": "O pedido e a aprovação chegaram por um mesmo canal.",
         "samePathNote": "O pedido e a aprovação chegaram por um mesmo canal. Uma só conta comprometida então tem as duas metades.",
         "textWarning": "O texto completo do comando está ativo, então este registro pode conter um segredo.",
+        "exitUnknown": "desconhecido",
         "empty": "Nenhuma decisão corresponde a estes filtros. O controle continua registrando cada decisão que toma, então um período mais amplo pode mostrar alguma.",
         "unreachable": "Este gateway não consegue ler o log de auditoria. O controle pode continuar aplicando cada decisão, então trate isto como uma visão ausente e não como um log vazio.",
         "truncated": "Exibindo {{shown}} de {{total}} registros correspondentes. Restrinja os filtros para ver o resto.",
@@ -1042,7 +1043,9 @@
           "digest": "Resumo do comando",
           "nonce": "Nonce do token",
           "exit": "Código de saída",
-          "duration": "Duração"
+          "duration": "Duração",
+          "recordId": "Registro",
+          "follows": "Segue a decisão"
         }
       },
       "status": {

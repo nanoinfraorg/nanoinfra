@@ -27,7 +27,7 @@ from websockets.datastructures import Headers
 from nanoinfra.agent.tools.capabilities import MUTATE_INVENTORY, MUTATE_REMOTE
 from nanoinfra.channels.websocket.runtime import WebSocketConfig
 from nanoinfra.config.gates import AuditConfig
-from nanoinfra.gates.audit import AuditStore
+from nanoinfra.gates.audit import DECISION_COMPLETION, AuditStore
 from nanoinfra.webui.audit_api import AUDIT_READ_PATH, AuditReadSurface
 from nanoinfra.webui.gateway_services import build_gateway_services
 
@@ -38,6 +38,22 @@ def _store(tmp_path: Path, *, record_command_text: bool = False) -> AuditStore:
     return AuditStore(
         tmp_path / "gates",
         config=AuditConfig.model_validate({"recordCommandText": record_command_text}),
+    )
+
+
+def _allowed(store: AuditStore) -> dict[str, Any]:
+    """One decision that authorized an action, as #46's completion record follows it."""
+    return store.record(
+        decision="allow",
+        capability_class=MUTATE_REMOTE,
+        execution_context="automation",
+        session_id="s1",
+        tool="execute_on_server",
+        scope="host",
+        hosts=["10.0.2.11"],
+        command=_SECRET_COMMAND,
+        reason="a standing grant matched this command",
+        grant_id="reload-web",
     )
 
 
@@ -211,6 +227,88 @@ def test_the_resolved_targets_sit_beside_the_grant_id(tmp_path: Path) -> None:
     assert record["grantId"] == "reload-web"
     assert record["hosts"] == ["10.0.2.11", "10.0.2.12"]
     assert record["hostCount"] == 2
+
+
+def test_a_completion_reaches_the_viewer_with_the_exit_code_and_the_duration(
+    tmp_path: Path,
+) -> None:
+    """#46: the log answered what the gate decided and never what happened next."""
+    store = _store(tmp_path)
+    decision = _allowed(store)
+    store.record_completion(follows=decision, exit_code=0, duration_ms=412)
+
+    records = AuditReadSurface(store).page({})["records"]
+
+    completion = records[0]
+    assert completion["decision"] == DECISION_COMPLETION
+    assert completion["exitCode"] == 0
+    assert completion["durationMs"] == 412
+    assert completion["hosts"] == ["10.0.2.11"]
+
+
+def test_a_completion_names_the_decision_a_reader_pairs_it_with(tmp_path: Path) -> None:
+    """The join reaches the viewer. A reader pairs two rows without a timestamp guess."""
+    store = _store(tmp_path)
+    decision = _allowed(store)
+    store.record_completion(follows=decision, exit_code=0, duration_ms=9)
+
+    records = AuditReadSurface(store).page({})["records"]
+
+    assert records[0]["follows"] == records[1]["recordId"]
+    assert records[1]["follows"] is None
+
+
+def test_an_unknown_exit_code_reaches_the_viewer_as_null(tmp_path: Path) -> None:
+    """A timeout ends the action and leaves the outcome unknown. The row must not hide that."""
+    store = _store(tmp_path)
+    decision = _allowed(store)
+    store.record_completion(
+        follows=decision,
+        exit_code=None,
+        duration_ms=30000,
+        reason="the action timed out, so the exit code is unknown",
+    )
+
+    completion = AuditReadSurface(store).page({})["records"][0]
+
+    assert completion["exitCode"] is None
+    assert completion["durationMs"] == 30000
+    assert "unknown" in str(completion["reason"])
+
+
+def test_the_filter_choices_offer_the_completion_value(tmp_path: Path) -> None:
+    """The viewer builds its selects from the server, so the new value needs no UI edit."""
+    store = _store(tmp_path)
+
+    page = AuditReadSurface(store).page({})
+
+    assert DECISION_COMPLETION in page["choices"]["decision"]
+
+
+def test_a_decision_filter_isolates_the_completions(tmp_path: Path) -> None:
+    """One filter answers "what happened next?" across a whole day of decisions."""
+    store = _store(tmp_path)
+    _denial(store)
+    decision = _allowed(store)
+    store.record_completion(follows=decision, exit_code=0, duration_ms=9)
+
+    page = AuditReadSurface(store).page({"decision": [DECISION_COMPLETION]})
+
+    assert page["total"] == 1
+    assert page["records"][0]["exitCode"] == 0
+
+
+def test_a_completion_carries_no_command_text_to_the_viewer(tmp_path: Path) -> None:
+    """The opt-in covers the decision record. A second copy would double the exposure."""
+    store = _store(tmp_path, record_command_text=True)
+    decision = _allowed(store)
+    store.record_completion(follows=decision, exit_code=0, duration_ms=9)
+
+    completion = AuditReadSurface(store).page({"decision": [DECISION_COMPLETION]})["records"][0]
+
+    assert completion["commandText"] is None
+    assert completion["holdsCommandText"] is False
+    assert completion["commandDigest"] == decision["command_digest"]
 
 
 def test_an_unknown_filter_value_matches_nothing(tmp_path: Path) -> None:

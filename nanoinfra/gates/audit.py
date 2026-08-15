@@ -25,6 +25,22 @@ only when ``gates.audit.record_command_text`` is true. Resolved commands routine
 secrets, so a log that captures them becomes a second secret store. One closed gap must not
 open another gap.
 
+**The outcome is a second record (#46).** ``exit_code`` and ``duration_ms`` stayed null on
+every executor record, so the log said what the gate decided and never what happened next.
+:meth:`AuditStore.record_completion` appends one record when the action ends, and it fills the
+two fields. It is an append, and never an edit of the decision record. The decision lands
+before the action runs, and that order is the property this module exists for. An edit
+afterwards would make an append-only log mutable.
+
+Every record carries a ``record_id``, and a completion carries the id of the decision it
+follows in ``follows``. A reader pairs the two records by that id. A pair found by two
+timestamps is a guess, because two actions can decide inside one millisecond.
+
+A completion holds no command output. This module keeps a digest of the command rather than
+the text, and output carries the same risk. It also holds no grant, no approval, no actor,
+and no secret ref. The decision record it names holds those answers, so one authorization
+cannot read two ways.
+
 **Separate from the transcripts.** These records belong under ``gates/audit/`` in the data
 dir. They never enter the session history, and they have their own retention. This module
 also stays independent of ``nanoinfra/bus/runtime_events.py``. That bus is in-memory pub/sub
@@ -56,11 +72,12 @@ from __future__ import annotations
 import json
 import os
 import stat
-from collections.abc import Sequence
+import uuid
+from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
@@ -72,6 +89,14 @@ from nanoinfra.config.gates import AuditConfig
 _SEGMENT_PREFIX = "gate-"
 _SEGMENT_SUFFIX = ".jsonl"
 _SEGMENT_DATE_FORMAT = "%Y-%m-%d"
+
+# What the `decision` field holds on a completion record (#46). The value names a record kind
+# rather than an answer a gate gave, because nothing decides at the end of an action. It sits
+# beside the decision values on purpose: one field, one filter, and one row per fact.
+#
+# `nanoinfra/webui/audit_api.py` imports this name for its filter list, so the viewer offers the
+# value with no second copy of the string.
+DECISION_COMPLETION = "completion"
 
 # An audit record names hosts, actors, and sessions. Only the owner needs to read it.
 # The executor writes this log and the agent process reads it: #32 restores latches there, and
@@ -186,6 +211,7 @@ class AuditStore:
         token_nonce: str | None = None,
         exit_code: int | None = None,
         duration_ms: int | None = None,
+        follows: str | None = None,
         ts: datetime | None = None,
     ) -> dict[str, Any]:
         """Write one decision and return the record as it went to disk.
@@ -205,6 +231,10 @@ class AuditStore:
         approval on the two paths. The record must not claim a separate path that the two
         paths themselves deny.
 
+        ``record_id`` is not a parameter either. This store names every record it writes, so
+        no caller can hand two records one name. ``follows`` takes the id of an earlier
+        record, and :meth:`record_completion` is the one caller that fills it (#46).
+
         Raises ``OSError`` when the write fails. The caller then knows the decision reached
         no durable record, so #8 can refuse the action instead of a run that nothing records.
         """
@@ -213,6 +243,9 @@ class AuditStore:
         digest = _command_digest(command) if command is not None else command_digest
         payload: dict[str, Any] = {
             "ts": moment.isoformat(),
+            # The name of this record, and the name a completion record points at (#46).
+            "record_id": uuid.uuid4().hex,
+            "follows": follows,
             "session_id": session_id,
             "execution_context": execution_context,
             "origin_path": origin_path,
@@ -238,6 +271,55 @@ class AuditStore:
             payload["command_text"] = command
         self._append(self.root / segment_name(moment), payload, moment)
         return payload
+
+    def record_completion(
+        self,
+        *,
+        follows: Mapping[str, Any],
+        exit_code: int | None,
+        duration_ms: int | None,
+        reason: str | None = None,
+        ts: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Append the outcome of one action as its own record and return it (#46).
+
+        ``follows`` is the decision record that authorized the action, as :meth:`record`
+        returned it. This method copies the fields a reviewer reads on a filtered row: the
+        session, the capability class, the execution context, the scope, the hosts, the command
+        digest, and the tool. A copy cannot disagree with the decision, because the decision is
+        the only source.
+
+        ``exit_code`` takes ``None`` when the action ended and the outcome is unknown. A
+        timeout, a lost transport, and a killed executor all end that way. The record still
+        exists, because unknown and never ran are opposite facts for a reviewer. A refused
+        action gets no completion record at all.
+
+        ``reason`` states how the action ended in words. It must hold no command output. This
+        method accepts no output parameter, so no caller can put output in the log.
+
+        Raises ``OSError`` when the write fails, for the same reason :meth:`record` does. The
+        caller then knows the outcome reached no durable record. The decision record already
+        landed before the action ran, so the failure costs the outcome and never the decision.
+        """
+        return self.record(
+            decision=DECISION_COMPLETION,
+            # A decision record that names neither field leaves both empty here. An empty class
+            # is honest, and a raise would drop the outcome over the shape of another record.
+            capability_class=_text(follows.get("capability_class")) or "",
+            execution_context=_text(follows.get("execution_context")) or "",
+            tool=_text(follows.get("tool")),
+            session_id=_text(follows.get("session_id")),
+            scope=_text(follows.get("scope")),
+            hosts=_host_list(follows.get("hosts")),
+            # The digest, and never the text. The decision record holds the text under the
+            # opt-in, so a second copy would double the exposure and add no fact.
+            command_digest=_text(follows.get("command_digest")),
+            reason=reason,
+            exit_code=exit_code,
+            duration_ms=duration_ms,
+            follows=_text(follows.get("record_id")),
+            ts=ts,
+        )
 
     def prune(self, *, now: datetime | None = None) -> list[Path]:
         """Delete whole segments outside ``retention_days`` and return what went away.
@@ -389,6 +471,26 @@ def _segment_date(segment: Path) -> date | None:
         return None
 
 
+def _text(value: Any) -> str | None:
+    """Return *value* when a record holds it as a string, and ``None`` otherwise.
+
+    A record read back from disk is an untrusted dynamic boundary. A completion record copies
+    fields from another record, so it normalizes each one here rather than trust the shape.
+    """
+    return value if isinstance(value, str) else None
+
+
+def _host_list(value: Any) -> list[str]:
+    """Return the resolved hosts a record holds, and an empty list when it holds none.
+
+    The ``isinstance`` check on the same path supports the cast. A record from disk can hold
+    any JSON value under this key, and a host list is the only shape this store writes.
+    """
+    if isinstance(value, list):
+        return [str(host) for host in cast("list[Any]", value)]
+    return []
+
+
 def _same_path(origin_path: str | None, approval_path: str | None) -> bool | None:
     """Compare the request path with the approval path.
 
@@ -400,4 +502,10 @@ def _same_path(origin_path: str | None, approval_path: str | None) -> bool | Non
     return origin_path == approval_path
 
 
-__all__ = ["AuditRootChangedError", "AuditStore", "root_identity", "segment_name"]
+__all__ = [
+    "DECISION_COMPLETION",
+    "AuditRootChangedError",
+    "AuditStore",
+    "root_identity",
+    "segment_name",
+]

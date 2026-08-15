@@ -9,6 +9,11 @@ whose request and approval arrived on one channel, and #13 records it even when 
 action, so the viewer must keep it visible. ``command_digest`` is what the log holds by default,
 because a resolved command routinely embeds a secret.
 
+The log holds two kinds of record after #46. A decision record says what the gate decided. A
+completion record says what happened next, and it carries the exit code and the duration. The
+``decision`` field names the kind, so one filter isolates the completions. ``follows`` names the
+decision record a completion follows, so a reader pairs the two rows by an id.
+
 Filters fail closed. A value the log never writes matches nothing, so a typo narrows the answer to
 nothing rather than widening it to every record.
 """
@@ -28,6 +33,7 @@ from nanoinfra.agent.tools.capabilities import (
     MUTATE_REMOTE,
     READ,
 )
+from nanoinfra.gates.audit import DECISION_COMPLETION
 
 if TYPE_CHECKING:
     from nanoinfra.gates.audit import AuditStore
@@ -37,6 +43,8 @@ AUDIT_READ_PATH = "/api/webui/gates/audit"
 
 # The values the log writes today, for the viewer's selects. The server owns this list, so a new
 # decision name needs no UI edit. `refused` is #15's latched attempt. `expired` is #38's deadline.
+# `completion` is #46's outcome record, and it comes from the store rather than from a copy of the
+# string here, so one name cannot drift into two.
 DECISION_CHOICES = (
     "allow",
     "grant",
@@ -48,6 +56,7 @@ DECISION_CHOICES = (
     "cleared",
     "preview",
     "would_gate",
+    DECISION_COMPLETION,
 )
 
 CAPABILITY_CLASS_CHOICES = (
@@ -242,6 +251,10 @@ def _for_viewer(record: Mapping[str, Any], *, holds_text: bool) -> dict[str, Any
     text = record.get("command_text")
     return {
         "ts": record.get("ts"),
+        # The two halves of #46's join. `recordId` names this record. `follows` names the decision
+        # record a completion follows, and it is null on a decision record.
+        "recordId": record.get("record_id"),
+        "follows": record.get("follows"),
         "sessionId": record.get("session_id"),
         "executionContext": record.get("execution_context"),
         "originPath": record.get("origin_path"),

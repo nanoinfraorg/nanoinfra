@@ -1022,6 +1022,7 @@
         "samePath": "The request and the approval arrived on one channel.",
         "samePathNote": "The request and the approval arrived on one channel. One compromised account then holds both halves.",
         "textWarning": "Full command text is on, so this record may hold a secret.",
+        "exitUnknown": "unknown",
         "empty": "No decision matches these filters. The gate still records every decision it makes, so a wider range may show one.",
         "unreachable": "This gateway cannot reach the audit log. The gate may still enforce every decision, so treat this as a missing view and not as an empty log.",
         "truncated": "Showing {{shown}} of {{total}} matching records. Narrow the filters to see the rest.",
@@ -1042,7 +1043,9 @@
           "digest": "Command digest",
           "nonce": "Token nonce",
           "exit": "Exit code",
-          "duration": "Duration"
+          "duration": "Duration",
+          "recordId": "Record",
+          "follows": "Follows decision"
         }
       },
       "status": {

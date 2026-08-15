@@ -249,7 +249,12 @@ async def test_the_same_action_runs_when_the_credential_class_allows(tmp_path: P
 
     assert response.ok
     assert run.call_args.args[2] == _SECRET_VALUE
-    assert harness.decisions() == [("allow", MUTATE_REMOTE), ("allow", CREDENTIAL_ACCESS)]
+    # The completion record #46 appends when the action ends, with the action's own class.
+    assert harness.decisions() == [
+        ("allow", MUTATE_REMOTE),
+        ("allow", CREDENTIAL_ACCESS),
+        ("completion", MUTATE_REMOTE),
+    ]
 
 
 @pytest.mark.asyncio
@@ -308,7 +313,12 @@ async def test_the_action_record_also_names_the_grant_that_allowed_it(tmp_path: 
         response = await harness.executor.handle(_request(execution_context="automation"))
 
     assert response.ok
-    assert [record["grant_id"] for record in harness.audit.read_all()] == ["reload", "reload"]
+    # The completion record names no grant: the decision record it follows holds that answer.
+    assert [record["grant_id"] for record in harness.audit.read_all()] == [
+        "reload",
+        "reload",
+        None,
+    ]
 
 
 @pytest.mark.asyncio
@@ -335,10 +345,12 @@ async def test_an_action_a_human_approved_needs_no_second_approval(tmp_path: Pat
     assert response.ok
     run.assert_called_once()
     assert harness.pending.pending() == ()
+    # The completion record #46 appends when the action ends, with the action's own class.
     assert harness.decisions() == [
         ("approve", MUTATE_REMOTE),
         ("allow", MUTATE_REMOTE),
         ("allow", CREDENTIAL_ACCESS),
+        ("completion", MUTATE_REMOTE),
     ]
 
 
@@ -438,7 +450,8 @@ async def test_a_server_with_no_secret_ref_reaches_no_credential_decision(
     assert response.ok
     run.assert_called_once()
     assert harness.credential_records() == []
-    assert harness.decisions() == [("allow", MUTATE_REMOTE)]
+    # No credential decision, because the server names no secret. The completion still lands (#46).
+    assert harness.decisions() == [("allow", MUTATE_REMOTE), ("completion", MUTATE_REMOTE)]
 
 
 # ------------------------------------------------------------------- the plaintext stays out

@@ -29,6 +29,13 @@ workspace to build its redaction sentinels, which put the whole credential store
 the model runs in. ``nanoinfra/gates/executor/scrub.py`` holds that work now, and it answers on a
 third socket. The agent sends one text and reads the scrubbed text back.
 
+**The outcome is a second record (#46).** The decision record landed and said nothing about what
+followed, so ``exit_code`` and ``duration_ms`` stayed null on every record. ``_run`` now appends
+one completion record when the action ends, and ``_record`` hands back the decision record so the
+completion can name it. A refusal appends nothing, because nothing ran. An action that ends with
+no exit code still appends a record, because an unknown outcome and an action that never ran are
+opposite facts for a reviewer.
+
 **``credential.access`` decides before the decryption (#39).** ``_run`` asks the class before
 ``resolve_plaintext`` reads the secret store, and before a backend opens a transport. The
 decision covers the decryption alone, so a server with no ``secretRef`` reaches no credential
@@ -132,6 +139,21 @@ _DECISION_EXPIRED = "expired"
 _SOCKET_DIR_MODE = 0o700
 
 
+@dataclass(slots=True, frozen=True)
+class _Written:
+    """What one audit write hands back to the caller.
+
+    ``refusal`` holds a response when the write failed. The caller returns it, because an action
+    that nothing records does not run.
+
+    ``record`` holds the record that landed. #46 needs it, because a completion record names the
+    decision record it follows. Both fields are None when this executor carries no audit store.
+    """
+
+    refusal: ExecuteResponse | None = None
+    record: dict[str, Any] | None = None
+
+
 @dataclass(slots=True)
 class Executor:
     """Answers one request. Holds the credential store, the transports, and the gate."""
@@ -218,7 +240,7 @@ class Executor:
             # in _suspend, because the wait is one decision with several possible ends.
             return await self._suspend(server, request, resolution, idle_override)
 
-        recorded = self._record(
+        written = self._record(
             _DECISION_ALLOW if decision.outcome is Outcome.ALLOW else _DECISION_DENIED,
             server,
             request,
@@ -226,8 +248,8 @@ class Executor:
             resolution=resolution,
             grant_id=decision.grant_id,
         )
-        if recorded is not None:
-            return recorded
+        if written.refusal is not None:
+            return written.refusal
 
         if decision.outcome is not Outcome.ALLOW:
             return _withheld(server, request, decision.reason)
@@ -241,6 +263,7 @@ class Executor:
             request,
             idle_override,
             resolution=resolution,
+            decision_record=written.record,
             authorization=ActionAuthorization(
                 grant_id=decision.grant_id,
                 policy_decision=decision.outcome.value,
@@ -311,7 +334,7 @@ class Executor:
                 terminal=False,
             )
 
-        recorded = self._record(
+        suspended = self._record(
             _DECISION_APPROVE,
             server,
             request,
@@ -323,8 +346,8 @@ class Executor:
             resolution=resolution,
             origin_path=request.origin_path,
         )
-        if recorded is not None:
-            return recorded
+        if suspended.refusal is not None:
+            return suspended.refusal
 
         approval = pending.create(
             session_id=session_id,
@@ -385,7 +408,7 @@ class Executor:
                 origin_path=request.origin_path,
             )
 
-        recorded = self._record(
+        written = self._record(
             _DECISION_ALLOW,
             server,
             request,
@@ -399,8 +422,8 @@ class Executor:
             origin_path=request.origin_path,
             approval_id=approval.request_id,
         )
-        if recorded is not None:
-            return recorded
+        if written.refusal is not None:
+            return written.refusal
 
         # The approval a human just gave is the authorization this action carries into the
         # credential decision (#39). One action costs one human decision.
@@ -409,6 +432,7 @@ class Executor:
             request,
             idle_override,
             resolution=resolution,
+            decision_record=written.record,
             authorization=ActionAuthorization(
                 approval_id=approval.request_id,
                 actor=outcome.actor,
@@ -432,8 +456,11 @@ class Executor:
         """Record one refusal and return it. The record lands first, or the refusal says so.
 
         ``terminal`` travels to the tool, which latches the class for a terminal refusal alone.
+
+        A refusal gets no completion record (#46). Nothing ran, and never ran and unknown are
+        opposite facts for a reviewer.
         """
-        recorded = self._record(
+        written = self._record(
             decision,
             server,
             request,
@@ -443,8 +470,8 @@ class Executor:
             approval_path=approval_path,
             origin_path=origin_path,
         )
-        if recorded is not None:
-            return recorded
+        if written.refusal is not None:
+            return written.refusal
         return _withheld(server, request, reason, terminal=terminal)
 
     def _record(
@@ -462,7 +489,7 @@ class Executor:
         secret_ref: str | None = None,
         grant_id: str | None = None,
         approval_id: str | None = None,
-    ) -> ExecuteResponse | None:
+    ) -> _Written:
         """Write the audit record, or refuse the action when the write fails.
 
         The executor decides, so the executor records. #16 raises rather than swallow a write
@@ -478,11 +505,14 @@ class Executor:
         ``capability_class`` defaults to the action's class. A credential decision passes its
         own class instead (#39), because one action holds two decisions and a reviewer must read
         which one refused.
+
+        The answer carries the record that landed, because #46 appends the outcome as a second
+        record and that record names the decision it follows.
         """
         if self.audit is None:
-            return None
+            return _Written()
         try:
-            self.audit.record(
+            written: dict[str, Any] = self.audit.record(
                 decision=decision,
                 capability_class=capability_class,
                 execution_context=request.execution_context,
@@ -500,12 +530,49 @@ class Executor:
                 approval_id=approval_id,
             )
         except OSError as exc:
-            return _error(
-                f"The executor did not act on {server.name!r}. The gate decided, and the audit "
-                f"record could not be written ({exc}). An action that nothing records does not "
-                "run."
+            return _Written(
+                refusal=_error(
+                    f"The executor did not act on {server.name!r}. The gate decided, and the "
+                    f"audit record could not be written ({exc}). An action that nothing records "
+                    "does not run."
+                )
             )
-        return None
+        return _Written(record=written)
+
+    def _record_completion(
+        self,
+        decision_record: dict[str, Any] | None,
+        *,
+        exit_code: int | None,
+        started: float,
+        reason: str,
+    ) -> None:
+        """Append the outcome of one action as a second record (#46).
+
+        The decision record already landed, and it landed before the action ran. So a failed
+        write here costs the outcome record alone, and this method logs it rather than raise.
+        The alternative refuses an action that already reached the host, which hides a real
+        result and repairs nothing.
+
+        ``started`` is a ``time.monotonic`` reading from the moment before the transport ran. A
+        monotonic clock cannot run backwards, so the duration cannot come out negative.
+        """
+        if self.audit is None or decision_record is None:
+            return
+        duration_ms = int((time.monotonic() - started) * 1000)
+        try:
+            self.audit.record_completion(
+                follows=decision_record,
+                exit_code=exit_code,
+                duration_ms=duration_ms,
+                reason=reason,
+            )
+        except OSError:
+            logger.exception(
+                "gates: the executor could not record the outcome of the action it recorded as "
+                "{}",
+                decision_record.get("record_id"),
+            )
 
     def _gate(
         self, server: Any, request: ExecuteRequest, servers: ServerStore
@@ -599,7 +666,7 @@ class Executor:
         )
         allowed = decision.outcome is Outcome.ALLOW
         reason = f"{decision.reason} The server names secret {server.secret_ref!r}."
-        recorded = self._record(
+        written = self._record(
             _DECISION_ALLOW if allowed else _DECISION_DENIED,
             server,
             request,
@@ -613,8 +680,8 @@ class Executor:
             approval_path=authorization.approval_path,
             origin_path=request.origin_path,
         )
-        if recorded is not None:
-            return recorded
+        if written.refusal is not None:
+            return written.refusal
         return None if allowed else _withheld(server, request, reason)
 
     async def _run(
@@ -624,12 +691,17 @@ class Executor:
         idle_override: int | None,
         *,
         resolution: Any,
+        decision_record: dict[str, Any] | None,
         authorization: ActionAuthorization,
     ) -> ExecuteResponse:
-        """Decide the credential, resolve it, dial the host, and record the job.
+        """Decide the credential, resolve it, dial the host, and record the outcome.
 
-        ``authorization`` is what already authorized this action. Both arguments are required,
+        ``authorization`` is what already authorized this action. Every argument is required,
         so a new call site cannot reach a decryption with the authorization left out (#39).
+
+        ``decision_record`` is the record that authorized this action, and the completion record
+        names it (#46). It is required for the same reason: a new call site that ran an action
+        and reported no outcome would put the log back where #46 found it.
         """
         backend, default_idle = _backend_for(server.provider_id)
         idle_timeout = idle_override if idle_override is not None else default_idle
@@ -679,11 +751,28 @@ class Executor:
             with contextlib.suppress(OSError, KeyError, ValueError):
                 jobs.update_output(job.id, partial.text())
 
-        result = await run_with_idle_timeout(
-            backend.run(server, request.command, secret_value, on_activity=on_activity),
-            tracker,
-            partial_output=(partial.text if streams else None),
-        )
+        # The clock starts here, so the duration covers the transport and nothing else (#46).
+        started = time.monotonic()
+        try:
+            result = await run_with_idle_timeout(
+                backend.run(server, request.command, secret_value, on_activity=on_activity),
+                tracker,
+                partial_output=(partial.text if streams else None),
+            )
+        except BaseException:
+            # A lost transport, and a cancelled or killed executor, all land here. The action
+            # ended and this process never read an exit code, so the outcome is unknown. A
+            # reviewer needs that record, because unknown and never ran are opposite facts.
+            # The re-raise leaves every existing error path in place.
+            self._record_completion(
+                decision_record,
+                exit_code=None,
+                started=started,
+                reason=_completion_reason(
+                    server.name, "ended with no answer from the transport", None
+                ),
+            )
+            raise
         output = truncate_output(result.output)
 
         if result.timed_out:
@@ -696,6 +785,12 @@ class Executor:
                 job.id, exit_code=None, output=output, error=f"Timed out.{caveat}",
                 status="timed_out",
             )
+            self._record_completion(
+                decision_record,
+                exit_code=None,
+                started=started,
+                reason=_completion_reason(server.name, "timed out", None) + caveat,
+            )
             return ExecuteResponse(
                 ok=False, output=output, exit_code=None,
                 error=f"Timed out running the command on {server.name!r}.{caveat}", reason="",
@@ -705,6 +800,14 @@ class Executor:
                 job.id, exit_code=result.exit_code, output=output, error=result.error,
                 status="failed",
             )
+            # The reason names no transport message and no output. A backend error text can
+            # carry either one, and #16 keeps a digest of the command for that reason.
+            self._record_completion(
+                decision_record,
+                exit_code=result.exit_code,
+                started=started,
+                reason=_completion_reason(server.name, "failed", result.exit_code),
+            )
             return ExecuteResponse(
                 ok=False, output=output, exit_code=result.exit_code,
                 error=f"Failed on {server.name!r}: {result.error}", reason="",
@@ -712,6 +815,12 @@ class Executor:
 
         jobs.complete(job.id, exit_code=result.exit_code, output=output, error=None,
                       status="completed")
+        self._record_completion(
+            decision_record,
+            exit_code=result.exit_code,
+            started=started,
+            reason=_completion_reason(server.name, "ended", result.exit_code),
+        )
         return ExecuteResponse(
             ok=True, output=output, exit_code=result.exit_code, error=None, reason="",
         )
@@ -719,6 +828,19 @@ class Executor:
 
 def _error(message: str) -> ExecuteResponse:
     return ExecuteResponse(ok=False, output="", exit_code=None, error=message, reason="")
+
+
+def _completion_reason(server_name: str, ending: str, exit_code: int | None) -> str:
+    """State how one action ended, in the words a reviewer reads (#46).
+
+    ``ending`` is a short phrase that names the end, such as ``ended`` or ``timed out``.
+
+    A missing exit code is a fact of its own, so the text names it. One helper writes that
+    clause, so four endings cannot word it four ways. The reason holds no command output and no
+    transport message, because both can carry a secret.
+    """
+    unknown = "" if exit_code is not None else ", so the exit code is unknown"
+    return f"the action {ending} on {server_name!r}{unknown}."
 
 
 def _withheld(
