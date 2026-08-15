@@ -14,8 +14,12 @@ from nanoinfra.agent.redaction import (
 )
 from nanoinfra.agent.tools.capabilities import capability_class_of
 from nanoinfra.bus.runtime_events import SessionTurnPersisted
+from nanoinfra.gates.executor.client import ExecutorClient
+from nanoinfra.gates.executor.protocol import ExecuteResponse
 from nanoinfra.runtime_context import RUNTIME_CONTEXT_HISTORY_META, RuntimeContextProvider
 from nanoinfra.sdk.types import (
+    REMOTE_EXECUTION_DISABLED_MESSAGE,
+    RemoteExecutionUnavailableError,
     SessionInfo,
     SessionSnapshot,
     snapshot_from_payload,
@@ -25,6 +29,79 @@ from nanoinfra.session.manager import replay_max_messages_for_context
 
 if TYPE_CHECKING:
     from nanoinfra.agent.loop import AgentLoop
+
+# The stand-in below carries a path so that it stays an ``ExecutorClient``. It connects to
+# nothing, so the value is a label for a log line rather than a destination.
+DISABLED_EXECUTOR_SOCKET = Path("/nonexistent/nanoinfra-remote-execution-disabled.sock")
+
+
+class DisabledExecutorClient(ExecutorClient):
+    """Sits where the executor client would sit when a caller starts no executor (#21).
+
+    It refuses at call time, and it opens nothing. The refusal has to arrive here rather than
+    at construction: a caller that never reaches a server must still be able to build an agent
+    in a deployment that forbids child processes.
+
+    This class exists because the alternative is worse. If the real client stayed in place, an
+    embedded agent would reach whichever process holds the default socket path. The answer
+    would then depend on the machine rather than on the caller's own choice.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(DISABLED_EXECUTOR_SOCKET)
+
+    def execute(
+        self,
+        *,
+        server_id_or_name: str,
+        command: str,
+        session_id: str | None,
+        execution_context: str,
+        preview_requested: bool,
+        timeout_s: str | None,
+        token_nonce: str | None = None,
+    ) -> ExecuteResponse:
+        """Raise. A preview is refused too, because no process can resolve the server."""
+        del server_id_or_name, command, session_id, execution_context
+        del preview_requested, timeout_s, token_nonce
+        raise RemoteExecutionUnavailableError(REMOTE_EXECUTION_DISABLED_MESSAGE)
+
+
+def _capability_class_of_tool(loop: AgentLoop, tool_name: str) -> str | None:
+    """Return the capability class of a registered tool, else ``None``.
+
+    A ``credential.access`` result is credential material by definition, so
+    redaction drops it whole instead of a value-by-value scrub.
+    """
+    tool = loop.tools.get(tool_name)
+    return capability_class_of(tool) if tool is not None else None
+
+
+def _redacted_snapshot(loop: AgentLoop, snapshot: Any) -> Any:
+    """Scrub stored secret values out of one snapshot before a caller gets it (#34).
+
+    Every reader that returns a snapshot passes it through here. #31 scrubbed ``export()`` alone,
+    and its siblings returned the session unchanged. ``export_unredacted_with_secrets`` is the one
+    exception, and its name and docstring say who may call it.
+
+    In-place update is safe. Both snapshot builders deep copy, so neither the caller nor the
+    session cache shares this object. The live session and the session file keep the true values,
+    because the model replays them to complete its work.
+
+    The function applies no length bound. A snapshot exists to reproduce a session, and the #17
+    bound protects the durable transcript instead of this reader.
+    """
+    if snapshot is None:
+        return None
+    sentinels = workspace_secret_sentinels(loop.workspace)
+    snapshot.messages = redact_messages(
+        snapshot.messages,
+        sentinels,
+        capability_of=lambda name: _capability_class_of_tool(loop, name),
+        max_tool_result_chars=None,
+    )
+    snapshot.metadata = redact_mapping(snapshot.metadata, sentinels)
+    return snapshot
 
 
 class SessionClient:
@@ -69,17 +146,17 @@ class SessionClient:
 
         if save:
             self._loop.sessions.save(session)
-        return snapshot_from_session(session)
+        return _redacted_snapshot(self._loop, snapshot_from_session(session))
 
     def get(self, session_key: str) -> SessionSnapshot | None:
         """Return a display-safe snapshot without creating a new session on disk."""
         cached = self._loop.sessions.get_cached(session_key)
         if cached is not None:
-            return snapshot_from_session(cached)
+            return _redacted_snapshot(self._loop, snapshot_from_session(cached))
         payload = self._loop.sessions.read_session_file(session_key)
         if payload is None:
             return None
-        return snapshot_from_payload(payload)
+        return _redacted_snapshot(self._loop, snapshot_from_payload(payload))
 
     def list(self) -> list[SessionInfo]:
         """List persisted sessions."""
@@ -95,6 +172,7 @@ class SessionClient:
             for row in self._loop.sessions.list_sessions()
         ]
 
+
     def export(self, session_key: str) -> SessionSnapshot | None:
         """Return a full snapshot with model-only runtime context, secrets redacted.
 
@@ -106,22 +184,7 @@ class SessionClient:
         Redaction is best-effort (see nanoinfra/agent/redaction.py). Treat an
         exported snapshot as sensitive material anyway.
         """
-        snapshot = self.export_unredacted_with_secrets(session_key)
-        if snapshot is None:
-            return None
-        sentinels = workspace_secret_sentinels(self._loop.workspace)
-        # In-place update is safe here. Both snapshot builders deep copy, so
-        # neither a caller nor the session cache shares this object.
-        snapshot.messages = redact_messages(
-            snapshot.messages,
-            sentinels,
-            capability_of=self._capability_class_of_tool,
-            # No length bound. An export exists to reproduce a session, and the
-            # #17 bound protects the durable transcript, not this reader.
-            max_tool_result_chars=None,
-        )
-        snapshot.metadata = redact_mapping(snapshot.metadata, sentinels)
-        return snapshot
+        return _redacted_snapshot(self._loop, self.export_unredacted_with_secrets(session_key))
 
     def export_unredacted_with_secrets(self, session_key: str) -> SessionSnapshot | None:
         """Return the raw snapshot, which MAY CARRY LIVE CREDENTIALS.
@@ -142,15 +205,6 @@ class SessionClient:
         if payload is None:
             return None
         return snapshot_from_payload(payload, include_runtime_context=True)
-
-    def _capability_class_of_tool(self, tool_name: str) -> str | None:
-        """Return the capability class of a registered tool, else ``None``.
-
-        A ``credential.access`` result is credential material by definition, so
-        redaction drops it whole instead of a value-by-value scrub.
-        """
-        tool = self._loop.tools.get(tool_name)
-        return capability_class_of(tool) if tool is not None else None
 
     async def restore(
         self,
@@ -187,14 +241,14 @@ class SessionClient:
 
         if save:
             self._loop.sessions.save(session)
-        return snapshot_from_session(session)
+        return _redacted_snapshot(self._loop, snapshot_from_session(session))
 
     def clear(self, session_key: str) -> SessionSnapshot:
         """Clear one session and persist the empty session."""
         session = self._loop.sessions.get_or_create(session_key)
         session.clear()
         self._loop.sessions.save(session)
-        return snapshot_from_session(session)
+        return _redacted_snapshot(self._loop, snapshot_from_session(session))
 
     def delete(self, session_key: str) -> bool:
         """Delete one session from disk and cache."""
@@ -272,7 +326,9 @@ class RuntimeClient:
                 runtime.context_window_tokens
             ),
         )
-        return snapshot_from_session(self._loop.sessions.get_or_create(session_key))
+        return _redacted_snapshot(
+            self._loop, snapshot_from_session(self._loop.sessions.get_or_create(session_key))
+        )
 
     async def compact_idle_session(self, session_key: str, *, max_suffix: int = 8) -> str | None:
         """Run idle-session compaction for one session and return the summary."""
