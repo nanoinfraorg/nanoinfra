@@ -21,6 +21,7 @@ it lands before any transport opens. No record holds the plaintext.
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
@@ -185,14 +186,43 @@ class _Harness:
             if record["capability_class"] == CREDENTIAL_ACCESS
         ]
 
-    async def wait_for_one_pending(self, timeout_s: float = 5.0):
-        """Wait until the executor suspends one action, then return that record."""
-        for _ in range(int(timeout_s / 0.01)):
+    async def wait_for_one_pending(
+        self, timeout_s: float | None = None, task: "asyncio.Task[Any] | None" = None
+    ):
+        """Wait until the executor suspends one action, then return that record.
+
+        *task* is the ``handle`` call this wait belongs to, and passing it changes what a
+        failure teaches. An action that **refused** instead of suspending finishes that task,
+        and this wait then reports the refusal at once. Without it the same run waited out the
+        whole budget and reported "never suspended", which names the symptom and hides the
+        cause.
+
+        That is also why the budget is generous rather than tight. A real refusal now fails
+        immediately, so a large budget delays no real failure. It only stops a slow machine
+        from reading as a broken gate. The old budget was 5 seconds, and one group action
+        measured 3.4 of them under coverage on a machine faster than the CI runner, which made
+        that pass a coin flip: the test failed on the 3.14 job and passed on 3.11 in one run.
+        """
+        # The budget lives at the end of this file, so it cannot be a default argument:
+        # Python evaluates a default when it defines the function.
+        budget = _SUSPEND_BUDGET_S if timeout_s is None else timeout_s
+        deadline = time.monotonic() + budget
+        while time.monotonic() < deadline:
             items = self.pending.pending()
             if items:
                 return items[0]
+            if task is not None and task.done():
+                raise AssertionError(
+                    "the executor answered instead of suspending the action: "
+                    + _finished_task_answer(task)
+                )
             await asyncio.sleep(0.01)
-        raise AssertionError("the executor never suspended an action")
+        raise AssertionError(
+            f"the executor never suspended an action within {budget}s. A group action "
+            "resolves its host set through a real ansible-inventory subprocess, so a slow "
+            "machine needs the budget, and a refusal reports itself at once when the caller "
+            "passes its task."
+        )
 
 
 # --------------------------------------------------------------- deny refuses the action
@@ -333,7 +363,7 @@ async def test_an_action_a_human_approved_needs_no_second_approval(tmp_path: Pat
 
     with patch(_SSH_BACKEND, new=AsyncMock(return_value=_ok())) as run:
         task = asyncio.create_task(harness.executor.handle(_request()))
-        suspended = await harness.wait_for_one_pending()
+        suspended = await harness.wait_for_one_pending(task=task)
         harness.service.approve(
             request_id=suspended.request_id,
             actor="operator-1",
@@ -364,7 +394,7 @@ async def test_the_record_names_the_approval_that_authorized_the_decryption(
 
     with patch(_SSH_BACKEND, new=AsyncMock(return_value=_ok())):
         task = asyncio.create_task(harness.executor.handle(_request()))
-        suspended = await harness.wait_for_one_pending()
+        suspended = await harness.wait_for_one_pending(task=task)
         harness.service.approve(
             request_id=suspended.request_id,
             actor="operator-1",
@@ -549,3 +579,21 @@ def test_the_class_accepts_grant_in_config() -> None:
 
     assert granted.outcome is Outcome.ALLOW
     assert bare.outcome is Outcome.DENY
+
+
+# ---------------------------------------------------------------- the suspension wait (#82)
+
+#: How long one suspension may take. The work includes a real ansible-inventory subprocess for
+#: a group scope, and this number only bounds a machine that is slow. A refusal reports itself
+#: at once, so the budget never delays a real failure.
+_SUSPEND_BUDGET_S = 30.0
+
+
+def _finished_task_answer(task: "asyncio.Task[Any]") -> str:
+    """What a finished handle call answered, for a wait that expected a suspension."""
+    if task.cancelled():
+        return "the call was cancelled"
+    error = task.exception()
+    if error is not None:
+        return f"{type(error).__name__}: {error}"
+    return repr(task.result())
