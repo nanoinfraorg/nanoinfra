@@ -71,6 +71,8 @@
     "diagrams": "基礎設施圖",
     "infrastructure": "基礎設施",
     "servers": "伺服器",
+    "approvals": "審批",
+    "approvalsBadge": "等待回覆的審批：{{count}}",
     "secrets": "密鑰"
   },
   "settings": {
@@ -1524,6 +1526,51 @@
       "manualPlaceholder": "/Users/name/project",
       "usePath": "使用路徑",
       "absolutePathRequired": "請輸入這台機器上的絕對資料夾路徑。"
+    }
+  },
+  "approvals": {
+    "title": "審批",
+    "subtitle": "每個操作需要一個人的回覆。下面的每個位元組都由執行器產生。",
+    "pendingCount": "待處理：{{count}}",
+    "empty": "沒有操作在等待回覆。政策仍然拒絕它拒絕的操作，所以收件匣為空並不代表閘門開啟。",
+    "degraded": "閘道無法連到執行器。可能有操作在等待，而這個清單無法顯示它。",
+    "unavailable": "這個閘道沒有審批收件匣。需要審批的判定會等到期限，然後被拒絕。",
+    "timeLeft": "剩餘 {{time}}",
+    "expiresNote": "歸零時執行器拒絕這個操作。代理不會再獲得一次機會。",
+    "expired": "這個操作已逾期。執行器已拒絕它。",
+    "hosts": "主機：{{count}}",
+    "from": "來自 {{path}}",
+    "payloadTitle": "指令與主機，與執行器實際執行的完全一致",
+    "payloadNote": "這段文字由執行器產生。它不是代理的描述。",
+    "hostsTitle": "已解析主機：{{count}}",
+    "contextDivider": "下面幾行是背景資訊。摘要不涵蓋它們。",
+    "context": {
+      "origin": "請求來源",
+      "approve": "審批通道",
+      "session": "工作階段",
+      "class": "能力類別",
+      "digest": "綁定摘要"
+    },
+    "approveFromValue": "webui（目前工作階段，已驗證）",
+    "approve": "核准",
+    "approveUnavailable": "核准（不可用）",
+    "deny": "拒絕",
+    "samePath": "這個請求來自你正在使用的通道。請從另一個已驗證通道核准它。一個被入侵的帳號不得同時提供兩半。",
+    "denyTerminal": "拒絕對這個工作階段是最終結果。在維運人員解除鎖定之前，代理無法再次請求。",
+    "approved": "你核准了這個操作。執行器正在執行它。",
+    "denied": "你拒絕了這個操作。這個拒絕對本工作階段是最終結果。",
+    "noAnswer": "閘道沒有回覆。這個操作仍在等待。",
+    "refusalOther": "執行器拒絕了這個回覆：{{error}}",
+    "refusal": {
+      "alreadyAnswered": "這個操作已經有回覆。一個操作只接受一個回覆。",
+      "digestMismatch": "你的回覆涵蓋的是其他位元組。請重新載入本頁，再讀一遍內容，然後回覆。",
+      "expired": "在你的回覆抵達之前這個操作已逾期。執行器已拒絕它。",
+      "noSecondPath": "只有一個已驗證通道。請新增第二個通道，或者宣告一條常設授權。",
+      "notAnApprover": "這個帳號不在 gates.approvers 中。請把它加入該清單，然後再回覆。",
+      "samePath": "這個請求來自你正在使用的通道。請從另一個已驗證通道回覆它。",
+      "unauthenticatedPath": "gates.approvalPaths 中沒有 webui，所以這個通道不驗證任何審批人。",
+      "unknownOriginPath": "請求沒有說明來源通道。執行器無法證明通道彼此獨立。",
+      "unknownRequest": "執行器沒有這個請求。它已逾期，或者已經有人回覆。"
     }
   }
 }

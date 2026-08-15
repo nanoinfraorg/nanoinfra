@@ -68,6 +68,8 @@
     "diagrams": "Diagrams",
     "infrastructure": "Infrastructure",
     "servers": "Servers",
+    "approvals": "Approvals",
+    "approvalsBadge": "Approvals waiting for an answer: {{count}}",
     "secrets": "Secrets",
     "skills": {
       "title": "Skills"
@@ -1538,6 +1540,51 @@
       "manualPlaceholder": "/Users/name/project",
       "usePath": "Use Path",
       "absolutePathRequired": "Enter an absolute folder path on this machine."
+    }
+  },
+  "approvals": {
+    "title": "Approvals",
+    "subtitle": "One human answer per action. The executor rendered every byte below.",
+    "pendingCount": "Pending: {{count}}",
+    "empty": "No action waits for an answer. Policy still refuses every action it refuses, so an empty inbox is not an open gate.",
+    "degraded": "The gateway cannot reach the executor. An action may wait, and this list cannot show it.",
+    "unavailable": "This gateway holds no approvals inbox. An approve decision waits for the deadline and then refuses.",
+    "timeLeft": "{{time}} left",
+    "expiresNote": "At zero the executor refuses this action. The agent gets no retry.",
+    "expired": "This action expired. The executor refused it.",
+    "hosts": "Hosts: {{count}}",
+    "from": "from {{path}}",
+    "payloadTitle": "Command and hosts, exactly as the executor will run them",
+    "payloadNote": "The executor produced this text. The agent did not describe it.",
+    "hostsTitle": "Resolved hosts: {{count}}",
+    "contextDivider": "The lines below are context. The digest does not cover them.",
+    "context": {
+      "origin": "Requested on",
+      "approve": "Approve from",
+      "session": "Session",
+      "class": "Capability class",
+      "digest": "Binding digest"
+    },
+    "approveFromValue": "webui (this session, authenticated)",
+    "approve": "Approve",
+    "approveUnavailable": "Approve (unavailable)",
+    "deny": "Deny",
+    "samePath": "This request came from the path you are on. Approve it from another authenticated path. One compromised account must not supply both halves.",
+    "denyTerminal": "A denial is terminal for this session. The agent cannot ask again until an operator clears the latch.",
+    "approved": "You approved this action. The executor runs it now.",
+    "denied": "You denied this action. The denial is terminal for this session.",
+    "noAnswer": "The gateway did not answer. The action still waits.",
+    "refusalOther": "The executor refused this answer: {{error}}",
+    "refusal": {
+      "alreadyAnswered": "This action already has an answer. One action takes one answer.",
+      "digestMismatch": "Your answer covers other bytes. Reload this page, read the payload again, then answer.",
+      "expired": "This action expired before your answer arrived. The executor refused it.",
+      "noSecondPath": "Only one authenticated path exists. Add a second path, or declare a standing grant.",
+      "notAnApprover": "This account is not in gates.approvers. Add it to that list, then answer again.",
+      "samePath": "This request came from the path you are on. Answer it from another authenticated path.",
+      "unauthenticatedPath": "gates.approvalPaths does not list webui, so this path authenticates no approver.",
+      "unknownOriginPath": "The request names no origin path. The executor cannot prove path independence.",
+      "unknownRequest": "The executor does not hold this request. It expired, or somebody answered it."
     }
   }
 }

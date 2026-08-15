@@ -71,6 +71,8 @@
     "diagrams": "인프라 다이어그램",
     "infrastructure": "인프라",
     "servers": "서버",
+    "approvals": "승인",
+    "approvalsBadge": "답변을 기다리는 승인: {{count}}",
     "secrets": "비밀"
   },
   "settings": {
@@ -1524,6 +1526,51 @@
       "manualPlaceholder": "/Users/name/project",
       "usePath": "경로 사용",
       "absolutePathRequired": "이 머신의 절대 폴더 경로를 입력하세요."
+    }
+  },
+  "approvals": {
+    "title": "승인",
+    "subtitle": "작업 하나에 사람의 답변 하나가 필요합니다. 아래의 모든 바이트는 실행기가 만들었습니다.",
+    "pendingCount": "대기 중: {{count}}",
+    "empty": "답변을 기다리는 작업이 없습니다. 정책은 거부할 작업을 계속 거부하므로, 받은 함이 비어 있어도 게이트가 열린 것은 아닙니다.",
+    "degraded": "게이트웨이가 실행기에 닿지 못합니다. 대기 중인 작업이 있어도 이 목록은 보여줄 수 없습니다.",
+    "unavailable": "이 게이트웨이에는 승인 받은 함이 없습니다. 승인 결정은 기한까지 기다린 뒤 거부됩니다.",
+    "timeLeft": "{{time}} 남음",
+    "expiresNote": "0이 되면 실행기가 이 작업을 거부합니다. 에이전트는 다시 시도할 수 없습니다.",
+    "expired": "이 작업은 기한이 지났습니다. 실행기가 거부했습니다.",
+    "hosts": "호스트: {{count}}",
+    "from": "{{path}} 에서",
+    "payloadTitle": "실행기가 실행할 그대로의 명령과 호스트",
+    "payloadNote": "이 텍스트는 실행기가 만들었습니다. 에이전트의 설명이 아닙니다.",
+    "hostsTitle": "확인된 호스트: {{count}}",
+    "contextDivider": "아래 줄은 참고 정보입니다. 다이제스트는 이를 포함하지 않습니다.",
+    "context": {
+      "origin": "요청 경로",
+      "approve": "승인 경로",
+      "session": "세션",
+      "class": "권한 등급",
+      "digest": "결속 다이제스트"
+    },
+    "approveFromValue": "webui (이 세션, 인증됨)",
+    "approve": "승인",
+    "approveUnavailable": "승인 (사용 불가)",
+    "deny": "거부",
+    "samePath": "이 요청은 지금 사용 중인 경로에서 왔습니다. 다른 인증된 경로에서 승인하세요. 탈취된 계정 하나가 두 절반을 모두 제공해서는 안 됩니다.",
+    "denyTerminal": "거부는 이 세션에서 최종입니다. 운영자가 잠금을 해제할 때까지 에이전트는 다시 요청할 수 없습니다.",
+    "approved": "이 작업을 승인했습니다. 실행기가 지금 실행합니다.",
+    "denied": "이 작업을 거부했습니다. 이 거부는 이 세션에서 최종입니다.",
+    "noAnswer": "게이트웨이가 답하지 않았습니다. 작업은 아직 기다립니다.",
+    "refusalOther": "실행기가 이 답변을 거부했습니다: {{error}}",
+    "refusal": {
+      "alreadyAnswered": "이 작업에는 이미 답변이 있습니다. 작업 하나에 답변 하나입니다.",
+      "digestMismatch": "이 답변은 다른 바이트를 다룹니다. 페이지를 새로 읽고 내용을 다시 확인한 뒤 답변하세요.",
+      "expired": "답변이 도착하기 전에 이 작업의 기한이 지났습니다. 실행기가 거부했습니다.",
+      "noSecondPath": "인증된 경로가 하나뿐입니다. 두 번째 경로를 추가하거나 상시 허가를 선언하세요.",
+      "notAnApprover": "이 계정은 gates.approvers 에 없습니다. 그 목록에 추가한 뒤 다시 답변하세요.",
+      "samePath": "이 요청은 지금 사용 중인 경로에서 왔습니다. 다른 인증된 경로에서 답변하세요.",
+      "unauthenticatedPath": "gates.approvalPaths 에 webui 가 없으므로 이 경로는 승인자를 인증하지 않습니다.",
+      "unknownOriginPath": "요청이 출발 경로를 밝히지 않습니다. 실행기는 경로 독립성을 증명할 수 없습니다.",
+      "unknownRequest": "실행기에 이 요청이 없습니다. 기한이 지났거나 누군가 답변했습니다."
     }
   }
 }

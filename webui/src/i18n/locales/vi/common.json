@@ -71,6 +71,8 @@
     "diagrams": "Sơ đồ hạ tầng",
     "infrastructure": "Hạ tầng",
     "servers": "Máy chủ",
+    "approvals": "Phê duyệt",
+    "approvalsBadge": "Phê duyệt đang chờ trả lời: {{count}}",
     "secrets": "Bí mật"
   },
   "settings": {
@@ -1524,6 +1526,51 @@
       "manualPlaceholder": "/Users/name/project",
       "usePath": "Dùng đường dẫn",
       "absolutePathRequired": "Nhập đường dẫn thư mục tuyệt đối trên máy này."
+    }
+  },
+  "approvals": {
+    "title": "Phê duyệt",
+    "subtitle": "Mỗi hành động cần một câu trả lời của con người. Bộ thực thi tạo ra từng byte bên dưới.",
+    "pendingCount": "Đang chờ: {{count}}",
+    "empty": "Không có hành động nào chờ trả lời. Chính sách vẫn từ chối những gì nó từ chối, nên hộp trống không có nghĩa là cổng đang mở.",
+    "degraded": "Gateway không tới được bộ thực thi. Một hành động có thể đang chờ, và danh sách này không thể hiển thị nó.",
+    "unavailable": "Gateway này không có hộp phê duyệt. Một quyết định cần phê duyệt sẽ chờ hết hạn rồi bị từ chối.",
+    "timeLeft": "còn {{time}}",
+    "expiresNote": "Khi về không, bộ thực thi từ chối hành động này. Tác nhân không được thử lại.",
+    "expired": "Hành động này đã hết hạn. Bộ thực thi đã từ chối nó.",
+    "hosts": "Máy chủ: {{count}}",
+    "from": "từ {{path}}",
+    "payloadTitle": "Câu lệnh và các máy chủ, đúng như bộ thực thi sẽ chạy",
+    "payloadNote": "Bộ thực thi tạo ra văn bản này. Tác nhân không mô tả nó.",
+    "hostsTitle": "Máy chủ đã phân giải: {{count}}",
+    "contextDivider": "Các dòng bên dưới là ngữ cảnh. Bản tóm lược không bao gồm chúng.",
+    "context": {
+      "origin": "Yêu cầu qua",
+      "approve": "Phê duyệt qua",
+      "session": "Phiên",
+      "class": "Lớp năng lực",
+      "digest": "Bản tóm lược ràng buộc"
+    },
+    "approveFromValue": "webui (phiên này, đã xác thực)",
+    "approve": "Phê duyệt",
+    "approveUnavailable": "Phê duyệt (không khả dụng)",
+    "deny": "Từ chối",
+    "samePath": "Yêu cầu này đến từ đường bạn đang dùng. Hãy phê duyệt qua một đường đã xác thực khác. Một tài khoản bị chiếm không được cấp cả hai nửa.",
+    "denyTerminal": "Một lần từ chối là quyết định cuối cho phiên này. Tác nhân không thể hỏi lại cho tới khi người vận hành mở chốt.",
+    "approved": "Bạn đã phê duyệt hành động này. Bộ thực thi đang chạy nó.",
+    "denied": "Bạn đã từ chối hành động này. Quyết định này là cuối cho phiên này.",
+    "noAnswer": "Gateway không trả lời. Hành động vẫn đang chờ.",
+    "refusalOther": "Bộ thực thi đã từ chối câu trả lời này: {{error}}",
+    "refusal": {
+      "alreadyAnswered": "Hành động này đã có câu trả lời. Mỗi hành động nhận một câu trả lời.",
+      "digestMismatch": "Câu trả lời của bạn bao gồm byte khác. Hãy tải lại trang, đọc lại nội dung, rồi trả lời.",
+      "expired": "Hành động này hết hạn trước khi câu trả lời tới. Bộ thực thi đã từ chối nó.",
+      "noSecondPath": "Chỉ có một đường đã xác thực. Hãy thêm đường thứ hai, hoặc khai báo một quyền thường trực.",
+      "notAnApprover": "Tài khoản này không có trong gates.approvers. Hãy thêm vào danh sách đó rồi trả lời lại.",
+      "samePath": "Yêu cầu này đến từ đường bạn đang dùng. Hãy trả lời qua một đường đã xác thực khác.",
+      "unauthenticatedPath": "gates.approvalPaths không liệt kê webui, nên đường này không xác thực người phê duyệt nào.",
+      "unknownOriginPath": "Yêu cầu không nêu đường gốc. Bộ thực thi không thể chứng minh tính độc lập của đường.",
+      "unknownRequest": "Bộ thực thi không giữ yêu cầu này. Nó đã hết hạn, hoặc có người đã trả lời."
     }
   }
 }

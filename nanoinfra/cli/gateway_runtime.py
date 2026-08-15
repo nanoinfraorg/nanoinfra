@@ -176,6 +176,64 @@ def _attach_audit_read_surface(channels: Any, audit: Any) -> None:
         )
 
 
+def _operator_client_for_gateway() -> Any:
+    """Build the client that answers on the executor's operator socket (#38).
+
+    The path derives from the execute socket, so one deployment variable places both. A
+    deployment that names ``NANOINFRA_OPERATOR_SOCKET`` wins, the way entrypoint.sh names it.
+
+    The client dials on demand and holds no connection, so the gateway builds it before the
+    executor listens. A read while the socket is absent reports a degraded inbox, which is the
+    answer an operator needs.
+    """
+    from nanoinfra.agent.tools.server_execution import default_socket_path
+    from nanoinfra.gates.executor.operator_socket import (
+        OperatorClient,
+        default_operator_socket_path,
+    )
+
+    return OperatorClient(default_operator_socket_path(default_socket_path()))
+
+
+def _attach_approvals_operator_surface(channels: Any, client: Any) -> None:
+    """Hand the operator inbox to the WebUI routes (#27).
+
+    An ``approve`` decision suspends the action inside the executor, and a human answers on a
+    second socket. Without this wiring every such action waits for the deadline and then refuses,
+    so the inbox is what makes an ``approve`` policy usable.
+
+    The client reaches one object: the HTTP handler that the WebSocket channel owns. It does not
+    reach the agent, and no module-level global holds it. The WebUI answers inside this process,
+    so the import graph is what keeps a tool away from this client.
+
+    A deployment with no WebUI channel gets no inbox. The gateway says so, because an approve
+    decision then has no answer path.
+    """
+    from nanoinfra.webui.approvals_api import ApprovalsOperatorSurface
+
+    surface = ApprovalsOperatorSurface(client=client)
+    registry = getattr(channels, "channels", None)
+    channel_map = cast("dict[str, Any]", registry) if isinstance(registry, dict) else {}
+    attached = 0
+    for channel in channel_map.values():
+        http = getattr(getattr(channel, "gateway", None), "http", None)
+        attach = getattr(http, "attach_approvals_surface", None)
+        if attach is None:
+            continue
+        attach(surface)
+        attached += 1
+    if attached:
+        logger.info(
+            "gates: the WebUI holds the inbox that answers a suspended action on {}",
+            getattr(client, "socket_path", "the operator socket"),
+        )
+    else:
+        logger.warning(
+            "gates: no WebUI channel is enabled, so no operator can answer a suspended action. "
+            "Every approve decision waits for gates.approvalTimeoutS and then refuses."
+        )
+
+
 def _start_fetcher_for_gateway(config: Any) -> "FetcherProcess | None":
     """Start the process that answers web_fetch and web_search (#19).
 
@@ -941,9 +999,11 @@ def _run_gateway(
         webui_default_llm_runtime=_webui_default_llm_runtime,
     )
 
-    # The operator surfaces of the gate (#28, #29). Both go to the WebUI HTTP routes only.
+    # The operator surfaces of the gate (#27, #28, #29). All three go to the WebUI HTTP routes
+    # only.
     _attach_latch_operator_surface(channels, latch_controller, gate_runtime.audit)
     _attach_audit_read_surface(channels, gate_runtime.audit)
+    _attach_approvals_operator_surface(channels, _operator_client_for_gateway())
 
     def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""

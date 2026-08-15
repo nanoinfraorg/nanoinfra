@@ -71,6 +71,8 @@
     "diagrams": "Diagrammes Infra",
     "infrastructure": "Infrastructure",
     "servers": "Serveurs",
+    "approvals": "Approbations",
+    "approvalsBadge": "Approbations en attente de réponse : {{count}}",
     "secrets": "Secrets"
   },
   "settings": {
@@ -1524,6 +1526,51 @@
       "manualPlaceholder": "/Users/name/project",
       "usePath": "Utiliser le chemin",
       "absolutePathRequired": "Saisissez un chemin absolu de dossier sur cette machine."
+    }
+  },
+  "approvals": {
+    "title": "Approbations",
+    "subtitle": "Une réponse humaine par action. L'exécuteur a produit chaque octet ci-dessous.",
+    "pendingCount": "En attente : {{count}}",
+    "empty": "Aucune action n'attend de réponse. La politique refuse toujours ce qu'elle refuse, donc une boîte vide n'est pas une porte ouverte.",
+    "degraded": "La passerelle n'atteint pas l'exécuteur. Une action peut attendre, et cette liste ne peut pas la montrer.",
+    "unavailable": "Cette passerelle n'a pas de boîte d'approbations. Une décision d'approbation attend le délai puis refuse.",
+    "timeLeft": "{{time}} restant",
+    "expiresNote": "À zéro, l'exécuteur refuse cette action. L'agent n'obtient aucun nouvel essai.",
+    "expired": "Cette action a expiré. L'exécuteur l'a refusée.",
+    "hosts": "Hôtes : {{count}}",
+    "from": "depuis {{path}}",
+    "payloadTitle": "La commande et les hôtes, exactement comme l'exécuteur les lancera",
+    "payloadNote": "L'exécuteur a produit ce texte. L'agent ne l'a pas décrit.",
+    "hostsTitle": "Hôtes résolus : {{count}}",
+    "contextDivider": "Les lignes ci-dessous sont du contexte. L'empreinte ne les couvre pas.",
+    "context": {
+      "origin": "Demandé sur",
+      "approve": "Approuver depuis",
+      "session": "Session",
+      "class": "Classe de capacité",
+      "digest": "Empreinte de liaison"
+    },
+    "approveFromValue": "webui (cette session, authentifiée)",
+    "approve": "Approuver",
+    "approveUnavailable": "Approuver (indisponible)",
+    "deny": "Refuser",
+    "samePath": "Cette demande vient du canal que vous utilisez. Approuvez-la depuis un autre canal authentifié. Un seul compte compromis ne doit pas fournir les deux moitiés.",
+    "denyTerminal": "Un refus est définitif pour cette session. L'agent ne peut plus demander avant qu'un opérateur lève le verrou.",
+    "approved": "Vous avez approuvé cette action. L'exécuteur la lance maintenant.",
+    "denied": "Vous avez refusé cette action. Le refus est définitif pour cette session.",
+    "noAnswer": "La passerelle n'a pas répondu. L'action attend toujours.",
+    "refusalOther": "L'exécuteur a refusé cette réponse : {{error}}",
+    "refusal": {
+      "alreadyAnswered": "Cette action a déjà une réponse. Une action accepte une seule réponse.",
+      "digestMismatch": "Votre réponse couvre d'autres octets. Rechargez cette page, relisez le contenu, puis répondez.",
+      "expired": "Cette action a expiré avant votre réponse. L'exécuteur l'a refusée.",
+      "noSecondPath": "Un seul canal authentifié existe. Ajoutez un second canal ou déclarez une autorisation permanente.",
+      "notAnApprover": "Ce compte n'est pas dans gates.approvers. Ajoutez-le à cette liste, puis répondez de nouveau.",
+      "samePath": "Cette demande vient du canal que vous utilisez. Répondez depuis un autre canal authentifié.",
+      "unauthenticatedPath": "gates.approvalPaths ne contient pas webui, donc ce canal n'authentifie aucun approbateur.",
+      "unknownOriginPath": "La demande ne nomme aucun canal d'origine. L'exécuteur ne peut pas prouver l'indépendance des canaux.",
+      "unknownRequest": "L'exécuteur n'a pas cette demande. Elle a expiré, ou quelqu'un y a répondu."
     }
   }
 }

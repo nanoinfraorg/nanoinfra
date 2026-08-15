@@ -8,6 +8,9 @@ import type {
   ChatSummary,
   CliAppsPayload,
   FilePreviewPayload,
+  GatesApprovalAnswer,
+  GatesApprovalAnswerValues,
+  GatesApprovalsPayload,
   GatesAuditPage,
   GatesAuditQuery,
   GatesLatchClearPayload,
@@ -81,6 +84,7 @@ const SECRET_VALUES_HEADER = "X-Nanoinfra-Secret-Values";
 const SERVER_VALUES_HEADER = "X-Nanoinfra-Server-Values";
 const GATES_VALUES_HEADER = "X-Nanoinfra-Gates-Values";
 const LATCH_VALUES_HEADER = "X-Nanoinfra-Latch-Values";
+const APPROVAL_VALUES_HEADER = "X-Nanoinfra-Approval-Values";
 
 export class ApiError extends Error {
   status: number;
@@ -1174,6 +1178,42 @@ export async function clearGatesLatch(
       method: "POST",
       headers: {
         [LATCH_VALUES_HEADER]: JSON.stringify(values),
+      },
+    },
+    DEFAULT_HTTP_TIMEOUT_MS,
+  );
+}
+
+/**
+ * The approvals inbox (nanoinfraorg/nanoinfra#27).
+ *
+ * The read carries the payload the executor rendered. The answer carries the digest of those
+ * bytes, so an approval covers what the operator read.
+ */
+export async function fetchGatesApprovals(
+  token: string,
+  base: string = "",
+): Promise<GatesApprovalsPayload> {
+  return request<GatesApprovalsPayload>(
+    `${base}/api/webui/gates/approvals`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function answerGatesApproval(
+  token: string,
+  values: GatesApprovalAnswerValues,
+  base: string = "",
+): Promise<GatesApprovalAnswer> {
+  return request<GatesApprovalAnswer>(
+    `${base}/api/webui/gates/approvals/answer`,
+    token,
+    {
+      method: "POST",
+      headers: {
+        [APPROVAL_VALUES_HEADER]: JSON.stringify(values),
       },
     },
     DEFAULT_HTTP_TIMEOUT_MS,

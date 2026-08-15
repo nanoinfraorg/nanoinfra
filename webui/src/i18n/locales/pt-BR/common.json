@@ -71,6 +71,8 @@
     "diagrams": "Diagramas de Infra",
     "infrastructure": "Infraestrutura",
     "servers": "Servidores",
+    "approvals": "Aprovações",
+    "approvalsBadge": "Aprovações à espera de resposta: {{count}}",
     "secrets": "Segredos"
   },
   "settings": {
@@ -1538,6 +1540,51 @@
       "manualPlaceholder": "/Users/nome/projeto",
       "usePath": "Usar caminho",
       "absolutePathRequired": "Informe um caminho absoluto de pasta nesta máquina."
+    }
+  },
+  "approvals": {
+    "title": "Aprovações",
+    "subtitle": "Uma resposta humana por ação. O executor gerou cada byte abaixo.",
+    "pendingCount": "Pendentes: {{count}}",
+    "empty": "Nenhuma ação aguarda resposta. A política continua recusando o que recusa, então uma caixa vazia não é um portão aberto.",
+    "degraded": "O gateway não alcança o executor. Uma ação pode estar em espera, e esta lista não consegue mostrá-la.",
+    "unavailable": "Este gateway não tem caixa de aprovações. Uma decisão de aprovação aguarda o prazo e depois recusa.",
+    "timeLeft": "faltam {{time}}",
+    "expiresNote": "Ao chegar a zero o executor recusa esta ação. O agente não recebe nova tentativa.",
+    "expired": "Esta ação expirou. O executor a recusou.",
+    "hosts": "Hosts: {{count}}",
+    "from": "de {{path}}",
+    "payloadTitle": "O comando e os hosts, exatamente como o executor vai rodar",
+    "payloadNote": "O executor gerou este texto. O agente não o descreveu.",
+    "hostsTitle": "Hosts resolvidos: {{count}}",
+    "contextDivider": "As linhas abaixo são contexto. O resumo não as cobre.",
+    "context": {
+      "origin": "Solicitado em",
+      "approve": "Aprovar por",
+      "session": "Sessão",
+      "class": "Classe de capacidade",
+      "digest": "Resumo vinculante"
+    },
+    "approveFromValue": "webui (esta sessão, autenticada)",
+    "approve": "Aprovar",
+    "approveUnavailable": "Aprovar (indisponível)",
+    "deny": "Recusar",
+    "samePath": "Este pedido chegou pelo caminho em que você está. Aprove por outro caminho autenticado. Uma conta comprometida não deve fornecer as duas metades.",
+    "denyTerminal": "Uma recusa é definitiva para esta sessão. O agente não pode pedir de novo até um operador liberar o bloqueio.",
+    "approved": "Você aprovou esta ação. O executor está rodando agora.",
+    "denied": "Você recusou esta ação. A recusa é definitiva para esta sessão.",
+    "noAnswer": "O gateway não respondeu. A ação continua em espera.",
+    "refusalOther": "O executor recusou esta resposta: {{error}}",
+    "refusal": {
+      "alreadyAnswered": "Esta ação já tem resposta. Uma ação aceita uma resposta.",
+      "digestMismatch": "Sua resposta cobre outros bytes. Recarregue esta página, leia o conteúdo de novo e responda.",
+      "expired": "Esta ação expirou antes da sua resposta. O executor a recusou.",
+      "noSecondPath": "Existe apenas um caminho autenticado. Acrescente um segundo caminho ou declare uma permissão permanente.",
+      "notAnApprover": "Esta conta não está em gates.approvers. Acrescente-a a essa lista e responda de novo.",
+      "samePath": "Este pedido chegou pelo caminho em que você está. Responda por outro caminho autenticado.",
+      "unauthenticatedPath": "gates.approvalPaths não lista webui, então este caminho não autentica nenhum aprovador.",
+      "unknownOriginPath": "O pedido não nomeia caminho de origem. O executor não consegue provar a independência de caminhos.",
+      "unknownRequest": "O executor não tem este pedido. Ele expirou, ou alguém já respondeu."
     }
   }
 }
