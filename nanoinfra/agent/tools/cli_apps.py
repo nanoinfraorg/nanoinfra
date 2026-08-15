@@ -59,6 +59,8 @@ class CliAppsToolConfig(Base):
 class CliAppsTool(Tool):
     """Run an installed CLI-Anything or public CLI app through a controlled argv subprocess."""
 
+    capability_class = "mutate.local"
+
     config_key = "cli_apps"
     _scopes = {"core", "subagent"}
 

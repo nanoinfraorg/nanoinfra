@@ -50,6 +50,8 @@ from nanoinfra.security.workspace_access import current_tool_workspace
 class MessageTool(Tool):
     """Tool to send messages to users on chat channels."""
 
+    capability_class = "mutate.local"
+
     def __init__(
         self,
         send_callback: Callable[[OutboundMessage], Awaitable[None]] | None = None,

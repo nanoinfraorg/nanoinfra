@@ -246,6 +246,9 @@ def _builtin_skill_read_path(path: str) -> Path | None:
 )
 class ReadFileTool(_FsTool):
     """Read file contents with optional line-based pagination."""
+
+    capability_class = "read"
+
     _scopes = {"core", "subagent", "memory"}
 
     _MAX_CHARS = 128_000
@@ -496,6 +499,9 @@ class ReadFileTool(_FsTool):
 )
 class WriteFileTool(_FsTool):
     """Write content to a file."""
+
+    capability_class = "mutate.local"
+
     _scopes = {"core", "subagent", "memory"}
 
     @property
@@ -830,6 +836,9 @@ def _find_match(content: str, old_text: str) -> tuple[str | None, int]:
 )
 class EditFileTool(_FsTool):
     """Edit a file by replacing text with fallback matching."""
+
+    capability_class = "mutate.local"
+
     _scopes = {"core", "subagent", "memory"}
 
     _MAX_EDIT_FILE_SIZE = 1024 * 1024 * 1024  # 1 GiB
@@ -1059,6 +1068,9 @@ class EditFileTool(_FsTool):
 )
 class ListDirTool(_FsTool):
     """List directory contents with optional recursion."""
+
+    capability_class = "read"
+
     _scopes = {"core", "subagent"}
 
     _DEFAULT_MAX = 200

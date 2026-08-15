@@ -209,6 +209,14 @@ class Tool(ABC):
     # still receives the real values for this call.
     sensitive_params: frozenset[str] = frozenset()
 
+    # Consequence class this tool's action falls under; see
+    # nanoinfra/agent/tools/capabilities.py for the vocabulary. ``None`` means
+    # "not declared", which capability_class_of() resolves to the most
+    # restrictive class rather than the most permissive one. Every shipped tool
+    # must declare one — tests/agent/tools/test_capabilities.py fails the build
+    # on any that does not.
+    capability_class: str | None = None
+
     @classmethod
     def config_cls(cls) -> type[BaseModel] | None:
         return None

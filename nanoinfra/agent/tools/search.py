@@ -124,6 +124,9 @@ class _SearchTool(_FsTool):
 
 class FindFilesTool(_SearchTool):
     """Find files by path fragment, glob, or type."""
+
+    capability_class = "read"
+
     _scopes = {"core", "subagent"}
 
     @property
@@ -281,6 +284,9 @@ class FindFilesTool(_SearchTool):
 
 class GrepTool(_SearchTool):
     """Search file contents using a regex-like pattern."""
+
+    capability_class = "read"
+
     _scopes = {"core", "subagent"}
 
     _MAX_RESULT_CHARS = 128_000

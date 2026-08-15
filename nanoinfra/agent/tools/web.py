@@ -293,6 +293,9 @@ def _normalize_volcengine_auth_level(value: Any) -> int | None:
 )
 class WebSearchTool(Tool):
     """Search the web using configured provider."""
+
+    capability_class = "read"
+
     _scopes = {"core", "subagent"}
 
     name = "web_search"  # pyright: ignore[reportIncompatibleMethodOverride, reportAssignmentType]
@@ -989,6 +992,9 @@ class WebSearchTool(Tool):
 )
 class WebFetchTool(Tool):
     """Fetch and extract content from a URL."""
+
+    capability_class = "read"
+
     _scopes = {"core", "subagent"}
 
     name = "web_fetch"  # pyright: ignore[reportIncompatibleMethodOverride, reportAssignmentType]

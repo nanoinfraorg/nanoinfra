@@ -18,6 +18,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from nanoinfra.agent.tools.base import Tool, ToolResult, tool_parameters
+from nanoinfra.agent.tools.capabilities import (
+    CREDENTIAL_ACCESS,
+    MUTATE_REMOTE,
+    command_digest,
+    record_observation,
+)
 from nanoinfra.agent.tools.schema import BooleanSchema, StringSchema, tool_parameters_schema
 from nanoinfra.secrets.store import SecretStore
 from nanoinfra.servers.execution.base import (
@@ -170,6 +176,8 @@ def _target_host(provider_id: str, config: dict[str, str]) -> str | None:
 class ExecuteOnServerTool(Tool):
     """Preview (default) or actually run a command/action on a Server."""
 
+    capability_class = "mutate.remote"
+
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
         workspace = Path(ctx.workspace)
@@ -239,6 +247,22 @@ class ExecuteOnServerTool(Tool):
         except ValueError:
             return ToolResult.error(f"Invalid timeout_s: {timeout_s!r} is not an integer.")
 
+        # Log-only in M1 (#3): record the decision the gate *would* make, and enforce
+        # nothing. Positioned after the refusals above -- those calls never reach a
+        # gate, so recording them would inflate the count an operator uses to size
+        # #8's breakage -- and before the dry_run branch, because a preview is still a
+        # mutate.remote call. Only the recorded decision distinguishes the two.
+        record_observation(
+            capability_class=MUTATE_REMOTE,
+            decision="preview" if dry_run else "would_gate",
+            tool=self.name,
+            server_id=server.id,
+            server_name=server.name,
+            provider_id=server.provider_id,
+            target=target_host,
+            command_digest=command_digest(command),
+        )
+
         if dry_run:
             validated = f" validated target={target_host!r}" if target_host else ""
             return (
@@ -261,6 +285,19 @@ class ExecuteOnServerTool(Tool):
                 return ToolResult.error(
                     f"Server {server.name!r} references secret {server.secret_ref!r}, which no longer exists."
                 )
+            # Emitted from the resolution site rather than inferred from the tool name:
+            # this is the only agent-reachable path to plaintext today (SecretStore's
+            # other consumers are WebUI operator routes), and one call both resolves the
+            # secret and uses it. That may not stay true. secret_ref is an opaque id.
+            record_observation(
+                capability_class=CREDENTIAL_ACCESS,
+                decision="would_gate",
+                tool=self.name,
+                server_id=server.id,
+                server_name=server.name,
+                secret_ref=server.secret_ref,
+                command_digest=command_digest(command),
+            )
 
         job = self.jobs.create(
             server_id=server.id, provider_id=server.provider_id, command=command, timeout_s=idle_timeout
