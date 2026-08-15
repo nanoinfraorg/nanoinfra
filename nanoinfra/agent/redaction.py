@@ -73,6 +73,20 @@ obeys them:
 The release note for this change must say one thing plainly. A turn whose
 reasoning held a stored secret value replays with no thinking block for that
 turn.
+
+**A runtime checkpoint scrubs on the same terms
+(nanoinfraorg/nanoinfra#51).** ``AgentRunner`` emits a checkpoint on every turn
+that runs a tool, and ``AgentLoop`` writes it into ``session.metadata``. That
+reaches the same ``sessions/*.jsonl`` file, one line before the message
+records, and no redactor sat on that second path. The payload holds the
+reasoning of the assistant message, the output of a completed tool, and the
+resolved arguments of a tool call the turn had not finished. So a turn the
+message path scrubbed correctly persisted the same plaintext one line earlier
+in the same file.
+
+``redact_checkpoint`` reuses the message functions rather than repeating them.
+One field then scrubs by one rule, and a shape #17 or #48 covers stays covered
+here on the day it changes there.
 """
 
 from __future__ import annotations
@@ -151,6 +165,13 @@ _THINKING_BLOCK_LITERAL_KEYS = frozenset(
 #: The key a withheld tool call keeps its marker under. Session history
 #: replays to a provider, so the arguments must stay parseable JSON.
 _WITHHELD_ARGUMENT_KEY = "withheld"
+
+#: The three keys of a runtime checkpoint that hold text a turn produced (#51).
+#: The rest of the payload is a phase name, an iteration number, and a model
+#: id, and none of those three can carry a credential value.
+_CHECKPOINT_MESSAGE_KEY = "assistant_message"
+_CHECKPOINT_TOOL_RESULTS_KEY = "completed_tool_results"
+_CHECKPOINT_TOOL_CALLS_KEY = "pending_tool_calls"
 
 # Characters a name may not contribute to a placeholder. A name that carries
 # a bracket or a newline could otherwise fake a second placeholder, or split
@@ -522,6 +543,58 @@ def redact_messages(
     ]
 
 
+def redact_checkpoint(
+    checkpoint: Mapping[str, Any],
+    scrub: ScrubText,
+    *,
+    capability_of: Callable[[str], str | None] | None = None,
+) -> dict[str, Any]:
+    """Return a persist-safe copy of one runtime checkpoint (#51).
+
+    Three keys hold text that a turn produced. The assistant message and each
+    completed tool result take ``redact_message``, and the pending tool calls
+    take the same argument scrub a message record uses. So the metadata line of
+    a session file and its message lines scrub by one rule.
+
+    The bound stays off (``max_tool_result_chars=None``). A bound belongs to the
+    message record, which the turn writes when it ends. A bound here would also
+    shorten a checkpoint that holds no secret, and #51 requires that such a
+    checkpoint keeps the bytes it has today.
+
+    The input is never mutated. The runner holds these same dicts in the message
+    list of a turn that is still running.
+    """
+    out = dict(checkpoint)
+    message = out.get(_CHECKPOINT_MESSAGE_KEY)
+    if isinstance(message, Mapping):
+        out[_CHECKPOINT_MESSAGE_KEY] = redact_message(
+            cast(Mapping[str, Any], message),
+            scrub,
+            capability_of=capability_of,
+            max_tool_result_chars=None,
+        )
+    results = out.get(_CHECKPOINT_TOOL_RESULTS_KEY)
+    if isinstance(results, list):
+        out[_CHECKPOINT_TOOL_RESULTS_KEY] = [
+            (
+                redact_message(
+                    cast(Mapping[str, Any], result),
+                    scrub,
+                    capability_of=capability_of,
+                    max_tool_result_chars=None,
+                )
+                if isinstance(result, Mapping)
+                else result
+            )
+            for result in cast(list[Any], results)
+        ]
+    if _CHECKPOINT_TOOL_CALLS_KEY in out:
+        out[_CHECKPOINT_TOOL_CALLS_KEY] = _redact_tool_calls(
+            out.get(_CHECKPOINT_TOOL_CALLS_KEY), scrub
+        )
+    return out
+
+
 # -- what a record holds when nobody scrubbed it ----------------------------
 
 
@@ -556,6 +629,39 @@ def withheld_mapping(values: Mapping[str, Any], reason: str) -> dict[str, Any]:
     """
     marker = withheld_text(reason)
     return {key: _withheld_any(value, marker) for key, value in values.items()}
+
+
+def withheld_checkpoint(checkpoint: Mapping[str, Any], reason: str) -> dict[str, Any]:
+    """Return a copy of one runtime checkpoint with its text withheld (#51).
+
+    The record keeps the keys the restore path reads: the phase, each tool call
+    id, and each tool name. The restore path needs every one of them to close an
+    interrupted turn, and none of them can hold a credential value.
+
+    The fields this touches are the fields ``redact_checkpoint`` touches. So a
+    withheld checkpoint covers what a scrubbed checkpoint would have covered.
+    """
+    out = dict(checkpoint)
+    message = out.get(_CHECKPOINT_MESSAGE_KEY)
+    if isinstance(message, Mapping):
+        out[_CHECKPOINT_MESSAGE_KEY] = withheld_message(
+            cast(Mapping[str, Any], message), reason
+        )
+    results = out.get(_CHECKPOINT_TOOL_RESULTS_KEY)
+    if isinstance(results, list):
+        out[_CHECKPOINT_TOOL_RESULTS_KEY] = [
+            (
+                withheld_message(cast(Mapping[str, Any], result), reason)
+                if isinstance(result, Mapping)
+                else result
+            )
+            for result in cast(list[Any], results)
+        ]
+    if _CHECKPOINT_TOOL_CALLS_KEY in out:
+        out[_CHECKPOINT_TOOL_CALLS_KEY] = _withheld_tool_calls(
+            out.get(_CHECKPOINT_TOOL_CALLS_KEY), withheld_text(reason)
+        )
+    return out
 
 
 def _withheld_any(value: Any, marker: str) -> Any:
@@ -764,6 +870,26 @@ class TranscriptRedactor:
             reason = self._reason(exc)
             return [withheld_message(message, reason) for message in listed]
 
+    def checkpoint(
+        self,
+        checkpoint: Mapping[str, Any],
+        *,
+        capability_of: Callable[[str], str | None] | None = None,
+    ) -> dict[str, Any]:
+        """Scrub one runtime checkpoint, or withhold every text it holds (#51).
+
+        One failure withholds the whole payload, which is the rule ``messages``
+        follows. A scrubber that answered nothing for one field will answer
+        nothing for the next, so a partial result would put a scrubbed field
+        beside an unscrubbed one inside one record.
+        """
+        try:
+            return redact_checkpoint(
+                checkpoint, self._scrub, capability_of=capability_of
+            )
+        except Exception as exc:  # noqa: BLE001 -- no scrub means no raw text persists
+            return withheld_checkpoint(checkpoint, self._reason(exc))
+
     @staticmethod
     def _reason(exc: BaseException) -> str:
         """The sentence a marker carries, and one log line for the operator."""
@@ -783,12 +909,14 @@ __all__ = [
     "ScrubText",
     "SecretSentinel",
     "TranscriptRedactor",
+    "redact_checkpoint",
     "redact_mapping",
     "redact_message",
     "redact_messages",
     "redact_text",
     "scrub_one_text",
     "usable_sentinels",
+    "withheld_checkpoint",
     "withheld_mapping",
     "withheld_message",
     "withheld_text",
