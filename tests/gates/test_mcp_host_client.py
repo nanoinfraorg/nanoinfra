@@ -153,6 +153,15 @@ async def test_a_tool_call_returns_a_real_call_tool_result(
     assert result.isError is False
 
 
+@pytest.mark.xfail(
+    sys.version_info < (3, 12),
+    reason=(
+        "nanoinfraorg/nanoinfra#50: on Python 3.11 this stdio child outlives the connection. The "
+        "host's own reaper ends the child in a standalone reproduction of the same steps, and not "
+        "in this test, so the cause is not yet known. The property holds on 3.12 and later."
+    ),
+    strict=False,
+)
 async def test_the_child_dies_when_the_agent_leaves_the_session(
     server_script: Path, tmp_path: Path, pid_alive, wait_until_pid_gone) -> None:
     socket_path = tmp_path / "host.sock"

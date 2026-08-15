@@ -617,3 +617,65 @@ async def test_a_resource_read_reaches_the_server(server_script: Path) -> None:
 
     assert answer.ok is False
     assert answer.error is not None
+
+
+def test_the_host_lists_its_own_children() -> None:
+    """The reaper reads procfs, so it must find a child this process really holds.
+
+    A stdio child is a direct child of the host process. The MCP SDK ends it on a clean teardown,
+    and a cancelled teardown skips that on some Python versions, so the host verifies the outcome
+    itself. This test pins the primitive that verification needs.
+    """
+    import subprocess
+    import sys
+
+    from nanoinfra.gates.mcp_host.server import _own_child_pids
+
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        assert child.pid in _own_child_pids()
+    finally:
+        child.kill()
+        child.wait(timeout=10)
+
+    assert child.pid not in _own_child_pids()
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_teardown_still_ends_the_child(tmp_path: Path, monkeypatch) -> None:
+    """The property #22 claims, held without the SDK's cooperation.
+
+    A close that cancels the owner task leaves the SDK teardown unfinished on Python 3.11, and the
+    stdio child then outlives the connection. CI caught it on the minimum version while the same
+    test passed on 3.13. So the host ends the child itself, and this test drives the cancelled path
+    on purpose.
+    """
+    from nanoinfra.gates.mcp_host import server as host_server
+
+    script = tmp_path / "server.py"
+    script.write_text(_SERVER_SCRIPT, encoding="utf-8")
+    settings = StdioServerSettings(
+        command=sys.executable, args=[str(script)], env=None, cwd=None, tool_timeout=10
+    )
+    session = host_server._StdioSession(server_name="slow", settings=settings)
+    await session.open()
+    # The session's own child, and never every child of this process. A full-suite run holds other
+    # children that other tests started, and those are not this test's business.
+    expected = set(session._children)
+    assert expected, "the session recorded no child, so this test would assert nothing"
+
+    # The close waits for the owner and cancels it when it is slow. A zero budget forces that path.
+    monkeypatch.setattr(host_server, "_CLOSE_TIMEOUT_S", 0.0)
+    await session.aclose()
+
+    # procfs lists a zombie until somebody reaps it, so the liveness check decides rather than the
+    # child list. A killed child that nothing reaped yet holds no pipe and runs no code.
+    def _still_running() -> set[int]:
+        return {pid for pid in expected if host_server._pid_is_live(pid)}
+
+    for _ in range(200):
+        if not _still_running():
+            break
+        await asyncio.sleep(0.05)
+
+    assert not _still_running(), "the stdio child outlived the close"

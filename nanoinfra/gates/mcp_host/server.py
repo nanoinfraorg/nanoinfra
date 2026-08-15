@@ -36,6 +36,8 @@ import asyncio
 import contextlib
 import os
 import shutil
+import signal
+import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
@@ -76,6 +78,11 @@ HOST_TIMEOUT_GRACE_S = 5.0
 # How long a close waits for the session owner before it cancels the task. A server that ignores
 # a shutdown must not hold the host, and the process group kill still ends the child.
 _CLOSE_TIMEOUT_S = 10.0
+
+# How long a stdio child may take to end after TERM, before the host sends KILL. The wait blocks
+# the event loop, because it must survive a cancellation, so it stays short. A server may flush on
+# TERM, and a server that ignores it must not outlive its connection.
+_CHILD_END_GRACE_S = 1.0
 
 _WINDOWS_SHELL_LAUNCHERS: frozenset[str] = frozenset(("npx", "npm", "pnpm", "yarn", "bunx"))
 
@@ -290,6 +297,82 @@ def _filter_progress_notifications(read_stream: Any, server_name: str) -> Any:
 # ----------------------------------------------------------------- one session
 
 
+def _own_child_pids() -> set[int]:
+    """Every direct child of this process, from procfs.
+
+    A stdio child is a direct child of the host, and the host needs the set to verify that a close
+    ended the one it started. procfs answers without a dependency, and a platform with no procfs
+    answers an empty set, which turns the verification below into a no-op rather than an error.
+    """
+    children: set[int] = set()
+    own = os.getpid()
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return children
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            status = Path(f"/proc/{entry}/status").read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for line in status.splitlines():
+            if line.startswith("PPid:"):
+                if line.split()[1] == str(own):
+                    children.add(int(entry))
+                break
+    return children
+
+
+def _end_child(pid: int) -> None:
+    """End one stdio child that a close left behind, and reap it.
+
+    The MCP SDK ends the child when its teardown runs to completion. A close that cancels the owner
+    task leaves that teardown unfinished on Python 3.11, and the child then outlives the connection.
+    CI caught that on the minimum version while the same test passed on 3.13.
+
+    **This function performs no await, and that is the point.** The close runs inside a `finally`,
+    and a `finally` that runs during a cancellation raises CancelledError at its first await. An
+    async reaper therefore never reached the kill on the path that needed it most. A blocking wait of
+    up to one second during a teardown costs less than a child that outlives its connection.
+
+    TERM first, because a server may flush on it. KILL after that, because a server that ignores
+    TERM must not outlive the connection it served.
+    """
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + _CHILD_END_GRACE_S
+    while time.monotonic() < deadline:
+        with contextlib.suppress(ChildProcessError, OSError):
+            os.waitpid(pid, os.WNOHANG)
+        if not _pid_is_live(pid):
+            return
+        time.sleep(0.02)
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.kill(pid, signal.SIGKILL)
+    with contextlib.suppress(ChildProcessError, OSError):
+        os.waitpid(pid, os.WNOHANG)
+
+
+def _pid_is_live(pid: int) -> bool:
+    """Report whether *pid* still runs, and count a zombie as gone.
+
+    A killed child answers signal 0 until somebody reaps it, so the state decides.
+    """
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return True
+    _, _, tail = stat.rpartition(")")
+    fields = tail.split()
+    return bool(fields) and fields[0] != "Z"
+
+
 class SessionTerminatedError(Exception):
     """The stdio MCP server ended, so this session can serve nothing more.
 
@@ -316,9 +399,12 @@ class _StdioSession:
         self._session: Any = None
         self._owner: asyncio.Task[None] | None = None
         self._close_requested = asyncio.Event()
+        # The children this session started, so a close can verify that each one ended (#22).
+        self._children: set[int] = set()
 
     async def open(self) -> None:
         """Start the child and initialize the MCP session, or raise what stopped it."""
+        before = _own_child_pids()
         ready: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         self._owner = asyncio.create_task(
             self._own_session(ready), name=f"mcp-host-session:{self.server_name}"
@@ -326,8 +412,10 @@ class _StdioSession:
         try:
             await ready
         except BaseException:
+            self._children = _own_child_pids() - before
             await self.aclose()
             raise
+        self._children = _own_child_pids() - before
 
     async def _own_session(self, ready: asyncio.Future[None]) -> None:
         """Hold the session open until a close is asked for."""
@@ -373,6 +461,16 @@ class _StdioSession:
         # exception nobody retrieved, because that logs noise the operator cannot act on.
         with contextlib.suppress(BaseException):
             await owner
+        # Verify the child, and never trust the teardown to have ended it. A cancelled teardown
+        # skips the SDK cleanup on Python 3.11, and the child then outlives the connection.
+        children = self._children
+        self._children = set()
+        for pid in children:
+            if _pid_is_live(pid):
+                logger.debug(
+                    "gates: mcp host ends child {} of '{}' itself", pid, self.server_name
+                )
+                _end_child(pid)
 
     async def act(self, request: HostRequest) -> dict[str, Any]:
         """Run one request against the session, and return the MCP result as JSON.
