@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from pydantic import AliasChoices, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from nanoinfra.config.gates import GatesConfig
 from nanoinfra.config_base import Base
 from nanoinfra.cron.types import CronSchedule
 
@@ -433,6 +434,7 @@ class Config(BaseSettings):
         serialization_alias="skillsMarketplace",
     )
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+    gates: GatesConfig = Field(default_factory=GatesConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     model_presets: dict[str, ModelPresetConfig] = Field(
         default_factory=dict,
