@@ -6,7 +6,44 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Literal, Mapping, TypeAlias, cast
 
+from nanoinfra.gates.executor.client import ExecutorUnavailableError
 from nanoinfra.runtime_context import public_history_messages
+
+# How an embedded agent reaches a server -- nanoinfraorg/nanoinfra#21.
+#
+# There are two modes and there is no third one. Either the SDK owns an executor process, or it
+# has no remote execution at all. An in-process transport would put a credential and a dialer
+# back beside the model, and the SDK would then be a supported way around #18.
+RemoteExecutionMode: TypeAlias = Literal["executor_process", "disabled"]
+
+REMOTE_EXECUTION_EXECUTOR_PROCESS: RemoteExecutionMode = "executor_process"
+REMOTE_EXECUTION_DISABLED: RemoteExecutionMode = "disabled"
+
+REMOTE_EXECUTION_MODES: tuple[RemoteExecutionMode, ...] = (
+    REMOTE_EXECUTION_EXECUTOR_PROCESS,
+    REMOTE_EXECUTION_DISABLED,
+)
+
+# What a caller reads when it asked for no executor and then asked to reach a server. The words
+# name the choice that removed the capability, and they name the one line that restores it. A
+# generic "not reachable" would send an operator to look for a process that nobody started.
+REMOTE_EXECUTION_DISABLED_MESSAGE = (
+    "this embedded agent has no executor process, because it was built with "
+    "remote_execution='disabled'. The SDK runs no remote command inside the caller's own "
+    "process: a model must not sit beside a transport or a credential. Build the instance "
+    "with Nanoinfra.from_config(remote_execution='executor_process') to get an executor "
+    "child, or send the work to a gateway that has one."
+)
+
+
+class RemoteExecutionUnavailableError(ExecutorUnavailableError):
+    """The SDK declined to start an executor, so this call reaches nothing.
+
+    It derives from ``ExecutorUnavailableError`` on purpose. The condition is the one that
+    class already names -- no executor answers -- so the tool renders it as a deployment fault
+    rather than as a refusal. The separate type lets a caller catch this exact cause.
+    """
+
 
 StreamEventType: TypeAlias = Literal[
     "run.started",
