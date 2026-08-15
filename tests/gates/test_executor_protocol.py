@@ -211,4 +211,6 @@ def test_a_response_carries_no_secret_field() -> None:
 
     assert "secret" not in fields
     assert "secret_value" not in fields
-    assert fields == {"ok", "output", "exit_code", "error", "reason"}
+    # `terminal` joined the shape in #42: the tool latches a terminal refusal alone, so a
+    # configuration gap no longer blocks a session that could never have passed.
+    assert fields == {"ok", "output", "exit_code", "error", "reason", "terminal"}

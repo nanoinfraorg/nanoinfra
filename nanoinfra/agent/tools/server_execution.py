@@ -194,6 +194,15 @@ class ExecuteOnServerTool(Tool):
                 f"Did not execute on {server_id_or_name!r}. {response.reason}\n"
                 f"{response.output}\n{PREVIEW_WITHHELD_NOTE}"
             )
+            if not response.terminal:
+                # A refusal about the deployment, and not about this action (#42). The latch would
+                # cost the operator a clear for their own config, and it would teach them to clear
+                # one without reading it. The action can run again once the deployment can answer.
+                return ToolResult.error(
+                    f"{text}\nThis refusal describes the deployment rather than this action, so "
+                    "the session is not blocked. The same action can run once the deployment can "
+                    "answer it."
+                )
             return self._deny(text, reason=response.reason)
 
         return (
