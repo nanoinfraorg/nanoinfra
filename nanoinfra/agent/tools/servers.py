@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from nanoinfra.agent.tools.base import Tool, ToolResult, tool_parameters
 from nanoinfra.agent.tools.capabilities import MUTATE_INVENTORY, record_observation
+from nanoinfra.agent.tools.context import current_request_execution_context
 from nanoinfra.agent.tools.schema import (
     ArraySchema,
     BooleanSchema,
@@ -24,8 +25,10 @@ from nanoinfra.agent.tools.schema import (
     StringSchema,
     tool_parameters_schema,
 )
+from nanoinfra.gates.policy import Outcome, evaluate, load_policy
 from nanoinfra.servers.lookup import resolve_server
 from nanoinfra.servers.normalize import ServerValidationError, normalize_server_input
+from nanoinfra.servers.scope import HOST
 from nanoinfra.servers.store import ServerStore
 
 if TYPE_CHECKING:
@@ -42,6 +45,36 @@ _CONFIG_SCHEMA = ObjectSchema(
     additional_properties={"type": "string"},
     nullable=True,
 )
+
+
+def _inventory_gate_refusal(tool: str, dry_run: bool) -> ToolResult | None:
+    """Ask the gate before an inventory write (#23). Return a refusal, or None to proceed.
+
+    An inventory write changes the meaning of every later remote action against that record,
+    so it carries its own class. update_server replaces ``config`` and ``secretRef`` in full,
+    which lets one write keep a name and repoint it at another address.
+
+    A preview writes nothing, so it never refuses. Refusing a preview would block reading and
+    teach an operator nothing.
+
+    Scope is not meaningful for an inventory record, so the call passes ``host``. Blast radius
+    describes how many hosts an action reaches, and this action reaches none: it edits a local
+    file. The consequence lands later, on whichever remote action uses the record.
+    """
+    if dry_run:
+        return None
+
+    decision = evaluate(
+        load_policy(),
+        capability_class=MUTATE_INVENTORY,
+        scope=HOST,
+        execution_context=current_request_execution_context(),
+        hosts=(),
+        command=tool,
+    )
+    if decision.outcome is Outcome.ALLOW:
+        return None
+    return ToolResult.error(f"Refusing {tool}. {decision.reason}")
 
 
 def _record_inventory_observation(tool: str, dry_run: bool, **fields: Any) -> None:
@@ -210,6 +243,9 @@ class CreateServerTool(Tool):
         except ServerValidationError as exc:
             return ToolResult.error(f"Invalid server payload: {exc}")
         _record_inventory_observation(self.name, dry_run, server_name=name, provider_id=providerId)
+        refusal = _inventory_gate_refusal(self.name, dry_run)
+        if refusal is not None:
+            return refusal
         if dry_run:
             return (
                 f"Preview (not created): name={name!r} providerId={providerId!r} config={config or {}}\n"
@@ -282,6 +318,9 @@ class UpdateServerTool(Tool):
         _record_inventory_observation(
             self.name, dry_run, server_id=server_id, server_name=name, provider_id=providerId
         )
+        refusal = _inventory_gate_refusal(self.name, dry_run)
+        if refusal is not None:
+            return refusal
         if dry_run:
             return (
                 f"Preview (not saved): {current.name!r} -> name={name!r} providerId={providerId!r}\n"
@@ -342,6 +381,9 @@ class DeleteServerTool(Tool):
             server_name=server.name,
             provider_id=server.provider_id,
         )
+        refusal = _inventory_gate_refusal(self.name, dry_run)
+        if refusal is not None:
+            return refusal
         if dry_run:
             return (
                 f"Preview (not deleted): {server.name!r} (provider={server.provider_id!r})\n"
