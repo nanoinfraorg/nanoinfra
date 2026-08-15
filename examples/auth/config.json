@@ -1,0 +1,36 @@
+{
+  "agents": {
+    "defaults": {
+      "model": "anthropic/claude-opus-4-8",
+      "provider": "auto"
+    }
+  },
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 18790
+  },
+  "channels": {
+    "websocket": {
+      "enabled": true,
+      "host": "0.0.0.0",
+      "port": 8765,
+      "publicWsUrl": "ws://127.0.0.1:4180/",
+      "trustedProxyAuth": {
+        "trustedPeerCidrs": ["10.89.0.3/32"],
+        "assertionHeader": "X-Nanoinfra-Assertion",
+        "assertionFormat": "jwt",
+        "issuer": "http://dex.localhost:5556/dex",
+        "audience": "nanoinfra-webui",
+        "jwksUrl": "http://dex:5556/dex/keys",
+        "identityClaim": "email",
+        "allowedIdentities": ["alberto@example.com"]
+      }
+    }
+  },
+  "gates": {
+    "approvers": [
+      { "channel": "webui", "sender": "webui:alberto@example.com" }
+    ],
+    "approvalPaths": ["webui"]
+  }
+}

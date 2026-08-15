@@ -1,0 +1,63 @@
+# Dex -- the identity provider of this example.
+#
+# Dex does two jobs. It signs the ID token, and it holds the user list. It
+# proxies nothing, so it cannot put a header on a request that travels to the
+# gateway. oauth2-proxy does that job. README.md says why two pieces is the
+# floor.
+#
+# Every secret in this file is a named placeholder. Replace each one.
+
+# The issuer is a string inside every token, and three parties read it. The
+# browser follows it to the login form. oauth2-proxy dials it for the discovery
+# document. The gateway compares it against the `iss` claim of the token. So this
+# one string appears in oauth2-proxy.alpha.yaml and in config.json as well, and a
+# change here is a change in both.
+#
+# `dex.localhost` works for a browser and for a container at the same time. A
+# browser resolves any `.localhost` name to loopback, where compose publishes
+# port 5556. Inside the network, Docker resolves the same name to this container.
+issuer: http://dex.localhost:5556/dex
+
+storage:
+  # No database, and no second store. The signing key lives in memory, so a
+  # restart of Dex rotates it. The gateway then reads a token with a `kid` it does
+  # not know, refreshes the JWKS once, and recovers with no restart of its own.
+  # A deployment that wants a token to survive a restart uses `sqlite3` or
+  # `postgres` here.
+  type: memory
+
+web:
+  # 0.0.0.0 inside the container. A container's own loopback answers nothing from
+  # outside it, and compose publishes this port to host loopback only.
+  http: 0.0.0.0:5556
+
+oauth2:
+  # One client and one connector, so the approval screen asks a question with one
+  # answer.
+  skipApprovalScreen: true
+
+staticClients:
+  - id: nanoinfra-webui
+    name: nanoinfra WebUI
+    # A named placeholder. oauth2-proxy.alpha.yaml carries the same value under
+    # `clientSecret`, and the two must match. Replace both.
+    secret: REPLACE-ME-dex-client-secret
+    redirectURIs:
+      # The address the browser reaches oauth2-proxy on. Dex refuses every other
+      # address, so an authorization code cannot be redeemed somewhere else.
+      - http://127.0.0.1:4180/oauth2/callback
+
+# The user list is entries in this file, and nothing else stores it. That is the
+# feature: this example needs no database.
+enablePasswordDB: true
+staticPasswords:
+  - email: alberto@example.com
+    username: alberto
+    # A stable id for this person. Dex builds the `sub` claim from this value and
+    # the connector name, so `sub` is opaque. `email` is the readable claim, and
+    # config.json reads `email` for that reason.
+    userID: "11111111-1111-1111-1111-111111111111"
+    # A named placeholder in bcrypt shape. No password produces this hash, so
+    # nobody logs in until you replace it. README.md holds the command that
+    # generates a real one.
+    hash: "$2y$10$REPLACEMEREPLACEMEREPLREPLACEMEREPLACEMEREPLACEMEREPL"

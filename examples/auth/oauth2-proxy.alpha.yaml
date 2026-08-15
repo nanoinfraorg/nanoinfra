@@ -1,0 +1,70 @@
+# oauth2-proxy -- the listen address, the upstream, the provider, and the one
+# header this stack exists to produce.
+#
+# oauth2-proxy calls this file format alpha, and it is the only place that names a
+# request header of our own choice. A version bump of the image therefore needs a
+# read of this file against that version's documentation.
+#
+# The secret here is a named placeholder. Replace it.
+
+server:
+  # 0.0.0.0 inside the container. A container's own loopback answers nothing from
+  # outside it, and compose publishes this port to host loopback only.
+  BindAddress: 0.0.0.0:4180
+
+injectRequestHeaders:
+  # This list is the whole set of headers oauth2-proxy writes to the upstream, so
+  # the gateway sees the ones named here and no others.
+  #
+  # `Authorization` is absent on purpose. The gateway's routes already read an API
+  # token from that header. One header with two meanings is how a token and an
+  # assertion start to overwrite each other.
+  - name: X-Nanoinfra-Assertion
+    values:
+      # The ID token itself, and not a claim out of it. A claim arrives as a
+      # string that the gateway can only trust. A token arrives with a signature
+      # that the gateway verifies against the Dex JWKS.
+      #
+      # No prefix. Cloudflare Access puts a bare token in its own header, and the
+      # gateway reads both providers the same way.
+      - claim: id_token
+
+upstreamConfig:
+  upstreams:
+    - id: nanoinfra-gateway
+      path: /
+      # The compose service name and the WebSocket channel port. This address
+      # exists on the internal network only, and compose publishes it nowhere.
+      uri: http://nanoinfra-gateway:8765
+      # The WebUI opens a WebSocket on the same port, so the proxy upgrades the
+      # connection instead of answering it.
+      proxyWebSockets: true
+
+providers:
+  - id: dex
+    provider: oidc
+    # dex.yaml names the same id under `staticClients`. config.json names it again
+    # as `audience`, because Dex writes the client id into the `aud` claim and the
+    # gateway checks that claim.
+    clientID: nanoinfra-webui
+    # A named placeholder. dex.yaml carries the same value under `secret`, and the
+    # two must match. Replace both.
+    clientSecret: REPLACE-ME-dex-client-secret
+    # `openid` for the ID token, `email` for the claim that names the person.
+    scope: "openid email profile"
+    # PKCE. The proxy proves at the token endpoint that it started the flow, so a
+    # stolen authorization code buys nobody a token. Dex offers `S256`, and this
+    # key is snake_case where its neighbours are not.
+    code_challenge_method: S256
+    oidcConfig:
+      # oauth2-proxy reads the discovery document under this URL, so no endpoint
+      # is written by hand here. dex.yaml and config.json carry the same string.
+      issuerURL: http://dex.localhost:5556/dex
+      # The claim that names the person, written out rather than left to a
+      # default. config.json reads the same claim, and the two must agree, or the
+      # proxy admits a person the gateway then refuses.
+      emailClaim: email
+      userIDClaim: email
+      # Where oauth2-proxy looks for the audience of the token. Dex writes the
+      # client id into `aud`.
+      audienceClaims: ["aud"]
