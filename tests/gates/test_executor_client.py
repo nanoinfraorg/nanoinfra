@@ -239,6 +239,101 @@ def test_the_request_carries_the_channel_that_raised_it(tmp_path: Path) -> None:
     assert seen == ["telegram"]
 
 
+def test_the_request_carries_the_person_the_channel_authenticated(tmp_path: Path) -> None:
+    """#47 item 10: the origin identity comes from the bound context, like the origin path.
+
+    A tool argument would let the model name any person, and identity independence would then
+    rest on a value the model wrote. The channel adapter authenticated the sender, so the
+    adapter is the only source.
+    """
+    socket_path = tmp_path / "exec.sock"
+    seen: list[tuple[str | None, str | None]] = []
+
+    ready = threading.Event()
+
+    def serve() -> None:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(str(socket_path))
+            server.listen(1)
+            ready.set()
+            conn, _ = server.accept()
+            with conn:
+                request = decode_request(read_frame(conn))
+                seen.append((request.origin_path, request.origin_actor))
+                write_frame(
+                    conn,
+                    encode_response(
+                        ExecuteResponse(ok=True, output="", exit_code=0, error=None, reason="")
+                    ),
+                )
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    _wait_for_listen(ready)
+
+    context = RequestContext(
+        channel="telegram", chat_id="c1", session_key="s1", sender_id="12345"
+    )
+    with request_context(context):
+        ExecutorClient(socket_path).execute(
+            server_id_or_name="prod-web-01",
+            command="uptime",
+            session_id="s1",
+            execution_context="interactive",
+            preview_requested=False,
+            timeout_s=None,
+        )
+    thread.join(timeout=10)
+
+    assert seen == [("telegram", "12345")]
+
+
+def test_a_context_with_no_sender_names_no_person(tmp_path: Path) -> None:
+    """A channel that authenticated nobody asserts nobody.
+
+    The value is null and never the empty string. #13 reads null as "unknown", and it falls back
+    to the path rule alone rather than treating the absence as a person who differs from every
+    approver.
+    """
+    socket_path = tmp_path / "exec.sock"
+    seen: list[str | None] = []
+
+    ready = threading.Event()
+
+    def serve() -> None:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(str(socket_path))
+            server.listen(1)
+            ready.set()
+            conn, _ = server.accept()
+            with conn:
+                seen.append(decode_request(read_frame(conn)).origin_actor)
+                write_frame(
+                    conn,
+                    encode_response(
+                        ExecuteResponse(ok=True, output="", exit_code=0, error=None, reason="")
+                    ),
+                )
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    _wait_for_listen(ready)
+
+    context = RequestContext(channel="telegram", chat_id="c1", session_key="s1", sender_id="  ")
+    with request_context(context):
+        ExecutorClient(socket_path).execute(
+            server_id_or_name="prod-web-01",
+            command="uptime",
+            session_id="s1",
+            execution_context="interactive",
+            preview_requested=False,
+            timeout_s=None,
+        )
+    thread.join(timeout=10)
+
+    assert seen == [None]
+
+
 def test_a_request_with_no_bound_context_names_no_path(tmp_path: Path) -> None:
     """Fail closed. No bound context proves nothing about the transport that raised the turn."""
     socket_path = tmp_path / "exec.sock"

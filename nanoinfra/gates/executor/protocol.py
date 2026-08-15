@@ -22,9 +22,19 @@ that without the path the request arrived on. So the field is mandatory, and a v
 gets a refusal. An agent that does not state its path must not execute. The client and the
 server ship together in one package, so no rolling deploy needs the older frame.
 
+**Version 3 carries the origin identity (#47, item 10).** ``gates.identityIndependence`` lets a
+second person on one path replace a second path, and that rule needs the person the origin path
+authenticated. The field set changed, so the version rose. A version 2 frame gets a refusal
+rather than a default, because this side would otherwise read the absent field as "no identity",
+which is a value #13 accepts, and the frame would execute on a fact the peer never sent.
+
 The executor treats ``origin_path`` as the agent's assertion about itself. A compromised agent
 can state any path. That is why the *answer* arrives on a separate socket the executor owns,
 and why the approver set lives in git-reviewed config rather than in a reachability list.
+``origin_actor`` inherits that trust model exactly: a compromised agent can claim that the
+request came from another person. ``gates.identityIndependence`` therefore defaults to false,
+and ``nanoinfra/gates/approvals.py`` states what a deployment gives up when it turns the flag
+on.
 """
 
 from __future__ import annotations
@@ -35,7 +45,7 @@ import struct
 from dataclasses import asdict, dataclass, fields
 from typing import Any, cast
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 
 # A peer controls the length prefix, so the reader caps it. 8 MiB is far above a command and
 # far below a memory problem. Output is bounded separately by truncate_output.
@@ -64,6 +74,12 @@ class ExecuteRequest:
     ``Approver.channel``. #13 refuses an approval that arrives on this same path, so the field
     is what makes path independence checkable. The wire requires it, and the default here
     serves in-process construction only, where a missing path fails closed at the gate.
+
+    ``origin_actor`` names the person that path authenticated, in the vocabulary of
+    ``Approver.sender``. ``gates.identityIndependence`` reads it (#47, item 11). ``None`` means
+    the channel authenticated nobody, and it is never a wildcard that matches every person: #13
+    falls back to the path rule alone for that case. ``None`` and the empty string are different
+    facts on this wire, so a channel with no sender sends null rather than empty text.
     """
 
     server_id_or_name: str
@@ -74,6 +90,7 @@ class ExecuteRequest:
     timeout_s: str | None
     token_nonce: str | None
     origin_path: str | None = None
+    origin_actor: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

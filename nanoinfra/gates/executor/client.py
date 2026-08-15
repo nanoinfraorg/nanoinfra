@@ -15,6 +15,11 @@ request context, which the channel adapter set. A parameter would let a caller b
 name any path, and the binding between the identity and the transport would go. An unbound
 context yields no path, which fails closed at the gate.
 
+**The origin identity is not a parameter either (#47, item 10).** It comes from the same bound
+context, and for the same reason. The channel adapter authenticated the sender, so the adapter
+is the only honest source. A keyword on ``execute`` would also break the SDK stand-in of #21,
+which mirrors this signature.
+
 The call also blocks for as long as an operator takes to answer. The executor holds the
 deadline, so this side sets no read timeout past the connect. See
 ``nanoinfra/gates/pending.py`` for the four reasons the wait blocks rather than polls.
@@ -82,6 +87,7 @@ class ExecutorClient:
             timeout_s=timeout_s,
             token_nonce=token_nonce,
             origin_path=_origin_path(),
+            origin_actor=_origin_actor(),
         )
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
@@ -112,6 +118,23 @@ def _origin_path() -> str | None:
         return None
     channel = context.channel.strip()
     return channel or None
+
+
+def _origin_actor() -> str | None:
+    """Return the person the channel authenticated for this turn, or None.
+
+    The value is the channel's own sender id, which is the vocabulary ``gates.approvers`` uses.
+    A channel that authenticated nobody, and an unbound context, both answer None. None is not
+    the empty string here: #13 reads None as "unknown" and falls back to the path rule alone,
+    and empty text would read as a name.
+    """
+    from nanoinfra.agent.tools.context import current_request_context
+
+    context = current_request_context()
+    if context is None:
+        return None
+    sender = (context.sender_id or "").strip()
+    return sender or None
 
 
 __all__ = ["DEFAULT_CONNECT_TIMEOUT_S", "ExecutorClient", "ExecutorUnavailableError"]

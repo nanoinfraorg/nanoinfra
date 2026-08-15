@@ -11,6 +11,11 @@ Item 36 (#38) took the version to 2 and added ``origin_path``. #13 cannot judge 
 independence without the origin, so a version 1 frame gets a refusal. An agent that does not
 state its path must not execute. The client and the server ship together, so no rolling deploy
 depends on the older frame.
+
+Item 10 (#47) took the version to 3 and added ``origin_actor``. The field set changed, so the
+version rises. The executor treats both origin fields as the agent's assertion about itself, and
+an absent identity travels as null rather than as an empty string, because #13 must be able to
+tell "no identity" from a person named by the empty text.
 """
 
 from __future__ import annotations
@@ -43,6 +48,7 @@ def _request(**over: object) -> ExecuteRequest:
         "timeout_s": None,
         "token_nonce": None,
         "origin_path": "telegram",
+        "origin_actor": "12345",
     }
     fields.update(over)
     return ExecuteRequest(**fields)  # pyright: ignore[reportArgumentType]
@@ -76,10 +82,11 @@ def test_a_request_carries_no_free_form_field() -> None:
         "timeout_s",
         "token_nonce",
         "origin_path",
+        "origin_actor",
     }
 
 
-def test_the_version_is_two_and_a_version_one_frame_is_refused() -> None:
+def test_the_version_is_three_and_a_version_one_frame_is_refused() -> None:
     """#38 needs the origin path, so the older frame cannot describe a request any more.
 
     A version 1 peer states no path. #13 cannot prove path independence for it, so the frame
@@ -88,8 +95,24 @@ def test_the_version_is_two_and_a_version_one_frame_is_refused() -> None:
     payload = json.loads(encode_request(_request()))
     payload["v"] = 1
     del payload["origin_path"]
+    del payload["origin_actor"]
 
-    assert PROTOCOL_VERSION == 2
+    assert PROTOCOL_VERSION == 3
+    with pytest.raises(ProtocolError):
+        decode_request(json.dumps(payload).encode())
+
+
+def test_a_version_two_frame_is_refused_rather_than_read_as_an_unknown_identity() -> None:
+    """The field set changed, so the version changed (#47, item 10).
+
+    A version 2 frame carries no ``origin_actor``. This side could read the absence as "no
+    identity", which is a value #13 accepts, so the frame would execute. That is the guess this
+    wire refuses: a peer that shares the version must share the field set exactly.
+    """
+    payload = json.loads(encode_request(_request()))
+    payload["v"] = 2
+    del payload["origin_actor"]
+
     with pytest.raises(ProtocolError):
         decode_request(json.dumps(payload).encode())
 
@@ -103,11 +126,43 @@ def test_a_version_two_frame_without_the_origin_path_is_refused() -> None:
         decode_request(json.dumps(payload).encode())
 
 
+def test_a_frame_without_the_origin_actor_is_refused() -> None:
+    """The field is mandatory on the wire, the same as the origin path.
+
+    A default on this side would mean two peers disagreed about one frame, and the executor
+    would then judge identity independence from a value the agent never sent.
+    """
+    payload = json.loads(encode_request(_request()))
+    del payload["origin_actor"]
+
+    with pytest.raises(ProtocolError):
+        decode_request(json.dumps(payload).encode())
+
+
 def test_the_origin_path_survives_the_round_trip() -> None:
     """The executor reads this field to judge path independence, so it must arrive intact."""
     request = _request(origin_path="webui")
 
     assert decode_request(encode_request(request)).origin_path == "webui"
+
+
+def test_the_origin_actor_survives_the_round_trip() -> None:
+    """The executor reads this field to judge identity independence (#47, item 11)."""
+    request = _request(origin_actor="webui:alberto@example.com")
+
+    assert decode_request(encode_request(request)).origin_actor == "webui:alberto@example.com"
+
+
+def test_an_absent_origin_identity_travels_as_null_and_never_as_empty_text() -> None:
+    """"No identity" and "a person whose name is the empty string" are different facts.
+
+    #13 falls back to the path rule alone for the first one. An empty string on the wire would
+    read as a name, and a name that matches nothing is not the same as a missing value.
+    """
+    payload = json.loads(encode_request(_request(origin_actor=None)))
+
+    assert payload["origin_actor"] is None
+    assert decode_request(encode_request(_request(origin_actor=None))).origin_actor is None
 
 
 def test_an_unknown_field_is_refused() -> None:

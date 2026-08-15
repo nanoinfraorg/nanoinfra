@@ -306,7 +306,13 @@ class Executor:
                 "So no token could cover this action.",
             )
 
-        feasibility = approval_feasible(gates=gates, origin_path=request.origin_path or "")
+        feasibility = approval_feasible(
+            gates=gates,
+            origin_path=request.origin_path or "",
+            # The agent's assertion about the person who raised the turn. It can only widen who
+            # may answer, and only behind gates.identityIndependence.
+            origin_actor=request.origin_actor or "",
+        )
         if not feasibility.ok:
             # A configuration gap, and not an answer about this action. So it does not latch, and
             # the message names the fix that suits each case (#42).
@@ -352,6 +358,7 @@ class Executor:
         approval = pending.create(
             session_id=session_id,
             origin_path=(request.origin_path or "").strip(),
+            origin_actor=(request.origin_actor or "").strip(),
             execution_context=request.execution_context,
             capability_class=MUTATE_REMOTE,
             scope=prompt.scope or getattr(resolution, "scope", ""),

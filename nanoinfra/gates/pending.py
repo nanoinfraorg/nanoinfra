@@ -83,6 +83,11 @@ class PendingApproval:
 
     ``command`` and ``hosts`` are the resolver's output. They stay here because the executor
     runs the command after the answer, and because #12 binds the digest to both.
+
+    ``origin_actor`` names the person the origin path authenticated, and it is blank when the
+    channel authenticated nobody. ``gates.identityIndependence`` reads it when an answer arrives
+    (#47, item 11). The field sits last because a dataclass takes its defaults last, and every
+    caller passes it by keyword.
     """
 
     request_id: str
@@ -97,6 +102,7 @@ class PendingApproval:
     target_digest: str
     created_at: float
     expires_at: float
+    origin_actor: str = ""
 
     @property
     def host_count(self) -> int:
@@ -155,11 +161,15 @@ class PendingApprovalStore:
         payload: str,
         target_digest: str,
         timeout_s: float,
+        origin_actor: str = "",
     ) -> PendingApproval:
         """Register one suspended action and return its record.
 
         ``timeout_s`` is the whole window a human gets. The executor reads it from
         ``gates.approvalTimeoutS``, so an operator owns the length of the wait.
+
+        ``origin_actor`` defaults to blank, which reads as "the channel authenticated nobody".
+        That is the fail-closed value: #13 then judges the answer by the path rule alone.
         """
         if timeout_s <= 0.0:
             raise ValueError("a pending approval needs a positive timeout")
@@ -168,6 +178,7 @@ class PendingApprovalStore:
             request_id=uuid.uuid4().hex,
             session_id=session_id,
             origin_path=origin_path,
+            origin_actor=origin_actor,
             execution_context=execution_context,
             capability_class=capability_class,
             scope=scope,

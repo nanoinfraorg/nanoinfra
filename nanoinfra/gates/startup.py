@@ -15,6 +15,11 @@ needs that difference.
 The line carries the confinement of the helper processes as well (#20). A sandbox is a
 control, so the checklist an operator reads must report it. A host without Landlock
 support reads the absence just as plainly, because silence would read as a guarantee.
+
+The line also names the identity posture when an operator turned ``gates.identityIndependence``
+on (#47, item 11). That flag trades a security property for a workflow, so the deployment reads
+what it gave up at every start. The default reads nothing, because a line about every default
+teaches nobody to read one.
 """
 
 from __future__ import annotations
@@ -28,6 +33,16 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 _DEFAULTS = GatesConfig()
+
+# What an operator reads when identity independence is on (#47, item 11). The sentence names the
+# property the deployment gave up, in the words of the proposal, because the flag is the one gate
+# setting that trades a security property for a workflow. A deployment that left it off reads
+# nothing, since a line about every default teaches nobody to read one.
+_IDENTITY_INDEPENDENCE_POSTURE = (
+    "gates.identityIndependence is on, so a different person on the request origin path may "
+    "approve. The origin identity is an assertion of the agent, so this deployment gives up the "
+    "property that one compromised account cannot hold both halves"
+)
 
 
 def _unattended_is_default(gates: GatesConfig) -> bool:
@@ -53,7 +68,10 @@ def policy_summary(gates: GatesConfig) -> str:
     else:
         grants = f"{count} standing grant" + ("s" if count != 1 else "")
     origin = " (shipped defaults, no gates policy in config)" if _unattended_is_default(gates) else ""
-    return f"gates: unattended {', '.join(parts)}, {grants}{origin}. {support_summary()}"
+    line = f"gates: unattended {', '.join(parts)}, {grants}{origin}. {support_summary()}"
+    if gates.identity_independence:
+        line += f" {_IDENTITY_INDEPENDENCE_POSTURE}."
+    return line
 
 
 def refused_automation_warning(

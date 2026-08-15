@@ -124,6 +124,21 @@ class Approver(Base):
 
     Membership in a channel's ``allowFrom``, or in the pairing store, grants nothing. This
     list is the only source of approval authority, and no chat message may add to it.
+
+    ``sender`` is one opaque token, and the gate compares the whole string (#47, item 9). Three
+    shapes arrive in practice, and the list takes all three with no new syntax:
+
+    - a chat sender id, such as a Telegram numeric account id;
+    - ``webui``, which is the actor of a deployment that authenticates a shared token and no
+      person;
+    - ``webui:<claim>``, which is the person a trusted proxy asserted.
+
+    The prefix on the third shape is not decoration. It keeps the path inside the identity, so
+    an audit record says which path authenticated the person, and a chat sender of the same
+    text cannot read as the same person. The gate never splits the value, so a list that names
+    ``webui`` grants nothing to ``webui:alberto@example.com`` and the reverse holds too.
+
+    A blank value names nobody, and the gate matches nobody against it.
     """
 
     model_config = _FORBID_EXTRA
@@ -166,6 +181,21 @@ class GatesConfig(Base):
     # path also means no runtime approval path for an unusual action, which #13 reports as a
     # named refusal. Entries use the same vocabulary as ``Approver.channel``.
     approval_paths: list[str] = Field(default_factory=lambda: ["webui"])
+    # Whether a second person on one path may replace a second path (#47, item 11). #13 compares
+    # path strings, so two people behind one proxy are one path and neither can answer the
+    # other's request. With real identities that is the wrong answer, and this flag changes it.
+    #
+    # The default is false, and the reason is not caution. The origin identity is an assertion of
+    # the agent: nanoinfra/gates/executor/protocol.py already says that about the origin path,
+    # and origin_actor inherits it exactly. So a compromised agent can claim that the request
+    # came from another person, and one genuine human approval then substitutes for two
+    # authenticated paths. The human still reads the command and the host list that the executor
+    # rendered, which stays the real protection. But the deployment gives up the property that
+    # one compromised account cannot hold both halves.
+    #
+    # An operator who accepts that trade turns the flag on, and #8 echoes the posture at start.
+    # nanoinfra/gates/approvals.py holds the rule itself.
+    identity_independence: bool = False
     # How long one suspended action waits for a human (#38). The executor holds the action on
     # its socket for this long, and then it refuses.
     #
