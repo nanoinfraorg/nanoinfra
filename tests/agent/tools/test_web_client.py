@@ -21,7 +21,6 @@ from __future__ import annotations
 import ast
 import socket
 import threading
-import time
 from pathlib import Path
 from typing import Any
 
@@ -86,12 +85,28 @@ def _reply(**over: Any) -> FetchResponse:
 def _serve_once(
     socket_path: Path, reply: FetchResponse, received: list[Any]
 ) -> threading.Thread:
-    """Answer one request with *reply*, and record the request the tool sent."""
+    """Answer one request with *reply*, and record the request the tool sent.
+
+    The server says when it listens, and this helper never waits for the socket file. ``bind()``
+    creates that file and ``listen()`` accepts a peer after it, so a wait on the path returned
+    inside the gap and the tool's own connect then failed with ``ConnectionRefusedError``. The
+    Python 3.11 CI job found it, in two tests of this file.
+
+    A retrying connect is the answer where the test dials the socket. It cannot be the answer here,
+    because the code under test owns the connect: the tool holds a ``FetcherClient``, and a client
+    that retried a refused connection would hide the deployment fault that
+    ``test_an_unreachable_fetcher_names_a_deployment_fault`` asserts.
+
+    ``tests/gates/test_socket_readiness.py`` holds a server in that gap on purpose, so both answers
+    have a test that fails without them.
+    """
+    ready = threading.Event()
 
     def serve() -> None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
             server.bind(str(socket_path))
             server.listen(1)
+            ready.set()
             conn, _ = server.accept()
             with conn:
                 received.append(decode_request(read_frame(conn)))
@@ -99,17 +114,14 @@ def _serve_once(
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    _wait_for(socket_path)
+    _wait_for_listen(ready)
     return thread
 
 
-def _wait_for(path: Path, timeout_s: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        if path.exists():
-            return
-        time.sleep(0.01)
-    raise AssertionError(f"{path} never appeared")
+def _wait_for_listen(ready: threading.Event, timeout_s: float = 10.0) -> None:
+    """Wait until the server thread says it listens."""
+    if not ready.wait(timeout_s):
+        raise AssertionError(f"the server did not listen within {timeout_s}s")
 
 
 # ------------------------------------------------------------- the request reaches the socket
