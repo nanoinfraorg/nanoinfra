@@ -72,8 +72,9 @@ def record_observation(
     """Log the decision the gate *would* make. M1 enforces nothing.
 
     ``decision`` is ``preview`` when the call asked for a preview, and ``would_gate``
-    when the call asked for execution. The record shape follows #16, minus ``scope``
-    (#4), which does not exist yet. Callers pass only values that are safe to persist:
+    when the call asked for execution. The record shape follows #16. ``scope`` arrives
+    from the resolver in #4, and each caller passes it, because only the caller knows
+    which server the action targets. Callers pass only values that are safe to persist:
     ids, names, digests, never a credential value.
 
     ``execution_context`` (#5) comes from the current request the same way ``session_id``
