@@ -294,9 +294,10 @@ def test_the_resolved_command_wins_over_a_supplied_digest(tmp_path: Path) -> Non
 
 
 def test_prune_deletes_only_the_segments_outside_retention(tmp_path: Path) -> None:
-    # Seed through a store with retention off, so the segments survive until the
-    # explicit pass below. A live store trims on rotation instead.
-    seed = _store(tmp_path, retention_days=0)
+    # Seed through a store whose retention outlives every segment below, so they survive
+    # until the explicit pass. A live store trims on rotation instead. Retention cannot be
+    # zero any more: the schema refuses a value that disables retention silently.
+    seed = _store(tmp_path, retention_days=36500)
     store = _store(tmp_path, retention_days=30)
     now = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
 
@@ -317,7 +318,7 @@ def test_prune_deletes_only_the_segments_outside_retention(tmp_path: Path) -> No
 
 
 def test_prune_leaves_the_surviving_records_untouched(tmp_path: Path) -> None:
-    seed = _store(tmp_path, retention_days=0)
+    seed = _store(tmp_path, retention_days=36500)
     store = _store(tmp_path, retention_days=30)
     now = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
     seed.record(
@@ -344,9 +345,21 @@ def test_prune_leaves_the_surviving_records_untouched(tmp_path: Path) -> None:
 
 
 def test_prune_keeps_everything_when_retention_is_not_positive(tmp_path: Path) -> None:
+    """The fail-safe branch, which config can no longer reach.
+
+    The schema now refuses a retention below one day, because a hand-edited zero turned
+    retention off with no message. The branch stays as defence: a caller that builds the config
+    without validation must still not empty an audit log by accident. So the test skips
+    validation on purpose.
+    """
     now = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
     for retention_days in (0, -1):
-        store = _store(tmp_path / str(retention_days), retention_days=retention_days)
+        store = AuditStore(
+            tmp_path / str(retention_days) / "gates" / "audit",
+            config=AuditConfig.model_construct(
+                retention_days=retention_days, record_command_text=False
+            ),
+        )
         store.record(
             decision="deny",
             capability_class="read",
