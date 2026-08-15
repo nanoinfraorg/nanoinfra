@@ -89,6 +89,7 @@ class AssertionRefusal(StrEnum):
     NO_IDENTITY_CLAIM = "no_identity_claim"
     NOT_AN_ADMITTED_IDENTITY = "not_an_admitted_identity"
     CLAIM_DOES_NOT_MATCH = "claim_does_not_match"
+    IDENTITY_TOO_LONG = "identity_too_long"
 
 
 class AssertionRefusedError(Exception):

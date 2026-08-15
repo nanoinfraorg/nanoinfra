@@ -226,6 +226,14 @@ class AuditStore:
         which approval authorized one decryption. Neither one is a bearer value. The nonce
         stays out of this log for that exact reason, and ``token_nonce`` predates this rule.
 
+        ``actor`` names **the person who answered**, in the vocabulary of the path that
+        authenticated them: ``webui:<claim>`` for a verified assertion, the channel's own
+        authenticated sender id for a chat answer, and the bare path name for a deployment that
+        authenticated a shared token and nobody (#64). It is ``None`` where nobody answered at
+        all, which is the case for a decision a grant covered and for the record that suspends
+        an action before an answer exists. A blank string must never stand for that: empty text
+        reads as a name.
+
         ``same_path`` and ``host_count`` are not parameters on purpose. Both derive from
         other fields, so a derived value cannot contradict them. #13 keys an out-of-band
         approval on the two paths. The record must not claim a separate path that the two

@@ -45,7 +45,11 @@ from urllib.parse import unquote
 
 from nanoinfra.gates.latch import LatchController
 from nanoinfra.gates.latch_restore import restore_latches
-from nanoinfra.webui.http_utils import case_insensitive_header
+from nanoinfra.webui.http_utils import (
+    MAX_IDENTITY_CHARS,
+    TRUSTED_PROXY_IDENTITY_ATTR,
+    case_insensitive_header,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -70,7 +74,12 @@ _MAX_ATTEMPTS = 50
 
 # Bounds for the two free-text values that reach the audit log. A record is one line, and an
 # operator has to be able to read it.
-_MAX_ACTOR_CHARS = 200
+#
+# The actor bound is derived from the identity bound rather than chosen, because the two must
+# agree: a cap that cut ``webui:<claim>`` would write a name that belongs to nobody, and the
+# seam already refuses an identity it cannot name whole (#63). So this cap can only fire for a
+# caller that built an actor some other way, and it never cuts the answer of ``operator_actor``.
+_MAX_ACTOR_CHARS = len(_PATH_ACTOR) + 1 + MAX_IDENTITY_CHARS
 _MAX_REASON_CHARS = 500
 
 _DENIED = "denied"
@@ -177,35 +186,31 @@ def latch_values_from_request(request: Any) -> dict[str, Any] | None:
     return None
 
 
-def operator_actor(request: Any, config: Any) -> str:
+def operator_actor(request: Any) -> str:
     """Name the operator on this path, and never take the name from the request body.
 
-    A trusted proxy asserts an identity, and #13 already treats that assertion as
-    authentication for the WebUI path. The flag comes from the peer check in
-    ``ws_http.dispatch``, so a client that sends the header from another address gains nothing.
+    **Two answers exist and no third.** ``webui:<claim>`` names the person a verified assertion
+    identified (#63). ``webui`` names the path alone, which is the true answer for a deployment
+    that authenticated a shared token and nobody, and a route must not invent an identity that
+    nothing authenticated.
 
-    A deployment with a bare API token has no name to give. The actor is then the path, which
-    is true, and a route must not invent an identity that nothing authenticated.
+    The request is the whole input. ``ws_http.dispatch`` resolves the identity once per request,
+    and on the ``jwt`` path that means a verified signature and the access rules of #62. This
+    function therefore holds no config: a function that could read ``assertionHeader`` could
+    name a person from an unverified header, and on the ``jwt`` path that header carries the
+    whole token, so the actor would be named after a token prefix. The ``plain`` path resolves
+    its header into the same attribute inside the authenticator, so one value carries both
+    formats and this function reads one attribute.
+
+    **A refusal is never a name here.** ``dispatch`` leaves the identity empty for an assertion
+    it refused, so the answer is the path. Such a request still has to pass the token checks the
+    deployment already had to reach any route, which is what keeps a forged token from buying
+    the privileges of the shared token.
     """
-    if not getattr(request, "_nanoinfra_trusted_proxy_authenticated", False):
-        return _PATH_ACTOR
-    # ``ws_http.dispatch`` resolved the identity once, and on the `jwt` path that meant
-    # verifying a signature and applying the access rules (#58, #62). This reads the answer
-    # rather than the header, because the header on that path carries the whole token, and an
-    # actor named after a token prefix names nobody.
-    asserted = str(getattr(request, "_nanoinfra_trusted_proxy_identity", "") or "").strip()
-    if not asserted:
-        proxy = getattr(config, "trusted_proxy_auth", None)
-        # The `plain` path is the one case where the header value *is* the identity, and it is
-        # read here only for a caller that set the flag without resolving an identity. A `jwt`
-        # block falls through to the path actor instead, which is the fail-closed answer.
-        if str(getattr(proxy, "assertion_format", "jwt") or "") != "plain":
-            return _PATH_ACTOR
-        header = str(getattr(proxy, "assertion_header", "") or "")
-        asserted = case_insensitive_header(request.headers, header).strip() if header else ""
+    asserted = str(getattr(request, TRUSTED_PROXY_IDENTITY_ATTR, "") or "").strip()
     if not asserted:
         return _PATH_ACTOR
-    return f"{_PATH_ACTOR}:{asserted[:_MAX_ACTOR_CHARS]}"
+    return f"{_PATH_ACTOR}:{asserted}"
 
 
 def _detail_from_log(

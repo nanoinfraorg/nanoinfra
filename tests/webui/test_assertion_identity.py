@@ -35,9 +35,11 @@ from nanoinfra.webui.assertion_identity import (
     TrustedProxyAuthenticator,
     admit_identity,
     describe_trusted_proxy_posture,
+    named_identity,
 )
 from nanoinfra.webui.assertion_jwks import StaticJwksSource
 from nanoinfra.webui.assertion_jwt import AssertionRefusal, AssertionRefusedError
+from nanoinfra.webui.http_utils import MAX_IDENTITY_CHARS
 
 _ISSUER = "https://idp.example/realms/homelab"
 _AUDIENCE = "nanoinfra-gateway"
@@ -555,3 +557,62 @@ async def test_a_jwt_block_with_no_key_source_admits_nobody(
     authenticator = TrustedProxyAuthenticator(config, key_source=None, log=_Log())
 
     assert await authenticator.authenticate(_Conn(), {_HEADER: _token(signing_key)}) == ""
+
+
+# -- the identity this gateway will name (#63) ---------------------------------------------
+
+
+def test_the_identity_arrives_trimmed_and_whole() -> None:
+    assert named_identity(f"  {_OPERATOR}\t") == _OPERATOR
+
+
+def test_an_identity_of_blank_space_names_nobody() -> None:
+    """The second lock. ``case_insensitive_header`` strips first, so this one rarely fires.
+
+    It still has to answer, because the alternative makes the fail-closed behaviour of this
+    function depend on a strip in another module.
+    """
+    with pytest.raises(AssertionRefusedError) as caught:
+        named_identity("   ")
+
+    assert caught.value.reason is AssertionRefusal.NO_IDENTITY_CLAIM
+
+
+def test_an_identity_the_gateway_cannot_record_whole_refuses() -> None:
+    """A cut name belongs to nobody, and ``gates.approvers`` compares the whole string.
+
+    The refusal reports the length and never the value. The value is attacker-chosen, and the
+    log line that quotes a claim already exists for the refusals that read one.
+    """
+    too_long = "a" * (MAX_IDENTITY_CHARS + 1)
+
+    with pytest.raises(AssertionRefusedError) as caught:
+        named_identity(too_long)
+
+    assert caught.value.reason is AssertionRefusal.IDENTITY_TOO_LONG
+    assert str(MAX_IDENTITY_CHARS) in caught.value.detail
+    assert too_long not in caught.value.detail
+
+
+def test_the_bound_admits_the_longest_address_the_mail_standard_permits() -> None:
+    """RFC 5321 caps a path at 254 characters, so no legal email address refuses."""
+    assert MAX_IDENTITY_CHARS >= 254
+    assert named_identity("a" * MAX_IDENTITY_CHARS) == "a" * MAX_IDENTITY_CHARS
+
+
+async def test_a_plain_header_of_blank_space_authenticates_nobody() -> None:
+    """The seam answers nothing, and it does not matter which of the two rules answered.
+
+    The header read strips, and ``named_identity`` refuses a blank value. The property under
+    test is the answer of the seam, so either rule satisfies it and neither one is required.
+    """
+    config = TrustedProxyAuthConfig.model_validate(
+        {
+            "trustedPeerCidrs": ["127.0.0.1/32"],
+            "assertionHeader": _HEADER,
+            "assertionFormat": "plain",
+        }
+    )
+    authenticator = TrustedProxyAuthenticator(config, key_source=None, log=_Log())
+
+    assert await authenticator.authenticate(_Conn(), {_HEADER: "   "}) == ""

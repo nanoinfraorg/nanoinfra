@@ -20,6 +20,22 @@ QueryParams = dict[str, list[str]]
 _JSON_GZIP_MIN_BYTES = 4 * 1024
 _JSON_GZIP_LEVEL = 5
 
+# The two attributes ``ws_http.dispatch`` writes on a request, once per request (#62). One file
+# owns the two names, because a reader that misspelled one would read "nobody asserted an
+# identity" and the person would silently become the shared ``webui`` actor.
+#
+# The identity is the value. The flag is derived from it, so the two cannot disagree, and a
+# route that needs only a yes or no reads the flag rather than repeat the derivation.
+TRUSTED_PROXY_IDENTITY_ATTR = "_nanoinfra_trusted_proxy_identity"
+TRUSTED_PROXY_AUTHENTICATED_ATTR = "_nanoinfra_trusted_proxy_authenticated"
+
+# The longest identity this gateway will name (#63). An identity reaches an audit record and
+# ``gates.approvers`` compares it whole, so a longer value refuses rather than arrive cut: a
+# truncated name belongs to nobody, and two identities that share one prefix would collapse into
+# one authority. The bound is above the longest address RFC 5321 permits, so no legal email
+# address meets it.
+MAX_IDENTITY_CHARS = 254
+
 
 def strip_trailing_slash(path: str) -> str:
     if len(path) > 1 and path.endswith("/"):
