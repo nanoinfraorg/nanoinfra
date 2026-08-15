@@ -10,15 +10,11 @@ from pydantic import BaseModel, ValidationError
 from pydantic_settings import SettingsError
 
 from nanoinfra.config.errors import ConfigIssue, ConfigLoadError, validation_issues
-from nanoinfra.config.schema import (
-    Config,
-    _resolve_tool_config_refs,  # pyright: ignore[reportPrivateUsage]
-)
+from nanoinfra.config.schema import Config, ensure_tool_config_refs
 from nanoinfra.utils.helpers import _write_text_atomic  # pyright: ignore[reportPrivateUsage]
 
 # Global variable to store current config path (for multi-instance support)
 _current_config_path: Path | None = None
-_schema_refs_ready = False
 
 
 def _as_config_object(value: object) -> dict[str, Any] | None:
@@ -49,10 +45,10 @@ def load_config(config_path: Path | None = None) -> Config:
     Returns:
         Loaded configuration object.
     """
-    global _schema_refs_ready
-    if not _schema_refs_ready:
-        _resolve_tool_config_refs()
-        _schema_refs_ready = True
+    # One source of truth for "the references are resolved" (#57). This module kept its own flag
+    # beside the state of the two model classes, and two notions of ready can disagree: the flag
+    # said nothing about a class the eager attempt left incomplete.
+    ensure_tool_config_refs()
 
     path = config_path or get_config_path()
 
