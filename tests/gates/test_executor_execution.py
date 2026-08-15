@@ -105,7 +105,7 @@ def _ssh_server(tmp_path: Path, **over: Any) -> None:
 
 def _secret(tmp_path: Path, name: str, value: str) -> str:
     secret = SecretStore(tmp_path).create(
-        {"name": name, "kind": "ssh_key", "providerId": "local", "value": value}
+        {"name": name, "kind": "password", "providerId": "local", "value": value}
     )
     return secret.id
 

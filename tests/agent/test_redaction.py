@@ -1,10 +1,19 @@
 # tests/agent/test_redaction.py
-"""Item 14 (#17): credential material never reaches a persisted transcript."""
+"""Item 14 (#17): credential material never reaches a persisted transcript.
+
+The sentinels moved to the executor with #41, so this module drives the structure half: which
+fields a transcript scrubs, which result drops whole, and where the bound applies. The scrub of
+one text against one sentinel set lives in ``tests/gates/test_scrub_socket.py``.
+
+``_scrub`` below is the same function the executor runs, called in process. The tests that cross
+a real persistence boundary use the ``scrub_service`` fixture instead, so they cross the socket.
+"""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Callable
 
 import pytest
 
@@ -13,10 +22,11 @@ from nanoinfra.agent.redaction import (
     CREDENTIAL_ACCESS,
     MIN_REDACTABLE_SECRET_CHARS,
     TRANSCRIPT_TOOL_RESULT_MAX_CHARS,
+    ScrubText,
     SecretSentinel,
     redact_messages,
     redact_text,
-    workspace_secret_sentinels,
+    scrub_one_text,
 )
 from nanoinfra.agent.subagent_transcript import SubagentTranscriptStore
 from nanoinfra.secrets import crypto
@@ -29,6 +39,16 @@ SECRET_NAME = "prod-db-password"
 @pytest.fixture(autouse=True)
 def _configured_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NANOINFRA_SECRETS_KEY", crypto.generate_key_for_setup())
+    monkeypatch.delenv("NANOINFRA_SECRETS_POSTGRES_DSN", raising=False)
+
+
+def _scrub(sentinels: list[SecretSentinel]) -> ScrubText:
+    """The scrubber the executor is, as a local callable."""
+
+    def scrub(text: str, capability_class: str | None) -> str:
+        return scrub_one_text(text, capability_class, sentinels)
+
+    return scrub
 
 
 @pytest.fixture
@@ -114,41 +134,6 @@ def test_a_secret_name_cannot_forge_extra_placeholder_text() -> None:
     assert scrubbed.count("[redacted secret:") == 1
 
 
-# -- sentinels read from the workspace secret store -------------------------
-
-
-def test_workspace_secret_sentinels_reads_stored_secrets(tmp_path: Path) -> None:
-    _stored_secret(tmp_path)
-
-    found = workspace_secret_sentinels(tmp_path)
-
-    assert [(s.name, s.value) for s in found] == [(SECRET_NAME, SECRET_VALUE)]
-
-
-def test_workspace_secret_sentinels_is_empty_without_a_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """No key means no secret was resolvable this turn either. Nothing to scrub."""
-    _stored_secret(tmp_path)
-    monkeypatch.delenv("NANOINFRA_SECRETS_KEY", raising=False)
-
-    assert workspace_secret_sentinels(tmp_path) == []
-
-
-def test_workspace_secret_sentinels_survives_an_unreadable_secret(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Redaction is best-effort. A broken store must not break persistence."""
-    _stored_secret(tmp_path)
-
-    def _explode(self: SecretStore) -> list[object]:
-        raise RuntimeError("store is broken")
-
-    monkeypatch.setattr(SecretStore, "list_secrets", _explode)
-
-    assert workspace_secret_sentinels(tmp_path) == []
-
-
 # -- message redaction ------------------------------------------------------
 
 
@@ -157,7 +142,7 @@ def _tool_message(content: str, name: str = "execute_on_server") -> dict[str, ob
 
 
 def test_tool_result_output_is_scrubbed(sentinels: list[SecretSentinel]) -> None:
-    redacted = redact_messages([_tool_message(f"env dump: {SECRET_VALUE}")], sentinels)
+    redacted = redact_messages([_tool_message(f"env dump: {SECRET_VALUE}")], _scrub(sentinels))
 
     assert SECRET_VALUE not in str(redacted[0]["content"])
     assert SECRET_NAME in str(redacted[0]["content"])
@@ -182,7 +167,7 @@ def test_assistant_tool_call_arguments_are_scrubbed(
         ],
     }
 
-    redacted = redact_messages([message], sentinels)
+    redacted = redact_messages([message], _scrub(sentinels))
 
     assert SECRET_VALUE not in json.dumps(redacted[0])
     assert SECRET_NAME in json.dumps(redacted[0])
@@ -196,7 +181,7 @@ def test_text_blocks_inside_multimodal_content_are_scrubbed(
         "content": [{"type": "text", "text": f"use {SECRET_VALUE}"}],
     }
 
-    redacted = redact_messages([message], sentinels)
+    redacted = redact_messages([message], _scrub(sentinels))
 
     assert SECRET_VALUE not in json.dumps(redacted[0])
 
@@ -205,7 +190,7 @@ def test_the_input_messages_are_not_mutated(sentinels: list[SecretSentinel]) -> 
     """The live turn keeps its real values. Only the persisted copy changes."""
     message = _tool_message(f"env dump: {SECRET_VALUE}")
 
-    redact_messages([message], sentinels)
+    redact_messages([message], _scrub(sentinels))
 
     assert message["content"] == f"env dump: {SECRET_VALUE}"
 
@@ -218,7 +203,7 @@ def test_credential_access_results_are_dropped_whole(
 
     redacted = redact_messages(
         [message],
-        sentinels,
+        _scrub(sentinels),
         capability_of=lambda _name: CREDENTIAL_ACCESS,
     )
 
@@ -234,7 +219,7 @@ def test_credential_access_results_are_dropped_even_when_unrecognized() -> None:
     message = _tool_message("some unknown credential", name="read_secret")
 
     redacted = redact_messages(
-        [message], [], capability_of=lambda _name: CREDENTIAL_ACCESS
+        [message], _scrub([]), capability_of=lambda _name: CREDENTIAL_ACCESS
     )
 
     assert "some unknown credential" not in str(redacted[0]["content"])
@@ -244,7 +229,7 @@ def test_other_capability_classes_keep_their_result(
     sentinels: list[SecretSentinel],
 ) -> None:
     redacted = redact_messages(
-        [_tool_message("exit code 0")], sentinels, capability_of=lambda _n: "mutate.remote"
+        [_tool_message("exit code 0")], _scrub(sentinels), capability_of=lambda _n: "mutate.remote"
     )
 
     assert redacted[0]["content"] == "exit code 0"
@@ -254,7 +239,7 @@ def test_remote_output_is_truncated_by_default(sentinels: list[SecretSentinel]) 
     """Part 2: the persisted copy is bounded without the caller asking."""
     long_output = "x" * (TRANSCRIPT_TOOL_RESULT_MAX_CHARS * 3)
 
-    redacted = redact_messages([_tool_message(long_output)], sentinels)
+    redacted = redact_messages([_tool_message(long_output)], _scrub(sentinels))
 
     content = str(redacted[0]["content"])
     assert len(content) < len(long_output)
@@ -266,7 +251,7 @@ def test_assistant_content_is_not_truncated(sentinels: list[SecretSentinel]) -> 
     long_answer = "y" * (TRANSCRIPT_TOOL_RESULT_MAX_CHARS * 3)
 
     redacted = redact_messages(
-        [{"role": "assistant", "content": long_answer}], sentinels
+        [{"role": "assistant", "content": long_answer}], _scrub(sentinels)
     )
 
     assert redacted[0]["content"] == long_answer
@@ -278,18 +263,25 @@ def test_truncation_can_be_disabled_for_a_caller_that_needs_it(
     long_output = "x" * (TRANSCRIPT_TOOL_RESULT_MAX_CHARS * 3)
 
     redacted = redact_messages(
-        [_tool_message(long_output)], sentinels, max_tool_result_chars=None
+        [_tool_message(long_output)], _scrub(sentinels), max_tool_result_chars=None
     )
 
     assert redacted[0]["content"] == long_output
 
 
 # -- persistence boundaries -------------------------------------------------
+#
+# These tests cross a real socket. The executor performs the scrub after #41, so the
+# ``scrub_service`` fixture (tests/agent/conftest.py) runs the executor's answer path for the
+# workspace under test.
 
 
-def test_append_history_redacts_a_resolved_secret(tmp_path: Path) -> None:
+def test_append_history_redacts_a_resolved_secret(
+    tmp_path: Path, scrub_service: Callable[[Path], object]
+) -> None:
     """history.jsonl is a persisted transcript. The value must not land there."""
     _stored_secret(tmp_path)
+    scrub_service(tmp_path)
     store = MemoryStore(tmp_path)
 
     store.append_history(f"[RAW] 1 messages\n[..] TOOL: output {SECRET_VALUE}")
@@ -299,9 +291,12 @@ def test_append_history_redacts_a_resolved_secret(tmp_path: Path) -> None:
     assert SECRET_NAME in persisted
 
 
-def test_append_history_caps_after_redaction(tmp_path: Path) -> None:
+def test_append_history_caps_after_redaction(
+    tmp_path: Path, scrub_service: Callable[[Path], object]
+) -> None:
     """Scrub first, then cap. A cap through a value would leave half of it."""
     _stored_secret(tmp_path)
+    scrub_service(tmp_path)
     store = MemoryStore(tmp_path)
     entry = "a" * 40 + SECRET_VALUE + "b" * 40
 
@@ -312,9 +307,12 @@ def test_append_history_caps_after_redaction(tmp_path: Path) -> None:
     assert SECRET_VALUE[:10] not in persisted
 
 
-def test_subagent_transcript_redacts_a_resolved_secret(tmp_path: Path) -> None:
+def test_subagent_transcript_redacts_a_resolved_secret(
+    tmp_path: Path, scrub_service: Callable[[Path], object]
+) -> None:
     """Part 3: the model writes these files and they persist."""
     _stored_secret(tmp_path)
+    scrub_service(tmp_path)
     store = SubagentTranscriptStore(tmp_path)
 
     store.write(
@@ -333,6 +331,7 @@ def test_subagent_transcript_redacts_a_resolved_secret(tmp_path: Path) -> None:
 
 
 def test_subagent_transcript_truncates_remote_output(tmp_path: Path) -> None:
+    """No secret in this workspace, so the bound applies with no round trip."""
     store = SubagentTranscriptStore(tmp_path)
     long_output = "x" * (TRANSCRIPT_TOOL_RESULT_MAX_CHARS * 3)
 
@@ -343,9 +342,12 @@ def test_subagent_transcript_truncates_remote_output(tmp_path: Path) -> None:
     assert "chars truncated from output" in str(record["content"])
 
 
-def test_subagent_transcript_redacts_metadata_values(tmp_path: Path) -> None:
+def test_subagent_transcript_redacts_metadata_values(
+    tmp_path: Path, scrub_service: Callable[[Path], object]
+) -> None:
     """A subagent error string is metadata, and it can quote the credential."""
     _stored_secret(tmp_path)
+    scrub_service(tmp_path)
     store = SubagentTranscriptStore(tmp_path)
 
     store.write(
@@ -361,9 +363,12 @@ def test_subagent_transcript_redacts_metadata_values(tmp_path: Path) -> None:
     assert meta["stop_reason"] == "error"
 
 
-def test_subagent_transcript_drops_a_credential_access_result(tmp_path: Path) -> None:
+def test_subagent_transcript_drops_a_credential_access_result(
+    tmp_path: Path, scrub_service: Callable[[Path], object]
+) -> None:
     """The store accepts a capability resolver, so #17 part 1 reaches it."""
     _stored_secret(tmp_path)
+    scrub_service(tmp_path)
     store = SubagentTranscriptStore(tmp_path)
 
     store.write(
@@ -377,11 +382,16 @@ def test_subagent_transcript_drops_a_credential_access_result(tmp_path: Path) ->
     assert SECRET_NAME in content
 
 
-def test_subagent_transcript_write_survives_a_broken_secret_store(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_broken_secret_store_costs_the_text_and_not_the_transcript(
+    tmp_path: Path, scrub_service: Callable[[Path], object], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Redaction is best-effort. It never costs the transcript itself."""
+    """#41 inverts the old answer here, and the write still happens.
+
+    The old code persisted the text unscrubbed when the store failed, which is fail open on the
+    one path #17 exists to close. The record now keeps its shape and holds a marker instead.
+    """
     _stored_secret(tmp_path)
+    scrub_service(tmp_path)
 
     def _explode(self: SecretStore) -> list[object]:
         raise RuntimeError("store is broken")
@@ -391,4 +401,7 @@ def test_subagent_transcript_write_survives_a_broken_secret_store(
 
     store.write("abc12345", [{"role": "user", "content": "hello"}])
 
-    assert store.read("abc12345")[0]["content"] == "hello"
+    record = store.read("abc12345")[0]
+    assert record["role"] == "user"
+    assert "hello" not in str(record["content"])
+    assert "withheld" in str(record["content"])

@@ -114,7 +114,7 @@ def _interactive_allow(value: str) -> GatesConfig:
 
 def _secret(tmp_path: Path) -> str:
     secret = SecretStore(tmp_path).create(
-        {"name": "web-key", "kind": "ssh_key", "providerId": "local", "value": _SECRET_VALUE}
+        {"name": "web-key", "kind": "password", "providerId": "local", "value": _SECRET_VALUE}
     )
     return secret.id
 

@@ -483,19 +483,31 @@ def _withheld_tool_calls(tool_calls: Any, marker: str) -> Any:
 # -- the agent's redaction path ---------------------------------------------
 
 
+def _scrub_with_no_sentinels(text: str, capability_class: str | None) -> str:
+    """The scrub for a workspace that holds no secret.
+
+    No sentinel can match, so no value changes. A ``credential.access`` result
+    still drops whole, because such a result is credential material by its
+    class rather than by a match (#17). The bound on a persisted tool result
+    applies as well, and neither answer needs a round trip.
+    """
+    return scrub_one_text(text, capability_class, ())
+
+
 class TranscriptRedactor:
     """What one caller needs to persist a record safely (#41).
 
-    It holds two decisions. Whether this workspace needs a scrub at all, and
-    what a record holds when no scrubber answers.
+    It holds two decisions. Whether this workspace needs the executor at all,
+    and what a record holds when the executor answers nothing.
 
     One instance serves one persist operation. It asks the executor once per
     text, which costs one connection per text on a local socket. A workspace
     with no secret asks nothing at all, and that is the common case.
     """
 
-    def __init__(self, scrub: ScrubText | None) -> None:
+    def __init__(self, scrub: ScrubText, *, asks_executor: bool = True) -> None:
         self._scrub = scrub
+        self._asks_executor = asks_executor
 
     @classmethod
     def for_workspace(
@@ -503,36 +515,31 @@ class TranscriptRedactor:
     ) -> TranscriptRedactor:
         """Build the redactor for one workspace.
 
-        A workspace with no stored secret gets no scrubber, so it performs no
-        round trip and it withholds nothing.
+        A workspace with no stored secret scrubs locally against no sentinel,
+        so it performs no round trip and it withholds nothing.
 
-        ``workspace=None`` also gets no scrubber. Such a caller sits outside a
-        workspace scope, so nothing could resolve a sentinel for it and
-        nothing in its text can be matched. That is a stated limit, and every
-        caller that holds a workspace passes it.
+        ``workspace=None`` does the same. Such a caller sits outside a
+        workspace scope, so nothing could resolve a sentinel for it. That is a
+        stated limit, and every caller that holds a workspace passes it.
 
         *scrub* replaces the socket client. Tests use it, and so does a caller
         that already holds a scrubber.
         """
-        if workspace is None:
-            return cls(None)
         if scrub is not None:
             return cls(scrub)
-        if not workspace_may_hold_a_secret(workspace):
-            return cls(None)
+        if workspace is None or not workspace_may_hold_a_secret(workspace):
+            return cls(_scrub_with_no_sentinels, asks_executor=False)
         from nanoinfra.gates.executor.scrub_client import default_scrub_client
 
         return cls(default_scrub_client().scrub)
 
     @property
-    def asks_a_scrubber(self) -> bool:
-        """Whether this redactor talks to a scrubber at all."""
-        return self._scrub is not None
+    def asks_the_executor(self) -> bool:
+        """Whether this redactor sends a text over a socket at all."""
+        return self._asks_executor
 
     def text(self, value: str) -> str:
         """Scrub one text, or return the marker."""
-        if self._scrub is None:
-            return value
         try:
             return self._scrub(value, None)
         except Exception as exc:  # noqa: BLE001 -- no scrub means no raw text persists
@@ -540,8 +547,6 @@ class TranscriptRedactor:
 
     def mapping(self, values: Mapping[str, Any]) -> dict[str, Any]:
         """Scrub the strings of one mapping, or withhold every one of them."""
-        if self._scrub is None:
-            return dict(values)
         try:
             return redact_mapping(values, self._scrub)
         except Exception as exc:  # noqa: BLE001 -- no scrub means no raw text persists
@@ -555,8 +560,6 @@ class TranscriptRedactor:
         max_tool_result_chars: int | None = TRANSCRIPT_TOOL_RESULT_MAX_CHARS,
     ) -> dict[str, Any]:
         """Scrub one message, or withhold its text."""
-        if self._scrub is None:
-            return dict(message)
         try:
             return redact_message(
                 message,
@@ -581,8 +584,6 @@ class TranscriptRedactor:
         result would mix a scrubbed record with an unscrubbed one.
         """
         listed = list(messages)
-        if self._scrub is None:
-            return [dict(message) for message in listed]
         try:
             return redact_messages(
                 listed,

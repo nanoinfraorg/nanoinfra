@@ -39,11 +39,20 @@ SECRET_PLACEHOLDER = f"[redacted secret: {SECRET_NAME}]"
 def _local_secrets_only(monkeypatch: pytest.MonkeyPatch) -> None:
     """Give the store a usable key, and keep it on the local backend.
 
-    Without a key ``workspace_secret_sentinels`` resolves nothing, so a test
-    would pass for the wrong reason.
+    Without a key the executor resolves no sentinel, so a test would pass for
+    the wrong reason.
     """
     monkeypatch.setenv("NANOINFRA_SECRETS_KEY", crypto.generate_key_for_setup())
     monkeypatch.delenv("NANOINFRA_SECRETS_POSTGRES_DSN", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _scrub_service_for_the_workspace(scrub_service: Any, tmp_path: Path) -> None:
+    """The executor performs the scrub (#41), so every test here starts one.
+
+    Each test stores its secret in tmp_path, so one service covers the module.
+    """
+    scrub_service(tmp_path)
 
 
 def _store_secret(workspace: Path) -> None:
