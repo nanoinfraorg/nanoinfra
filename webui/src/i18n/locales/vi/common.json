@@ -956,7 +956,13 @@
         "sender": "Người gửi",
         "add": "Thêm người phê duyệt",
         "remove": "Xóa người phê duyệt",
-        "note": "Có tên trong danh sách allowFrom của một kênh không cấp gì ở đây. Chỉ danh sách này quyết định ai được phê duyệt."
+        "note": "Có tên trong danh sách allowFrom của một kênh không cấp gì ở đây. Chỉ danh sách này quyết định ai được phê duyệt.",
+        "formNote": "Bảng này không thêm tiền tố. Cổng so sánh toàn bộ chuỗi, nên nó chỉ khớp với giá trị bạn ghi ở đây.",
+        "webuiForm": "Dạng WebUI là webui, hoặc webui: rồi tới claim.",
+        "chatForm": "Dạng chat là id tài khoản của một người.",
+        "bareClaim": "Người gửi này chỉ là claim nên không khớp với ai. Hãy ghi webui: rồi tới claim.",
+        "notAnAccountId": "Người phê duyệt qua chat là id tài khoản dạng số do kênh cấp.",
+        "blank": "Dòng này không ghi người gửi nên không khớp với ai."
       },
       "paths": {
         "title": "Đường đã xác thực",
@@ -1135,7 +1141,11 @@
     "open": "Đã kết nối",
     "reconnecting": "Đang kết nối lại…",
     "closed": "Đã ngắt kết nối",
-    "error": "Lỗi kết nối"
+    "error": "Lỗi kết nối",
+    "identity": {
+      "actor": "Gateway đọc đường này là {{actor}}.",
+      "approverNote": "Mục người phê duyệt phải ghi đúng giá trị đó."
+    }
   },
   "thread": {
     "loadingConversation": "Đang tải cuộc trò chuyện…",

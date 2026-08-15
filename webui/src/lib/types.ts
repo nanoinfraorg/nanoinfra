@@ -1352,7 +1352,12 @@ export interface InboundTurnMetadata {
 }
 
 export type InboundEvent =
-  | { event: "ready"; chat_id: string; client_id: string }
+  /**
+   * ``operator_actor`` is the identity the gateway resolved for this connection (#70):
+   * ``webui:<claim>`` behind a trusted proxy, and ``webui`` for a deployment with no proxy.
+   * It is absent from an older gateway, and absent is not the same fact as ``webui``.
+   */
+  | { event: "ready"; chat_id: string; client_id: string; operator_actor?: string }
   | { event: "attached"; chat_id: string }
   | { event: "message_accepted"; chat_id: string; turn_id: string }
   | ({

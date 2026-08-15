@@ -309,6 +309,18 @@ const LOCALIZED_APPROVALS_KEYS = [
   "approvals.refusal.unknownOriginPath",
   "approvals.refusal.unknownRequest",
 ];
+// Who the gateway thinks you are (#70), and the approver forms it matches (#71). An operator
+// reads these before an approval fails, so they arrive in the operator's own language.
+const LOCALIZED_IDENTITY_KEYS = [
+  "connection.identity.actor",
+  "connection.identity.approverNote",
+  "settings.gates.approvers.webuiForm",
+  "settings.gates.approvers.chatForm",
+  "settings.gates.approvers.formNote",
+  "settings.gates.approvers.bareClaim",
+  "settings.gates.approvers.notAnAccountId",
+  "settings.gates.approvers.blank",
+];
 const ACCIDENTALLY_SPANISH_SETTINGS_KEYS = [
   "settings.help.provider",
   "settings.help.configPath",
@@ -590,6 +602,7 @@ describe("webui i18n", () => {
         ...LOCALIZED_CHANNEL_SHELL_KEYS,
         ...LOCALIZED_NEW_SURFACE_KEYS,
         ...LOCALIZED_APPROVALS_KEYS,
+        ...LOCALIZED_IDENTITY_KEYS,
       ].filter(
         (key) => current.get(key) === english.get(key),
       );

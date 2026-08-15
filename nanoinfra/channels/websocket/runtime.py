@@ -12,6 +12,7 @@ import uuid
 from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Literal, Self, TypeGuard, cast
 from urllib.parse import urlsplit, urlunsplit
 
@@ -64,6 +65,9 @@ from nanoinfra.webui.cli_apps_api import normalize_cli_app_mentions
 from nanoinfra.webui.forking import handle_webui_fork_chat
 from nanoinfra.webui.gateway_services import GatewayServices
 from nanoinfra.webui.http_utils import (
+    TRUSTED_PROXY_IDENTITY_ATTR,
+)
+from nanoinfra.webui.http_utils import (
     normalize_config_path as _normalize_config_path,
 )
 from nanoinfra.webui.http_utils import (
@@ -72,6 +76,7 @@ from nanoinfra.webui.http_utils import (
 from nanoinfra.webui.http_utils import (
     query_first as _query_first,
 )
+from nanoinfra.webui.latch_api import operator_actor as _operator_actor
 from nanoinfra.webui.mcp_presets_api import normalize_mcp_preset_mentions
 from nanoinfra.webui.metadata import (
     WEBSOCKET_TURN_OWNER_METADATA_KEY,
@@ -91,6 +96,26 @@ from nanoinfra.webui.websocket_logging import websockets_server_logger
 
 # Plain HTTP WebUI routes also run through websockets.process_request.
 _WEBUI_HTTP_OPEN_TIMEOUT_S = 360.0
+
+# Where the actor of a handshake waits for the connection loop (#70). The connection object is
+# the right holder: it dies with the socket, so a refused handshake grows no table here. A dict
+# keyed by connection would need a cleanup that a refused handshake never reaches.
+_HANDSHAKE_ACTOR_ATTR = "_nanoinfra_handshake_actor"
+
+
+def _handshake_actor(identity: str) -> str:
+    """Name the operator of a handshake, with the function the gate reads (#70).
+
+    ``operator_actor`` is the one authority for this string, and the WebUI must show exactly
+    what ``gates.approvers`` compares. A second copy of the prefix rule here would drift, and
+    the drift would appear as an approval that does not count.
+
+    The carrier holds the resolved identity and nothing else. ``operator_actor`` reads no
+    header, so no unverified value can reach the answer through it.
+    """
+    carrier = SimpleNamespace()
+    setattr(carrier, TRUSTED_PROXY_IDENTITY_ATTR, identity)
+    return _operator_actor(carrier)
 
 
 _ROUTING_ASSERTION_HEADERS = frozenset(
@@ -699,9 +724,17 @@ class WebSocketChannel(BaseChannel):
         signing key and a key can need a fetch (#59). A refusal falls through to the token
         checks below, so an unauthorized client reads the same 401 it would read with no
         assertion header at all. It learns that it is not authorized and it learns no rule.
+
+        The resolved actor rides on the connection, and the ready frame carries it to the WebUI
+        (#70). It is written once here, where the identity was proved, so no later reader can
+        take a name from a header.
         """
         proxy = self._http_router.trusted_proxy_authenticator()
-        if proxy is not None and await proxy.authenticate(connection, headers or {}):
+        identity = ""
+        if proxy is not None:
+            identity = await proxy.authenticate(connection, headers or {})
+        setattr(connection, _HANDSHAKE_ACTOR_ATTR, _handshake_actor(identity))
+        if identity:
             self._webui_connections.add(connection)
             return None
 
@@ -847,6 +880,15 @@ class WebSocketChannel(BaseChannel):
                         "event": "ready",
                         "chat_id": default_chat_id,
                         "client_id": client_id,
+                        # Who the gateway thinks this client is (#70). The handshake resolved it,
+                        # so a misconfigured proxy reads as ``webui`` here rather than as a
+                        # refused approval later. A connection that reached this loop with no
+                        # recorded actor is a connection with no identity, and the path is then
+                        # the true answer.
+                        "operator_actor": str(
+                            getattr(connection, _HANDSHAKE_ACTOR_ATTR, "")
+                            or _handshake_actor("")
+                        ),
                     },
                     ensure_ascii=False,
                 )

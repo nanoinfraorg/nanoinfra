@@ -956,7 +956,13 @@
         "sender": "Sender",
         "add": "Add an approver",
         "remove": "Remove approver",
-        "note": "Membership in a channel allowFrom list grants nothing here. Only this list decides who can approve."
+        "note": "Membership in a channel allowFrom list grants nothing here. Only this list decides who can approve.",
+        "formNote": "This panel adds no prefix. The gate compares the whole string, so it matches what you write here and nothing else.",
+        "webuiForm": "The WebUI form is webui, or webui: and then the claim.",
+        "chatForm": "The chat form is the account id of one person.",
+        "bareClaim": "This sender is a bare claim, so it matches nobody. Write webui: and then the claim.",
+        "notAnAccountId": "A chat approver is the numeric account id the channel gives.",
+        "blank": "This row names no sender, so it matches nobody."
       },
       "paths": {
         "title": "Authenticated paths",
@@ -1135,7 +1141,11 @@
     "open": "Connected",
     "reconnecting": "Reconnecting…",
     "closed": "Disconnected",
-    "error": "Connection error"
+    "error": "Connection error",
+    "identity": {
+      "actor": "The gateway reads this path as {{actor}}.",
+      "approverNote": "An approver entry must name that value exactly."
+    }
   },
   "thread": {
     "loadingConversation": "Loading conversation…",

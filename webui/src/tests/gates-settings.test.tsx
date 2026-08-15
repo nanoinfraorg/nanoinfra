@@ -41,6 +41,10 @@ function shippedPolicy(): GatesPolicy {
   };
 }
 
+function withApprovers(approvers: Array<{ channel: string; sender: string }>): GatesPolicy {
+  return { ...shippedPolicy(), approvers };
+}
+
 function gatesPayload(
   policy: GatesPolicy = shippedPolicy(),
   fromDefault: Record<string, boolean> = {},
@@ -310,5 +314,85 @@ describe("GatesSettings", () => {
     expect(
       screen.getByText(/Membership in a channel allowFrom list grants nothing here/),
     ).toBeInTheDocument();
+  });
+
+  /*
+    The approver forms (#71). A WebUI approver is ``webui`` or ``webui:<claim>``, and a chat
+    approver is the account id that channel gives. The gate compares the whole string, so the
+    panel adds no prefix: an operator has to be able to read the list and predict the match.
+  */
+  it("names the form each channel takes", () => {
+    renderPanel(
+      gatesPayload(
+        withApprovers([
+          { channel: "webui", sender: "webui:alberto@example.com" },
+          { channel: "telegram", sender: "123456789" },
+        ]),
+      ),
+    );
+
+    expect(screen.getByTestId("gates-approver-shape-0")).toHaveTextContent(
+      "The WebUI form is webui, or webui: and then the claim.",
+    );
+    expect(screen.getByTestId("gates-approver-shape-1")).toHaveTextContent(
+      "The chat form is the account id of one person.",
+    );
+  });
+
+  it("flags a bare claim before it is saved", () => {
+    renderPanel(gatesPayload(withApprovers([{ channel: "webui", sender: "" }])));
+
+    fireEvent.change(screen.getByLabelText("Sender 1"), {
+      target: { value: "alberto@example.com" },
+    });
+
+    const flag = screen.getByTestId("gates-approver-shape-0");
+    expect(flag).toHaveTextContent(
+      "This sender is a bare claim, so it matches nobody. Write webui: and then the claim.",
+    );
+    expect(flag).toHaveAttribute("data-tone", "warning");
+  });
+
+  it("adds no prefix of its own", () => {
+    // The panel that silently prefixed a claim would save a value the operator never read.
+    const saved = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse(settingsWith(gatesPayload()))),
+    );
+    renderPanel(gatesPayload(withApprovers([{ channel: "webui", sender: "" }])), saved);
+
+    fireEvent.change(screen.getByLabelText("Sender 1"), {
+      target: { value: "alberto@example.com" },
+    });
+
+    expect(screen.getByLabelText("Sender 1")).toHaveValue("alberto@example.com");
+  });
+
+  it("flags a chat approver that is not an account id", () => {
+    renderPanel(
+      gatesPayload(withApprovers([{ channel: "telegram", sender: "webui:alberto@example.com" }])),
+    );
+
+    expect(screen.getByTestId("gates-approver-shape-0")).toHaveTextContent(
+      "A chat approver is the numeric account id the channel gives.",
+    );
+  });
+
+  it("flags a row that names no sender", () => {
+    renderPanel(gatesPayload());
+
+    fireEvent.click(screen.getByRole("button", { name: "Add an approver" }));
+
+    expect(screen.getByTestId("gates-approver-shape-0")).toHaveTextContent(
+      "This row names no sender, so it matches nobody.",
+    );
+  });
+
+  it("accepts the path actor of a deployment with no proxy", () => {
+    // ``webui`` is the whole actor there, and it is not an unfinished ``webui:<claim>``.
+    renderPanel(gatesPayload(withApprovers([{ channel: "webui", sender: "webui" }])));
+
+    expect(screen.getByTestId("gates-approver-shape-0")).toHaveAttribute("data-tone", "info");
   });
 });

@@ -73,13 +73,27 @@ EXECUTOR_USER_ENV = "NANOINFRA_EXECUTOR_USER"
 def _echo_gate_policy(config: Any, cron: Any) -> None:
     """Log the gate policy in force, and name the automations it refuses (#8).
 
+    The identity posture of the gate follows on a line of its own (#72). The trusted-proxy
+    postures come from the WebSocket channel at its own start, because that channel reads the
+    assertion. Both lines start with ``identity:``, so one grep answers what this gateway
+    believes about a person.
+
     Wrapped so a reporting failure never stops the gateway. An operator loses one log line
     in that case, which is better than a boot that fails over a diagnostic.
     """
-    from nanoinfra.gates.startup import policy_summary, refused_automation_warning
+    from nanoinfra.gates.startup import (
+        identity_posture_line,
+        policy_summary,
+        refused_automation_warning,
+    )
 
     try:
         logger.info(policy_summary(config.gates))
+        # A warning, and not an information line. The flag gives up a security property, and an
+        # operator who turned it on once has to meet that fact again at every start.
+        posture = identity_posture_line(config.gates)
+        if posture:
+            logger.warning(posture)
         names = [job.id for job in cron.list_jobs()]
         warning = refused_automation_warning(config.gates, automation_names=names)
         if warning:

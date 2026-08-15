@@ -956,7 +956,13 @@
         "sender": "Pengirim",
         "add": "Tambahkan penyetuju",
         "remove": "Hapus penyetuju",
-        "note": "Keanggotaan pada daftar allowFrom sebuah kanal tidak memberi hak apa pun di sini. Hanya daftar ini yang menentukan siapa yang bisa menyetujui."
+        "note": "Keanggotaan pada daftar allowFrom sebuah kanal tidak memberi hak apa pun di sini. Hanya daftar ini yang menentukan siapa yang bisa menyetujui.",
+        "formNote": "Panel ini tidak menambah awalan. Gerbang membandingkan seluruh teks, jadi yang cocok hanya apa yang Anda tulis di sini.",
+        "webuiForm": "Bentuk WebUI adalah webui, atau webui: lalu claim.",
+        "chatForm": "Bentuk chat adalah id akun satu orang.",
+        "bareClaim": "Pengirim ini hanya claim, jadi tidak cocok dengan siapa pun. Tulis webui: lalu claim.",
+        "notAnAccountId": "Penyetuju chat adalah id akun berupa angka yang diberi kanal.",
+        "blank": "Baris ini tidak menyebut pengirim, jadi tidak cocok dengan siapa pun."
       },
       "paths": {
         "title": "Jalur terautentikasi",
@@ -1135,7 +1141,11 @@
     "open": "Terhubung",
     "reconnecting": "Menyambung ulang…",
     "closed": "Terputus",
-    "error": "Kesalahan koneksi"
+    "error": "Kesalahan koneksi",
+    "identity": {
+      "actor": "Gateway membaca jalur ini sebagai {{actor}}.",
+      "approverNote": "Entri penyetuju harus menyebut nilai itu secara persis."
+    }
   },
   "thread": {
     "loadingConversation": "Memuat percakapan…",

@@ -36,6 +36,48 @@ type ScopeField = "host" | "group" | "all";
 const CONTEXT_KEYS: ContextKey[] = ["interactive", "unattended"];
 const SCOPE_FIELDS: ScopeField[] = ["host", "group", "all"];
 
+/**
+ * The approver forms, and the one this row takes -- nanoinfraorg/nanoinfra#71.
+ *
+ * The first two are forms. The last three are mistakes the panel can name before a save.
+ */
+type ApproverShape = "webuiForm" | "chatForm" | "bareClaim" | "notAnAccountId" | "blank";
+
+/** The WebUI path, which is also the whole actor of a deployment with no proxy. */
+const WEBUI_CHANNEL = "webui";
+
+/**
+ * The channels whose account id is a number. Telegram is the one the gate documents, so it is
+ * the one this panel checks. Every other channel gets the form and no check: a warning about a
+ * shape nobody stated would teach an operator to ignore this line.
+ */
+const NUMERIC_ACCOUNT_ID_CHANNELS = new Set(["telegram"]);
+
+/**
+ * Read the shape of one approver row.
+ *
+ * The panel adds no prefix. The gate compares the whole string and strips nothing (#66), so an
+ * operator has to be able to read this list and predict the match. A panel that completed the
+ * value would save a string the operator never read.
+ */
+export function approverShape(channel: string, sender: string): ApproverShape {
+  const name = channel.trim();
+  const value = sender.trim();
+  if (!value) return "blank";
+  if (name === WEBUI_CHANNEL) {
+    // ``webui`` is the whole actor of a deployment with no proxy, and not an unfinished value.
+    if (value === WEBUI_CHANNEL) return "webuiForm";
+    const claim = value.startsWith(`${WEBUI_CHANNEL}:`)
+      ? value.slice(WEBUI_CHANNEL.length + 1).trim()
+      : "";
+    return claim ? "webuiForm" : "bareClaim";
+  }
+  if (NUMERIC_ACCOUNT_ID_CHANNELS.has(name)) {
+    return /^-?\d+$/.test(value) ? "chatForm" : "notAnAccountId";
+  }
+  return "chatForm";
+}
+
 /** Read the gate block. An older gateway sends no block, and then the panel stays away. */
 export function gatesPayloadFrom(settings: SettingsPayload): GatesPayload | null {
   const gates = settings.advanced.gates;
@@ -387,48 +429,54 @@ export function GatesSettings({
             </GatesEmpty>
           ) : (
             draft.approvers.map((approver, index) => (
-              <div
-                key={index}
-                className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:px-5"
-              >
-                <Input
-                  value={approver.channel}
-                  aria-label={`${tx("settings.gates.approvers.channel", "Channel")} ${index + 1}`}
-                  placeholder={tx("settings.gates.approvers.channel", "Channel")}
-                  onChange={(event) =>
-                    updateDraft((previous) => ({
-                      ...previous,
-                      approvers: previous.approvers.map((row, position) =>
-                        position === index ? { ...row, channel: event.target.value } : row,
-                      ),
-                    }))
-                  }
-                  className="h-9 rounded-[10px] text-[13px] sm:w-40"
-                />
-                <Input
-                  value={approver.sender}
-                  aria-label={`${tx("settings.gates.approvers.sender", "Sender")} ${index + 1}`}
-                  placeholder={tx("settings.gates.approvers.sender", "Sender")}
-                  onChange={(event) =>
-                    updateDraft((previous) => ({
-                      ...previous,
-                      approvers: previous.approvers.map((row, position) =>
-                        position === index ? { ...row, sender: event.target.value } : row,
-                      ),
-                    }))
-                  }
-                  className="h-9 flex-1 rounded-[10px] text-[13px]"
-                />
-                <RemoveButton
-                  label={`${tx("settings.gates.approvers.remove", "Remove approver")} ${index + 1}`}
-                  onClick={() =>
-                    updateDraft((previous) => ({
-                      ...previous,
-                      approvers: previous.approvers.filter(
-                        (_row, position) => position !== index,
-                      ),
-                    }))
-                  }
+              <div key={index} className="px-4 py-3 sm:px-5">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <Input
+                    value={approver.channel}
+                    aria-label={`${tx("settings.gates.approvers.channel", "Channel")} ${index + 1}`}
+                    placeholder={tx("settings.gates.approvers.channel", "Channel")}
+                    onChange={(event) =>
+                      updateDraft((previous) => ({
+                        ...previous,
+                        approvers: previous.approvers.map((row, position) =>
+                          position === index ? { ...row, channel: event.target.value } : row,
+                        ),
+                      }))
+                    }
+                    className="h-9 rounded-[10px] text-[13px] sm:w-40"
+                  />
+                  <Input
+                    value={approver.sender}
+                    aria-label={`${tx("settings.gates.approvers.sender", "Sender")} ${index + 1}`}
+                    placeholder={tx("settings.gates.approvers.sender", "Sender")}
+                    onChange={(event) =>
+                      updateDraft((previous) => ({
+                        ...previous,
+                        approvers: previous.approvers.map((row, position) =>
+                          position === index ? { ...row, sender: event.target.value } : row,
+                        ),
+                      }))
+                    }
+                    className="h-9 flex-1 rounded-[10px] text-[13px]"
+                  />
+                  <RemoveButton
+                    label={
+                      `${tx("settings.gates.approvers.remove", "Remove approver")} ${index + 1}`
+                    }
+                    onClick={() =>
+                      updateDraft((previous) => ({
+                        ...previous,
+                        approvers: previous.approvers.filter(
+                          (_row, position) => position !== index,
+                        ),
+                      }))
+                    }
+                  />
+                </div>
+                <ApproverShapeNote
+                  index={index}
+                  channel={approver.channel}
+                  sender={approver.sender}
                 />
               </div>
             ))
@@ -448,6 +496,12 @@ export function GatesSettings({
             {tx(
               "settings.gates.approvers.note",
               "Membership in a channel allowFrom list grants nothing here. Only this list decides who can approve.",
+            )}
+          </GatesNote>
+          <GatesNote>
+            {tx(
+              "settings.gates.approvers.formNote",
+              "This panel adds no prefix. The gate compares the whole string, so it matches what you write here and nothing else.",
             )}
           </GatesNote>
         </GatesGroup>
@@ -763,6 +817,76 @@ export function GatesSettings({
         </Dialog>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The form this approver row takes, or the mistake it carries -- nanoinfraorg/nanoinfra#71.
+ *
+ * One line, under the row it describes. A misconfigured approver is invisible until an approval
+ * refuses, so the panel names the shape while the operator is still typing it.
+ */
+function ApproverShapeNote({
+  index,
+  channel,
+  sender,
+}: {
+  index: number;
+  channel: string;
+  sender: string;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const shape = approverShape(channel, sender);
+  const copy: Record<ApproverShape, { text: string; warn: boolean }> = {
+    webuiForm: {
+      text: tx(
+        "settings.gates.approvers.webuiForm",
+        "The WebUI form is webui, or webui: and then the claim.",
+      ),
+      warn: false,
+    },
+    chatForm: {
+      text: tx(
+        "settings.gates.approvers.chatForm",
+        "The chat form is the account id of one person.",
+      ),
+      warn: false,
+    },
+    bareClaim: {
+      text: tx(
+        "settings.gates.approvers.bareClaim",
+        "This sender is a bare claim, so it matches nobody. Write webui: and then the claim.",
+      ),
+      warn: true,
+    },
+    notAnAccountId: {
+      text: tx(
+        "settings.gates.approvers.notAnAccountId",
+        "A chat approver is the numeric account id the channel gives.",
+      ),
+      warn: true,
+    },
+    blank: {
+      text: tx(
+        "settings.gates.approvers.blank",
+        "This row names no sender, so it matches nobody.",
+      ),
+      warn: true,
+    },
+  };
+  const { text, warn } = copy[shape];
+  return (
+    <p
+      data-testid={`gates-approver-shape-${index}`}
+      data-tone={warn ? "warning" : "info"}
+      className={cn(
+        "mt-1.5 text-[12px] leading-5",
+        warn ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground",
+      )}
+    >
+      {text}
+    </p>
   );
 }
 

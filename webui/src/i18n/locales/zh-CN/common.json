@@ -956,7 +956,13 @@
         "sender": "发送者",
         "add": "添加审批人",
         "remove": "删除审批人",
-        "note": "出现在某渠道的 allowFrom 列表中不会在此授予任何权限。谁可以审批只由这份列表决定。"
+        "note": "出现在某渠道的 allowFrom 列表中不会在此授予任何权限。谁可以审批只由这份列表决定。",
+        "formNote": "本面板不会补任何前缀。门禁比较整个字符串，只匹配你在此处写下的值。",
+        "webuiForm": "WebUI 的写法是 webui，或者 webui: 后面接 claim。",
+        "chatForm": "聊天渠道的写法是某个人的账号 ID。",
+        "bareClaim": "此发送者只有 claim，因此匹配不到任何人。请写 webui: 后面接 claim。",
+        "notAnAccountId": "聊天渠道的审批人是该渠道给出的数字账号 ID。",
+        "blank": "此行没有写发送者，因此匹配不到任何人。"
       },
       "paths": {
         "title": "已认证通道",
@@ -1135,7 +1141,11 @@
     "open": "已连接",
     "reconnecting": "重连中…",
     "closed": "已断开",
-    "error": "连接出错"
+    "error": "连接出错",
+    "identity": {
+      "actor": "网关把这条通道读作 {{actor}}。",
+      "approverNote": "审批人条目必须原样写下该值。"
+    }
   },
   "thread": {
     "loadingConversation": "正在加载话题…",

@@ -16,10 +16,12 @@ The line carries the confinement of the helper processes as well (#20). A sandbo
 control, so the checklist an operator reads must report it. A host without Landlock
 support reads the absence just as plainly, because silence would read as a guarantee.
 
-The line also names the identity posture when an operator turned ``gates.identityIndependence``
-on (#47, item 11). That flag trades a security property for a workflow, so the deployment reads
-what it gave up at every start. The default reads nothing, because a line about every default
-teaches nobody to read one.
+``identity_posture_line`` names the identity posture when an operator turned
+``gates.identityIndependence`` on (#47, item 11). That flag trades a security property for a
+workflow, so the deployment reads what it gave up at every start. It is a line of its own, and
+it starts with the same ``identity:`` prefix as the trusted-proxy posture of #62, so one grep
+answers what this gateway believes about a person. The default reads nothing, because a line
+about every default teaches nobody to read one.
 """
 
 from __future__ import annotations
@@ -68,10 +70,22 @@ def policy_summary(gates: GatesConfig) -> str:
     else:
         grants = f"{count} standing grant" + ("s" if count != 1 else "")
     origin = " (shipped defaults, no gates policy in config)" if _unattended_is_default(gates) else ""
-    line = f"gates: unattended {', '.join(parts)}, {grants}{origin}. {support_summary()}"
-    if gates.identity_independence:
-        line += f" {_IDENTITY_INDEPENDENCE_POSTURE}."
-    return line
+    return f"gates: unattended {', '.join(parts)}, {grants}{origin}. {support_summary()}"
+
+
+def identity_posture_line(gates: GatesConfig) -> str | None:
+    """Name the identity posture of the gate, or None when the shipped default is in force.
+
+    One posture, one line. #72 gives each posture a line of its own, because a posture that
+    arrives as the tail of another line reads as a detail of that line.
+
+    The line names a setting and a consequence, and it names no person. An approver list in a
+    log is an address list in a log, and a log is shipped elsewhere often enough that this
+    would be a leak nobody chose.
+    """
+    if not gates.identity_independence:
+        return None
+    return f"identity: {_IDENTITY_INDEPENDENCE_POSTURE}."
 
 
 def refused_automation_warning(
@@ -95,4 +109,4 @@ def refused_automation_warning(
     )
 
 
-__all__ = ["policy_summary", "refused_automation_warning"]
+__all__ = ["identity_posture_line", "policy_summary", "refused_automation_warning"]
