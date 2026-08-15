@@ -70,6 +70,8 @@ export function GatesSettings({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // The unattended decisions a pending save would widen to `allow`, or null when it widens none.
+  const [pendingWidening, setPendingWidening] = useState<string[] | null>(null);
   const [grantDraft, setGrantDraft] = useState<GatesStandingGrant | null>(null);
 
   // A new payload replaces the draft. The saved flag survives, because the parent applies the
@@ -117,6 +119,7 @@ export function GatesSettings({
   };
 
   const save = async () => {
+    setPendingWidening(null);
     setSaving(true);
     setError(null);
     try {
@@ -158,6 +161,36 @@ export function GatesSettings({
     "settings.gates.defaultMarkerTitle",
     "This value comes from a shipped default. No operator set it.",
   );
+
+  /** The unattended decisions this save would widen to `allow`, by their label. */
+  const widenedUnattended = (): string[] => {
+    const widened: string[] = [];
+    const remote = draft.unattended["mutate.remote"];
+    const savedRemote = savedPolicy.unattended["mutate.remote"];
+    for (const field of SCOPE_FIELDS) {
+      if (remote[field] === "allow" && savedRemote[field] !== "allow") {
+        widened.push(`${remoteLabel}, ${scopeLabel(field)}`);
+      }
+    }
+    for (const field of ["mutate.inventory", "credential.access"] as const) {
+      if (draft.unattended[field] === "allow" && savedPolicy.unattended[field] !== "allow") {
+        widened.push(field === "mutate.inventory" ? inventoryLabel : secretLabel);
+      }
+    }
+    return widened;
+  };
+
+  const requestSave = () => {
+    // One confirmation, and only for the widest value a control here can take. The panel already
+    // refuses to widen `all` scope, and an operator changed the unattended column while they meant
+    // the interactive one, which let a cron job reach a host with no person present.
+    const widened = widenedUnattended();
+    if (widened.length > 0) {
+      setPendingWidening(widened);
+      return;
+    }
+    void save();
+  };
 
   const grantsInDraft = draft.standingGrants;
   const singlePath = draft.approvalPaths.length < 2;
@@ -202,10 +235,28 @@ export function GatesSettings({
         <GatesGroup>
           <div className="overflow-x-auto px-4 py-3.5 sm:px-5">
             <div className="min-w-[32rem]">
-              <div className="grid grid-cols-[minmax(0,1fr)_9.5rem_9.5rem] gap-3 pb-2 text-[11.5px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {/*
+                The header stays with the rows. A reader who scrolls the panel loses it otherwise,
+                and the two decision columns then look alike, which is how a row gets read one place
+                shifted.
+              */}
+              <div className="sticky top-0 z-10 grid grid-cols-[minmax(0,1fr)_9.5rem_9.5rem] gap-3 bg-card pb-2 pt-1 text-[11.5px] font-semibold uppercase tracking-wide text-muted-foreground">
                 <span>{tx("settings.gates.columns.policy", "Policy")}</span>
-                <span>{contextLabel("interactive")}</span>
-                <span>{contextLabel("unattended")}</span>
+                <span className="flex flex-col gap-0.5">
+                  <span>{contextLabel("interactive")}</span>
+                  <span className="text-[10.5px] font-normal normal-case tracking-normal">
+                    {tx("settings.gates.columns.interactiveNote", "A person typed the request.")}
+                  </span>
+                </span>
+                <span className="flex flex-col gap-0.5">
+                  <span>{contextLabel("unattended")}</span>
+                  <span className="text-[10.5px] font-normal normal-case tracking-normal text-destructive-text">
+                    {tx(
+                      "settings.gates.columns.unattendedNote",
+                      "No person is present. A cron job, the heartbeat, Dream, and a subagent run here.",
+                    )}
+                  </span>
+                </span>
               </div>
               <div className="divide-y divide-border/45">
                 <div className="grid grid-cols-[minmax(0,1fr)_9.5rem_9.5rem] gap-3 py-2.5">
@@ -225,6 +276,7 @@ export function GatesSettings({
                     {CONTEXT_KEYS.map((context) => (
                       <DecisionCell
                         key={context}
+                        cellTestId={`gates-cell-${context}`}
                         label={`${remoteLabel}, ${scopeLabel(field)}, ${contextLabel(context)}`}
                         value={draft[context]["mutate.remote"][field]}
                         choices={field === "all" ? gates.choices.all : gates.choices["mutate.remote"]}
@@ -249,6 +301,7 @@ export function GatesSettings({
                   {CONTEXT_KEYS.map((context) => (
                     <DecisionCell
                       key={context}
+                      cellTestId={`gates-cell-${context}`}
                       label={`${inventoryLabel}, ${contextLabel(context)}`}
                       value={draft[context]["mutate.inventory"]}
                       choices={gates.choices["mutate.inventory"]}
@@ -270,6 +323,7 @@ export function GatesSettings({
                   {CONTEXT_KEYS.map((context) => (
                     <DecisionCell
                       key={context}
+                      cellTestId={`gates-cell-${context}`}
                       label={`${secretLabel}, ${contextLabel(context)}`}
                       value={draft[context]["credential.access"]}
                       choices={gates.choices["credential.access"]}
@@ -652,7 +706,7 @@ export function GatesSettings({
               variant="outline"
               className="rounded-full"
               disabled={!dirty || saving}
-              onClick={() => void save()}
+              onClick={requestSave}
             >
               {saving ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -669,6 +723,45 @@ export function GatesSettings({
         onCancel={() => setGrantDraft(null)}
         onCommit={commitGrant}
       />
+
+      {pendingWidening ? (
+        <Dialog open onOpenChange={(open) => !open && setPendingWidening(null)}>
+          <DialogContent className="max-w-lg rounded-[18px]">
+            <DialogHeader>
+              <DialogTitle>
+                {tx("settings.gates.widen.title", "Widen an unattended decision?")}
+              </DialogTitle>
+              <DialogDescription>
+                {tx(
+                  "settings.gates.widen.description",
+                  "No person is present in an unattended turn. A cron job, the heartbeat, Dream, and a subagent run there, so this permits an action nobody reads first.",
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <ul className="space-y-1 text-[13px] text-foreground">
+              {pendingWidening.map((row) => (
+                <li key={row} className="flex items-start gap-2">
+                  <CircleAlert className="mt-[3px] h-3.5 w-3.5 shrink-0 text-destructive-text" />
+                  <span>{row}</span>
+                </li>
+              ))}
+            </ul>
+            <DialogFooter className="gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="rounded-full"
+                onClick={() => setPendingWidening(null)}
+              >
+                {tx("settings.gates.widen.cancel", "Keep it as it is")}
+              </Button>
+              <Button size="sm" className="rounded-full" onClick={() => void save()}>
+                {tx("settings.gates.widen.confirm", "Widen it")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   );
 }
@@ -683,6 +776,7 @@ function DecisionCell({
   fixedSuffix,
   toLabel,
   onChange,
+  cellTestId,
 }: {
   label: string;
   value: string;
@@ -693,18 +787,32 @@ function DecisionCell({
   fixedSuffix: string;
   toLabel: (value: string) => string;
   onChange: (value: string) => void;
+  cellTestId?: string;
 }) {
   // One legal value means no control. The schema types `all` as deny, so the panel offers no
   // way to widen that scope.
   if (choices.length < 2) {
     return (
-      <span className="text-[13px] text-muted-foreground" aria-label={label}>
-        {toLabel(value)} ({fixedSuffix})
+      <span
+        className="flex min-w-0 flex-col gap-0.5 text-[13px] text-muted-foreground"
+        aria-label={label}
+        data-testid={cellTestId}
+      >
+        <span>
+          {toLabel(value)} ({fixedSuffix})
+        </span>
       </span>
     );
   }
   return (
-    <span className="flex min-w-0 items-center gap-1.5">
+    /*
+      A column, and not a row. The marker used to sit beside the control, which put it between this
+      control and the next column's control with only a grid gap between them. A reader then took it
+      for a label of the control on its right, and the whole row read one place shifted. The
+      maintainer changed the unattended decision while they meant the interactive one, and a cron job
+      could then run a remote command with no person present.
+    */
+    <span className="flex min-w-0 flex-col gap-0.5" data-testid={cellTestId}>
       <select
         aria-label={label}
         value={value}

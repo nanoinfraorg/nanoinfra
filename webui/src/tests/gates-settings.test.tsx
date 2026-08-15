@@ -275,6 +275,10 @@ describe("GatesSettings", () => {
       { target: { value: "allow" } },
     );
     fireEvent.click(screen.getByRole("button", { name: "Save policy" }));
+    // This save widens an unattended decision to allow, so #44 asks once before it leaves. An
+    // operator changed that column while they meant the interactive one, and a cron job could then
+    // reach a host with no person present.
+    fireEvent.click(await screen.findByRole("button", { name: /widen it/i }));
 
     await waitFor(() =>
       expect(screen.getByTestId("gates-status")).toHaveTextContent(
