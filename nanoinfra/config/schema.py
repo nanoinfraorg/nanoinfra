@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
+from loguru import logger
 from pydantic import AliasChoices, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -389,7 +390,19 @@ class ToolsConfig(Base):
     Field types for tool-specific sub-configs are resolved via model_rebuild()
     at the bottom of this file so tool config classes can stay next to their
     tool implementations.
+
+    Both construction paths ask for that resolution first (#57). A caller builds
+    a ToolsConfig on its own, so the guard cannot live on ``Config`` alone.
     """
+
+    def __init__(self, **values: Any) -> None:
+        ensure_tool_config_refs()
+        super().__init__(**values)
+
+    @classmethod
+    def model_validate(cls, obj: Any, **kwargs: Any) -> "ToolsConfig":
+        ensure_tool_config_refs()
+        return cast("ToolsConfig", super().model_validate(obj, **kwargs))
 
     web: WebToolsConfig = Field(default_factory=lambda: _lazy_default("nanoinfra.agent.tools.web", "WebToolsConfig"))
     exec: ExecToolConfig = Field(default_factory=lambda: _lazy_default("nanoinfra.agent.tools.shell", "ExecToolConfig"))
@@ -443,9 +456,20 @@ class Config(BaseSettings):
     )
 
     def __init__(self, **values: Any) -> None:
-        if not type(self).__pydantic_complete__:
-            _resolve_tool_config_refs()
+        ensure_tool_config_refs()
         super().__init__(**values)
+
+    @classmethod
+    def model_validate(cls, obj: Any, **kwargs: Any) -> "Config":
+        """Resolve the references first, the way ``__init__`` does (#57).
+
+        ``model_validate`` never calls ``__init__``, so the retry that guarded one construction
+        path left the other open. `Config.model_validate` is the path the provider tests take, and
+        it raised ``PydanticUserError`` for every process whose first import lost the eager
+        resolve.
+        """
+        ensure_tool_config_refs()
+        return cast("Config", super().model_validate(obj, **kwargs))
 
     @model_validator(mode="after")
     def _validate_model_preset(self) -> "Config":
@@ -691,10 +715,43 @@ def _resolve_tool_config_refs() -> None:
     Config.model_rebuild()
 
 
-# Eagerly resolve when the import chain allows it (no circular deps at this
-# point).  If it fails (first import triggers a cycle), the rebuild will
-# happen lazily when Config/ToolsConfig is first used at runtime.
+def ensure_tool_config_refs() -> None:
+    """Resolve the tool config references, unless they are resolved already (#57).
+
+    This is the lazy half the eager attempt below needs. The eager attempt fails
+    whenever the first import of a process reaches this module through a cycle,
+    and for a long time nothing retried it, so a whole process held a ``Config``
+    class that raised on every use of its ``tools`` field.
+
+    The check reads one attribute after the first success, so a caller pays
+    nothing. Without the check each construction would import eight modules and
+    rebuild two models.
+
+    Both models call this from both of their construction paths.
+    ``model_validate`` does not call ``__init__``, and a guard on one path is a
+    guard on neither.
+    """
+    if Config.__pydantic_complete__ and ToolsConfig.__pydantic_complete__:
+        return
+    _resolve_tool_config_refs()
+
+
+# Eagerly resolve when the import chain allows it. The chain reaches
+# ``nanoinfra.agent``, and that package imports the agent context, which imports
+# the session manager, so any process whose first import is the session manager
+# arrives here mid-cycle and this attempt fails.
+#
+# The failure is a timing artifact and not a real dependency problem: the same
+# call succeeds later in the same process. ``ensure_tool_config_refs`` above is
+# what makes it later.
+#
+# The cause reaches a log. A silent pass here cost a bisect over seven test files
+# before #57, because the symptom appeared in an unrelated module.
 try:
     _resolve_tool_config_refs()
-except ImportError:
-    pass
+except ImportError as exc:
+    logger.debug(
+        "Tool config references need a later resolve: {}. "
+        "A construction of Config or ToolsConfig resolves them (#57).",
+        exc,
+    )
