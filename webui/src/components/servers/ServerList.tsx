@@ -71,7 +71,7 @@ export function ServerList({ servers, onOpen, onNew, onDelete }: ServerListProps
                     setPendingDelete(s);
                   }}
                   aria-label={`Delete ${s.name}`}
-                  className="absolute right-2 top-2 hidden h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive group-hover:flex"
+                  className="absolute right-2 top-2 hidden h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive-text group-hover:flex"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>

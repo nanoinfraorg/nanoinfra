@@ -2372,7 +2372,7 @@ export function ThreadComposer({
             role="alert"
             className={cn(
               "mx-3 mb-1 max-h-10 overflow-hidden rounded-md border border-destructive/40 bg-destructive/8 px-2.5 py-1",
-              "text-[11.5px] font-medium text-destructive transition-[max-height,margin,padding,opacity] duration-500 ease-out",
+              "text-[11.5px] font-medium text-destructive-text transition-[max-height,margin,padding,opacity] duration-500 ease-out",
               voiceErrorFading && "mb-0 max-h-0 border-transparent py-0 opacity-0",
             )}
           >
@@ -2729,7 +2729,7 @@ function QueuedPromptRow({
         variant="ghost"
         size="icon"
         aria-label={deleteLabel}
-        className="h-7 w-7 shrink-0 rounded-full text-muted-foreground hover:bg-background/85 hover:text-destructive dark:hover:bg-white/[0.07]"
+        className="h-7 w-7 shrink-0 rounded-full text-muted-foreground hover:bg-background/85 hover:text-destructive-text dark:hover:bg-white/[0.07]"
         onClick={() => onDelete(prompt.id)}
       >
         <Trash2 className="h-3 w-3" aria-hidden />
@@ -3108,7 +3108,7 @@ function AttachmentChip({
       : formatBytes(image.file.size);
   const tone =
     image.status === "error"
-      ? "border-destructive/40 bg-destructive/5 text-destructive"
+      ? "border-destructive/40 bg-destructive/5 text-destructive-text"
       : "border-border/70 bg-muted/60";
 
   return (

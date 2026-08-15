@@ -26,7 +26,7 @@ export function StreamErrorNotice({ error, onDismiss }: StreamErrorNoticeProps) 
       aria-live="assertive"
       className={cn(
         "mb-2 flex items-start gap-2 rounded-lg border border-destructive/30",
-        "bg-destructive/10 px-3 py-2 text-[12px] leading-5 text-destructive",
+        "bg-destructive/10 px-3 py-2 text-[12px] leading-5 text-destructive-text",
         "animate-in fade-in-0 slide-in-from-bottom-1",
       )}
     >
@@ -36,14 +36,14 @@ export function StreamErrorNotice({ error, onDismiss }: StreamErrorNoticeProps) 
       />
       <div className="flex-1">
         <p className="font-medium">{title}</p>
-        <p className="mt-0.5 text-destructive/80">{body}</p>
+        <p className="mt-0.5 text-destructive-text/80">{body}</p>
       </div>
       <Button
         variant="ghost"
         size="icon"
         onClick={onDismiss}
         aria-label={t("common.dismiss")}
-        className="h-6 w-6 shrink-0 text-destructive hover:bg-destructive/15 hover:text-destructive"
+        className="h-6 w-6 shrink-0 text-destructive-text hover:bg-destructive/15 hover:text-destructive-text"
       >
         <X className="h-3.5 w-3.5" />
       </Button>

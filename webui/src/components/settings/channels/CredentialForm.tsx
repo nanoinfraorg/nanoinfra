@@ -76,7 +76,7 @@ export function channelValidationStatusClass(status: string): string {
     return "bg-blue-500/10 text-blue-700 dark:text-blue-200";
   }
   if (status === "invalid") {
-    return "bg-destructive/10 text-destructive";
+    return "bg-destructive/10 text-destructive-text";
   }
   return "bg-muted text-muted-foreground";
 }
@@ -100,7 +100,7 @@ export function channelValidationCheckIcon(status: string): ReactNode {
 
 export function channelValidationCheckIconClass(status: string): string {
   if (status === "pass") return "text-emerald-600";
-  if (status === "fail") return "text-destructive";
+  if (status === "fail") return "text-destructive-text";
   if (status === "warn") return "text-amber-600";
   return "text-muted-foreground";
 }

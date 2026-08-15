@@ -110,7 +110,7 @@ function FileEditRow({
           <span
             className={cn(
               "grid h-3.5 w-3.5 place-items-center rounded-full border bg-background transition-colors",
-              failed && "border-destructive/30 text-destructive/78",
+              failed && "border-destructive/30 text-destructive-text/80",
               editing && "border-muted-foreground/24 text-muted-foreground/65",
               !failed && !editing && "border-emerald-500/28 text-emerald-500/78",
             )}

@@ -20,7 +20,7 @@ const COPY: Record<ConnectionStatus, { color: string }> = {
     color: "text-muted-foreground",
   },
   error: {
-    color: "text-destructive",
+    color: "text-destructive-text",
   },
 };
 

@@ -106,7 +106,7 @@ function ActionRow({
         type="button"
         onClick={onDelete}
         disabled={locked}
-        className="touch-target flex h-9 flex-1 items-center justify-center gap-1.5 rounded-[10px] border border-destructive/25 text-[12.5px] font-medium text-destructive hover:bg-destructive/8 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+        className="touch-target flex h-9 flex-1 items-center justify-center gap-1.5 rounded-[10px] border border-destructive/25 text-[12.5px] font-medium text-destructive-text hover:bg-destructive/8 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
       >
         <Trash2 className="h-3.5 w-3.5" />
         Delete

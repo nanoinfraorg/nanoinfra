@@ -24,7 +24,7 @@ export function SecretDeleteConfirm({ open, secretName, onCancel, onConfirm }: S
     <AlertDialog open={open} onOpenChange={(next) => (!next ? onCancel() : undefined)}>
       <AlertDialogContent className="w-[min(calc(100vw-2rem),24rem)] gap-0 rounded-[28px] border border-white/70 bg-card/95 p-5 text-center shadow-[0_24px_80px_rgba(15,23,42,0.20)] backdrop-blur-xl data-[state=open]:zoom-in-95 sm:rounded-[28px]">
         <AlertDialogHeader className="items-center space-y-0 text-center">
-          <div className="mb-5 grid h-16 w-16 place-items-center rounded-full bg-destructive/10 text-destructive">
+          <div className="mb-5 grid h-16 w-16 place-items-center rounded-full bg-destructive/10 text-destructive-text">
             <div className="grid h-9 w-9 place-items-center rounded-full border border-destructive/20 bg-destructive/5">
               <Trash2 className="h-5 w-5" strokeWidth={2.4} aria-hidden />
             </div>

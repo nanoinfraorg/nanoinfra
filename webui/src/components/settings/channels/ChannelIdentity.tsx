@@ -256,7 +256,7 @@ export function ChannelStatusBadge({
     <span className={[
       "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium leading-4",
       status === "failed"
-        ? "bg-destructive/10 text-destructive"
+        ? "bg-destructive/10 text-destructive-text"
         : status === "running"
           ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
           : "bg-muted/75 text-muted-foreground",
@@ -275,7 +275,7 @@ export function ChannelRuntimeError({
 }) {
   if (!message) return null;
   return (
-    <div className={`${className} rounded-[12px] border border-destructive/20 bg-destructive/5 px-3 py-2 text-[12px] leading-5 text-destructive`}>
+    <div className={`${className} rounded-[12px] border border-destructive/20 bg-destructive/5 px-3 py-2 text-[12px] leading-5 text-destructive-text`}>
       {message}
     </div>
   );

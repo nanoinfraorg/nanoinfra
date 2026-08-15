@@ -7,11 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from nanoinfra.agent.redaction import (
-    redact_mapping,
-    redact_messages,
-    workspace_secret_sentinels,
-)
+from nanoinfra.agent.redaction import TranscriptRedactor
 from nanoinfra.agent.tools.capabilities import capability_class_of
 from nanoinfra.bus.runtime_events import SessionTurnPersisted
 from nanoinfra.gates.executor.client import ExecutorClient
@@ -90,17 +86,20 @@ def _redacted_snapshot(loop: AgentLoop, snapshot: Any) -> Any:
 
     The function applies no length bound. A snapshot exists to reproduce a session, and the #17
     bound protects the durable transcript instead of this reader.
+
+    The executor performs the scrub (#41). A snapshot that no executor scrubbed carries a marker
+    in place of each text. A caller receives less than it asked for, and never a live credential
+    it did not expect.
     """
     if snapshot is None:
         return None
-    sentinels = workspace_secret_sentinels(loop.workspace)
-    snapshot.messages = redact_messages(
+    redactor = TranscriptRedactor.for_workspace(loop.workspace)
+    snapshot.messages = redactor.messages(
         snapshot.messages,
-        sentinels,
         capability_of=lambda name: _capability_class_of_tool(loop, name),
         max_tool_result_chars=None,
     )
-    snapshot.metadata = redact_mapping(snapshot.metadata, sentinels)
+    snapshot.metadata = redactor.mapping(snapshot.metadata)
     return snapshot
 
 

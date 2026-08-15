@@ -71,7 +71,7 @@ function TargetPicker({
           {loading ? (
             <div className="px-2.5 py-2 text-[12px] text-muted-foreground">Loading servers…</div>
           ) : error ? (
-            <div className="px-2.5 py-2 text-[12px] text-destructive">Failed to load servers: {error}</div>
+            <div className="px-2.5 py-2 text-[12px] text-destructive-text">Failed to load servers: {error}</div>
           ) : servers.length === 0 ? (
             <div className="px-2.5 py-2 text-[12px] text-muted-foreground">
               No servers yet — add one with the agent (create_server) or from Infrastructure ▸ Servers.
@@ -406,7 +406,7 @@ function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps)
                 {lastSavedAt ? ` · Saved ${lastSavedAt}` : diagramId ? "" : " · Not saved yet"}
               </span>
               {saveError ? (
-                <span className="text-[11px] text-destructive">Failed to save: {saveError}</span>
+                <span className="text-[11px] text-destructive-text">Failed to save: {saveError}</span>
               ) : null}
             </div>
           </div>

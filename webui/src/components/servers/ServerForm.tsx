@@ -183,7 +183,7 @@ export function ServerForm({ server, onBack, onSave }: ServerFormProps) {
                       type="button"
                       onClick={() => handleRemoveConfigRow(index)}
                       aria-label="Remove field"
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive-text"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -224,7 +224,7 @@ export function ServerForm({ server, onBack, onSave }: ServerFormProps) {
             />
           </label>
 
-          {error ? <span className="text-[12px] text-destructive">{error}</span> : null}
+          {error ? <span className="text-[12px] text-destructive-text">{error}</span> : null}
 
           <div className="mt-1 flex items-center gap-2">
             <button

@@ -14,6 +14,10 @@ output) go through ``nanoinfra/agent/redaction.py`` on the way in: known
 credential values become a name-only reference, and tool output is bounded.
 That redaction is best-effort -- read its module docstring before you rely
 on it.
+
+The executor performs the scrub (nanoinfraorg/nanoinfra#41), because it owns
+the credential store. A record that no executor scrubbed persists as a marker
+rather than as raw text.
 """
 
 from __future__ import annotations
@@ -25,11 +29,7 @@ from typing import Any, Callable, Iterable, Mapping, cast
 
 from loguru import logger
 
-from nanoinfra.agent.redaction import (
-    redact_mapping,
-    redact_message,
-    workspace_secret_sentinels,
-)
+from nanoinfra.agent.redaction import TranscriptRedactor
 from nanoinfra.runtime_context import public_history_messages
 from nanoinfra.session.history_visibility import is_hidden_history_message
 from nanoinfra.utils.helpers import ensure_dir, timestamp
@@ -93,13 +93,13 @@ class SubagentTranscriptStore:
         target = self.path_for(task_id)
         now = timestamp()
         records: list[dict[str, Any]] = []
-        # Resolved once per write. The set does not change inside one write,
-        # and each lookup can reach the secret store.
-        sentinels = workspace_secret_sentinels(self._workspace)
+        # Built once per write. The executor holds the sentinels (#41), and
+        # this decides once whether the workspace needs a scrub at all.
+        redactor = TranscriptRedactor.for_workspace(self._workspace)
         for message in public_history_messages(messages):
             if is_hidden_history_message(message):
                 continue
-            redacted = redact_message(message, sentinels, capability_of=capability_of)
+            redacted = redactor.message(message, capability_of=capability_of)
             record = {
                 key: value
                 for key, value in redacted.items()
@@ -115,7 +115,7 @@ class SubagentTranscriptStore:
             # subagent's error string can quote the credential that failed.
             lines.append(
                 json.dumps(
-                    {"_transcript_meta": redact_mapping(metadata, sentinels)},
+                    {"_transcript_meta": redactor.mapping(metadata)},
                     ensure_ascii=False,
                 )
             )

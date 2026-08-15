@@ -46,7 +46,7 @@ export function SessionInfoPopover({ sessionKey, token, title }: SessionInfoPopo
       {t("thread.sessionInfo.loading")}
     </div>
   ) : loadFailed ? (
-    <div className="flex items-center gap-2 rounded-[16px] bg-destructive/10 px-3 py-3 text-[12.5px] text-destructive">
+    <div className="flex items-center gap-2 rounded-[16px] bg-destructive/10 px-3 py-3 text-[12.5px] text-destructive-text">
       <CircleAlert className="h-3.5 w-3.5" />
       {t("thread.sessionInfo.loadFailed")}
     </div>

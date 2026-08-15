@@ -460,7 +460,7 @@ export const ChatList = memo(function ChatList({
                                 }}
                                 className={cn(
                                   ACTION_MENU_ITEM_CLASS,
-                                  "text-destructive focus:text-destructive",
+                                  "text-destructive-text focus:text-destructive-text",
                                 )}
                               >
                                 <Trash2 className="h-4 w-4 shrink-0" />

@@ -142,10 +142,10 @@ describe("MessageBubble", () => {
     const failedStatus = screen.getByRole("button", {
       name: "Not sent: Message too large",
     });
-    expect(failedStatus).toHaveClass(
-      "text-destructive/80",
-      "dark:text-red-400/80",
-    );
+    // The label reads on both themes through one token. A dark override is
+    // no longer present, because --destructive-text already clears WCAG AA.
+    expect(failedStatus).toHaveClass("text-destructive-text/80");
+    expect(failedStatus).not.toHaveClass("dark:text-red-400/80");
     expect(screen.getByText("hello")).not.toHaveClass("ring-1");
     expect(screen.getByText("hello")).not.toHaveClass("ring-destructive/30");
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();

@@ -80,8 +80,11 @@ export default {
           foreground: "hsl(var(--accent-foreground))",
         },
         destructive: {
+          // DEFAULT is a surface colour. It pairs with foreground for text on
+          // that surface. Body text on a red panel uses text-destructive-text.
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
+          text: "hsl(var(--destructive-text))",
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

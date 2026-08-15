@@ -627,7 +627,7 @@ export function GatesSettings({
           <div
             className={cn(
               "min-w-0 text-[13px] leading-5",
-              error ? "text-destructive" : "text-muted-foreground",
+              error ? "text-destructive-text" : "text-muted-foreground",
             )}
             data-testid="gates-status"
           >
@@ -983,7 +983,7 @@ function RemoveButton({ label, onClick }: { label: string; onClick: () => void }
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive-text"
     >
       <Trash2 className="h-3.5 w-3.5" aria-hidden />
     </button>

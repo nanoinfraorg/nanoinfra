@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, cast
 
 from loguru import logger
 
-from nanoinfra.agent.redaction import redact_text, workspace_secret_sentinels
+from nanoinfra.agent.redaction import TranscriptRedactor
 from nanoinfra.runtime_context import public_history_messages
 from nanoinfra.session.manager import MIN_COMPACTED_REPLAY_MESSAGES, Session, SessionManager
 from nanoinfra.utils.gitstore import GitStore
@@ -302,13 +302,14 @@ class MemoryStore:
         Every write to history.jsonl passes through here, so this is also the
         one place that scrubs known credential values out of the durable
         transcript (see nanoinfra/agent/redaction.py). Redaction is
-        best-effort.
+        best-effort. The executor performs the scrub (#41), so an entry that
+        no executor scrubbed persists as a marker rather than as raw text.
         """
         limit = max_chars if max_chars is not None else _HISTORY_ENTRY_HARD_CAP
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
         # Scrub before the cap. truncate_text keeps a head, so a cap applied
         # first could cut through a credential and leave part of it durable.
-        raw = redact_text(entry, workspace_secret_sentinels(self.workspace)).rstrip()
+        raw = TranscriptRedactor.for_workspace(self.workspace).text(entry).rstrip()
         if len(raw) > limit:
             if not self._oversize_logged:
                 self._oversize_logged = True

@@ -29,6 +29,13 @@
     --accent-foreground: 0 0% 9%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
+    /*
+     * Body text on a destructive panel. --destructive is a surface colour, so it
+     * must not carry body text. Use --destructive-text for every red label.
+     * This value scores 7.21:1 on a bg-destructive/10 panel over --background.
+     * It scores 8.21:1 on plain --background. Both values clear WCAG AA.
+     */
+    --destructive-text: 0 76% 35%;
     --border: 40 8% 90.5%;
     --input: 40 8% 90.5%;
     --ring: 0 0% 3.9%;
@@ -63,6 +70,13 @@
     --accent-foreground: 0 0% 98%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
+    /*
+     * The dark --destructive surface scores only 1.30:1 as body text on its own
+     * bg-destructive/10 panel. That text is unreadable, so red labels use this
+     * token instead. This value scores 6.30:1 on a bg-destructive/10 panel over
+     * --card. It scores 5.57:1 on --accent. Both values clear WCAG AA.
+     */
+    --destructive-text: 0 90% 82%;
     --border: 0 0% 28%;
     --input: var(--border);
     --ring: 0 0% 83.1%;
