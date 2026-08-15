@@ -69,6 +69,7 @@ import {
   SIDEBAR_SELECTION_ITEM_CLASS,
   SidebarSelectionHighlight,
 } from "@/components/SidebarSelectionHighlight";
+import { GatesSettings } from "@/components/settings/GatesSettings";
 import { SkillsCatalogSettings } from "@/components/settings/SkillsCatalogSettings";
 import { TokenUsageHeatmap } from "@/components/settings/TokenUsageHeatmap";
 import { ToggleButton } from "@/components/settings/ToggleButton";
@@ -2289,17 +2290,20 @@ export function SettingsView({
         );
       case "advanced":
         return (
-          <AdvancedSettings
-            form={networkSafetyForm}
-            dirty={networkSafetyDirty}
-            saving={networkSafetySaving}
-            isNativeHostSurface={(settings.surface ?? settings.runtime_surface) === "native"}
-            onChangeForm={setNetworkSafetyForm}
-            onSave={saveNetworkSafetySettings}
-            onRestart={restartViaSettingsSurface}
-            isRestarting={isRestarting || hostEngineApplying}
-            requiresRestartPending={pendingRestartSections.runtime}
-          />
+          <div className="space-y-7">
+            <AdvancedSettings
+              form={networkSafetyForm}
+              dirty={networkSafetyDirty}
+              saving={networkSafetySaving}
+              isNativeHostSurface={(settings.surface ?? settings.runtime_surface) === "native"}
+              onChangeForm={setNetworkSafetyForm}
+              onSave={saveNetworkSafetySettings}
+              onRestart={restartViaSettingsSurface}
+              isRestarting={isRestarting || hostEngineApplying}
+              requiresRestartPending={pendingRestartSections.runtime}
+            />
+            <GatesSettings token={token} settings={settings} onSaved={applyPayload} />
+          </div>
         );
       default:
         return null;
