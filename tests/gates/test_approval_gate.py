@@ -19,6 +19,7 @@ wait. The token is issued on the answer, and it is consumed at execution.
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
@@ -107,14 +108,43 @@ class _Harness:
     def decisions(self) -> list[str]:
         return [str(record["decision"]) for record in self.audit.read_all()]
 
-    async def wait_for_one_pending(self, timeout_s: float = 5.0):
-        """Wait until the executor suspends one action, then return that record."""
-        for _ in range(int(timeout_s / 0.01)):
+    async def wait_for_one_pending(
+        self, timeout_s: float | None = None, task: "asyncio.Task[Any] | None" = None
+    ):
+        """Wait until the executor suspends one action, then return that record.
+
+        *task* is the ``handle`` call this wait belongs to, and passing it changes what a
+        failure teaches. An action that **refused** instead of suspending finishes that task,
+        and this wait then reports the refusal at once. Without it the same run waited out the
+        whole budget and reported "never suspended", which names the symptom and hides the
+        cause.
+
+        That is also why the budget is generous rather than tight. A real refusal now fails
+        immediately, so a large budget delays no real failure. It only stops a slow machine
+        from reading as a broken gate. The old budget was 5 seconds, and one group action
+        measured 3.4 of them under coverage on a machine faster than the CI runner, which made
+        that pass a coin flip: the test failed on the 3.14 job and passed on 3.11 in one run.
+        """
+        # The budget lives at the end of this file, so it cannot be a default argument:
+        # Python evaluates a default when it defines the function.
+        budget = _SUSPEND_BUDGET_S if timeout_s is None else timeout_s
+        deadline = time.monotonic() + budget
+        while time.monotonic() < deadline:
             items = self.pending.pending()
             if items:
                 return items[0]
+            if task is not None and task.done():
+                raise AssertionError(
+                    "the executor answered instead of suspending the action: "
+                    + _finished_task_answer(task)
+                )
             await asyncio.sleep(0.01)
-        raise AssertionError("the executor never suspended an action")
+        raise AssertionError(
+            f"the executor never suspended an action within {budget}s. A group action "
+            "resolves its host set through a real ansible-inventory subprocess, so a slow "
+            "machine needs the budget, and a refusal reports itself at once when the caller "
+            "passes its task."
+        )
 
 
 def _request(**over: object) -> ExecuteRequest:
@@ -245,7 +275,7 @@ async def test_an_unusual_interactive_group_action_suspends_and_then_runs(
 
     with patch(_ANSIBLE_BACKEND, new=AsyncMock(return_value=_ok())) as run:
         task = asyncio.create_task(harness.executor.handle(_request(server_id_or_name="webservers")))
-        record = await harness.wait_for_one_pending()
+        record = await harness.wait_for_one_pending(task=task)
         run.assert_not_called()
 
         answer = harness.service.approve(
@@ -277,7 +307,7 @@ async def test_the_payload_the_operator_reads_names_every_host_and_the_count(
 
     with patch(_ANSIBLE_BACKEND, new=AsyncMock(return_value=_ok())):
         task = asyncio.create_task(harness.executor.handle(_request(server_id_or_name="webservers")))
-        record = await harness.wait_for_one_pending()
+        record = await harness.wait_for_one_pending(task=task)
         harness.service.deny(
             request_id=record.request_id,
             actor="operator-1",
@@ -327,7 +357,7 @@ async def test_a_denial_refuses_the_action_and_carries_the_operator_words(
 
     with patch(_SSH_BACKEND, new=AsyncMock()) as run:
         task = asyncio.create_task(harness.executor.handle(_request()))
-        record = await harness.wait_for_one_pending()
+        record = await harness.wait_for_one_pending(task=task)
         harness.service.deny(
             request_id=record.request_id,
             actor="operator-1",
@@ -358,7 +388,7 @@ async def test_an_approval_on_the_origin_path_gets_a_refusal(tmp_path: Path) -> 
 
     with patch(_SSH_BACKEND, new=AsyncMock()) as run:
         task = asyncio.create_task(harness.executor.handle(_request()))
-        record = await harness.wait_for_one_pending()
+        record = await harness.wait_for_one_pending(task=task)
         answer = harness.service.approve(
             request_id=record.request_id,
             actor="operator-1",
@@ -382,7 +412,7 @@ async def test_a_sender_outside_the_approver_set_cannot_answer(tmp_path: Path) -
 
     with patch(_SSH_BACKEND, new=AsyncMock()) as run:
         task = asyncio.create_task(harness.executor.handle(_request()))
-        record = await harness.wait_for_one_pending()
+        record = await harness.wait_for_one_pending(task=task)
         answer = harness.service.approve(
             request_id=record.request_id,
             actor="intruder",
@@ -405,7 +435,7 @@ async def test_an_answer_about_other_bytes_cannot_approve(tmp_path: Path) -> Non
 
     with patch(_SSH_BACKEND, new=AsyncMock()) as run:
         task = asyncio.create_task(harness.executor.handle(_request()))
-        record = await harness.wait_for_one_pending()
+        record = await harness.wait_for_one_pending(task=task)
         answer = harness.service.approve(
             request_id=record.request_id,
             actor="operator-1",
@@ -477,7 +507,7 @@ async def test_a_single_path_deployment_with_two_people_suspends_and_then_runs(
                 _request(origin_path="webui", origin_actor="webui:alice@example.com")
             )
         )
-        record = await harness.wait_for_one_pending()
+        record = await harness.wait_for_one_pending(task=task)
         run.assert_not_called()
 
         refused = harness.service.approve(
@@ -608,7 +638,7 @@ async def test_the_token_is_issued_on_the_answer_and_spent_by_the_execution(
     with patch(_SSH_BACKEND, new=AsyncMock(return_value=_ok())):
         assert harness.tokens.pending_count() == 0
         task = asyncio.create_task(harness.executor.handle(_request()))
-        record = await harness.wait_for_one_pending()
+        record = await harness.wait_for_one_pending(task=task)
         assert harness.tokens.pending_count() == 0  # nothing issued before the answer
         harness.service.approve(
             request_id=record.request_id,
@@ -637,7 +667,7 @@ async def test_the_token_cannot_be_replayed_for_another_command_in_the_same_sess
 
     with patch(_SSH_BACKEND, new=AsyncMock(return_value=_ok())) as run:
         task = asyncio.create_task(harness.executor.handle(_request()))
-        record = await harness.wait_for_one_pending()
+        record = await harness.wait_for_one_pending(task=task)
         harness.service.approve(
             request_id=record.request_id,
             actor="operator-1",
@@ -673,7 +703,7 @@ async def test_the_token_cannot_be_replayed_by_another_session(tmp_path: Path) -
 
     with patch(_SSH_BACKEND, new=AsyncMock(return_value=_ok())):
         task = asyncio.create_task(harness.executor.handle(_request()))
-        record = await harness.wait_for_one_pending()
+        record = await harness.wait_for_one_pending(task=task)
         harness.service.approve(
             request_id=record.request_id,
             actor="operator-1",
@@ -719,7 +749,7 @@ async def test_the_record_names_the_actor_and_both_paths(tmp_path: Path) -> None
 
     with patch(_SSH_BACKEND, new=AsyncMock(return_value=_ok())):
         task = asyncio.create_task(harness.executor.handle(_request()))
-        record = await harness.wait_for_one_pending()
+        record = await harness.wait_for_one_pending(task=task)
         harness.service.approve(
             request_id=record.request_id,
             actor="operator-1",
@@ -748,7 +778,7 @@ async def test_no_record_carries_the_token_nonce(tmp_path: Path) -> None:
 
     with patch(_SSH_BACKEND, new=AsyncMock(return_value=_ok())):
         task = asyncio.create_task(harness.executor.handle(_request()))
-        record = await harness.wait_for_one_pending()
+        record = await harness.wait_for_one_pending(task=task)
         harness.service.approve(
             request_id=record.request_id,
             actor="operator-1",
@@ -771,3 +801,41 @@ def _answered_nonce(harness: _Harness, request_id: str) -> str:
     nonce = outcome.token_nonce
     assert nonce is not None
     return nonce
+
+
+# ---------------------------------------------------------------- the suspension wait (#82)
+
+#: How long one suspension may take. The work includes a real ansible-inventory subprocess for
+#: a group scope, and this number only bounds a machine that is slow. A refusal reports itself
+#: at once, so the budget never delays a real failure.
+_SUSPEND_BUDGET_S = 30.0
+
+
+def _finished_task_answer(task: "asyncio.Task[Any]") -> str:
+    """What a finished handle call answered, for a wait that expected a suspension."""
+    if task.cancelled():
+        return "the call was cancelled"
+    error = task.exception()
+    if error is not None:
+        return f"{type(error).__name__}: {error}"
+    return repr(task.result())
+
+
+async def test_a_refusal_reports_itself_instead_of_timing_out(tmp_path: Path) -> None:
+    """The half of the wait that decides what a failure teaches (#82).
+
+    A wait that only watched the pending store reported "the executor never suspended an
+    action" for a run where the executor **refused** — the symptom, and never the cause. The
+    refusal is already in the hand of the finished task, so the wait reads it.
+
+    This drives the case directly: a task that is already done, and a pending store that will
+    stay empty. The wait must answer at once and name what the task answered.
+    """
+    finished: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    finished.set_result("refused: no approver on a second path")
+    task = asyncio.ensure_future(finished)
+    await asyncio.sleep(0)
+
+    harness = _Harness(tmp_path, GatesConfig())
+    with pytest.raises(AssertionError, match="answered instead of suspending"):
+        await harness.wait_for_one_pending(timeout_s=30.0, task=task)
