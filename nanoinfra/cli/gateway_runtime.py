@@ -40,6 +40,7 @@ from nanoinfra.webui.sidebar_state import read_webui_sidebar_state
 
 if TYPE_CHECKING:
     from nanoinfra.gates.fetcher.supervisor import FetcherProcess
+    from nanoinfra.gates.mcp_host.supervisor import MCPHostProcess
 
 __all__ = ["_run_gateway"]
 
@@ -54,6 +55,11 @@ console = Console()
 #   NANOINFRA_FETCHER_USER      the account for the child.
 FETCHER_EXTERNAL_ENV = "NANOINFRA_FETCHER_EXTERNAL"
 FETCHER_USER_ENV = "NANOINFRA_FETCHER_USER"
+
+# The MCP host process (#22). A stdio MCP server is a subprocess, and the fetcher starts no
+# program, so the exec right lives in a third process instead of an exception in the docs.
+MCP_HOST_EXTERNAL_ENV = "NANOINFRA_MCP_HOST_EXTERNAL"
+MCP_HOST_USER_ENV = "NANOINFRA_MCP_HOST_USER"
 
 
 def _echo_gate_policy(config: Any, cron: Any) -> None:
@@ -227,6 +233,78 @@ def _start_fetcher_for_gateway(config: Any) -> "FetcherProcess | None":
         )
     logger.info("gates: the fetcher listens on {} (pid {})", process.socket_path, process.pid)
     return process
+
+
+def _stdio_mcp_server_names(config: Any) -> list[str]:
+    """The configured MCP servers that start a program.
+
+    A server with a command and no type is stdio, which is what the tool already reads. So the
+    start decision here matches the tool's own reading of the same config.
+    """
+    names: list[str] = []
+    for name, server in config.tools.mcp_servers.items():
+        kind = getattr(server, "type", None) or ("stdio" if getattr(server, "command", None) else "")
+        if kind == "stdio":
+            names.append(name)
+    return names
+
+
+def _start_mcp_host_for_gateway(config: Any) -> "MCPHostProcess | None":
+    """Start the process that runs stdio MCP servers (#22).
+
+    An install with no stdio server starts nothing, because a process nothing uses is one more
+    thing that can fail. An HTTP or SSE server needs no host: those transports stay in the agent
+    behind the existing SSRF guards.
+    """
+    from nanoinfra.gates.mcp_host.client import SOCKET_ENV_VAR, default_socket_path
+    from nanoinfra.gates.mcp_host.supervisor import MCPHostStartError, start_mcp_host
+
+    if not _stdio_mcp_server_names(config):
+        logger.info("gates: no stdio MCP server is configured, so the gateway starts no MCP host")
+        return None
+
+    socket_path = default_socket_path()
+    if os.environ.get(MCP_HOST_EXTERNAL_ENV):
+        # A container already placed the host on its own account. A second host would hold the
+        # agent's uid, and that undoes the split the first one claims.
+        logger.info("gates: an MCP host already runs on {}, so the gateway starts none", socket_path)
+        return None
+
+    # The client reads this path. The export happens before the start, so a later retry still
+    # finds the same socket.
+    os.environ[SOCKET_ENV_VAR] = str(socket_path)
+    user = os.environ.get(MCP_HOST_USER_ENV, "").strip() or None
+    try:
+        process = start_mcp_host(
+            socket_path=socket_path, workspace=Path(config.workspace_path), user=user
+        )
+    except MCPHostStartError as exc:
+        # Loud on both surfaces. A silent failure reads as an MCP server that answers nothing for
+        # no reason.
+        logger.error("gates: the MCP host did not start, so stdio MCP servers fail: {}", exc)
+        console.print("[red]Error: the MCP host did not start, so stdio MCP servers fail.[/red]")
+        console.print(f"[red]{exc}[/red]")
+        return None
+
+    logger.info("gates: the MCP host listens on {} (pid {})", process.socket_path, process.pid)
+    return process
+
+
+def _stop_mcp_host(process: "MCPHostProcess | None") -> None:
+    """Stop the MCP host this gateway started, and every stdio server it holds.
+
+    One connection is one session, so a stopped host takes every MCP child with it. The call
+    accepts None, because a failed start still reaches this path.
+    """
+    if process is None:
+        return
+    try:
+        if not process.stop():
+            logger.warning(
+                "gates: the MCP host did not stop, so its socket may block the next start"
+            )
+    except OSError as exc:
+        logger.warning("gates: the MCP host did not stop: {}", exc)
 
 
 def _stop_fetcher(process: "FetcherProcess | None") -> None:
@@ -590,6 +668,7 @@ def _run_gateway(
     # The fetcher, started before the tools (#19). Both web tools resolve their socket path when
     # the agent builds them, so the start has to happen first.
     fetcher = _start_fetcher_for_gateway(config)
+    mcp_host = _start_mcp_host_for_gateway(config)
 
     # The gate runtime, built once (#33). latch_controller stays out of the agent: it is
     # the operator half, and #15 splits the halves so no tool path can clear a latch.
@@ -1099,3 +1178,4 @@ def _run_gateway(
     finally:
         # The fetcher is a child of this process, so it goes when the gateway goes.
         _stop_fetcher(fetcher)
+        _stop_mcp_host(mcp_host)

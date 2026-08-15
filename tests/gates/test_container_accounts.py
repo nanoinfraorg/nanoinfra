@@ -26,8 +26,10 @@ _ROOT = Path(__file__).resolve().parents[2]
 AGENT_USER = "nanoinfra"
 EXECUTOR_USER = "nanoinfra-exec"
 FETCHER_USER = "nanoinfra-fetch"
+MCP_HOST_USER = "nanoinfra-mcp"
 EXECUTOR_GROUP = "nanoinfra-ipc"
 FETCHER_GROUP = "nanoinfra-fetch-ipc"
+MCP_HOST_GROUP = "nanoinfra-mcp-ipc"
 
 
 def _dockerfile() -> str:
@@ -57,7 +59,7 @@ def test_the_image_creates_a_fetcher_account() -> None:
 def test_the_fetcher_account_differs_from_the_executor_account() -> None:
     assert FETCHER_USER != EXECUTOR_USER
     uids = set(re.findall(r"--uid\s+(\d+)", _dockerfile()))
-    assert len(uids) >= 2, "each helper needs its own uid, or the kernel enforces nothing"
+    assert len(uids) >= 3, "each helper needs its own uid, or the kernel enforces nothing"
 
 
 def test_the_fetcher_never_joins_the_executor_group() -> None:
@@ -93,3 +95,26 @@ def test_the_entrypoint_never_falls_back_to_the_executor_group() -> None:
     fetcher_block = text[text.index("resolve_fetcher_user()") : text.index("start_fetcher()")]
 
     assert "$ipc_group" not in fetcher_block
+
+
+def test_each_helper_group_holds_the_agent_and_one_helper() -> None:
+    """The agent reaches every socket. No helper reaches another helper's socket.
+
+    The MCP host runs a program that a config in the agent's reach names, so a path from there to
+    the executor would hand a configured command the credentials and the inventory hosts.
+    """
+    text = _dockerfile()
+
+    assert _group_members(text, EXECUTOR_GROUP) == {AGENT_USER, EXECUTOR_USER}
+    assert _group_members(text, FETCHER_GROUP) == {AGENT_USER, FETCHER_USER}
+    assert _group_members(text, MCP_HOST_GROUP) == {AGENT_USER, MCP_HOST_USER}
+
+
+def test_the_entrypoint_never_runs_two_helpers_on_one_account() -> None:
+    """Two helpers on one uid can ptrace each other, so the split would be a comment."""
+    text = _entrypoint()
+
+    assert 'mcp_host_user="nanoinfra-mcp"' in text
+    assert 'fetch_user="nanoinfra-fetch"' in text
+    assert '[ "$mcp_host_run_user" = "$exec_user" ]' in text
+    assert '[ "$fetch_run_user" = "$exec_user" ]' in text

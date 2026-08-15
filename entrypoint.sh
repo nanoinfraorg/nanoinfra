@@ -42,6 +42,18 @@ fetch_socket_path="$fetch_socket_dir/fetcher.sock"
 # The fetcher's entry point is fixed by #19, the same shape as the executor's.
 fetcher_module="nanoinfra.gates.fetcher"
 
+# Item 20 (nanoinfraorg/nanoinfra#22) puts stdio MCP servers in a third helper process. A stdio MCP
+# server is a subprocess, and the fetcher starts no program, so the exec right lives here instead.
+# The host runs a command that the agent's own config names, so this account must never be the
+# executor's account: that one decrypts the credentials and reaches the inventory hosts.
+mcp_host_user="nanoinfra-mcp"
+# The host's own IPC group, for the same reason the fetcher has one. A member of nanoinfra-ipc
+# traverses the executor's socket directory and connects to its socket.
+mcp_host_ipc_group="nanoinfra-mcp-ipc"
+mcp_host_socket_dir="/run/nanoinfra-mcp"
+mcp_host_socket_path="$mcp_host_socket_dir/mcp_host.sock"
+mcp_host_module="nanoinfra.gates.mcp_host"
+
 # Render deploy path (see render.yaml + render-config.json). Gated on Render's
 # automatic RENDER=true env var so local Docker/podman usage is unaffected.
 # Initializes the on-disk config from the committed template (wiring secrets via
@@ -349,6 +361,101 @@ warn_fetcher_split_not_enforced() {
     echo "[entrypoint] warning: the fetcher still holds no credential store and no transport." >&2
 }
 
+# Pick the account that runs the stdio MCP host (#22).
+#
+# The named account wins when the image has it. Otherwise the agent's account runs the host, and the
+# host is still a separate process. The one account this never returns is the executor's, because
+# the host starts a program that a config in the agent's reach names.
+resolve_mcp_host_user() {
+    if [ "$mcp_host_user" != "$exec_user" ] && id "$mcp_host_user" >/dev/null 2>&1; then
+        printf '%s' "$mcp_host_user"
+        return
+    fi
+    printf '%s' "nanoinfra"
+}
+
+# Pick the group that owns the host's socket directory (#22).
+#
+# The host's own group wins when the image has it. An older image runs the host as the agent, so the
+# agent's own group is the right owner there. This never returns the executor's group or the
+# fetcher's group, because either one would be a path between two helpers.
+resolve_mcp_host_group() {
+    if id -g "$mcp_host_ipc_group" >/dev/null 2>&1 ||
+        getent group "$mcp_host_ipc_group" >/dev/null 2>&1
+    then
+        printf '%s' "$mcp_host_ipc_group"
+        return
+    fi
+    printf '%s' "nanoinfra"
+}
+
+# Hand the host's socket directory to the host's account, and keep every other account out.
+prepare_mcp_host_paths() {
+    mkdir -p "$mcp_host_socket_dir" || return 1
+    chown "$mcp_host_run_user:$mcp_host_run_group" "$mcp_host_socket_dir" || return 1
+    # Mode 2710, the same four reasons as the other two socket directories:
+    #   owner rwx  the host binds, unlinks, and rebinds its socket.
+    #   group --x  the agent traverses to a known socket name. It cannot list or create.
+    #   other ---  every other account is refused before it reaches the socket.
+    #   setgid     each new socket inherits the host's group, so a rebind keeps the agent in.
+    chmod 2710 "$mcp_host_socket_dir" || return 1
+}
+
+# Start the MCP host and keep it up. A dead host means every stdio MCP tool fails, so a restart
+# beats a silent outage. The budget matches the fetcher's for the same reasons.
+#
+# umask 0007 is load-bearing here too. A connect() on a Unix socket needs write permission on the
+# socket file, so a socket created 0755 would refuse the agent.
+start_mcp_host() {
+    mcp_host_workspace="$1"
+    (
+        umask 0007
+        failures=0
+        while [ "$failures" -lt 5 ]; do
+            started=$(date +%s)
+            setpriv --reuid="$mcp_host_run_user" --regid="$mcp_host_run_user" --init-groups \
+                python -m "$mcp_host_module" --socket "$mcp_host_socket_path" \
+                --workspace "$mcp_host_workspace"
+            status=$?
+            if [ "$(($(date +%s) - started))" -ge 60 ]; then
+                failures=0
+            else
+                failures=$((failures + 1))
+            fi
+            echo "[entrypoint] warning: MCP host exited with status $status, restart in 5s" >&2
+            sleep 5
+        done
+        echo "[entrypoint] error: the MCP host failed 5 starts in a row, no more restarts" >&2
+        echo "[entrypoint] error: stdio MCP tools stay unreachable until a restart" >&2
+    ) &
+    echo "[entrypoint] MCP host starting as $mcp_host_run_user on $mcp_host_socket_path"
+}
+
+# Report whether the host socket came up. This never blocks the agent, and it never goes quiet.
+wait_for_mcp_host_socket() {
+    attempt=0
+    while [ "$attempt" -lt 5 ]; do
+        if [ -S "$mcp_host_socket_path" ]; then
+            echo "[entrypoint] MCP host socket ready at $mcp_host_socket_path"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        sleep 1
+    done
+    echo "[entrypoint] warning: no MCP host socket at $mcp_host_socket_path after 5s" >&2
+    echo "[entrypoint] warning: stdio MCP tools will fail until the host answers" >&2
+    return 1
+}
+
+# Say plainly what the MCP host split does not have on this host (#22).
+warn_mcp_host_split_not_enforced() {
+    echo "[entrypoint] warning: $1" >&2
+    echo "[entrypoint] warning: the MCP host shares the agent's uid, so either one can ptrace" >&2
+    echo "[entrypoint] warning: the other and read its memory. The #22 split is a process" >&2
+    echo "[entrypoint] warning: boundary here, and the kernel does not enforce it." >&2
+    echo "[entrypoint] warning: the host still holds no credential store and no transport." >&2
+}
+
 # Say plainly what the deployment does not have. An operator must never read silence as a
 # guarantee, so a single-uid start states the property it lacks.
 warn_split_not_enforced() {
@@ -457,6 +564,49 @@ if [ "$(id -u)" = "0" ]; then
             # retry may still succeed and a second fetcher would hold the agent's uid.
             export NANOINFRA_FETCHER_SOCKET="$fetch_socket_path"
             export NANOINFRA_FETCHER_EXTERNAL=1
+        fi
+    fi
+
+    # The stdio MCP host (#22). It starts on every root start, the same as the fetcher. The host
+    # reads the agent's config for its server list, so it needs the same HOME.
+    if [ "$run_user" = "nanoinfra" ]; then
+        mcp_host_run_user=$(resolve_mcp_host_user)
+        if [ "$mcp_host_run_user" = "$exec_user" ]; then
+            # A guard on the resolved value, and not only on the configured name. The account that
+            # decrypts credentials must never be the account that runs a configured command.
+            warn_mcp_host_split_not_enforced "the resolved MCP host account is the executor account"
+            mcp_host_run_user="nanoinfra"
+        fi
+        if [ "$mcp_host_run_user" = "nanoinfra" ]; then
+            warn_mcp_host_split_not_enforced "no separate $mcp_host_user account runs the MCP host"
+        else
+            echo "[entrypoint] MCP host account: $mcp_host_run_user (separate uid from the agent)"
+        fi
+        # The group the agent shares with the host, and never another helper's group.
+        mcp_host_run_group=$(resolve_mcp_host_group)
+        mcp_host_workspace=$(resolve_workspace "$@")
+        if ! prepare_mcp_host_paths; then
+            # No export in this case. The Python gateway then starts a host of its own under the
+            # agent's account, which is a working MCP tool rather than a broken one.
+            echo "[entrypoint] warning: the MCP host paths could not be prepared" >&2
+            echo "[entrypoint] warning: the gateway starts its own MCP host instead" >&2
+        else
+            start_mcp_host "$mcp_host_workspace"
+            if wait_for_mcp_host_socket; then
+                # The host creates its own socket, and a rebind can widen or narrow the mode. So
+                # this start re-applies the owner, the group, and the two modes while it still holds
+                # root. Without the group write bit the agent cannot connect at all.
+                chown "$mcp_host_run_user:$mcp_host_run_group" "$mcp_host_socket_dir" \
+                    "$mcp_host_socket_path" \
+                    2>/dev/null || \
+                    echo "[entrypoint] warning: chown $mcp_host_socket_dir failed"
+                chmod 2710 "$mcp_host_socket_dir" 2>/dev/null || \
+                    echo "[entrypoint] warning: chmod $mcp_host_socket_dir failed"
+                chmod 660 "$mcp_host_socket_path" 2>/dev/null || \
+                    echo "[entrypoint] warning: chmod $mcp_host_socket_path failed"
+            fi
+            export NANOINFRA_MCP_HOST_SOCKET="$mcp_host_socket_path"
+            export NANOINFRA_MCP_HOST_EXTERNAL=1
         fi
     fi
 

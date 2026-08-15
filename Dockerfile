@@ -69,7 +69,11 @@ COPY render-config.json ./
 #   nanoinfra-ipc   the executor's group. Its only members are the agent and the
 #                   executor, and its only job is the executor socket directory (see
 #                   entrypoint.sh). It carries no read rights on either account's files.
-#   nanoinfra-fetch-ipc  the fetcher's group, and the reason there are two groups. A
+#   nanoinfra-mcp   the stdio MCP host (item 20, nanoinfraorg/nanoinfra#22). It starts
+#                   the MCP servers the config names, so it holds the exec right the
+#                   fetcher refuses. It holds no credential and reaches no inventory host.
+#   nanoinfra-mcp-ipc  the MCP host's group, for the same reason the fetcher has its own.
+#   nanoinfra-fetch-ipc  the fetcher's group, and the reason there are several groups. A
 #                   member of nanoinfra-ipc traverses the executor's socket directory and
 #                   connects to its socket. The fetcher inside that group could therefore
 #                   run a command on every inventory host, which is the one thing this
@@ -85,14 +89,19 @@ COPY render-config.json ./
 RUN useradd -m -u 1000 -s /bin/bash nanoinfra && \
     groupadd --system nanoinfra-ipc && \
     groupadd --system nanoinfra-fetch-ipc && \
+    groupadd --system nanoinfra-mcp-ipc && \
     useradd --system --uid 1001 --user-group --no-create-home \
         --home-dir /home/nanoinfra --shell /usr/sbin/nologin nanoinfra-exec && \
     useradd --system --uid 1002 --user-group --no-create-home \
         --home-dir /nonexistent --shell /usr/sbin/nologin nanoinfra-fetch && \
     usermod --append --groups nanoinfra-ipc nanoinfra && \
     usermod --append --groups nanoinfra-ipc nanoinfra-exec && \
+    useradd --system --uid 1003 --user-group --no-create-home \
+        --home-dir /home/nanoinfra --shell /usr/sbin/nologin nanoinfra-mcp && \
     usermod --append --groups nanoinfra-fetch-ipc nanoinfra && \
     usermod --append --groups nanoinfra-fetch-ipc nanoinfra-fetch && \
+    usermod --append --groups nanoinfra-mcp-ipc nanoinfra && \
+    usermod --append --groups nanoinfra-mcp-ipc nanoinfra-mcp && \
     mkdir -p /home/nanoinfra/.nanoinfra && \
     chown -R nanoinfra:nanoinfra /home/nanoinfra /app/.venv
 
