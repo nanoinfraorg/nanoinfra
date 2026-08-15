@@ -21,6 +21,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from nanoinfra.agent.tools.context import (
+    EXECUTION_CONTEXT_INTERACTIVE,
+    RequestContext,
+    request_context,
+)
 from nanoinfra.agent.tools.server_execution import (  # pyright: ignore[reportPrivateUsage]
     _HOST_FIELDS_BY_PROVIDER,
     ExecuteOnServerTool,
@@ -49,6 +54,25 @@ _NON_TARGET_KEYS = {"port", "username", "projectPath", "region"}
 # satisfy the guard" direction of the check.
 _ALL_HOST_SHAPED_KEYS = ("host", "inventoryHost", "baseUrl")
 
+
+
+@pytest.fixture(autouse=True)
+def _interactive_turn():
+    """Bind an interactive turn so the #8 gate does not refuse these tests.
+
+    With no request context bound, execution_context falls back to unattended (#5), and #8
+    refuses an unattended remote action without a standing grant. That refusal is correct.
+    These tests exercise execution mechanics rather than policy, so they declare a present
+    operator. Policy itself is covered by tests/agent/tools/test_unattended_enforcement.py.
+    """
+    ctx = RequestContext(
+        channel="telegram",
+        chat_id="c1",
+        session_key="s1",
+        execution_context=EXECUTION_CONTEXT_INTERACTIVE,
+    )
+    with request_context(ctx):
+        yield
 
 def _server(provider_id: str, config: dict[str, str]) -> Server:
     return Server(

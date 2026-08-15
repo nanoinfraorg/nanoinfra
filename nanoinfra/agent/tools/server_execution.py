@@ -24,7 +24,12 @@ from nanoinfra.agent.tools.capabilities import (
     command_digest,
     record_observation,
 )
+from nanoinfra.agent.tools.context import (
+    EXECUTION_CONTEXT_INTERACTIVE,
+    current_request_execution_context,
+)
 from nanoinfra.agent.tools.schema import BooleanSchema, StringSchema, tool_parameters_schema
+from nanoinfra.gates.policy import Outcome, evaluate, load_policy
 from nanoinfra.secrets.store import SecretStore
 from nanoinfra.servers.execution.base import (
     ABSOLUTE_CEILING_S,
@@ -36,7 +41,7 @@ from nanoinfra.servers.execution.timeout import IdleTimeoutTracker, run_with_idl
 from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.lookup import resolve_server
 from nanoinfra.servers.network_guard import validate_server_target
-from nanoinfra.servers.scope import resolve_scope_label
+from nanoinfra.servers.scope import ScopeResolutionError, resolve_scope, resolve_scope_label
 from nanoinfra.servers.store import ServerStore
 
 if TYPE_CHECKING:
@@ -205,6 +210,44 @@ class ExecuteOnServerTool(Tool):
             "different command without a fresh confirmation."
         )
 
+    def _gate_refusal(self, server: Any, command: str) -> ToolResult | None:
+        """Ask the gate. Return a refusal to hand back, or None to proceed.
+
+        The host set comes from #4's resolver rather than from the single dialed address,
+        because a grant must cover every host the action reaches. A pattern that will not
+        expand refuses: an unexpandable pattern is not an empty one, and an unknown host set
+        cannot be checked against a grant.
+
+        Note for operators until #24 lands: a grant's ``hosts`` must list the *resolved*
+        targets, which for ssh is the address in ``config.host``. #24 resolves grant hosts
+        through the same resolver so an inventory name matches too.
+        """
+        execution_context = current_request_execution_context()
+        if execution_context == EXECUTION_CONTEXT_INTERACTIVE:
+            return None
+
+        try:
+            resolution = resolve_scope(server)
+        except ScopeResolutionError as exc:
+            return ToolResult.error(
+                f"Refusing to execute on {server.name!r}: the target did not resolve, so the "
+                f"host set cannot be checked against a standing grant ({exc})."
+            )
+
+        decision = evaluate(
+            load_policy(),
+            capability_class=MUTATE_REMOTE,
+            scope=resolution.scope,
+            execution_context=execution_context,
+            hosts=resolution.hosts,
+            command=command,
+        )
+        if decision.outcome is Outcome.ALLOW:
+            return None
+        # An unattended context has no interactive fallback. A prompt with nobody present
+        # becomes a hang or a rubber stamp, and both are worse than a narrow grant.
+        return ToolResult.error(f"Refusing to execute on {server.name!r}. {decision.reason}")
+
     async def execute(
         self,
         server_id_or_name: str,
@@ -278,6 +321,21 @@ class ExecuteOnServerTool(Tool):
                 "Nothing was run. Call execute_on_server again with the same arguments "
                 "and dry_run=false only after the user explicitly confirms."
             )
+
+        # The gate (#8). Ordering carries the security property, not just tidiness:
+        # this runs after the refusals and the network guard, so a denial names the
+        # real resolved target -- and before the lazy backend import, before
+        # resolve_plaintext(), and before jobs.create(). A denied action must not
+        # decrypt a credential on its way to a refusal, and must not leave a job
+        # record implying that it ran.
+        #
+        # Only unattended contexts are enforced here. The interactive default is
+        # `approve`, and no approval path exists before #13 and #14. Enforcing
+        # interactive now would refuse every interactive remote command with no way
+        # for a human to answer.
+        refusal = self._gate_refusal(server, command)
+        if refusal is not None:
+            return refusal
 
         # Resolved before the secret: this lazily imports the provider's optional
         # library, and if it isn't installed there is no point decrypting a

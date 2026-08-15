@@ -8,6 +8,11 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from nanoinfra.agent.tools import server_execution
+from nanoinfra.agent.tools.context import (
+    EXECUTION_CONTEXT_INTERACTIVE,
+    RequestContext,
+    request_context,
+)
 from nanoinfra.agent.tools.server_execution import ExecuteOnServerTool
 from nanoinfra.secrets import crypto
 from nanoinfra.secrets.store import SecretStore
@@ -16,6 +21,24 @@ from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.store import ServerStore
 from nanoinfra.servers.types import Server
 
+
+@pytest.fixture(autouse=True)
+def _interactive_turn():
+    """Bind an interactive turn so the #8 gate does not refuse these tests.
+
+    With no request context bound, execution_context falls back to unattended (#5), and #8
+    refuses an unattended remote action without a standing grant. That refusal is correct.
+    These tests exercise execution mechanics rather than policy, so they declare a present
+    operator. Policy itself is covered by tests/agent/tools/test_unattended_enforcement.py.
+    """
+    ctx = RequestContext(
+        channel="telegram",
+        chat_id="c1",
+        session_key="s1",
+        execution_context=EXECUTION_CONTEXT_INTERACTIVE,
+    )
+    with request_context(ctx):
+        yield
 
 @pytest.fixture(autouse=True)
 def _configured_key(monkeypatch: pytest.MonkeyPatch):
