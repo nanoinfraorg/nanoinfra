@@ -442,7 +442,7 @@ async def test_the_credential_decision_records_the_person_the_approval_named(
 
 def test_the_chat_actor_is_the_half_the_channel_authenticated() -> None:
     """A username is user-controlled and it changes at will, so it names no authority."""
-    assert approval_actor("telegram", _TELEGRAM_SENDER) == _TELEGRAM_ACTOR
+    assert approval_actor(_inbound("telegram", _TELEGRAM_SENDER)) == _TELEGRAM_ACTOR
 
 
 async def test_the_chat_answer_records_the_person_the_channel_authenticated(
@@ -467,8 +467,7 @@ async def test_the_chat_answer_records_the_person_the_channel_authenticated(
         task = asyncio.create_task(running.executor.handle(request))
         suspended = await running.wait_for_one_pending()
         sentence = await surface.approve(
-            channel="telegram",
-            sender_id=_TELEGRAM_SENDER,
+            message=_inbound("telegram", _TELEGRAM_SENDER),
             request_id=suspended.request_id,
         )
         response = await task
@@ -505,3 +504,20 @@ async def test_no_record_of_an_answered_action_names_the_bare_path(
 
     actors = {record["actor"] for record in running.audit.read_all()} - {None}
     assert actors == {_WEBUI_ACTOR}
+
+
+def _inbound(channel: str, sender_id: str, authenticated_sender: str | None = None):
+    """One inbound message, for the actor rule (#81).
+
+    `approval_actor` takes the message rather than two strings, because the rule needs to know
+    whether the channel authenticated its sender id at all.
+    """
+    from nanoinfra.bus.events import InboundMessage
+
+    return InboundMessage(
+        channel=channel,
+        sender_id=sender_id,
+        chat_id="chat-1",
+        content="/approve 0123456789abcdef",
+        authenticated_sender=authenticated_sender,
+    )

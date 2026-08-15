@@ -259,14 +259,21 @@ def test_a_telegram_actor_is_the_account_id_and_not_the_username() -> None:
     An approver set that named a username would move approval authority to a value the user
     changes at will, so the actor drops the suffix the channel adds for its allowlist.
     """
-    assert approval_actor("telegram", _APPROVER_SENDER_ID) == _APPROVER
-    assert approval_actor("telegram", _APPROVER) == _APPROVER
+    assert approval_actor(_inbound("telegram", _APPROVER_SENDER_ID)) == _APPROVER
+    assert approval_actor(_inbound("telegram", _APPROVER)) == _APPROVER
 
 
 def test_another_channel_keeps_its_sender_id_unchanged() -> None:
-    """No channel but Telegram decorates its sender id, so nothing else is normalized."""
-    assert approval_actor("websocket", "browser-1") == "browser-1"
-    assert approval_actor("discord", "84|nick") == "84|nick"
+    """No channel but Telegram decorates its sender id, so nothing else is normalized.
+
+    The WebSocket channel is the exception, and it is not a decoration: its sender id is a query
+    parameter the browser chooses, so it authenticates nobody and answers no approval (#81).
+    """
+    assert approval_actor(_inbound("discord", "84|nick")) == "84|nick"
+    assert approval_actor(_inbound("websocket", "browser-1")) == ""
+    assert approval_actor(_inbound("websocket", "browser-1", "webui:a@b.example")) == (
+        "webui:a@b.example"
+    )
 
 
 # -- the approval ------------------------------------------------------------------------
@@ -506,3 +513,20 @@ def test_no_tool_module_imports_the_answer_modules_directly() -> None:
     ]
 
     assert offenders == []
+
+
+def _inbound(channel: str, sender_id: str, authenticated_sender: str | None = None):
+    """One inbound message, for the actor rule (#81).
+
+    `approval_actor` takes the message rather than two strings, because the rule needs to know
+    whether the channel authenticated its sender id at all.
+    """
+    from nanoinfra.bus.events import InboundMessage
+
+    return InboundMessage(
+        channel=channel,
+        sender_id=sender_id,
+        chat_id="chat-1",
+        content="/approve 0123456789abcdef",
+        authenticated_sender=authenticated_sender,
+    )
