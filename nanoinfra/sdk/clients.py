@@ -7,6 +7,12 @@ from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from nanoinfra.agent.redaction import (
+    redact_mapping,
+    redact_messages,
+    workspace_secret_sentinels,
+)
+from nanoinfra.agent.tools.capabilities import capability_class_of
 from nanoinfra.bus.runtime_events import SessionTurnPersisted
 from nanoinfra.runtime_context import RUNTIME_CONTEXT_HISTORY_META, RuntimeContextProvider
 from nanoinfra.sdk.types import (
@@ -90,7 +96,45 @@ class SessionClient:
         ]
 
     def export(self, session_key: str) -> SessionSnapshot | None:
-        """Return a trusted full snapshot, including model-only runtime context."""
+        """Return a full snapshot with model-only runtime context, secrets redacted.
+
+        This is a share path, so the #17 scrub runs here at the read. The live
+        session and the session file both keep the real values, because the
+        model replays them to finish its work. #17 scrubs the derived durable
+        transcripts at the write, and this method reads around all of them.
+
+        Redaction is best-effort (see nanoinfra/agent/redaction.py). Treat an
+        exported snapshot as sensitive material anyway.
+        """
+        snapshot = self.export_unredacted_with_secrets(session_key)
+        if snapshot is None:
+            return None
+        sentinels = workspace_secret_sentinels(self._loop.workspace)
+        # In-place update is safe here. Both snapshot builders deep copy, so
+        # neither a caller nor the session cache shares this object.
+        snapshot.messages = redact_messages(
+            snapshot.messages,
+            sentinels,
+            capability_of=self._capability_class_of_tool,
+            # No length bound. An export exists to reproduce a session, and the
+            # #17 bound protects the durable transcript, not this reader.
+            max_tool_result_chars=None,
+        )
+        snapshot.metadata = redact_mapping(snapshot.metadata, sentinels)
+        return snapshot
+
+    def export_unredacted_with_secrets(self, session_key: str) -> SessionSnapshot | None:
+        """Return the raw snapshot, which MAY CARRY LIVE CREDENTIALS.
+
+        Only trusted in-process library code may call this, and only when a
+        scrubbed copy cannot do the job: a workspace-local backup, a session
+        migration, or a ``restore()`` round trip that must reproduce the
+        session exactly.
+
+        Never send this result outside the workspace trust boundary. An HTTP
+        response, a CLI output, a log line, a chat reply, or a bug-report
+        attachment must use ``export()``.
+        """
         cached = self._loop.sessions.get_cached(session_key)
         if cached is not None:
             return snapshot_from_session(cached, include_runtime_context=True)
@@ -98,6 +142,15 @@ class SessionClient:
         if payload is None:
             return None
         return snapshot_from_payload(payload, include_runtime_context=True)
+
+    def _capability_class_of_tool(self, tool_name: str) -> str | None:
+        """Return the capability class of a registered tool, else ``None``.
+
+        A ``credential.access`` result is credential material by definition, so
+        redaction drops it whole instead of a value-by-value scrub.
+        """
+        tool = self._loop.tools.get(tool_name)
+        return capability_class_of(tool) if tool is not None else None
 
     async def restore(
         self,
