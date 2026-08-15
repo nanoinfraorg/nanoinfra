@@ -24,6 +24,7 @@ if TYPE_CHECKING:
         STREAM_EVENT_TOOL_STARTED,
         STREAM_EVENT_TYPES,
         Nanoinfra,
+        RemoteExecutionUnavailableError,
         RunResult,
         RunStream,
         SessionInfo,
@@ -57,6 +58,8 @@ __logo__ = "🐈"
 _LAZY_EXPORTS = {
     "Nanoinfra": ".nanoinfra",
     "RunStream": ".nanoinfra",
+    # #21 asks a caller to catch this, so the package hands it over beside RunResult.
+    "RemoteExecutionUnavailableError": ".nanoinfra",
     "RunResult": ".nanoinfra",
     "RequestContext": ".agent.tools.context",
     "RuntimeContextBlock": ".runtime_context",
@@ -93,6 +96,7 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "Nanoinfra",
+    "RemoteExecutionUnavailableError",
     "RunResult",
     "RequestContext",
     "RuntimeContextBlock",

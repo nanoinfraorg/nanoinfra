@@ -141,8 +141,7 @@ def test_the_socket_serves_a_request_end_to_end(tmp_path: Path) -> None:
     socket_path = tmp_path / "fetch.sock"
     thread = _serve(socket_path, tmp_path, max_requests=1)
 
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.connect(str(socket_path))
+    with _connect(socket_path) as client:
         write_frame(
             client,
             encode_request(
@@ -187,8 +186,7 @@ def test_a_malformed_frame_gets_a_refusal_and_not_a_crash(tmp_path: Path) -> Non
     socket_path = tmp_path / "fetch.sock"
     thread = _serve(socket_path, tmp_path, max_requests=1)
 
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.connect(str(socket_path))
+    with _connect(socket_path) as client:
         write_frame(client, b"not a request")
         response = decode_response(read_frame(client))
     thread.join(timeout=10)
@@ -204,8 +202,7 @@ def test_a_frame_with_an_unknown_operation_gets_a_refusal(tmp_path: Path) -> Non
     thread = _serve(socket_path, tmp_path, max_requests=1)
 
     payload = json.dumps({"v": PROTOCOL_VERSION, "op": "exec", "command": "id"}).encode()
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.connect(str(socket_path))
+    with _connect(socket_path) as client:
         write_frame(client, payload)
         response = decode_response(read_frame(client))
     thread.join(timeout=10)
@@ -227,8 +224,7 @@ def test_a_reply_above_the_wire_limit_gets_an_answer_and_not_a_hang_up(
     socket_path = tmp_path / "fetch.sock"
     thread = _serve(socket_path, tmp_path, max_requests=1)
 
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.connect(str(socket_path))
+    with _connect(socket_path) as client:
         write_frame(
             client,
             encode_request(
@@ -303,8 +299,7 @@ def _serve(socket_path: Path, workspace: Path, *, max_requests: int) -> threadin
 
 
 def _round_trip(socket_path: Path) -> None:
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.connect(str(socket_path))
+    with _connect(socket_path) as client:
         write_frame(
             client,
             encode_request(
@@ -315,9 +310,62 @@ def _round_trip(socket_path: Path) -> None:
 
 
 def _wait_for(path: Path, timeout_s: float = 10.0) -> None:
+    """Wait until the socket file exists.
+
+    Existence is not readiness. `bind()` creates the path and `listen()` accepts a peer after
+    that, so a connect between the two calls fails with ConnectionRefusedError. Use `_connect`
+    for a client, which retries for that reason.
+    """
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if path.exists():
             return
         time.sleep(0.01)
     raise AssertionError(f"{path} never appeared")
+
+
+def _connect(path: Path, timeout_s: float = 10.0) -> socket.socket:
+    """Connect to *path*, and retry while the server is between bind and listen.
+
+    A probe connection would be the other answer, and it is the wrong one here: `serve_forever`
+    counts an accepted connection against `max_requests`, so a probe would spend the budget the
+    test needs. The retry lives in the client instead, and the server keeps its own contract.
+    """
+    deadline = time.monotonic() + timeout_s
+    while True:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            client.connect(str(path))
+            return client
+        except (ConnectionRefusedError, FileNotFoundError):
+            client.close()
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
+
+
+def test_a_client_survives_the_gap_between_bind_and_listen(tmp_path: Path) -> None:
+    """The race that made the end-to-end test flaky, as a test of its own.
+
+    `bind()` creates the socket file and `listen()` accepts a peer after that. A test that waited
+    for the file alone could connect in between and fail with ConnectionRefusedError. It failed
+    once that way in a full-suite run, which is the worst kind of failure to read.
+    """
+    socket_path = tmp_path / "late.sock"
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(socket_path))
+
+    def _listen_late() -> None:
+        time.sleep(0.2)
+        server.listen(1)
+        connection, _ = server.accept()
+        connection.close()
+
+    listener = threading.Thread(target=_listen_late, daemon=True)
+    listener.start()
+    try:
+        with _connect(socket_path, timeout_s=5.0):
+            pass
+    finally:
+        listener.join(timeout=5)
+        server.close()

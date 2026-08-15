@@ -139,7 +139,11 @@ class AuditConfig(Base):
 
     model_config = _FORBID_EXTRA
 
-    retention_days: int = 90
+    # A floor of one day, because AuditStore.prune keeps every segment at zero or less. That is
+    # the correct fail-safe for a store that must never empty itself by accident, and it also
+    # means a hand-edited zero would turn retention off with no message. The WebUI already
+    # refuses a value below one day, and this covers the file the WebUI never sees.
+    retention_days: int = Field(default=90, ge=1)
     record_command_text: bool = False
 
 
