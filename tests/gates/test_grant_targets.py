@@ -17,6 +17,7 @@ import pytest
 
 from nanoinfra.agent.tools.capabilities import MUTATE_REMOTE
 from nanoinfra.config.gates import GatesConfig
+from nanoinfra.gates import policy as policy_module
 from nanoinfra.gates.policy import Outcome, evaluate
 from nanoinfra.servers.store import ServerStore
 
@@ -250,3 +251,52 @@ def test_a_near_miss_address_does_not_match(tmp_path: Path, changed_host: str) -
     )
 
     assert decision.outcome is Outcome.DENY
+
+
+def test_one_evaluation_resolves_each_grant_host_once(tmp_path: Path) -> None:
+    """#35: a real resolve shells out to ansible, so it must not repeat inside one decision.
+
+    Every grant in the policy is checked against the same action, so a naive loop resolves the
+    same host once per grant. The cache lives for one evaluate() call and no longer: #24
+    re-resolves on purpose, so an inventory write between two actions must still invalidate a
+    match.
+    """
+    store = _store(tmp_path)
+    gates = GatesConfig.model_validate(
+        {
+            "unattended": {"mutate.remote": {"host": "grant"}},
+            # Three grants that all name the same host. Only the last one matches the command,
+            # so the evaluator walks every grant before it decides.
+            "standingGrants": [
+                {"id": "a", "contexts": ["unattended"], "hosts": ["staging-web-01"],
+                 "commands": ["one"]},
+                {"id": "b", "contexts": ["unattended"], "hosts": ["staging-web-01"],
+                 "commands": ["two"]},
+                {"id": "c", "contexts": ["unattended"], "hosts": ["staging-web-01"],
+                 "commands": ["systemctl reload nginx"]},
+            ],
+        }
+    )
+    calls: list[str] = []
+    real = policy_module.resolve_scope_for_grant_host
+
+    def counted(server: object) -> object:
+        calls.append(getattr(server, "name", "?"))
+        return real(server)
+
+    policy_module.resolve_scope_for_grant_host = counted  # pyright: ignore[reportAttributeAccessIssue]
+    try:
+        decision = evaluate(
+            gates,
+            capability_class=MUTATE_REMOTE,
+            scope="host",
+            execution_context=AUTOMATION,
+            hosts=("10.0.1.5",),
+            command="systemctl reload nginx",
+            servers=store,
+        )
+    finally:
+        policy_module.resolve_scope_for_grant_host = real  # pyright: ignore[reportAttributeAccessIssue]
+
+    assert decision.outcome is Outcome.ALLOW
+    assert calls == ["staging-web-01"]
