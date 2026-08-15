@@ -67,6 +67,12 @@ def create_gateway_app(
             level="DEBUG",
             colorize=None,
             filter=lambda record: record["extra"].setdefault("channel", "-") or True,
+            # diagnose off, because it prints the value of every local in a traceback. The executor
+            # resolves a plaintext credential into a local, and a resolved command routinely embeds
+            # one, so a diagnosed traceback writes both into a log that outlives the incident.
+            # backtrace stays on: the file and the line of each frame cost nothing (#41).
+            backtrace=True,
+            diagnose=False,
         )
 
     def runtime_for_instance(*, workspace: str | None = None, config: str | None = None):
