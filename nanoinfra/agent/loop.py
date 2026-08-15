@@ -2309,17 +2309,24 @@ class AgentLoop:
         runtime: LLMRuntime | None = None,
         on_runtime_admitted: Callable[[LLMRuntime], Awaitable[None]] | None = None,
         attributes: Mapping[str, Any] | None = None,
+        metadata: Mapping[str, Any] | None = None,
     ) -> OutboundMessage | None:
-        """Process an external message directly and return the outbound payload."""
+        """Process an external message directly and return the outbound payload.
+
+        ``metadata`` reaches the turn, so a caller that runs from a schedule can mark it. #5
+        classifies a turn from that metadata, and a caller that could not pass any read as
+        interactive: #49 shows the built-in heartbeat running model-written text at interactive
+        privilege for that reason.
+        """
         if channel == "system":
             raise ValueError("channel 'system' is reserved for internal messages")
         await self._connect_mcp()
-        metadata: dict[str, Any] = {}
+        turn_metadata: dict[str, Any] = dict(metadata or {})
         if not persist_user_message:
-            metadata[turn_continuation.SKIP_USER_PERSIST_META] = True
+            turn_metadata[turn_continuation.SKIP_USER_PERSIST_META] = True
         msg = InboundMessage(
             channel=channel, sender_id=sender_id, chat_id=chat_id,
-            content=content, media=media or [], metadata=metadata,
+            content=content, media=media or [], metadata=turn_metadata,
         )
         # Share the dispatch lock so direct calls serialize with bus turns.
         lock = self._get_session_lock(session_key)
