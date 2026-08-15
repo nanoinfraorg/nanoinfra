@@ -235,15 +235,41 @@ def test_other_capability_classes_keep_their_result(
     assert redacted[0]["content"] == "exit code 0"
 
 
-def test_remote_output_is_truncated_by_default(sentinels: list[SecretSentinel]) -> None:
-    """Part 2: the persisted copy is bounded without the caller asking."""
+def test_remote_output_is_truncated_when_a_caller_asks(
+    sentinels: list[SecretSentinel],
+) -> None:
+    """Part 2: the persisted copy is bounded, and the caller names the bound (#56).
+
+    This test read "without the caller asking" while the parameter carried a default. Every
+    caller but one passed None, and the one that did not was the subagent transcript store, so
+    the default described the behaviour of no path a reader was likely to be looking at.
+    """
     long_output = "x" * (TRANSCRIPT_TOOL_RESULT_MAX_CHARS * 3)
 
-    redacted = redact_messages([_tool_message(long_output)], _scrub(sentinels))
+    redacted = redact_messages(
+        [_tool_message(long_output)],
+        _scrub(sentinels),
+        max_tool_result_chars=TRANSCRIPT_TOOL_RESULT_MAX_CHARS,
+    )
 
     content = str(redacted[0]["content"])
     assert len(content) < len(long_output)
     assert "chars truncated from output" in content
+
+
+def test_no_bound_applies_when_a_caller_names_none(
+    sentinels: list[SecretSentinel],
+) -> None:
+    """The default is None now, so a caller that names no bound gets none.
+
+    Four of the five callers want exactly that: the main loop, the session store, the SDK
+    snapshot and the checkpoint each hold their own rule about length.
+    """
+    long_output = "x" * (TRANSCRIPT_TOOL_RESULT_MAX_CHARS * 3)
+
+    redacted = redact_messages([_tool_message(long_output)], _scrub(sentinels))
+
+    assert redacted[0]["content"] == long_output
 
 
 def test_assistant_content_is_not_truncated(sentinels: list[SecretSentinel]) -> None:

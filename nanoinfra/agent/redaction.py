@@ -16,9 +16,15 @@ Two gaps drove this module (nanoinfraorg/nanoinfra#17):
    a durable file.
 2. Remote command output is the widest uncontrolled route for a credential
    into a transcript, because the agent does not choose what the remote host
-   prints. The persisted copy is therefore bounded by default with
-   ``truncate_output`` from nanoinfra/servers/execution/base.py, so the bound
-   lives in exactly one place.
+   prints. The persisted copy is therefore bounded, with ``truncate_output``
+   from nanoinfra/servers/execution/base.py, so one function shortens a string
+   whoever asks for it.
+
+   The bound is asked for, and it is no longer a default (#56). A caller either
+   holds a budget of its own or names ``TRANSCRIPT_TOOL_RESULT_MAX_CHARS``. A
+   default made this module look like the owner of the transcript budget, and
+   the owner is ``AgentLoop``: it applies ``AgentDefaults.max_tool_result_chars``
+   to a session record, which is four times this value.
 
 The placeholder keeps the secret NAME. An operator must still be able to
 tell which secret a turn used, and a bare ``[redacted]`` would destroy that.
@@ -126,10 +132,21 @@ from loguru import logger
 from nanoinfra.agent.tools.capabilities import CREDENTIAL_ACCESS
 from nanoinfra.servers.execution.base import truncate_output
 
-#: Persisted budget for one tool result. Far below the 50 000-char in-flight
-#: budget (``MAX_OUTPUT_CHARS``): a bounded head and tail is enough for an
-#: operator to see what a command did, and the rest is mostly what makes an
-#: accidental credential dump durable.
+#: The budget a subagent transcript applies to one tool result, and the only
+#: budget this module holds (#56). Far below the 50 000-char in-flight budget
+#: (``MAX_OUTPUT_CHARS``): a bounded head and tail is enough for an operator to
+#: see what a command did, and the rest is mostly what makes an accidental
+#: credential dump durable.
+#:
+#: **This is not the budget of the main transcript.** ``AgentLoop`` applies
+#: ``AgentDefaults.max_tool_result_chars`` (16 000) to a session record itself,
+#: through ``_bounded_tool_result``, and it therefore asks this module for no
+#: bound at all. Two bounds on one string would truncate it twice.
+#:
+#: So one store takes this value, ``subagent_transcript.py``, and it names the
+#: value at the call. Nothing takes it by default. A default here read as "the
+#: persisted budget", and a reader who believed that applied 4 000 where 16 000
+#: applies, or applied a second bound where one already ran.
 TRANSCRIPT_TOOL_RESULT_MAX_CHARS = 4_000
 
 #: Shortest value usable as a sentinel. A four-character secret matches
@@ -550,7 +567,7 @@ def redact_message(
     scrub: ScrubText,
     *,
     capability_of: Callable[[str], str | None] | None = None,
-    max_tool_result_chars: int | None = TRANSCRIPT_TOOL_RESULT_MAX_CHARS,
+    max_tool_result_chars: int | None = None,
 ) -> dict[str, Any]:
     """Return a persist-safe copy of one message.
 
@@ -622,7 +639,7 @@ def redact_messages(
     scrub: ScrubText,
     *,
     capability_of: Callable[[str], str | None] | None = None,
-    max_tool_result_chars: int | None = TRANSCRIPT_TOOL_RESULT_MAX_CHARS,
+    max_tool_result_chars: int | None = None,
 ) -> list[dict[str, Any]]:
     """Return persist-safe copies of *messages*."""
     return [
@@ -1013,7 +1030,7 @@ class TranscriptRedactor:
         message: Mapping[str, Any],
         *,
         capability_of: Callable[[str], str | None] | None = None,
-        max_tool_result_chars: int | None = TRANSCRIPT_TOOL_RESULT_MAX_CHARS,
+        max_tool_result_chars: int | None = None,
     ) -> dict[str, Any]:
         """Scrub one message, or withhold its text."""
         try:
@@ -1031,7 +1048,7 @@ class TranscriptRedactor:
         messages: Iterable[Mapping[str, Any]],
         *,
         capability_of: Callable[[str], str | None] | None = None,
-        max_tool_result_chars: int | None = TRANSCRIPT_TOOL_RESULT_MAX_CHARS,
+        max_tool_result_chars: int | None = None,
     ) -> list[dict[str, Any]]:
         """Scrub a list of messages, or withhold the text of every one of them.
 
