@@ -23,7 +23,10 @@ from loguru import logger
 from nanoinfra.agent import context as agent_context
 from nanoinfra.agent import model_presets as preset_helpers
 from nanoinfra.agent.autocompact import AutoCompact
-from nanoinfra.agent.automation_turns import publish_next_deferred_turn
+from nanoinfra.agent.automation_turns import (
+    execution_context_for_turn,
+    publish_next_deferred_turn,
+)
 from nanoinfra.agent.context import ContextBuilder
 from nanoinfra.agent.cron_turns import CronTurnCoordinator
 from nanoinfra.agent.hook import AgentHook, AgentTurnHookFactory
@@ -749,6 +752,15 @@ class AgentLoop:
             sender_id=ctx.msg.sender_id,
             turn_id=ctx.turn_id,
             workspace=scope.project_path,
+            # A cron run and a local trigger reach this same builder. So the value comes
+            # from the turn, and never from the delivery route. The inbound channel is
+            # passed only to catch the "system" channel, which carries a subagent's own
+            # announcement and therefore no human intent.
+            execution_context=execution_context_for_turn(
+                ctx.msg.metadata,
+                ctx.session.metadata,
+                channel=ctx.msg.channel,
+            ),
         )
 
     async def _resolve_runtime_context_for_turn(
@@ -945,6 +957,15 @@ class AgentLoop:
                         sender_id=pending_msg.sender_id,
                         turn_id=request_ctx.turn_id,
                         workspace=scope.project_path,
+                        # A mid-turn injection carries its own trigger metadata. The session
+                        # may also hold an active goal. So classify it like any other turn,
+                        # and pass the inbound channel for the same reason as above: an
+                        # injected "system" turn is a subagent announcement, not a person.
+                        execution_context=execution_context_for_turn(
+                            metadata,
+                            session.metadata if session is not None else None,
+                            channel=pending_msg.channel,
+                        ),
                     )
                     blocks = await self._resolve_runtime_context_for_request(
                         pending_request,
@@ -1008,6 +1029,8 @@ class AgentLoop:
             session_metadata=session.metadata if session is not None else None,
         )
         effective_tools = tools or self.tools
+        # Every turn passes a context from _request_context_for_turn. This fallback covers
+        # a caller that passes none. So it keeps the fail-closed execution context.
         request_ctx = request_context or RequestContext(
             channel=channel,
             chat_id=chat_id,

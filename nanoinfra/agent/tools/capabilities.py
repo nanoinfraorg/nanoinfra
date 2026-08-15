@@ -20,7 +20,10 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from nanoinfra.agent.tools.context import current_request_session_key
+from nanoinfra.agent.tools.context import (
+    current_request_execution_context,
+    current_request_session_key,
+)
 
 if TYPE_CHECKING:
     from nanoinfra.agent.tools.base import Tool
@@ -70,14 +73,19 @@ def record_observation(
 
     ``decision`` is ``preview`` when the call asked for a preview, and ``would_gate``
     when the call asked for execution. The record shape follows #16, minus ``scope``
-    (#4) and ``execution_context`` (#5), which do not exist yet. Callers pass only
-    values that are safe to persist: ids, names, digests, never a credential value.
+    (#4), which does not exist yet. Callers pass only values that are safe to persist:
+    ids, names, digests, never a credential value.
+
+    ``execution_context`` (#5) comes from the current request the same way ``session_id``
+    does. It reads unattended when no request is bound. So a missing value never looks
+    like a person was present.
     """
     record: dict[str, Any] = {
         "capability_class": capability_class,
         "decision": decision,
         "tool": tool,
         "session_id": current_request_session_key(),
+        "execution_context": current_request_execution_context(),
         **fields,
     }
     logger.bind(gate_observation=record).log(

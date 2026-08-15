@@ -16,6 +16,7 @@ from nanoinfra.agent.runner import AgentRunner, AgentRunResult, AgentRunSpec
 from nanoinfra.agent.subagent_transcript import SubagentTranscriptStore
 from nanoinfra.agent.tools.base import ToolResult
 from nanoinfra.agent.tools.context import (
+    EXECUTION_CONTEXT_SUBAGENT,
     RequestContext,
     ToolContext,
     bind_request_context,
@@ -415,6 +416,10 @@ class SubagentManager:
                 message_id=origin_message_id,
                 session_key=sess_key,
                 runtime=runtime,
+                # The origin channel stays for delivery and for the record. It must not
+                # decide this value. A subagent inherits a chat channel. So a derived
+                # value would read interactive for a run that nobody watches.
+                execution_context=EXECUTION_CONTEXT_SUBAGENT,
             ))
             token = bind_workspace_scope(workspace_scope) if workspace_scope is not None else None
             try:
