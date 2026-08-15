@@ -54,6 +54,21 @@ mcp_host_socket_dir="/run/nanoinfra-mcp"
 mcp_host_socket_path="$mcp_host_socket_dir/mcp_host.sock"
 mcp_host_module="nanoinfra.gates.mcp_host"
 
+# Item 17 (nanoinfraorg/nanoinfra#20) puts one confinement layer on each helper process. This
+# script starts every helper with setpriv, so no Python supervisor runs on this path. The launcher
+# below applies the same Landlock rules the supervisors apply, then it execs the helper. It reads a
+# role and never an argv, so nothing here hands a caller the choice of a program. The role to module
+# map lives in nanoinfra/gates/confinement.py beside the rules.
+#
+# A kernel with no Landlock support starts the helper anyway and says so, because such a host is
+# legitimate. A kernel that supports Landlock and then rejects the ruleset makes the launcher exit
+# 78, and the retry loops below stop at once. A helper never serves unconfined in silence.
+confinement_module="nanoinfra.gates.confinement"
+confinement_refused_status=78
+executor_role="executor"
+fetcher_role="fetcher"
+mcp_host_role="mcp-host"
+
 # Render deploy path (see render.yaml + render-config.json). Gated on Render's
 # automatic RENDER=true env var so local Docker/podman usage is unaffected.
 # Initializes the on-disk config from the committed template (wiring secrets via
@@ -227,8 +242,14 @@ start_executor() {
         while [ "$failures" -lt 5 ]; do
             started=$(date +%s)
             setpriv --reuid="$exec_user" --regid="$exec_user" --init-groups \
-                python -m "$executor_module" --socket "$socket_path" --workspace "$workspace"
+                python -m "$confinement_module" --role "$executor_role" \
+                --socket "$socket_path" --workspace "$workspace"
             status=$?
+            if [ "$status" = "$confinement_refused_status" ]; then
+                echo "[entrypoint] error: the executor refuses to start unconfined" >&2
+                echo "[entrypoint] error: every gated action stays refused" >&2
+                break
+            fi
             if [ "$(($(date +%s) - started))" -ge 60 ]; then
                 failures=0
             else
@@ -241,6 +262,7 @@ start_executor() {
         echo "[entrypoint] error: gated actions stay refused until this container restarts" >&2
     ) &
     echo "[entrypoint] executor starting as $exec_user on $socket_path"
+    echo "[entrypoint] executor entry point: $executor_module, confined"
 }
 
 # Report whether the socket came up. This never blocks the agent. The executor module lands
@@ -319,9 +341,14 @@ start_fetcher() {
         while [ "$failures" -lt 5 ]; do
             started=$(date +%s)
             setpriv --reuid="$fetch_run_user" --regid="$fetch_run_user" --init-groups \
-                python -m "$fetcher_module" --socket "$fetch_socket_path" \
-                --workspace "$fetch_workspace"
+                python -m "$confinement_module" --role "$fetcher_role" \
+                --socket "$fetch_socket_path" --workspace "$fetch_workspace"
             status=$?
+            if [ "$status" = "$confinement_refused_status" ]; then
+                echo "[entrypoint] error: the fetcher refuses to start unconfined" >&2
+                echo "[entrypoint] error: web_fetch and web_search stay unreachable" >&2
+                break
+            fi
             if [ "$(($(date +%s) - started))" -ge 60 ]; then
                 failures=0
             else
@@ -334,6 +361,7 @@ start_fetcher() {
         echo "[entrypoint] error: web_fetch and web_search stay unreachable until a restart" >&2
     ) &
     echo "[entrypoint] fetcher starting as $fetch_run_user on $fetch_socket_path"
+    echo "[entrypoint] fetcher entry point: $fetcher_module, confined"
 }
 
 # Report whether the fetcher socket came up. This never blocks the agent, and it never goes quiet.
@@ -414,9 +442,14 @@ start_mcp_host() {
         while [ "$failures" -lt 5 ]; do
             started=$(date +%s)
             setpriv --reuid="$mcp_host_run_user" --regid="$mcp_host_run_user" --init-groups \
-                python -m "$mcp_host_module" --socket "$mcp_host_socket_path" \
-                --workspace "$mcp_host_workspace"
+                python -m "$confinement_module" --role "$mcp_host_role" \
+                --socket "$mcp_host_socket_path" --workspace "$mcp_host_workspace"
             status=$?
+            if [ "$status" = "$confinement_refused_status" ]; then
+                echo "[entrypoint] error: the MCP host refuses to start unconfined" >&2
+                echo "[entrypoint] error: stdio MCP tools stay unreachable until a restart" >&2
+                break
+            fi
             if [ "$(($(date +%s) - started))" -ge 60 ]; then
                 failures=0
             else
@@ -429,6 +462,7 @@ start_mcp_host() {
         echo "[entrypoint] error: stdio MCP tools stay unreachable until a restart" >&2
     ) &
     echo "[entrypoint] MCP host starting as $mcp_host_run_user on $mcp_host_socket_path"
+    echo "[entrypoint] MCP host entry point: $mcp_host_module, confined"
 }
 
 # Report whether the host socket came up. This never blocks the agent, and it never goes quiet.

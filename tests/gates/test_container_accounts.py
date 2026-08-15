@@ -118,3 +118,46 @@ def test_the_entrypoint_never_runs_two_helpers_on_one_account() -> None:
     assert 'fetch_user="nanoinfra-fetch"' in text
     assert '[ "$mcp_host_run_user" = "$exec_user" ]' in text
     assert '[ "$fetch_run_user" = "$exec_user" ]' in text
+
+
+# ---------------------------------------------------------- the confinement layer (#20)
+
+
+def test_the_entrypoint_starts_every_helper_under_the_confinement_launcher() -> None:
+    """The container starts each helper with setpriv, so no Python supervisor runs there.
+
+    The launcher applies the same rules the supervisors apply. Without it the container path, which
+    is the main deployment, would hold no confinement at all.
+    """
+    text = _entrypoint()
+
+    assert 'confinement_module="nanoinfra.gates.confinement"' in text
+    assert 'executor_role="executor"' in text
+    assert 'fetcher_role="fetcher"' in text
+    assert 'mcp_host_role="mcp-host"' in text
+    for variable in ("$executor_role", "$fetcher_role", "$mcp_host_role"):
+        assert f'--role "{variable}"' in text
+
+
+def test_the_entrypoint_starts_no_helper_module_directly() -> None:
+    """A direct start would run the helper outside its confinement.
+
+    The launcher reads a role and never an argv, so the container hands no exec right to a caller.
+    """
+    text = _entrypoint()
+
+    for variable in ("$executor_module", "$fetcher_module", "$mcp_host_module"):
+        assert f'python -m "{variable}"' not in text
+
+
+def test_a_refused_confinement_stops_the_container_retries() -> None:
+    """A kernel that rejects the ruleset refuses the start, so a retry loop is noise.
+
+    The launcher exits 78 for that case. A crash keeps the restart, and a refusal ends it with a
+    message an operator reads.
+    """
+    text = _entrypoint()
+
+    assert 'confinement_refused_status=78' in text
+    assert text.count('"$status" = "$confinement_refused_status"') == 3
+    assert "refuses to start unconfined" in text

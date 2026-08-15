@@ -24,6 +24,11 @@ Two accounts also need one directory that both reach. The child creates the sock
 supervisor writes its state file and its log there. So the run directory takes a wider mode for a
 two-account start, and the spawn puts the child in the supervisor's group. Without that group the
 agent holds no permission on the socket, and a split that answers nothing is worse than no split.
+
+The child also starts under a confinement layer (#20). ``nanoinfra/gates/confinement.py`` builds it,
+and the fetcher's own layer holds the TCP port allowlist: this is the process untrusted web content
+enters. A kernel with no Landlock support degrades with a warning, because that host is legitimate.
+A kernel that supports Landlock and then rejects the ruleset refuses the start instead.
 """
 
 from __future__ import annotations
@@ -39,6 +44,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from nanoinfra.gates.confinement import FETCHER_ROLE, LAYER_NONE, plan_child
 from nanoinfra.process_runtime import (
     ManagedProcessRuntime,
     ProcessRuntimePaths,
@@ -122,12 +128,17 @@ class FetcherRuntime(ManagedProcessRuntime[FetcherStartOptions]):
 
     service_name = "fetcher"
 
-    def __init__(self, *, socket_path: Path, user: str | None = None) -> None:
+    def __init__(
+        self, *, socket_path: Path, user: str | None = None, workspace: Path | None = None
+    ) -> None:
         # The runtime keeps its state file, its lock, and its log beside the socket. One private
         # directory per fetcher means two instances cannot read each other's state.
         super().__init__(paths=_runtime_paths(socket_path), popen=self._spawn)
         self.socket_path = socket_path
         self.user_plan = _resolve_user(user)
+        # The confinement plan needs the workspace, and the argv builder reads it from the options.
+        # A constructor parameter keeps the two independent of call order.
+        self.workspace = workspace
         self._child: subprocess.Popen[Any] | None = None
 
     def _build_child_command(self, options: FetcherStartOptions) -> list[str]:
@@ -173,6 +184,7 @@ class FetcherRuntime(ManagedProcessRuntime[FetcherStartOptions]):
             # on the socket the child creates, and the split answers nothing at all.
             kwargs["extra_groups"] = [os.getgid()]
             kwargs["umask"] = CHILD_UMASK
+        _add_confinement(kwargs, socket_path=self.socket_path, workspace=self.workspace)
         return kwargs
 
     def _is_pid_running(self, pid: int) -> bool:
@@ -247,7 +259,7 @@ def start_fetcher(
     workspace = Path(workspace)
     _check_socket_path(socket_path)
 
-    runtime = FetcherRuntime(socket_path=socket_path, user=user)
+    runtime = FetcherRuntime(socket_path=socket_path, user=user, workspace=workspace)
     _prepare_run_dir(socket_path, plan=runtime.user_plan)
     if not runtime.status().running:
         # No fetcher holds this path, so any socket file here is a leftover from a killed child.
@@ -257,7 +269,14 @@ def start_fetcher(
         socket_path=str(socket_path),
         workspace=str(workspace),
     )
-    result = runtime.start_background(options)
+    try:
+        result = runtime.start_background(options)
+    except subprocess.SubprocessError as exc:
+        # A refused confinement lands here. CPython reports one fixed sentence for any failure of a
+        # preexec callable, so the reason sits in the child's log and _hint quotes it.
+        raise FetcherStartError(
+            f"the fetcher did not start under its confinement ({exc}). {_hint(runtime)}"
+        ) from exc
     if not result.ok:
         raise FetcherStartError(f"the fetcher did not start ({result.message}). {_hint(runtime)}")
 
@@ -275,6 +294,27 @@ def start_fetcher(
         raise FetcherStartError(f"{exc}. {_hint(runtime)}") from exc
 
     return FetcherProcess(runtime=runtime, socket_path=socket_path)
+
+
+def _add_confinement(
+    kwargs: dict[str, Any], *, socket_path: Path, workspace: Path | None
+) -> None:
+    """Put the confinement of the child into the spawn arguments (#20).
+
+    The rules apply in the child after the fork and before the exec. So the argv stays the fixed
+    module entry point, and the layer still governs the process that serves.
+
+    A host with no Landlock support gets a warning and a start. A host that has Landlock and then
+    rejects the ruleset gets a refusal, and :func:`start_fetcher` reports it.
+    """
+    decision = plan_child(FETCHER_ROLE, run_dir=socket_path.parent, workspace=workspace)
+    if decision.layer == LAYER_NONE:
+        logger.warning("gates: %s", decision.summary())
+        return
+    logger.info("gates: %s", decision.summary())
+    preexec = decision.preexec()
+    if preexec is not None:
+        kwargs["preexec_fn"] = preexec
 
 
 def _runtime_paths(socket_path: Path) -> ProcessRuntimePaths:
