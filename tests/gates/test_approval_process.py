@@ -25,7 +25,11 @@ from typing import Any
 
 import pytest
 
-from nanoinfra.gates.executor.operator_socket import OperatorClient, PendingView
+from nanoinfra.gates.executor.operator_socket import (
+    OperatorClient,
+    OperatorUnavailableError,
+    PendingView,
+)
 from nanoinfra.gates.executor.protocol import (
     ExecuteRequest,
     ExecuteResponse,
@@ -96,11 +100,18 @@ def deployment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         socket_path=execute_socket, workspace=workspace, timeout_s=20.0
     )
     try:
-        _wait_until(operator_socket.exists, hint=lambda: handle.read_log_tail(tail=20))
+        operator = OperatorClient(operator_socket)
+        # Readiness is an answer, and never the existence of the path. `bind()` creates the file
+        # and `listen()` accepts a peer after that, so a wait on `exists` returns inside the gap
+        # and the first real call raises OperatorUnavailableError. The client does not retry, and
+        # it must not: a production caller reads an unreachable executor as a deployment fault.
+        _wait_until(
+            lambda: _operator_answers(operator), hint=lambda: handle.read_log_tail(tail=20)
+        )
         yield _Deployment(
             workspace=workspace,
             execute_socket=execute_socket,
-            operator=OperatorClient(operator_socket),
+            operator=operator,
             handle=handle,
         )
     finally:
@@ -403,6 +414,18 @@ def test_an_approval_cannot_be_replayed_for_another_command_in_the_same_session(
     assert reused.refusal in {"already_answered", "unknown_request"}
     assert not response.ok
     assert len(deployment.jobs()) == 1  # the second command never ran
+
+
+def _operator_answers(operator: OperatorClient) -> bool:
+    """Report whether the operator socket answers a real request.
+
+    ``pending`` is the read-only verb, so a readiness probe costs nothing and changes no state.
+    """
+    try:
+        operator.pending()
+    except OperatorUnavailableError:
+        return False
+    return True
 
 
 def _wait_until(

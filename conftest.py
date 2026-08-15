@@ -5,9 +5,11 @@ from __future__ import annotations
 import itertools
 import os
 import site
+import socket
 import ssl
 import sys
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import certifi
@@ -173,6 +175,45 @@ def _record_a_write_to_the_real_installation(event: str, args: tuple[object, ...
     path = Path(text)
     if REAL_NANOINFRA_DIR == path or REAL_NANOINFRA_DIR in path.parents:
         _WRITES_TO_THE_REAL_INSTALLATION.append((_current_test_id, text))
+
+
+def _connect_to_unix_socket(path: Path | str, timeout_s: float = 10.0) -> socket.socket:
+    """Connect to a Unix socket, and retry while the server is between bind and listen.
+
+    **Existence is not readiness.** ``bind()`` creates the socket file, and ``listen()`` accepts a
+    peer only after that, so a connect in the gap fails with ``ConnectionRefusedError``. A test
+    that waited for the path to appear and then connected once was racing, and CI showed it on
+    Python 3.11 rather than on the developer's machine.
+
+    A probe connection is the wrong answer for several of these tests. They count connections, or
+    they serve a fixed number of requests, so an extra connect changes what they measure. A retry
+    of a *failed* connect adds nothing to a successful count.
+
+    The other correct answer is a ``threading.Event`` the server sets after its own ``listen()``,
+    and a test uses that where the client is the code under test rather than the test itself.
+    """
+    deadline = time.monotonic() + timeout_s
+    last: OSError | None = None
+    while time.monotonic() < deadline:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            client.connect(str(path))
+        except (ConnectionRefusedError, FileNotFoundError) as exc:
+            client.close()
+            last = exc
+            time.sleep(0.01)
+            continue
+        except OSError:
+            client.close()
+            raise
+        return client
+    raise AssertionError(f"{path} never accepted a connection within {timeout_s}s: {last!r}")
+
+
+@pytest.fixture
+def connect_to_unix_socket() -> Callable[..., socket.socket]:
+    """The retrying connect, for a test that dials a socket a thread or a child just created."""
+    return _connect_to_unix_socket
 
 
 class InstallationWriteGuard:

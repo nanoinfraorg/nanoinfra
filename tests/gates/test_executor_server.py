@@ -219,8 +219,7 @@ def test_the_socket_serves_a_request_end_to_end(tmp_path: Path) -> None:
         thread.start()
         _wait_for(socket_path)
 
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.connect(str(socket_path))
+        with _connect(socket_path) as client:
             write_frame(client, encode_request(_request()))
             response = decode_response(read_frame(client))
         thread.join(timeout=10)
@@ -245,8 +244,7 @@ def test_the_socket_directory_excludes_other_users(tmp_path: Path) -> None:
     try:
         assert socket_dir.stat().st_mode & 0o077 == 0
     finally:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.connect(str(socket_path))
+        with _connect(socket_path) as client:
             write_frame(client, encode_request(_request(preview_requested=True)))
             read_frame(client)
         thread.join(timeout=10)
@@ -265,8 +263,7 @@ def test_a_malformed_frame_gets_a_refusal_and_not_a_crash(tmp_path: Path) -> Non
     thread.start()
     _wait_for(socket_path)
 
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.connect(str(socket_path))
+    with _connect(socket_path) as client:
         write_frame(client, b"not a request")
         response = decode_response(read_frame(client))
     thread.join(timeout=10)
@@ -287,8 +284,7 @@ def test_the_socket_is_removed_on_exit(tmp_path: Path) -> None:
     )
     thread.start()
     _wait_for(socket_path)
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.connect(str(socket_path))
+    with _connect(socket_path) as client:
         write_frame(client, encode_request(_request(preview_requested=True)))
         read_frame(client)
     thread.join(timeout=10)
@@ -297,6 +293,12 @@ def test_the_socket_is_removed_on_exit(tmp_path: Path) -> None:
 
 
 def _wait_for(path: Path, timeout_s: float = 10.0) -> None:
+    """Wait until the socket file exists.
+
+    Existence is not readiness, and this waiter says so rather than implying it. ``bind()`` creates
+    the path, and ``listen()`` accepts a peer after that, so a connect in the gap is refused. Use
+    ``_connect`` to dial, and this only to assert the executor reached its bind.
+    """
     import time
 
     deadline = time.monotonic() + timeout_s
@@ -305,6 +307,30 @@ def _wait_for(path: Path, timeout_s: float = 10.0) -> None:
             return
         time.sleep(0.01)
     raise AssertionError(f"{path} never appeared")
+
+
+def _connect(path: Path, timeout_s: float = 10.0) -> socket.socket:
+    """Connect, and retry while the executor is between bind and listen.
+
+    A probe connection is the wrong answer here: `serve_forever` runs with ``max_requests``, so an
+    extra connection would consume one of the requests a test counts. A retry of a refused connect
+    consumes none.
+    """
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    last: OSError | None = None
+    while time.monotonic() < deadline:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            client.connect(str(path))
+        except (ConnectionRefusedError, FileNotFoundError) as exc:
+            client.close()
+            last = exc
+            time.sleep(0.01)
+            continue
+        return client
+    raise AssertionError(f"{path} never accepted a connection within {timeout_s}s: {last!r}")
 
 
 def test_an_existing_socket_directory_keeps_the_mode_the_deployment_set(tmp_path: Path) -> None:
@@ -334,8 +360,7 @@ def test_an_existing_socket_directory_keeps_the_mode_the_deployment_set(tmp_path
     try:
         assert socket_dir.stat().st_mode & 0o7777 == before
     finally:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.connect(str(socket_path))
+        with _connect(socket_path) as client:
             write_frame(client, encode_request(_request(preview_requested=True)))
             read_frame(client)
         thread.join(timeout=10)

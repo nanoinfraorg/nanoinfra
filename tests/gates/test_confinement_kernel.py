@@ -393,10 +393,24 @@ def test_the_launcher_confines_and_then_starts_the_helper() -> None:
             assert child.poll() is None, "the launcher exited before it opened the socket"
             time.sleep(0.05)
         assert socket_path.exists()
-        peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        peer.settimeout(5)
-        peer.connect(str(socket_path))
-        peer.close()
+        # The path exists after `bind()`, and `listen()` accepts a peer after that, so this
+        # connect retries rather than refusing once. The point of the test is that a confined
+        # child can open and serve a socket at all, and a race in the dial would read as a
+        # confinement failure, which is the wrong conclusion to hand a reader.
+        peer_deadline = time.monotonic() + 10
+        while True:
+            peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            peer.settimeout(5)
+            try:
+                peer.connect(str(socket_path))
+            except ConnectionRefusedError:
+                peer.close()
+                assert time.monotonic() < peer_deadline, "the socket never accepted a connection"
+                assert child.poll() is None, "the launcher exited before it accepted a peer"
+                time.sleep(0.05)
+                continue
+            peer.close()
+            break
     finally:
         child.terminate()
         output = child.communicate(timeout=30)[0]
