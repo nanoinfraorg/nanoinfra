@@ -40,6 +40,10 @@ from nanoinfra.servers.normalize import ServerValidationError
 from nanoinfra.servers.store import ServerStore
 from nanoinfra.triggers.local_types import LocalTrigger
 from nanoinfra.utils.subagent_channel_display import scrub_subagent_messages_for_channel
+from nanoinfra.webui.audit_api import (
+    AUDIT_READ_PATH,
+    AuditReadSurface,
+)
 from nanoinfra.webui.diagrams_api import (
     create_webui_diagram,
     delete_webui_diagram,
@@ -300,6 +304,9 @@ class GatewayHTTPHandler:
         # nothing on the agent side can reach it. None means no gate runtime, so the two
         # latch routes answer 503 rather than an empty list.
         self.latch: LatchOperatorSurface | None = None
+        # The read of the gate audit log (#29). Attached after boot for the same reason: a route
+        # with no surface answers 503, and never an empty log.
+        self.audit: AuditReadSurface | None = None
         self.skill_state_action = skill_state_action
         self._skill_install_lock = asyncio.Lock()
         self._title_retry_in_flight: set[str] = set()
@@ -330,6 +337,10 @@ class GatewayHTTPHandler:
     def attach_latch_surface(self, surface: LatchOperatorSurface) -> None:
         """Take the operator half of the denial latch (#28). Only the gateway calls this."""
         self.latch = surface
+
+    def attach_audit_surface(self, surface: AuditReadSurface) -> None:
+        """Take the read of the gate audit log (#29). Only the gateway calls this."""
+        self.audit = surface
 
     def workspace_controls_available(self, connection: Any) -> bool:
         return self._runtime_surface == "native" or _is_localhost(connection)
@@ -413,6 +424,9 @@ class GatewayHTTPHandler:
 
         # Latch routes
         response = self._dispatch_latch_routes(request, got)
+        if response is not None:
+            return response
+        response = self._dispatch_audit_routes(request, got)
         if response is not None:
             return response
 
@@ -1245,6 +1259,24 @@ class GatewayHTTPHandler:
         except LatchClearError as exc:
             return _http_error(400, str(exc))
         return _http_json_response(cleared)
+
+    def _dispatch_audit_routes(self, request: WsRequest, got: str) -> Response | None:
+        """The read of the gate audit log (#29).
+
+        The route reads. It answers 405 for every other method, so "the viewer offers no delete
+        control" holds at the server and not at the layout. The API token is required, because a
+        record names sessions, hosts, and actors.
+        """
+        if got != AUDIT_READ_PATH:
+            return None
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        method = str(getattr(request, "method", "GET") or "GET").upper()
+        if method not in ("GET", "HEAD"):
+            return _http_error(405, "the audit log is append-only and this route only reads")
+        if self.audit is None:
+            return _http_error(503, "the gate runtime is not available on this gateway")
+        return _http_json_response(self.audit.page(_parse_query(request.path)))
 
     # -- Media routes -------------------------------------------------------
 

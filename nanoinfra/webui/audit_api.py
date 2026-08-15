@@ -15,13 +15,50 @@ nothing rather than widening it to every record.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from nanoinfra.agent.tools.capabilities import (
+    CREDENTIAL_ACCESS,
+    MUTATE_INVENTORY,
+    MUTATE_LOCAL,
+    MUTATE_REMOTE,
+    READ,
+)
+
 if TYPE_CHECKING:
     from nanoinfra.gates.audit import AuditStore
+
+# The route the viewer reads. One path, and no sibling that writes.
+AUDIT_READ_PATH = "/api/webui/gates/audit"
+
+# The values the log writes today, for the viewer's selects. The server owns this list, so a new
+# decision name needs no UI edit. `refused` is #15's latched attempt. `expired` is #38's deadline.
+DECISION_CHOICES = (
+    "allow",
+    "grant",
+    "approve",
+    "deny",
+    "refused",
+    "expired",
+    "denied",
+    "cleared",
+    "preview",
+    "would_gate",
+)
+
+CAPABILITY_CLASS_CHOICES = (
+    READ,
+    MUTATE_LOCAL,
+    MUTATE_INVENTORY,
+    MUTATE_REMOTE,
+    CREDENTIAL_ACCESS,
+)
+
+EXECUTION_CONTEXT_CHOICES = ("interactive", "automation", "subagent")
 
 # The caller controls the page size, so the server bounds it. A log with a year of decisions must
 # not arrive in one response.
@@ -147,3 +184,116 @@ def _sort_key(record: dict[str, Any]) -> str:
 
 
 __all__ = ["DEFAULT_LIMIT", "MAX_LIMIT", "audit_page"]
+
+
+class AuditReadSurface:
+    """The operator's read of the gate audit log (#29).
+
+    The class holds one method on purpose. #16 makes the log append-only, so a surface that
+    could prune or edit a record would make that false. Retention belongs to #16, which drops
+    whole expired segments and never rewrites a record it keeps.
+
+    The gateway attaches this after boot. A route with no surface answers 503, because a viewer
+    that cannot reach the log must not render an empty log.
+    """
+
+    def __init__(self, store: AuditStore) -> None:
+        self._store = store
+
+    def page(self, query: Mapping[str, Sequence[str]]) -> dict[str, Any]:
+        """One page of decisions for the viewer, newest first.
+
+        Query values arrive as the parsed query string, so each one is a list. An absent filter
+        and a blank filter mean the same thing: no filter.
+        """
+        raw = audit_page(
+            self._store,
+            decision=_first(query, "decision"),
+            capability_class=_first(query, "capabilityClass"),
+            execution_context=_first(query, "executionContext"),
+            session_id=_first(query, "sessionId"),
+            since=_moment(_first(query, "since")),
+            until=_moment(_first(query, "until")),
+            limit=_positive_int(_first(query, "limit"), DEFAULT_LIMIT),
+            offset=_positive_int(_first(query, "offset"), 0),
+        )
+        holds_text = bool(raw["records_command_text"])
+        return {
+            "records": [_for_viewer(record, holds_text=holds_text) for record in raw["records"]],
+            "total": raw["total"],
+            "limit": raw["limit"],
+            "offset": raw["offset"],
+            "recordsCommandText": holds_text,
+            "choices": {
+                "decision": list(DECISION_CHOICES),
+                "capabilityClass": list(CAPABILITY_CLASS_CHOICES),
+                "executionContext": list(EXECUTION_CONTEXT_CHOICES),
+            },
+        }
+
+
+def _for_viewer(record: Mapping[str, Any], *, holds_text: bool) -> dict[str, Any]:
+    """One record in the WebUI's spelling, with every field the detail view shows.
+
+    `holdsCommandText` marks a record whose text the log kept. A reader must know that the text
+    may carry a secret, and the mark travels with the record rather than with the page, because a
+    reader may read one record and never the page header.
+    """
+    text = record.get("command_text")
+    return {
+        "ts": record.get("ts"),
+        "sessionId": record.get("session_id"),
+        "executionContext": record.get("execution_context"),
+        "originPath": record.get("origin_path"),
+        "approvalPath": record.get("approval_path"),
+        # #13 records this even when policy allowed the action, so the viewer keeps it visible.
+        "samePath": bool(record.get("same_path")),
+        "actor": record.get("actor"),
+        "capabilityClass": record.get("capability_class"),
+        "scope": record.get("scope"),
+        "hosts": list(record.get("hosts") or ()),
+        "hostCount": record.get("host_count"),
+        "commandDigest": record.get("command_digest"),
+        "commandText": text if isinstance(text, str) else None,
+        "holdsCommandText": holds_text and isinstance(text, str),
+        "decision": record.get("decision"),
+        "reason": record.get("reason"),
+        "grantId": record.get("grant_id"),
+        "tokenNonce": record.get("token_nonce"),
+        "exitCode": record.get("exit_code"),
+        "durationMs": record.get("duration_ms"),
+        "tool": record.get("tool"),
+    }
+
+
+def _first(query: Mapping[str, Sequence[str]], name: str) -> str | None:
+    values = query.get(name)
+    if not values:
+        return None
+    value = str(values[0]).strip()
+    return value or None
+
+
+def _moment(raw: str | None) -> datetime | None:
+    """An ISO-8601 filter bound, or None when the caller sent nothing usable.
+
+    An unparsable bound drops the bound rather than the query. The other filters still narrow
+    the answer, and a viewer that answered 400 for a half-typed date would fight its own user.
+    """
+    if raw is None:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        logger.debug("audit viewer ignored an unparsable time bound: {!r}", raw)
+        return None
+
+
+def _positive_int(raw: str | None, fallback: int) -> int:
+    if raw is None:
+        return fallback
+    try:
+        value = int(raw)
+    except ValueError:
+        return fallback
+    return value if value >= 0 else fallback
