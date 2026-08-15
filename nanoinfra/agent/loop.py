@@ -297,6 +297,7 @@ class AgentLoop:
         restart_mode: str = "auto",
         local_trigger_store: LocalTriggerStore | None = None,
         idle_compact_check_interval_seconds: int = 0,
+        gate: Any = None,
     ):
         from nanoinfra.config.schema import ToolsConfig
 
@@ -367,6 +368,8 @@ class AgentLoop:
             self._image_generation_provider_configs["openrouter"] = image_generation_provider_config
         self.cron_service = cron_service
         self.local_trigger_store = local_trigger_store
+        # #33: the gate runtime, built once by the gateway. It holds the gate half only.
+        self.gate = gate
         self.restrict_to_workspace = restrict_to_workspace
         self.workspace_scopes = WorkspaceScopeResolver(
             default_workspace=workspace,
@@ -614,6 +617,9 @@ class AgentLoop:
 
         ctx = ToolContext(
             config=self.tools_config,
+            # #33: the gate runtime the gateway built at boot. None in an embedded or a
+            # test construction, and the tool then falls back to policy alone.
+            gate=self.gate,
             workspace=str(self.workspace),
             bus=self.bus,
             subagent_manager=self.subagents,

@@ -60,28 +60,28 @@ def _echo_gate_policy(config: Any, cron: Any) -> None:
         logger.debug("gates: could not report the effective policy: {}", exc)
 
 
-def _restore_gate_latches(config: Any) -> Any:
-    """Rebuild denial latches from the audit log (#32).
+def _build_gate_runtime_for_gateway(config: Any) -> tuple[Any, Any]:
+    """Build the gate runtime once, and keep its two halves apart (#33).
 
-    A restart used to drop every latch, and the agent can cause a restart: ExecTool is
-    mutate.local, #8 does not gate that class, and a supervisor brings the gateway back. So
-    deny, restart, retry was a loop that no human rate-limits.
+    The runtime travels toward the tools. The LatchController stays here, because #15 splits
+    those halves so that nothing reachable from a tool can clear a latch.
 
-    A failure here returns a degraded state rather than no state. An unreadable audit log must
-    not read as "no latches", so every gated action then waits for an operator.
+    Latch state comes back from the audit log (#32), so a restart does not clear a denial. The
+    agent can cause a restart, and deny-restart-retry would otherwise be a loop that no human
+    rate-limits.
     """
-    from nanoinfra.gates.audit import AuditStore
-    from nanoinfra.gates.latch_restore import RestoredLatches, restore_latches
+    from nanoinfra.gates.runtime import build_gate_runtime
 
-    try:
-        store = AuditStore(get_data_dir() / "gates", config=config.gates.audit)
-        restored = restore_latches(store)
-    except Exception as exc:  # noqa: BLE001 -- fail closed, and say so
-        logger.warning("gates: latch restore failed, latches stay closed: {}", exc)
-        return RestoredLatches(degraded=True)
+    runtime, controller = build_gate_runtime(config.gates, root=get_data_dir() / "gates")
+    logger.info(_gate_latch_summary(runtime))
+    return runtime, controller
 
-    logger.info(restored.summary())
-    return restored
+
+def _gate_latch_summary(runtime: Any) -> str:
+    """One line about restored latches, for the startup echo."""
+    from nanoinfra.gates.latch_restore import restore_latches
+
+    return restore_latches(runtime.audit).summary()
 
 
 def _signal_name(signum: int) -> str:
@@ -425,9 +425,15 @@ def _run_gateway(
         route_policy=WebuiTurnRoutePolicy(session_manager),
     )
 
+    # The gate runtime, built once (#33). latch_controller stays out of the agent: it is
+    # the operator half, and #15 splits the halves so no tool path can clear a latch.
+    gate_runtime, latch_controller = _build_gate_runtime_for_gateway(config)
+    _ = latch_controller  # #28 gives this an operator surface.
+
     # Create agent with cron service
     agent = AgentLoop.from_config(
         config, bus,
+        gate=gate_runtime,
         provider=provider_snapshot.provider,
         model=provider_snapshot.model,
         context_window_tokens=provider_snapshot.context_window_tokens,
@@ -672,10 +678,6 @@ def _run_gateway(
     # silent defaults, because Config accepts extras. So an operator who wrote a
     # permissive block must read the truth here, and not at the next scheduled run.
     _echo_gate_policy(config, cron)
-    # #32: a restart used to drop every denial latch, and the agent can cause a restart.
-    # The audit log is the only store a model cannot un-append, so latch state comes back
-    # from there. The state is reported now, and #33 hands it to the gate.
-    _restore_gate_latches(config)
 
     # Create channel manager (forwards SessionManager so the WebSocket channel
     # can serve the embedded webui's REST surface).
