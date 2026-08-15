@@ -45,6 +45,7 @@ from nanoinfra.gates.mcp_host.server import (
     StdioServerSettings,
     load_stdio_settings,
     normalize_windows_stdio_command,
+    wrap_with_parent_death_signal,
 )
 
 # One trivial stdio MCP server. It reports its own pid and its parent pid, so a test can prove
@@ -69,6 +70,24 @@ def echo(value: str) -> str:
 
 
 mcp.run()
+'''
+
+
+# A process that starts one wrapped child and then waits. The test kills it with SIGKILL, so the
+# kernel is the only thing left that can end the child.
+_PARENT_OF_A_WRAPPED_CHILD = '''
+import subprocess
+import sys
+import time
+
+from nanoinfra.gates.mcp_host.server import wrap_with_parent_death_signal
+
+command, args = wrap_with_parent_death_signal(
+    sys.executable, ["-c", "__import__('time').sleep(300)"]
+)
+child = subprocess.Popen([command, *args], start_new_session=True)
+print(child.pid, flush=True)
+time.sleep(300)
 '''
 
 
@@ -125,6 +144,20 @@ async def _connect(host: MCPHost) -> _Connected:
 
 def _host(settings: StdioServerSettings) -> MCPHost:
     return MCPHost(settings_loader=lambda _name: settings)
+
+
+def _end_pid(pid: int) -> None:
+    """End *pid* with SIGKILL, and reap it. This process is the parent of every stdio child here.
+
+    A test that fails must still leave no MCP server behind. So each test that starts a child calls
+    this in a ``finally``.
+    """
+    if pid <= 0:
+        return
+    with contextlib.suppress(OSError):
+        os.kill(pid, signal.SIGKILL)
+    with contextlib.suppress(OSError):
+        os.waitpid(pid, os.WNOHANG)
 
 
 # --------------------------------------------- what the host agrees to start
@@ -309,7 +342,11 @@ def test_normalize_windows_stdio_command_skips_existing_shells(
 async def test_the_child_gets_the_command_the_config_named(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The four stdio parameters travel from the config to the child, and from nowhere else."""
+    """The four stdio parameters travel from the config to the child, and from nowhere else.
+
+    The launcher wrap arms the parent death signal (#50). It carries the command and the arguments
+    of the config, and the assertion below builds the same wrap rather than repeat its shape.
+    """
     import contextlib as stdlib_contextlib
 
     captured: dict[str, object] = {}
@@ -338,8 +375,9 @@ async def test_the_child_gets_the_command_the_config_named(
     monkeypatch.setattr("mcp.client.stdio.stdio_client", _capturing_stdio_client)
     monkeypatch.setattr("mcp.ClientSession", _FakeClientSession)
 
+    # The command exists, because the host checks it before it starts the launcher.
     settings = StdioServerSettings(
-        command="demo-mcp",
+        command=sys.executable,
         args=["--serve"],
         env={"TOKEN": "x"},
         cwd="/tmp/nanoinfra-mcp-test",
@@ -351,10 +389,14 @@ async def test_the_child_gets_the_command_the_config_named(
     finally:
         await connection.close()
 
+    expected_command, expected_args = wrap_with_parent_death_signal(
+        sys.executable, ["--serve"], env={"TOKEN": "x"}, cwd="/tmp/nanoinfra-mcp-test"
+    )
+
     assert opened.ok, opened.error
     assert captured == {
-        "command": "demo-mcp",
-        "args": ["--serve"],
+        "command": expected_command,
+        "args": expected_args,
         "env": {"TOKEN": "x"},
         "cwd": "/tmp/nanoinfra-mcp-test",
     }
@@ -569,13 +611,19 @@ async def test_the_stdio_child_dies_with_its_connection(
     """
     report = tmp_path / "pids.txt"
     connection = await _connect(_host(_settings(server_script, report=report)))
-    await connection.ask(OpenRequest(request_id=1, server_name="demo"))
-    child_pid = int(report.read_text(encoding="utf-8").splitlines()[0])
-    assert pid_alive(child_pid)
+    child_pid = 0
+    try:
+        await connection.ask(OpenRequest(request_id=1, server_name="demo"))
+        child_pid = int(report.read_text(encoding="utf-8").splitlines()[0])
+        assert pid_alive(child_pid)
 
-    await connection.close()
+        await connection.close()
+        gone = wait_until_pid_gone(child_pid, timeout_s=20.0)
+    finally:
+        await connection.close()
+        _end_pid(child_pid)
 
-    assert wait_until_pid_gone(child_pid, timeout_s=20.0), f"pid {child_pid} outlived the connection"
+    assert gone, f"pid {child_pid} outlived the connection"
 
 
 async def test_the_stdio_child_is_a_child_of_the_host_process(
@@ -641,6 +689,120 @@ def test_the_host_lists_its_own_children() -> None:
     assert child.pid not in _own_child_pids()
 
 
+# ------------------------------- the kernel ends the child when the host dies
+
+
+def test_the_launcher_carries_the_command_of_the_config_and_the_pid_of_the_host() -> None:
+    """The wrap adds the host interpreter and the host pid, and it changes nothing else (#50).
+
+    The kernel call sits in the launcher source. prctl 1 is PR_SET_PDEATHSIG, and signal 9 is
+    SIGKILL, so the kernel ends the child on the death of the host.
+    """
+    command, args = wrap_with_parent_death_signal("/bin/sh", ["--serve"])
+
+    assert command == sys.executable
+    assert args[0] == "-c"
+    assert "prctl(1, 9, 0, 0, 0)" in args[1]
+    assert args[2] == str(os.getpid())
+    assert args[3:] == ["/bin/sh", "--serve"]
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="PR_SET_PDEATHSIG is a Linux call")
+def test_a_relative_command_with_a_working_directory_stays_for_the_child(tmp_path: Path) -> None:
+    """The host cannot decide this case, because the child looks in another directory.
+
+    ``shutil.which`` reads the working directory of the host for a relative command. A refusal here
+    would stop a server that the child starts without trouble.
+    """
+    command, args = wrap_with_parent_death_signal(
+        "./server.sh", ["--serve"], env=None, cwd=str(tmp_path)
+    )
+
+    assert command == sys.executable
+    assert args[3:] == ["./server.sh", "--serve"]
+
+
+async def test_a_command_that_no_path_holds_still_names_itself() -> None:
+    """The launcher must not hide the cause of a bad command (#50).
+
+    The MCP SDK raised the words of the operating system in this process, and the host answered
+    them. The launcher execs the command in the child, so an exec failure arrives here as a closed
+    connection. Those words send an operator to the host rather than to the config they mistyped.
+    """
+    settings = StdioServerSettings(
+        command="nanoinfra-no-such-command-item-20", args=[], env=None, cwd=None, tool_timeout=5
+    )
+    connection = await _connect(_host(settings))
+    try:
+        answer = await connection.ask(OpenRequest(request_id=1, server_name="demo"))
+    finally:
+        await connection.close()
+
+    assert answer.ok is False
+    assert answer.error is not None
+    assert "nanoinfra-no-such-command-item-20" in answer.error
+    assert "No such file or directory" in answer.error
+
+
+def test_a_platform_without_the_call_keeps_the_command_and_says_so_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A platform with no PR_SET_PDEATHSIG starts the command the config named.
+
+    The host reports that once. One line per server start would fill the log of a host that serves
+    many sessions.
+    """
+    from loguru import logger
+
+    monkeypatch.setattr("sys.platform", "darwin")
+    monkeypatch.setattr(host_server, "_parent_death_signal_warned", False)
+    said: list[str] = []
+    sink_id = logger.add(said.append, level="WARNING", format="{message}")
+    try:
+        first = wrap_with_parent_death_signal("demo-mcp", ["--serve"])
+        second = wrap_with_parent_death_signal("demo-mcp", ["--serve"])
+    finally:
+        logger.remove(sink_id)
+
+    assert first == ("demo-mcp", ["--serve"])
+    assert second == ("demo-mcp", ["--serve"])
+    assert len([line for line in said if "parent death signal" in line]) == 1
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="PR_SET_PDEATHSIG is a Linux call")
+def test_the_kernel_ends_a_wrapped_child_when_its_parent_dies(
+    tmp_path: Path, pid_alive, wait_until_pid_gone) -> None:
+    """The primitive the reaper cannot hold: a parent that dies with no chance to act (#50).
+
+    The parent here takes SIGKILL, so it runs no teardown and no reaper. The child also sits in its
+    own session, the way the MCP SDK starts it, so no process group kill can reach it.
+    """
+    import subprocess
+
+    script = tmp_path / "parent.py"
+    script.write_text(_PARENT_OF_A_WRAPPED_CHILD, encoding="utf-8")
+    argv = [sys.executable, str(script)]
+    child_pid = 0
+    gone = False
+    with subprocess.Popen(argv, stdout=subprocess.PIPE, text=True) as parent:
+        try:
+            assert parent.stdout is not None
+            line = parent.stdout.readline().strip()
+            assert line.isdigit(), f"the parent process wrote {line!r} rather than a pid"
+            child_pid = int(line)
+            assert pid_alive(child_pid)
+
+            parent.kill()
+            parent.wait(timeout=10)
+            gone = wait_until_pid_gone(child_pid, timeout_s=20.0)
+        finally:
+            parent.kill()
+            parent.wait(timeout=10)
+            _end_pid(child_pid)
+
+    assert gone, f"pid {child_pid} outlived the parent that started it"
+
+
 @pytest.mark.asyncio
 async def test_a_cancelled_teardown_still_ends_the_child(tmp_path: Path, monkeypatch) -> None:
     """The property #22 claims, held without the SDK's cooperation.
@@ -662,20 +824,25 @@ async def test_a_cancelled_teardown_still_ends_the_child(tmp_path: Path, monkeyp
     # The session's own child, and never every child of this process. A full-suite run holds other
     # children that other tests started, and those are not this test's business.
     expected = set(session._children)
-    assert expected, "the session recorded no child, so this test would assert nothing"
-
-    # The close waits for the owner and cancels it when it is slow. A zero budget forces that path.
-    monkeypatch.setattr(host_server, "_CLOSE_TIMEOUT_S", 0.0)
-    await session.aclose()
 
     # procfs lists a zombie until somebody reaps it, so the liveness check decides rather than the
     # child list. A killed child that nothing reaped yet holds no pipe and runs no code.
     def _still_running() -> set[int]:
         return {pid for pid in expected if host_server._pid_is_live(pid)}
 
-    for _ in range(200):
-        if not _still_running():
-            break
-        await asyncio.sleep(0.05)
+    try:
+        assert expected, "the session recorded no child, so this test would assert nothing"
 
-    assert not _still_running(), "the stdio child outlived the close"
+        # The close waits for the owner, and it cancels a slow one. A zero budget forces that path.
+        monkeypatch.setattr(host_server, "_CLOSE_TIMEOUT_S", 0.0)
+        await session.aclose()
+
+        for _ in range(200):
+            if not _still_running():
+                break
+            await asyncio.sleep(0.05)
+
+        assert not _still_running(), "the stdio child outlived the close"
+    finally:
+        for pid in expected:
+            _end_pid(pid)

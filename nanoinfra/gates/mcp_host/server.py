@@ -7,7 +7,8 @@ where confinement can address it on its own terms.
 What this process holds:
 
 - The exec right for stdio MCP servers, and nothing more than that.
-- One child per open connection, and the child dies with the connection.
+- One child per open connection, and the child dies with the connection. A host that somebody
+  kills also leaves no child, because each child asks the kernel for a parent death signal (#50).
 
 What this process does not hold, and ``tests/gates/test_mcp_host_isolation.py`` asserts each one:
 
@@ -34,9 +35,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import os
 import shutil
 import signal
+import sys
 import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import AsyncExitStack
@@ -373,6 +376,119 @@ def _pid_is_live(pid: int) -> bool:
     return bool(fields) and fields[0] != "Z"
 
 
+# --------------------------------------- the kernel ends the child when the host dies
+
+# prctl(PR_SET_PDEATHSIG, SIGKILL), from include/uapi/linux/prctl.h.
+_PR_SET_PDEATHSIG = 1
+
+# SIGKILL is signal 9 on every Linux architecture. The number stays a literal here, because the
+# signal module of Windows holds no SIGKILL and this module must import on that platform too.
+_SIGKILL_NUMBER = 9
+
+# The program the host starts in place of the server. It arms the parent death signal, and then it
+# becomes the server through an exec. An exec keeps the pid and the signal setting, so the host
+# still holds one direct child per session.
+#
+# The argv reads: -c, this source, the host pid, the command, then the arguments of the command. A
+# Python interpreter puts "-c" in sys.argv[0], so the host pid sits at sys.argv[1].
+#
+# The parent pid check closes a race. A host that dies between the fork and the prctl call leaves
+# no signal for the kernel to deliver, and the child then reads a parent pid that is not the host.
+#
+# The exec failure message goes to stderr, which is the host log. A command that no longer exists
+# must name itself there, because the host sees only a child that started and said nothing.
+_PARENT_DEATH_LAUNCHER = (
+    "import ctypes, os, sys\n"
+    "try:\n"
+    f"    ctypes.CDLL(None, use_errno=True).prctl({_PR_SET_PDEATHSIG},"
+    f" {_SIGKILL_NUMBER}, 0, 0, 0)\n"
+    "except Exception as exc:\n"
+    "    sys.stderr.write('nanoinfra mcp host: no parent death signal: %s\\n' % exc)\n"
+    "if os.getppid() != int(sys.argv[1]):\n"
+    "    os._exit(0)\n"
+    "try:\n"
+    "    os.execvp(sys.argv[2], sys.argv[2:])\n"
+    "except OSError as exc:\n"
+    "    sys.stderr.write('nanoinfra mcp host: cannot run %s: %s\\n' % (sys.argv[2], exc))\n"
+    "    os._exit(127)\n"
+)
+
+_parent_death_signal_warned = False
+
+
+def wrap_with_parent_death_signal(
+    command: str,
+    args: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    cwd: str | None = None,
+) -> tuple[str, list[str]]:
+    """Return the argv that arms the parent death signal, then runs *command* with *args*.
+
+    The reaper above covers a host that closes a session. It cannot cover a host that somebody
+    kills, because SIGKILL leaves this process no code to run. ``PR_SET_PDEATHSIG`` gives that case
+    to the kernel: the kernel sends SIGKILL to the child on the death of the host.
+
+    Only the child can arm the signal, because prctl acts on the process that calls it. The MCP SDK
+    starts the child, and it offers no hook between the fork and the exec. So the host starts its
+    own interpreter first, and that interpreter arms the signal and becomes the server.
+
+    The wrap adds no exec right. The interpreter is the one this process already runs, and the
+    command is the one the config named.
+
+    A command that no PATH holds raises ``FileNotFoundError`` here. ``env`` and ``cwd`` carry the
+    two values that decide where the child would look for it.
+
+    Linux holds this call. Every other platform gets the command unchanged, and one log line says
+    so.
+    """
+    if sys.platform != "linux":
+        _warn_no_parent_death_signal(f"the platform {sys.platform!r} has no PR_SET_PDEATHSIG")
+        return command, list(args)
+    if not sys.executable:
+        _warn_no_parent_death_signal("this build reports no interpreter path")
+        return command, list(args)
+    _check_the_command_exists(command, env=env, cwd=cwd)
+    return sys.executable, ["-c", _PARENT_DEATH_LAUNCHER, str(os.getpid()), command, *args]
+
+
+def _check_the_command_exists(
+    command: str, *, env: dict[str, str] | None, cwd: str | None
+) -> None:
+    """Raise the words of the operating system for a command that no PATH holds.
+
+    The launcher execs the command inside the child, so a bad command reaches the host as a closed
+    connection. Those words name the host, and an operator then looks at a deployment rather than
+    at the config they mistyped. The MCP SDK raised the words below in this process before the
+    launcher existed, and the host still answers them.
+
+    The check acts on the case it can decide, and it stays silent for every other case. A relative
+    command with a working directory belongs to the child, because this process sits somewhere
+    else. A file that exists also belongs to the child, because the exec right and the file type
+    carry their own words from the kernel.
+    """
+    if cwd is not None and not os.path.isabs(command):
+        return
+    if shutil.which(command, path=(env or {}).get("PATH")) is not None:
+        return
+    if os.path.exists(command):
+        return
+    raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), command)
+
+
+def _warn_no_parent_death_signal(reason: str) -> None:
+    """Say once that no kernel signal ends a stdio child when the host dies."""
+    global _parent_death_signal_warned
+    if _parent_death_signal_warned:
+        return
+    _parent_death_signal_warned = True
+    logger.warning(
+        "gates: mcp host arms no parent death signal on a stdio child, because {}. A host that "
+        "somebody kills can leave an MCP server behind.",
+        reason,
+    )
+
+
 class SessionTerminatedError(Exception):
     """The stdio MCP server ended, so this session can serve nothing more.
 
@@ -424,9 +540,17 @@ class _StdioSession:
 
         try:
             async with AsyncExitStack() as stack:
+                # The wrap arms the kernel's parent death signal on the child, so a host that
+                # somebody kills leaves no MCP server behind (#50).
+                command, args = wrap_with_parent_death_signal(
+                    self.settings.command,
+                    self.settings.args,
+                    env=self.settings.env,
+                    cwd=self.settings.cwd,
+                )
                 parameters = StdioServerParameters(
-                    command=self.settings.command,
-                    args=self.settings.args,
+                    command=command,
+                    args=args,
                     env=self.settings.env,
                     cwd=self.settings.cwd,
                 )
@@ -810,4 +934,5 @@ __all__ = [
     "load_stdio_settings",
     "normalize_windows_stdio_command",
     "serve_forever",
+    "wrap_with_parent_death_signal",
 ]

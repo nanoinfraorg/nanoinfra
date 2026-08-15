@@ -199,9 +199,10 @@ class MCPHostProcess:
     def stop(self, *, timeout_s: int = _STOP_TIMEOUT_S) -> bool:
         """Stop the child and report whether it is gone.
 
-        The runtime terminates the whole process group on POSIX, so every stdio MCP server the
-        host started goes with it. A stopped host that left its children behind would leave a
-        process nobody supervises.
+        Every stdio MCP server the host started goes with the host. The kill of the process group
+        does not reach those children, because the MCP SDK starts each one in a session of its own.
+        Two other mechanisms end them. The host asks the kernel for a parent death signal on each
+        child (#50), and a child that reads its stdin sees the end of file when the host dies.
 
         The result is True when no child runs at the end, so a second call is safe. A caller that
         stops twice wants the same state both times.

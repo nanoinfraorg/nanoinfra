@@ -20,8 +20,10 @@ program the host starts.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
+import signal
 import sys
 from pathlib import Path
 
@@ -30,7 +32,7 @@ import pytest
 from nanoinfra.agent.tools.mcp import connect_mcp_servers
 from nanoinfra.agent.tools.registry import ToolRegistry
 from nanoinfra.config.schema import MCPServerConfig
-from nanoinfra.gates.mcp_host.client import SOCKET_ENV_VAR
+from nanoinfra.gates.mcp_host.client import SOCKET_ENV_VAR, open_stdio_session
 from nanoinfra.gates.mcp_host.supervisor import MCPHostProcess, start_mcp_host
 
 _SERVER_SCRIPT = '''
@@ -52,6 +54,34 @@ def echo(value: str) -> str:
 
 
 mcp.run()
+'''
+
+# A server that ignores the end of file on its own stdin. A killed host closes the pipe, and a well
+# behaved server exits on that. This one stays alive, so only the kernel can end it.
+_STUBBORN_SERVER_SCRIPT = '''
+import os
+import sys
+import time
+from pathlib import Path
+
+from mcp.server.fastmcp import FastMCP
+
+Path(sys.argv[1]).write_text(f"{os.getpid()}\\n{os.getppid()}\\n", encoding="utf-8")
+
+mcp = FastMCP("nanoinfra-item-20-stubborn")
+
+
+@mcp.tool()
+def echo(value: str) -> str:
+    """Return the value with a prefix."""
+    return f"echo:{value}"
+
+
+try:
+    mcp.run()
+finally:
+    while True:
+        time.sleep(3600)
 '''
 
 # The agent-side config names this command. Nothing runs it, because the host reads its own config.
@@ -89,11 +119,28 @@ def _write_script(tmp_path: Path) -> Path:
     return script
 
 
+def _write_stubborn_script(tmp_path: Path) -> Path:
+    script = tmp_path / "stubborn_mcp_server.py"
+    script.write_text(_STUBBORN_SERVER_SCRIPT, encoding="utf-8")
+    return script
+
+
 def _start_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MCPHostProcess:
     socket_path = tmp_path / "r" / "m.sock"
     handle = start_mcp_host(socket_path=socket_path, workspace=tmp_path, timeout_s=60.0)
     monkeypatch.setenv(SOCKET_ENV_VAR, str(socket_path))
     return handle
+
+
+def _end_pid(pid: int) -> None:
+    """End *pid* with SIGKILL. The stdio child of the host is not a child of this process.
+
+    A test that fails must still leave no MCP server behind. So the kill runs in a ``finally``.
+    """
+    if pid <= 0:
+        return
+    with contextlib.suppress(OSError):
+        os.kill(pid, signal.SIGKILL)
 
 
 
@@ -132,6 +179,41 @@ async def test_a_stdio_tool_call_reaches_the_agent_through_the_host(
     assert parent_pid != os.getpid()
     # The host holds the child's life, so a stopped host leaves no MCP server behind.
     assert wait_until_pid_gone(server_pid, timeout_s=20.0)
+
+
+async def test_a_host_killed_with_sigkill_leaves_no_stdio_child(
+    tmp_path: Path, host_home: Path, monkeypatch: pytest.MonkeyPatch, pid_alive,
+    wait_until_pid_gone) -> None:
+    """A killed host runs no code, so the kernel holds the last word on the child (#50).
+
+    The host asks the kernel for a parent death signal on each stdio child. SIGKILL leaves the host
+    no reaper and no teardown. The kernel then sends SIGKILL to the child.
+
+    The server here ignores the end of file on its own stdin. A well behaved server exits on that
+    alone, and it would pass this test with no help from the kernel.
+    """
+    script = _write_stubborn_script(tmp_path)
+    report = tmp_path / "pids.txt"
+    _write_config(host_home, script=script, report=report)
+    handle = _start_host(tmp_path, monkeypatch)
+    host_pid = handle.pid
+    assert host_pid is not None
+
+    child_pid = 0
+    gone = False
+    try:
+        async with open_stdio_session("demo", socket_path=handle.socket_path) as session:
+            await session.list_tools()
+            child_pid = int(report.read_text(encoding="utf-8").splitlines()[0])
+            assert pid_alive(child_pid)
+
+            os.kill(host_pid, signal.SIGKILL)
+            gone = wait_until_pid_gone(child_pid, timeout_s=20.0)
+    finally:
+        handle.stop(timeout_s=10)
+        _end_pid(child_pid)
+
+    assert gone, f"pid {child_pid} outlived the host that started it"
 
 
 async def test_the_agent_registers_nothing_when_no_host_runs(

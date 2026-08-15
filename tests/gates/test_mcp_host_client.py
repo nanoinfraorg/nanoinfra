@@ -18,7 +18,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import signal
 import sys
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
@@ -117,6 +119,51 @@ async def _stop(server: asyncio.Server) -> None:
         await server.wait_closed()
 
 
+async def _wait_for_pid_to_go(
+    pid_alive: Callable[[int], bool], pid: int, *, timeout_s: float
+) -> bool:
+    """Wait until *pid* is gone, and give the event loop a turn on each pass.
+
+    The host of this module runs in the event loop of the test. A wait that blocks starves that
+    host, so the host teardown never runs and the child stays alive for the whole wait.
+
+    Python 3.11 shows that starvation, and Python 3.13 hides it. ``Server.wait_closed`` waits for
+    every connection handler from Python 3.12 on. Before that version it returns while a handler
+    still holds an open session. See nanoinfraorg/nanoinfra#50.
+    """
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if not pid_alive(pid):
+            return True
+        await asyncio.sleep(0.05)
+    return not pid_alive(pid)
+
+
+def _reported_pid(report: Path) -> int:
+    """Read the pid the stdio server wrote, or 0 when it wrote nothing yet."""
+    try:
+        return int(report.read_text(encoding="utf-8").splitlines()[0])
+    except (OSError, IndexError, ValueError):
+        return 0
+
+
+def _end_pid(pid: int) -> None:
+    """End *pid* with SIGKILL, and reap it when this process is its parent.
+
+    A test that fails must still leave no MCP server behind. So each test that starts a child calls
+    this in a ``finally``.
+
+    Python 3.11 needs this. ``Server.wait_closed`` returns there while the host still holds an open
+    session, and the loop of the test closes before that host teardown runs.
+    """
+    if pid <= 0:
+        return
+    with contextlib.suppress(OSError):
+        os.kill(pid, signal.SIGKILL)
+    with contextlib.suppress(OSError):
+        os.waitpid(pid, os.WNOHANG)
+
+
 # ------------------------------------------------------- real MCP objects
 
 
@@ -124,12 +171,14 @@ async def test_the_session_returns_real_mcp_tool_definitions(
     server_script: Path, tmp_path: Path
 ) -> None:
     socket_path = tmp_path / "host.sock"
-    server = await _real_host(socket_path, _settings(server_script))
+    report = tmp_path / "pids.txt"
+    server = await _real_host(socket_path, _settings(server_script, report=report))
     try:
         async with open_stdio_session("demo", socket_path=socket_path) as session:
             listed = await session.list_tools()
     finally:
         await _stop(server)
+        _end_pid(_reported_pid(report))
 
     assert [tool.name for tool in listed.tools] == ["echo"]
     assert listed.tools[0].inputSchema["type"] == "object"
@@ -141,41 +190,42 @@ async def test_a_tool_call_returns_a_real_call_tool_result(
     from mcp import types
 
     socket_path = tmp_path / "host.sock"
-    server = await _real_host(socket_path, _settings(server_script))
+    report = tmp_path / "pids.txt"
+    server = await _real_host(socket_path, _settings(server_script, report=report))
     try:
         async with open_stdio_session("demo", socket_path=socket_path) as session:
             result = await session.call_tool("echo", arguments={"value": "hi"})
     finally:
         await _stop(server)
+        _end_pid(_reported_pid(report))
 
     assert isinstance(result.content[0], types.TextContent)
     assert result.content[0].text == "echo:hi"
     assert result.isError is False
 
 
-@pytest.mark.xfail(
-    sys.version_info < (3, 12),
-    reason=(
-        "nanoinfraorg/nanoinfra#50: on Python 3.11 this stdio child outlives the connection. The "
-        "host's own reaper ends the child in a standalone reproduction of the same steps, and not "
-        "in this test, so the cause is not yet known. The property holds on 3.12 and later."
-    ),
-    strict=False,
-)
 async def test_the_child_dies_when_the_agent_leaves_the_session(
-    server_script: Path, tmp_path: Path, pid_alive, wait_until_pid_gone) -> None:
+    server_script: Path, tmp_path: Path, pid_alive) -> None:
+    """The closed connection alone ends the child, and the host still listens.
+
+    The wait sits inside the ``try``, so the host still holds its listener while the child goes.
+    That order states the property #22 claims: one connection is one session.
+    """
     socket_path = tmp_path / "host.sock"
     report = tmp_path / "pids.txt"
     server = await _real_host(socket_path, _settings(server_script, report=report))
+    child_pid = 0
     try:
         async with open_stdio_session("demo", socket_path=socket_path) as session:
             await session.list_tools()
             child_pid = int(report.read_text(encoding="utf-8").splitlines()[0])
             assert pid_alive(child_pid)
+        gone = await _wait_for_pid_to_go(pid_alive, child_pid, timeout_s=20.0)
     finally:
         await _stop(server)
+        _end_pid(child_pid)
 
-    assert wait_until_pid_gone(child_pid, timeout_s=20.0)
+    assert gone, f"pid {child_pid} outlived the connection"
 
 
 # ------------------------------------------------------ words for a failure
@@ -284,8 +334,6 @@ async def test_a_dead_child_raises_what_the_agent_reads_as_a_terminated_session(
     stdio server must still satisfy it after the split, or a crash would end that server for the
     life of the process.
     """
-    import signal
-
     from nanoinfra.agent.tools.mcp import _is_session_terminated
 
     socket_path = tmp_path / "host.sock"
@@ -308,6 +356,7 @@ async def test_a_dead_child_raises_what_the_agent_reads_as_a_terminated_session(
                     raised.append(exc)
     finally:
         await _stop(server)
+        _end_pid(_reported_pid(report))
 
     assert len(raised) == 2
     assert all(_is_session_terminated(exc) for exc in raised), [str(exc) for exc in raised]
