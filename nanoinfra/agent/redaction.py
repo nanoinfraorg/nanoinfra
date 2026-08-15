@@ -119,7 +119,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Sequence, cast
+from typing import Any, Callable, Iterable, Mapping, Sequence, TypeVar, cast
 
 from loguru import logger
 
@@ -238,6 +238,14 @@ _SECRETS_POSTGRES_DSN_ENV = "NANOINFRA_SECRETS_POSTGRES_DSN"
 #: What one text costs to scrub: the text, plus the capability class of the
 #: tool that produced it, or None when the caller knows none.
 ScrubText = Callable[[str, str | None], str]
+
+#: The same, for many texts in one round trip (nanoinfraorg/nanoinfra#54). The
+#: answer holds one text per element, in the order the elements arrived.
+ScrubTexts = Callable[[Sequence[tuple[str, str | None]]], list[str]]
+
+#: What one redaction pass returns. ``in_one_batch`` runs the pass and hands
+#: back its own answer, so the batch stays invisible to the caller's shape.
+_T = TypeVar("_T")
 
 
 @dataclass(frozen=True)
@@ -861,6 +869,10 @@ def _scrub_with_no_sentinels(text: str, capability_class: str | None) -> str:
     return scrub_one_text(text, capability_class, ())
 
 
+class ScrubBatchError(RuntimeError):
+    """A batch answered a shape its caller cannot pair, so no text may persist."""
+
+
 class TranscriptRedactor:
     """What one caller needs to persist a record safely (#41).
 
@@ -870,11 +882,22 @@ class TranscriptRedactor:
     One instance serves one persist operation. It asks the executor once per
     text, which costs one connection per text on a local socket. A workspace
     with no secret asks nothing at all, and that is the common case.
+
+    ``in_one_batch`` pays one round trip for a whole record instead
+    (nanoinfraorg/nanoinfra#54). A caller with many fields uses it, and a caller
+    with a handful keeps the per-text path.
     """
 
-    def __init__(self, scrub: ScrubText, *, asks_executor: bool = True) -> None:
+    def __init__(
+        self,
+        scrub: ScrubText,
+        *,
+        asks_executor: bool = True,
+        scrub_many: ScrubTexts | None = None,
+    ) -> None:
         self._scrub = scrub
         self._asks_executor = asks_executor
+        self._scrub_many = scrub_many
 
     @classmethod
     def for_workspace(
@@ -890,7 +913,9 @@ class TranscriptRedactor:
         stated limit, and every caller that holds a workspace passes it.
 
         *scrub* replaces the socket client. Tests use it, and so does a caller
-        that already holds a scrubber.
+        that already holds a scrubber. Such a redactor gets no batch verb, so
+        ``in_one_batch`` runs it once per text, which is the answer a stand-in
+        expects.
         """
         if scrub is not None:
             return cls(scrub)
@@ -898,12 +923,76 @@ class TranscriptRedactor:
             return cls(_scrub_with_no_sentinels, asks_executor=False)
         from nanoinfra.gates.executor.scrub_client import default_scrub_client
 
-        return cls(default_scrub_client().scrub)
+        client = default_scrub_client()
+        return cls(client.scrub, scrub_many=client.scrub_many)
 
     @property
     def asks_the_executor(self) -> bool:
         """Whether this redactor sends a text over a socket at all."""
         return self._asks_executor
+
+    def in_one_batch(self, run: Callable[[ScrubText], _T]) -> _T:
+        """Run *run* and pay one round trip for every text it asks about (#54).
+
+        *run* is any redaction that takes a ``ScrubText``. It runs twice. The
+        first pass collects the texts and changes nothing. One batch then
+        answers them all. The second pass runs on the same input again and
+        returns the answers in place.
+
+        **The requirement on *run* is that it be pure**, and that it ask for the
+        same texts in the same order for one input. Every redaction function in
+        this module satisfies that, and so does a provider's own field walk. The
+        rule is not merely trusted: the second pass checks that the text it is
+        handed at each position is the text the first pass recorded there, and it
+        raises when it is not. So a *run* that branches on the answer of a scrub
+        fails loudly rather than pairing the wrong answer with the wrong field.
+
+        A redactor with no batch verb runs *run* once, with the per-text scrub.
+        A workspace with no secret therefore pays nothing, and a test that
+        injected its own scrubber keeps the behaviour it asked for.
+
+        A failure raises rather than answering markers. The caller decides what a
+        record holds when no scrub ran, and for a provider state that answer is
+        no record at all rather than a marker.
+        """
+        if self._scrub_many is None:
+            return run(self._scrub)
+
+        asked: list[tuple[str, str | None]] = []
+
+        def _collect(text: str, capability_class: str | None) -> str:
+            asked.append((text, capability_class))
+            return text
+
+        run(_collect)
+        answers = self._scrub_many(asked)
+        if len(answers) != len(asked):
+            raise ScrubBatchError(
+                f"The scrubber answered {len(answers)} texts for {len(asked)} asked."
+            )
+
+        position = 0
+
+        def _fill(text: str, capability_class: str | None) -> str:
+            nonlocal position
+            if position >= len(asked):
+                raise ScrubBatchError(
+                    "The second pass asked for more texts than the first pass collected."
+                )
+            if asked[position] != (text, capability_class):
+                raise ScrubBatchError(
+                    f"The two passes disagree at position {position}, so no answer can be paired."
+                )
+            answer = answers[position]
+            position += 1
+            return answer
+
+        filled = run(_fill)
+        if position != len(asked):
+            raise ScrubBatchError(
+                f"The second pass used {position} of {len(asked)} answers, so a field went unscrubbed."
+            )
+        return filled
 
     def text(self, value: str) -> str:
         """Scrub one text, or return the marker."""
@@ -1000,7 +1089,9 @@ __all__ = [
     "TOOL_CALL_SCRUBBED_MARKER",
     "TOOL_CALL_WITHHELD_MARKER",
     "TRANSCRIPT_TOOL_RESULT_MAX_CHARS",
+    "ScrubBatchError",
     "ScrubText",
+    "ScrubTexts",
     "SecretSentinel",
     "TranscriptRedactor",
     "redact_checkpoint",
