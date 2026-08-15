@@ -149,6 +149,16 @@ class GatesConfig(Base):
     model_config = _FORBID_EXTRA
 
     approvers: list[Approver] = Field(default_factory=list)
+    # Which paths authenticate an approver (#13). An authenticated-path list is authority, so
+    # it belongs here beside the approvers rather than hardcoded in the gate. A hardcoded set
+    # could not express a deployment that hardened another channel on purpose, and it could
+    # not name a specific missing path in the "configure a second path" error.
+    #
+    # The default names ``webui`` alone. The WebUI has a real session concept, and it supports
+    # trusted-proxy bootstrap auth for Cloudflare Access and similar products (7413ae89). One
+    # path also means no runtime approval path for an unusual action, which #13 reports as a
+    # named refusal. Entries use the same vocabulary as ``Approver.channel``.
+    approval_paths: list[str] = Field(default_factory=lambda: ["webui"])
     interactive: ContextPolicy = Field(default_factory=_default_interactive)
     unattended: ContextPolicy = Field(default_factory=_default_unattended)
     standing_grants: list[StandingGrant] = Field(default_factory=list)
