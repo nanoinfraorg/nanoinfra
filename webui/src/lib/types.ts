@@ -604,6 +604,60 @@ export interface GatesAuditPage {
   };
 }
 
+/**
+ * One suspended action, as the executor rendered it (nanoinfraorg/nanoinfra#27).
+ *
+ * `payload` holds the bytes the executor produced, and `targetDigest` binds them. The inbox
+ * renders the payload as it arrives and echoes the digest back. It builds no summary of its own.
+ */
+export interface GatesPendingApproval {
+  requestId: string;
+  sessionId: string;
+  originPath: string;
+  executionContext: string;
+  capabilityClass: string;
+  scope: string;
+  hostCount: number;
+  hosts: string[];
+  payload: string;
+  targetDigest: string;
+  expiresInS: number;
+  samePath: boolean;
+}
+
+/** One suspended action with an absolute deadline, so the inbox counts the time down. */
+export interface GatesPendingApprovalView extends GatesPendingApproval {
+  expiresAt: number;
+}
+
+export interface GatesApprovalsPayload {
+  degraded: boolean;
+  approvalPath: string;
+  count: number;
+  pending: GatesPendingApproval[];
+}
+
+export type GatesApprovalDecision = "approve" | "deny";
+
+export interface GatesApprovalAnswerValues {
+  requestId: string;
+  decision: GatesApprovalDecision;
+  /** The digest of the payload the operator read. An approval carries it, a denial does not. */
+  targetDigest?: string;
+  reason?: string;
+}
+
+export interface GatesApprovalAnswer {
+  ok: boolean;
+  requestId: string;
+  decision: string;
+  actor: string;
+  /** The rule that refused this answer, for the inbox to render. */
+  refusal: string | null;
+  error: string | null;
+  degraded: boolean;
+}
+
 /** Audit filters. The route reads them from the query string. */
 export interface GatesAuditQuery {
   decision?: string;

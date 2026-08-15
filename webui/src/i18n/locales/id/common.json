@@ -71,6 +71,8 @@
     "diagrams": "Diagram Infra",
     "infrastructure": "Infrastruktur",
     "servers": "Server",
+    "approvals": "Persetujuan",
+    "approvalsBadge": "Persetujuan yang menunggu jawaban: {{count}}",
     "secrets": "Rahasia"
   },
   "settings": {
@@ -1524,6 +1526,51 @@
       "manualPlaceholder": "/Users/name/project",
       "usePath": "Gunakan path",
       "absolutePathRequired": "Masukkan path folder absolut di mesin ini."
+    }
+  },
+  "approvals": {
+    "title": "Persetujuan",
+    "subtitle": "Satu jawaban manusia per tindakan. Eksekutor membuat setiap byte di bawah.",
+    "pendingCount": "Menunggu: {{count}}",
+    "empty": "Tidak ada tindakan yang menunggu jawaban. Kebijakan tetap menolak apa yang ditolaknya, jadi kotak kosong bukan gerbang terbuka.",
+    "degraded": "Gateway tidak dapat menjangkau eksekutor. Sebuah tindakan mungkin menunggu, dan daftar ini tidak dapat menampilkannya.",
+    "unavailable": "Gateway ini tidak punya kotak persetujuan. Keputusan setujui menunggu batas waktu lalu menolak.",
+    "timeLeft": "sisa {{time}}",
+    "expiresNote": "Pada nol eksekutor menolak tindakan ini. Agen tidak mendapat percobaan lagi.",
+    "expired": "Tindakan ini kedaluwarsa. Eksekutor menolaknya.",
+    "hosts": "Host: {{count}}",
+    "from": "dari {{path}}",
+    "payloadTitle": "Perintah dan host, tepat seperti yang akan dijalankan eksekutor",
+    "payloadNote": "Eksekutor membuat teks ini. Agen tidak menjelaskannya.",
+    "hostsTitle": "Host yang terselesaikan: {{count}}",
+    "contextDivider": "Baris di bawah adalah konteks. Ringkasan tidak mencakupnya.",
+    "context": {
+      "origin": "Diminta melalui",
+      "approve": "Setujui dari",
+      "session": "Sesi",
+      "class": "Kelas kemampuan",
+      "digest": "Ringkasan pengikat"
+    },
+    "approveFromValue": "webui (sesi ini, terautentikasi)",
+    "approve": "Setujui",
+    "approveUnavailable": "Setujui (tidak tersedia)",
+    "deny": "Tolak",
+    "samePath": "Permintaan ini datang dari jalur yang Anda pakai. Setujui dari jalur terautentikasi lain. Satu akun yang jebol tidak boleh memberi kedua bagian.",
+    "denyTerminal": "Penolakan bersifat akhir untuk sesi ini. Agen tidak dapat bertanya lagi sampai operator membuka kuncinya.",
+    "approved": "Anda menyetujui tindakan ini. Eksekutor menjalankannya sekarang.",
+    "denied": "Anda menolak tindakan ini. Penolakan bersifat akhir untuk sesi ini.",
+    "noAnswer": "Gateway tidak menjawab. Tindakan itu masih menunggu.",
+    "refusalOther": "Eksekutor menolak jawaban ini: {{error}}",
+    "refusal": {
+      "alreadyAnswered": "Tindakan ini sudah punya jawaban. Satu tindakan menerima satu jawaban.",
+      "digestMismatch": "Jawaban Anda mencakup byte lain. Muat ulang halaman ini, baca lagi isinya, lalu jawab.",
+      "expired": "Tindakan ini kedaluwarsa sebelum jawaban Anda tiba. Eksekutor menolaknya.",
+      "noSecondPath": "Hanya ada satu jalur terautentikasi. Tambahkan jalur kedua, atau nyatakan izin tetap.",
+      "notAnApprover": "Akun ini tidak ada di gates.approvers. Tambahkan ke daftar itu, lalu jawab lagi.",
+      "samePath": "Permintaan ini datang dari jalur yang Anda pakai. Jawab dari jalur terautentikasi lain.",
+      "unauthenticatedPath": "gates.approvalPaths tidak memuat webui, jadi jalur ini tidak mengautentikasi penyetuju.",
+      "unknownOriginPath": "Permintaan tidak menyebut jalur asal. Eksekutor tidak dapat membuktikan kemandirian jalur.",
+      "unknownRequest": "Eksekutor tidak memegang permintaan ini. Sudah kedaluwarsa, atau sudah dijawab."
     }
   }
 }

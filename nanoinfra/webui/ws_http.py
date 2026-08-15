@@ -40,6 +40,13 @@ from nanoinfra.servers.normalize import ServerValidationError
 from nanoinfra.servers.store import ServerStore
 from nanoinfra.triggers.local_types import LocalTrigger
 from nanoinfra.utils.subagent_channel_display import scrub_subagent_messages_for_channel
+from nanoinfra.webui.approvals_api import (
+    APPROVALS_ANSWER_PATH,
+    APPROVALS_READ_PATH,
+    ApprovalAnswerError,
+    ApprovalsOperatorSurface,
+    approval_values_from_request,
+)
 from nanoinfra.webui.audit_api import (
     AUDIT_READ_PATH,
     AuditReadSurface,
@@ -307,6 +314,9 @@ class GatewayHTTPHandler:
         # The read of the gate audit log (#29). Attached after boot for the same reason: a route
         # with no surface answers 503, and never an empty log.
         self.audit: AuditReadSurface | None = None
+        # The inbox that answers a suspended action (#27). Attached after boot for the same
+        # reason: a route with no surface answers 503, and never an empty queue.
+        self.approvals: ApprovalsOperatorSurface | None = None
         self.skill_state_action = skill_state_action
         self._skill_install_lock = asyncio.Lock()
         self._title_retry_in_flight: set[str] = set()
@@ -341,6 +351,10 @@ class GatewayHTTPHandler:
     def attach_audit_surface(self, surface: AuditReadSurface) -> None:
         """Take the read of the gate audit log (#29). Only the gateway calls this."""
         self.audit = surface
+
+    def attach_approvals_surface(self, surface: ApprovalsOperatorSurface) -> None:
+        """Take the inbox that answers a suspended action (#27). Only the gateway calls this."""
+        self.approvals = surface
 
     def workspace_controls_available(self, connection: Any) -> bool:
         return self._runtime_surface == "native" or _is_localhost(connection)
@@ -427,6 +441,9 @@ class GatewayHTTPHandler:
         if response is not None:
             return response
         response = self._dispatch_audit_routes(request, got)
+        if response is not None:
+            return response
+        response = self._dispatch_approval_routes(request, got)
         if response is not None:
             return response
 
@@ -1277,6 +1294,42 @@ class GatewayHTTPHandler:
         if self.audit is None:
             return _http_error(503, "the gate runtime is not available on this gateway")
         return _http_json_response(self.audit.page(_parse_query(request.path)))
+
+    def _dispatch_approval_routes(self, request: WsRequest, got: str) -> Response | None:
+        """The read and the answer for one suspended action (#27).
+
+        Both routes need the API token, because the answer authorizes a remote command. A
+        missing surface answers 503 and never an empty queue: a WebUI that cannot reach the
+        executor must not read as "no action waits".
+
+        Each route refuses a method that is not its own. The ``websockets`` request carries no
+        method, so an absent value reads as the route's own method rather than as a violation.
+        """
+        if got not in (APPROVALS_READ_PATH, APPROVALS_ANSWER_PATH):
+            return None
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        method = str(getattr(request, "method", "") or "").upper()
+        if got == APPROVALS_READ_PATH:
+            if method and method not in ("GET", "HEAD"):
+                return _http_error(405, "this route only reads the pending approvals")
+            if self.approvals is None:
+                return _http_error(503, "the executor is not available on this gateway")
+            return _http_json_response(self.approvals.pending())
+        if method and method != "POST":
+            return _http_error(405, "an approval answer is a POST")
+        if self.approvals is None:
+            return _http_error(503, "the executor is not available on this gateway")
+        values = approval_values_from_request(request)
+        if values is None:
+            return _http_error(400, "invalid approval payload")
+        try:
+            answered = self.approvals.answer(
+                values, actor=operator_actor(request, self.config)
+            )
+        except ApprovalAnswerError as exc:
+            return _http_error(400, str(exc))
+        return _http_json_response(answered)
 
     # -- Media routes -------------------------------------------------------
 

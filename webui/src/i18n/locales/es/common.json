@@ -71,6 +71,8 @@
     "diagrams": "Diagramas de Infra",
     "infrastructure": "Infraestructura",
     "servers": "Servidores",
+    "approvals": "Aprobaciones",
+    "approvalsBadge": "Aprobaciones que esperan respuesta: {{count}}",
     "secrets": "Secretos"
   },
   "settings": {
@@ -1525,6 +1527,51 @@
       "manualPlaceholder": "/Users/name/project",
       "usePath": "Usar ruta",
       "absolutePathRequired": "Introduce una ruta absoluta de carpeta en esta máquina."
+    }
+  },
+  "approvals": {
+    "title": "Aprobaciones",
+    "subtitle": "Una respuesta humana por acción. El ejecutor generó cada byte de abajo.",
+    "pendingCount": "Pendientes: {{count}}",
+    "empty": "Ninguna acción espera respuesta. La política sigue rechazando lo que rechaza, así que una bandeja vacía no es una puerta abierta.",
+    "degraded": "La pasarela no alcanza al ejecutor. Una acción puede estar en espera y esta lista no la muestra.",
+    "unavailable": "Esta pasarela no tiene bandeja de aprobaciones. Una decisión de aprobación espera el plazo y luego rechaza.",
+    "timeLeft": "quedan {{time}}",
+    "expiresNote": "Al llegar a cero el ejecutor rechaza esta acción. El agente no recibe otro intento.",
+    "expired": "Esta acción caducó. El ejecutor la rechazó.",
+    "hosts": "Hosts: {{count}}",
+    "from": "desde {{path}}",
+    "payloadTitle": "El comando y los hosts, tal como los ejecutará el ejecutor",
+    "payloadNote": "El ejecutor generó este texto. El agente no lo describió.",
+    "hostsTitle": "Hosts resueltos: {{count}}",
+    "contextDivider": "Las líneas de abajo son contexto. El resumen no las cubre.",
+    "context": {
+      "origin": "Solicitado en",
+      "approve": "Aprobar desde",
+      "session": "Sesión",
+      "class": "Clase de capacidad",
+      "digest": "Resumen vinculante"
+    },
+    "approveFromValue": "webui (esta sesión, autenticada)",
+    "approve": "Aprobar",
+    "approveUnavailable": "Aprobar (no disponible)",
+    "deny": "Denegar",
+    "samePath": "Esta solicitud llegó por la vía en la que estás. Apruébala desde otra vía autenticada. Una cuenta comprometida no debe aportar las dos mitades.",
+    "denyTerminal": "Una denegación es definitiva para esta sesión. El agente no puede volver a pedirlo hasta que un operador libere el bloqueo.",
+    "approved": "Aprobaste esta acción. El ejecutor la está ejecutando.",
+    "denied": "Denegaste esta acción. La denegación es definitiva para esta sesión.",
+    "noAnswer": "La pasarela no respondió. La acción sigue en espera.",
+    "refusalOther": "El ejecutor rechazó esta respuesta: {{error}}",
+    "refusal": {
+      "alreadyAnswered": "Esta acción ya tiene respuesta. Una acción admite una sola respuesta.",
+      "digestMismatch": "Tu respuesta cubre otros bytes. Recarga esta página, lee de nuevo el contenido y responde otra vez.",
+      "expired": "Esta acción caducó antes de tu respuesta. El ejecutor la rechazó.",
+      "noSecondPath": "Solo existe una vía autenticada. Añade una segunda vía o declara un permiso permanente.",
+      "notAnApprover": "Esta cuenta no está en gates.approvers. Añádela a esa lista y responde otra vez.",
+      "samePath": "Esta solicitud llegó por la vía en la que estás. Respóndela desde otra vía autenticada.",
+      "unauthenticatedPath": "gates.approvalPaths no incluye webui, así que esta vía no autentica a ningún aprobador.",
+      "unknownOriginPath": "La solicitud no nombra ninguna vía de origen. El ejecutor no puede probar la independencia de vías.",
+      "unknownRequest": "El ejecutor no tiene esta solicitud. Caducó o alguien ya la respondió."
     }
   }
 }

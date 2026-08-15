@@ -16,6 +16,7 @@ import {
   Search,
   Server,
   Settings,
+  ShieldCheck,
   SquarePen,
   Blocks,
 } from "lucide-react";
@@ -56,9 +57,20 @@ interface SidebarProps {
   onOpenDiagrams: () => void;
   onOpenServers: () => void;
   onOpenSecrets: () => void;
+  onOpenApprovals: () => void;
+  /** How many actions wait for a human answer (nanoinfraorg/nanoinfra#27). */
+  approvalsCount?: number;
   onSettingsIntent?: () => void;
   onOpenSearch: () => void;
-  activeUtility?: "apps" | "skills" | "automations" | "diagrams" | "servers" | "secrets" | null;
+  activeUtility?:
+    | "apps"
+    | "skills"
+    | "automations"
+    | "diagrams"
+    | "servers"
+    | "secrets"
+    | "approvals"
+    | null;
   onToggleArchived: () => void;
   onCollapse: () => void;
   onExpand?: () => void;
@@ -226,6 +238,31 @@ export function Sidebar(props: SidebarProps) {
           selectionRef={activeActionRef}
           icon={<CalendarClock className="h-4 w-4" />}
         />
+        <SidebarActionButton
+          collapsed={collapsed}
+          label={t("sidebar.approvals", { defaultValue: "Approvals" })}
+          ariaLabel={
+            props.approvalsCount
+              ? t("sidebar.approvalsBadge", {
+                count: props.approvalsCount,
+                defaultValue: "Approvals waiting for an answer: {{count}}",
+              })
+              : undefined
+          }
+          onClick={props.onOpenApprovals}
+          active={props.activeUtility === "approvals"}
+          selectionRef={activeActionRef}
+          icon={<ShieldCheck className="h-4 w-4" />}
+          trailing={
+            props.approvalsCount
+              ? (
+                <span className="rounded-full bg-destructive px-1.5 text-[10px] font-semibold leading-4 text-destructive-foreground">
+                  {props.approvalsCount}
+                </span>
+              )
+              : undefined
+          }
+        />
         {collapsed ? (
           <>
             <SidebarActionButton
@@ -385,6 +422,7 @@ function SidebarActionButton({
   className,
   shortcut,
   ariaKeyShortcuts,
+  ariaLabel,
   onIntent,
   selectionRef,
   trailing,
@@ -398,6 +436,8 @@ function SidebarActionButton({
   className?: string;
   shortcut?: string;
   ariaKeyShortcuts?: string;
+  /** Overrides the label for a screen reader, e.g. a row that carries an unread count. */
+  ariaLabel?: string;
   onIntent?: () => void;
   selectionRef?: RefObject<HTMLButtonElement>;
   /** Extra content after the label, e.g. a disclosure chevron. Hidden when collapsed, same as the label. */
@@ -411,7 +451,7 @@ function SidebarActionButton({
       ref={active ? selectionRef : undefined}
       type="button"
       variant={null}
-      aria-label={label}
+      aria-label={ariaLabel ?? label}
       aria-current={active ? "page" : undefined}
       aria-expanded={ariaExpanded}
       aria-keyshortcuts={ariaKeyShortcuts}

@@ -398,6 +398,49 @@ describe("App layout", () => {
     expect(window.location.hash).toBe("#/settings?section=channels");
   });
 
+  it("opens the approvals inbox from the main sidebar and counts the unread actions", async () => {
+    // nanoinfraorg/nanoinfra#27. An operator answers an approval during work, so the inbox has
+    // its own route and the navigation carries the count.
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/webui/gates/approvals": {
+        approvalPath: "webui",
+        count: 1,
+        degraded: false,
+        pending: [{
+          capabilityClass: "mutate.remote",
+          executionContext: "interactive",
+          expiresInS: 107,
+          hostCount: 2,
+          hosts: ["web-01", "web-02"],
+          originPath: "telegram",
+          payload: "nanoinfra approval request v1\nHosts: 2\n   1. web-01\n   2. web-02",
+          requestId: "req-1",
+          samePath: false,
+          scope: "group",
+          sessionId: "telegram:chat-1",
+          targetDigest: "sha256:abc",
+        }],
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    const inbox = await within(sidebar).findByRole("button", {
+      name: "Approvals waiting for an answer: 1",
+    });
+
+    fireEvent.click(inbox);
+
+    expect(await screen.findByText("Pending: 1")).toBeInTheDocument();
+    expect(screen.getByText("web-01")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Deny" })).toBeEnabled();
+    expect(document.title).toBe("Approvals · nanoinfra");
+  });
+
   it("opens Skills from the main sidebar", async () => {
     const longSkillDescription = [
       "Work with GitHub repositories, issues, pull requests, releases, workflows,",

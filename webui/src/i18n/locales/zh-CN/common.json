@@ -71,6 +71,8 @@
     "diagrams": "基础设施图",
     "infrastructure": "基础设施",
     "servers": "服务器",
+    "approvals": "审批",
+    "approvalsBadge": "等待回答的审批：{{count}}",
     "secrets": "密钥"
   },
   "settings": {
@@ -1538,6 +1540,51 @@
       "manualPlaceholder": "/Users/name/project",
       "usePath": "使用路径",
       "absolutePathRequired": "请输入这台机器上的绝对文件夹路径。"
+    }
+  },
+  "approvals": {
+    "title": "审批",
+    "subtitle": "每个操作需要一个人的回答。下面的每个字节都由执行器生成。",
+    "pendingCount": "待处理：{{count}}",
+    "empty": "没有操作在等待回答。策略仍然拒绝它拒绝的操作，所以收件箱为空并不表示闸门打开。",
+    "degraded": "网关无法连到执行器。可能有操作在等待，而这个列表无法显示它。",
+    "unavailable": "这个网关没有审批收件箱。需要审批的判定会等到期限，然后被拒绝。",
+    "timeLeft": "剩余 {{time}}",
+    "expiresNote": "归零时执行器拒绝这个操作。代理不会再获得一次机会。",
+    "expired": "这个操作已过期。执行器已拒绝它。",
+    "hosts": "主机：{{count}}",
+    "from": "来自 {{path}}",
+    "payloadTitle": "命令与主机，与执行器实际运行的完全一致",
+    "payloadNote": "这段文本由执行器生成。它不是代理的描述。",
+    "hostsTitle": "已解析主机：{{count}}",
+    "contextDivider": "下面几行是背景信息。摘要不覆盖它们。",
+    "context": {
+      "origin": "请求来源",
+      "approve": "审批通道",
+      "session": "会话",
+      "class": "能力类别",
+      "digest": "绑定摘要"
+    },
+    "approveFromValue": "webui（当前会话，已认证）",
+    "approve": "批准",
+    "approveUnavailable": "批准（不可用）",
+    "deny": "拒绝",
+    "samePath": "这个请求来自你正在使用的通道。请从另一个已认证通道批准它。一个被入侵的账号不得同时提供两半。",
+    "denyTerminal": "拒绝对这个会话是最终结果。在运维人员解除锁定之前，代理无法再次请求。",
+    "approved": "你批准了这个操作。执行器正在运行它。",
+    "denied": "你拒绝了这个操作。这个拒绝对本会话是最终结果。",
+    "noAnswer": "网关没有回答。这个操作仍在等待。",
+    "refusalOther": "执行器拒绝了这个回答：{{error}}",
+    "refusal": {
+      "alreadyAnswered": "这个操作已经有回答。一个操作只接受一个回答。",
+      "digestMismatch": "你的回答覆盖的是其他字节。请重新加载本页，再读一遍内容，然后回答。",
+      "expired": "在你的回答到达之前这个操作已过期。执行器已拒绝它。",
+      "noSecondPath": "只有一个已认证通道。请添加第二个通道，或者声明一条常设授权。",
+      "notAnApprover": "这个账号不在 gates.approvers 中。请把它加入该列表，然后再回答。",
+      "samePath": "这个请求来自你正在使用的通道。请从另一个已认证通道回答它。",
+      "unauthenticatedPath": "gates.approvalPaths 中没有 webui，所以这个通道不认证任何审批人。",
+      "unknownOriginPath": "请求没有说明来源通道。执行器无法证明通道相互独立。",
+      "unknownRequest": "执行器没有这个请求。它已过期，或者已有人回答。"
     }
   }
 }

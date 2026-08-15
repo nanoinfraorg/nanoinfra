@@ -16,6 +16,7 @@ import type { SettingsSectionKey } from "@/components/settings/SettingsView";
 import { ThreadShell } from "@/components/thread/ThreadShell";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
+import { useApprovals } from "@/hooks/useApprovals";
 import { useSessions } from "@/hooks/useSessions";
 import { useDeferredTitleRefresh } from "@/hooks/useDeferredTitleRefresh";
 import { useSidebarState } from "@/hooks/useSidebarState";
@@ -98,7 +99,8 @@ type ShellView =
   | "skills"
   | "diagrams"
   | "servers"
-  | "secrets";
+  | "secrets"
+  | "approvals";
 type ShellRoute = {
   view: ShellView;
   activeKey: string | null;
@@ -125,6 +127,10 @@ const ServersView = lazy(async () => {
 const SecretsView = lazy(async () => {
   const module = await import("@/components/secrets/SecretsView");
   return { default: module.SecretsView };
+});
+const ApprovalsView = lazy(async () => {
+  const module = await import("@/components/approvals/ApprovalsView");
+  return { default: module.ApprovalsView };
 });
 const SessionSearchDialog = lazy(async () => {
   const module = await import("@/components/SessionSearchDialog");
@@ -259,6 +265,9 @@ function readShellRoute(): ShellRoute {
   }
   if (path === "/secrets") {
     return { view: "secrets", activeKey, settingsSection: "overview" };
+  }
+  if (path === "/approvals") {
+    return { view: "approvals", activeKey, settingsSection: "overview" };
   }
   if (path.startsWith("/chat/")) {
     const encoded = path.slice("/chat/".length);
@@ -1034,6 +1043,9 @@ function Shell({
   const [updatedChatIds, setUpdatedChatIds] = useState<Set<string>>(readSessionUpdateChatIds);
   const [workspaces, setWorkspaces] = useState<WorkspacesPayload | null>(null);
   const skills = useSkills(getToken);
+  // The pending approvals of this gateway (nanoinfraorg/nanoinfra#27). The poll runs outside the
+  // inbox route, because the unread count belongs in the navigation.
+  const approvals = useApprovals(getToken);
   const pageVisible = usePageVisibility();
   const [settingsSnapshot, setSettingsSnapshot] = useState<SettingsPayload | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -1750,6 +1762,12 @@ function Shell({
     setMobileSidebarOpen(false);
   }, [activeKey, navigate]);
 
+  const onOpenApprovals = useCallback(() => {
+    setSessionSearchOpen(false);
+    navigate({ view: "approvals", activeKey, settingsSection: "overview" });
+    setMobileSidebarOpen(false);
+  }, [activeKey, navigate]);
+
   const onSettingsSectionChange = useCallback(
     (section: SettingsSectionKey) => {
       navigate({
@@ -1995,6 +2013,12 @@ function Shell({
       });
       return;
     }
+    if (view === "approvals") {
+      document.title = t("app.documentTitle.chat", {
+        title: t("sidebar.approvals", { defaultValue: "Approvals" }),
+      });
+      return;
+    }
     document.title = activeSession
       ? t("app.documentTitle.chat", { title: headerTitle })
       : t("app.documentTitle.base");
@@ -2022,6 +2046,8 @@ function Shell({
     onOpenDiagrams,
     onOpenServers,
     onOpenSecrets,
+    onOpenApprovals,
+    approvalsCount: approvals.count,
     onSettingsIntent,
     onOpenSearch: onOpenSessionSearch,
     activeUtility:
@@ -2031,6 +2057,7 @@ function Shell({
       || view === "diagrams"
       || view === "servers"
       || view === "secrets"
+      || view === "approvals"
         ? view
         : null,
     onToggleArchived,
@@ -2245,7 +2272,26 @@ function Shell({
                 </Suspense>
               </div>
             )}
-            {view !== "chat" && view !== "diagrams" && view !== "servers" && view !== "secrets" && (
+            {view === "approvals" && (
+              <div className="absolute inset-0 flex flex-col">
+                <Suspense fallback={<SurfaceLoadingFallback />}>
+                  <ApprovalsView
+                    answering={approvals.answering}
+                    degraded={approvals.degraded}
+                    loading={approvals.loading}
+                    onAnswer={(values) => void approvals.answer(values)}
+                    outcome={approvals.outcome}
+                    pending={approvals.pending}
+                    unavailable={approvals.unavailable}
+                  />
+                </Suspense>
+              </div>
+            )}
+            {view !== "chat"
+              && view !== "diagrams"
+              && view !== "servers"
+              && view !== "secrets"
+              && view !== "approvals" && (
               <div className="absolute inset-0 flex flex-col">
                 <Suspense fallback={<SurfaceLoadingFallback />}>
                   <SettingsView
