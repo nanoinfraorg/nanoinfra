@@ -259,9 +259,12 @@ async def test_an_unreadable_inventory_still_refuses(tmp_path: Path) -> None:
     assert not response.ok
     text = str(response.error)
     assert "Cannot validate network target" in text
-    # The resolver's own reason, so the refusal says WHY the host set is unknown. ansible
-    # would fall back to ansible.cfg here, which the resolver cannot read.
-    assert "No inventory at" in text
+    # The refusal carries the resolver's own reason, so it says WHY the host set is unknown.
+    # The exact sentence depends on the machine, and #37 is why: with ansible-core installed
+    # the resolver asks ansible for its own configuration and quotes ansible's failure, and
+    # without it the resolver stops at the missing file. Both refuse, and the property under
+    # test is the refusal plus a stated cause, not one wording.
+    assert "inventory" in text.lower()
     run.assert_not_called()
     assert JobStore(tmp_path).list_jobs() == []
 
