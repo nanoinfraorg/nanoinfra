@@ -1022,6 +1022,7 @@
         "samePath": "Yêu cầu và phê duyệt đến trên cùng một kênh.",
         "samePathNote": "Yêu cầu và phê duyệt đến trên cùng một kênh. Một tài khoản bị chiếm khi đó giữ cả hai nửa.",
         "textWarning": "Toàn văn lệnh đang bật, nên bản ghi này có thể chứa secret.",
+        "exitUnknown": "không rõ",
         "empty": "Không quyết định nào khớp với các bộ lọc này. Cổng vẫn ghi mọi quyết định mà nó đưa ra, nên khoảng thời gian rộng hơn có thể cho thấy một bản ghi.",
         "unreachable": "Gateway này không đọc được nhật ký kiểm toán. Cổng có thể vẫn áp dụng mọi quyết định, vì vậy hãy coi đây là khung thiếu dữ liệu chứ không phải nhật ký rỗng.",
         "truncated": "Đang hiện {{shown}} trong {{total}} bản ghi khớp. Hãy thu hẹp bộ lọc để xem phần còn lại.",
@@ -1042,7 +1043,9 @@
           "digest": "Digest của lệnh",
           "nonce": "Nonce của token",
           "exit": "Mã thoát",
-          "duration": "Thời lượng"
+          "duration": "Thời lượng",
+          "recordId": "Bản ghi",
+          "follows": "Theo sau quyết định"
         }
       },
       "status": {

@@ -7,6 +7,8 @@ import type { GatesAuditPage, GatesAuditRecord } from "@/lib/types";
 function record(over: Partial<GatesAuditRecord> = {}): GatesAuditRecord {
   return {
     ts: "2026-08-14T14:38:02+00:00",
+    recordId: "d1d1d1d1",
+    follows: null,
     sessionId: "s1",
     executionContext: "automation",
     originPath: "telegram",
@@ -31,6 +33,20 @@ function record(over: Partial<GatesAuditRecord> = {}): GatesAuditRecord {
   };
 }
 
+/** #46's second record. It says what happened after the gate allowed the action. */
+function completion(over: Partial<GatesAuditRecord> = {}): GatesAuditRecord {
+  return record({
+    recordId: "c2c2c2c2",
+    follows: "d1d1d1d1",
+    decision: "completion",
+    reason: "the action ended on 'prod-web-01'.",
+    grantId: null,
+    exitCode: 0,
+    durationMs: 412,
+    ...over,
+  });
+}
+
 function page(records: GatesAuditRecord[], over: Partial<GatesAuditPage> = {}): GatesAuditPage {
   return {
     records,
@@ -39,7 +55,7 @@ function page(records: GatesAuditRecord[], over: Partial<GatesAuditPage> = {}): 
     offset: 0,
     recordsCommandText: false,
     choices: {
-      decision: ["allow", "grant", "approve", "deny", "refused", "expired"],
+      decision: ["allow", "grant", "approve", "deny", "refused", "expired", "completion"],
       capabilityClass: ["read", "mutate.local", "mutate.inventory", "mutate.remote", "credential.access"],
       executionContext: ["interactive", "automation", "subagent"],
     },
@@ -160,6 +176,74 @@ describe("GatesAuditLog", () => {
     for (const button of screen.queryAllByRole("button")) {
       expect(button.textContent ?? "").not.toMatch(/delete|remove|prune|clear the log|edit/i);
     }
+  });
+
+  it("lists a completion beside the decision it follows", async () => {
+    stubFetch(page([completion(), record({ decision: "allow" })]));
+
+    render(<GatesAuditLog token="tok" />);
+
+    const row = await screen.findByTestId("audit-row-0");
+    expect(within(row).getByText("completion")).toBeInTheDocument();
+    expect(within(await screen.findByTestId("audit-row-1")).getByText("allow")).toBeInTheDocument();
+  });
+
+  it("shows the exit code and the duration of a completion", async () => {
+    stubFetch(page([completion()]));
+
+    render(<GatesAuditLog token="tok" />);
+    fireEvent.click(await screen.findByTestId("audit-row-0"));
+
+    const detail = await screen.findByTestId("audit-detail");
+    expect(within(detail).getByText("0")).toBeInTheDocument();
+    expect(within(detail).getByText("412 ms")).toBeInTheDocument();
+  });
+
+  it("says the exit code is unknown when the action ended without one", async () => {
+    stubFetch(
+      page([completion({ exitCode: null, durationMs: 30000, reason: "the action timed out." })]),
+    );
+
+    render(<GatesAuditLog token="tok" />);
+    fireEvent.click(await screen.findByTestId("audit-row-0"));
+
+    const detail = await screen.findByTestId("audit-detail");
+    expect(within(detail).getByText("unknown")).toBeInTheDocument();
+    expect(within(detail).getByText("30000 ms")).toBeInTheDocument();
+  });
+
+  it("names the decision record a completion follows", async () => {
+    stubFetch(page([completion()]));
+
+    render(<GatesAuditLog token="tok" />);
+    fireEvent.click(await screen.findByTestId("audit-row-0"));
+
+    const detail = await screen.findByTestId("audit-detail");
+    expect(within(detail).getByText("d1d1d1d1")).toBeInTheDocument();
+    expect(within(detail).getByText("c2c2c2c2")).toBeInTheDocument();
+  });
+
+  it("leaves the exit code blank on a decision record", async () => {
+    stubFetch(page([record({ decision: "allow" })]));
+
+    render(<GatesAuditLog token="tok" />);
+    fireEvent.click(await screen.findByTestId("audit-row-0"));
+
+    const detail = await screen.findByTestId("audit-detail");
+    expect(within(detail).queryByText("unknown")).not.toBeInTheDocument();
+  });
+
+  it("asks the route for the completions when the operator picks that decision", async () => {
+    const fetchMock = stubFetch(page([completion()]));
+    render(<GatesAuditLog token="tok" />);
+    await screen.findByTestId("audit-row-0");
+
+    fireEvent.change(screen.getByLabelText("Decision"), { target: { value: "completion" } });
+
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+      expect(urls.some((url) => url.includes("decision=completion"))).toBe(true);
+    });
   });
 
   it("says the log is unreachable rather than empty when the gateway has no gate runtime", async () => {

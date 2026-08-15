@@ -569,6 +569,10 @@ export interface GatesLatchClearPayload {
 
 export interface GatesAuditRecord {
   ts: string | null;
+  /** The name of this record. A completion record points at a decision record by this id. */
+  recordId: string | null;
+  /** The decision record a completion follows. It is null on a decision record. */
+  follows: string | null;
   sessionId: string | null;
   executionContext: string | null;
   originPath: string | null;

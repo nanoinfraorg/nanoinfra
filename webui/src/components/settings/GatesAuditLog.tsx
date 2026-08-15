@@ -12,6 +12,11 @@
  *
  * The table shows the first resolved host and the host count rather than the label an operator
  * typed. #24 records the resolved addresses on purpose, so the viewer shows what ran.
+ *
+ * The log holds two kinds of record after #46. A decision record says what the gate decided. A
+ * completion record says what happened next, and it carries the exit code and the duration. The
+ * decision filter isolates the completions, because the server lists the value beside the
+ * decisions. A completion names the decision it follows, so the detail view shows both ids.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CircleAlert, Loader2, TriangleAlert } from "lucide-react";
@@ -303,6 +308,9 @@ function FilterSelect({
 
 function RecordDetail({ record }: { record: GatesAuditRecord }) {
   const { t } = useTranslation();
+  // A record that names a decision it follows is #46's completion record. This check reads the
+  // structure of the record, so the view needs no copy of the server's decision vocabulary.
+  const isCompletion = record.follows !== null;
   const rows: [string, string][] = [
     [t("settings.gates.audit.field.ts", "Time"), timeLabel(record.ts)],
     [t("settings.gates.audit.field.decision", "Decision"), record.decision ?? "--"],
@@ -324,12 +332,21 @@ function RecordDetail({ record }: { record: GatesAuditRecord }) {
     [t("settings.gates.audit.field.nonce", "Token nonce"), record.tokenNonce ?? "--"],
     [
       t("settings.gates.audit.field.exit", "Exit code"),
-      record.exitCode === null ? "--" : String(record.exitCode),
+      // A completion with no exit code is an action that ended with an unknown outcome. A
+      // timeout, a lost transport, and a killed executor all end that way. A blank there would
+      // read as "no outcome applies", which is the opposite fact.
+      record.exitCode === null
+        ? isCompletion
+          ? t("settings.gates.audit.exitUnknown", "unknown")
+          : "--"
+        : String(record.exitCode),
     ],
     [
       t("settings.gates.audit.field.duration", "Duration"),
       record.durationMs === null ? "--" : `${record.durationMs} ms`,
     ],
+    [t("settings.gates.audit.field.recordId", "Record"), record.recordId ?? "--"],
+    [t("settings.gates.audit.field.follows", "Follows decision"), record.follows ?? "--"],
   ];
   return (
     <div

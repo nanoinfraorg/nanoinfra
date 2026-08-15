@@ -260,7 +260,8 @@ async def test_an_unusual_interactive_group_action_suspends_and_then_runs(
     assert response.ok
     assert "reloaded" in response.output
     run.assert_called_once()
-    assert harness.decisions() == ["approve", "allow"]
+    # The completion record #46 appends when the action ends.
+    assert harness.decisions() == ["approve", "allow", "completion"]
 
 
 @pytest.mark.asyncio

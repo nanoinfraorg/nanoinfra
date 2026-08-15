@@ -1022,6 +1022,7 @@
         "samePath": "Permintaan dan persetujuan datang lewat satu kanal.",
         "samePathNote": "Permintaan dan persetujuan datang lewat satu kanal. Satu akun yang disusupi lalu memegang kedua bagiannya.",
         "textWarning": "Teks perintah lengkap aktif, jadi catatan ini bisa memuat secret.",
+        "exitUnknown": "tidak diketahui",
         "empty": "Tidak ada keputusan yang cocok dengan filter ini. Gerbang tetap mencatat setiap keputusan yang dibuatnya, jadi rentang yang lebih luas bisa menampilkan satu.",
         "unreachable": "Gateway ini tidak bisa membaca log audit. Gerbang mungkin masih menegakkan setiap keputusan, jadi anggap ini tampilan yang hilang dan bukan log kosong.",
         "truncated": "Menampilkan {{shown}} dari {{total}} catatan yang cocok. Persempit filter untuk melihat sisanya.",
@@ -1042,7 +1043,9 @@
           "digest": "Digest perintah",
           "nonce": "Nonce token",
           "exit": "Kode keluar",
-          "duration": "Durasi"
+          "duration": "Durasi",
+          "recordId": "Catatan",
+          "follows": "Mengikuti keputusan"
         }
       },
       "status": {
