@@ -19,8 +19,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.gates.conftest import pid_alive, wait_until_pid_gone
-
 _HAS_PROCFS = Path("/proc").is_dir()
 
 
@@ -58,7 +56,7 @@ def _zombie() -> Iterator[int]:
 
 
 @pytest.mark.skipif(not _HAS_PROCFS, reason="the zombie check reads procfs")
-def test_a_zombie_reads_as_gone() -> None:
+def test_a_zombie_reads_as_gone(pid_alive) -> None:
     """The signal probe alone calls this pid alive, so every caller would wait forever."""
     with _zombie() as pid:
         os.kill(pid, 0)  # the old check, and it still answers for a dead child
@@ -67,7 +65,7 @@ def test_a_zombie_reads_as_gone() -> None:
 
 
 @pytest.mark.skipif(not _HAS_PROCFS, reason="the zombie check reads procfs")
-def test_the_wait_returns_at_once_for_a_zombie() -> None:
+def test_the_wait_returns_at_once_for_a_zombie(wait_until_pid_gone) -> None:
     with _zombie() as pid:
         started = time.monotonic()
 
@@ -77,6 +75,6 @@ def test_the_wait_returns_at_once_for_a_zombie() -> None:
         assert time.monotonic() - started < 1.0, "a zombie must not cost the whole timeout"
 
 
-def test_this_process_reads_as_alive() -> None:
+def test_this_process_reads_as_alive(pid_alive) -> None:
     """The check must not report every pid as gone, which would make the tests vacuous."""
     assert pid_alive(os.getpid()) is True
