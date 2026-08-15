@@ -14,6 +14,11 @@ readiness wait, a private run directory, and the account of the child.
 the kernel, because one can ptrace the other and read its memory. So the parameter stays even
 where the platform or the caller's privilege cannot honour it. In that case the log says plainly
 that the split is organisational.
+
+The child also starts under a confinement layer (#20). ``nanoinfra/gates/confinement.py`` builds it.
+A TCP port allowlist fits the executor badly, because contact with inventory hosts is its purpose,
+and such an allowlist would equal the inventory. So the executor's layer confines its filesystem
+and its exec surface instead, and it refuses a TCP listener.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from nanoinfra.gates.confinement import EXECUTOR_ROLE, LAYER_NONE, plan_child
 from nanoinfra.process_runtime import (
     ManagedProcessRuntime,
     ProcessRuntimePaths,
@@ -111,12 +117,17 @@ class ExecutorRuntime(ManagedProcessRuntime[ExecutorStartOptions]):
 
     service_name = "executor"
 
-    def __init__(self, *, socket_path: Path, user: str | None = None) -> None:
+    def __init__(
+        self, *, socket_path: Path, user: str | None = None, workspace: Path | None = None
+    ) -> None:
         # The runtime keeps its state file, its lock, and its log beside the socket. One private
         # directory per executor means two instances cannot read each other's state.
         super().__init__(paths=_runtime_paths(socket_path), popen=self._spawn)
         self.socket_path = socket_path
         self.user_plan = _resolve_user(user)
+        # The confinement plan needs the workspace, and the argv builder reads it from the options.
+        # A constructor parameter keeps the two independent of call order.
+        self.workspace = workspace
         self._child: subprocess.Popen[Any] | None = None
 
     def _build_child_command(self, options: ExecutorStartOptions) -> list[str]:
@@ -162,6 +173,7 @@ class ExecutorRuntime(ManagedProcessRuntime[ExecutorStartOptions]):
             # executor binds a socket that refuses every connect from the agent.
             kwargs["extra_groups"] = [os.getgid()]
             kwargs["umask"] = CHILD_UMASK
+        _add_confinement(kwargs, socket_path=self.socket_path, workspace=self.workspace)
         return kwargs
 
     def _is_pid_running(self, pid: int) -> bool:
@@ -236,7 +248,7 @@ def start_executor(
     workspace = Path(workspace)
     _check_socket_path(socket_path)
 
-    runtime = ExecutorRuntime(socket_path=socket_path, user=user)
+    runtime = ExecutorRuntime(socket_path=socket_path, user=user, workspace=workspace)
     _prepare_run_dir(socket_path, plan=runtime.user_plan)
     if not runtime.status().running:
         # No executor holds this path, so any socket file here is a leftover from a killed child.
@@ -246,7 +258,14 @@ def start_executor(
         socket_path=str(socket_path),
         workspace=str(workspace),
     )
-    result = runtime.start_background(options)
+    try:
+        result = runtime.start_background(options)
+    except subprocess.SubprocessError as exc:
+        # A refused confinement lands here. CPython reports one fixed sentence for any failure of a
+        # preexec callable, so the reason sits in the child's log and _hint quotes it.
+        raise ExecutorStartError(
+            f"the executor did not start under its confinement ({exc}). {_hint(runtime)}"
+        ) from exc
     if not result.ok:
         raise ExecutorStartError(f"the executor did not start ({result.message}). {_hint(runtime)}")
 
@@ -264,6 +283,27 @@ def start_executor(
         raise ExecutorStartError(f"{exc}. {_hint(runtime)}") from exc
 
     return ExecutorProcess(runtime=runtime, socket_path=socket_path)
+
+
+def _add_confinement(
+    kwargs: dict[str, Any], *, socket_path: Path, workspace: Path | None
+) -> None:
+    """Put the confinement of the child into the spawn arguments (#20).
+
+    The rules apply in the child after the fork and before the exec. So the argv stays the fixed
+    module entry point, and the layer still governs the process that serves.
+
+    A host with no Landlock support gets a warning and a start. A host that has Landlock and then
+    rejects the ruleset gets a refusal, and :func:`start_executor` reports it.
+    """
+    decision = plan_child(EXECUTOR_ROLE, run_dir=socket_path.parent, workspace=workspace)
+    if decision.layer == LAYER_NONE:
+        logger.warning("gates: %s", decision.summary())
+        return
+    logger.info("gates: %s", decision.summary())
+    preexec = decision.preexec()
+    if preexec is not None:
+        kwargs["preexec_fn"] = preexec
 
 
 def _runtime_paths(socket_path: Path) -> ProcessRuntimePaths:

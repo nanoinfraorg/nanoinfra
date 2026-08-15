@@ -11,6 +11,10 @@ after it fails.
 The summary also names a default as a default. An operator who sees ``deny`` cannot
 otherwise tell a shipped default from their own decision, and reviewing your own policy
 needs that difference.
+
+The line carries the confinement of the helper processes as well (#20). A sandbox is a
+control, so the checklist an operator reads must report it. A host without Landlock
+support reads the absence just as plainly, because silence would read as a guarantee.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from nanoinfra.config.gates import GatesConfig
+from nanoinfra.gates.confinement import support_summary
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -48,7 +53,7 @@ def policy_summary(gates: GatesConfig) -> str:
     else:
         grants = f"{count} standing grant" + ("s" if count != 1 else "")
     origin = " (shipped defaults, no gates policy in config)" if _unattended_is_default(gates) else ""
-    return f"gates: unattended {', '.join(parts)}, {grants}{origin}"
+    return f"gates: unattended {', '.join(parts)}, {grants}{origin}. {support_summary()}"
 
 
 def refused_automation_warning(

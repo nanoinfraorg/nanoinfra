@@ -119,6 +119,18 @@ RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/ent
 # entrypoint is the supervisor for this image: it starts the executor as
 # nanoinfra-exec, then it execs the agent as nanoinfra. A start that is already
 # non-root cannot do that, and the entrypoint says so in the log.
+#
+# Item 17 (nanoinfraorg/nanoinfra#20) adds one confinement layer per helper process.
+# The layer is Landlock, and it needs no root and no capability. It needs three
+# syscalls: landlock_create_ruleset, landlock_add_rule, and landlock_restrict_self.
+# A container runtime with a seccomp profile that predates Landlock answers the
+# first one with EPERM, and the entrypoint then starts each helper with a warning
+# rather than a refusal. Docker allows the three syscalls since 20.10.13. So a
+# current runtime needs no --security-opt of any kind for this image.
+#
+# The layer also needs a kernel with CONFIG_SECURITY_LANDLOCK and Landlock in the
+# lsm list. The startup echo names the ABI version the kernel reported, or it names
+# the absence of Landlock support. An operator reads which one they have.
 USER root
 ENV HOME=/home/nanoinfra
 # Ensure crash output reaches Render logs (app output is otherwise swallowed on
