@@ -38,6 +38,41 @@ empty sentinel list for every failure, and the caller then persisted the text
 unscrubbed. That is fail open on the one path #17 exists to close. With no
 scrubber reachable the record keeps its shape, and every text it holds
 becomes a marker that names the cause.
+
+**The reasoning of a turn scrubs too, and a scrubbed block loses its
+signature (nanoinfraorg/nanoinfra#48).** ``reasoning_content`` and
+``thinking_blocks`` persisted to ``sessions/*.jsonl`` with no scrub. A model
+that plans a remote action writes the resolved command in its reasoning, and
+a resolved command embeds a credential. #17 covered the transcript and the
+reasoning pane, and neither one covered the session file.
+
+#48 weighed three answers. Answer 1 persists no reasoning at all for a
+workspace that holds a secret, and it costs an operator the review of a turn.
+Answer 3 persists a signed copy beside a scrubbed copy, and it doubles the
+place a plaintext can leak. This module implements answer 2. It scrubs the
+reasoning that reaches disk. It also drops the signature of every block whose
+text the scrub changed, and it marks that block.
+
+Four reasons carry that decision, and this file states them rather than only
+obeys them:
+
+1. A provider needs a signature that matches the text of its thinking block.
+   A scrubbed block plus the original signature is a mismatched pair. A turn
+   that sends such a pair is worse off than a turn that sends no block.
+2. A signature matters while a turn is still in flight, because the provider
+   needs the prior thinking blocks to continue a tool-use turn. The live turn
+   keeps its own message list, and this module copies rather than mutates. The
+   persisted copy serves later turns, and a later turn needs no prior thinking
+   block. So the scrub costs the stored text and never the live turn.
+3. A turn that held no secret changes in no way. Its blocks keep their
+   signatures, and they replay exactly as they do today.
+4. A marker tells a reader months later why a block is short. The replay path
+   in ``nanoinfra/session/manager.py`` reads the same marker, and it sends no
+   marked block to a provider.
+
+The release note for this change must say one thing plainly. A turn whose
+reasoning held a stored secret value replays with no thinking block for that
+turn.
 """
 
 from __future__ import annotations
@@ -83,6 +118,35 @@ SCRUB_UNAVAILABLE_MARKER = (
 #: Cap for the reason inside a marker. The reason quotes a socket path and an
 #: errno, and a transcript record must stay one readable line.
 _MAX_MARKER_REASON_CHARS = 240
+
+#: The key a thinking block carries after this module changed its text (#48).
+#: A reader months later must tell a scrubbed block from a short one. The
+#: replay path reads the same key, and it drops the block.
+REASONING_SCRUB_MARKER_KEY = "nanoinfra_scrubbed"
+
+#: What that key says when a scrub removed a value from the block.
+REASONING_SCRUBBED_MARKER = (
+    "nanoinfra removed a stored credential value from this thinking block. The block lost its "
+    "signature, because a provider needs a signature that matches the text. A later turn "
+    "replays no thinking block from this record."
+)
+
+#: What that key says when no scrub ran and the text went instead.
+REASONING_WITHHELD_MARKER = (
+    "nanoinfra withheld the text of this thinking block. The block lost its signature, because "
+    "the signature no longer matches the text."
+)
+
+#: The key a provider issues to bind a signature to one thinking text.
+_THINKING_SIGNATURE_KEY = "signature"
+
+#: The keys of a thinking block that this module copies as they are. ``type``
+#: selects the provider's own block shape, and a signature is opaque provider
+#: bytes. A placeholder in either one breaks the record and protects nothing.
+#: The marker is this module's own text, so it needs no scrub either.
+_THINKING_BLOCK_LITERAL_KEYS = frozenset(
+    {"type", _THINKING_SIGNATURE_KEY, REASONING_SCRUB_MARKER_KEY}
+)
 
 #: The key a withheld tool call keeps its marker under. Session history
 #: replays to a provider, so the arguments must stay parseable JSON.
@@ -310,6 +374,63 @@ def _redact_tool_calls(tool_calls: Any, scrub: ScrubText) -> Any:
     return redacted
 
 
+def _redact_reasoning_content(value: Any, scrub: ScrubText) -> Any:
+    """Scrub the reasoning text of one turn (#48).
+
+    The class is None, so the text scrubs value by value. A ``credential.access``
+    result drops whole because that whole result IS the credential (#17).
+    Reasoning is not a tool result. It is the plan of the turn, and an operator
+    reads it to see what the turn did. A whole drop would cost the record that
+    #48 exists to keep. So one value goes, and the words around it stay.
+
+    An empty string stays empty. DeepSeek needs the key on a tool-call turn, and
+    an empty value holds nothing to scrub.
+    """
+    if not isinstance(value, str) or not value:
+        return value
+    return scrub(value, None)
+
+
+def _redact_thinking_blocks(blocks: Any, scrub: ScrubText) -> Any:
+    if not isinstance(blocks, list):
+        return blocks
+    return [_redact_thinking_block(block, scrub) for block in cast(list[Any], blocks)]
+
+
+def _redact_thinking_block(block: Any, scrub: ScrubText) -> Any:
+    """Scrub one thinking block, and unsign it when the text changed (#48).
+
+    A provider needs a signature that matches the text of the block. A scrubbed
+    block plus its old signature is a mismatched pair. A turn that sends such a
+    pair is worse off than a turn that sends no block. So a changed block loses
+    its signature, and it says why.
+
+    A block the scrub did not change keeps its signature and its marker-free
+    shape. Such a turn replays exactly as it does today.
+    """
+    if not isinstance(block, Mapping):
+        return block
+    updated: dict[str, Any] = {}
+    changed = False
+    for key, value in cast(Mapping[str, Any], block).items():
+        if key in _THINKING_BLOCK_LITERAL_KEYS or not isinstance(value, str) or not value:
+            updated[key] = value
+            continue
+        scrubbed = scrub(value, None)
+        changed = changed or scrubbed != value
+        updated[key] = scrubbed
+    if not changed:
+        return updated
+    return _unsigned_thinking_block(updated, REASONING_SCRUBBED_MARKER)
+
+
+def _unsigned_thinking_block(block: dict[str, Any], marker: str) -> dict[str, Any]:
+    """Drop the signature of a block whose text changed, and record the cause."""
+    block.pop(_THINKING_SIGNATURE_KEY, None)
+    block[REASONING_SCRUB_MARKER_KEY] = marker
+    return block
+
+
 def redact_message(
     message: Mapping[str, Any],
     scrub: ScrubText,
@@ -356,6 +477,21 @@ def redact_message(
         )
     if "tool_calls" in redacted:
         redacted["tool_calls"] = _redact_tool_calls(redacted.get("tool_calls"), scrub)
+    # The reasoning of the turn (#48). A model that plans a remote action writes
+    # the resolved command here, and a resolved command embeds a credential.
+    #
+    # Both fields scrub value by value. A ``credential.access`` result drops
+    # whole above, because the whole result IS the credential (#17). Reasoning is
+    # not a tool result, and an operator reads it to review what the turn did. So
+    # the value goes and the plan stays.
+    if "reasoning_content" in redacted:
+        redacted["reasoning_content"] = _redact_reasoning_content(
+            redacted.get("reasoning_content"), scrub
+        )
+    if "thinking_blocks" in redacted:
+        redacted["thinking_blocks"] = _redact_thinking_blocks(
+            redacted.get("thinking_blocks"), scrub
+        )
     return redacted
 
 
@@ -405,6 +541,10 @@ def withheld_message(message: Mapping[str, Any], reason: str) -> dict[str, Any]:
         out["content"] = _withheld_content(out.get("content"), marker)
     if "tool_calls" in out:
         out["tool_calls"] = _withheld_tool_calls(out.get("tool_calls"), marker)
+    if "reasoning_content" in out:
+        out["reasoning_content"] = _withheld_any(out.get("reasoning_content"), marker)
+    if "thinking_blocks" in out:
+        out["thinking_blocks"] = _withheld_thinking_blocks(out.get("thinking_blocks"), marker)
     return out
 
 
@@ -452,6 +592,35 @@ def _withheld_block(block: Any, marker: str) -> Any:
     if isinstance(text, str) and text:
         updated["text"] = marker
     return updated
+
+
+def _withheld_thinking_blocks(blocks: Any, marker: str) -> Any:
+    if not isinstance(blocks, list):
+        return blocks
+    return [_withheld_thinking_block(block, marker) for block in cast(list[Any], blocks)]
+
+
+def _withheld_thinking_block(block: Any, marker: str) -> Any:
+    """Withhold the text of one thinking block, and unsign it (#48).
+
+    A scrub that cannot run must persist no raw reasoning. #41 set that rule for
+    the rest of the transcript, and the same answer applies here. The marker
+    replaces the text, so the signature no longer matches it, and the signature
+    goes as well.
+    """
+    if not isinstance(block, Mapping):
+        return block
+    updated: dict[str, Any] = {}
+    withheld = False
+    for key, value in cast(Mapping[str, Any], block).items():
+        if key in _THINKING_BLOCK_LITERAL_KEYS or not isinstance(value, str) or not value:
+            updated[key] = value
+            continue
+        updated[key] = marker
+        withheld = True
+    if not withheld:
+        return updated
+    return _unsigned_thinking_block(updated, REASONING_WITHHELD_MARKER)
 
 
 def _withheld_tool_calls(tool_calls: Any, marker: str) -> Any:
@@ -606,6 +775,9 @@ class TranscriptRedactor:
 __all__ = [
     "CREDENTIAL_ACCESS",
     "MIN_REDACTABLE_SECRET_CHARS",
+    "REASONING_SCRUBBED_MARKER",
+    "REASONING_SCRUB_MARKER_KEY",
+    "REASONING_WITHHELD_MARKER",
     "SCRUB_UNAVAILABLE_MARKER",
     "TRANSCRIPT_TOOL_RESULT_MAX_CHARS",
     "ScrubText",

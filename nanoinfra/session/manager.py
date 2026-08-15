@@ -96,6 +96,35 @@ def _sanitize_assistant_replay_text(content: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _is_scrubbed_thinking_block(block: object, marker_key: str) -> bool:
+    """Report whether a scrub changed this block, and therefore unsigned it (#48)."""
+    if not isinstance(block, dict):
+        return False
+    return marker_key in cast("dict[str, Any]", block)
+
+
+def _replayable_thinking_blocks(value: object) -> object:
+    """Return the thinking blocks a provider may still receive (#48).
+
+    A scrub changes the text of a block, so the persisted block loses its
+    signature and carries a marker. A provider needs a signature that matches
+    the text, and a mismatched pair is worse than no block at all. So a marked
+    block stays in the file for a human, and it replays as nothing.
+
+    The import is local, because ``nanoinfra.agent.redaction`` reaches this
+    module through its own imports. A module level import here closes a cycle.
+    """
+    if not isinstance(value, list):
+        return value
+    from nanoinfra.agent.redaction import REASONING_SCRUB_MARKER_KEY
+
+    return [
+        block
+        for block in cast("list[object]", value)
+        if not _is_scrubbed_thinking_block(block, REASONING_SCRUB_MARKER_KEY)
+    ]
+
+
 def _text_preview(content: object) -> str:
     """Return compact display text for session lists."""
     if isinstance(content, str):
@@ -297,6 +326,13 @@ class Session:
             for key in ("tool_calls", "tool_call_id", "name", "reasoning_content", "thinking_blocks"):
                 if key in message:
                     entry[key] = message[key]
+            if "thinking_blocks" in entry:
+                # A scrubbed block lost its signature (#48), so it replays as nothing.
+                blocks = _replayable_thinking_blocks(entry["thinking_blocks"])
+                if blocks:
+                    entry["thinking_blocks"] = blocks
+                else:
+                    del entry["thinking_blocks"]
             out.append(entry)
 
         if max_tokens > 0 and out:
