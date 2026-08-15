@@ -209,6 +209,79 @@ def test_a_shared_channel_is_marked_even_when_policy_allowed_the_action(tmp_path
     assert record["decision"] == "allow"
 
 
+def test_the_viewer_reads_who_asked_beside_who_answered(tmp_path: Path) -> None:
+    """#79: a record named the person who answered and never the person who asked."""
+    store = _store(tmp_path)
+    store.record(
+        decision="allow",
+        capability_class=MUTATE_REMOTE,
+        execution_context="interactive",
+        session_id="s1",
+        origin_path="webui",
+        approval_path="webui",
+        origin_actor="webui:alberto@example.com",
+        actor="webui:paula@example.com",
+    )
+
+    record = AuditReadSurface(store).page({})["records"][0]
+
+    assert record["originActor"] == "webui:alberto@example.com"
+    assert record["actor"] == "webui:paula@example.com"
+
+
+def test_a_record_that_authenticated_nobody_reaches_the_viewer_as_null(tmp_path: Path) -> None:
+    """Empty text reads as a name, so the wire keeps null all the way to the viewer."""
+    store = _store(tmp_path)
+    _denial(store)
+
+    record = AuditReadSurface(store).page({})["records"][0]
+
+    assert record["originActor"] is None
+
+
+def test_the_surface_filters_on_the_person_who_raised_the_action(tmp_path: Path) -> None:
+    """A reviewer asks "every action this person raised" in the surface they already use."""
+    store = _store(tmp_path)
+    store.record(
+        decision="allow",
+        capability_class=MUTATE_REMOTE,
+        execution_context="interactive",
+        origin_actor="webui:paula@example.com",
+    )
+    store.record(
+        decision="deny",
+        capability_class=MUTATE_REMOTE,
+        execution_context="interactive",
+        origin_actor="webui:alberto@example.com",
+    )
+
+    page = AuditReadSurface(store).page({"originActor": ["webui:alberto@example.com"]})
+
+    assert page["total"] == 1
+    assert page["records"][0]["decision"] == "deny"
+
+
+def test_a_completion_reaches_the_viewer_with_the_person_who_asked(tmp_path: Path) -> None:
+    """Both record kinds carry it, so one filter shows a decision and its outcome."""
+    store = _store(tmp_path)
+    decision = store.record(
+        decision="allow",
+        capability_class=MUTATE_REMOTE,
+        execution_context="interactive",
+        session_id="s1",
+        origin_actor="webui:alberto@example.com",
+    )
+    store.record_completion(follows=decision, exit_code=0, duration_ms=9)
+
+    page = AuditReadSurface(store).page({"originActor": ["webui:alberto@example.com"]})
+
+    assert page["total"] == 2
+    assert [record["decision"] for record in page["records"]] == [
+        DECISION_COMPLETION,
+        "allow",
+    ]
+
+
 def test_the_resolved_targets_sit_beside_the_grant_id(tmp_path: Path) -> None:
     """#24 records the addresses a grant permitted, so a reviewer sees them and not a label."""
     store = _store(tmp_path)

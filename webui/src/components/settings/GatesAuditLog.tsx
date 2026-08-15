@@ -17,6 +17,14 @@
  * completion record says what happened next, and it carries the exit code and the duration. The
  * decision filter isolates the completions, because the server lists the value beside the
  * decisions. A completion names the decision it follows, so the detail view shows both ids.
+ *
+ * A record names two people after #79, and this view keeps them apart. The actor answered, and a
+ * path the deployment trusts authenticated that person. `originActor` raised the request, and it
+ * is the agent's claim about itself. A reader treats a name in a log as authenticated unless
+ * something says otherwise, so the detail view states which one is a claim. Its filter is free
+ * text, because the value is a person and the server offers no list of people. The filter applies
+ * when the field loses focus or the reviewer presses Enter: every request reads the whole log, so
+ * one request per keystroke would read it once per letter.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CircleAlert, Loader2, TriangleAlert } from "lucide-react";
@@ -31,6 +39,7 @@ interface Filters {
   decision: string;
   capabilityClass: string;
   executionContext: string;
+  originActor: string;
   days: string;
 }
 
@@ -40,6 +49,7 @@ const EMPTY_FILTERS: Filters = {
   decision: "",
   capabilityClass: "",
   executionContext: "",
+  originActor: "",
   days: "7",
 };
 
@@ -70,6 +80,9 @@ export function GatesAuditLog({ token }: { token: string }) {
   const [unreachable, setUnreachable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+  // What the reviewer typed, before it becomes a filter. The two are separate so the log is read
+  // once per name and not once per letter.
+  const [personDraft, setPersonDraft] = useState("");
 
   const load = useCallback(
     async (next: Filters) => {
@@ -79,6 +92,7 @@ export function GatesAuditLog({ token }: { token: string }) {
           decision: next.decision,
           capabilityClass: next.capabilityClass,
           executionContext: next.executionContext,
+          originActor: next.originActor,
           since: sinceFor(next.days),
         });
         setUnreachable(false);
@@ -112,6 +126,14 @@ export function GatesAuditLog({ token }: { token: string }) {
   const update = (field: keyof Filters, value: string) => {
     setOpenIndex(null);
     setFilters((current) => ({ ...current, [field]: value }));
+  };
+
+  const applyPerson = () => {
+    const wanted = personDraft.trim();
+    // The same name is the same page. A refetch here would read every segment again and show
+    // the reviewer what they already have.
+    if (wanted === filters.originActor) return;
+    update("originActor", wanted);
   };
 
   return (
@@ -165,6 +187,27 @@ export function GatesAuditLog({ token }: { token: string }) {
           }
           onChange={(value) => update("days", value)}
         />
+        {/* One person, to read every action they raised. A form gives Enter its usual meaning. */}
+        <form
+          className="flex items-center gap-1.5 text-[13px] text-muted-foreground"
+          onSubmit={(event) => {
+            event.preventDefault();
+            applyPerson();
+          }}
+        >
+          <label className="flex items-center gap-1.5">
+            <span>{t("settings.gates.audit.filter.raisedBy", "Raised by")}</span>
+            <input
+              type="text"
+              aria-label={t("settings.gates.audit.filter.raisedBy", "Raised by")}
+              placeholder={t("settings.gates.audit.filter.raisedByPlaceholder", "any person")}
+              value={personDraft}
+              onChange={(event) => setPersonDraft(event.target.value)}
+              onBlur={applyPerson}
+              className="h-8 w-[210px] rounded-[10px] border border-input bg-background px-2 text-[13px] text-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </label>
+        </form>
         {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
       </div>
 
@@ -320,6 +363,9 @@ function RecordDetail({ record }: { record: GatesAuditRecord }) {
     [t("settings.gates.audit.field.session", "Session"), record.sessionId ?? "--"],
     [t("settings.gates.audit.field.tool", "Tool"), record.tool ?? "--"],
     [t("settings.gates.audit.field.actor", "Actor"), record.actor ?? "--"],
+    // Who asked (#79). It sits beside the actor, because the two together are the answer a
+    // reviewer needs: one person raised the action and another person approved it.
+    [t("settings.gates.audit.field.originActor", "Raised by"), record.originActor ?? "--"],
     [t("settings.gates.audit.field.origin", "Origin path"), record.originPath ?? "--"],
     [t("settings.gates.audit.field.approval", "Approval path"), record.approvalPath ?? "--"],
     [t("settings.gates.audit.field.scope", "Scope"), record.scope ?? "--"],
@@ -368,6 +414,19 @@ function RecordDetail({ record }: { record: GatesAuditRecord }) {
           {t(
             "settings.gates.audit.samePathNote",
             "The request and the approval arrived on one channel. One compromised account then holds both halves.",
+          )}
+        </p>
+      ) : null}
+
+      {record.originActor ? (
+        <p
+          data-testid="audit-origin-actor-note"
+          className="flex items-start gap-2 text-[12px] text-muted-foreground"
+        >
+          <CircleAlert className="mt-[2px] h-3.5 w-3.5 shrink-0" />
+          {t(
+            "settings.gates.audit.originActorNote",
+            "The agent asserted who raised this action, and nothing authenticated that name. The actor is the other case: a trusted path authenticated the person who answered.",
           )}
         </p>
       ) : null}

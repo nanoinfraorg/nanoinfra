@@ -24,6 +24,9 @@ _FIXED_TS = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
 
 # Every line carries the same keys, so a reader can load the log into a table.
 # `record_id` names the record, and `follows` names the record a completion follows (#46).
+# `origin_actor` names the person the request came from, and `actor` names the person who
+# answered (#79). This set is the contract, so a new column arrives here and in the field list
+# of the store together.
 _EXPECTED_KEYS = {
     "ts",
     "record_id",
@@ -33,6 +36,7 @@ _EXPECTED_KEYS = {
     "origin_path",
     "approval_path",
     "same_path",
+    "origin_actor",
     "actor",
     "capability_class",
     "scope",
@@ -90,6 +94,7 @@ def test_record_carries_every_field_of_the_spec(tmp_path: Path) -> None:
         session_id="telegram:42",
         origin_path="telegram:42",
         approval_path="telegram:42",
+        origin_actor="telegram:9",
         actor="telegram:7",
         scope="host",
         hosts=["db-1"],

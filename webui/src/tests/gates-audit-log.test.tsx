@@ -14,6 +14,7 @@ function record(over: Partial<GatesAuditRecord> = {}): GatesAuditRecord {
     originPath: "telegram",
     approvalPath: null,
     samePath: false,
+    originActor: null,
     actor: null,
     capabilityClass: "mutate.remote",
     scope: "group",
@@ -243,6 +244,66 @@ describe("GatesAuditLog", () => {
     await waitFor(() => {
       const urls = fetchMock.mock.calls.map((call) => String(call[0]));
       expect(urls.some((url) => url.includes("decision=completion"))).toBe(true);
+    });
+  });
+
+  // Who asked, beside who answered (nanoinfraorg/nanoinfra#79). With identity independence on
+  // (#68) the two halves are two people, so a reviewer reads both or reads half the answer.
+  it("shows the person who raised the action beside the person who answered", async () => {
+    stubFetch(
+      page([
+        record({
+          decision: "allow",
+          originPath: "webui",
+          approvalPath: "webui",
+          originActor: "webui:alberto@example.com",
+          actor: "webui:paula@example.com",
+        }),
+      ]),
+    );
+
+    render(<GatesAuditLog token="tok" />);
+    fireEvent.click(await screen.findByTestId("audit-row-0"));
+
+    const detail = await screen.findByTestId("audit-detail");
+    expect(within(detail).getByText("webui:alberto@example.com")).toBeInTheDocument();
+    expect(within(detail).getByText("webui:paula@example.com")).toBeInTheDocument();
+  });
+
+  it("says the origin identity is an assertion of the agent", async () => {
+    stubFetch(page([record({ originActor: "webui:alberto@example.com" })]));
+
+    render(<GatesAuditLog token="tok" />);
+    fireEvent.click(await screen.findByTestId("audit-row-0"));
+
+    const note = await screen.findByTestId("audit-origin-actor-note");
+    expect(note).toHaveTextContent(/the agent asserted/i);
+  });
+
+  it("marks no assertion where the request named nobody", async () => {
+    stubFetch(page([record({ originActor: null })]));
+
+    render(<GatesAuditLog token="tok" />);
+    fireEvent.click(await screen.findByTestId("audit-row-0"));
+
+    await screen.findByTestId("audit-detail");
+    expect(screen.queryByTestId("audit-origin-actor-note")).not.toBeInTheDocument();
+  });
+
+  it("asks the route for every action one person raised", async () => {
+    const fetchMock = stubFetch(page([record()]));
+    render(<GatesAuditLog token="tok" />);
+    await screen.findByTestId("audit-row-0");
+
+    const field = screen.getByLabelText("Raised by");
+    fireEvent.change(field, { target: { value: "webui:alberto@example.com" } });
+    fireEvent.blur(field);
+
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+      expect(
+        urls.some((url) => url.includes("originActor=webui%3Aalberto%40example.com")),
+      ).toBe(true);
     });
   });
 

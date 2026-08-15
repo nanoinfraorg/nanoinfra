@@ -515,6 +515,14 @@ class Executor:
 
         The answer carries the record that landed, because #46 appends the outcome as a second
         record and that record names the decision it follows.
+
+        ``origin_actor`` is not a parameter (#79). It comes from the bound request, like the
+        command and the session, because the channel adapter that authenticated the sender is the
+        only honest source for it. A keyword here would let one call site name a different person
+        from the one the request carried, and the two records of one action would then disagree
+        about who asked. The origin path is a parameter for a different reason: several call sites
+        record a decision that no path independence covers, and a path on those records would
+        claim a comparison nobody made.
         """
         if self.audit is None:
             return _Written()
@@ -532,6 +540,7 @@ class Executor:
                 reason=reason or None,
                 actor=actor,
                 origin_path=origin_path,
+                origin_actor=request.origin_actor,
                 approval_path=approval_path,
                 grant_id=grant_id,
                 approval_id=approval_id,
