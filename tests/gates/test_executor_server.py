@@ -262,3 +262,37 @@ def _wait_for(path: Path, timeout_s: float = 10.0) -> None:
             return
         time.sleep(0.01)
     raise AssertionError(f"{path} never appeared")
+
+
+def test_an_existing_socket_directory_keeps_the_mode_the_deployment_set(tmp_path: Path) -> None:
+    """A two-uid deployment cannot use 0700, and the executor must not clobber its choice.
+
+    With separate accounts the socket directory is owned by the executor and carries setgid plus
+    group traversal (2710), so the agent account can reach a known socket name without listing
+    the directory or creating anything in it. A blanket chmod to 0700 here would lock the agent
+    out and the split would stop working, which is worse than the mode it replaced.
+
+    So the executor sets a private mode only on a directory it creates itself.
+    """
+    _workspace(tmp_path)
+    socket_dir = tmp_path / "run"
+    socket_dir.mkdir()
+    socket_dir.chmod(0o2710)
+    before = socket_dir.stat().st_mode & 0o7777
+    socket_path = socket_dir / "exec.sock"
+
+    thread = threading.Thread(
+        target=serve_forever,
+        kwargs={"socket_path": socket_path, "workspace": tmp_path, "max_requests": 1},
+        daemon=True,
+    )
+    thread.start()
+    _wait_for(socket_path)
+    try:
+        assert socket_dir.stat().st_mode & 0o7777 == before
+    finally:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.connect(str(socket_path))
+            write_frame(client, encode_request(_request(preview_requested=True)))
+            read_frame(client)
+        thread.join(timeout=10)

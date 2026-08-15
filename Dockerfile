@@ -54,8 +54,31 @@ RUN for channel in $(printf '%s' "$NANOINFRA_CHANNELS" | tr ',' ' '); do \
 # won't shadow it. Only used when RENDER=true; ignored by local runs.
 COPY render-config.json ./
 
-# Create the non-root user and hand ownership of the writable virtualenv to it.
+# Two accounts, because item 15 (nanoinfraorg/nanoinfra#18) splits the agent from
+# the executor. Two processes on one uid give no kernel-enforced separation: either
+# one can ptrace the other and read its memory, so the credential the executor holds
+# would still be reachable from the agent. Separate uids make the kernel refuse that.
+#
+#   nanoinfra       the agent. Owns the data dir and the writable virtualenv.
+#   nanoinfra-exec  the executor. Holds the plaintext credentials and writes the
+#                   audit log. No shell and no home of its own: it never logs in,
+#                   and its state lives in the shared data dir.
+#   nanoinfra-ipc   the shared group. Its only members are these two accounts, and
+#                   its only job is the executor socket directory (see entrypoint.sh).
+#                   The group carries no read rights on either account's files.
+#
+# WARNING, and it is deliberate that this is written down. /app/.venv stays writable
+# by the agent, because an enabled channel may install its declared dependencies at
+# startup. The executor imports code from that same virtualenv. So the agent account
+# can still place code that the executor account later runs. That is a code-injection
+# path from the low-privilege side to the high-privilege side, and no uid split closes
+# it. A fully enforced split needs the executor on its own read-only interpreter.
 RUN useradd -m -u 1000 -s /bin/bash nanoinfra && \
+    groupadd --system nanoinfra-ipc && \
+    useradd --system --uid 1001 --user-group --no-create-home \
+        --home-dir /home/nanoinfra --shell /usr/sbin/nologin nanoinfra-exec && \
+    usermod --append --groups nanoinfra-ipc nanoinfra && \
+    usermod --append --groups nanoinfra-ipc nanoinfra-exec && \
     mkdir -p /home/nanoinfra/.nanoinfra && \
     chown -R nanoinfra:nanoinfra /home/nanoinfra /app/.venv
 
@@ -67,6 +90,12 @@ RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/ent
 # nanoinfra user via setpriv. The entrypoint drops privileges on every root start
 # and fails closed if it cannot, so the agent never runs as root (see
 # entrypoint.sh).
+#
+# The root start is also what makes the #18 split enforceable. Only a process with
+# CAP_SETUID can place the executor on one account and the agent on another, so the
+# entrypoint is the supervisor for this image: it starts the executor as
+# nanoinfra-exec, then it execs the agent as nanoinfra. A start that is already
+# non-root cannot do that, and the entrypoint says so in the log.
 USER root
 ENV HOME=/home/nanoinfra
 # Ensure crash output reaches Render logs (app output is otherwise swallowed on

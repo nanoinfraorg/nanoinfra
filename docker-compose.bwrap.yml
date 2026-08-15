@@ -1,6 +1,16 @@
 x-bwrap-security: &bwrap-security
+  # SYS_ADMIN is for bubblewrap. The other five repeat the boot-phase set from
+  # docker-compose.yml, because a merge that replaces the list rather than appends to
+  # it would otherwise drop them. Losing them costs the item 15 (#18) uid split, and
+  # entrypoint.sh would then refuse to start. See docker-compose.yml for what each one
+  # is for.
   cap_add:
     - SYS_ADMIN
+    - SETUID
+    - SETGID
+    - CHOWN
+    - FOWNER
+    - DAC_OVERRIDE
   security_opt:
     - apparmor=unconfined
     - seccomp=unconfined

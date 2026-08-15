@@ -4,7 +4,7 @@ This module is agent-side code, so it holds no credential and no transport. It w
 and reads one frame. A test asserts that it imports neither the secret store nor a backend,
 because the import direction is what keeps the split true.
 
-``ExecutorUnavailable`` is separate from a refusal on purpose. "The executor is not running" and
+``ExecutorUnavailableError`` is separate from a refusal on purpose. "The executor is not running" and
 "the gate said no" need different words for an operator: the first is a deployment fault and the
 second is a policy decision. A caller that conflates them teaches an operator to read a broken
 deployment as a policy problem.
@@ -30,7 +30,7 @@ from nanoinfra.gates.executor.protocol import (
 DEFAULT_CONNECT_TIMEOUT_S = 10.0
 
 
-class ExecutorUnavailable(RuntimeError):
+class ExecutorUnavailableError(RuntimeError):
     """The executor could not be reached, or it dropped the connection."""
 
 
@@ -60,7 +60,7 @@ class ExecutorClient:
     ) -> ExecuteResponse:
         """Send one request and return the executor's answer.
 
-        Raises ``ExecutorUnavailable`` when the socket is absent or the peer disappears. It
+        Raises ``ExecutorUnavailableError`` when the socket is absent or the peer disappears. It
         never raises for a refusal, because a refusal is a response.
         """
         request = ExecuteRequest(
@@ -82,9 +82,9 @@ class ExecutorClient:
                 write_frame(conn, encode_request(request))
                 return decode_response(read_frame(conn))
         except (OSError, ProtocolError) as exc:
-            raise ExecutorUnavailable(
+            raise ExecutorUnavailableError(
                 f"Could not reach the executor at {self._socket_path}: {exc}"
             ) from exc
 
 
-__all__ = ["DEFAULT_CONNECT_TIMEOUT_S", "ExecutorClient", "ExecutorUnavailable"]
+__all__ = ["DEFAULT_CONNECT_TIMEOUT_S", "ExecutorClient", "ExecutorUnavailableError"]

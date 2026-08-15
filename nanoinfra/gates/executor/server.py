@@ -52,7 +52,12 @@ from nanoinfra.servers.execution.timeout import IdleTimeoutTracker, run_with_idl
 from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.lookup import resolve_server
 from nanoinfra.servers.network_guard import validate_server_target
-from nanoinfra.servers.scope import ALL, ScopeResolutionError, resolve_scope
+from nanoinfra.servers.scope import (
+    ALL,
+    ScopeResolutionError,
+    resolve_scope,
+    resolve_scope_label,
+)
 from nanoinfra.servers.store import ServerStore
 
 if TYPE_CHECKING:
@@ -75,6 +80,9 @@ class Executor:
 
     workspace: Path
     gates_loader: Callable[[], GatesConfig] = load_policy
+    # The audit store (#16). The executor decides, so the executor records. #33 wired this into
+    # the tool, and the split moved the decision here, so the record moved with it.
+    audit: Any = None
 
     async def handle(self, request: ExecuteRequest) -> ExecuteResponse:
         """Answer one request. Never raises for a refusal: a refusal is a response."""
@@ -101,6 +109,10 @@ class Executor:
             server_id=server.id,
             server_name=server.name,
             provider_id=server.provider_id,
+            # #4's blast radius. resolve_scope_label() never raises, so a log-only record
+            # cannot fail an action. The split dropped this field briefly, and a record
+            # without it cannot answer how many hosts an action would have reached.
+            scope=resolve_scope_label(server),
             command_digest=command_digest(request.command),
         )
 
@@ -113,7 +125,12 @@ class Executor:
                 reason="the caller asked for a preview",
             )
 
-        allowed, reason = self._gate(server, request, servers)
+        allowed, reason, resolution = self._gate(server, request, servers)
+        outcome = Outcome.ALLOW if allowed else Outcome.DENY
+        recorded = self._record(outcome, server, request, reason=reason, resolution=resolution)
+        if recorded is not None:
+            return recorded
+
         if not allowed:
             return ExecuteResponse(
                 ok=False,
@@ -125,27 +142,74 @@ class Executor:
 
         return await self._run(server, request, idle_override)
 
+    def _record(
+        self,
+        outcome: Outcome,
+        server: Any,
+        request: ExecuteRequest,
+        *,
+        reason: str,
+        resolution: Any,
+    ) -> ExecuteResponse | None:
+        """Write the audit record, or refuse the action when the write fails.
+
+        The executor decides, so the executor records. #16 raises rather than swallow a write
+        failure, so an action that nothing recorded does not run: the audit log is the only
+        account of what this process did.
+
+        A refusal records too, and it still refuses when the record fails. The caller then reads
+        both facts.
+        """
+        if self.audit is None:
+            return None
+        try:
+            self.audit.record(
+                decision="allow" if outcome is Outcome.ALLOW else "denied",
+                capability_class=MUTATE_REMOTE,
+                execution_context=request.execution_context,
+                session_id=request.session_id,
+                tool="execute_on_server",
+                scope=getattr(resolution, "scope", None),
+                hosts=list(getattr(resolution, "hosts", ()) or ()),
+                command=request.command,
+                reason=reason or None,
+            )
+        except OSError as exc:
+            return _error(
+                f"The executor did not act on {server.name!r}. The gate decided, and the audit "
+                f"record could not be written ({exc}). An action that nothing records does not "
+                "run."
+            )
+        return None
+
     def _gate(
         self, server: Any, request: ExecuteRequest, servers: ServerStore
-    ) -> tuple[bool, str]:
-        """Ask the gate. The executor verifies, and it does not trust the caller's word."""
+    ) -> tuple[bool, str, Any]:
+        """Ask the gate, and hand back the resolution so the record can name the hosts.
+
+        The executor verifies, and it does not trust the caller's word about the target.
+        """
         interactive = request.execution_context == "interactive"
 
         try:
             resolution = resolve_scope(server)
         except ScopeResolutionError as exc:
             if interactive:
-                return True, ""
-            return False, f"The target did not resolve, so no grant can cover it ({exc})."
+                return True, "", None
+            return (
+                False,
+                f"The target did not resolve, so no grant can cover it ({exc}).",
+                None,
+            )
 
         if resolution.scope == ALL:
             return False, (
                 "The pattern names an unbounded host set, so its scope is `all`. No policy "
                 "permits `all` scope, and no approval path exists for it."
-            )
+            ), resolution
         if interactive:
             # #8 enforces the unattended half. The interactive approval path arrives with #27.
-            return True, ""
+            return True, "", resolution
 
         decision = evaluate(
             self.gates_loader(),
@@ -157,8 +221,8 @@ class Executor:
             servers=servers,
         )
         if decision.outcome is Outcome.ALLOW:
-            return True, decision.reason
-        return False, decision.reason
+            return True, decision.reason, resolution
+        return False, decision.reason, resolution
 
     async def _run(
         self, server: Any, request: ExecuteRequest, idle_override: int | None
@@ -257,11 +321,35 @@ def _error(message: str) -> ExecuteResponse:
     return ExecuteResponse(ok=False, output="", exit_code=None, error=message, reason="")
 
 
+_MAX_LABELLED_HOSTS = 8
+
+
 def _preview_line(server: Any, command: str) -> str:
+    """The resolved action in one line, including the blast radius.
+
+    The host list is not decoration. An operator reads this line after a refusal to learn which
+    grant to write, and a group that names three hosts must say which three. #18 dropped this
+    briefly, and a group preview then named no host and not even the pattern.
+
+    A cap keeps a thousand-host pattern from flooding a result.
+    """
     return (
         f"Preview (not executed): server={server.name!r} (id={server.id!r}) "
-        f"provider={server.provider_id!r} command={command!r}"
+        f"provider={server.provider_id!r} command={command!r} target={_targets_label(server)}"
     )
+
+
+def _targets_label(server: Any) -> str:
+    """What the guard validated, as text. Falls back to the reason it could not resolve."""
+    try:
+        resolution = resolve_scope(server)
+    except ScopeResolutionError as exc:
+        return f"unresolved ({exc})"
+    hosts = list(resolution.hosts)
+    shown = ", ".join(hosts[:_MAX_LABELLED_HOSTS])
+    more = f" +{len(hosts) - _MAX_LABELLED_HOSTS} more" if len(hosts) > _MAX_LABELLED_HOSTS else ""
+    pattern = f"{resolution.pattern!r} -> " if resolution.pattern else ""
+    return f"{pattern}{len(hosts)} host(s): {shown}{more}"
 
 
 def _guard(server: Any) -> str | None:
@@ -278,12 +366,27 @@ def _guard(server: Any) -> str | None:
 
         target = urlparse(config.get("baseUrl", "")).hostname
     elif server.provider_id == "ansible-runner":
+        # Both fields are patterns to ansible. AnsibleRunnerBackend passes
+        # `inventoryHost or group` as host_pattern, and resolve_scope expands the same field.
+        # So the guard expands whichever one the backend will use, and checks every host.
+        #
+        # `inventoryHost` used to take the single-address path, which validated a label. A
+        # label naming three hosts was checked as one name, and it failed closed only by
+        # accident of DNS. A group label that did resolve to a permitted address would have
+        # passed the guard while the play ran against every host in the group.
         target = config.get("inventoryHost")
-        if not target and config.get("group"):
-            # A pattern, not an address. #9 expands it and checks every host it names.
+        if target or config.get("group"):
             try:
                 hosts = resolve_scope(server).hosts
             except ScopeResolutionError as exc:
+                if target:
+                    # No local inventory to read. Ansible still reads ansible.cfg and
+                    # /etc/ansible/hosts, and the resolver cannot see either, so fall back to
+                    # the single-address check this field had before. That keeps interactive
+                    # runs working, and a group name still fails closed because it does not
+                    # resolve in DNS.
+                    ok, error = validate_server_target(target)
+                    return None if ok else f"Refusing to execute: {error}"
                 return f"Cannot validate network target: {exc}"
             for host in hosts:
                 ok, error = validate_server_target(host)
@@ -333,12 +436,18 @@ def serve_forever(
     restarts the executor must not need a human to delete one.
     """
     path = Path(socket_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(path.parent, _SOCKET_DIR_MODE)
+    # A private mode only on a directory this process creates. A two-uid deployment owns that
+    # decision: with separate accounts the directory is owned by the executor and carries setgid
+    # plus group traversal (2710), so the agent account can reach a known socket name without
+    # listing the directory or creating anything in it. A blanket chmod here would lock the agent
+    # out, and a split the agent cannot talk to is worse than the mode it replaced.
+    if not path.parent.exists():
+        path.parent.mkdir(parents=True)
+        os.chmod(path.parent, _SOCKET_DIR_MODE)
     if path.exists():
         path.unlink()
 
-    executor = Executor(workspace=Path(workspace))
+    executor = Executor(workspace=Path(workspace), audit=_audit_store())
     served = 0
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
         server.bind(str(path))
@@ -353,6 +462,18 @@ def serve_forever(
         finally:
             with contextlib.suppress(OSError):
                 path.unlink()
+
+
+def _audit_store() -> Any:
+    """The audit store this process writes to (#16).
+
+    It lives beside the gateway's data rather than in the workspace. The workspace is reachable
+    by the agent's filesystem tools, and an audit log a model can edit is not an audit log.
+    """
+    from nanoinfra.config.paths import get_data_dir
+    from nanoinfra.gates.audit import AuditStore
+
+    return AuditStore(get_data_dir() / "gates", config=load_policy().audit)
 
 
 def _serve_one(conn: socket.socket, executor: Executor) -> None:

@@ -484,9 +484,8 @@ async def test_execute_on_server_observation_carries_the_resolved_scope(tmp_path
     from loguru import logger
 
     from nanoinfra.agent.tools.capabilities import MUTATE_REMOTE
-    from nanoinfra.agent.tools.server_execution import ExecuteOnServerTool
-    from nanoinfra.secrets.store import SecretStore
-    from nanoinfra.servers.job_store import JobStore
+    from nanoinfra.gates.executor.protocol import ExecuteRequest
+    from nanoinfra.gates.executor.server import Executor
     from nanoinfra.servers.store import ServerStore
 
     captured: list[dict[str, object]] = []
@@ -499,12 +498,21 @@ async def test_execute_on_server_observation_carries_the_resolved_scope(tmp_path
     ServerStore(tmp_path).create(
         {"name": "prod-web-01", "providerId": "ssh", "config": {"host": "10.0.1.5"}}
     )
-    tool = ExecuteOnServerTool(
-        servers=ServerStore(tmp_path), secrets=SecretStore(tmp_path), jobs=JobStore(tmp_path)
+    # #18 moved the recorder into the executor with the credential resolution and the
+    # transports, so the record is written there now.
+    executor = Executor(workspace=tmp_path)
+    request = ExecuteRequest(
+        server_id_or_name="prod-web-01",
+        command="uptime",
+        session_id="s1",
+        execution_context="interactive",
+        preview_requested=True,
+        timeout_s=None,
+        token_nonce=None,
     )
     sink_id = logger.add(sink, level=0)
     try:
-        await tool.execute(server_id_or_name="prod-web-01", command="uptime")
+        await executor.handle(request)
     finally:
         logger.remove(sink_id)
 

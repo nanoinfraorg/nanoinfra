@@ -193,49 +193,47 @@ def test_the_decision_reports_the_resolved_targets_for_the_audit_record(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_a_grant_written_with_an_inventory_name_runs_through_the_tool(
-    tmp_path: Path,
-) -> None:
+async def test_a_grant_written_with_an_inventory_name_runs_end_to_end(tmp_path: Path) -> None:
     """The operator-facing point of this item.
 
     Before #24 a grant had to list the resolved address, so the natural config -- the name the
     operator sees in the inventory -- silently matched nothing.
+
+    This drives the executor rather than the tool. #18 moved the gate, the credential store, and
+    the transports there, and the tool is now a thin client over a socket.
     """
     from unittest.mock import AsyncMock, patch
 
-    from nanoinfra.agent.tools.context import RequestContext, request_context
-    from nanoinfra.agent.tools.server_execution import ExecuteOnServerTool
+    from nanoinfra.gates.executor.protocol import ExecuteRequest
+    from nanoinfra.gates.executor.server import Executor
     from nanoinfra.secrets import crypto
-    from nanoinfra.secrets.store import SecretStore
     from nanoinfra.servers.execution.base import ExecutionResult
-    from nanoinfra.servers.job_store import JobStore
 
     crypto_key = crypto.generate_key_for_setup()
     store = _store(tmp_path)
-    tool = ExecuteOnServerTool(
-        servers=store, secrets=SecretStore(tmp_path), jobs=JobStore(tmp_path)
-    )
+    assert store is not None
+    executor = Executor(workspace=tmp_path, gates_loader=_policy)
     fake = ExecutionResult(exit_code=0, output="ok", error=None)
-    ctx = RequestContext(
-        channel="cron", chat_id="c1", session_key="s1", execution_context=AUTOMATION
+    request = ExecuteRequest(
+        server_id_or_name="staging-web-01",
+        command="systemctl reload nginx",
+        session_id="s1",
+        execution_context=AUTOMATION,
+        preview_requested=False,
+        timeout_s=None,
+        token_nonce=None,
     )
 
     with (
         patch.dict("os.environ", {"NANOINFRA_SECRETS_KEY": crypto_key}),
-        patch("nanoinfra.agent.tools.server_execution.load_policy", return_value=_policy()),
         patch(
             "nanoinfra.servers.execution.ssh_backend.SSHBackend.run",
             new=AsyncMock(return_value=fake),
         ) as run,
-        request_context(ctx),
     ):
-        result = await tool.execute(
-            server_id_or_name="staging-web-01",
-            command="systemctl reload nginx",
-            dry_run=False,
-        )
+        response = await executor.handle(request)
 
-    assert not getattr(result, "is_error", False)
+    assert response.ok
     run.assert_called_once()
 
 
