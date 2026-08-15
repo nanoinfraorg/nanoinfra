@@ -100,6 +100,12 @@ class ActionAuthorization:
     approval_id: str | None = None
     actor: str | None = None
     approval_path: str | None = None
+    # The decision the matrix took for the action itself, and the scope it took it at. An operator
+    # who set `allow` at that scope said the agent may run the action, and the action needs the
+    # credential of the server it names. Without this field the class refused every allowed action
+    # against a server that holds a secretRef, and `allow` then meant nothing.
+    policy_decision: str | None = None
+    scope: str | None = None
 
 
 def resolve_scope_for_grant_host(server: Any) -> Any:
@@ -356,9 +362,14 @@ def evaluate_credential_access(
     human twice for one action, and #13 spends that attention elsewhere.
 
     ``authorization`` holds the action's own decision. A standing grant satisfies ``grant`` and
-    ``approve``, because the operator declared that permission in advance (#11). A human
-    approval satisfies ``approve``. An action that reached ``allow`` on the matrix alone carries
-    neither, so both values refuse it.
+    ``approve``, because the operator declared that permission in advance (#11). A human approval
+    satisfies ``approve``. A matrix ``allow`` satisfies both as well: an operator who allowed the
+    action at that scope authorized the credential the action needs, and a class that refused it
+    would make ``allow`` mean nothing. That combination reached a real operator, with the shipped
+    default on this key.
+
+    ``deny`` still refuses each of those, and that is where this class keeps its teeth: an
+    unattended context can permit a granted command and refuse the decryption it would need.
 
     A value this function does not model refuses. A hand-edited key must cost the decryption
     rather than buy it.
@@ -392,11 +403,22 @@ def evaluate_credential_access(
                 f"{carried.approval_id}. That approval authorizes the credential it needs.",
                 approval_id=carried.approval_id,
             )
+        if carried.policy_decision == "allow":
+            # The general authorization, read last, so a grant or an approval names itself in the
+            # record. An operator who allowed the action at this scope authorized the credential it
+            # needs, and a refusal here would make that `allow` mean nothing.
+            return Decision(
+                Outcome.ALLOW,
+                f"{key} is {configured!r}, and the matrix allows this action at "
+                f"{carried.scope or 'this'} scope. That decision authorizes the credential the "
+                "action needs, so no human answers twice for one action.",
+            )
         return Decision(
             Outcome.DENY,
             f"The gate refuses {CREDENTIAL_ACCESS}: {key} is {configured!r}, and nothing "
-            "authorized this action. A human approval or a standing grant carries that "
-            f"authorization. Set {key} to 'allow', or declare a grant in gates.standingGrants.",
+            "authorized this action. A human approval, a standing grant, or an `allow` on the "
+            f"matrix carries that authorization. Set {key} to 'allow', widen the matrix at this "
+            "scope, or declare a grant in gates.standingGrants.",
         )
 
     return Decision(

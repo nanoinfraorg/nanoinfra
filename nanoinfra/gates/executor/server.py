@@ -232,15 +232,20 @@ class Executor:
         if decision.outcome is not Outcome.ALLOW:
             return _withheld(server, request, decision.reason)
 
-        # A matched grant is the authorization this action carries into the credential
-        # decision (#39). A plain `allow` on the matrix carries none, and that case refuses
-        # there rather than here.
+        # The authorization this action carries into the credential decision (#39). A matched grant
+        # names itself. A plain `allow` on the matrix is an authorization too: an operator who
+        # allowed the action at this scope authorized the credential it needs, and a second gate on
+        # the same decision refused every allowed action against a server that holds a secretRef.
         return await self._run(
             server,
             request,
             idle_override,
             resolution=resolution,
-            authorization=ActionAuthorization(grant_id=decision.grant_id),
+            authorization=ActionAuthorization(
+                grant_id=decision.grant_id,
+                policy_decision=decision.outcome.value,
+                scope=getattr(resolution, "scope", None),
+            ),
         )
 
     async def _suspend(

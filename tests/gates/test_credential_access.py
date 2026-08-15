@@ -34,6 +34,11 @@ from nanoinfra.gates.executor.operator_socket import ApprovalService
 from nanoinfra.gates.executor.protocol import ExecuteRequest
 from nanoinfra.gates.executor.server import Executor
 from nanoinfra.gates.pending import PendingApprovalStore
+from nanoinfra.gates.policy import (
+    ActionAuthorization,
+    Outcome,
+    evaluate_credential_access,
+)
 from nanoinfra.gates.tokens import ApprovalTokenStore
 from nanoinfra.secrets import crypto
 from nanoinfra.secrets.store import SecretStore
@@ -365,14 +370,40 @@ async def test_the_record_names_the_approval_that_authorized_the_decryption(
 
 
 @pytest.mark.asyncio
-async def test_an_allowed_action_with_no_grant_and_no_approval_refuses(tmp_path: Path) -> None:
-    """``approve`` needs an authorization, and the matrix alone carries none.
+async def test_an_allowed_action_runs_with_the_shipped_credential_default(
+    tmp_path: Path,
+) -> None:
+    """The combination a real operator met, end to end through the executor.
 
-    An operator who allows the action outright still declares what may happen to the
-    credential. The refusal names the class and the key to change.
+    An operator widened `interactive.mutate.remote.host` to `allow` and kept the shipped `approve`
+    on this class. Every remote action against a server with a secretRef then refused, and it
+    latched the session twice. `allow` meant nothing.
+
+    The matrix decision is the authorization here. A second prompt would ask the same operator
+    again for the same action, which #13 spends attention on the unusual case instead.
     """
     _ssh_server(tmp_path, secret_ref=_secret(tmp_path))
     harness = _Harness(tmp_path, _interactive_allow("approve"))
+
+    with (
+        patch(_SSH_BACKEND, new=AsyncMock(return_value=_ok())) as run,
+        patch(_RESOLVE_PLAINTEXT, new=Mock(return_value="key-material")) as resolve,
+    ):
+        response = await harness.executor.handle(_request())
+
+    assert response.ok, response.reason
+    resolve.assert_called_once()
+    run.assert_called_once()
+    assert harness.pending.pending() == ()
+
+
+@pytest.mark.asyncio
+async def test_a_denied_credential_class_still_refuses_an_allowed_action(
+    tmp_path: Path,
+) -> None:
+    """Where this class keeps its teeth. `deny` refuses the decryption an `allow` would need."""
+    _ssh_server(tmp_path, secret_ref=_secret(tmp_path))
+    harness = _Harness(tmp_path, _interactive_allow("deny"))
 
     with (
         patch(_SSH_BACKEND, new=AsyncMock(return_value=_ok())) as run,
@@ -382,10 +413,8 @@ async def test_an_allowed_action_with_no_grant_and_no_approval_refuses(tmp_path:
 
     assert not response.ok
     assert CREDENTIAL_ACCESS in response.reason
-    assert "credential.access" in response.reason
     resolve.assert_not_called()
     run.assert_not_called()
-    assert harness.pending.pending() == ()
 
 
 # ------------------------------------------------------- a server that needs no credential
@@ -435,3 +464,75 @@ async def test_no_audit_record_holds_the_plaintext(tmp_path: Path) -> None:
     assert segments
     for segment in segments:
         assert _SECRET_VALUE not in segment.read_text(encoding="utf-8")
+
+
+def test_a_policy_allow_authorizes_the_credential_the_action_needs() -> None:
+    """The case an operator meets first, and #39 refused it.
+
+    An operator who sets `mutate.remote` to `allow` at one scope has said the agent may run that
+    action. The action needs the stored credential of the server it names, so the same decision
+    authorizes that read. Without this rule, `allow` plus the shipped `approve` on this class
+    refuses every remote action against a server that holds a secretRef, and `allow` then means
+    nothing. That combination reached a real operator.
+
+    A second prompt is not the answer either. #13 spends a human's attention on the unusual case.
+    """
+    gates = GatesConfig.model_validate(
+        {
+            "interactive": {"mutate.remote": {"host": "allow"}, "credential.access": "approve"},
+        }
+    )
+
+    decision = evaluate_credential_access(
+        gates,
+        execution_context="interactive",
+        authorization=ActionAuthorization(policy_decision="allow", scope="host"),
+    )
+
+    assert decision.outcome is Outcome.ALLOW
+    assert "allow" in decision.reason
+
+
+def test_an_unattended_deny_still_refuses_a_policy_allow() -> None:
+    """The class keeps its teeth where they matter: no human is present there."""
+    gates = GatesConfig.model_validate(
+        {
+            "unattended": {"mutate.remote": {"host": "grant"}, "credential.access": "deny"},
+        }
+    )
+
+    decision = evaluate_credential_access(
+        gates,
+        execution_context="automation",
+        authorization=ActionAuthorization(grant_id="reload-web", policy_decision="grant"),
+    )
+
+    assert decision.outcome is Outcome.DENY
+
+
+def test_the_class_accepts_allow_in_config() -> None:
+    """The refusal advises 'allow', and the schema refused that value, so the advice was a dead end."""
+    gates = GatesConfig.model_validate({"interactive": {"credential.access": "allow"}})
+
+    decision = evaluate_credential_access(
+        gates, execution_context="interactive", authorization=ActionAuthorization()
+    )
+
+    assert decision.outcome is Outcome.ALLOW
+
+
+def test_the_class_accepts_grant_in_config() -> None:
+    """A deployment may permit a decryption for granted work alone, and refuse it elsewhere."""
+    gates = GatesConfig.model_validate({"unattended": {"credential.access": "grant"}})
+
+    granted = evaluate_credential_access(
+        gates,
+        execution_context="automation",
+        authorization=ActionAuthorization(grant_id="reload-web"),
+    )
+    bare = evaluate_credential_access(
+        gates, execution_context="automation", authorization=ActionAuthorization()
+    )
+
+    assert granted.outcome is Outcome.ALLOW
+    assert bare.outcome is Outcome.DENY

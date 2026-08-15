@@ -160,10 +160,13 @@ def test_gates_payload_takes_decision_choices_from_the_schema(
 ) -> None:
     gates = _gates_block(tmp_path, monkeypatch, {})
 
+    # credential.access carries every decision now. The refusal for that class advises `allow`,
+    # and a schema with two values made the advice a dead end. The panel reads the schema, so the
+    # widening reached the control with no edit here beyond this expectation.
     assert gates["choices"] == {
         "mutate.remote": ["allow", "approve", "grant", "deny"],
         "mutate.inventory": ["allow", "deny"],
-        "credential.access": ["approve", "deny"],
+        "credential.access": ["allow", "approve", "grant", "deny"],
         "all": ["deny"],
     }
 
