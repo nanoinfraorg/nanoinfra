@@ -216,21 +216,33 @@ def evaluate(
         )
 
     configured = getattr(policy.mutate_remote, scope)
-    if configured == "grant":
+
+    # A grant answers both `grant` and `approve`, and it never answers `deny` (#11).
+    #
+    # `grant` means "allow only when a grant matches", so an unmatched grant refuses.
+    # `approve` means "a human may permit this", and a standing grant is a permission the
+    # operator declared in advance, so a match skips the prompt. That is the point of #11: a
+    # human who reads forty prompts a week stops reading them, so runtime approval must stay
+    # the exception.
+    # `deny` means the action is not permitted at all. A grant that could overrule that would
+    # make the matrix advisory, so a deny stays a deny and the refusal names the shadowed
+    # grant instead.
+    if configured in ("grant", "approve"):
         grant_id = _matching_grant_id(
             gates, context_key=context_key, hosts=host_tuple, command=command, servers=servers
         )
         if grant_id is not None:
             return Decision(
                 Outcome.ALLOW,
-                f"Standing grant {grant_id} covers this action.",
+                f"Standing grant {grant_id} covers this action, so nobody was asked.",
                 grant_id,
                 resolved_targets=host_tuple,
             )
-        return Decision(
-            Outcome.DENY,
-            _missing_grant_reason(capability_class, scope, context_key, host_tuple),
-        )
+        if configured == "grant":
+            return Decision(
+                Outcome.DENY,
+                _missing_grant_reason(capability_class, scope, context_key, host_tuple),
+            )
 
     outcome = _decision_for(configured)
     if outcome is Outcome.DENY:
