@@ -123,8 +123,20 @@ def _group_server(
     ServerStore(tmp_path).create(raw)
 
 
+def _interactive_allow() -> GatesConfig:
+    """Interactive policy that permits the action, so these tests ask a guard question.
+
+    The shipped interactive default is ``approve``, and #38 suspends an ``approve`` outcome
+    until an operator answers on a second path. The blast radius of a group is what these tests
+    check, so they declare the permission. tests/gates/test_approval_gate.py drives an approval.
+    """
+    return GatesConfig.model_validate(
+        {"interactive": {"mutate.remote": {"host": "allow", "group": "allow"}}}
+    )
+
+
 def _executor(tmp_path: Path, gates: GatesConfig | None = None) -> Executor:
-    return Executor(workspace=tmp_path, gates_loader=lambda: gates or GatesConfig())
+    return Executor(workspace=tmp_path, gates_loader=lambda: gates or _interactive_allow())
 
 
 def _request(**over: object) -> ExecuteRequest:

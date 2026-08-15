@@ -45,7 +45,13 @@ _DECISION_NAMES = {
 
 @dataclass(frozen=True, slots=True)
 class GateRuntime:
-    """The gate half. It can deny, refuse, and record. It cannot clear a latch."""
+    """The gate half. It can deny, refuse, and record. It cannot clear a latch.
+
+    ``tokens`` belongs to the process that decides. After #18 that process is the executor, and
+    after #38 the executor builds its own store beside its pending approvals. So this field is
+    the store of whichever process built this runtime, and the agent's copy issues nothing. A
+    caller on the agent side must not read it as the authority for an approval.
+    """
 
     audit: AuditStore
     tokens: ApprovalTokenStore

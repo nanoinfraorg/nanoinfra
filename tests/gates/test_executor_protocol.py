@@ -6,6 +6,11 @@ executor, and that holes the one rule that makes a narrow network policy useful.
 
 The wire carries structured fields only. No free-form field exists for the model to fill, so a
 request cannot smuggle a command the executor did not resolve itself.
+
+Item 36 (#38) took the version to 2 and added ``origin_path``. #13 cannot judge path
+independence without the origin, so a version 1 frame gets a refusal. An agent that does not
+state its path must not execute. The client and the server ship together, so no rolling deploy
+depends on the older frame.
 """
 
 from __future__ import annotations
@@ -37,6 +42,7 @@ def _request(**over: object) -> ExecuteRequest:
         "preview_requested": False,
         "timeout_s": None,
         "token_nonce": None,
+        "origin_path": "telegram",
     }
     fields.update(over)
     return ExecuteRequest(**fields)  # pyright: ignore[reportArgumentType]
@@ -69,7 +75,39 @@ def test_a_request_carries_no_free_form_field() -> None:
         "preview_requested",
         "timeout_s",
         "token_nonce",
+        "origin_path",
     }
+
+
+def test_the_version_is_two_and_a_version_one_frame_is_refused() -> None:
+    """#38 needs the origin path, so the older frame cannot describe a request any more.
+
+    A version 1 peer states no path. #13 cannot prove path independence for it, so the frame
+    gets a refusal instead of a default.
+    """
+    payload = json.loads(encode_request(_request()))
+    payload["v"] = 1
+    del payload["origin_path"]
+
+    assert PROTOCOL_VERSION == 2
+    with pytest.raises(ProtocolError):
+        decode_request(json.dumps(payload).encode())
+
+
+def test_a_version_two_frame_without_the_origin_path_is_refused() -> None:
+    """The field is mandatory on the wire. A frame that omits it names no path at all."""
+    payload = json.loads(encode_request(_request()))
+    del payload["origin_path"]
+
+    with pytest.raises(ProtocolError):
+        decode_request(json.dumps(payload).encode())
+
+
+def test_the_origin_path_survives_the_round_trip() -> None:
+    """The executor reads this field to judge path independence, so it must arrive intact."""
+    request = _request(origin_path="webui")
+
+    assert decode_request(encode_request(request)).origin_path == "webui"
 
 
 def test_an_unknown_field_is_refused() -> None:

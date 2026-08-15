@@ -145,11 +145,12 @@ async def test_a_matching_grant_lets_an_unattended_call_run(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_an_interactive_call_is_not_gated_yet(tmp_path: Path) -> None:
-    """#8 enforces the unattended half only.
+async def test_an_interactive_call_now_reaches_policy(tmp_path: Path) -> None:
+    """#38 removed the interactive short-circuit that #8 and #10 both named.
 
-    The interactive default is `approve` and no approval path exists before #13 and #27.
-    Enforcing it here would refuse every interactive remote command with no way to answer.
+    The executor used to allow every interactive turn, so an `approve` decision executed. The
+    default interactive policy for a host is `approve`, so this call must now suspend or refuse.
+    It refuses here, because this executor carries no approval store.
     """
     _server(tmp_path)
     fake = ExecutionResult(exit_code=0, output="ok", error=None)
@@ -157,8 +158,43 @@ async def test_an_interactive_call_is_not_gated_yet(tmp_path: Path) -> None:
     with patch(_BACKEND, new=AsyncMock(return_value=fake)) as run:
         response = await _executor(tmp_path).handle(_request(execution_context="interactive"))
 
+    assert not response.ok
+    assert "approval" in response.reason
+    run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_an_interactive_call_the_policy_allows_still_runs(tmp_path: Path) -> None:
+    """The other half of the same rule. An operator who declares `allow` gets no prompt."""
+    _server(tmp_path)
+    gates = GatesConfig.model_validate({"interactive": {"mutate.remote": {"host": "allow"}}})
+    fake = ExecutionResult(exit_code=0, output="ok", error=None)
+
+    with patch(_BACKEND, new=AsyncMock(return_value=fake)) as run:
+        response = await _executor(tmp_path, gates).handle(
+            _request(execution_context="interactive")
+        )
+
     assert response.ok
     run.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_an_unattended_approve_policy_refuses_instead_of_waiting(tmp_path: Path) -> None:
+    """#8's rule survives #38. Nobody waits on an automation, so a prompt there is a hang.
+
+    An operator who writes `approve` for an unattended context reads which key to change.
+    """
+    _server(tmp_path)
+    gates = GatesConfig.model_validate({"unattended": {"mutate.remote": {"host": "approve"}}})
+
+    with patch(_BACKEND, new=AsyncMock()) as run:
+        response = await _executor(tmp_path, gates).handle(_request())
+
+    assert not response.ok
+    assert "unattended" in response.reason
+    assert "standing grant" in response.reason
+    run.assert_not_called()
 
 
 @pytest.mark.asyncio

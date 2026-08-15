@@ -95,6 +95,76 @@ class ApprovalCheck:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ApprovalFeasibility:
+    """Whether any correct approval can exist for one request -- #38.
+
+    #38 asks this before it suspends an action. A suspended action that nobody may answer is a
+    hang, and a hang teaches an operator to widen policy for the wrong reason. So the executor
+    refuses at once and names the missing piece.
+
+    The type carries no identity fields. No answer has arrived yet, so no actor and no approval
+    path exist to report.
+    """
+
+    ok: bool
+    refusal: ApprovalRefusal | None = None
+    reason: str = ""
+
+
+def approval_feasible(*, gates: GatesConfig, origin_path: str) -> ApprovalFeasibility:
+    """Say whether one approver could answer a request that arrived on *origin_path*.
+
+    The test is the three conditions of #13, minus the identity that has not answered yet. One
+    approver must sit on one authenticated path that is not the origin path. The order of the
+    checks matches ``check_approval``, so the two functions never disagree about which sentence
+    an operator reads.
+    """
+    origin = origin_path.strip()
+    if not origin:
+        return ApprovalFeasibility(
+            ok=False,
+            refusal=ApprovalRefusal.UNKNOWN_ORIGIN_PATH,
+            reason=(
+                "the request names no origin path. Path independence is not provable, so no "
+                "approval can count."
+            ),
+        )
+
+    authenticated = _authenticated_paths(gates)
+    second_paths = [candidate for candidate in authenticated if candidate != origin]
+    if not second_paths:
+        return ApprovalFeasibility(
+            ok=False,
+            refusal=ApprovalRefusal.NO_SECOND_PATH,
+            reason=(
+                f"{NO_SECOND_PATH_REASON}. gates.approvalPaths lists {authenticated!r}, and the "
+                f"request arrived on {origin!r}."
+            ),
+        )
+
+    reachable = sorted(
+        {
+            approver.channel.strip()
+            for approver in gates.approvers
+            if approver.channel.strip() in second_paths and approver.sender.strip()
+        }
+    )
+    if not reachable:
+        return ApprovalFeasibility(
+            ok=False,
+            refusal=ApprovalRefusal.NOT_AN_APPROVER,
+            reason=(
+                "gates.approvers lists nobody on a second authenticated path, so nobody may "
+                f"answer this request. gates.approvalPaths lists {authenticated!r}, and the "
+                f"request arrived on {origin!r}. Add an approver on another path, or declare a "
+                "standing grant."
+            ),
+        )
+
+    return ApprovalFeasibility(ok=True)
+
+
 def check_approval(
     *,
     gates: GatesConfig,
@@ -201,6 +271,8 @@ def _is_approver(gates: GatesConfig, *, path: str, sender: str) -> bool:
 __all__ = [
     "NO_SECOND_PATH_REASON",
     "ApprovalCheck",
+    "ApprovalFeasibility",
     "ApprovalRefusal",
+    "approval_feasible",
     "check_approval",
 ]

@@ -12,6 +12,17 @@ no longer holds the plaintext, the backends, or the guard.
 This module imports the privileged parts on purpose. ``nanoinfra/agent/tools/server_execution.py``
 must import none of them, and a test asserts that. Import direction is how the split stays true
 rather than merely intended.
+
+**An ``approve`` outcome suspends the action (#38).** The gate used to allow every interactive
+turn, so an ``approve`` decision executed. It now renders the payload with #14, creates a
+pending record, and blocks on it until an operator answers or the deadline passes. The reasons
+for a blocked call rather than a poll live in ``nanoinfra/gates/pending.py``. The answer arrives
+on a second socket that ``nanoinfra/gates/executor/operator_socket.py`` owns.
+
+Two consequences shape this module. Each connection now gets its own thread, because a pending
+approval that stopped every other action would be a denial of service on the whole agent. And
+one action holds one inventory read for the whole wait, so the command that runs after an
+approval is the command the operator read.
 """
 
 from __future__ import annotations
@@ -20,6 +31,7 @@ import asyncio
 import contextlib
 import os
 import socket
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +45,14 @@ from nanoinfra.agent.tools.capabilities import (
     command_digest,
     record_observation,
 )
+from nanoinfra.agent.tools.context import EXECUTION_CONTEXT_INTERACTIVE
+from nanoinfra.gates.approvals import approval_feasible
+from nanoinfra.gates.executor.operator_socket import (
+    ApprovalService,
+    bind_operator_socket,
+    default_operator_socket_path,
+    serve_operator_socket,
+)
 from nanoinfra.gates.executor.protocol import (
     ExecuteResponse,
     ProtocolError,
@@ -41,7 +61,10 @@ from nanoinfra.gates.executor.protocol import (
     read_frame,
     write_frame,
 )
-from nanoinfra.gates.policy import Outcome, evaluate, load_policy
+from nanoinfra.gates.pending import ApprovalState, PendingApprovalStore
+from nanoinfra.gates.policy import Decision, Outcome, evaluate, load_policy
+from nanoinfra.gates.prompt import PromptRenderError, render_approval_prompt
+from nanoinfra.gates.tokens import ApprovalTokenStore
 from nanoinfra.secrets.store import SecretStore
 from nanoinfra.servers.execution.base import (
     ABSOLUTE_CEILING_S,
@@ -71,6 +94,18 @@ _STREAMING_PROVIDERS = frozenset({"ssh"})
 _UNSTOPPABLE_ON_TIMEOUT = frozenset({"ansible-runner", "ssm"})
 _PARTIAL_OUTPUT_PERSIST_INTERVAL_S = 5.0
 
+# What each end of a decision is called in the audit log. The vocabulary is the operator's, and
+# #32 rebuilds a latch from `denied`, so these strings are part of the contract.
+#
+# `expired` deliberately latches nothing across a restart, because an expiry is not a decision
+# anybody took. The tool still latches it in the live process, so a retry inside the session
+# refuses. `approval_refused` lives in operator_socket.py beside the code that writes it, and it
+# latches nothing either: one mistyped actor must not block a session a real approver can answer.
+_DECISION_ALLOW = "allow"
+_DECISION_APPROVE = "approve"
+_DECISION_DENIED = "denied"
+_DECISION_EXPIRED = "expired"
+
 # The socket's own mode is not honoured on every platform, so the directory carries the
 # control. 0o700 keeps another local account out of the executor's door.
 _SOCKET_DIR_MODE = 0o700
@@ -78,16 +113,29 @@ _SOCKET_DIR_MODE = 0o700
 
 @dataclass(slots=True)
 class Executor:
-    """Serves one request at a time. Holds the credential store and the transports."""
+    """Answers one request. Holds the credential store, the transports, and the gate."""
 
     workspace: Path
     gates_loader: Callable[[], GatesConfig] = load_policy
     # The audit store (#16). The executor decides, so the executor records. #33 wired this into
     # the tool, and the split moved the decision here, so the record moved with it.
     audit: Any = None
+    # The two halves of the approval path (#38). Both live in this process, because the executor
+    # is the authority. An executor built without them refuses an `approve` outcome rather than
+    # execute it, which is the fail-closed direction: no store means no human can answer.
+    pending: PendingApprovalStore | None = None
+    tokens: ApprovalTokenStore | None = None
 
     async def handle(self, request: ExecuteRequest) -> ExecuteResponse:
         """Answer one request. Never raises for a refusal: a refusal is a response."""
+        if request.token_nonce:
+            # The executor issues every nonce and hands none to the agent (#38), so a nonce on
+            # this wire arrives from model-visible text. A verification attempt would treat a
+            # forgery as a stale approval, so the frame gets a refusal instead.
+            return _error(
+                "This request carries an approval nonce. The executor issues every nonce and "
+                "gives none to the agent, so no caller on this socket can hold one."
+            )
         servers = ServerStore(self.workspace)
         server = resolve_server(servers, request.server_id_or_name)
         if server is None:
@@ -142,33 +190,206 @@ class Executor:
         # The gate resolves each grant host, so it runs in a worker thread as well. Its own
         # reads hit the cache when the grant names this project, and a grant that names
         # another project pays for its read off the event loop (#35).
-        allowed, reason, resolution = await asyncio.to_thread(
-            self._gate, server, request, servers
+        decision, resolution = await asyncio.to_thread(self._gate, server, request, servers)
+
+        if decision.outcome is Outcome.APPROVE:
+            # The action suspends here (#38). Every record and every refusal for the wait lives
+            # in _suspend, because the wait is one decision with several possible ends.
+            return await self._suspend(server, request, resolution, idle_override)
+
+        recorded = self._record(
+            _DECISION_ALLOW if decision.outcome is Outcome.ALLOW else _DECISION_DENIED,
+            server,
+            request,
+            reason=decision.reason,
+            resolution=resolution,
         )
-        outcome = Outcome.ALLOW if allowed else Outcome.DENY
-        recorded = self._record(outcome, server, request, reason=reason, resolution=resolution)
         if recorded is not None:
             return recorded
 
-        if not allowed:
-            return ExecuteResponse(
-                ok=False,
-                output=_preview_line(server, request.command),
-                exit_code=None,
-                error=None,
-                reason=reason,
-            )
+        if decision.outcome is not Outcome.ALLOW:
+            return _withheld(server, request, decision.reason)
 
         return await self._run(server, request, idle_override)
 
+    async def _suspend(
+        self, server: Any, request: ExecuteRequest, resolution: Any, idle_override: int | None
+    ) -> ExecuteResponse:
+        """Hold one action until an operator answers it, or until the deadline passes.
+
+        The order is the security property. Every reason that no correct answer can exist
+        refuses at once, because a suspension nobody may answer is a hang. Then the payload
+        renders from resolver output (#14). Then the record lands (#16). Only then does the
+        action wait.
+        """
+        gates = self.gates_loader()
+        pending = self.pending
+        tokens = self.tokens
+        if pending is None or tokens is None:
+            return self._refuse(
+                server,
+                request,
+                resolution,
+                "this executor has no approval store, so no human can answer an approval. "
+                "Declare a standing grant for this action, or run an executor that carries "
+                "the approval path.",
+            )
+
+        session_id = (request.session_id or "").strip()
+        if not session_id:
+            return self._refuse(
+                server,
+                request,
+                resolution,
+                "the request names no session, and an approval binds to one session (#12). "
+                "So no token could cover this action.",
+            )
+
+        feasibility = approval_feasible(gates=gates, origin_path=request.origin_path or "")
+        if not feasibility.ok:
+            return self._refuse(server, request, resolution, feasibility.reason)
+
+        try:
+            prompt = render_approval_prompt(command=request.command, resolution=resolution)
+        except PromptRenderError as exc:
+            return self._refuse(
+                server,
+                request,
+                resolution,
+                f"the approval payload could not be rendered ({exc}). A human cannot approve "
+                "bytes nobody can display.",
+            )
+
+        recorded = self._record(
+            _DECISION_APPROVE,
+            server,
+            request,
+            reason=(
+                f"an operator must approve this action on a path other than "
+                f"{request.origin_path!r}. The request waits for "
+                f"{gates.approval_timeout_s}s."
+            ),
+            resolution=resolution,
+            origin_path=request.origin_path,
+        )
+        if recorded is not None:
+            return recorded
+
+        approval = pending.create(
+            session_id=session_id,
+            origin_path=(request.origin_path or "").strip(),
+            execution_context=request.execution_context,
+            capability_class=MUTATE_REMOTE,
+            scope=prompt.scope or getattr(resolution, "scope", ""),
+            hosts=prompt.hosts,
+            command=request.command,
+            payload=prompt.text,
+            target_digest=prompt.target_digest,
+            timeout_s=float(gates.approval_timeout_s),
+        )
+        logger.info(
+            "gates: action {} waits for an approval on a second path (session {}, {} host(s))",
+            approval.request_id,
+            session_id,
+            approval.host_count,
+        )
+        # The wait blocks a worker thread and never the event loop. The connection stays open,
+        # so the same connection that submitted the action also executes it.
+        outcome = await asyncio.to_thread(pending.wait, approval.request_id)
+
+        if outcome.state is ApprovalState.DENIED:
+            return self._refuse(
+                server,
+                request,
+                resolution,
+                f"an operator denied this action: {outcome.reason or 'no reason given'}.",
+                actor=outcome.actor,
+                approval_path=outcome.approval_path,
+                origin_path=request.origin_path,
+            )
+        if outcome.state is not ApprovalState.APPROVED or outcome.token_nonce is None:
+            return self._refuse(
+                server,
+                request,
+                resolution,
+                outcome.reason or "the approval did not arrive, so the action refused.",
+                decision=_DECISION_EXPIRED,
+                origin_path=request.origin_path,
+            )
+
+        verification = tokens.consume(
+            nonce=outcome.token_nonce,
+            session_id=session_id,
+            target_digest=prompt.target_digest,
+        )
+        if not verification.ok:
+            return self._refuse(
+                server,
+                request,
+                resolution,
+                f"the approval token did not verify at execution ({verification.refusal}). "
+                "An approval covers one session and one resolved action.",
+                actor=outcome.actor,
+                approval_path=outcome.approval_path,
+                origin_path=request.origin_path,
+            )
+
+        recorded = self._record(
+            _DECISION_ALLOW,
+            server,
+            request,
+            reason=(
+                f"{outcome.actor!r} approved this action on path {outcome.approval_path!r}, "
+                f"and the request arrived on {request.origin_path!r}."
+            ),
+            resolution=resolution,
+            actor=outcome.actor,
+            approval_path=outcome.approval_path,
+            origin_path=request.origin_path,
+        )
+        if recorded is not None:
+            return recorded
+
+        return await self._run(server, request, idle_override)
+
+    def _refuse(
+        self,
+        server: Any,
+        request: ExecuteRequest,
+        resolution: Any,
+        reason: str,
+        *,
+        decision: str = _DECISION_DENIED,
+        actor: str | None = None,
+        approval_path: str | None = None,
+        origin_path: str | None = None,
+    ) -> ExecuteResponse:
+        """Record one refusal and return it. The record lands first, or the refusal says so."""
+        recorded = self._record(
+            decision,
+            server,
+            request,
+            reason=reason,
+            resolution=resolution,
+            actor=actor,
+            approval_path=approval_path,
+            origin_path=origin_path,
+        )
+        if recorded is not None:
+            return recorded
+        return _withheld(server, request, reason)
+
     def _record(
         self,
-        outcome: Outcome,
+        decision: str,
         server: Any,
         request: ExecuteRequest,
         *,
         reason: str,
         resolution: Any,
+        actor: str | None = None,
+        approval_path: str | None = None,
+        origin_path: str | None = None,
     ) -> ExecuteResponse | None:
         """Write the audit record, or refuse the action when the write fails.
 
@@ -178,12 +399,15 @@ class Executor:
 
         A refusal records too, and it still refuses when the record fails. The caller then reads
         both facts.
+
+        ``decision`` is the operator's vocabulary rather than an enum name, because #32 rebuilds
+        a latch from these strings and #29 shows them to a person.
         """
         if self.audit is None:
             return None
         try:
             self.audit.record(
-                decision="allow" if outcome is Outcome.ALLOW else "denied",
+                decision=decision,
                 capability_class=MUTATE_REMOTE,
                 execution_context=request.execution_context,
                 session_id=request.session_id,
@@ -192,6 +416,9 @@ class Executor:
                 hosts=list(getattr(resolution, "hosts", ()) or ()),
                 command=request.command,
                 reason=reason or None,
+                actor=actor,
+                origin_path=origin_path,
+                approval_path=approval_path,
             )
         except OSError as exc:
             return _error(
@@ -203,12 +430,12 @@ class Executor:
 
     def _gate(
         self, server: Any, request: ExecuteRequest, servers: ServerStore
-    ) -> tuple[bool, str, Any]:
+    ) -> tuple[Decision, Any]:
         """Ask the gate, and hand back the resolution so the record can name the hosts.
 
         The executor verifies, and it does not trust the caller's word about the target.
         """
-        interactive = request.execution_context == "interactive"
+        interactive = request.execution_context == EXECUTION_CONTEXT_INTERACTIVE
 
         try:
             resolution = resolve_scope(server)
@@ -224,21 +451,24 @@ class Executor:
             # its own configuration when no local inventory exists, which is the inventory the
             # play will use, so a deployment that relies on ansible.cfg still resolves.
             return (
-                False,
-                f"The host set did not resolve, so the blast radius is unknown ({exc}). "
-                "Add an inventory the resolver can read, or install ansible-core so the "
-                "resolver can ask ansible for its own configuration.",
+                Decision(
+                    Outcome.DENY,
+                    f"The host set did not resolve, so the blast radius is unknown ({exc}). "
+                    "Add an inventory the resolver can read, or install ansible-core so the "
+                    "resolver can ask ansible for its own configuration.",
+                ),
                 None,
             )
 
         if resolution.scope == ALL:
-            return False, (
-                "The pattern names an unbounded host set, so its scope is `all`. No policy "
-                "permits `all` scope, and no approval path exists for it."
-            ), resolution
-        if interactive:
-            # #8 enforces the unattended half. The interactive approval path arrives with #27.
-            return True, "", resolution
+            return (
+                Decision(
+                    Outcome.DENY,
+                    "The pattern names an unbounded host set, so its scope is `all`. No policy "
+                    "permits `all` scope, and no approval path exists for it.",
+                ),
+                resolution,
+            )
 
         decision = evaluate(
             self.gates_loader(),
@@ -249,9 +479,22 @@ class Executor:
             command=request.command,
             servers=servers,
         )
-        if decision.outcome is Outcome.ALLOW:
-            return True, decision.reason, resolution
-        return False, decision.reason, resolution
+        if decision.outcome is Outcome.APPROVE and not interactive:
+            # #8's rule, and #38 does not relax it. Nobody waits on an unattended turn, so a
+            # prompt there becomes a hang or a rubber stamp. An operator who wrote `approve`
+            # for an unattended context reads which key to change.
+            return (
+                Decision(
+                    Outcome.DENY,
+                    f"{MUTATE_REMOTE} at {resolution.scope} scope is 'approve' for an "
+                    f"unattended context, and no person waits on this turn. A runtime approval "
+                    "there is a hang or a rubber stamp, so set "
+                    f"gates.unattended.mutate.remote.{resolution.scope} to 'grant' and declare "
+                    "a standing grant.",
+                ),
+                resolution,
+            )
+        return decision, resolution
 
     async def _run(
         self, server: Any, request: ExecuteRequest, idle_override: int | None
@@ -348,6 +591,21 @@ class Executor:
 
 def _error(message: str) -> ExecuteResponse:
     return ExecuteResponse(ok=False, output="", exit_code=None, error=message, reason="")
+
+
+def _withheld(server: Any, request: ExecuteRequest, reason: str) -> ExecuteResponse:
+    """The shape of every gate refusal: no error, one reason, and the resolved action.
+
+    The tool renders this as a withheld action rather than an ordinary error, so the refusal
+    becomes terminal and the latch forms (#15).
+    """
+    return ExecuteResponse(
+        ok=False,
+        output=_preview_line(server, request.command),
+        exit_code=None,
+        error=None,
+        reason=reason,
+    )
 
 
 _MAX_LABELLED_HOSTS = 8
@@ -454,15 +712,27 @@ def _backend_for(provider_id: str) -> tuple[Any, int]:
 
 
 def serve_forever(
-    socket_path: Path | str, *, workspace: Path | str, max_requests: int | None = None
+    socket_path: Path | str,
+    *,
+    workspace: Path | str,
+    max_requests: int | None = None,
+    operator_socket_path: Path | str | None = None,
 ) -> None:
-    """Bind the Unix socket and serve until terminated.
+    """Bind both sockets and serve until terminated.
 
-    ``max_requests`` exists for tests. Production passes nothing and the loop runs until the
-    supervisor stops the process.
+    Two listeners run. The execute socket takes requests from the agent. The operator socket
+    takes answers from a human (#38), and only the executor owns it.
 
-    The socket file is removed on exit. A stale file blocks the next bind, and a supervisor that
-    restarts the executor must not need a human to delete one.
+    Each connection gets its own thread. A pending approval holds one connection for the whole
+    wait, so a serial loop would let one unanswered action stop every other action. That is a
+    denial of service on the whole agent.
+
+    ``max_requests`` counts accepted execute connections, and it exists for tests. The answer to
+    the last connection may land after this call returns, because the handler owns its own
+    thread. Production passes nothing and the loop runs until the supervisor stops the process.
+
+    The socket files are removed on exit. A stale file blocks the next bind, and a supervisor
+    that restarts the executor must not need a human to delete one.
     """
     path = Path(socket_path)
     # A private mode only on a directory this process creates. A two-uid deployment owns that
@@ -476,7 +746,31 @@ def serve_forever(
     if path.exists():
         path.unlink()
 
-    executor = Executor(workspace=Path(workspace), audit=_audit_store())
+    audit = _audit_store()
+    pending = PendingApprovalStore()
+    tokens = ApprovalTokenStore()
+    executor = Executor(
+        workspace=Path(workspace), audit=audit, pending=pending, tokens=tokens
+    )
+    service = ApprovalService(pending=pending, tokens=tokens, audit=audit)
+
+    operator_path = (
+        Path(operator_socket_path)
+        if operator_socket_path is not None
+        else default_operator_socket_path(path)
+    )
+    # The bind happens here rather than in the thread. A bind failure is a deployment fault, and
+    # it must stop this process. An executor that serves requests and answers none of them would
+    # suspend every unusual action and then expire it.
+    operator_listener = bind_operator_socket(operator_path)
+    operator_thread = threading.Thread(
+        target=serve_operator_socket,
+        args=(operator_listener, service),
+        name="nanoinfra-operator-listener",
+        daemon=True,
+    )
+    operator_thread.start()
+
     served = 0
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
         server.bind(str(path))
@@ -485,12 +779,25 @@ def serve_forever(
         try:
             while max_requests is None or served < max_requests:
                 conn, _ = server.accept()
-                with conn:
-                    _serve_one(conn, executor)
                 served += 1
+                threading.Thread(
+                    target=_serve_one_connection,
+                    args=(conn, executor),
+                    name="nanoinfra-executor",
+                    daemon=True,
+                ).start()
         finally:
+            operator_listener.close()
+            with contextlib.suppress(OSError):
+                operator_path.unlink()
             with contextlib.suppress(OSError):
                 path.unlink()
+
+
+def _serve_one_connection(conn: socket.socket, executor: Executor) -> None:
+    """Own one connection for its whole life, and close it at the end."""
+    with conn:
+        _serve_one(conn, executor)
 
 
 def _audit_store() -> Any:

@@ -23,6 +23,7 @@ from nanoinfra.config.schema import Config
 from nanoinfra.gates.approvals import (
     NO_SECOND_PATH_REASON,
     ApprovalRefusal,
+    approval_feasible,
     check_approval,
 )
 
@@ -286,6 +287,82 @@ def test_every_refusal_carries_a_reason_and_a_named_refusal() -> None:
         assert not check.ok, (origin, approval, sender)
         assert check.refusal is not None, (origin, approval, sender)
         assert check.reason.strip(), (origin, approval, sender)
+
+
+# ------------------------------------------------------- can any approval exist at all (#38)
+
+
+def test_a_deployment_with_an_approver_on_a_second_path_can_be_asked() -> None:
+    """#38 asks this before it suspends an action.
+
+    A suspended action that nobody can answer is a hang. The executor must refuse first.
+    """
+    answer = approval_feasible(gates=_two_path_gates(), origin_path="telegram")
+
+    assert answer.ok
+    assert answer.refusal is None
+
+
+def test_a_single_path_deployment_cannot_be_asked() -> None:
+    """The WebUI-only install. The refusal names the missing second path, as #13 requires."""
+    gates = GatesConfig.model_validate(
+        {"approvers": [{"channel": "webui", "sender": "operator-1"}]}
+    )
+
+    answer = approval_feasible(gates=gates, origin_path="webui")
+
+    assert not answer.ok
+    assert answer.refusal == ApprovalRefusal.NO_SECOND_PATH
+    assert NO_SECOND_PATH_REASON in answer.reason
+
+
+def test_a_deployment_with_no_approver_cannot_be_asked() -> None:
+    """Two paths and nobody to ask is still a hang. The reason names gates.approvers."""
+    gates = GatesConfig.model_validate({"approvalPaths": ["webui", "telegram"]})
+
+    answer = approval_feasible(gates=gates, origin_path="telegram")
+
+    assert not answer.ok
+    assert answer.refusal == ApprovalRefusal.NOT_AN_APPROVER
+    assert "gates.approvers" in answer.reason
+
+
+def test_an_approver_on_the_origin_path_alone_cannot_be_asked() -> None:
+    """Condition 3 already refuses that answer, so the request must not wait for it."""
+    gates = GatesConfig.model_validate(
+        {
+            "approvers": [{"channel": "telegram", "sender": "operator-1"}],
+            "approvalPaths": ["webui", "telegram"],
+        }
+    )
+
+    answer = approval_feasible(gates=gates, origin_path="telegram")
+
+    assert not answer.ok
+    assert answer.refusal == ApprovalRefusal.NOT_AN_APPROVER
+
+
+def test_an_approver_on_an_unauthenticated_path_cannot_be_asked() -> None:
+    """A path outside gates.approvalPaths authenticates nobody, so it answers nothing."""
+    gates = GatesConfig.model_validate(
+        {
+            "approvers": [{"channel": "discord", "sender": "operator-1"}],
+            "approvalPaths": ["webui", "telegram"],
+        }
+    )
+
+    answer = approval_feasible(gates=gates, origin_path="telegram")
+
+    assert not answer.ok
+    assert answer.refusal == ApprovalRefusal.NOT_AN_APPROVER
+
+
+def test_a_request_with_no_origin_path_cannot_be_asked() -> None:
+    """Path independence needs an origin. An agent that states none must not execute."""
+    answer = approval_feasible(gates=_two_path_gates(), origin_path="  ")
+
+    assert not answer.ok
+    assert answer.refusal == ApprovalRefusal.UNKNOWN_ORIGIN_PATH
 
 
 def test_the_module_reads_no_reachability_list() -> None:

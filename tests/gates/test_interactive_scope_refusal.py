@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from nanoinfra.config.gates import GatesConfig
 from nanoinfra.gates.executor.protocol import ExecuteRequest
 from nanoinfra.gates.executor.server import Executor
 from nanoinfra.secrets import crypto
@@ -30,6 +31,19 @@ _ANSIBLE = "nanoinfra.servers.execution.ansible_backend.AnsibleRunnerBackend.run
 @pytest.fixture(autouse=True)
 def _configured_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NANOINFRA_SECRETS_KEY", crypto.generate_key_for_setup())
+
+
+
+def _interactive_allow() -> GatesConfig:
+    """Interactive policy that permits a resolvable action, so the refusal must come from #37.
+
+    The shipped interactive default is ``approve``, and #38 suspends an ``approve`` outcome
+    until an operator answers. An unknown host set is what these tests check, so the two tests
+    that must run declare the permission instead.
+    """
+    return GatesConfig.model_validate(
+        {"interactive": {"mutate.remote": {"host": "allow", "group": "allow"}}}
+    )
 
 
 def _server_without_inventory(tmp_path: Path) -> ServerStore:
@@ -72,7 +86,7 @@ async def test_an_interactive_action_with_an_unresolvable_scope_is_refused(
         patch(_ANSIBLE, new=AsyncMock()) as run,
         patch("nanoinfra.secrets.store.SecretStore.resolve_plaintext", new=Mock()) as resolve,
     ):
-        response = await Executor(workspace=tmp_path).handle(_request())
+        response = await Executor(workspace=tmp_path, gates_loader=_interactive_allow).handle(_request())
 
     assert not response.ok
     run.assert_not_called()
@@ -85,7 +99,7 @@ async def test_the_refusal_names_the_fix(tmp_path: Path) -> None:
     _server_without_inventory(tmp_path)
 
     with patch(_ANSIBLE, new=AsyncMock()):
-        response = await Executor(workspace=tmp_path).handle(_request())
+        response = await Executor(workspace=tmp_path, gates_loader=_interactive_allow).handle(_request())
 
     reason = f"{response.reason} {response.error}"
     assert "inventory" in reason.lower()
@@ -99,7 +113,7 @@ async def test_an_unattended_action_with_an_unresolvable_scope_is_still_refused(
     _server_without_inventory(tmp_path)
 
     with patch(_ANSIBLE, new=AsyncMock()) as run:
-        response = await Executor(workspace=tmp_path).handle(
+        response = await Executor(workspace=tmp_path, gates_loader=_interactive_allow).handle(
             _request(execution_context="automation")
         )
 
@@ -113,7 +127,7 @@ async def test_a_preview_still_answers_without_a_resolution(tmp_path: Path) -> N
     _server_without_inventory(tmp_path)
 
     with patch(_ANSIBLE, new=AsyncMock()) as run:
-        response = await Executor(workspace=tmp_path).handle(_request(preview_requested=True))
+        response = await Executor(workspace=tmp_path, gates_loader=_interactive_allow).handle(_request(preview_requested=True))
 
     assert response.ok
     run.assert_not_called()
@@ -138,7 +152,7 @@ async def test_a_resolvable_interactive_action_still_runs(tmp_path: Path) -> Non
     fake = ExecutionResult(exit_code=0, output="ok", error=None)
 
     with patch(_ANSIBLE, new=AsyncMock(return_value=fake)) as run:
-        response = await Executor(workspace=tmp_path).handle(
+        response = await Executor(workspace=tmp_path, gates_loader=_interactive_allow).handle(
             _request(server_id_or_name="has-inventory")
         )
 
@@ -160,7 +174,7 @@ async def test_an_ssh_server_is_unaffected(tmp_path: Path) -> None:
         "nanoinfra.servers.execution.ssh_backend.SSHBackend.run",
         new=AsyncMock(return_value=fake),
     ) as run:
-        response = await Executor(workspace=tmp_path).handle(_request(server_id_or_name="web"))
+        response = await Executor(workspace=tmp_path, gates_loader=_interactive_allow).handle(_request(server_id_or_name="web"))
 
     assert response.ok
     run.assert_called_once()

@@ -16,6 +16,16 @@ What stays on this side, because neither needs a credential:
   question can produce a prompt and a fresh prompt is the oracle.
 - The two preview messages (#10). The gate decides, and this renders the decision. One message
   says a caller asked to look. The other says the gate stopped an action.
+
+**One call can block while a human answers (#38).** An unusual action suspends inside the
+executor, and this side holds the connection until an operator answers or the deadline passes.
+The call already ran for minutes under an idle timeout, so the shape does not change. Two
+consequences do. The wait spends one thread of the default executor pool, and the turn cannot
+finish before the operator acts. The tool proposes no approval and holds no token: the executor
+issues every nonce, and a nonce the agent could read is a nonce the model could propose.
+
+A denied approval and an expired one both arrive as a refusal, so both become terminal denials
+below and both latch the class (#15).
 """
 
 # pyright: reportIncompatibleMethodOverride=false
@@ -52,13 +62,31 @@ PREVIEW_WITHHELD_NOTE = (
     "policy does."
 )
 
-# Where the executor listens when a caller passes no path. The supervisor binds the same place.
+# Where a deployment names the executor's socket. entrypoint.sh exports this variable, because
+# the container binds the socket outside the agent's home: write rights on a parent directory
+# allow a rename of any entry inside it, so a socket directory the agent can write is a socket
+# the agent can replace. Nothing read the variable before #38, and the tool then looked in the
+# agent's home while the executor listened under /run. That is a broken deployment rather than a
+# refusal, and it reads as one now.
+EXECUTOR_SOCKET_ENV = "NANOINFRA_EXECUTOR_SOCKET"
+
+# Where the executor listens when no deployment names a path. The supervisor binds the same place.
 DEFAULT_SOCKET_NAME = "executor.sock"
 
 
 def default_socket_path() -> Path:
+    """The executor socket this deployment uses.
+
+    The environment wins, then the data dir. The same order as the fetcher (#19) and the MCP host
+    (#22), so one deployment describes all three the same way.
+    """
+    import os
+
     from nanoinfra.config.paths import get_data_dir
 
+    named = os.environ.get(EXECUTOR_SOCKET_ENV, "").strip()
+    if named:
+        return Path(named)
     return get_data_dir() / "run" / DEFAULT_SOCKET_NAME
 
 
@@ -208,6 +236,7 @@ class ExecuteOnServerTool(Tool):
 
 __all__ = [
     "DEFAULT_SOCKET_NAME",
+    "EXECUTOR_SOCKET_ENV",
     "PREVIEW_ON_REQUEST_NOTE",
     "PREVIEW_WITHHELD_NOTE",
     "ExecuteOnServerTool",
