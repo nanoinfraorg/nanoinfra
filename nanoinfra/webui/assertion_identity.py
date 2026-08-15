@@ -1,0 +1,289 @@
+"""Who may enter, and who the gateway says they are -- nanoinfraorg/nanoinfra#62.
+
+**Two lists, two jobs.** The proxy's own allowlist decides who reaches the agent at all.
+``gates.approvers`` decides whose approval counts. They are not the same list and they do not
+protect the same thing.
+
+That matters more here than it looks. In trusted-proxy mode the assertion alone authorizes the
+WebSocket handshake and the REST routes, so whoever is admitted gets a chat session with the
+agent, which is ``read`` and ``mutate.local`` in the ``interactive`` context. With a public
+identity provider that is a real exposure: any account that completes the flow with the
+deployment's client id holds a token whose signature, issuer and audience all check out.
+Verification is doing its job correctly and the person is still a stranger. They are not in
+``gates.approvers``, so they cannot approve a remote action, and they can talk to the agent.
+
+So a deployment that configures ``gates.approvers`` and leaves the proxy open has an open
+agent, and the approver list gives no warning, because it was never the list for that job.
+**The gateway therefore does not rely on the operator's proxy configuration for this.** The
+``jwt`` block declares who may enter, the schema refuses a block that names nobody, and
+``allowAnyVerifiedIdentity`` is the only way to open it.
+
+Three things live here:
+
+* ``admit_identity`` is the access decision, and it is pure. No clock, no key, no socket.
+* ``TrustedProxyAuthenticator`` is the one seam the gateway holds. It reads the peer address,
+  the header, the signature and the access rules, and it answers with an identity or with
+  nothing. A failure is never a fall back to the anonymous ``webui`` actor, because a forged
+  token would then buy the privileges of the shared token, which is a downgrade attack.
+* ``describe_trusted_proxy_posture`` is the startup echo. A posture an operator can forget
+  about is a posture that surprises them later.
+"""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, cast
+
+from loguru import logger as _default_log
+
+from nanoinfra.webui.assertion_jwks import JwksSource
+from nanoinfra.webui.assertion_jwt import (
+    AssertionRefusal,
+    AssertionRefusedError,
+    read_key_id,
+    verify_assertion,
+)
+from nanoinfra.webui.http_utils import trusted_proxy_peer_assertion
+
+if TYPE_CHECKING:
+    from nanoinfra.channels.websocket.runtime import TrustedProxyAuthConfig
+
+# How much of an attacker-chosen value reaches a log line. A key id and a claim value both come
+# from a token this gateway has not admitted, so both are truncated and quoted.
+_MAX_LOGGED_CHARS = 128
+
+
+def _short(value: object) -> str:
+    """Quote and shorten a value for a log line.
+
+    ``repr`` is the point rather than the length: a claim value that carried a newline could
+    otherwise forge a second log line, and an operator reading the log would believe it.
+    """
+    text = repr(value)
+    return text if len(text) <= _MAX_LOGGED_CHARS else f"{text[:_MAX_LOGGED_CHARS]}..."
+
+
+@dataclass(frozen=True)
+class AssertionPosture:
+    """What the gateway trusts on this path, for the startup echo.
+
+    ``warn`` is a field rather than a log call, so the text is testable without a logger and
+    one caller decides the level.
+    """
+
+    warn: bool
+    message: str
+
+
+def admit_identity(
+    claims: Mapping[str, Any],
+    *,
+    identity_claim: str,
+    allowed_identities: Sequence[str],
+    required_claims: Mapping[str, str],
+    allow_any_verified_identity: bool,
+) -> str:
+    """Return the identity of a verified token, or raise ``AssertionRefusedError``.
+
+    The rules read together:
+
+    * every entry of ``required_claims`` must match exactly, which covers a whole workspace
+      domain through ``hd`` or a mapped group claim without naming every person;
+    * ``allowed_identities``, when it holds anything, must name the identity;
+    * a rule set that names nobody admits nobody, even though the schema refuses one at load.
+      Two checks, because a config that reached this code by another route must fail closed.
+
+    The comparison is exact. Two spellings are therefore two identities, and the cost is that a
+    provider which emits a different case needs a config that matches. The refusal reports the
+    value it read, so an operator sees that in one log line, and no two accounts of one
+    provider can collapse into one authority.
+    """
+    if not (allowed_identities or required_claims or allow_any_verified_identity):
+        raise AssertionRefusedError(
+            AssertionRefusal.NOT_AN_ADMITTED_IDENTITY,
+            "the trustedProxyAuth block names nobody who may enter",
+        )
+    identity = cast(object, claims.get(identity_claim))
+    if not isinstance(identity, str) or not identity.strip():
+        raise AssertionRefusedError(
+            AssertionRefusal.NO_IDENTITY_CLAIM,
+            f"the token carries no usable {identity_claim} claim",
+        )
+    identity = identity.strip()
+    for name, expected in required_claims.items():
+        present = cast(object, claims.get(name))
+        if present != expected:
+            raise AssertionRefusedError(
+                AssertionRefusal.CLAIM_DOES_NOT_MATCH,
+                f"claim {name} is {_short(present)} and requiredClaims wants {_short(expected)}",
+            )
+    if allowed_identities and identity not in allowed_identities:
+        raise AssertionRefusedError(
+            AssertionRefusal.NOT_AN_ADMITTED_IDENTITY,
+            f"{identity_claim} {_short(identity)} is not in allowedIdentities",
+        )
+    return identity
+
+
+class TrustedProxyAuthenticator:
+    """The one seam that turns a request into an identity, for both assertion formats.
+
+    ``plain`` answers the header value, which is the behaviour every deployment had before
+    #58: the peer address and a non-empty header are the whole check, and the proxy alone
+    decides who reaches the agent. ``jwt`` verifies a signature and applies the access rules.
+
+    An empty answer means "not authenticated on this path". The caller then falls through to
+    the token checks it already had, and a request with no token gets the 401 it would have got
+    with no header at all. So the client learns that it is not authorized and learns no rule.
+    """
+
+    def __init__(
+        self,
+        config: TrustedProxyAuthConfig,
+        *,
+        key_source: JwksSource | None,
+        clock: Callable[[], float] = time.time,
+        log: Any = _default_log,
+    ) -> None:
+        self._config = config
+        self._key_source = key_source
+        self._clock = clock
+        self._log = log
+
+    async def authenticate(self, connection: Any, headers: Any) -> str:
+        """Answer the identity this request proves, or an empty string."""
+        assertion = trusted_proxy_peer_assertion(connection, headers, self._config)
+        if not assertion:
+            return ""
+        if self._config.assertion_format != "jwt":
+            return assertion
+        try:
+            return await self._verified_identity(assertion)
+        except AssertionRefusedError as refusal:
+            # One line per refusal, and the line never carries the token: a log reaches more
+            # accounts than a live credential should. The reason and the value it read are
+            # what an operator needs to fix a misconfigured proxy.
+            self._log.warning(
+                "trusted proxy assertion refused: reason={} detail={}",
+                refusal.reason.value,
+                refusal.detail,
+            )
+            return ""
+
+    async def _verified_identity(self, assertion: str) -> str:
+        if self._key_source is None:
+            # A verifier with no key cannot verify. Refusing is the only safe answer.
+            raise AssertionRefusedError(
+                AssertionRefusal.NO_KEYS_AVAILABLE,
+                "no JWKS source is configured for this gateway",
+            )
+        key_id = read_key_id(assertion)
+        key = await self._key_source.key_for(key_id)
+        if key is None:
+            raise AssertionRefusedError(
+                AssertionRefusal.UNKNOWN_KEY_ID,
+                f"no signing key for kid {_short(key_id)}",
+            )
+        verified = verify_assertion(
+            assertion,
+            public_key=key,
+            issuer=self._config.issuer,
+            audience=self._config.audience,
+            now=self._clock(),
+        )
+        return admit_identity(
+            verified.claims,
+            identity_claim=self._config.identity_claim,
+            allowed_identities=self._config.allowed_identities,
+            required_claims=self._config.required_claims,
+            allow_any_verified_identity=self._config.allow_any_verified_identity,
+        )
+
+
+def build_trusted_proxy_authenticator(
+    config: Any,
+    *,
+    log: Any = _default_log,
+) -> TrustedProxyAuthenticator | None:
+    """Build the authenticator for a channel config, or None when no proxy is configured.
+
+    The key source follows the config: a fetch with a TTL cache for ``jwksUrl``, and the keys
+    an operator wrote for ``jwks``. A ``plain`` block needs no key at all.
+    """
+    from nanoinfra.webui.assertion_jwks import HttpJwksSource, StaticJwksSource
+
+    proxy = cast(Any, getattr(config, "trusted_proxy_auth", None))
+    if proxy is None:
+        return None
+    # Every read below fails closed. A block with no ``assertionFormat`` is read as ``jwt``,
+    # because reading it as ``plain`` would trust an unverified header. A ``jwt`` block with no
+    # key source gets none, and the authenticator then refuses every assertion. The schema
+    # makes both cases impossible, so this is the second lock rather than the first.
+    assertion_format = str(cast(object, getattr(proxy, "assertion_format", "jwt")))
+    key_source: JwksSource | None = None
+    if assertion_format == "jwt":
+        static_keys = cast(object, getattr(proxy, "jwks", None))
+        url = str(cast(object, getattr(proxy, "jwks_url", "")) or "")
+        if static_keys is not None:
+            key_source = StaticJwksSource(static_keys)
+        elif url:
+            key_source = HttpJwksSource(url, log=log)
+    return TrustedProxyAuthenticator(
+        cast("TrustedProxyAuthConfig", proxy),
+        key_source=key_source,
+        log=log,
+    )
+
+
+def describe_trusted_proxy_posture(config: TrustedProxyAuthConfig | None) -> AssertionPosture:
+    """Say what this gateway trusts about an identity, in one line, at every start.
+
+    The line names counts rather than identities. A log is shipped elsewhere often enough that
+    an address list in it is a leak nobody chose.
+    """
+    if config is None:
+        return AssertionPosture(
+            warn=False,
+            message=(
+                "identity: no trusted proxy is configured, so the WebUI actor stays the path "
+                'name "webui" and an approver entry must name that path'
+            ),
+        )
+    if config.assertion_format != "jwt":
+        return AssertionPosture(
+            warn=True,
+            message=(
+                'identity: trustedProxyAuth assertionFormat is "plain", so the assertion '
+                f"header {config.assertion_header} is read and never verified, and the proxy "
+                "alone decides who reaches the agent"
+            ),
+        )
+    if config.allow_any_verified_identity:
+        return AssertionPosture(
+            warn=True,
+            message=(
+                "identity: trustedProxyAuth has allowAnyVerifiedIdentity set, so every "
+                f"identity that {config.issuer} signs for audience {config.audience} may "
+                "reach the agent"
+            ),
+        )
+    return AssertionPosture(
+        warn=False,
+        message=(
+            f"identity: trustedProxyAuth verifies a jwt from {config.issuer}, reads the "
+            f"{config.identity_claim} claim, and admits "
+            f"{len(config.allowed_identities)} named identities and "
+            f"{len(config.required_claims)} required claims"
+        ),
+    )
+
+
+__all__ = [
+    "AssertionPosture",
+    "TrustedProxyAuthenticator",
+    "admit_identity",
+    "build_trusted_proxy_authenticator",
+    "describe_trusted_proxy_posture",
+]

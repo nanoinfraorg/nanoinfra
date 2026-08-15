@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import ast
 import collections
-import ipaddress
 import json
 import socket
 import threading
@@ -37,7 +36,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from websockets.datastructures import Headers
 
-from nanoinfra.channels.websocket.runtime import WebSocketConfig
+from nanoinfra.channels.websocket.runtime import TrustedProxyAuthConfig, WebSocketConfig
 from nanoinfra.config.gates import GatesConfig
 from nanoinfra.gates.executor.operator_socket import (
     ApprovalService,
@@ -510,6 +509,22 @@ def _connection() -> Any:
     )
 
 
+def _plain_proxy_block(cidr: str) -> TrustedProxyAuthConfig:
+    """A ``plain`` trusted-proxy block, which is the posture these two tests measure.
+
+    ``plain`` keeps the trust every deployment had before #58: the peer address and a non-empty
+    header, with no signature. The verified ``jwt`` posture has its own tests in
+    ``tests/webui/test_assertion_identity.py``.
+    """
+    return TrustedProxyAuthConfig.model_validate(
+        {
+            "trustedPeerCidrs": [cidr],
+            "assertionHeader": "Cf-Access-Authenticated-User-Email",
+            "assertionFormat": "plain",
+        }
+    )
+
+
 def _body(response: Any) -> dict[str, Any]:
     return json.loads(bytes(response.body).decode("utf-8"))
 
@@ -705,11 +720,10 @@ async def test_the_answer_route_takes_the_actor_from_the_trusted_proxy(
     )
     request.headers["Cf-Access-Authenticated-User-Email"] = "ops@example.com"
     # The peer check runs inside dispatch, so the test configures a real trusted network. A
-    # header alone must not name an operator.
-    handler.config.trusted_proxy_auth = SimpleNamespace(
-        assertion_header="Cf-Access-Authenticated-User-Email",
-        _trusted_peer_networks=(ipaddress.ip_network("127.0.0.1/32"),),
-    )
+    # header alone must not name an operator. The block is the real config type, because #61
+    # made assertionFormat decide whether the assertion is verified, and a stub without that
+    # field would hide which posture this test measures.
+    handler.config.trusted_proxy_auth = _plain_proxy_block("127.0.0.1/32")
 
     response = await handler.dispatch(_connection(), request)
 
@@ -738,10 +752,7 @@ async def test_an_untrusted_peer_cannot_name_the_operator(
         },
     )
     request.headers["Cf-Access-Authenticated-User-Email"] = "ops@example.com"
-    handler.config.trusted_proxy_auth = SimpleNamespace(
-        assertion_header="Cf-Access-Authenticated-User-Email",
-        _trusted_peer_networks=(ipaddress.ip_network("10.9.9.9/32"),),
-    )
+    handler.config.trusted_proxy_auth = _plain_proxy_block("10.9.9.9/32")
 
     response = await handler.dispatch(_connection(), request)
 

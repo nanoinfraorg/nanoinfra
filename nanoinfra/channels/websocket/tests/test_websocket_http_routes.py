@@ -3472,50 +3472,68 @@ def _trusted_proxy_config(
     *,
     assertion_header: str = "Cf-Access-Jwt-Assertion",
 ) -> dict[str, Any]:
+    """A ``plain`` block, which is the posture these tests measure.
+
+    #61 made ``jwt`` the default ``assertionFormat``, and a ``jwt`` block verifies a signature
+    against a JWKS. Every test below sends an opaque string, so ``plain`` is the format they
+    describe. The verified posture has its own tests in ``tests/webui/test_assertion_identity.py``
+    and ``tests/channels/test_trusted_proxy_jwt_admission.py``.
+    """
     return {
         "trustedProxyAuth": {
             "trustedPeerCidrs": cidrs or ["127.0.0.1/32"],
             "assertionHeader": assertion_header,
+            "assertionFormat": "plain",
         }
     }
 
 
-def test_trusted_proxy_requires_non_empty_assertion(bus: MagicMock) -> None:
+async def _bootstrap(channel: WebSocketChannel, connection: Any, headers: dict[str, str]) -> Any:
+    """Reach the bootstrap route the way a client does, through ``dispatch``.
+
+    ``dispatch`` is the one place that decides whether a trusted proxy authenticated this
+    request, because a `jwt` assertion needs a key and therefore an await (#58). The route reads
+    the answer instead of repeating the check, so a test that called the route directly would
+    measure a request nothing had authenticated.
+    """
+    return await channel.gateway.http.dispatch(
+        connection,
+        _FakeReq(headers, path="/webui/bootstrap"),
+    )
+
+
+async def test_trusted_proxy_requires_non_empty_assertion(bus: MagicMock) -> None:
     channel = _ch(bus, **_trusted_proxy_config())
     for assertion in (None, "", "   "):
         headers = {"Cf-Access-Jwt-Assertion": assertion} if assertion is not None else {}
-        resp = channel.gateway.http._handle_bootstrap(_LOCAL, _FakeReq(headers))
+        resp = await _bootstrap(channel, _LOCAL, headers)
         assert resp.status_code == 403
 
 
-def test_trusted_proxy_rejects_untrusted_peer_spoof(bus: MagicMock) -> None:
+async def test_trusted_proxy_rejects_untrusted_peer_spoof(bus: MagicMock) -> None:
     channel = _ch(bus, **_trusted_proxy_config())
-    resp = channel.gateway.http._handle_bootstrap(
-        _REMOTE,
-        _FakeReq({"Cf-Access-Jwt-Assertion": "spoofed"}),
-    )
+    resp = await _bootstrap(channel, _REMOTE, {"Cf-Access-Jwt-Assertion": "spoofed"})
     assert resp.status_code == 403
 
 
-def test_trusted_proxy_bootstrap_has_no_tokens(
+async def test_trusted_proxy_bootstrap_has_no_tokens(
     bus: MagicMock,
 ) -> None:
     assertion = "opaque-upstream-assertion"
     channel = _ch(bus, **_trusted_proxy_config())
     log = MagicMock()
     channel.gateway.http._log = log
-    resp = channel.gateway.http._handle_bootstrap(
+    resp = await _bootstrap(
+        channel,
         _LOCAL,
-        _FakeReq(
-            {
-                "Host": "nanoinfra.example",
-                "X-Forwarded-For": "203.0.113.42",
-                "Forwarded": "for=203.0.113.42;host=nanoinfra.example",
-                "X-Real-IP": "203.0.113.42",
-                "X-Forwarded-Host": "nanoinfra.example",
-                "Cf-Access-Jwt-Assertion": assertion,
-            }
-        ),
+        {
+            "Host": "nanoinfra.example",
+            "X-Forwarded-For": "203.0.113.42",
+            "Forwarded": "for=203.0.113.42;host=nanoinfra.example",
+            "X-Real-IP": "203.0.113.42",
+            "X-Forwarded-Host": "nanoinfra.example",
+            "Cf-Access-Jwt-Assertion": assertion,
+        },
     )
     assert resp.status_code == 200
     body = resp.body.decode()
@@ -3543,9 +3561,9 @@ async def test_trusted_proxy_authorizes_rest_without_api_token(bus: MagicMock) -
     assert response.status_code == 503
 
 
-def test_trusted_proxy_authorizes_websocket_without_token(bus: MagicMock) -> None:
+async def test_trusted_proxy_authorizes_websocket_without_token(bus: MagicMock) -> None:
     channel = _ch(bus, **_trusted_proxy_config())
-    response = channel._authorize_websocket_handshake(
+    response = await channel._authorize_websocket_handshake(
         _LOCAL,
         {},
         {"Cf-Access-Jwt-Assertion": "present"},
@@ -3554,32 +3572,28 @@ def test_trusted_proxy_authorizes_websocket_without_token(bus: MagicMock) -> Non
     assert _LOCAL in channel._webui_connections
 
 
-def test_forwarding_headers_alone_never_authorize_bootstrap(bus: MagicMock) -> None:
+async def test_forwarding_headers_alone_never_authorize_bootstrap(bus: MagicMock) -> None:
     channel = _ch(bus)
-    resp = channel.gateway.http._handle_bootstrap(
+    resp = await _bootstrap(
+        channel,
         _REMOTE,
-        _FakeReq(
-            {
-                "Host": "nanoinfra.example",
-                "X-Forwarded-For": "127.0.0.1",
-                "Forwarded": "for=127.0.0.1",
-                "X-Real-IP": "127.0.0.1",
-            }
-        ),
+        {
+            "Host": "nanoinfra.example",
+            "X-Forwarded-For": "127.0.0.1",
+            "Forwarded": "for=127.0.0.1",
+            "X-Real-IP": "127.0.0.1",
+        },
     )
     assert resp.status_code == 403
 
 
-def test_trusted_proxy_bypasses_bootstrap_secret_and_tokens(bus: MagicMock) -> None:
+async def test_trusted_proxy_bypasses_bootstrap_secret_and_tokens(bus: MagicMock) -> None:
     channel = _ch(
         bus,
         tokenIssueSecret="route-secret",
         **_trusted_proxy_config(),
     )
-    resp = channel.gateway.http._handle_bootstrap(
-        _LOCAL,
-        _FakeReq({"Cf-Access-Jwt-Assertion": "present"}),
-    )
+    resp = await _bootstrap(channel, _LOCAL, {"Cf-Access-Jwt-Assertion": "present"})
     assert resp.status_code == 200
     payload = json.loads(resp.body)
     assert "token" not in payload
@@ -3600,11 +3614,23 @@ def test_trusted_proxy_matches_ip_versions_and_mapped_peers(
     peer: str,
     cidr: str,
 ) -> None:
-    from nanoinfra.webui.http_utils import is_trusted_proxy_authenticated_request
+    """The peer check alone, which answers the raw assertion and never an admission.
+
+    #58 renamed this function, because the old name said "authenticated" about a check that
+    only proves where the packet came from.
+    """
+    from nanoinfra.webui.http_utils import trusted_proxy_peer_assertion
 
     config = WebSocketConfig.model_validate(_trusted_proxy_config([cidr]))
     request = _FakeReq({"Cf-Access-Jwt-Assertion": "present"})
-    assert is_trusted_proxy_authenticated_request(_FakeConn((peer, 12345)), request.headers, config)
+    assert (
+        trusted_proxy_peer_assertion(
+            _FakeConn((peer, 12345)),
+            request.headers,
+            config.trusted_proxy_auth,
+        )
+        == "present"
+    )
 
 
 @pytest.mark.parametrize(
