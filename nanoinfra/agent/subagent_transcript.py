@@ -29,7 +29,7 @@ from typing import Any, Callable, Iterable, Mapping, cast
 
 from loguru import logger
 
-from nanoinfra.agent.redaction import TranscriptRedactor
+from nanoinfra.agent.redaction import TRANSCRIPT_TOOL_RESULT_MAX_CHARS, TranscriptRedactor
 from nanoinfra.runtime_context import public_history_messages
 from nanoinfra.session.history_visibility import is_hidden_history_message
 from nanoinfra.utils.helpers import ensure_dir, timestamp
@@ -99,7 +99,16 @@ class SubagentTranscriptStore:
         for message in public_history_messages(messages):
             if is_hidden_history_message(message):
                 continue
-            redacted = redactor.message(message, capability_of=capability_of)
+            # This store asks for the bound, and it is the only store that does (#56). A subagent
+            # transcript is written once and read by a person or by the main agent, and no other
+            # pass bounds it. The main transcript is the opposite case: `AgentLoop` applies
+            # `AgentDefaults.max_tool_result_chars` itself, so it asks for none here and two bounds
+            # never truncate one string twice.
+            redacted = redactor.message(
+                message,
+                capability_of=capability_of,
+                max_tool_result_chars=TRANSCRIPT_TOOL_RESULT_MAX_CHARS,
+            )
             record = {
                 key: value
                 for key, value in redacted.items()

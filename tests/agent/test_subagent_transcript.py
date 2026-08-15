@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from nanoinfra.agent.redaction import TRANSCRIPT_TOOL_RESULT_MAX_CHARS
 from nanoinfra.agent.subagent_transcript import (
     SubagentTranscriptStore,
 )
@@ -271,3 +272,33 @@ async def test_write_without_o_nofollow_attribute(
     store.write("abc12345", _messages({"role": "user", "content": "hi"}))
     assert store.path_for("abc12345").exists()
     assert store.read("abc12345")[0]["content"] == "hi"
+
+
+async def test_a_long_tool_result_is_bounded(store: SubagentTranscriptStore) -> None:
+    """This store is the one that asks the redaction module for a bound (#56).
+
+    It asked for it through a default parameter, so a change of that default would have made
+    every subagent transcript hold whole tool outputs and nobody would have noticed. The call
+    names the value now, and this test fails if somebody removes it.
+
+    The main transcript is the opposite case: `AgentLoop` bounds a session record itself, with a
+    budget four times this one, so it asks the redaction module for none.
+    """
+    long_output = "x" * (TRANSCRIPT_TOOL_RESULT_MAX_CHARS * 3)
+
+    store.write(
+        "bounded1",
+        _messages(
+            {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "name": "execute_on_server",
+                "content": long_output,
+            }
+        ),
+    )
+    records = store.read("bounded1")
+
+    content = str(records[0]["content"])
+    assert len(content) < len(long_output)
+    assert "chars truncated from output" in content
