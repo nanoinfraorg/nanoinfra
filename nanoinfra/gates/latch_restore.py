@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from loguru import logger
@@ -173,13 +174,28 @@ def _key(record: dict[str, Any]) -> tuple[str, str] | None:
 
 
 def _timestamp(record: dict[str, Any]) -> float:
+    """Read the denial time as a POSIX timestamp.
+
+    `AuditStore.record` writes `ts` as an ISO-8601 string, so a plain `float()` gave every
+    restored latch the epoch. The #28 banner shows this time to an operator, and a 1970 time
+    hides how old the block is.
+
+    A numeric `ts` also parses, because an older segment may hold one.
+    """
     raw = record.get("ts")
-    try:
-        return float(raw)  # pyright: ignore[reportArgumentType]
-    except (TypeError, ValueError):
-        # A record with no usable timestamp still latches. The pair matters, and the time is
-        # only shown to an operator.
-        return 0.0
+    if isinstance(raw, int | float):
+        return float(raw)
+    if isinstance(raw, str):
+        try:
+            moment = datetime.fromisoformat(raw)
+        except ValueError:
+            return 0.0
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        return moment.timestamp()
+    # A record with no usable timestamp still latches. The pair matters, and the time only
+    # reaches an operator.
+    return 0.0
 
 
 __all__ = ["RestoredLatches", "restore_latches"]

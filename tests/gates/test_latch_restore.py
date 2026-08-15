@@ -14,6 +14,7 @@ cannot un-append a line.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from nanoinfra.agent.tools.capabilities import CREDENTIAL_ACCESS, MUTATE_REMOTE
@@ -314,3 +315,49 @@ def test_restored_latches_is_immutable_from_the_gate_side() -> None:
 
     assert not hasattr(restored, "clear")
     assert not hasattr(restored, "clear_session")
+
+
+def test_a_restored_latch_keeps_the_denial_time(tmp_path: Path) -> None:
+    """The audit log writes `ts` as ISO-8601, so a plain `float()` gave every latch the epoch.
+
+    #28 shows the denial time and the actor in the operator banner. A restored latch that
+    reports 1970 tells the operator nothing, and it also hides how old the block is.
+    """
+    store = _store(tmp_path)
+    moment = datetime(2026, 8, 14, 21, 30, 5, tzinfo=UTC)
+    store.record(
+        decision=LatchEventKind.DENIED.value,
+        capability_class=MUTATE_REMOTE,
+        execution_context="automation",
+        session_id=SESSION,
+        tool="execute_on_server",
+        actor="webui:alberto",
+        reason="no grant",
+        ts=moment,
+    )
+
+    restored = restore_latches(store)
+
+    assert restored.latched[(SESSION, MUTATE_REMOTE)] == moment.timestamp()
+
+
+def test_a_record_with_an_unusable_time_still_latches(tmp_path: Path) -> None:
+    """The pair enforces the block. A bad time must never drop the latch itself."""
+    store = _store(tmp_path)
+    store.record(
+        decision=LatchEventKind.DENIED.value,
+        capability_class=MUTATE_REMOTE,
+        execution_context="automation",
+        session_id=SESSION,
+        tool="execute_on_server",
+        reason="no grant",
+    )
+    segment = next(iter(store.segments()))
+    record = json.loads(segment.read_text(encoding="utf-8").splitlines()[0])
+    record["ts"] = "not a time"
+    segment.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    restored = restore_latches(store)
+
+    assert restored.is_latched(SESSION, MUTATE_REMOTE)
+    assert restored.latched[(SESSION, MUTATE_REMOTE)] == 0.0
