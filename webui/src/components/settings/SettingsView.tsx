@@ -69,6 +69,7 @@ import {
   SIDEBAR_SELECTION_ITEM_CLASS,
   SidebarSelectionHighlight,
 } from "@/components/SidebarSelectionHighlight";
+import { GatesAuditLog } from "@/components/settings/GatesAuditLog";
 import { GatesSettings } from "@/components/settings/GatesSettings";
 import { SkillsCatalogSettings } from "@/components/settings/SkillsCatalogSettings";
 import { TokenUsageHeatmap } from "@/components/settings/TokenUsageHeatmap";
@@ -2303,6 +2304,7 @@ export function SettingsView({
               requiresRestartPending={pendingRestartSections.runtime}
             />
             <GatesSettings token={token} settings={settings} onSaved={applyPayload} />
+            <GatesAuditLog token={token} />
           </div>
         );
       default:
