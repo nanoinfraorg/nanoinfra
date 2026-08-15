@@ -911,6 +911,145 @@
       "selectProvider": "选择提供商",
       "configureProvider": "配置提供商",
       "languageAuto": "自动"
+    },
+    "gates": {
+      "title": "能力门禁",
+      "columns": {
+        "policy": "策略"
+      },
+      "context": {
+        "interactive": "交互",
+        "unattended": "无人值守"
+      },
+      "rows": {
+        "remote": "远程执行",
+        "inventory": "清单写入",
+        "secret": "读取机密"
+      },
+      "scope": {
+        "host": "单台主机",
+        "group": "主机组",
+        "all": "所有主机"
+      },
+      "decision": {
+        "allow": "允许",
+        "approve": "审批",
+        "grant": "仅常设授权",
+        "deny": "拒绝"
+      },
+      "defaultMarker": "默认",
+      "defaultMarkerTitle": "该值来自出厂默认值，没有运维人员设置过它。",
+      "fixed": "固定",
+      "notes": {
+        "allScope": "所有主机只有一个取值。本设计没有在运行时扩大到无限范围的路径。",
+        "grantDecision": "仅常设授权只在常设授权与操作匹配时放行。除此之外没有任何方式放行无人值守的远程命令。",
+        "singlePath": "已配置的已认证通道少于两条。此时对主机组的操作没有运行时审批通道。请在下方添加一条通道，或声明一条常设授权。"
+      },
+      "approvers": {
+        "title": "审批人",
+        "empty": "没有审批人。运行时没有运维人员可以批准操作，因此审批决定会拒绝该操作。",
+        "channel": "渠道",
+        "sender": "发送者",
+        "add": "添加审批人",
+        "remove": "删除审批人",
+        "note": "出现在某渠道的 allowFrom 列表中不会在此授予任何权限。谁可以审批只由这份列表决定。"
+      },
+      "paths": {
+        "title": "已认证通道",
+        "empty": "没有已认证通道。没有通道能承载审批，因此每个审批决定都会拒绝该操作。",
+        "field": "已认证通道",
+        "add": "添加通道",
+        "remove": "删除通道",
+        "note": "通道指向具备会话概念的渠道。两条通道可避免同一个账号同时完成审批的两端。"
+      },
+      "grants": {
+        "title": "常设授权",
+        "empty": "没有常设授权。任何自动化都不能执行远程命令。",
+        "hosts": "主机",
+        "commands": "命令",
+        "add": "添加常设授权",
+        "remove": "删除常设授权",
+        "note": "常设授权只放行远程命令，不能放行清单写入。"
+      },
+      "grantEditor": {
+        "title": "常设授权",
+        "description": "常设授权只在指定主机上放行一条完全一致的命令，不放行其他任何操作。",
+        "appliesTo": "适用于",
+        "hostField": "主机",
+        "addHost": "添加主机",
+        "hostNote": "这些名称来自清单记录。门禁在运行时比较解析后的地址，而不是名称。",
+        "commandField": "命令",
+        "addCommand": "添加命令",
+        "commandNote": "仅完全匹配。此字段不是模式。相差一个字符的命令即不匹配。",
+        "removeValue": "删除{{field}} {{index}}",
+        "needContext": "请至少选择一个上下文。",
+        "needHost": "请至少填写一台主机。",
+        "needCommand": "请至少填写一条命令。",
+        "commit": "添加授权"
+      },
+      "audit": {
+        "title": "审计",
+        "retention": "保留记录",
+        "retentionHelp": "门禁按此天数保留每条决定。",
+        "days": "天",
+        "fullText": "记录完整命令文本",
+        "fullTextWarning": "解析后的命令常常包含机密，日志随之也会保存它们。",
+        "logTitle": "门禁决定",
+        "subtitle": "每条门禁决定对应一条记录，最新的在前。日志只追加，因此此视图只读。",
+        "filter": {
+          "decision": "决定",
+          "class": "类别",
+          "context": "上下文",
+          "range": "时间范围",
+          "any": "全部"
+        },
+        "range": {
+          "any": "所有记录",
+          "days": "最近 {{count}} 天"
+        },
+        "column": {
+          "time": "时间",
+          "decision": "决定",
+          "class": "类别",
+          "context": "上下文",
+          "target": "目标",
+          "hosts": "主机"
+        },
+        "samePath": "请求与审批来自同一条渠道。",
+        "samePathNote": "请求与审批来自同一条渠道。一个账号被攻破即可同时掌握两端。",
+        "textWarning": "完整命令文本已开启，因此这条记录可能包含机密。",
+        "empty": "没有决定符合这些筛选条件。门禁仍会记录它做出的每条决定，放宽时间范围可能会显示记录。",
+        "unreachable": "此网关无法读取审计日志。门禁可能仍在执行每条决定，请把这里当作缺失的视图，而不是空日志。",
+        "truncated": "共 {{total}} 条匹配记录，正在显示 {{shown}} 条。请收窄筛选条件以查看其余记录。",
+        "field": {
+          "ts": "时间",
+          "decision": "决定",
+          "reason": "原因",
+          "class": "能力类别",
+          "context": "执行上下文",
+          "session": "会话",
+          "tool": "工具",
+          "actor": "操作者",
+          "origin": "来源通道",
+          "approval": "审批通道",
+          "scope": "范围",
+          "grant": "常设授权",
+          "hosts": "解析后的目标",
+          "digest": "命令摘要",
+          "nonce": "令牌随机数",
+          "exit": "退出码",
+          "duration": "耗时"
+        }
+      },
+      "status": {
+        "saved": "已保存。网关将在重启后读取新策略。",
+        "unsaved": "策略有未保存的更改。"
+      },
+      "actions": {
+        "save": "保存策略",
+        "discard": "放弃更改",
+        "cancel": "取消"
+      }
     }
   },
   "chat": {
@@ -1269,6 +1408,24 @@
       "noResults": "没有匹配的提示词。",
       "jumpTo": "跳转到提示词：{{label}}",
       "railAria": "用户提示词导航"
+    },
+    "latch": {
+      "title": "{{label}} 已在本会话中锁定。",
+      "deniedAtBy": "{{by}} 于 {{at}} 拒绝。",
+      "deniedAt": "于 {{at}} 被拒绝。",
+      "deniedUnknownTimeBy": "由 {{by}} 在审计日志未记录的时间拒绝。",
+      "deniedUnknownTime": "在审计日志未记录的时间被拒绝。",
+      "refusedNone": "暂无被拒绝的尝试。",
+      "refusedOne": "此后已拒绝 1 次尝试。",
+      "refusedMany": "此后已拒绝 {{count}} 次尝试。",
+      "mustClear": "在你解除锁定之前，智能体无法再次请求。",
+      "clearRefused": "网关没有解除此锁定，拦截仍然有效。",
+      "clearNoAnswer": "网关没有响应，拦截仍然有效。",
+      "viewAttempts": "查看尝试",
+      "hideAttempts": "隐藏尝试",
+      "clear": "解除",
+      "reason": "原因：{{reason}}",
+      "noAttempts": "审计日志没有尝试详情。"
     }
   },
   "message": {

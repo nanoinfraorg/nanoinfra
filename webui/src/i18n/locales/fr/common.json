@@ -897,6 +897,145 @@
       "selectProvider": "Choisir un fournisseur",
       "configureProvider": "Configurer le fournisseur",
       "languageAuto": "Automatique"
+    },
+    "gates": {
+      "title": "Contrôles de capacité",
+      "columns": {
+        "policy": "Politique"
+      },
+      "context": {
+        "interactive": "Interactif",
+        "unattended": "Sans surveillance"
+      },
+      "rows": {
+        "remote": "Exécution à distance",
+        "inventory": "Écritures d’inventaire",
+        "secret": "Lire un secret"
+      },
+      "scope": {
+        "host": "un hôte",
+        "group": "groupe d’hôtes",
+        "all": "tous les hôtes"
+      },
+      "decision": {
+        "allow": "Autoriser",
+        "approve": "Approuver",
+        "grant": "Concession seule",
+        "deny": "Refuser"
+      },
+      "defaultMarker": "par défaut",
+      "defaultMarkerTitle": "Cette valeur vient d’une valeur par défaut livrée. Aucun opérateur ne l’a définie.",
+      "fixed": "fixe",
+      "notes": {
+        "allScope": "Tous les hôtes n’accepte qu’une seule valeur. Cette conception n’offre aucun chemin d’exécution vers une portée sans limite.",
+        "grantDecision": "Concession seule autorise une action quand une concession permanente correspond. Rien d’autre n’autorise une commande distante sans surveillance.",
+        "singlePath": "Moins de deux chemins authentifiés sont configurés. Une action sur un groupe n’a alors aucun chemin d’approbation à l’exécution. Ajoutez un chemin ci-dessous, ou déclarez une concession permanente."
+      },
+      "approvers": {
+        "title": "Approbateurs",
+        "empty": "Aucun approbateur. Aucun opérateur ne peut approuver une action à l’exécution. Une décision d’approbation refuse alors l’action.",
+        "channel": "Canal",
+        "sender": "Expéditeur",
+        "add": "Ajouter un approbateur",
+        "remove": "Supprimer l’approbateur",
+        "note": "L’appartenance à une liste allowFrom d’un canal n’accorde rien ici. Seule cette liste décide qui peut approuver."
+      },
+      "paths": {
+        "title": "Chemins authentifiés",
+        "empty": "Aucun chemin authentifié. Aucun chemin ne peut porter une approbation, donc chaque décision d’approbation refuse l’action.",
+        "field": "Chemin authentifié",
+        "add": "Ajouter un chemin",
+        "remove": "Supprimer le chemin",
+        "note": "Un chemin nomme un canal qui possède une notion de session. Deux chemins empêchent un seul compte de tenir les deux moitiés d’une approbation."
+      },
+      "grants": {
+        "title": "Concessions permanentes",
+        "empty": "Aucune concession. Aucune automatisation ne peut exécuter une commande distante.",
+        "hosts": "Hôtes",
+        "commands": "Commandes",
+        "add": "Ajouter une concession",
+        "remove": "Supprimer la concession",
+        "note": "Une concession autorise une commande distante et rien d’autre. Elle ne peut pas autoriser une écriture d’inventaire."
+      },
+      "grantEditor": {
+        "title": "Concession permanente",
+        "description": "Une concession autorise une commande exacte sur les hôtes nommés. Elle n’autorise rien d’autre.",
+        "appliesTo": "S’applique à",
+        "hostField": "Hôte",
+        "addHost": "Ajouter un hôte",
+        "hostNote": "Ces noms viennent des enregistrements d’inventaire. Le contrôle compare l’adresse résolue à l’exécution, pas le nom.",
+        "commandField": "Commande",
+        "addCommand": "Ajouter une commande",
+        "commandNote": "Correspondance exacte seulement. Ce champ n’est pas un motif. Une commande qui diffère d’un seul caractère ne correspond pas.",
+        "removeValue": "supprimer {{field}} {{index}}",
+        "needContext": "Sélectionnez un contexte ou plus.",
+        "needHost": "Nommez un hôte ou plus.",
+        "needCommand": "Nommez une commande ou plus.",
+        "commit": "Ajouter la concession"
+      },
+      "audit": {
+        "title": "Audit",
+        "retention": "Conserver les enregistrements",
+        "retentionHelp": "Le contrôle conserve chaque décision pendant ce nombre de jours.",
+        "days": "jours",
+        "fullText": "Enregistrer le texte complet de la commande",
+        "fullTextWarning": "Les commandes résolues contiennent souvent des secrets. Le journal les contient alors aussi.",
+        "logTitle": "Décisions du contrôle",
+        "subtitle": "Un enregistrement par décision du contrôle, le plus récent en premier. Le journal ne fait qu’ajouter, donc cette vue ne fait que lire.",
+        "filter": {
+          "decision": "Décision",
+          "class": "Classe",
+          "context": "Contexte",
+          "range": "Période",
+          "any": "toutes"
+        },
+        "range": {
+          "any": "tous les enregistrements",
+          "days": "{{count}} derniers jours"
+        },
+        "column": {
+          "time": "Heure",
+          "decision": "Décision",
+          "class": "Classe",
+          "context": "Contexte",
+          "target": "Cible",
+          "hosts": "Hôtes"
+        },
+        "samePath": "La demande et l’approbation sont arrivées sur un seul canal.",
+        "samePathNote": "La demande et l’approbation sont arrivées sur un seul canal. Un seul compte compromis tient alors les deux moitiés.",
+        "textWarning": "Le texte complet de la commande est actif, donc cet enregistrement peut contenir un secret.",
+        "empty": "Aucune décision ne correspond à ces filtres. Le contrôle enregistre toujours chaque décision qu’il prend, donc une période plus large peut en montrer une.",
+        "unreachable": "Cette passerelle ne peut pas lire le journal d’audit. Le contrôle applique peut-être encore chaque décision, donc traitez ceci comme une vue absente et non comme un journal vide.",
+        "truncated": "Affichage de {{shown}} enregistrements sur {{total}}. Restreignez les filtres pour voir le reste.",
+        "field": {
+          "ts": "Heure",
+          "decision": "Décision",
+          "reason": "Motif",
+          "class": "Classe de capacité",
+          "context": "Contexte d’exécution",
+          "session": "Session",
+          "tool": "Outil",
+          "actor": "Acteur",
+          "origin": "Chemin d’origine",
+          "approval": "Chemin d’approbation",
+          "scope": "Portée",
+          "grant": "Concession",
+          "hosts": "Cibles résolues",
+          "digest": "Empreinte de la commande",
+          "nonce": "Nonce du jeton",
+          "exit": "Code de sortie",
+          "duration": "Durée"
+        }
+      },
+      "status": {
+        "saved": "Enregistré. La passerelle lit la nouvelle politique après un redémarrage.",
+        "unsaved": "Modifications de politique non enregistrées."
+      },
+      "actions": {
+        "save": "Enregistrer la politique",
+        "discard": "Abandonner",
+        "cancel": "Annuler"
+      }
     }
   },
   "chat": {
@@ -1255,6 +1394,24 @@
       "noResults": "Aucune instruction correspondante.",
       "jumpTo": "Aller à l’instruction : {{label}}",
       "railAria": "Navigation dans les instructions utilisateur"
+    },
+    "latch": {
+      "title": "{{label}} est verrouillé pour cette session.",
+      "deniedAtBy": "Refusé le {{at}} par {{by}}.",
+      "deniedAt": "Refusé le {{at}}.",
+      "deniedUnknownTimeBy": "Refusé par {{by}} à un moment que le journal d’audit n’indique pas.",
+      "deniedUnknownTime": "Refusé à un moment que le journal d’audit n’indique pas.",
+      "refusedNone": "Aucune tentative n’a encore été refusée.",
+      "refusedOne": "1 tentative refusée depuis.",
+      "refusedMany": "{{count}} tentatives refusées depuis.",
+      "mustClear": "L’agent ne peut plus demander avant que vous ne leviez ce verrou.",
+      "clearRefused": "La passerelle n’a pas levé ce verrou. Le blocage tient toujours.",
+      "clearNoAnswer": "La passerelle n’a pas répondu. Le blocage tient toujours.",
+      "viewAttempts": "Voir les tentatives",
+      "hideAttempts": "Masquer les tentatives",
+      "clear": "Lever",
+      "reason": "Motif : {{reason}}",
+      "noAttempts": "Le journal d’audit ne contient aucun détail de tentative."
     }
   },
   "message": {

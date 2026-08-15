@@ -897,6 +897,145 @@
       "selectProvider": "Pilih penyedia",
       "configureProvider": "Konfigurasi penyedia",
       "languageAuto": "Otomatis"
+    },
+    "gates": {
+      "title": "Gerbang kapabilitas",
+      "columns": {
+        "policy": "Kebijakan"
+      },
+      "context": {
+        "interactive": "Interaktif",
+        "unattended": "Tanpa pengawasan"
+      },
+      "rows": {
+        "remote": "Eksekusi jarak jauh",
+        "inventory": "Penulisan inventaris",
+        "secret": "Baca sebuah secret"
+      },
+      "scope": {
+        "host": "satu host",
+        "group": "grup host",
+        "all": "semua host"
+      },
+      "decision": {
+        "allow": "Izinkan",
+        "approve": "Setujui",
+        "grant": "Hanya izin tetap",
+        "deny": "Tolak"
+      },
+      "defaultMarker": "bawaan",
+      "defaultMarkerTitle": "Nilai ini berasal dari nilai bawaan produk. Tidak ada operator yang menetapkannya.",
+      "fixed": "tetap",
+      "notes": {
+        "allScope": "Semua host hanya punya satu nilai. Desain ini tidak menyediakan jalur runtime menuju cakupan tanpa batas.",
+        "grantDecision": "Hanya izin tetap mengizinkan sebuah tindakan bila ada izin tetap yang cocok. Tidak ada hal lain yang mengizinkan perintah jarak jauh tanpa pengawasan.",
+        "singlePath": "Jalur terautentikasi yang dikonfigurasi kurang dari dua. Tindakan pada satu grup lalu tidak punya jalur persetujuan saat runtime. Tambahkan satu jalur di bawah, atau nyatakan satu izin tetap."
+      },
+      "approvers": {
+        "title": "Penyetuju",
+        "empty": "Tidak ada penyetuju. Tidak ada operator yang bisa menyetujui tindakan saat runtime. Keputusan setujui lalu menolak tindakan itu.",
+        "channel": "Kanal",
+        "sender": "Pengirim",
+        "add": "Tambahkan penyetuju",
+        "remove": "Hapus penyetuju",
+        "note": "Keanggotaan pada daftar allowFrom sebuah kanal tidak memberi hak apa pun di sini. Hanya daftar ini yang menentukan siapa yang bisa menyetujui."
+      },
+      "paths": {
+        "title": "Jalur terautentikasi",
+        "empty": "Tidak ada jalur terautentikasi. Tidak ada jalur yang bisa membawa persetujuan, jadi setiap keputusan setujui menolak tindakan itu.",
+        "field": "Jalur terautentikasi",
+        "add": "Tambahkan jalur",
+        "remove": "Hapus jalur",
+        "note": "Sebuah jalur menyebut kanal yang punya konsep sesi. Dua jalur mencegah satu akun memegang kedua bagian sebuah persetujuan."
+      },
+      "grants": {
+        "title": "Izin tetap",
+        "empty": "Tidak ada izin tetap. Tidak ada otomatisasi yang boleh menjalankan perintah jarak jauh.",
+        "hosts": "Host",
+        "commands": "Perintah",
+        "add": "Tambahkan izin tetap",
+        "remove": "Hapus izin tetap",
+        "note": "Satu izin tetap mengizinkan perintah jarak jauh dan tidak lebih. Izin itu tidak bisa mengizinkan penulisan inventaris."
+      },
+      "grantEditor": {
+        "title": "Izin tetap",
+        "description": "Satu izin tetap mengizinkan satu perintah persis pada host yang disebut. Izin itu tidak mengizinkan hal lain.",
+        "appliesTo": "Berlaku untuk",
+        "hostField": "Host",
+        "addHost": "Tambahkan host",
+        "hostNote": "Nama ini berasal dari catatan inventaris. Gerbang membandingkan alamat hasil resolusi saat runtime, bukan namanya.",
+        "commandField": "Perintah",
+        "addCommand": "Tambahkan perintah",
+        "commandNote": "Hanya kecocokan persis. Kolom ini bukan pola. Perintah yang berbeda satu karakter tidak cocok.",
+        "removeValue": "hapus {{field}} {{index}}",
+        "needContext": "Pilih satu konteks atau lebih.",
+        "needHost": "Sebutkan satu host atau lebih.",
+        "needCommand": "Sebutkan satu perintah atau lebih.",
+        "commit": "Tambahkan izin tetap"
+      },
+      "audit": {
+        "title": "Audit",
+        "retention": "Simpan catatan",
+        "retentionHelp": "Gerbang menyimpan setiap keputusan selama jumlah hari ini.",
+        "days": "hari",
+        "fullText": "Catat teks perintah lengkap",
+        "fullTextWarning": "Perintah hasil resolusi sering memuat secret. Log lalu ikut memuatnya.",
+        "logTitle": "Keputusan gerbang",
+        "subtitle": "Satu catatan untuk setiap keputusan gerbang, terbaru lebih dulu. Log hanya menambah, jadi tampilan ini hanya membaca.",
+        "filter": {
+          "decision": "Keputusan",
+          "class": "Kelas",
+          "context": "Konteks",
+          "range": "Rentang",
+          "any": "semua"
+        },
+        "range": {
+          "any": "semua catatan",
+          "days": "{{count}} hari terakhir"
+        },
+        "column": {
+          "time": "Waktu",
+          "decision": "Keputusan",
+          "class": "Kelas",
+          "context": "Konteks",
+          "target": "Target",
+          "hosts": "Host"
+        },
+        "samePath": "Permintaan dan persetujuan datang lewat satu kanal.",
+        "samePathNote": "Permintaan dan persetujuan datang lewat satu kanal. Satu akun yang disusupi lalu memegang kedua bagiannya.",
+        "textWarning": "Teks perintah lengkap aktif, jadi catatan ini bisa memuat secret.",
+        "empty": "Tidak ada keputusan yang cocok dengan filter ini. Gerbang tetap mencatat setiap keputusan yang dibuatnya, jadi rentang yang lebih luas bisa menampilkan satu.",
+        "unreachable": "Gateway ini tidak bisa membaca log audit. Gerbang mungkin masih menegakkan setiap keputusan, jadi anggap ini tampilan yang hilang dan bukan log kosong.",
+        "truncated": "Menampilkan {{shown}} dari {{total}} catatan yang cocok. Persempit filter untuk melihat sisanya.",
+        "field": {
+          "ts": "Waktu",
+          "decision": "Keputusan",
+          "reason": "Alasan",
+          "class": "Kelas kapabilitas",
+          "context": "Konteks eksekusi",
+          "session": "Sesi",
+          "tool": "Alat",
+          "actor": "Aktor",
+          "origin": "Jalur asal",
+          "approval": "Jalur persetujuan",
+          "scope": "Cakupan",
+          "grant": "Izin tetap",
+          "hosts": "Target hasil resolusi",
+          "digest": "Digest perintah",
+          "nonce": "Nonce token",
+          "exit": "Kode keluar",
+          "duration": "Durasi"
+        }
+      },
+      "status": {
+        "saved": "Tersimpan. Gateway membaca kebijakan baru setelah dimulai ulang.",
+        "unsaved": "Perubahan kebijakan belum tersimpan."
+      },
+      "actions": {
+        "save": "Simpan kebijakan",
+        "discard": "Buang",
+        "cancel": "Batal"
+      }
     }
   },
   "chat": {
@@ -1255,6 +1394,24 @@
       "noResults": "Tidak ada instruksi yang cocok.",
       "jumpTo": "Lompat ke instruksi: {{label}}",
       "railAria": "Navigasi instruksi pengguna"
+    },
+    "latch": {
+      "title": "{{label}} terkunci untuk sesi ini.",
+      "deniedAtBy": "Ditolak pada {{at}} oleh {{by}}.",
+      "deniedAt": "Ditolak pada {{at}}.",
+      "deniedUnknownTimeBy": "Ditolak oleh {{by}} pada waktu yang tidak disebut log audit.",
+      "deniedUnknownTime": "Ditolak pada waktu yang tidak disebut log audit.",
+      "refusedNone": "Belum ada upaya yang ditolak.",
+      "refusedOne": "1 upaya ditolak sejak itu.",
+      "refusedMany": "{{count}} upaya ditolak sejak itu.",
+      "mustClear": "Agen tidak bisa meminta lagi sampai Anda membuka kunci ini.",
+      "clearRefused": "Gateway tidak membuka kunci ini. Blokirnya masih berlaku.",
+      "clearNoAnswer": "Gateway tidak menjawab. Blokirnya masih berlaku.",
+      "viewAttempts": "Lihat upaya",
+      "hideAttempts": "Sembunyikan upaya",
+      "clear": "Buka kunci",
+      "reason": "Alasan: {{reason}}",
+      "noAttempts": "Log audit tidak memuat detail upaya."
     }
   },
   "message": {

@@ -481,6 +481,137 @@ export interface ProviderOAuthPending {
 export type ProviderOAuthLoginResult = SettingsPayload | ProviderOAuthAuthorizationRequired;
 export type ProviderOAuthCompletionResult = SettingsPayload | ProviderOAuthPending;
 
+/**
+ * Capability gate payloads (nanoinfraorg/nanoinfra#26, #28, #29).
+ *
+ * Every key spelling matches the route payload, so no layer translates a policy key or a
+ * record field. The gateway sends the policy inside ``advanced.gates``.
+ */
+export interface GatesScopePolicy {
+  host: string;
+  group: string;
+  all: string;
+}
+
+export interface GatesContextPolicy {
+  "mutate.remote": GatesScopePolicy;
+  "mutate.inventory": string;
+  "credential.access": string;
+}
+
+export interface GatesApprover {
+  channel: string;
+  sender: string;
+}
+
+export interface GatesStandingGrant {
+  id?: string | null;
+  contexts: string[];
+  hosts: string[];
+  commands: string[];
+}
+
+export interface GatesAuditPolicy {
+  retentionDays: number;
+  recordCommandText: boolean;
+}
+
+export interface GatesPolicy {
+  approvers: GatesApprover[];
+  approvalPaths: string[];
+  interactive: GatesContextPolicy;
+  unattended: GatesContextPolicy;
+  standingGrants: GatesStandingGrant[];
+  audit: GatesAuditPolicy;
+}
+
+export interface GatesPayload {
+  policy: GatesPolicy;
+  from_default: Record<string, boolean>;
+  choices: {
+    "mutate.remote": string[];
+    "mutate.inventory": string[];
+    "credential.access": string[];
+    all: string[];
+  };
+}
+
+export interface GatesLatchAttempt {
+  at: string | null;
+  digest: string | null;
+  tool: string | null;
+}
+
+export interface GatesLatchEntry {
+  attempts: GatesLatchAttempt[];
+  capabilityClass: string;
+  deniedAt: string | null;
+  deniedBy: string | null;
+  reason: string | null;
+  refusals: number;
+  sessionId: string;
+}
+
+export interface GatesLatchPayload {
+  degraded: boolean;
+  latches: GatesLatchEntry[];
+  summary: string;
+}
+
+export interface GatesLatchClearValues {
+  capabilityClass: string;
+  sessionId: string;
+}
+
+export interface GatesLatchClearPayload {
+  cleared?: boolean;
+}
+
+export interface GatesAuditRecord {
+  ts: string | null;
+  sessionId: string | null;
+  executionContext: string | null;
+  originPath: string | null;
+  approvalPath: string | null;
+  samePath: boolean;
+  actor: string | null;
+  capabilityClass: string | null;
+  scope: string | null;
+  hosts: string[];
+  hostCount: number | null;
+  commandDigest: string | null;
+  commandText: string | null;
+  holdsCommandText: boolean;
+  decision: string | null;
+  reason: string | null;
+  grantId: string | null;
+  tokenNonce: string | null;
+  exitCode: number | null;
+  durationMs: number | null;
+  tool: string | null;
+}
+
+export interface GatesAuditPage {
+  records: GatesAuditRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+  recordsCommandText: boolean;
+  choices: {
+    decision: string[];
+    capabilityClass: string[];
+    executionContext: string[];
+  };
+}
+
+/** Audit filters. The route reads them from the query string. */
+export interface GatesAuditQuery {
+  decision?: string;
+  capabilityClass?: string;
+  executionContext?: string;
+  since?: string | null;
+}
+
 export interface SettingsPayload {
   surface?: RuntimeSurface;
   runtime_surface?: RuntimeSurface;
@@ -701,6 +832,8 @@ export interface SettingsPayload {
     exec_sandbox?: string | null;
     exec_path_prepend_set: boolean;
     exec_path_append_set: boolean;
+    /** An older gateway sends no gate block. The gate panel then stays away. */
+    gates?: GatesPayload;
   };
   requires_restart: boolean;
   restart_required_sections?: Array<"runtime" | "browser" | "image">;

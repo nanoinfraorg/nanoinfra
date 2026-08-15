@@ -8,6 +8,12 @@ import type {
   ChatSummary,
   CliAppsPayload,
   FilePreviewPayload,
+  GatesAuditPage,
+  GatesAuditQuery,
+  GatesLatchClearPayload,
+  GatesLatchClearValues,
+  GatesLatchPayload,
+  GatesPolicy,
   ImageGenerationSettingsUpdate,
   McpPresetsPayload,
   MarketplaceProvider,
@@ -48,7 +54,7 @@ import type {
 // folder, used throughout webui/src/components/diagrams/.
 import type { DiagramCatalogPayload } from "@/components/diagrams/componentCatalog";
 import type { Diagram, DiagramSummary } from "@/components/diagrams/diagramTypes";
-import { fetchWithTimeout } from "./http";
+import { DEFAULT_HTTP_TIMEOUT_MS, fetchWithTimeout } from "./http";
 
 const API_READ_TIMEOUT_MS = 20_000;
 const SLASH_COMMAND_LIFECYCLES = new Set<SlashCommandLifecycle>([
@@ -73,6 +79,8 @@ const PROVIDER_VALUES_HEADER = "X-Nanoinfra-Provider-Values";
 const DIAGRAM_VALUES_HEADER = "X-Nanoinfra-Diagram-Values";
 const SECRET_VALUES_HEADER = "X-Nanoinfra-Secret-Values";
 const SERVER_VALUES_HEADER = "X-Nanoinfra-Server-Values";
+const GATES_VALUES_HEADER = "X-Nanoinfra-Gates-Values";
+const LATCH_VALUES_HEADER = "X-Nanoinfra-Latch-Values";
 
 export class ApiError extends Error {
   status: number;
@@ -1116,6 +1124,79 @@ export async function updateTranscriptionSettings(
   return request<SettingsPayload>(
     `${base}/api/settings/transcription/update?${query}`,
     token,
+  );
+}
+
+/**
+ * Capability gate routes (nanoinfraorg/nanoinfra#26, #28, #29).
+ *
+ * Each gate call keeps an explicit timeout. An operator must read a refusal, so a gate request
+ * must not wait for the gateway without a limit.
+ */
+export async function updateGatesPolicy(
+  token: string,
+  policy: GatesPolicy,
+  base: string = "",
+): Promise<SettingsPayload> {
+  return request<SettingsPayload>(
+    `${base}/api/settings/gates/update`,
+    token,
+    {
+      headers: {
+        [GATES_VALUES_HEADER]: encodeURIComponent(JSON.stringify(policy)),
+      },
+    },
+    DEFAULT_HTTP_TIMEOUT_MS,
+  );
+}
+
+export async function fetchGatesLatches(
+  token: string,
+  base: string = "",
+): Promise<GatesLatchPayload> {
+  return request<GatesLatchPayload>(
+    `${base}/api/webui/gates/latches`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function clearGatesLatch(
+  token: string,
+  values: GatesLatchClearValues,
+  base: string = "",
+): Promise<GatesLatchClearPayload> {
+  return request<GatesLatchClearPayload>(
+    `${base}/api/webui/gates/latches/clear`,
+    token,
+    {
+      method: "POST",
+      headers: {
+        [LATCH_VALUES_HEADER]: JSON.stringify(values),
+      },
+    },
+    DEFAULT_HTTP_TIMEOUT_MS,
+  );
+}
+
+/** The audit route reads only. It takes every filter from the query string. */
+export async function fetchGatesAudit(
+  token: string,
+  query: GatesAuditQuery = {},
+  base: string = "",
+): Promise<GatesAuditPage> {
+  const params = new URLSearchParams();
+  if (query.decision) params.set("decision", query.decision);
+  if (query.capabilityClass) params.set("capabilityClass", query.capabilityClass);
+  if (query.executionContext) params.set("executionContext", query.executionContext);
+  if (query.since) params.set("since", query.since);
+  const suffix = params.toString();
+  return request<GatesAuditPage>(
+    `${base}/api/webui/gates/audit${suffix ? `?${suffix}` : ""}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
   );
 }
 

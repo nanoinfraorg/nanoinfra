@@ -1,9 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { GatesAuditLog, type AuditPage, type AuditRecord } from "@/components/settings/GatesAuditLog";
+import { GatesAuditLog } from "@/components/settings/GatesAuditLog";
+import type { GatesAuditPage, GatesAuditRecord } from "@/lib/types";
 
-function record(over: Partial<AuditRecord> = {}): AuditRecord {
+function record(over: Partial<GatesAuditRecord> = {}): GatesAuditRecord {
   return {
     ts: "2026-08-14T14:38:02+00:00",
     sessionId: "s1",
@@ -30,7 +31,7 @@ function record(over: Partial<AuditRecord> = {}): AuditRecord {
   };
 }
 
-function page(records: AuditRecord[], over: Partial<AuditPage> = {}): AuditPage {
+function page(records: GatesAuditRecord[], over: Partial<GatesAuditPage> = {}): GatesAuditPage {
   return {
     records,
     total: records.length,
@@ -46,7 +47,7 @@ function page(records: AuditRecord[], over: Partial<AuditPage> = {}): AuditPage 
   };
 }
 
-function stubFetch(body: AuditPage | null, status = 200) {
+function stubFetch(body: GatesAuditPage | null, status = 200) {
   const fetchMock = vi.fn(async () => ({
     ok: status === 200,
     status,
