@@ -84,6 +84,44 @@ def _gate_latch_summary(runtime: Any) -> str:
     return restore_latches(runtime.audit).summary()
 
 
+def _attach_latch_operator_surface(channels: Any, controller: Any, audit: Any) -> None:
+    """Hand the operator half of the latch to the WebUI routes (#28).
+
+    A denial latches a capability class, and only an operator lifts it. A chat command would
+    let the model ask for its own latch to go away, so the control lives outside the transcript
+    on an authenticated route.
+
+    The controller reaches one object: the HTTP handler that the WebSocket channel owns. It
+    does not reach the agent, and no module-level global holds it. A tool would need this
+    module in its import graph to reach the handler, and #15 exists to keep that graph closed.
+
+    A deployment with no WebUI channel gets no operator surface. The gateway says so, because a
+    latched session then has no control that lifts it.
+    """
+    from nanoinfra.webui.latch_api import LatchOperatorSurface
+
+    surface = LatchOperatorSurface(controller=controller, audit=audit)
+    registry = getattr(channels, "channels", None)
+    # A channel manager with no channel map reaches no WebUI, and a fake one must not break
+    # the boot either. Both cases take the warning below.
+    channel_map = cast("dict[str, Any]", registry) if isinstance(registry, dict) else {}
+    attached = 0
+    for channel in channel_map.values():
+        http = getattr(getattr(channel, "gateway", None), "http", None)
+        attach = getattr(http, "attach_latch_surface", None)
+        if attach is None:
+            continue
+        attach(surface)
+        attached += 1
+    if attached:
+        logger.info("gates: the WebUI holds the operator control that lifts a denial latch")
+    else:
+        logger.warning(
+            "gates: no WebUI channel is enabled, so no operator control can lift a denial "
+            "latch. A latched session stays latched until a gateway with the WebUI runs."
+        )
+
+
 def _signal_name(signum: int) -> str:
     with suppress(ValueError):
         return signal.Signals(signum).name
@@ -428,7 +466,6 @@ def _run_gateway(
     # The gate runtime, built once (#33). latch_controller stays out of the agent: it is
     # the operator half, and #15 splits the halves so no tool path can clear a latch.
     gate_runtime, latch_controller = _build_gate_runtime_for_gateway(config)
-    _ = latch_controller  # #28 gives this an operator surface.
 
     # Create agent with cron service
     agent = AgentLoop.from_config(
@@ -696,6 +733,9 @@ def _run_gateway(
         webui_skill_state_action=_webui_skill_state_action,
         webui_default_llm_runtime=_webui_default_llm_runtime,
     )
+
+    # The operator control for a denial latch (#28). It goes to the WebUI HTTP routes only.
+    _attach_latch_operator_surface(channels, latch_controller, gate_runtime.audit)
 
     def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""

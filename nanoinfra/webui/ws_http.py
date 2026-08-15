@@ -100,6 +100,14 @@ from nanoinfra.webui.http_utils import (
     safe_host_header as _safe_host_header,
 )
 from nanoinfra.webui.ingress_policy import WebUIIngressPolicy
+from nanoinfra.webui.latch_api import (
+    LATCH_CLEAR_PATH,
+    LATCH_READ_PATH,
+    LatchClearError,
+    LatchOperatorSurface,
+    latch_values_from_request,
+    operator_actor,
+)
 from nanoinfra.webui.media_gateway import WebUIMediaGateway
 from nanoinfra.webui.secrets_api import (
     create_webui_secret,
@@ -288,6 +296,10 @@ class GatewayHTTPHandler:
                 "Reconciled {} interrupted server job(s) from a prior restart",
                 reconciled,
             )
+        # The operator half of the denial latch (#28). The gateway attaches it after boot, and
+        # nothing on the agent side can reach it. None means no gate runtime, so the two
+        # latch routes answer 503 rather than an empty list.
+        self.latch: LatchOperatorSurface | None = None
         self.skill_state_action = skill_state_action
         self._skill_install_lock = asyncio.Lock()
         self._title_retry_in_flight: set[str] = set()
@@ -314,6 +326,10 @@ class GatewayHTTPHandler:
             channel_feature_action=channel_feature_action,
             channel_runtime_status=channel_runtime_status,
         )
+
+    def attach_latch_surface(self, surface: LatchOperatorSurface) -> None:
+        """Take the operator half of the denial latch (#28). Only the gateway calls this."""
+        self.latch = surface
 
     def workspace_controls_available(self, connection: Any) -> bool:
         return self._runtime_surface == "native" or _is_localhost(connection)
@@ -392,6 +408,11 @@ class GatewayHTTPHandler:
 
         # Server routes
         response = self._dispatch_server_routes(request, got)
+        if response is not None:
+            return response
+
+        # Latch routes
+        response = self._dispatch_latch_routes(request, got)
         if response is not None:
             return response
 
@@ -1198,6 +1219,32 @@ class GatewayHTTPHandler:
         if not delete_webui_server(self.servers, server_id):
             return _http_error(404, "server not found")
         return _http_json_response({"deleted": True})
+
+    # -- Latch routes -------------------------------------------------------
+
+    def _dispatch_latch_routes(self, request: WsRequest, got: str) -> Response | None:
+        """The read and the clear for a denial latch (#28).
+
+        Both routes need the API token, because the clear is the one control that lifts a
+        terminal denial. A missing surface answers 503 and never an empty list: a WebUI that
+        cannot see the gate must not read as "no session is latched".
+        """
+        if got not in (LATCH_READ_PATH, LATCH_CLEAR_PATH):
+            return None
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if self.latch is None:
+            return _http_error(503, "the gate runtime is not available on this gateway")
+        if got == LATCH_READ_PATH:
+            return _http_json_response(self.latch.payload())
+        values = latch_values_from_request(request)
+        if values is None:
+            return _http_error(400, "invalid latch payload")
+        try:
+            cleared = self.latch.clear(values, actor=operator_actor(request, self.config))
+        except LatchClearError as exc:
+            return _http_error(400, str(exc))
+        return _http_json_response(cleared)
 
     # -- Media routes -------------------------------------------------------
 
