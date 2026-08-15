@@ -32,6 +32,10 @@ Target validation goes through `servers/network_guard.py`, **not** `security/net
 
 **Rule**: Do not widen `network_guard.py` to accept loopback/link-local/metadata, do not route Server execution through `security/network.py` (it blocks RFC1918 and would break the module), and do not add a new provider without a matching `_HOST_FIELDS_BY_PROVIDER` entry plus a case in `tests/servers/execution/test_guard_backend_consistency.py`.
 
+**Rule**: A new capability class needs an entry in the capability manifest (`CAPABILITY_CLASSES` in `agent/tools/capabilities.py`). Every tool in that class must also declare `capability_class`. `capability_class_of()` resolves an unlisted value to `mutate.remote`. A typo therefore fails closed and gates nothing new. Only the CI guard in `tests/agent/tools/test_capabilities.py` catches that typo.
+
+**Rule**: A new execution provider needs a scope-resolver case beside its `_HOST_FIELDS_BY_PROVIDER` entry. The case must map the fields that provider dials to `host`, `group`, or `all`. The reason matches the host-field rule above: a scope nothing resolves is a blast radius nobody bounded. Scope resolution does not exist yet (nanoinfraorg/nanoinfra#4). Add the case with the provider, not after it.
+
 ## Shell Sandbox
 
 `tools/sandbox.py` provides optional command wrapping. The only backend currently shipped is `bwrap` (bubblewrap), intended for containerized deployments. On macOS and bare-metal Linux without `bwrap`, commands run in the native shell with workspace restriction as an application-level guard only.
