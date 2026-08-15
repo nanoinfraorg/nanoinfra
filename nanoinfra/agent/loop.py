@@ -207,6 +207,26 @@ def _redacted_for_session(
     )
 
 
+def _redacted_checkpoint(
+    payload: dict[str, Any], workspace: Path | str | None
+) -> dict[str, Any]:
+    """Scrub stored secret values out of the checkpoint a turn persists (#51).
+
+    The checkpoint is the second path into ``sessions/*.jsonl``, and it carried no redactor.
+    ``for_workspace`` is the same construction ``_redacted_for_session`` uses, so the executor
+    holds the sentinels and this process decrypts nothing (#41).
+
+    The cost is one round trip per text, on top of the round trips the message path already
+    spends for the same texts, and only for a workspace that holds a stored secret. A
+    checkpoint lands on every turn that runs a tool, so that cost is real. It buys the one
+    thing a cheaper answer cannot: the metadata line and the message lines of one file scrub
+    by one rule.
+    """
+    from nanoinfra.agent.redaction import TranscriptRedactor
+
+    return TranscriptRedactor.for_workspace(workspace).checkpoint(payload)
+
+
 class AgentLoop:
     """
     The agent loop is the core processing engine.
@@ -2144,8 +2164,20 @@ class AgentLoop:
         return True
 
     def _set_runtime_checkpoint(self, session: Session, payload: dict[str, Any]) -> None:
-        """Persist the latest in-flight turn state into session metadata."""
-        session.metadata[self._RUNTIME_CHECKPOINT_KEY] = payload
+        """Persist the latest in-flight turn state into session metadata.
+
+        The scrub runs here, and this is the only scrub on this path (#51). The method is the
+        one funnel every emitter passes through: the three call sites in
+        ``nanoinfra/agent/runner.py`` all reach the file through it, so a fourth emitter
+        inherits the scrub rather than forgets it.
+
+        getattr, because a test builds a loop with ``AgentLoop.__new__`` and sets only the
+        fields it exercises. ``_save_turn`` reads the workspace the same way, and the full
+        reason is written there.
+        """
+        session.metadata[self._RUNTIME_CHECKPOINT_KEY] = _redacted_checkpoint(
+            payload, getattr(self, "workspace", None)
+        )
         self.sessions.save(session)
 
     def _mark_pending_user_turn(self, session: Session) -> None:
@@ -2171,7 +2203,14 @@ class AgentLoop:
         )
 
     def _restore_runtime_checkpoint(self, session: Session) -> bool:
-        """Materialize an unfinished turn into session history before a new request."""
+        """Materialize an unfinished turn into session history before a new request.
+
+        The records restore as they are, and no scrub runs here (#51).
+        ``_set_runtime_checkpoint`` scrubbed them before they reached the file, so a scrubbed
+        record restores as itself. A second pass would be a second implementation of one rule,
+        and two implementations of one rule are how two paths start to disagree. It would also
+        spend a round trip per text on the path that runs before the first request of a turn.
+        """
         from datetime import datetime
 
         checkpoint = cast(

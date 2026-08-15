@@ -383,6 +383,13 @@ class SubagentManager:
         logger.info("Subagent [{}] starting task: {}", task_id, label)
 
         async def _on_checkpoint(payload: dict[str, Any]) -> None:
+            # This callback needs no redactor, and the reason is written rather than assumed
+            # (#51). Two values leave the payload: a phase, which the runner picks from a fixed
+            # set of words, and an iteration, which is a number. Neither one can hold a
+            # credential. They land on an in-memory status that the manager drops when the task
+            # ends, so this path reaches no file. The main loop's callback does reach one, and
+            # it scrubs. A field added here that copies text out of the payload needs the same
+            # treatment as that one.
             status.phase = payload.get("phase", status.phase)
             status.iteration = payload.get("iteration", status.iteration)
 
