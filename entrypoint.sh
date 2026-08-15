@@ -14,6 +14,22 @@ ipc_group="nanoinfra-ipc"
 # agent account cannot write it.
 socket_dir="/run/nanoinfra-exec"
 socket_path="$socket_dir/executor.sock"
+
+# The operator socket (#38). The executor suspends an action that needs an approval, and the
+# operator answers here. It is a second socket on purpose: the agent holds the execute socket, so
+# an answer accepted there would let a compromised agent approve its own action.
+#
+# The group gives something up, and that is deliberate. #27 answers from the WebUI, which runs
+# inside the gateway process under the agent's account, so that account must reach this socket. The
+# filesystem half of the split protects nothing on this one path. The answer still crosses a
+# process boundary into the executor, the executor still matches the actor against
+# gates.approvers, and an import closure keeps every tool module away from the client.
+#
+# Its own group, and never nanoinfra-ipc: that one would hand the same reach to the fetcher and to
+# the MCP host, and either one could then approve an action it asked for.
+op_group="nanoinfra-op"
+op_socket_dir="$socket_dir/operator"
+op_socket_path="$op_socket_dir/executor.op.sock"
 # The executor's entry point is fixed by #18. Nothing else about the executor is assumed here.
 executor_module="nanoinfra.gates.executor"
 
@@ -147,6 +163,22 @@ prepare_executor_paths() {
     #   setgid     each new socket inherits group nanoinfra-ipc, so the agent keeps access
     #              after the executor rebinds.
     chmod 2710 "$socket_dir" || return 1
+
+    # The operator socket directory (#38). bind_operator_socket() creates it at 0700 under the
+    # executor account, and the agent could then not traverse it, so the #27 inbox reported
+    # degraded in every container. Root prepares it here instead.
+    mkdir -p "$op_socket_dir" || return 1
+    if getent group "$op_group" >/dev/null 2>&1; then
+        chown "$exec_user:$op_group" "$op_socket_dir" || return 1
+        chmod 2710 "$op_socket_dir" || return 1
+    else
+        # An image built before the group exists keeps the directory closed. A silent 0700 reads
+        # to an operator as an inbox that broke for no reason, so it says what it costs.
+        chown "$exec_user:$exec_user" "$op_socket_dir" || return 1
+        chmod 700 "$op_socket_dir" || return 1
+        echo "[entrypoint] warning: no $op_group group, so no approval can be answered" >&2
+        echo "[entrypoint] warning: an approve decision then waits and refuses" >&2
+    fi
 
     mkdir -p "$workspace" || return 1
     chown nanoinfra:nanoinfra "$workspace" 2>/dev/null || \
@@ -528,6 +560,9 @@ if [ "$(id -u)" = "0" ]; then
         if ! prepare_executor_paths "$workspace"; then
             warn_split_not_enforced "the executor paths could not be prepared"
         elif [ "$run_user" = "nanoinfra" ]; then
+            # The child binds this socket at start, and the agent reads the same variable for
+            # the #27 inbox. So it goes out before the start and not after it.
+            export NANOINFRA_OPERATOR_SOCKET="$op_socket_path"
             start_executor "$workspace"
             if wait_for_socket; then
                 # The executor prepares its own socket directory, and a single-uid host wants
@@ -540,6 +575,14 @@ if [ "$(id -u)" = "0" ]; then
                     echo "[entrypoint] warning: chmod $socket_dir failed"
                 chmod 660 "$socket_path" 2>/dev/null || \
                     echo "[entrypoint] warning: chmod $socket_path failed"
+                # The same treatment for the operator socket. The executor creates it, and a
+                # rebind can narrow the mode. connect() needs the group write bit.
+                chown "$exec_user:$op_group" "$op_socket_dir" "$op_socket_path" 2>/dev/null || \
+                    echo "[entrypoint] warning: chown $op_socket_dir failed"
+                chmod 2710 "$op_socket_dir" 2>/dev/null || \
+                    echo "[entrypoint] warning: chmod $op_socket_dir failed"
+                chmod 660 "$op_socket_path" 2>/dev/null || \
+                    echo "[entrypoint] warning: chmod $op_socket_path failed"
             fi
             # The socket path travels in the environment so the agent's client does not guess
             # it. NANOINFRA_EXECUTOR_EXTERNAL tells the Python side that an executor already
