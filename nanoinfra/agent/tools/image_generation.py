@@ -84,6 +84,8 @@ class ImageGenerationToolConfig(Base):
 class ImageGenerationTool(Tool):
     """Generate persistent image artifacts through the configured image provider."""
 
+    capability_class = "mutate.local"
+
     config_key = "image_generation"
 
     @classmethod

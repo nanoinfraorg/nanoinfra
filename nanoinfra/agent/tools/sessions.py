@@ -103,6 +103,8 @@ class _SessionTool(Tool):
 class SearchSessionsTool(_SessionTool):
     """Find persisted sessions without changing them."""
 
+    capability_class = "read"
+
     @property
     def name(self) -> str:
         return "search_sessions"
@@ -174,6 +176,8 @@ class SearchSessionsTool(_SessionTool):
 )
 class ReadSessionTool(_SessionTool):
     """Read bounded visible history from one persisted session."""
+
+    capability_class = "read"
 
     @property
     def name(self) -> str:

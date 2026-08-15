@@ -48,6 +48,8 @@ if TYPE_CHECKING:
 class SpawnTool(Tool):
     """Tool to spawn a subagent for background task execution."""
 
+    capability_class = "mutate.local"
+
     def __init__(self, manager: "SubagentManager"):
         self._manager = manager
 

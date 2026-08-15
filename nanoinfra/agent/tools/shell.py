@@ -169,6 +169,9 @@ class _PreparedCommand:
 )
 class ExecTool(Tool):
     """Tool to execute shell commands."""
+
+    capability_class = "mutate.local"
+
     _scopes = {"core", "subagent"}
 
     config_key = "exec"

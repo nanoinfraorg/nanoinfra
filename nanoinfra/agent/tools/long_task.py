@@ -132,6 +132,8 @@ class _GoalToolsMixin:
 class CreateGoalTool(Tool, _GoalToolsMixin):
     """Create one explicit sustained objective for the current session."""
 
+    capability_class = "mutate.local"
+
     def __init__(
         self,
         sessions: SessionManager,
@@ -262,6 +264,8 @@ class CreateGoalTool(Tool, _GoalToolsMixin):
 )
 class UpdateGoalTool(Tool, _GoalToolsMixin):
     """Complete, cancel, block, or replace the active sustained goal."""
+
+    capability_class = "mutate.local"
 
     def __init__(
         self,

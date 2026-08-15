@@ -305,6 +305,8 @@ def _diff_summary(before: Diagram, after: Diagram) -> str:
 class ListDiagramsTool(Tool):
     """List saved Infra Diagrams (id, name, targets, node count, last update)."""
 
+    capability_class = "read"
+
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
         return cls(DiagramStore(Path(ctx.workspace)))
@@ -350,6 +352,8 @@ class ListDiagramsTool(Tool):
 class GetDiagramTool(Tool):
     """Fetch one saved diagram's full content (nodes, edges, targets)."""
 
+    capability_class = "read"
+
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
         return cls(DiagramStore(Path(ctx.workspace)))
@@ -379,6 +383,8 @@ class GetDiagramTool(Tool):
 
 class ListDiagramComponentsTool(Tool):
     """Expose the dynamic component catalog (valid componentTypeId/providerId pairs)."""
+
+    capability_class = "read"
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
@@ -447,6 +453,8 @@ class ListDiagramComponentsTool(Tool):
 )
 class UpdateDiagramTool(Tool):
     """Preview (default) or persist a full-replacement update to a saved diagram."""
+
+    capability_class = "mutate.local"
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
@@ -547,6 +555,8 @@ class UpdateDiagramTool(Tool):
 )
 class CreateDiagramTool(Tool):
     """Preview (default) or create a brand-new saved diagram."""
+
+    capability_class = "mutate.local"
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:

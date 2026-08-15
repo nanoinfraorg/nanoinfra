@@ -56,6 +56,8 @@ _CRON_PARAMETERS = tool_parameters_schema(
 class CronTool(Tool):
     """Tool to schedule reminders and recurring tasks."""
 
+    capability_class = "mutate.local"
+
     def __init__(self, cron_service: CronService, default_timezone: str = "UTC"):
         self._cron = cron_service
         self._default_timezone = default_timezone

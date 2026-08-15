@@ -115,6 +115,9 @@ def _format_summary(summary: _PatchSummary) -> str:
 )
 class ApplyPatchTool(_FsTool):
     """Apply file edits by providing structured edit instructions."""
+
+    capability_class = "mutate.local"
+
     _scopes = {"core", "subagent"}
 
     @property

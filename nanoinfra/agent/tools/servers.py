@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from nanoinfra.agent.tools.base import Tool, ToolResult, tool_parameters
+from nanoinfra.agent.tools.capabilities import MUTATE_INVENTORY, record_observation
 from nanoinfra.agent.tools.schema import (
     ArraySchema,
     BooleanSchema,
@@ -43,8 +44,31 @@ _CONFIG_SCHEMA = ObjectSchema(
 )
 
 
+def _record_inventory_observation(tool: str, dry_run: bool, **fields: Any) -> None:
+    """Log-only in M1 (#3): count an inventory write, enforce nothing.
+
+    Inventory writes are ``mutate.inventory`` rather than ``mutate.local`` because
+    update_server replaces ``config`` and ``secretRef`` in full, so one write changes
+    which address a later execute_on_server call reaches. #23 gates this class and #24
+    stops a standing grant from matching a repointed name. Placed after payload
+    validation and before the dry_run branch: an invalid payload never reaches a gate,
+    and a preview is still an inventory call, so only the decision differs.
+
+    No config values are recorded. A config carries hostnames and could carry more
+    later, and #16 keeps this record digest-only by default.
+    """
+    record_observation(
+        capability_class=MUTATE_INVENTORY,
+        decision="preview" if dry_run else "would_gate",
+        tool=tool,
+        **fields,
+    )
+
+
 class ListServersTool(Tool):
     """List inventoried servers."""
+
+    capability_class = "read"
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
@@ -86,6 +110,8 @@ class ListServersTool(Tool):
 )
 class GetServerTool(Tool):
     """Fetch one server's full record, including its secretRef (an id, never a value)."""
+
+    capability_class = "read"
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
@@ -143,6 +169,8 @@ class GetServerTool(Tool):
 class CreateServerTool(Tool):
     """Preview (default) or create a new inventoried server."""
 
+    capability_class = "mutate.inventory"
+
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
         return cls(ServerStore(Path(ctx.workspace)))
@@ -181,6 +209,7 @@ class CreateServerTool(Tool):
             normalize_server_input(raw, server_id="0" * 32)
         except ServerValidationError as exc:
             return ToolResult.error(f"Invalid server payload: {exc}")
+        _record_inventory_observation(self.name, dry_run, server_name=name, provider_id=providerId)
         if dry_run:
             return (
                 f"Preview (not created): name={name!r} providerId={providerId!r} config={config or {}}\n"
@@ -208,6 +237,8 @@ class CreateServerTool(Tool):
 )
 class UpdateServerTool(Tool):
     """Preview (default) or persist a full update to an existing server."""
+
+    capability_class = "mutate.inventory"
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
@@ -248,6 +279,9 @@ class UpdateServerTool(Tool):
             normalize_server_input(raw, server_id=server_id)
         except ServerValidationError as exc:
             return ToolResult.error(f"Invalid server payload: {exc}")
+        _record_inventory_observation(
+            self.name, dry_run, server_id=server_id, server_name=name, provider_id=providerId
+        )
         if dry_run:
             return (
                 f"Preview (not saved): {current.name!r} -> name={name!r} providerId={providerId!r}\n"
@@ -276,6 +310,8 @@ class UpdateServerTool(Tool):
 class DeleteServerTool(Tool):
     """Preview (default) or delete an inventoried server."""
 
+    capability_class = "mutate.inventory"
+
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
         return cls(ServerStore(Path(ctx.workspace)))
@@ -299,6 +335,13 @@ class DeleteServerTool(Tool):
         server = self.store.get(server_id)
         if server is None:
             return ToolResult.error(f"No server with id {server_id!r}.")
+        _record_inventory_observation(
+            self.name,
+            dry_run,
+            server_id=server.id,
+            server_name=server.name,
+            provider_id=server.provider_id,
+        )
         if dry_run:
             return (
                 f"Preview (not deleted): {server.name!r} (provider={server.provider_id!r})\n"
