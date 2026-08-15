@@ -247,6 +247,20 @@ If you suspect a security breach:
 - TLS for Telegram API
 - WhatsApp session secrets stay in the local session database
 
+### The WebUI File Preview Stays Inside The Workspace
+
+The WebUI file preview resolves every path inside the session workspace, plus the media
+directory. It does that whatever `restrictToWorkspace` says, because that setting governs the
+agent's own file tools and the preview is a different capability: it decides what an
+authenticated WebUI client may read off the host.
+
+Those two questions used to share one answer. An operator who turned the tool restriction off
+also granted a remote read of any file the process user could open, including
+`~/.nanoinfra/config.json` with the provider API keys.
+
+Add a read root deliberately when a wider preview is needed. Do not widen the preview by
+turning off a tool restriction.
+
 ### Transcript Redaction Is Best-Effort
 
 nanoinfra removes stored Secret values from the chat transcript, the reasoning-pane

@@ -87,12 +87,21 @@ def _resolve_preview_path(raw_path: str | None, *, scope: WorkspaceScope) -> Pat
         raise WebUIFilePreviewError(400, "path is too long")
 
     try:
-        extra_roots = [get_media_dir()] if scope.restrict_to_workspace else None
+        # Containment is unconditional here, and it does not read
+        # ``scope.restrict_to_workspace``. That setting governs the agent's own file tools.
+        # This route decides what an authenticated WebUI client may read off the host, which is
+        # a different capability. Reading one setting to answer both questions meant that
+        # turning off a tool restriction also granted a remote read of any file the process
+        # user could open, including ~/.nanoinfra/config.json with the provider API keys.
+        #
+        # An operator who needs a wider preview adds a read root deliberately. That is the
+        # capability-specific mechanism .agent/security.md already requires, and it beats a
+        # denylist of sensitive paths, which would be a pattern match rather than a boundary.
         resolved = resolve_allowed_path(
             path,
             workspace=scope.project_path,
-            allowed_root=scope.project_path if scope.restrict_to_workspace else None,
-            extra_allowed_roots=extra_roots,
+            allowed_root=scope.project_path,
+            extra_allowed_roots=[get_media_dir()],
             strict=True,
         )
     except FileNotFoundError as e:
