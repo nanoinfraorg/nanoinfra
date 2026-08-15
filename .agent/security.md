@@ -36,6 +36,14 @@ Target validation goes through `servers/network_guard.py`, **not** `security/net
 
 **Rule**: A new execution provider needs a scope-resolver case beside its `_guard` case. The case must map the fields that provider dials to `host`, `group`, or `all`. The reason matches the host-field rule above: a scope nothing resolves is a blast radius nobody bounded. Scope resolution lives in `servers/scope.py` (nanoinfraorg/nanoinfra#4). Add the case with the provider, not after it.
 
+## Stdio MCP Servers
+
+A stdio MCP server is a subprocess. The MCP host process (`gates/mcp_host/`) starts it, and no other process starts one. `agent/tools/mcp.py` opens one Unix socket per configured stdio server and speaks the host's frame protocol (`gates/mcp_host/protocol.py`). The agent sends a server name. The host reads the command, the arguments, the environment, and the working directory from its own config, so the agent cannot choose a program. One connection holds one session, and the stdio child dies with its connection, so a dead agent leaves no orphan server.
+
+The host refuses every configured server that is not stdio (`load_stdio_settings`), and it imports no HTTP client. HTTP and SSE MCP transports stay in the agent behind the SSRF guards above, and nanoinfraorg/nanoinfra#22 changed nothing about them. The fetcher holds no part of this: it imports neither the MCP SDK nor `gates/mcp_host`, so "the fetcher cannot exec" stays literally true.
+
+**Rule**: Keep the exec right in `gates/mcp_host/server.py`. Do not add a command, argv, env, or cwd field to `gates/mcp_host/protocol.py`, because that hands the agent an exec right by proxy. Do not import `gates/mcp_host/server.py` or `gates/mcp_host/supervisor.py` from the agent. `tests/gates/test_mcp_host_isolation.py` and `tests/gates/test_fetcher_isolation.py` assert both halves.
+
 ## Shell Sandbox
 
 `tools/sandbox.py` provides optional command wrapping. The only backend currently shipped is `bwrap` (bubblewrap), intended for containerized deployments. On macOS and bare-metal Linux without `bwrap`, commands run in the native shell with workspace restriction as an application-level guard only.

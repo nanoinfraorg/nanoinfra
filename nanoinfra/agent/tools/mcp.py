@@ -1,11 +1,18 @@
-"""MCP client: connects to MCP servers and wraps their tools as native nanoinfra tools."""
+"""MCP client: connects to MCP servers and wraps their tools as native nanoinfra tools.
+
+Stdio MCP servers run in the MCP host process after nanoinfraorg/nanoinfra#22. A stdio server is a
+subprocess, and this module holds no exec right. It asks the host for a session over a Unix domain
+socket, and the host reads the command from its own config. So the agent names a server and never a
+program. ``tests/gates/test_mcp_host_isolation.py`` walks this file and asserts that.
+
+HTTP and SSE transports did not move. They stay here behind the SSRF guards of
+``.agent/security.md``, and #22 changed nothing about them.
+"""
 
 import asyncio
 import hashlib
 import json
-import os
 import re
-import shutil
 import urllib.parse
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack, suppress
@@ -24,6 +31,7 @@ from nanoinfra.bus.events import (
     InboundMessage,
 )
 from nanoinfra.bus.queue import MessageBus
+from nanoinfra.gates.mcp_host.client import open_stdio_session
 from nanoinfra.security.network import (
     PinnedDNSAsyncTransport,
     env_proxy_applies_to_url,
@@ -34,8 +42,16 @@ from nanoinfra.security.network import (
 from nanoinfra.utils.cancellation import task_is_cancelling
 
 if TYPE_CHECKING:
-    from mcp import ClientSession
-    from mcp.types import Prompt, Resource
+    from mcp.types import (
+        CallToolResult,
+        GetPromptResult,
+        ListPromptsResult,
+        ListResourcesResult,
+        ListToolsResult,
+        Prompt,
+        ReadResourceResult,
+        Resource,
+    )
     from mcp.types import Tool as MCPToolDefinition
 
     from nanoinfra.config.schema import MCPServerConfig
@@ -54,8 +70,6 @@ _TRANSIENT_EXC_NAMES: frozenset[str] = frozenset((
     "ConnectionError",
 ))
 
-_WINDOWS_SHELL_LAUNCHERS: frozenset[str] = frozenset(("npx", "npm", "pnpm", "yarn", "bunx"))
-
 # Characters allowed in tool names by model providers (Anthropic, OpenAI, etc.).
 # Replace anything outside [a-zA-Z0-9_-] with underscore and collapse runs.
 _SANITIZE_RE = re.compile(r"_+")
@@ -65,6 +79,31 @@ _ReconnectCallback = Callable[[str, str, Tool], Awaitable[Tool | None]]
 
 class MCPConnection(Protocol):
     async def aclose(self) -> None: ...
+
+
+class MCPSession(Protocol):
+    """The part of an MCP session the wrappers call.
+
+    An HTTP or SSE server gives the SDK's ``ClientSession``. A stdio server gives the MCP host's
+    session, which speaks to that process over a socket and returns the same SDK result models.
+    The wrappers must not tell the two apart.
+    """
+
+    async def list_tools(self) -> "ListToolsResult": ...
+
+    async def list_resources(self) -> "ListResourcesResult": ...
+
+    async def list_prompts(self) -> "ListPromptsResult": ...
+
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any] | None = None
+    ) -> "CallToolResult": ...
+
+    async def read_resource(self, uri: Any) -> "ReadResourceResult": ...
+
+    async def get_prompt(
+        self, name: str, arguments: dict[str, str] | None = None
+    ) -> "GetPromptResult": ...
 
 
 class _OwnedMCPConnection:
@@ -269,42 +308,6 @@ async def _validate_mcp_request_url(request: httpx.Request) -> None:
         )
 
 
-def _windows_command_basename(command: str) -> str:
-    """Return the lowercase basename for a Windows command or path."""
-    return command.replace("\\", "/").rsplit("/", maxsplit=1)[-1].lower()
-
-
-def _normalize_windows_stdio_command(
-    command: str,
-    args: list[str] | None,
-    env: dict[str, str] | None,
-) -> tuple[str, list[str], dict[str, str] | None]:
-    """Wrap Windows shell launchers so MCP stdio servers start reliably."""
-    normalized_args = list(args or [])
-    if os.name != "nt":
-        return command, normalized_args, env
-
-    basename = _windows_command_basename(command)
-    if basename in {"cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe"}:
-        return command, normalized_args, env
-
-    if basename.endswith((".exe", ".com")):
-        return command, normalized_args, env
-
-    resolved = shutil.which(command, path=(env or {}).get("PATH")) or command
-    resolved_basename = _windows_command_basename(resolved)
-    should_wrap = (
-        basename in _WINDOWS_SHELL_LAUNCHERS
-        or basename.endswith((".cmd", ".bat"))
-        or resolved_basename.endswith((".cmd", ".bat"))
-    )
-    if not should_wrap:
-        return command, normalized_args, env
-
-    comspec = (env or {}).get("COMSPEC") or os.environ.get("COMSPEC") or "cmd.exe"
-    return comspec, ["/d", "/c", command, *normalized_args], env
-
-
 def _extract_nullable_branch(options: Any) -> tuple[dict[str, Any], bool] | None:
     """Return the single non-null branch for nullable unions."""
     if not isinstance(options, list):
@@ -468,11 +471,11 @@ class _MCPWrapperBase(Tool):
     """Common reconnect handling for wrappers bound to one MCP server session."""
 
     _plugin_discoverable = False
-    _session: "ClientSession"
+    _session: "MCPSession"
     _server_name: str
     _name: str
 
-    def _set_mcp_connection(self, session: "ClientSession", server_name: str) -> None:
+    def _set_mcp_connection(self, session: "MCPSession", server_name: str) -> None:
         self._session = session
         self._server_name = server_name
         self._reconnect: _ReconnectCallback | None = None
@@ -562,7 +565,7 @@ class MCPToolWrapper(_MCPWrapperBase):
 
     def __init__(
         self,
-        session: "ClientSession",
+        session: "MCPSession",
         server_name: str,
         tool_def: "MCPToolDefinition",
         tool_timeout: int = 30,
@@ -724,7 +727,7 @@ class MCPResourceWrapper(_MCPWrapperBase):
 
     def __init__(
         self,
-        session: "ClientSession",
+        session: "MCPSession",
         server_name: str,
         resource_def: "Resource",
         resource_timeout: int = 30,
@@ -828,7 +831,7 @@ class MCPPromptWrapper(_MCPWrapperBase):
 
     def __init__(
         self,
-        session: "ClientSession",
+        session: "MCPSession",
         server_name: str,
         prompt_def: "Prompt",
         prompt_timeout: int = 30,
@@ -969,9 +972,8 @@ async def connect_mcp_servers(
     entered the MCP SDK contexts alive so reconnect and shutdown can close
     AnyIO cancel scopes from their owning task.
     """
-    from mcp import ClientSession, StdioServerParameters
+    from mcp import ClientSession
     from mcp.client.sse import sse_client
-    from mcp.client.stdio import stdio_client
     from mcp.client.streamable_http import streamable_http_client
 
     async def open_single_server(
@@ -979,6 +981,17 @@ async def connect_mcp_servers(
     ) -> tuple[str, AsyncExitStack | None]:
         server_stack = AsyncExitStack()
         await server_stack.__aenter__()
+
+        async def http_session(read: Any, write: Any) -> MCPSession:
+            """Wrap one HTTP or SSE stream pair in an initialized MCP session.
+
+            The stdio path gets its session from the MCP host instead, so only these two
+            transports build a ``ClientSession`` in the agent process.
+            """
+            read = _filter_malformed_mcp_progress_notifications(read, name)
+            opened = await server_stack.enter_async_context(ClientSession(read, write))
+            await opened.initialize()
+            return opened
 
         try:
             transport_type = cfg.type
@@ -1006,19 +1019,12 @@ async def connect_mcp_servers(
                     await server_stack.aclose()
                     return name, None
 
+            session: MCPSession
             if transport_type == "stdio":
-                command, args, env = _normalize_windows_stdio_command(
-                    cfg.command,
-                    cfg.args,
-                    cfg.env or None,
-                )
-                params = StdioServerParameters(
-                    command=command,
-                    args=args,
-                    env=env,
-                    cwd=cfg.cwd or None,
-                )
-                read, write = await server_stack.enter_async_context(stdio_client(params))
+                # The stdio child belongs to the MCP host process (#22). This process holds no
+                # exec right, so it names the server and the host resolves the command from its
+                # own config.
+                session = await server_stack.enter_async_context(open_stdio_session(name))
             elif transport_type == "sse":
                 if not await _probe_http_url(cfg.url):
                     logger.warning("MCP server '{}': {} unreachable, skipping", name, _redact_url(cfg.url))
@@ -1047,6 +1053,7 @@ async def connect_mcp_servers(
                 read, write = await server_stack.enter_async_context(
                     sse_client(cfg.url, httpx_client_factory=httpx_client_factory)
                 )
+                session = await http_session(read, write)
             elif transport_type == "streamableHttp":
                 if not await _probe_http_url(cfg.url):
                     logger.warning("MCP server '{}': {} unreachable, skipping", name, _redact_url(cfg.url))
@@ -1065,14 +1072,11 @@ async def connect_mcp_servers(
                 read, write, _ = await server_stack.enter_async_context(
                     streamable_http_client(cfg.url, http_client=http_client)
                 )
+                session = await http_session(read, write)
             else:
                 logger.warning("MCP server '{}': unknown transport type '{}'", name, transport_type)
                 await server_stack.aclose()
                 return name, None
-
-            read = _filter_malformed_mcp_progress_notifications(read, name)
-            session = await server_stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
 
             tools = await session.list_tools()
             enabled_tools = set(cfg.enabled_tools)
