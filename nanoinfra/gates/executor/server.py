@@ -262,6 +262,7 @@ class Executor:
         pending = self.pending
         tokens = self.tokens
         if pending is None or tokens is None:
+            # A deployment fact, and not an answer about this action, so it does not latch (#42).
             return self._refuse(
                 server,
                 request,
@@ -269,6 +270,7 @@ class Executor:
                 "this executor has no approval store, so no human can answer an approval. "
                 "Declare a standing grant for this action, or run an executor that carries "
                 "the approval path.",
+                terminal=False,
             )
 
         session_id = (request.session_id or "").strip()
@@ -283,7 +285,19 @@ class Executor:
 
         feasibility = approval_feasible(gates=gates, origin_path=request.origin_path or "")
         if not feasibility.ok:
-            return self._refuse(server, request, resolution, feasibility.reason)
+            # A configuration gap, and not an answer about this action. So it does not latch, and
+            # the message names the fix that suits each case (#42).
+            return self._refuse(
+                server,
+                request,
+                resolution,
+                f"{feasibility.reason} Three fixes answer this. Add an approver on a second "
+                "authenticated path for interactive work. Declare a standing grant in "
+                "gates.standingGrants for recurring work, which matches an exact resolved "
+                "command and never an ad-hoc one. Or set this scope to 'allow' for a deployment "
+                "with one operator and one path.",
+                terminal=False,
+            )
 
         try:
             prompt = render_approval_prompt(command=request.command, resolution=resolution)
@@ -294,6 +308,7 @@ class Executor:
                 resolution,
                 f"the approval payload could not be rendered ({exc}). A human cannot approve "
                 "bytes nobody can display.",
+                terminal=False,
             )
 
         recorded = self._record(
@@ -412,8 +427,12 @@ class Executor:
         actor: str | None = None,
         approval_path: str | None = None,
         origin_path: str | None = None,
+        terminal: bool = True,
     ) -> ExecuteResponse:
-        """Record one refusal and return it. The record lands first, or the refusal says so."""
+        """Record one refusal and return it. The record lands first, or the refusal says so.
+
+        ``terminal`` travels to the tool, which latches the class for a terminal refusal alone.
+        """
         recorded = self._record(
             decision,
             server,
@@ -426,7 +445,7 @@ class Executor:
         )
         if recorded is not None:
             return recorded
-        return _withheld(server, request, reason)
+        return _withheld(server, request, reason, terminal=terminal)
 
     def _record(
         self,
@@ -702,11 +721,18 @@ def _error(message: str) -> ExecuteResponse:
     return ExecuteResponse(ok=False, output="", exit_code=None, error=message, reason="")
 
 
-def _withheld(server: Any, request: ExecuteRequest, reason: str) -> ExecuteResponse:
+def _withheld(
+    server: Any, request: ExecuteRequest, reason: str, *, terminal: bool = True
+) -> ExecuteResponse:
     """The shape of every gate refusal: no error, one reason, and the resolved action.
 
     The tool renders this as a withheld action rather than an ordinary error, so the refusal
     becomes terminal and the latch forms (#15).
+
+    ``terminal`` is False when the refusal describes the deployment rather than the action. No
+    approver exists, or a payload cannot render, and the agent can change nothing about its request
+    to pass. A latch there costs the operator a clear for their own config, and it teaches them to
+    clear a latch without reading it (#42).
     """
     return ExecuteResponse(
         ok=False,
@@ -714,6 +740,7 @@ def _withheld(server: Any, request: ExecuteRequest, reason: str) -> ExecuteRespo
         exit_code=None,
         error=None,
         reason=reason,
+        terminal=terminal,
     )
 
 

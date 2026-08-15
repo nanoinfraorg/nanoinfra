@@ -85,6 +85,12 @@ class ExecuteResponse:
     exit_code: int | None
     error: str | None
     reason: str
+    # Whether this refusal ends the retry loop for the session (#15). The default is terminal,
+    # because a response that says nothing must still stop a brute force. The executor marks a
+    # refusal that describes the deployment rather than the action, and the tool then leaves the
+    # latch alone: a configuration gap gives the agent nothing to change, and an operator who
+    # clears a latch as routine stops reading it (#42).
+    terminal: bool = True
 
 
 def encode_request(request: ExecuteRequest) -> bytes:
