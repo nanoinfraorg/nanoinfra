@@ -36,6 +36,7 @@ from nanoinfra.servers.execution.timeout import IdleTimeoutTracker, run_with_idl
 from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.lookup import resolve_server
 from nanoinfra.servers.network_guard import validate_server_target
+from nanoinfra.servers.scope import resolve_scope_label
 from nanoinfra.servers.store import ServerStore
 
 if TYPE_CHECKING:
@@ -260,6 +261,12 @@ class ExecuteOnServerTool(Tool):
             server_name=server.name,
             provider_id=server.provider_id,
             target=target_host,
+            # #4's blast radius, beside the one address the guard checked. `target`
+            # names what this process dials. `scope` names how many hosts the action
+            # reaches, which for ansible-runner is a resolved inventory fact rather
+            # than a config field. resolve_scope_label() reads local files only and
+            # never raises, so a log-only record cannot fail an execution.
+            scope=resolve_scope_label(server),
             command_digest=command_digest(command),
         )
 
