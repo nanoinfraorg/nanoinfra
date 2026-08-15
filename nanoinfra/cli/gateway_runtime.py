@@ -272,6 +272,65 @@ def _attach_approvals_operator_surface(channels: Any, client: Any) -> None:
         )
 
 
+def _register_approval_answer_commands(agent: Any, client: Any) -> None:
+    """Give the chat channels a way to answer a suspended action (#43).
+
+    #27 answers over HTTP from the WebUI. That made ``webui`` the only path that could answer,
+    so a deployment that runs the WebUI alone had a nominal second path only: the chat arrives
+    on ``websocket``, and the answer arrives from the same browser with the same token.
+
+    The two commands sit in the priority tiers of the router, which ``AgentLoop.run`` answers
+    before every other branch. The model therefore never reads an answer and never writes one.
+    A tool would be the opposite: a tool is a thing the model calls.
+
+    The client reaches one object, the command handler. No module-level global holds it, and
+    ``tests/command/test_approval_commands.py`` walks the tool import closure to assert that no
+    module under ``nanoinfra/agent/tools/`` reaches this path.
+
+    An agent with no router gets no commands and takes the warning below. An embedded or a test
+    construction is the case that reaches it, and a missing chat answer must not stop a boot.
+    """
+    from nanoinfra.command.approvals import ApprovalAnswerSurface, register_approval_commands
+    from nanoinfra.command.router import CommandRouter
+
+    router = getattr(agent, "commands", None)
+    if not isinstance(router, CommandRouter):
+        logger.warning(
+            "gates: this agent holds no command router, so no chat channel can answer a "
+            "suspended action. Only the WebUI inbox can answer one."
+        )
+        return
+    register_approval_commands(router, surface=ApprovalAnswerSurface(client=client))
+    logger.info(
+        "gates: /approve and /deny answer a suspended action on any path in gates.approvalPaths"
+    )
+
+
+def _build_approval_delivery(client: Any, *, bus: Any, channels: Any) -> Any:
+    """Build the watcher that carries one suspended action to an approver (#43).
+
+    The executor holds no transport, so it cannot reach a chat channel. The gateway holds both
+    the channels and the operator client, so the delivery lives here.
+
+    The watcher publishes an outbound message. It writes no session history, so the payload
+    never enters a transcript and never becomes model context.
+
+    The publish reads the bus at send time rather than at build time. The gateway builds this
+    before the channels run, and a bound method would pin one object at the wrong moment.
+    """
+    from nanoinfra.bus.events import OutboundMessage
+    from nanoinfra.gates.approval_delivery import ApprovalDeliveryWatcher
+
+    async def publish(msg: OutboundMessage) -> None:
+        await bus.publish_outbound(msg)
+
+    return ApprovalDeliveryWatcher(
+        client=client,
+        publish=publish,
+        is_channel_enabled=lambda name: channels.get_channel(name) is not None,
+    )
+
+
 def _start_fetcher_for_gateway(config: Any) -> "FetcherProcess | None":
     """Start the process that answers web_fetch and web_search (#19).
 
@@ -1132,11 +1191,19 @@ def _run_gateway(
         webui_default_llm_runtime=_webui_default_llm_runtime,
     )
 
-    # The operator surfaces of the gate (#27, #28, #29). All three go to the WebUI HTTP routes
-    # only.
+    # The operator surfaces of the gate (#27, #28, #29). The latch control and the audit read
+    # go to the WebUI HTTP routes only.
     _attach_latch_operator_surface(channels, latch_controller, gate_runtime.audit)
     _attach_audit_read_surface(channels, gate_runtime.audit)
     _attach_approvals_operator_surface(channels, _operator_client_for_gateway())
+    # The second answer path (#43). The chat channels answer through the router, and the watcher
+    # carries the request to an approver on a path other than the origin.
+    #
+    # Both halves share one client. The client dials on demand and holds no connection, so a
+    # second instance would be harmless, and one variable keeps the socket path in one place.
+    answer_client = _operator_client_for_gateway()
+    _register_approval_answer_commands(agent, answer_client)
+    approval_delivery = _build_approval_delivery(answer_client, bus=bus, channels=channels)
 
     def _pick_heartbeat_target() -> tuple[str, str]:
         """Pick a routable channel/chat target for heartbeat-triggered messages."""
@@ -1314,6 +1381,10 @@ def _run_gateway(
                         is_channel_enabled=lambda name: channels.get_channel(name) is not None,
                     ),
                     name="nanoinfra-local-triggers",
+                ),
+                asyncio.create_task(
+                    approval_delivery.run(),
+                    name="nanoinfra-approval-delivery",
                 ),
             ]
             if health_server_enabled:

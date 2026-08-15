@@ -54,20 +54,38 @@ class CommandContext:
 class CommandRouter:
     """Pure dict-based command dispatch.
 
-    Three tiers checked in order:
+    Four tiers checked in order:
       1. *priority* — exact-match commands handled before the dispatch lock
          (e.g. /stop, /restart).
-      2. *exact* — exact-match commands handled inside the dispatch lock.
-      3. *prefix* — longest-prefix-first match (e.g. "/team ").
+      2. *priority prefix*, longest-prefix-first match, also handled before the
+         dispatch lock (e.g. "/approve ").
+      3. *exact* — exact-match commands handled inside the dispatch lock.
+      4. *prefix* — longest-prefix-first match (e.g. "/team ").
+
+    The priority tiers run in ``AgentLoop.run`` before every other branch, so a command
+    there never reaches a model turn. A command that must stay out of the transcript needs
+    an argument sometimes, and tier 1 matches one exact string. Tier 2 exists for that
+    case, and nanoinfraorg/nanoinfra#43 is the first caller.
     """
 
     def __init__(self) -> None:
         self._priority: dict[str, Handler] = {}
+        self._priority_prefix: list[tuple[str, Handler]] = []
         self._exact: dict[str, Handler] = {}
         self._prefix: list[tuple[str, Handler]] = []
 
     def priority(self, cmd: str, handler: Handler) -> None:
         self._priority[cmd] = handler
+
+    def priority_prefix(self, pfx: str, handler: Handler) -> None:
+        """Register a priority command that takes arguments.
+
+        The prefix carries its own trailing space, the way ``prefix`` does. Register the
+        bare command in tier 1 beside it, so a caller who sends no argument reads the two
+        forms instead of reaching a model turn.
+        """
+        self._priority_prefix.append((pfx, handler))
+        self._priority_prefix.sort(key=lambda entry: len(entry[0]), reverse=True)
 
     def exact(self, cmd: str, handler: Handler) -> None:
         self._exact[cmd] = handler
@@ -77,12 +95,15 @@ class CommandRouter:
         self._prefix.sort(key=lambda p: len(p[0]), reverse=True)
 
     def is_priority(self, text: str) -> bool:
-        return normalize_command_text(text).lower() in self._priority
+        cmd = normalize_command_text(text).lower()
+        if cmd in self._priority:
+            return True
+        return any(cmd.startswith(pfx) for pfx, _ in self._priority_prefix)
 
     def is_dispatchable_command(self, text: str) -> bool:
         """Check whether *text* matches any non-priority command tier (exact or prefix).
 
-        Does NOT check priority tier.
+        Does NOT check either priority tier.
         If this returns True, ``dispatch()`` is guaranteed to match a handler.
         """
         cmd = normalize_command_text(text).lower()
@@ -96,9 +117,16 @@ class CommandRouter:
     async def dispatch_priority(self, ctx: CommandContext) -> OutboundMessage | None:
         """Dispatch a priority command. Called from run() without the lock."""
         ctx.raw = normalize_command_text(ctx.raw)
-        handler = self._priority.get(ctx.raw.lower())
-        if handler:
+        cmd = ctx.raw.lower()
+        if handler := self._priority.get(cmd):
             return await handler(ctx)
+
+        for pfx, prefix_handler in self._priority_prefix:
+            if cmd.startswith(pfx):
+                # The slice comes from the original text, so an argument keeps its case.
+                ctx.args = ctx.raw[len(pfx):]
+                return await prefix_handler(ctx)
+
         return None
 
     async def dispatch(self, ctx: CommandContext) -> OutboundMessage | None:

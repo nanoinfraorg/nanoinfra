@@ -441,6 +441,11 @@ class TelegramChannel(BaseChannel):
         BotCommand("goal", "Start a sustained objective (long-running task)"),
         BotCommand("trigger", "Create a named local trigger"),
         BotCommand("pairing", "Manage DM pairing (approve/deny/list)"),
+        # The second answer path for a suspended remote action (#43). The menu is where an
+        # approver discovers the two commands, and a deployment lists the approver in
+        # gates.approvers before either one counts.
+        BotCommand("approve", "Approve a suspended action: /approve <request-id>"),
+        BotCommand("deny", "Refuse a suspended action: /deny <request-id> <reason>"),
         BotCommand("model", "Switch runtime model preset"),
         BotCommand("skill", "List enabled skills"),
         BotCommand("dream", "Run Dream memory consolidation now"),
@@ -452,8 +457,14 @@ class TelegramChannel(BaseChannel):
 
     # Regex for slash commands routed to AgentLoop via ``_forward_command``.
     # Hyphenated ``dream-*`` commands stay on a separate handler (below).
+    #
+    # ``approve`` and ``deny`` answer a suspended remote action (#43). The catch-all message
+    # handler below excludes every command, so a command that is absent from this set reaches
+    # nothing at all. The router answers both in its priority tier, so neither one reaches a
+    # model turn.
     TELEGRAM_BUS_SLASH_COMMAND_RE = re.compile(
-        r"^/(?:new|stop|restart|status|dream|history|goal|trigger|pairing|model|skill)(?:@\w+)?(?:\s+.*)?$"
+        r"^/(?:new|stop|restart|status|dream|history|goal|trigger|pairing|model|skill"
+        r"|approve|deny)(?:@\w+)?(?:\s+.*)?$"
     )
 
     @classmethod
