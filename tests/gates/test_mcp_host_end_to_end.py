@@ -32,7 +32,6 @@ from nanoinfra.agent.tools.registry import ToolRegistry
 from nanoinfra.config.schema import MCPServerConfig
 from nanoinfra.gates.mcp_host.client import SOCKET_ENV_VAR
 from nanoinfra.gates.mcp_host.supervisor import MCPHostProcess, start_mcp_host
-from tests.gates.conftest import wait_until_pid_gone
 
 _SERVER_SCRIPT = '''
 import os
@@ -102,8 +101,7 @@ def _start_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MCPHostProce
 
 
 async def test_a_stdio_tool_call_reaches_the_agent_through_the_host(
-    tmp_path: Path, host_home: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    tmp_path: Path, host_home: Path, monkeypatch: pytest.MonkeyPatch, wait_until_pid_gone) -> None:
     script = _write_script(tmp_path)
     report = tmp_path / "pids.txt"
     _write_config(host_home, script=script, report=report)
@@ -159,8 +157,7 @@ async def test_the_agent_registers_nothing_when_no_host_runs(
 
 
 async def test_two_stdio_servers_run_side_by_side_in_one_host(
-    tmp_path: Path, host_home: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    tmp_path: Path, host_home: Path, monkeypatch: pytest.MonkeyPatch, wait_until_pid_gone) -> None:
     """One host serves many servers, and each one gets its own child and its own connection."""
     script = _write_script(tmp_path)
     first_report = tmp_path / "first.txt"

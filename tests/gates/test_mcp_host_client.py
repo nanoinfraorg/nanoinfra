@@ -44,7 +44,6 @@ from nanoinfra.gates.mcp_host.protocol import (
     write_frame,
 )
 from nanoinfra.gates.mcp_host.server import MCPHost, StdioServerSettings
-from tests.gates.conftest import pid_alive, wait_until_pid_gone
 
 _SERVER_SCRIPT = '''
 import os
@@ -155,8 +154,7 @@ async def test_a_tool_call_returns_a_real_call_tool_result(
 
 
 async def test_the_child_dies_when_the_agent_leaves_the_session(
-    server_script: Path, tmp_path: Path
-) -> None:
+    server_script: Path, tmp_path: Path, pid_alive, wait_until_pid_gone) -> None:
     socket_path = tmp_path / "host.sock"
     report = tmp_path / "pids.txt"
     server = await _real_host(socket_path, _settings(server_script, report=report))
@@ -270,8 +268,7 @@ async def test_a_host_that_hangs_up_mid_call_reads_as_unavailable(tmp_path: Path
 
 
 async def test_a_dead_child_raises_what_the_agent_reads_as_a_terminated_session(
-    server_script: Path, tmp_path: Path
-) -> None:
+    server_script: Path, tmp_path: Path, wait_until_pid_gone) -> None:
     """The reconnect path predates #22, and it reads the words of the failure.
 
     ``_is_session_terminated`` decides whether ``MCPToolWrapper`` reconnects a server. A crashed

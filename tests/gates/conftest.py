@@ -57,13 +57,17 @@ def wait_until_pid_gone(pid: int, *, timeout_s: float) -> bool:
     return not pid_alive(pid)
 
 
-@pytest.fixture
-def pid_alive_check():
+# The fixtures carry the names the call sites use. A test declares the name and calls it, so no
+# import crosses a directory that holds no __init__.py. `from tests.gates.conftest import ...`
+# resolved on a workstation and raised ModuleNotFoundError in CI, because the rootdir sits on
+# sys.path there only by accident of the invocation.
+@pytest.fixture(name="pid_alive")
+def _pid_alive_fixture():
     """The liveness check, for a test that asserts a child still runs."""
     return pid_alive
 
 
-@pytest.fixture
-def wait_for_pid_gone():
+@pytest.fixture(name="wait_until_pid_gone")
+def _wait_until_pid_gone_fixture():
     """The wait, for a test that kills a child and needs the pid to go."""
     return wait_until_pid_gone

@@ -46,7 +46,6 @@ from nanoinfra.gates.mcp_host.server import (
     load_stdio_settings,
     normalize_windows_stdio_command,
 )
-from tests.gates.conftest import pid_alive, wait_until_pid_gone
 
 # One trivial stdio MCP server. It reports its own pid and its parent pid, so a test can prove
 # which process started it.
@@ -440,8 +439,7 @@ async def test_a_server_without_resources_answers_with_an_error(server_script: P
 
 
 async def test_a_dead_child_answers_with_the_words_for_a_terminated_session(
-    server_script: Path, tmp_path: Path
-) -> None:
+    server_script: Path, tmp_path: Path, wait_until_pid_gone) -> None:
     """A crashed MCP server must reach the agent as a terminated session.
 
     Before #22 the SDK raised the failure in the agent's own process, and the tool wrapper
@@ -475,8 +473,7 @@ async def test_a_dead_child_answers_with_the_words_for_a_terminated_session(
 
 
 async def test_a_call_after_the_child_died_names_the_terminated_session(
-    server_script: Path, tmp_path: Path
-) -> None:
+    server_script: Path, tmp_path: Path, wait_until_pid_gone) -> None:
     """The second call finds no session at all, and it says so in the same words."""
     report = tmp_path / "pids.txt"
     connection = await _connect(_host(_settings(server_script, report=report)))
@@ -565,8 +562,7 @@ async def test_a_refused_server_name_answers_and_keeps_the_process() -> None:
 
 
 async def test_the_stdio_child_dies_with_its_connection(
-    server_script: Path, tmp_path: Path
-) -> None:
+    server_script: Path, tmp_path: Path, pid_alive, wait_until_pid_gone) -> None:
     """A closed connection ends the session, and the session ends the child.
 
     An MCP server that outlived its connection would be a process nobody supervises.
