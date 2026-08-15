@@ -23,7 +23,6 @@ import asyncio
 import json
 import os
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -33,6 +32,7 @@ from nanoinfra.agent.tools.registry import ToolRegistry
 from nanoinfra.config.schema import MCPServerConfig
 from nanoinfra.gates.mcp_host.client import SOCKET_ENV_VAR
 from nanoinfra.gates.mcp_host.supervisor import MCPHostProcess, start_mcp_host
+from tests.gates.conftest import wait_until_pid_gone
 
 _SERVER_SCRIPT = '''
 import os
@@ -97,21 +97,8 @@ def _start_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MCPHostProce
     return handle
 
 
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
 
 
-def _wait_until_gone(pid: int, *, timeout_s: float) -> bool:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        if not _pid_alive(pid):
-            return True
-        time.sleep(0.05)
-    return not _pid_alive(pid)
 
 
 async def test_a_stdio_tool_call_reaches_the_agent_through_the_host(
@@ -146,7 +133,7 @@ async def test_a_stdio_tool_call_reaches_the_agent_through_the_host(
     assert parent_pid == handle.pid or parent_pid != os.getpid()
     assert parent_pid != os.getpid()
     # The host holds the child's life, so a stopped host leaves no MCP server behind.
-    assert _wait_until_gone(server_pid, timeout_s=20.0)
+    assert wait_until_pid_gone(server_pid, timeout_s=20.0)
 
 
 async def test_the_agent_registers_nothing_when_no_host_runs(
@@ -225,5 +212,5 @@ async def test_two_stdio_servers_run_side_by_side_in_one_host(
 
     assert results == ["echo:one", "echo:two"]
     assert first_pid != second_pid
-    assert _wait_until_gone(first_pid, timeout_s=20.0)
-    assert _wait_until_gone(second_pid, timeout_s=20.0)
+    assert wait_until_pid_gone(first_pid, timeout_s=20.0)
+    assert wait_until_pid_gone(second_pid, timeout_s=20.0)

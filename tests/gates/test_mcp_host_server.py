@@ -20,7 +20,6 @@ import os
 import signal
 import socket
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -47,6 +46,7 @@ from nanoinfra.gates.mcp_host.server import (
     load_stdio_settings,
     normalize_windows_stdio_command,
 )
+from tests.gates.conftest import pid_alive, wait_until_pid_gone
 
 # One trivial stdio MCP server. It reports its own pid and its parent pid, so a test can prove
 # which process started it.
@@ -457,7 +457,7 @@ async def test_a_dead_child_answers_with_the_words_for_a_terminated_session(
         await connection.ask(OpenRequest(request_id=1, server_name="demo"))
         child_pid = int(report.read_text(encoding="utf-8").splitlines()[0])
         os.kill(child_pid, signal.SIGKILL)
-        assert _wait_until_gone(child_pid, timeout_s=20.0)
+        assert wait_until_pid_gone(child_pid, timeout_s=20.0)
 
         answer = await asyncio.wait_for(
             connection.ask(
@@ -484,7 +484,7 @@ async def test_a_call_after_the_child_died_names_the_terminated_session(
         await connection.ask(OpenRequest(request_id=1, server_name="demo"))
         child_pid = int(report.read_text(encoding="utf-8").splitlines()[0])
         os.kill(child_pid, signal.SIGKILL)
-        assert _wait_until_gone(child_pid, timeout_s=20.0)
+        assert wait_until_pid_gone(child_pid, timeout_s=20.0)
 
         await asyncio.wait_for(
             connection.ask(
@@ -575,11 +575,11 @@ async def test_the_stdio_child_dies_with_its_connection(
     connection = await _connect(_host(_settings(server_script, report=report)))
     await connection.ask(OpenRequest(request_id=1, server_name="demo"))
     child_pid = int(report.read_text(encoding="utf-8").splitlines()[0])
-    assert _pid_alive(child_pid)
+    assert pid_alive(child_pid)
 
     await connection.close()
 
-    assert _wait_until_gone(child_pid, timeout_s=20.0), f"pid {child_pid} outlived the connection"
+    assert wait_until_pid_gone(child_pid, timeout_s=20.0), f"pid {child_pid} outlived the connection"
 
 
 async def test_the_stdio_child_is_a_child_of_the_host_process(
@@ -601,21 +601,8 @@ async def test_the_stdio_child_is_a_child_of_the_host_process(
     assert parent_pid == os.getpid()
 
 
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
 
 
-def _wait_until_gone(pid: int, *, timeout_s: float) -> bool:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        if not _pid_alive(pid):
-            return True
-        time.sleep(0.05)
-    return not _pid_alive(pid)
 
 
 # --------------------------------------------------------------- the read path

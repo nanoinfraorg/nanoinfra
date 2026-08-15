@@ -4371,7 +4371,14 @@ def test_handle_file_preview_rejects_paths_outside_workspace(tmp_path) -> None:
     assert resp.status_code == 403
 
 
-def test_handle_file_preview_allows_paths_outside_workspace_in_full_access(tmp_path) -> None:
+def test_handle_file_preview_refuses_paths_outside_workspace_in_full_access(tmp_path) -> None:
+    """Full access widens the agent's reach, and it must not widen this reader.
+
+    The route used to serve any path when restrict_to_workspace was false. A WebUI session could
+    then read any file the gateway account could read, including the provider keys in the config
+    file, so the containment is unconditional now. Full access still governs what the agent may
+    touch, and it governs nothing here.
+    """
     from urllib.parse import quote
 
     from websockets.datastructures import Headers
@@ -4397,11 +4404,12 @@ def test_handle_file_preview_allows_paths_outside_workspace_in_full_access(tmp_p
 
     resp = gateway.http._handle_file_preview(req, enc)
 
-    assert resp.status_code == 200
-    body = json.loads(resp.body.decode())
-    assert body["path"] == str(outside.resolve())
-    assert body["display_path"] == outside.resolve().as_posix()
-    assert body["content"].splitlines() == ["value = 42"]
+    assert resp.status_code == 403
+    assert b"outside the current workspace" in bytes(resp.body)
+    # The refusal carries no path and no content. A refusal that echoed either would leak the
+    # answer it just refused.
+    assert b"value = 42" not in bytes(resp.body)
+    assert outside.name.encode() not in bytes(resp.body)
 
 
 def test_handle_webui_thread_get_backfills_legacy_missing_user_rows(
