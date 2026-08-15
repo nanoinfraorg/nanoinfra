@@ -55,6 +55,8 @@ from nanoinfra.servers.network_guard import validate_server_target
 from nanoinfra.servers.scope import (
     ALL,
     ScopeResolutionError,
+    one_inventory_read_per_action,
+    prime_inventory_read,
     resolve_scope,
     resolve_scope_label,
 )
@@ -93,6 +95,18 @@ class Executor:
         if server.provider_id not in _KNOWN_PROVIDER_IDS:
             return _error(f"Unknown providerId: {server.provider_id!r}.")
 
+        # #35: one inventory read per action, and no read on the event loop. The guard, the
+        # observation record, the gate, and the preview line all need the same host set, and
+        # the answer cannot change inside one action. The cache closes with this block, so the
+        # next action reads again and an inventory write reaches it (#24).
+        with one_inventory_read_per_action():
+            await asyncio.to_thread(prime_inventory_read, server)
+            return await self._decide(server, request, servers)
+
+    async def _decide(
+        self, server: Any, request: ExecuteRequest, servers: Any
+    ) -> ExecuteResponse:
+        """Guard, gate, record, and run one action, inside one inventory read."""
         guard_error = _guard(server)
         if guard_error is not None:
             return _error(guard_error)
@@ -125,7 +139,12 @@ class Executor:
                 reason="the caller asked for a preview",
             )
 
-        allowed, reason, resolution = self._gate(server, request, servers)
+        # The gate resolves each grant host, so it runs in a worker thread as well. Its own
+        # reads hit the cache when the grant names this project, and a grant that names
+        # another project pays for its read off the event loop (#35).
+        allowed, reason, resolution = await asyncio.to_thread(
+            self._gate, server, request, servers
+        )
         outcome = Outcome.ALLOW if allowed else Outcome.DENY
         recorded = self._record(outcome, server, request, reason=reason, resolution=resolution)
         if recorded is not None:
