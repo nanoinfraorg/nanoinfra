@@ -69,7 +69,10 @@ class ContextPolicy(Base):
         validation_alias=AliasChoices("mutate.inventory", "mutate_inventory"),
         serialization_alias="mutate.inventory",
     )
-    credential_access: Literal["approve", "deny"] = Field(
+    # Every decision value, and not two of them. The refusal for this class advises `allow`, and a
+    # schema that refused that value made the advice a dead end. `grant` is also a real choice: a
+    # deployment may permit a decryption for granted work alone. #39 models all four already.
+    credential_access: Decision = Field(
         default="deny",
         validation_alias=AliasChoices("credential.access", "credential_access"),
         serialization_alias="credential.access",
