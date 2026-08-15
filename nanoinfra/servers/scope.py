@@ -17,11 +17,31 @@ case.
 Each provider branch reads EXACTLY the config fields its backend reads, for the
 same reason _target_host() does: a resolver that expands a field the backend
 ignores describes a blast radius nothing ever touches.
+
+Two expanders answer for an ansible-runner server (#30). ansible's own
+``ansible-inventory`` is authoritative, because AnsibleRunnerBackend runs the play
+through the same ansible-core. The parser below is the fallback, and it answers
+only when that binary is absent. The asymmetry makes the fallback safe: no play
+runs at all without ansible-core, so the authoritative expander exists in every
+deployment where a wrong host set reaches a host. Every resolution names the
+expander that answered it, because an authoritative expansion and a fallback are
+different evidence for a reviewer.
+
+The two paths must not drift, so they share every refusal that is a resolver
+policy rather than a parse fact: the pattern syntax check, the no-match error, and
+the ceiling on one resolved set. They differ in one place only, which is how each
+one reads the inventory. tests/servers/test_scope_ansible_parity.py holds them to
+the same answer over every fixture.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -35,6 +55,16 @@ from nanoinfra.servers.types import Server
 HOST = "host"
 GROUP = "group"
 ALL = "all"
+
+# Which expander named the hosts (#30). Not a scope. A reviewer reads this to tell
+# an authoritative expansion from a fallback, and the two can disagree only when
+# they drift.
+EXPANDER_ANSIBLE = "ansible-inventory"
+EXPANDER_PARSER = "in-repo-parser"
+
+# No inventory is read at all. ssh, ssm, and api name their one host in the
+# config, so nothing expands anything and neither expander answered.
+EXPANDER_CONFIG = "config"
 
 # Not a scope. The label a record carries when the resolver cannot name the hosts.
 # It must stay distinct from the three scopes, because "I do not know" and "one
@@ -73,6 +103,44 @@ _RANGE_RE = re.compile(r"\[([^\[\]]*)\]")
 # agent-editable config, and a million-host expansion serves no operator.
 _MAX_RANGE_HOSTS = 1024
 
+# How many hosts ONE pattern may resolve to. #9's guard checks every resolved host
+# and #14 lists them to a human, so a wider set is unreviewable. This ceiling sits
+# beside the pattern expansion, and not inside one expander, because a limit that
+# moved with the installed software would be the drift #30 removes.
+_MAX_RESOLVED_HOSTS = 1024
+
+# The authoritative expander. ansible_runner.get_inventory() shells out to this
+# same binary, and this module calls it directly: scope.py must stay importable
+# with no part of the optional `servers` extra installed, and a direct call writes
+# no artifact tree at all.
+_ANSIBLE_INVENTORY_BIN = "ansible-inventory"
+
+# How long the resolver waits for that binary. A resolve happens inside a tool
+# call, so a hung subprocess would hold the call open with no answer.
+_ANSIBLE_INVENTORY_TIMEOUT_S = 30
+
+# Settings that make ansible-inventory exit non-zero on a source it cannot parse.
+# Its default is a warning, exit code 0, and an inventory that holds only an
+# implicit localhost -- which reads as "this action touches no host", the one
+# answer this module never gives. The second setting covers an inventory directory
+# where one file of several fails, because the parser refuses that case too.
+_UNPARSED_IS_FAILED_ENV = {
+    "ANSIBLE_INVENTORY_UNPARSED_FAILED": "True",
+    "ANSIBLE_INVENTORY_ANY_UNPARSED_IS_FAILED": "True",
+}
+
+# ansible-inventory prints host variables under this key, beside the groups.
+_META_KEY = "_meta"
+
+# The only keys ansible-inventory prints inside a group. `vars` adds no host.
+_GROUP_HOSTS_KEY = "hosts"
+_GROUP_CHILDREN_KEY = "children"
+_GROUP_VARS_KEY = "vars"
+
+# How much of ansible's stderr an error message repeats. ansible prints the cause
+# after several warning lines, and a whole traceback in a refusal helps nobody.
+_MAX_STDERR_CHARS = 400
+
 # How deep a YAML children chain may go before the loader calls it recursive.
 _MAX_YAML_DEPTH = 32
 
@@ -98,6 +166,11 @@ class ScopeResolution:
     scope: str
     hosts: tuple[str, ...]
     pattern: str | None = None
+    # Which expander named these hosts (#30). The field is additive and it carries a
+    # default, so #16's record, #14's prompt, and resolve_scope_label() all still
+    # work without it. It answers one question for a reviewer: did ansible's own
+    # expander name this host set, or did the fallback?
+    expander: str = EXPANDER_CONFIG
 
 
 def resolve_scope(server: Server) -> ScopeResolution:
@@ -105,7 +178,9 @@ def resolve_scope(server: Server) -> ScopeResolution:
 
     Raises ScopeResolutionError when the target cannot be named. Nothing here
     connects to anything: every provider branch reads config, and the
-    ansible-runner branch reads the local inventory files only.
+    ansible-runner branch reads the local inventory files only. That branch may
+    start one local process, ansible-inventory, which also reads those files and
+    contacts no host.
     """
     provider_id = server.provider_id
     if provider_id == "ssh":
@@ -144,7 +219,7 @@ def _single_host(server: Server, config_field: str) -> ScopeResolution:
         raise ScopeResolutionError(
             f"Server config has no {config_field} to resolve. The scope is unknown, not empty."
         )
-    return ScopeResolution(scope=HOST, hosts=(value,), pattern=value)
+    return ScopeResolution(scope=HOST, hosts=(value,), pattern=value, expander=EXPANDER_CONFIG)
 
 
 def _api_host(server: Server) -> ScopeResolution:
@@ -154,7 +229,9 @@ def _api_host(server: Server) -> ScopeResolution:
         raise ScopeResolutionError(
             f"Server config baseUrl {base_url!r} names no host. The scope is unknown, not empty."
         )
-    return ScopeResolution(scope=HOST, hosts=(hostname,), pattern=base_url)
+    return ScopeResolution(
+        scope=HOST, hosts=(hostname,), pattern=base_url, expander=EXPANDER_CONFIG
+    )
 
 
 def _resolve_ansible(server: Server) -> ScopeResolution:
@@ -163,6 +240,10 @@ def _resolve_ansible(server: Server) -> ScopeResolution:
     The pattern and the projectPath default both mirror ansible_backend.py:58 and
     :72 exactly. A resolver that reads a different field than the backend reports
     a blast radius nothing ever touches.
+
+    ansible reads the inventory when its binary is installed, and the parser reads
+    it otherwise. The pattern expansion below is the same either way, so a refusal
+    stays a refusal whichever expander answered.
     """
     pattern = (server.config.get("inventoryHost") or server.config.get("group") or "").strip()
     if not pattern:
@@ -170,7 +251,8 @@ def _resolve_ansible(server: Server) -> ScopeResolution:
             "Server config has no inventoryHost or group to target. The whole inventory "
             "is never inferred from a missing field."
         )
-    inventory = _load_inventory(server.config.get("projectPath") or ".")
+    path = _inventory_path(server.config.get("projectPath") or ".")
+    inventory, expander = _read_inventory(path)
     hosts, unbounded = _expand_pattern(pattern, inventory)
     # Hosts stay sorted so one config always reports one host order. #14 shows
     # these names to a human, and an unstable order reads like a changed target.
@@ -178,6 +260,7 @@ def _resolve_ansible(server: Server) -> ScopeResolution:
         scope=_scope_for(hosts, unbounded=unbounded),
         hosts=tuple(sorted(hosts)),
         pattern=pattern,
+        expander=expander,
     )
 
 
@@ -240,15 +323,228 @@ class _InventoryBuilder:
         return hosts
 
 
-def _load_inventory(project_path: str) -> _Inventory:
-    """Read the local inventory under ``project_path``. No network call happens."""
-    path = Path(project_path) / _INVENTORY_NAME
+def _inventory_path(project_path: str) -> Path:
+    """The inventory file or directory the backend passes ansible.
+
+    The check stays ahead of both expanders. Without this path, ansible falls back
+    to ansible.cfg or /etc/ansible/hosts, and it would then answer about an
+    inventory the backend never passes it.
+
+    The path is absolute because the ansible run below uses a temporary working
+    directory. A relative projectPath -- and "." is the default -- would otherwise
+    name a file inside that empty directory.
+    """
+    path = (Path(project_path) / _INVENTORY_NAME).absolute()
     if not path.exists():
         raise ScopeResolutionError(
             f"No inventory at {path}. ansible then falls back to ansible.cfg or "
             "/etc/ansible/hosts, which this resolver cannot read, so the host set is "
             "unknown rather than empty."
         )
+    return path
+
+
+def _ansible_inventory_binary() -> str | None:
+    """The ansible-inventory binary, or None when ansible-core is not installed.
+
+    Detection happens at every resolve and never once at import. A deployment can
+    gain ansible-core while this process runs, and a fallback must not outlive the
+    reason for it.
+    """
+    return shutil.which(_ANSIBLE_INVENTORY_BIN)
+
+
+def _read_inventory(path: Path) -> tuple[_Inventory, str]:
+    """The inventory behind ``path``, and the name of the expander that read it.
+
+    An absent binary is a fallback. A present binary that fails is an error, and
+    _ansible_inventory() raises there rather than return: a parser answer that
+    contradicts ansible is the drift this whole path removes.
+    """
+    binary = _ansible_inventory_binary()
+    if binary is None:
+        return _load_inventory(path), EXPANDER_PARSER
+    return _ansible_inventory(binary, path), EXPANDER_ANSIBLE
+
+
+def _ansible_inventory(binary: str, path: Path) -> _Inventory:
+    """Ask ansible itself for the inventory. No play runs and no host is contacted.
+
+    ``--list`` reads the inventory and prints every group. The pattern stays here and
+    never reaches ansible, for two reasons. ``--limit`` answers a pattern that
+    matches nothing with a warning and exit code 0, and this module never reads that
+    as an empty host set. The scope rule for an unbounded pattern also belongs to
+    _expand_pattern(), which both expanders share.
+    """
+    with tempfile.TemporaryDirectory(prefix="nanoinfra-scope-") as workdir:
+        # A temporary working directory on purpose. ansible writes relative to its
+        # own working directory, and projectPath belongs to the operator: a resolve
+        # reads, so it must leave no file behind in a directory it only reads.
+        returncode, stdout, stderr = _run_ansible_inventory(binary, path, workdir)
+    if returncode != 0:
+        raise ScopeResolutionError(
+            f"Cannot read inventory {path}: {_ANSIBLE_INVENTORY_BIN} exited {returncode} "
+            f"({_stderr_summary(stderr)}). The parser does not answer here, because an "
+            "answer that contradicts ansible is worse than no answer."
+        )
+    return _inventory_from_json(stdout, path)
+
+
+def _run_ansible_inventory(binary: str, path: Path, workdir: str) -> tuple[int, str, str]:
+    """Run the binary once, and report its exit code with its output.
+
+    Output arrives as bytes and decodes with replacement. ansible reports an
+    undecodable inventory in its own words, and a decode error inside this resolver
+    would hide that message behind a foreign exception type.
+    """
+    try:
+        # A fixed argv and no shell. The only value from a config is the inventory
+        # path, and it arrives as one argument that ansible reads and never runs.
+        completed = subprocess.run(
+            [binary, "--list", "--inventory", str(path)],
+            capture_output=True,
+            cwd=workdir,
+            env={**os.environ, **_UNPARSED_IS_FAILED_ENV},
+            # No stdin. A prompt would otherwise wait for the whole timeout, and it
+            # would read from whatever this process has open.
+            stdin=subprocess.DEVNULL,
+            timeout=_ANSIBLE_INVENTORY_TIMEOUT_S,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        # Detection already found the binary, so this is a broken install or a hung
+        # run, not an absent one. Both leave the host set unknown.
+        raise ScopeResolutionError(
+            f"Cannot read inventory {path}: {_ANSIBLE_INVENTORY_BIN} did not answer ({exc}). "
+            "The parser does not answer for a binary that is installed and failed."
+        ) from exc
+    return (
+        completed.returncode,
+        completed.stdout.decode("utf-8", errors="replace"),
+        completed.stderr.decode("utf-8", errors="replace"),
+    )
+
+
+def _stderr_summary(stderr: str) -> str:
+    """The line that names the cause. ansible prints warnings before it."""
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    errors = [line for line in lines if line.startswith("[ERROR]")]
+    if errors:
+        return errors[-1][:_MAX_STDERR_CHARS]
+    if lines:
+        return lines[-1][:_MAX_STDERR_CHARS]
+    return "it printed no error"
+
+
+def _inventory_from_json(stdout: str, path: Path) -> _Inventory:
+    """Build the flattened inventory from what ansible-inventory printed.
+
+    One builder serves both expanders, so the children chains, the cycle guard, and
+    the `all` group behave identically. Only the source of the names differs.
+    """
+    try:
+        data: object = json.loads(stdout)
+    except ValueError as exc:
+        raise ScopeResolutionError(
+            f"Cannot read inventory {path}: {_ANSIBLE_INVENTORY_BIN} printed no inventory "
+            f"JSON ({exc})."
+        ) from exc
+    if not isinstance(data, dict):
+        raise ScopeResolutionError(
+            f"Cannot read inventory {path}: {_ANSIBLE_INVENTORY_BIN} printed no group mapping."
+        )
+    builder = _InventoryBuilder()
+    for raw_name, raw_body in cast(dict[object, object], data).items():
+        name = str(raw_name)
+        if name == _META_KEY:
+            # Every name under _meta is an inventory host. The resolver counts them,
+            # because an undercount hides a host from #9's guard. No name arrives
+            # here that ansible did not read out of the operator's own inventory.
+            builder.hosts.update(_meta_hosts(raw_body, path))
+            continue
+        _load_json_group(name, raw_body, path, builder)
+    return builder.build(str(path))
+
+
+def _load_json_group(name: str, body: object, path: Path, builder: _InventoryBuilder) -> None:
+    builder.ensure_group(name)
+    if body is None:
+        return
+    if not isinstance(body, dict):
+        raise ScopeResolutionError(
+            f"Cannot read inventory {path}: {_ANSIBLE_INVENTORY_BIN} printed group {name!r} "
+            "without a mapping."
+        )
+    for raw_key, value in cast(dict[object, object], body).items():
+        key = str(raw_key)
+        if key == _GROUP_VARS_KEY:
+            continue
+        if key == _GROUP_HOSTS_KEY:
+            for host in _json_names(value, key, name, path):
+                builder.add_host(name, host)
+            continue
+        if key == _GROUP_CHILDREN_KEY:
+            for child in _json_names(value, key, name, path):
+                builder.add_child(name, child)
+            continue
+        # An unknown key may hide hosts, exactly as in the YAML loader below. The
+        # resolver refuses instead of reporting a host set that misses them.
+        raise ScopeResolutionError(
+            f"Cannot read inventory {path}: {_ANSIBLE_INVENTORY_BIN} printed group {name!r} "
+            f"with unsupported key {key!r}."
+        )
+
+
+def _meta_hosts(body: object, path: Path) -> list[str]:
+    """The host names under ``_meta.hostvars``.
+
+    The resolver skips every other key under _meta on purpose. ansible-core 2.21
+    added `profile` there. No host name hides outside hostvars, so a strict check
+    would only refuse a working inventory after an ansible upgrade.
+    """
+    if not isinstance(body, dict):
+        raise ScopeResolutionError(
+            f"Cannot read inventory {path}: {_ANSIBLE_INVENTORY_BIN} printed {_META_KEY} "
+            "without a mapping."
+        )
+    hostvars = cast(dict[object, object], body).get("hostvars")
+    if hostvars is None:
+        return []
+    if not isinstance(hostvars, dict):
+        raise ScopeResolutionError(
+            f"Cannot read inventory {path}: {_ANSIBLE_INVENTORY_BIN} printed host variables "
+            "the resolver cannot read."
+        )
+    return [str(name) for name in cast(dict[object, object], hostvars)]
+
+
+def _json_names(value: object, key: str, group: str, path: Path) -> list[str]:
+    """The names ansible listed under one group key, as a plain list."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ScopeResolutionError(
+            f"Cannot read inventory {path}: {_ANSIBLE_INVENTORY_BIN} printed a {key} value "
+            f"for group {group!r} that is not a list."
+        )
+    names: list[str] = []
+    for item in cast(list[object], value):
+        if not isinstance(item, str):
+            raise ScopeResolutionError(
+                f"Cannot read inventory {path}: {_ANSIBLE_INVENTORY_BIN} printed a {key} "
+                f"entry for group {group!r} that is not a name."
+            )
+        names.append(item)
+    return names
+
+
+def _load_inventory(path: Path) -> _Inventory:
+    """Read the inventory with this repo's parser. No network call happens.
+
+    The fallback path. It runs where ansible-core is absent, which is CI and a
+    partial install of the `servers` extra -- and no play runs in either, because
+    AnsibleRunnerBackend needs the same ansible-core.
+    """
     sources = [path] if path.is_file() else _inventory_files(path)
     builder = _InventoryBuilder()
     for source in sources:
@@ -352,26 +648,24 @@ def _load_yaml_group(
 
 
 def _yaml_names(value: object, key: str, group: str, source: Path) -> list[str]:
-    """The names under a ``hosts`` or ``children`` key, as a plain list."""
+    """The names under a ``hosts`` or ``children`` key, as a plain list.
+
+    A mapping, a bare name, or nothing. ansible's yaml plugin permits exactly those
+    three shapes and fails the whole source for anything else, including a list
+    (plugins/inventory/yaml.py:141, "requires a dictionary"). This parser refused a
+    list nowhere until #30's parity test caught it: it named hosts that ansible
+    itself cannot read, so the backend could never reach them and the guard would
+    have checked a host set nothing dials.
+    """
     if value is None:
         return []
     if isinstance(value, str):
         return [value]
     if isinstance(value, dict):
         return [str(name) for name in cast(dict[object, object], value)]
-    if isinstance(value, list):
-        names: list[str] = []
-        for item in cast(list[object], value):
-            if not isinstance(item, str):
-                raise ScopeResolutionError(
-                    f"Cannot read inventory {source}: group {group!r} lists a {key} entry "
-                    "that is not a name."
-                )
-            names.append(item)
-        return names
     raise ScopeResolutionError(
         f"Cannot read inventory {source}: group {group!r} holds a {key} value the resolver "
-        "cannot read."
+        "cannot read. ansible reads a mapping, one name, or nothing there."
     )
 
 
@@ -492,6 +786,10 @@ def _expand_pattern(pattern: str, inventory: _Inventory) -> tuple[frozenset[str]
     Returns the hosts and a flag for an unbounded pattern. A term that matches
     nothing raises: ansible refuses such a pattern too, and a caller must never
     read a typo as a safe no-op.
+
+    Both expanders come through here, so every rule below holds whichever one read
+    the inventory. That is deliberate: a refusal that depended on the installed
+    software would make the guard's answer a fact about the machine.
     """
     resolved: set[str] = set()
     unbounded = False
@@ -501,6 +799,12 @@ def _expand_pattern(pattern: str, inventory: _Inventory) -> tuple[frozenset[str]
         unbounded = unbounded or term_unbounded
     if not resolved:
         raise _no_match_error(pattern, pattern, inventory)
+    if len(resolved) > _MAX_RESOLVED_HOSTS:
+        raise ScopeResolutionError(
+            f"Cannot expand pattern {pattern!r}: it names {len(resolved)} hosts in "
+            f"{inventory.source}, past the {_MAX_RESOLVED_HOSTS} hosts one action may "
+            "reach, so the resolver refuses to expand it."
+        )
     return frozenset(resolved), unbounded
 
 
@@ -549,6 +853,9 @@ def _no_match_error(term: str, pattern: str, inventory: _Inventory) -> ScopeReso
 
 __all__ = [
     "ALL",
+    "EXPANDER_ANSIBLE",
+    "EXPANDER_CONFIG",
+    "EXPANDER_PARSER",
     "GROUP",
     "HOST",
     "UNRESOLVED",
