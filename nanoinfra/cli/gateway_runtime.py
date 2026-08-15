@@ -3,6 +3,7 @@
 import asyncio
 import os
 import signal
+import time
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from contextlib import suppress
 from pathlib import Path
@@ -109,6 +110,36 @@ def _gate_latch_summary(runtime: Any) -> str:
     from nanoinfra.gates.latch_restore import restore_latches
 
     return restore_latches(runtime.audit).summary()
+
+
+# The built-in cron jobs, by name. `on_cron_job` answers each one before the bound path, so each one
+# must mark its own turn. A name that is missing here runs at interactive privilege (#49).
+SYSTEM_CRON_JOB_NAMES = frozenset({"dream", "heartbeat"})
+
+
+def _system_job_metadata(job_name: str, *, message: str) -> dict[str, Any]:
+    """The turn metadata for one built-in cron job.
+
+    #5 classifies a turn from its metadata, and #8 refuses a remote command in an unattended one. A
+    built-in job that passed no metadata therefore ran at interactive privilege, and the model can
+    write the heartbeat's prompt with an ungated `mutate.local` tool (#49).
+
+    The marker is the cron spec, because these are cron jobs. A name check inside the classifier
+    would be the wrong fix: `is_automation_turn` documents that a hardcoded list reads a third
+    source as interactive, and that failure opens the gate.
+    """
+    from nanoinfra.cron.session_turns import CRON_TRIGGER_META
+
+    run_id = f"{job_name}:{int(time.time() * 1000)}"
+    return {
+        CRON_TRIGGER_META: {
+            "job_id": job_name,
+            "job_name": job_name,
+            "run_id": run_id,
+            "prompt_ref": f"system:{job_name}",
+            "persist_content": f"Scheduled system job triggered: {job_name}\n\n{message}",
+        }
+    }
 
 
 def _attach_latch_operator_surface(channels: Any, controller: Any, audit: Any) -> None:
@@ -934,6 +965,8 @@ def _run_gateway(
                     tools=store.build_dream_tools(),
                     on_progress=progress,
                     runtime=dream_runtime,
+                    # A schedule started this turn, so #5 must classify it as unattended (#49).
+                    metadata=_system_job_metadata("dream", message="memory consolidation"),
                 )
                 # The real file delta grounds the audit record; clean completion
                 # decides whether this history batch has finished processing.
@@ -1010,6 +1043,10 @@ def _run_gateway(
                     channel=channel,
                     chat_id=chat_id,
                     on_progress=_silent,
+                    # HEARTBEAT.md is model-writable with an ungated mutate.local tool, and this
+                    # turn holds the whole registry. Without this metadata the turn read as
+                    # interactive, so the model could promote its own instruction (#49).
+                    metadata=_system_job_metadata("heartbeat", message="heartbeat task check"),
                 )
             finally:
                 if isinstance(message_tool, MessageTool) and suppress_token is not None:
