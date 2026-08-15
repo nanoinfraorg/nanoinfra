@@ -19,7 +19,6 @@ import asyncio
 import contextlib
 import os
 import sys
-import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
@@ -45,6 +44,7 @@ from nanoinfra.gates.mcp_host.protocol import (
     write_frame,
 )
 from nanoinfra.gates.mcp_host.server import MCPHost, StdioServerSettings
+from tests.gates.conftest import pid_alive, wait_until_pid_gone
 
 _SERVER_SCRIPT = '''
 import os
@@ -164,11 +164,11 @@ async def test_the_child_dies_when_the_agent_leaves_the_session(
         async with open_stdio_session("demo", socket_path=socket_path) as session:
             await session.list_tools()
             child_pid = int(report.read_text(encoding="utf-8").splitlines()[0])
-            assert _pid_alive(child_pid)
+            assert pid_alive(child_pid)
     finally:
         await _stop(server)
 
-    assert _wait_until_gone(child_pid, timeout_s=20.0)
+    assert wait_until_pid_gone(child_pid, timeout_s=20.0)
 
 
 # ------------------------------------------------------ words for a failure
@@ -291,7 +291,7 @@ async def test_a_dead_child_raises_what_the_agent_reads_as_a_terminated_session(
             await session.list_tools()
             child_pid = int(report.read_text(encoding="utf-8").splitlines()[0])
             os.kill(child_pid, signal.SIGKILL)
-            assert _wait_until_gone(child_pid, timeout_s=20.0)
+            assert wait_until_pid_gone(child_pid, timeout_s=20.0)
 
             for _attempt in range(2):
                 try:
@@ -450,18 +450,5 @@ def test_the_default_socket_path_sits_in_the_run_directory(
     assert path.parent.name == "run"
 
 
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
 
 
-def _wait_until_gone(pid: int, *, timeout_s: float) -> bool:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        if not _pid_alive(pid):
-            return True
-        time.sleep(0.05)
-    return not _pid_alive(pid)
