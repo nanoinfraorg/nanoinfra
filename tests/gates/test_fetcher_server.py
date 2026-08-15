@@ -167,8 +167,11 @@ def test_the_socket_serves_one_request_per_connection(tmp_path: Path) -> None:
     answers: list[bool] = []
 
     for _ in range(2):
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.connect(str(socket_path))
+        # `_connect` and never a bare connect. This test built its own socket and CI refused the
+        # first connection on Python 3.11: `_serve` waits for the socket file, and `bind()` creates
+        # that file before `listen()` accepts a peer. The helper below the tests exists for exactly
+        # this, and one caller bypassed it.
+        with _connect(socket_path) as client:
             write_frame(
                 client,
                 encode_request(
