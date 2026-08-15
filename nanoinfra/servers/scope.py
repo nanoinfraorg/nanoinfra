@@ -42,10 +42,13 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Generator
+from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from urllib.parse import urlparse
 
 import yaml
@@ -327,7 +330,73 @@ class _InventoryBuilder:
 
 
 
+# The per-action inventory cache (#35). A ContextVar and not an attribute, because the reader
+# sits four call layers below the action and asyncio.to_thread copies the context into the
+# worker thread. The value is None outside an action, and a read then always reaches the source.
+_READ_CACHE: ContextVar[dict[str, Any] | None] = ContextVar("_READ_CACHE", default=None)
+
+
+@contextmanager
+def one_inventory_read_per_action() -> Generator[None]:
+    """Open the cache for one action, and drop it when the action ends.
+
+    The caller wraps one action and no more. #24 re-resolves a grant host between two actions on
+    purpose, because an inventory write must invalidate a match that an earlier action made. A
+    cache that outlived one action would restore the redirect that #23 and #24 close.
+
+    Nested use keeps the outer cache, so an inner action reads what the outer action read. The
+    executor opens the scope once per request, so no nesting exists today.
+    """
+    if _READ_CACHE.get() is not None:
+        yield
+        return
+    token = _READ_CACHE.set({})
+    try:
+        yield
+    finally:
+        _READ_CACHE.reset(token)
+
+
+def prime_inventory_read(server: Server) -> None:
+    """Fill the cache for one action, and swallow the failure (#35).
+
+    The caller runs this in a worker thread, so the action's own read never runs on the event
+    loop. A failure needs no report here, because the cache holds it and the next reader raises
+    the same error at the point that must answer for it.
+    """
+    with suppress(ScopeResolutionError):
+        resolve_scope(server)
+
+
 def _read_inventory_for(project_path: str) -> tuple[_Inventory, str]:
+    """The inventory for this config, read once per action (#35).
+
+    `_read_inventory_uncached` holds the read itself, and this function holds the budget. One
+    action asks four times over: the guard, the observation record, the gate, and the preview
+    line. The answer cannot change inside one action, and each read costs a subprocess.
+
+    The cache lifetime is one action, which `one_inventory_read_per_action()` opens and closes.
+    Outside that scope every call reads again, because #24 re-resolves a grant host on purpose.
+    """
+    cache = _READ_CACHE.get()
+    if cache is None:
+        return _read_inventory_uncached(project_path)
+    if project_path in cache:
+        answer = cache[project_path]
+        # The failure caches too. An unresolvable inventory is also the same answer four times.
+        if isinstance(answer, ScopeResolutionError):
+            raise answer
+        return answer
+    try:
+        answer = _read_inventory_uncached(project_path)
+    except ScopeResolutionError as exc:
+        cache[project_path] = exc
+        raise
+    cache[project_path] = answer
+    return answer
+
+
+def _read_inventory_uncached(project_path: str) -> tuple[_Inventory, str]:
     """The inventory for this config, from the best source available (#37).
 
     A local inventory file is the source the backend passes ansible, so it wins. Without one,
@@ -905,6 +974,8 @@ __all__ = [
     "UNRESOLVED",
     "ScopeResolution",
     "ScopeResolutionError",
+    "one_inventory_read_per_action",
+    "prime_inventory_read",
     "resolve_scope",
     "resolve_scope_label",
 ]
