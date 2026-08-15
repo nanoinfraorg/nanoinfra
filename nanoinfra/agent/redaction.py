@@ -87,6 +87,30 @@ in the same file.
 ``redact_checkpoint`` reuses the message functions rather than repeating them.
 One field then scrubs by one rule, and a shape #17 or #48 covers stays covered
 here on the day it changes there.
+
+**A signed tool call follows the #48 rule as well
+(nanoinfraorg/nanoinfra#53).** ``_redact_tool_calls`` copied every key of a call
+and then replaced the arguments, so a sibling key survived a change to the text
+it describes. No provider in this tree emits a signed tool call today. Gemini's
+function call carries a ``thought_signature``, and an OpenAI-compatible surface
+passes an unknown key through, so the key arrives the day somebody adds that
+provider or a provider adds the field. This file therefore states a rule rather
+than closes a live leak.
+
+Two things differ from #48 here, and both point the same way:
+
+1. The drop is narrower. A named set of signature keys goes, and every other
+   key stays. A rule that dropped every unknown key would break a provider that
+   needs one.
+2. The other half matters more. A tool call replays on the very next iteration
+   of the same turn, so an unnecessary drop breaks a live conversation rather
+   than an old transcript. A call the scrub did not change is identical field
+   for field.
+
+The replay path needs no change for a tool call. A marked thinking block goes
+unsent, because a provider needs the block and the signature together. An
+unsigned tool call is an ordinary tool call, and dropping it would orphan the
+tool result that names its id.
 """
 
 from __future__ import annotations
@@ -153,6 +177,30 @@ REASONING_WITHHELD_MARKER = (
 
 #: The key a provider issues to bind a signature to one thinking text.
 _THINKING_SIGNATURE_KEY = "signature"
+
+#: The keys that bind a signature to the arguments of one tool call (#53).
+#: ``thought_signature`` is the Gemini function call, and ``signature`` is the
+#: name every other signed field in this repository uses.
+#:
+#: The set is named rather than open. A rule that dropped every unknown key
+#: would break a provider that needs one, and no provider in this tree emits a
+#: signed tool call today, so the rule exists for the day one does.
+_TOOL_CALL_SIGNATURE_KEYS = frozenset({"signature", "thought_signature"})
+
+#: What a tool call says after this module changed its arguments (#53). A tool
+#: call replays on the next iteration of the same turn, so a reader needs to
+#: tell a dropped signature from a call that never carried one.
+TOOL_CALL_SCRUBBED_MARKER = (
+    "nanoinfra changed the arguments of this tool call, so it dropped the signature the provider "
+    "issued for them. A signature has to match the text it signed, and a mismatched pair is "
+    "worse than none."
+)
+
+#: The same, for the case no scrub ran and the arguments went instead.
+TOOL_CALL_WITHHELD_MARKER = (
+    "nanoinfra withheld the arguments of this tool call, so it dropped the signature the provider "
+    "issued for them. The signature no longer matches the arguments."
+)
 
 #: The keys of a thinking block that this module copies as they are. ``type``
 #: selects the provider's own block shape, and a signature is opaque provider
@@ -375,6 +423,10 @@ def _redact_tool_calls(tool_calls: Any, scrub: ScrubText) -> Any:
     The arguments get a value-by-value scrub whatever the tool's class is. A
     ``credential.access`` tool takes a secret id as an argument and returns
     the value, so the argument is not the credential and must stay readable.
+
+    A call whose arguments changed loses the signature the provider issued for
+    them (#53). #48 settled that rule for a thinking block, and this is the same
+    rule on the field it did not cover.
     """
     if not isinstance(tool_calls, list):
         return tool_calls
@@ -384,15 +436,48 @@ def _redact_tool_calls(tool_calls: Any, scrub: ScrubText) -> Any:
             redacted.append(call)
             continue
         call_copy = dict(cast(Mapping[str, Any], call))
+        changed = False
         function = call_copy.get("function")
         if isinstance(function, Mapping):
             function_copy = dict(cast(Mapping[str, Any], function))
             arguments = function_copy.get("arguments")
             if isinstance(arguments, str):
-                function_copy["arguments"] = scrub(arguments, None)
+                scrubbed = scrub(arguments, None)
+                changed = scrubbed != arguments
+                function_copy["arguments"] = scrubbed
             call_copy["function"] = function_copy
-        redacted.append(call_copy)
+        redacted.append(
+            _unsigned_tool_call(call_copy, TOOL_CALL_SCRUBBED_MARKER) if changed else call_copy
+        )
     return redacted
+
+
+def _unsigned_tool_call(call: dict[str, Any], marker: str) -> dict[str, Any]:
+    """Drop the signature of a tool call whose arguments changed, and say why (#53).
+
+    The drop is narrow on purpose. Only a named signature key goes, and every
+    other key stays, because a provider needs the id, the type, and the index of
+    the call it replays.
+
+    A call that carried no signature gains no marker. A marker there would state
+    something that never happened.
+
+    A provider can map its own shape onto this one with the signature beside the
+    function or inside it, so both levels are checked.
+    """
+    dropped = False
+    for key in _TOOL_CALL_SIGNATURE_KEYS:
+        if call.pop(key, None) is not None:
+            dropped = True
+    function = call.get("function")
+    if isinstance(function, dict):
+        function_copy = cast("dict[str, Any]", function)
+        for key in _TOOL_CALL_SIGNATURE_KEYS:
+            if function_copy.pop(key, None) is not None:
+                dropped = True
+    if dropped:
+        call[REASONING_SCRUB_MARKER_KEY] = marker
+    return call
 
 
 def _redact_reasoning_content(value: Any, scrub: ScrubText) -> Any:
@@ -734,6 +819,9 @@ def _withheld_tool_calls(tool_calls: Any, marker: str) -> Any:
 
     Session history replays to a provider, so a bare marker in place of the
     arguments would leave a tool call whose arguments are not JSON.
+
+    The arguments are replaced whole here, so a signature over them is stale for
+    certain, and it goes (#53). A withheld thinking block follows the same rule.
     """
     if not isinstance(tool_calls, list):
         return tool_calls
@@ -743,6 +831,7 @@ def _withheld_tool_calls(tool_calls: Any, marker: str) -> Any:
             withheld.append(call)
             continue
         call_copy = dict(cast(Mapping[str, Any], call))
+        replaced = False
         function = call_copy.get("function")
         if isinstance(function, Mapping):
             function_copy = dict(cast(Mapping[str, Any], function))
@@ -750,8 +839,11 @@ def _withheld_tool_calls(tool_calls: Any, marker: str) -> Any:
                 function_copy["arguments"] = json.dumps(
                     {_WITHHELD_ARGUMENT_KEY: marker}, ensure_ascii=False
                 )
+                replaced = True
             call_copy["function"] = function_copy
-        withheld.append(call_copy)
+        withheld.append(
+            _unsigned_tool_call(call_copy, TOOL_CALL_WITHHELD_MARKER) if replaced else call_copy
+        )
     return withheld
 
 
@@ -905,6 +997,8 @@ __all__ = [
     "REASONING_SCRUB_MARKER_KEY",
     "REASONING_WITHHELD_MARKER",
     "SCRUB_UNAVAILABLE_MARKER",
+    "TOOL_CALL_SCRUBBED_MARKER",
+    "TOOL_CALL_WITHHELD_MARKER",
     "TRANSCRIPT_TOOL_RESULT_MAX_CHARS",
     "ScrubText",
     "SecretSentinel",
