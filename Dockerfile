@@ -73,6 +73,14 @@ COPY render-config.json ./
 #                   the MCP servers the config names, so it holds the exec right the
 #                   fetcher refuses. It holds no credential and reaches no inventory host.
 #   nanoinfra-mcp-ipc  the MCP host's group, for the same reason the fetcher has its own.
+#   nanoinfra-op    the operator socket group (item 36, nanoinfraorg/nanoinfra#38). The
+#                   executor suspends an action that needs an approval, and an operator
+#                   answers on a second socket. The agent joins this group, because the
+#                   #27 inbox answers from inside the gateway process. That is the one
+#                   place where this layout gives up the filesystem half of the split, and
+#                   it is deliberate: the answer still crosses into the executor, and the
+#                   executor still matches the actor against gates.approvers. No other
+#                   helper joins it, or that helper could approve an action it asked for.
 #   nanoinfra-fetch-ipc  the fetcher's group, and the reason there are several groups. A
 #                   member of nanoinfra-ipc traverses the executor's socket directory and
 #                   connects to its socket. The fetcher inside that group could therefore
@@ -90,6 +98,7 @@ RUN useradd -m -u 1000 -s /bin/bash nanoinfra && \
     groupadd --system nanoinfra-ipc && \
     groupadd --system nanoinfra-fetch-ipc && \
     groupadd --system nanoinfra-mcp-ipc && \
+    groupadd --system nanoinfra-op && \
     useradd --system --uid 1001 --user-group --no-create-home \
         --home-dir /home/nanoinfra --shell /usr/sbin/nologin nanoinfra-exec && \
     useradd --system --uid 1002 --user-group --no-create-home \
@@ -102,6 +111,7 @@ RUN useradd -m -u 1000 -s /bin/bash nanoinfra && \
     usermod --append --groups nanoinfra-fetch-ipc nanoinfra-fetch && \
     usermod --append --groups nanoinfra-mcp-ipc nanoinfra && \
     usermod --append --groups nanoinfra-mcp-ipc nanoinfra-mcp && \
+    usermod --append --groups nanoinfra-op nanoinfra && \
     mkdir -p /home/nanoinfra/.nanoinfra && \
     chown -R nanoinfra:nanoinfra /home/nanoinfra /app/.venv
 
