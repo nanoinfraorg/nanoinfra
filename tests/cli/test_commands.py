@@ -1952,6 +1952,22 @@ def _patch_gateway_ports_free(monkeypatch) -> None:
     )
 
 
+def _patch_gateway_helper_processes(monkeypatch) -> None:
+    """Keep a CLI test from a real helper child.
+
+    ``_run_gateway`` starts the executor (#40), the fetcher (#19), and the MCP host (#22). Each one
+    is a real interpreter, and it binds a socket under the operator's own data directory. A CLI
+    test asks about the CLI, so it must start none of the three. ``tests/gates`` covers each start
+    on its own, and one of those tests starts a real executor under a tmp_path.
+    """
+    for helper in (
+        "_start_executor_for_gateway",
+        "_start_fetcher_for_gateway",
+        "_start_mcp_host_for_gateway",
+    ):
+        monkeypatch.setattr(f"nanoinfra.cli.gateway_runtime.{helper}", lambda _config: None)
+
+
 def _patch_cli_command_runtime(
     monkeypatch,
     config: Config,
@@ -2001,6 +2017,7 @@ def _patch_cli_command_runtime(
         lambda _config: None,
     )
     _patch_gateway_ports_free(monkeypatch)
+    _patch_gateway_helper_processes(monkeypatch)
 
     if message_bus is not None:
         monkeypatch.setattr("nanoinfra.bus.queue.MessageBus", message_bus)
