@@ -8,6 +8,16 @@ because the import direction is what keeps the split true.
 "the gate said no" need different words for an operator: the first is a deployment fault and the
 second is a policy decision. A caller that conflates them teaches an operator to read a broken
 deployment as a policy problem.
+
+**The origin path is not a parameter (#38).** #13 refuses an approval that arrives on the path
+that raised the request, so the executor needs that path. This module reads it from the bound
+request context, which the channel adapter set. A parameter would let a caller beside the model
+name any path, and the binding between the identity and the transport would go. An unbound
+context yields no path, which fails closed at the gate.
+
+The call also blocks for as long as an operator takes to answer. The executor holds the
+deadline, so this side sets no read timeout past the connect. See
+``nanoinfra/gates/pending.py`` for the four reasons the wait blocks rather than polls.
 """
 
 from __future__ import annotations
@@ -71,6 +81,7 @@ class ExecutorClient:
             preview_requested=preview_requested,
             timeout_s=timeout_s,
             token_nonce=token_nonce,
+            origin_path=_origin_path(),
         )
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
@@ -85,6 +96,22 @@ class ExecutorClient:
             raise ExecutorUnavailableError(
                 f"Could not reach the executor at {self._socket_path}: {exc}"
             ) from exc
+
+
+def _origin_path() -> str | None:
+    """Return the channel that raised this turn, or None when nothing is bound.
+
+    The import stays inside the function. ``nanoinfra.agent`` runs its package init on import,
+    and this module sits under ``nanoinfra.gates``, so a module level import would tie the two
+    trees together in one more place for one field.
+    """
+    from nanoinfra.agent.tools.context import current_request_context
+
+    context = current_request_context()
+    if context is None:
+        return None
+    channel = context.channel.strip()
+    return channel or None
 
 
 __all__ = ["DEFAULT_CONNECT_TIMEOUT_S", "ExecutorClient", "ExecutorUnavailableError"]

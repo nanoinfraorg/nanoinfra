@@ -125,6 +125,18 @@ def _request(**over: object) -> ExecuteRequest:
     return ExecuteRequest(**fields)
 
 
+def _interactive_allow() -> GatesConfig:
+    """Interactive policy that permits the action, so these tests ask a guard question.
+
+    The shipped interactive default is ``approve``, and #38 suspends an ``approve`` outcome
+    until an operator answers on a second path. The guard is what these tests check, so they
+    declare the permission. tests/gates/test_approval_gate.py drives an approval.
+    """
+    return GatesConfig.model_validate(
+        {"interactive": {"mutate.remote": {"host": "allow", "group": "allow"}}}
+    )
+
+
 @dataclass(frozen=True)
 class _GuardResult:
     """What the guard checked, and what it answered."""
@@ -328,7 +340,7 @@ async def test_a_pattern_field_guards_every_host_the_backend_pattern_reaches(
         patch("ansible_runner.run", return_value=runner) as run_mock,
     ):
         response = await Executor(
-            workspace=tmp_path, gates_loader=GatesConfig
+            workspace=tmp_path, gates_loader=_interactive_allow
         ).handle(_request(server_id_or_name="ansible-group"))
 
     assert response.ok, response.error or response.reason
@@ -426,7 +438,7 @@ async def test_ssm_execution_never_reaches_the_network_guard(tmp_path: Path) -> 
             new=AsyncMock(return_value=ExecutionResult(exit_code=0, output="ok", error=None)),
         ) as run_mock,
     ):
-        response = await Executor(workspace=tmp_path, gates_loader=GatesConfig).handle(
+        response = await Executor(workspace=tmp_path, gates_loader=_interactive_allow).handle(
             _request(server_id_or_name="ssm-box", command="uptime")
         )
 

@@ -77,6 +77,8 @@ def test_gates_payload_marks_every_shipped_default_as_a_default(
     assert gates["from_default"] == {
         "approvers": True,
         "approvalPaths": True,
+        # nanoinfraorg/nanoinfra#38 added the wait for a runtime approval.
+        "approvalTimeoutS": True,
         "interactive.mutate.remote.host": True,
         "interactive.mutate.remote.group": True,
         "interactive.mutate.remote.all": True,
@@ -124,6 +126,8 @@ def test_gates_payload_keeps_the_config_key_spelling(
     assert gates["policy"] == {
         "approvers": [],
         "approvalPaths": ["webui"],
+        # nanoinfraorg/nanoinfra#38 added the wait for a runtime approval.
+        "approvalTimeoutS": 120,
         "interactive": {
             "mutate.remote": {"host": "approve", "group": "approve", "all": "deny"},
             "mutate.inventory": "allow",

@@ -22,7 +22,11 @@ import pytest
 _MODULES = [
     "approvals",
     "audit",
+    "executor.client",
+    "executor.operator_socket",
+    "executor.protocol",
     "latch",
+    "pending",
     "policy",
     "prompt",
     "startup",

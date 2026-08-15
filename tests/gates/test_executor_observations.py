@@ -19,6 +19,7 @@ import pytest
 from loguru import logger
 
 from nanoinfra.agent.tools.capabilities import CREDENTIAL_ACCESS, MUTATE_REMOTE
+from nanoinfra.config.gates import GatesConfig
 from nanoinfra.gates.executor.protocol import ExecuteRequest
 from nanoinfra.gates.executor.server import Executor
 from nanoinfra.secrets import crypto
@@ -77,8 +78,21 @@ def _request(**over: object) -> ExecuteRequest:
     return ExecuteRequest(**fields)
 
 
+def _interactive_allow() -> GatesConfig:
+    """Interactive policy that permits the action, so these tests ask a recorder question.
+
+    The shipped interactive default is ``approve``, and #38 suspends an ``approve`` outcome
+    until an operator answers on a second path. The log-only observation is what these tests
+    check, so they declare the permission. An explicit policy also keeps the developer's own
+    config out of the answer.
+    """
+    return GatesConfig.model_validate(
+        {"interactive": {"mutate.remote": {"host": "allow", "group": "allow"}}}
+    )
+
+
 def _executor(tmp_path: Path) -> Executor:
-    return Executor(workspace=tmp_path)
+    return Executor(workspace=tmp_path, gates_loader=_interactive_allow)
 
 
 @pytest.mark.asyncio

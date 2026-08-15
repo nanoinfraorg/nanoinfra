@@ -159,6 +159,16 @@ class GatesConfig(Base):
     # path also means no runtime approval path for an unusual action, which #13 reports as a
     # named refusal. Entries use the same vocabulary as ``Approver.channel``.
     approval_paths: list[str] = Field(default_factory=lambda: ["webui"])
+    # How long one suspended action waits for a human (#38). The executor holds the action on
+    # its socket for this long, and then it refuses.
+    #
+    # The default is short for the reason #12 gives: a human needs time to read a rendered host
+    # list, and no longer. Ambient authority must not develop out of an approval nobody spent.
+    # The ceiling equals MAX_TTL_S in nanoinfra/gates/tokens.py. A wait longer than that ceiling
+    # would produce an approval whose token cannot cover the action it approved. The value is
+    # repeated rather than imported, because tokens.py imports the agent tree and this module
+    # must stay a leaf. tests/gates/test_approval_gate.py asserts the two agree.
+    approval_timeout_s: int = Field(default=120, ge=1, le=300)
     interactive: ContextPolicy = Field(default_factory=_default_interactive)
     unattended: ContextPolicy = Field(default_factory=_default_unattended)
     standing_grants: list[StandingGrant] = Field(default_factory=list)

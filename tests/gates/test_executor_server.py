@@ -8,6 +8,7 @@ compromising the agent yields the ability to ask rather than the ability to act.
 
 from __future__ import annotations
 
+import json
 import socket
 import threading
 from pathlib import Path
@@ -40,6 +41,29 @@ def _configured_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NANOINFRA_SECRETS_KEY", crypto.generate_key_for_setup())
 
 
+@pytest.fixture(autouse=True)
+def _isolated_data_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep the policy and the audit log of ``serve_forever`` inside tmp_path.
+
+    ``serve_forever`` reads its policy and opens its audit store through the data dir. Without
+    this fixture a test reads the developer's own gate policy and appends to the real audit log.
+    The policy below permits the interactive action, because these tests check the socket rather
+    than the approval path (#38).
+
+    The loader path is pinned as well as HOME. ``get_config_path`` prefers the loader's module
+    global, and another test in the same process may have set it already.
+    """
+    home = tmp_path / "home"
+    config = home / ".nanoinfra" / "config.json"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        json.dumps({"gates": {"interactive": {"mutate.remote": {"host": "allow"}}}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config)
+
+
 def _workspace(tmp_path: Path, *, with_secret: bool = False) -> Path:
     raw: dict[str, Any] = {
         "name": "prod-web-01",
@@ -55,8 +79,20 @@ def _workspace(tmp_path: Path, *, with_secret: bool = False) -> Path:
     return tmp_path
 
 
+def _interactive_allow() -> GatesConfig:
+    """Interactive policy that permits the action, so these tests ask a boundary question.
+
+    The shipped interactive default is ``approve``, and #38 suspends an ``approve`` outcome
+    until an operator answers on a second path. The wire and the split are what these tests
+    check, so they declare the permission. tests/gates/test_approval_gate.py drives an approval.
+    """
+    return GatesConfig.model_validate(
+        {"interactive": {"mutate.remote": {"host": "allow", "group": "allow"}}}
+    )
+
+
 def _executor(tmp_path: Path, gates: GatesConfig | None = None) -> Executor:
-    return Executor(workspace=tmp_path, gates_loader=lambda: gates or GatesConfig())
+    return Executor(workspace=tmp_path, gates_loader=lambda: gates or _interactive_allow())
 
 
 def _request(**over: object) -> ExecuteRequest:

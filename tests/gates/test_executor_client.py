@@ -11,10 +11,12 @@ from __future__ import annotations
 import ast
 import socket
 import threading
+import time
 from pathlib import Path
 
 import pytest
 
+from nanoinfra.agent.tools.context import RequestContext, request_context
 from nanoinfra.gates.executor.client import ExecutorClient, ExecutorUnavailableError
 from nanoinfra.gates.executor.protocol import (
     ExecuteResponse,
@@ -101,6 +103,45 @@ def test_the_client_carries_a_request_and_returns_the_reply(tmp_path: Path) -> N
     assert response.output == "up 3 days"
 
 
+def test_a_reply_that_arrives_long_after_the_connect_still_reaches_the_caller(
+    tmp_path: Path,
+) -> None:
+    """#38 blocks this call while a human answers, so no read deadline may cut it short.
+
+    The connect timeout guards the connect only. A deadline on the read would report a pending
+    approval as an unreachable executor, and an operator would then read a policy question as a
+    deployment fault.
+    """
+    socket_path = tmp_path / "exec.sock"
+    reply = ExecuteResponse(ok=True, output="ran", exit_code=0, error=None, reason="")
+
+    def serve() -> None:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(str(socket_path))
+            server.listen(1)
+            conn, _ = server.accept()
+            with conn:
+                read_frame(conn)
+                time.sleep(0.4)
+                write_frame(conn, encode_response(reply))
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    _wait_for(socket_path)
+
+    response = ExecutorClient(socket_path, connect_timeout_s=0.05).execute(
+        server_id_or_name="prod-web-01",
+        command="uptime",
+        session_id="s1",
+        execution_context="interactive",
+        preview_requested=False,
+        timeout_s=None,
+    )
+    thread.join(timeout=10)
+
+    assert response.output == "ran"
+
+
 def test_a_missing_socket_raises_executor_unavailable(tmp_path: Path) -> None:
     """A caller must be able to tell "the executor is not there" from "the gate refused".
 
@@ -142,6 +183,101 @@ def test_a_socket_that_dies_mid_reply_raises_executor_unavailable(tmp_path: Path
             timeout_s=None,
         )
     thread.join(timeout=10)
+
+
+def test_the_request_carries_the_channel_that_raised_it(tmp_path: Path) -> None:
+    """#38: the origin path comes from the bound request context, and not from a tool argument.
+
+    #13 refuses an approval that arrives on the origin path. A tool argument would let the model
+    name any path it liked, so the value comes from the channel adapter instead.
+    """
+    socket_path = tmp_path / "exec.sock"
+    seen: list[str | None] = []
+
+    def serve() -> None:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(str(socket_path))
+            server.listen(1)
+            conn, _ = server.accept()
+            with conn:
+                seen.append(decode_request(read_frame(conn)).origin_path)
+                write_frame(
+                    conn,
+                    encode_response(
+                        ExecuteResponse(ok=True, output="", exit_code=0, error=None, reason="")
+                    ),
+                )
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    _wait_for(socket_path)
+
+    context = RequestContext(channel="telegram", chat_id="c1", session_key="s1")
+    with request_context(context):
+        ExecutorClient(socket_path).execute(
+            server_id_or_name="prod-web-01",
+            command="uptime",
+            session_id="s1",
+            execution_context="interactive",
+            preview_requested=False,
+            timeout_s=None,
+        )
+    thread.join(timeout=10)
+
+    assert seen == ["telegram"]
+
+
+def test_a_request_with_no_bound_context_names_no_path(tmp_path: Path) -> None:
+    """Fail closed. No bound context proves nothing about the transport that raised the turn."""
+    socket_path = tmp_path / "exec.sock"
+    seen: list[str | None] = []
+
+    def serve() -> None:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(str(socket_path))
+            server.listen(1)
+            conn, _ = server.accept()
+            with conn:
+                seen.append(decode_request(read_frame(conn)).origin_path)
+                write_frame(
+                    conn,
+                    encode_response(
+                        ExecuteResponse(ok=True, output="", exit_code=0, error=None, reason="")
+                    ),
+                )
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    _wait_for(socket_path)
+
+    ExecutorClient(socket_path).execute(
+        server_id_or_name="prod-web-01",
+        command="uptime",
+        session_id="s1",
+        execution_context="automation",
+        preview_requested=False,
+        timeout_s=None,
+    )
+    thread.join(timeout=10)
+
+    assert seen == [None]
+
+
+def test_the_client_signature_keeps_the_sdk_stand_in_usable() -> None:
+    """``DisabledExecutorClient`` (#21) overrides ``execute`` with the same keywords.
+
+    #38 needed the origin path on the wire. A new keyword here would break that override, and
+    an embedded caller would then read a TypeError instead of the message that names the fix.
+    So the origin path arrives through the bound request context.
+    """
+    import inspect
+
+    from nanoinfra.sdk.clients import DisabledExecutorClient
+
+    assert (
+        inspect.signature(ExecutorClient.execute).parameters.keys()
+        == inspect.signature(DisabledExecutorClient.execute).parameters.keys()
+    )
 
 
 def test_the_client_holds_no_credential_and_no_backend() -> None:

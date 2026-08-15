@@ -16,6 +16,15 @@ Three properties shape this module:
 
 The response carries output and a verdict. It never carries a credential. The executor holds
 the only plaintext, and returning one would undo the split.
+
+**Version 2 carries the origin path (#38).** #13 decides path independence, and it cannot do
+that without the path the request arrived on. So the field is mandatory, and a version 1 frame
+gets a refusal. An agent that does not state its path must not execute. The client and the
+server ship together in one package, so no rolling deploy needs the older frame.
+
+The executor treats ``origin_path`` as the agent's assertion about itself. A compromised agent
+can state any path. That is why the *answer* arrives on a separate socket the executor owns,
+and why the approver set lives in git-reviewed config rather than in a reachability list.
 """
 
 from __future__ import annotations
@@ -26,7 +35,7 @@ import struct
 from dataclasses import asdict, dataclass, fields
 from typing import Any, cast
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 
 # A peer controls the length prefix, so the reader caps it. 8 MiB is far above a command and
 # far below a memory problem. Output is bounded separately by truncate_output.
@@ -48,7 +57,13 @@ class ExecuteRequest:
 
     ``token_nonce`` names an approval the executor verifies against its own store (#12). The
     token itself never crosses the wire, because a token the agent can read is a token the
-    model can propose.
+    model can propose. #38 issues every nonce inside the executor, so the agent holds none, and
+    the executor refuses a request that carries one.
+
+    ``origin_path`` names the channel that raised the request, in the vocabulary of
+    ``Approver.channel``. #13 refuses an approval that arrives on this same path, so the field
+    is what makes path independence checkable. The wire requires it, and the default here
+    serves in-process construction only, where a missing path fails closed at the gate.
     """
 
     server_id_or_name: str
@@ -58,6 +73,7 @@ class ExecuteRequest:
     preview_requested: bool
     timeout_s: str | None
     token_nonce: str | None
+    origin_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

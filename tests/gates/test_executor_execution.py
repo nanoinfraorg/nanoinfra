@@ -49,8 +49,21 @@ def _configured_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NANOINFRA_SECRETS_KEY", crypto.generate_key_for_setup())
 
 
+def _interactive_allow() -> GatesConfig:
+    """Interactive policy that permits the action, so these tests ask a mechanics question.
+
+    The shipped interactive default is ``approve``, and #38 suspends an ``approve`` outcome
+    until an operator answers on a second path. These tests exercise execution mechanics, so
+    they declare the permission rather than drive an approval. The approval path has its own
+    tests in tests/gates/test_approval_gate.py.
+    """
+    return GatesConfig.model_validate(
+        {"interactive": {"mutate.remote": {"host": "allow", "group": "allow"}}}
+    )
+
+
 def _executor(tmp_path: Path, gates: GatesConfig | None = None) -> Executor:
-    return Executor(workspace=tmp_path, gates_loader=lambda: gates or GatesConfig())
+    return Executor(workspace=tmp_path, gates_loader=lambda: gates or _interactive_allow())
 
 
 def _request(**over: object) -> ExecuteRequest:
