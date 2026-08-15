@@ -15,7 +15,6 @@ from nanoinfra.agent.tools.mcp import (
     MCPPromptWrapper,
     MCPResourceWrapper,
     MCPToolWrapper,
-    _normalize_windows_stdio_command,
     _sanitize_mcp_tool_name,
     _sanitize_name,
     connect_mcp_servers,
@@ -27,8 +26,10 @@ _PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "http
 
 
 def test_type_checking_only_mcp_annotations_are_deferred() -> None:
-    assert mcp_mod._MCPWrapperBase.__annotations__["_session"] == "ClientSession"
-    assert MCPToolWrapper.__init__.__annotations__["session"] == "ClientSession"
+    # The session type is a Protocol after #22. An HTTP server gives the SDK's ClientSession, and
+    # a stdio server gives the MCP host's session, so the wrappers name neither one.
+    assert mcp_mod._MCPWrapperBase.__annotations__["_session"] == "MCPSession"
+    assert MCPToolWrapper.__init__.__annotations__["session"] == "MCPSession"
     assert MCPResourceWrapper.__init__.__annotations__["resource_def"] == "Resource"
     assert MCPPromptWrapper.__init__.__annotations__["prompt_def"] == "Prompt"
     assert connect_mcp_servers.__annotations__["mcp_servers"] == "dict[str, MCPServerConfig]"
@@ -124,6 +125,19 @@ def _fake_mcp_module(
     sse_mod.sse_client = _fake_sse_client
     streamable_http_mod = ModuleType("mcp.client.streamable_http")
     streamable_http_mod.streamable_http_client = _fake_streamable_http_client
+
+    @asynccontextmanager
+    async def _fake_host_session(_server_name: str, **_kwargs: object):
+        """Stand in for the MCP host process (#22).
+
+        The stdio child runs in that process now, so the agent asks it for a session. These tests
+        cover the agent's own work: the transport choice, the tool filter, and the registration.
+        """
+        session = fake_mcp_runtime["session"]
+        assert session is not None, "this test must set fake_mcp_runtime['session']"
+        yield session
+
+    monkeypatch.setattr(mcp_mod, "open_stdio_session", _fake_host_session)
 
     monkeypatch.setitem(sys.modules, "mcp.client", client_mod)
     monkeypatch.setitem(sys.modules, "mcp.client.stdio", stdio_mod)
@@ -336,99 +350,6 @@ def test_wrapper_resolves_uri_encoded_json_pointer() -> None:
     assert generated_ref.startswith("#/$defs/ref_")
     generated_name = generated_ref.removeprefix("#/$defs/")
     assert wrapper.parameters["$defs"][generated_name] == {"type": "string"}
-
-
-def test_normalize_windows_stdio_command_is_noop_off_windows(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(mcp_mod.os, "name", "posix", raising=False)
-
-    command, args, env = _normalize_windows_stdio_command(
-        "npx",
-        ["-y", "chrome-devtools-mcp@latest"],
-        {"FOO": "bar"},
-    )
-
-    assert command == "npx"
-    assert args == ["-y", "chrome-devtools-mcp@latest"]
-    assert env == {"FOO": "bar"}
-
-
-def test_normalize_windows_stdio_command_wraps_npx_on_windows(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(mcp_mod.os, "name", "nt", raising=False)
-    monkeypatch.setattr(
-        mcp_mod.shutil,
-        "which",
-        lambda command, path=None: r"C:\Program Files\nodejs\npx.cmd",
-    )
-    monkeypatch.setenv("COMSPEC", r"C:\Windows\System32\cmd.exe")
-
-    command, args, env = _normalize_windows_stdio_command(
-        "npx",
-        ["-y", "chrome-devtools-mcp@latest"],
-        None,
-    )
-
-    assert command == r"C:\Windows\System32\cmd.exe"
-    assert args == ["/d", "/c", "npx", "-y", "chrome-devtools-mcp@latest"]
-    assert env is None
-
-
-def test_normalize_windows_stdio_command_wraps_resolved_cmd_launcher(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(mcp_mod.os, "name", "nt", raising=False)
-
-    def _fake_which(command: str, path: str | None = None) -> str:
-        assert command == "custom-launcher"
-        assert path == r"C:\Tools"
-        return r"C:\Tools\custom-launcher.cmd"
-
-    monkeypatch.setattr(mcp_mod.shutil, "which", _fake_which)
-    monkeypatch.setenv("COMSPEC", r"C:\Windows\System32\cmd.exe")
-
-    command, args, _env = _normalize_windows_stdio_command(
-        "custom-launcher",
-        ["serve"],
-        {"PATH": r"C:\Tools"},
-    )
-
-    assert command == r"C:\Windows\System32\cmd.exe"
-    assert args == ["/d", "/c", "custom-launcher", "serve"]
-
-
-def test_normalize_windows_stdio_command_keeps_real_executables_unchanged(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(mcp_mod.os, "name", "nt", raising=False)
-
-    command, args, env = _normalize_windows_stdio_command(
-        "python.exe",
-        ["-m", "http.server"],
-        {"FOO": "bar"},
-    )
-
-    assert command == "python.exe"
-    assert args == ["-m", "http.server"]
-    assert env == {"FOO": "bar"}
-
-
-def test_normalize_windows_stdio_command_skips_existing_shells(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(mcp_mod.os, "name", "nt", raising=False)
-
-    command, args, env = _normalize_windows_stdio_command(
-        "cmd.exe",
-        ["/c", "echo", "hello"],
-        None,
-    )
-
-    assert command == "cmd.exe"
-    assert args == ["/c", "echo", "hello"]
-    assert env is None
 
 
 @pytest.mark.asyncio
@@ -830,11 +751,11 @@ async def test_connect_mcp_servers_logs_stdio_pollution_hint(
         messages.append(message.format(*args))
 
     @asynccontextmanager
-    async def _broken_stdio_client(_params: object):
+    async def _broken_host_session(_server_name: str, **_kwargs: object):
         raise RuntimeError("Parse error: Unexpected token 'INFO' before JSON-RPC headers")
         yield  # pragma: no cover
 
-    monkeypatch.setattr(sys.modules["mcp.client.stdio"], "stdio_client", _broken_stdio_client)
+    monkeypatch.setattr(mcp_mod, "open_stdio_session", _broken_host_session)
     monkeypatch.setattr("nanoinfra.agent.tools.mcp.logger.exception", _error)
 
     registry = ToolRegistry()
@@ -1087,24 +1008,13 @@ async def test_connect_mcp_servers_one_failure_does_not_block_others(
 ) -> None:
     sessions = {"good": _make_fake_session(["demo"])}
 
-    class _SelectiveClientSession:
-        def __init__(self, read: object, _write: object) -> None:
-            self._session = sessions[read]
-
-        async def __aenter__(self) -> object:
-            return self._session
-
-        async def __aexit__(self, exc_type, exc, tb) -> bool:
-            return False
-
     @asynccontextmanager
-    async def _selective_stdio_client(params: object):
-        if params.command == "bad":
+    async def _selective_host_session(server_name: str, **_kwargs: object):
+        if server_name == "bad":
             raise RuntimeError("boom")
-        yield params.command, object()
+        yield sessions[server_name]
 
-    monkeypatch.setattr(sys.modules["mcp"], "ClientSession", _SelectiveClientSession)
-    monkeypatch.setattr(sys.modules["mcp.client.stdio"], "stdio_client", _selective_stdio_client)
+    monkeypatch.setattr(mcp_mod, "open_stdio_session", _selective_host_session)
 
     registry = ToolRegistry()
     stacks = await connect_mcp_servers(
@@ -1168,72 +1078,9 @@ async def test_connect_mcp_servers_streamable_http_uses_finite_timeout(
     assert timeout.pool == 30.0
 
 
-@pytest.mark.asyncio
-async def test_connect_mcp_servers_wraps_windows_stdio_launchers(
-    fake_mcp_runtime: dict[str, object | None],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_mcp_runtime["session"] = _make_fake_session(["demo"])
-    captured: dict[str, object] = {}
-
-    @asynccontextmanager
-    async def _capturing_stdio_client(params: object):
-        captured["command"] = params.command
-        captured["args"] = params.args
-        captured["env"] = params.env
-        yield object(), object()
-
-    monkeypatch.setattr(mcp_mod.os, "name", "nt", raising=False)
-    monkeypatch.setattr(
-        mcp_mod.shutil,
-        "which",
-        lambda command, path=None: r"C:\Program Files\nodejs\npx.cmd",
-    )
-    monkeypatch.setenv("COMSPEC", r"C:\Windows\System32\cmd.exe")
-    monkeypatch.setattr(sys.modules["mcp.client.stdio"], "stdio_client", _capturing_stdio_client)
-
-    registry = ToolRegistry()
-    stacks = await connect_mcp_servers(
-        {
-            "test": MCPServerConfig(
-                command="npx",
-                args=["-y", "chrome-devtools-mcp@latest"],
-            )
-        },
-        registry,
-    )
-    for stack in stacks.values():
-        await stack.aclose()
-
-    assert captured["command"] == r"C:\Windows\System32\cmd.exe"
-    assert captured["args"] == ["/d", "/c", "npx", "-y", "chrome-devtools-mcp@latest"]
-    assert captured["env"] is None
-
-
-@pytest.mark.asyncio
-async def test_connect_mcp_servers_passes_stdio_cwd(
-    fake_mcp_runtime: dict[str, object | None],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_mcp_runtime["session"] = _make_fake_session(["demo"])
-    captured: dict[str, object] = {}
-
-    @asynccontextmanager
-    async def _capturing_stdio_client(params: object):
-        captured["cwd"] = params.cwd
-        yield object(), object()
-
-    monkeypatch.setattr(sys.modules["mcp.client.stdio"], "stdio_client", _capturing_stdio_client)
-
-    registry = ToolRegistry()
-    stacks = await connect_mcp_servers(
-        {"test": MCPServerConfig(command="fake", cwd="/tmp/nanoinfra-mcp-test")},
-        registry,
-    )
-    for stack in stacks.values():
-        await stack.aclose()
-
-    assert captured["cwd"] == "/tmp/nanoinfra-mcp-test"
+# The two tests that asserted the stdio command and the stdio cwd moved with the child they
+# describe. The MCP host builds those parameters now, and
+# tests/gates/test_mcp_host_server.py holds them.
 
 
 # ---------------------------------------------------------------------------
