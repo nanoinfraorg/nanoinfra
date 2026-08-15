@@ -10,9 +10,10 @@ Tool-call arguments are already redacted (per ``Tool.sensitive_params``)
 before they reach ``context.messages`` in ``AgentRunner`` -- see
 ``AgentRunner._tool_calls_for_context`` -- so transcripts inherit that same
 redaction automatically. Free-form tool *results* (e.g. remote command
-output) are not scrubbed here, matching existing session history/log
-behavior; that is a pre-existing, broader gap this store does not attempt to
-solve.
+output) go through ``nanoinfra/agent/redaction.py`` on the way in: known
+credential values become a name-only reference, and tool output is bounded.
+That redaction is best-effort -- read its module docstring before you rely
+on it.
 """
 
 from __future__ import annotations
@@ -20,10 +21,15 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Iterable, Mapping, cast
+from typing import Any, Callable, Iterable, Mapping, cast
 
 from loguru import logger
 
+from nanoinfra.agent.redaction import (
+    redact_mapping,
+    redact_message,
+    workspace_secret_sentinels,
+)
 from nanoinfra.runtime_context import public_history_messages
 from nanoinfra.session.history_visibility import is_hidden_history_message
 from nanoinfra.utils.helpers import ensure_dir, timestamp
@@ -44,7 +50,10 @@ class SubagentTranscriptStore:
     """Append-safe per-task JSONL transcript storage under the agent workspace."""
 
     def __init__(self, workspace: Path) -> None:
-        self._root = Path(workspace).expanduser().resolve() / "memory" / "subagents"
+        # The workspace root is kept because redaction resolves this
+        # workspace's secrets to know what to scrub out of a transcript.
+        self._workspace = Path(workspace).expanduser().resolve()
+        self._root = self._workspace / "memory" / "subagents"
 
     @property
     def root(self) -> Path:
@@ -64,25 +73,36 @@ class SubagentTranscriptStore:
         task_id: str,
         messages: Iterable[Mapping[str, Any]],
         metadata: Mapping[str, Any] | None = None,
+        *,
+        capability_of: Callable[[str], str | None] | None = None,
     ) -> Path:
-        """Normalize, stamp, cap, and atomically write a transcript.
+        """Normalize, redact, stamp, cap, and atomically write a transcript.
 
         Returns the written file path. The write is atomic (temp file +
         fsync + ``os.replace``), so a crash or concurrent reader never
         observes a torn file. Records beyond the size cap are dropped and a
         terminal marker record is appended; a line is never truncated
         mid-record.
+
+        *capability_of* maps a tool name to its capability class. A caller
+        that holds the task's tool registry should pass one, so a
+        ``credential.access`` result is dropped whole instead of scrubbed
+        value by value.
         """
         ensure_dir(self._root)
         target = self.path_for(task_id)
         now = timestamp()
         records: list[dict[str, Any]] = []
+        # Resolved once per write. The set does not change inside one write,
+        # and each lookup can reach the secret store.
+        sentinels = workspace_secret_sentinels(self._workspace)
         for message in public_history_messages(messages):
             if is_hidden_history_message(message):
                 continue
+            redacted = redact_message(message, sentinels, capability_of=capability_of)
             record = {
                 key: value
-                for key, value in message.items()
+                for key, value in redacted.items()
                 if key not in _THINKING_KEYS
             }
             record.setdefault("timestamp", now)
@@ -90,8 +110,14 @@ class SubagentTranscriptStore:
 
         lines = self._serialize(task_id, records)
         if metadata:
+            # Scrub before the dump, never after. A placeholder written into
+            # already-serialized JSON could break the line's escaping, and a
+            # subagent's error string can quote the credential that failed.
             lines.append(
-                json.dumps({"_transcript_meta": dict(metadata)}, ensure_ascii=False)
+                json.dumps(
+                    {"_transcript_meta": redact_mapping(metadata, sentinels)},
+                    ensure_ascii=False,
+                )
             )
         self._write_atomic(target, lines)
         self._prune()
