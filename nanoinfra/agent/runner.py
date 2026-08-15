@@ -19,7 +19,6 @@ from nanoinfra.agent.context_governance import (
 )
 from nanoinfra.agent.hook import AgentHook, AgentHookContext, AgentRunHookContext
 from nanoinfra.agent.tools.registry import ToolRegistry, is_tool_error_result
-from nanoinfra.gates.latch import is_terminal_denial
 from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
@@ -1602,6 +1601,14 @@ class AgentRunner:
         workspace_violation_counts: dict[str, int],
     ) -> tuple[Any, dict[str, str], BaseException | None] | None:
         """Classify safety-boundary failures, or return ``None`` to pass through."""
+        # Imported here rather than at the top of the module, to break an import cycle.
+        # nanoinfra/gates/latch.py needs ToolResult at class-definition time, and any import
+        # under nanoinfra.agent runs nanoinfra/agent/__init__.py, which loads this module. A
+        # top-level import here therefore made `import nanoinfra.gates.latch` fail whenever
+        # that module was imported first. This function runs only on a tool failure, so the
+        # cost is one dict lookup on a cold path.
+        from nanoinfra.gates.latch import is_terminal_denial
+
         if is_terminal_denial(raw_text):
             # A capability gate denial is terminal (#15). Each caller of this classifier
             # otherwise appends "try a different approach". That hint is the brute-force retry.
