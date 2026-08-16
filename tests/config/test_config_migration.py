@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
+from nanoinfra.config import loader
 from nanoinfra.config.loader import load_config, save_config
 from nanoinfra.security.network import validate_url_target
 
@@ -83,7 +84,11 @@ def test_onboard_does_not_crash_with_legacy_memory_window(tmp_path, monkeypatch)
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("nanoinfra.config.loader.get_config_path", lambda: config_path)
+    # The global, and never the function that reads it (nanoinfraorg/nanoinfra#80). `onboard`
+    # imports the channel state modules lazily, and each one binds `get_config_path` at module
+    # level, so a module that reached its first import inside a patch of that function kept the
+    # stand-in for the life of the worker.
+    monkeypatch.setattr(loader, "_current_config_path", config_path)
     monkeypatch.setattr("nanoinfra.cli.commands.get_workspace_path", lambda _workspace=None: workspace)
 
     from typer.testing import CliRunner
@@ -145,7 +150,11 @@ def test_onboard_refresh_backfills_missing_channel_fields(tmp_path, monkeypatch)
         encoding="utf-8",
     )
 
-    monkeypatch.setattr("nanoinfra.config.loader.get_config_path", lambda: config_path)
+    # The global, and never the function that reads it (nanoinfraorg/nanoinfra#80). `onboard`
+    # imports the channel state modules lazily, and each one binds `get_config_path` at module
+    # level, so a module that reached its first import inside a patch of that function kept the
+    # stand-in for the life of the worker.
+    monkeypatch.setattr(loader, "_current_config_path", config_path)
     monkeypatch.setattr("nanoinfra.cli.commands.get_workspace_path", lambda _workspace=None: workspace)
     monkeypatch.setattr(
         "nanoinfra.channels.registry.discover_plugins",
