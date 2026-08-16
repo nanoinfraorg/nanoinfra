@@ -2270,3 +2270,62 @@ def test_save_turn_drops_duplicate_tool_result_ids() -> None:
 
     assert [m["role"] for m in session.messages] == ["assistant", "tool"]
     assert session.messages[1]["content"] == "first"
+
+
+def _call(call_id: str, name: str) -> dict[str, object]:
+    return {"id": call_id, "type": "function", "function": {"name": name, "arguments": "{}"}}
+
+
+def test_save_turn_keeps_a_result_whose_id_an_earlier_turn_also_used() -> None:
+    """A model that names ids by position repeats them across turns.
+
+    Reported from a live gateway on ``kimi-k3``, which names a call ``<tool>_<slot>``. Calling
+    ``exec`` in slot 3 in two turns produces ``exec_3`` twice, and the second result was dropped as
+    a duplicate of the first. The provider validates per assistant message, so it then saw an
+    unanswered call, and the malformed history was already on disk: every later request in that
+    session failed the same way. One collision bricked the session.
+    """
+    loop = _mk_loop()
+    session = Session(key="test:repeated-ids")
+    session.add_message("user", "first")
+    session.add_message("assistant", "", tool_calls=[_call("exec_3", "exec")])
+    session.add_message("tool", "first output", tool_call_id="exec_3", name="exec")
+    session.add_message("user", "second")
+
+    loop._save_turn(
+        session,
+        [
+            {"role": "assistant", "content": "", "tool_calls": [_call("my_2", "my"), _call("exec_3", "exec")]},
+            {"role": "tool", "tool_call_id": "my_2", "name": "my", "content": "channel: websocket"},
+            {"role": "tool", "tool_call_id": "exec_3", "name": "exec", "content": "second output"},
+        ],
+        skip=0,
+    )
+
+    tail = session.messages[4:]
+    assert [m["role"] for m in tail] == ["assistant", "tool", "tool"]
+    assert [m.get("tool_call_id") for m in tail[1:]] == ["my_2", "exec_3"]
+
+
+def test_save_turn_still_drops_a_second_result_for_the_same_open_call() -> None:
+    """The property the guard exists for is kept.
+
+    Two results for one call is what corrupts a request. Scoping the check to the call being
+    answered must not turn that guard off.
+    """
+    loop = _mk_loop()
+    session = Session(key="test:double-answer")
+    session.add_message("user", "hi")
+
+    loop._save_turn(
+        session,
+        [
+            {"role": "assistant", "content": "", "tool_calls": [_call("exec_3", "exec")]},
+            {"role": "tool", "tool_call_id": "exec_3", "name": "exec", "content": "first"},
+            {"role": "tool", "tool_call_id": "exec_3", "name": "exec", "content": "second"},
+        ],
+        skip=0,
+    )
+
+    tool_messages = [m for m in session.messages if m.get("role") == "tool"]
+    assert [m["content"] for m in tool_messages] == ["first"]

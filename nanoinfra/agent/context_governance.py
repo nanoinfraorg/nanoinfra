@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any, cast
 from loguru import logger
 
 from nanoinfra.utils.helpers import (
+    declared_tool_call_ids,
+    declared_tool_calls,
     estimate_message_tokens,
     estimate_prompt_tokens_chain,
     find_legal_message_start,
@@ -233,26 +235,28 @@ class ContextGovernor:
     def drop_orphan_tool_results(
         messages: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Drop invalid tool results before history is sent back to providers."""
-        declared: set[str] = set()
-        fulfilled: set[str] = set()
+        """Drop invalid tool results before history is sent back to providers.
+
+        The open set is the ids of the assistant message being answered, and never every id the
+        history has ever declared. A model that names a call after its slot repeats the name on
+        every turn that uses that slot, so a session-wide "already fulfilled" set reads the second
+        legitimate result as a duplicate and drops it -- which leaves the very orphan this
+        function exists to prevent.
+        """
+        open_ids: set[str] = set()
         updated: list[dict[str, Any]] | None = None
         for idx, msg in enumerate(messages):
             role = msg.get("role")
             if role == "assistant":
-                for tc in cast(list[Any], msg.get("tool_calls") or []):
-                    if isinstance(tc, dict):
-                        tool_call = cast(dict[str, Any], tc)
-                        if tool_call.get("id"):
-                            declared.add(str(tool_call["id"]))
+                open_ids = set(declared_tool_call_ids(msg))
             if role == "tool":
                 tid = msg.get("tool_call_id")
                 tid_str = str(tid) if tid else ""
-                if not tid_str or tid_str not in declared or tid_str in fulfilled:
+                if not tid_str or tid_str not in open_ids:
                     if updated is None:
                         updated = [dict(m) for m in messages[:idx]]
                     continue
-                fulfilled.add(tid_str)
+                open_ids.discard(tid_str)
             if updated is not None:
                 updated.append(dict(msg))
 
@@ -264,39 +268,45 @@ class ContextGovernor:
     def backfill_missing_tool_results(
         messages: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Insert synthetic error results for assistant tool_calls with missing tool outputs."""
-        declared: list[tuple[int, str, str]] = []
-        fulfilled: set[str] = set()
-        for idx, msg in enumerate(messages):
-            role = msg.get("role")
-            if role == "assistant":
-                for tc in cast(list[Any], msg.get("tool_calls") or []):
-                    if isinstance(tc, dict):
-                        name = ""
-                        tool_call = cast(dict[str, Any], tc)
-                        if tool_call.get("id"):
-                            func = tool_call.get("function")
-                            if isinstance(func, dict):
-                                func_data = cast(dict[str, Any], func)
-                                raw_name = func_data.get("name", "")
-                                name = raw_name if isinstance(raw_name, str) else str(raw_name)
-                            declared.append((idx, str(tool_call["id"]), name))
-            elif role == "tool":
-                tid = msg.get("tool_call_id")
-                if tid:
-                    fulfilled.add(str(tid))
+        """Insert synthetic error results for assistant tool_calls with missing tool outputs.
 
-        missing = [(ai, cid, name) for ai, cid, name in declared if cid not in fulfilled]
+        A call counts as answered by the results that directly follow it, and never by a result
+        anywhere in the history. Matching across the whole list made a repeated id look answered
+        by an earlier turn's result, so the orphan this function exists to repair was invisible to
+        it -- and a provider refuses that request without a fallback, for every later turn too.
+        """
+        missing: list[tuple[int, str, str]] = []
+        index = 0
+        total = len(messages)
+        while index < total:
+            msg = messages[index]
+            index += 1
+            if msg.get("role") != "assistant":
+                continue
+            pending = declared_tool_calls(msg)
+            if not pending:
+                continue
+            answered: set[str] = set()
+            run_end = index
+            while run_end < total and messages[run_end].get("role") == "tool":
+                tid = messages[run_end].get("tool_call_id")
+                if tid:
+                    answered.add(str(tid))
+                run_end += 1
+            missing.extend(
+                (run_end, call_id, name) for call_id, name in pending if call_id not in answered
+            )
+            index = run_end
+
         if not missing:
             return messages
 
         updated = list(messages)
         offset = 0
-        for assistant_idx, call_id, name in missing:
-            insert_at = assistant_idx + 1 + offset
-            while insert_at < len(updated) and updated[insert_at].get("role") == "tool":
-                insert_at += 1
-            updated.insert(insert_at, {
+        # The synthetic results go after the real ones for the same message, so an existing result
+        # keeps its position and its order.
+        for insert_at, call_id, name in missing:
+            updated.insert(insert_at + offset, {
                 "role": "tool",
                 "tool_call_id": call_id,
                 "name": name,

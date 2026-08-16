@@ -8,6 +8,7 @@ import shutil
 import stat
 import time
 import uuid
+from collections.abc import Iterable
 from contextlib import suppress
 from datetime import datetime
 from functools import lru_cache
@@ -492,6 +493,51 @@ def find_legal_message_start(messages: list[dict[str, Any]]) -> int:
                 start = i + 1
                 declared.clear()
     return start
+
+
+def declared_tool_calls(message: dict[str, Any]) -> list[tuple[str, str]]:
+    """The ``(id, tool name)`` pairs an assistant message declares, in order."""
+    found: list[tuple[str, str]] = []
+    for raw_call in cast(list[object], message.get("tool_calls") or []):
+        if not isinstance(raw_call, dict):
+            continue
+        call = cast(dict[str, Any], raw_call)
+        if not call.get("id"):
+            continue
+        function = call.get("function")
+        raw_name = cast(dict[str, Any], function).get("name", "") if isinstance(function, dict) else ""
+        found.append((str(call["id"]), raw_name if isinstance(raw_name, str) else str(raw_name)))
+    return found
+
+
+def declared_tool_call_ids(message: dict[str, Any]) -> list[str]:
+    """The ids an assistant message declares, in order."""
+    return [call_id for call_id, _ in declared_tool_calls(message)]
+
+
+def open_tool_call_ids(messages: Iterable[dict[str, Any]]) -> set[str]:
+    """The ids of the latest assistant message that still have no result.
+
+    A tool call is answered inside the assistant message that declared it, and a provider
+    validates it exactly there. So an id is not a name that has to stay unique for the life of a
+    session: a model that names a call after its slot repeats that name every time it calls that
+    tool in that slot, and every one of those calls is legitimate and needs its own result. A
+    session-wide set of "ids already answered" reads the second call as a duplicate, and dropping
+    its result leaves an unanswered call that a provider refuses the whole request over.
+
+    An assistant message closes whatever came before it, because a call the model has already
+    spoken past can no longer be answered.
+    """
+    open_ids: set[str] = set()
+    for message in messages:
+        role = message.get("role")
+        if role == "assistant":
+            open_ids = set(declared_tool_call_ids(message))
+        elif role == "tool":
+            tool_call_id = message.get("tool_call_id")
+            if tool_call_id:
+                open_ids.discard(str(tool_call_id))
+    return open_ids
 
 
 def stringify_text_blocks(content: list[object]) -> str | None:

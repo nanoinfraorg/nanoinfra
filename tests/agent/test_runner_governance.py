@@ -1047,3 +1047,91 @@ def test_strip_placeholder_keeps_assistant_with_tool_calls():
     ]
     result = ContextGovernor.strip_placeholder_assistant_messages(messages)
     assert result is messages
+
+
+def _slot_call(call_id: str, name: str) -> dict[str, object]:
+    return {"id": call_id, "type": "function", "function": {"name": name, "arguments": "{}"}}
+
+
+def test_repeated_call_id_across_turns_keeps_its_own_result():
+    """Reported from a live gateway on ``kimi-k3``, which names a call ``<tool>_<slot>``.
+
+    Calling ``exec`` in slot 3 on two turns produces ``exec_3`` twice. Matching a result against
+    every id in the history made turn 2's result look like a duplicate of turn 1's, so
+    ``drop_orphan_tool_results`` removed it -- and then ``backfill_missing_tool_results`` could not
+    see the orphan either, because turn 1's result made the id look answered.
+
+    The provider validates per assistant message, refuses the whole request, and the refusal is
+    not fallbackable. The transcript is the input to every later turn, so one collision made the
+    session permanently unusable.
+    """
+    messages = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "", "tool_calls": [_slot_call("exec_3", "exec")]},
+        {"role": "tool", "tool_call_id": "exec_3", "name": "exec", "content": "first output"},
+        {"role": "user", "content": "second"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [_slot_call("my_2", "my"), _slot_call("exec_3", "exec")],
+        },
+        {"role": "tool", "tool_call_id": "my_2", "name": "my", "content": "channel: websocket"},
+        {"role": "tool", "tool_call_id": "exec_3", "name": "exec", "content": "second output"},
+    ]
+
+    kept = ContextGovernor.drop_orphan_tool_results(messages)
+
+    assert [m["content"] for m in kept if m.get("role") == "tool"] == [
+        "first output",
+        "channel: websocket",
+        "second output",
+    ]
+    assert ContextGovernor.backfill_missing_tool_results(kept) is kept, (
+        "nothing is missing, so nothing may be invented"
+    )
+
+
+def test_a_repeated_id_left_unanswered_is_still_backfilled():
+    """The session that was already on disk has to become usable again.
+
+    This is the exact shape the reported session held: the second ``exec_3`` was declared and its
+    result was gone. An earlier turn's result for the same id must not be mistaken for it.
+    """
+    messages = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "", "tool_calls": [_slot_call("exec_3", "exec")]},
+        {"role": "tool", "tool_call_id": "exec_3", "name": "exec", "content": "first output"},
+        {"role": "user", "content": "second"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [_slot_call("my_2", "my"), _slot_call("exec_3", "exec")],
+        },
+        {"role": "tool", "tool_call_id": "my_2", "name": "my", "content": "channel: websocket"},
+    ]
+
+    repaired = ContextGovernor.backfill_missing_tool_results(messages)
+
+    synthetic = [
+        m
+        for m in repaired[6:]
+        if m.get("role") == "tool" and m.get("tool_call_id") == "exec_3"
+    ]
+    assert len(synthetic) == 1
+    assert synthetic[0]["content"] == BACKFILL_CONTENT
+    assert synthetic[0]["name"] == "exec"
+    assert repaired[2]["content"] == "first output", "turn 1 keeps its own real result"
+
+
+def test_a_second_result_for_one_call_is_still_dropped():
+    """The property both functions exist for is kept: one call, one result."""
+    messages = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "", "tool_calls": [_slot_call("exec_3", "exec")]},
+        {"role": "tool", "tool_call_id": "exec_3", "name": "exec", "content": "first"},
+        {"role": "tool", "tool_call_id": "exec_3", "name": "exec", "content": "second"},
+    ]
+
+    kept = ContextGovernor.drop_orphan_tool_results(messages)
+
+    assert [m["content"] for m in kept if m.get("role") == "tool"] == ["first"]
