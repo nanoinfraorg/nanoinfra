@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import os
+import re
 import site
 import socket
 import ssl
@@ -413,3 +414,109 @@ def _use_windows_system_ca_for_default_http_clients() -> Iterator[None]:
         yield
     finally:
         ssl.create_default_context = original
+
+# ------------------------------------------------- the environment a run happens in (#90)
+
+#: The one line that puts the channel SDKs back. It reaches every failure message, because the
+#: recovery is one command and nobody should have to hunt for it.
+_ENVIRONMENT_RECOVERY = "python -m scripts.install_channel_dependencies --all-channels"
+
+
+def _normal_distribution_name(name: str) -> str:
+    """One normal form for a distribution name, per PEP 503.
+
+    `Discord.PY` and `discord-py` name one distribution. A guard that reported a rename it invented
+    itself would teach a reader to ignore it.
+    """
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _installed_distributions() -> dict[str, str]:
+    """Every distribution this interpreter can see, keyed by its normal form.
+
+    The key compares and the value reports. A message that named ``discord-py`` to a reader who
+    installs ``discord.py`` would read as a rename this guard invented.
+    """
+    from importlib.metadata import distributions
+
+    found: dict[str, str] = {}
+    for dist in distributions():
+        raw = dist.metadata["Name"] if dist.metadata else None
+        if raw:
+            found.setdefault(_normal_distribution_name(str(raw)), str(raw))
+    return found
+
+
+def _installed_distribution_names() -> set[str]:
+    """The names alone, for a caller that only asks what exists."""
+    return set(_installed_distributions().values())
+
+
+def _environment_change(before: dict[str, str], after: dict[str, str]) -> str | None:
+    """Report what a run did to its own environment, or None when it did nothing.
+
+    Presence and absence, and never a version. An upgrade during a session is a legitimate thing a
+    developer does, and a guard that shouted about one would be turned off, and then it would catch
+    nothing at all.
+
+    Both sides arrive keyed by the normal form, so a spelling change is not a change. The message
+    reports the spelling that was there.
+    """
+    gone = sorted(before[key] for key in before.keys() - after.keys())
+    arrived = sorted(after[key] for key in after.keys() - before.keys())
+    if not gone and not arrived:
+        return None
+    lines: list[str] = []
+    if gone:
+        lines.append(f"removed from this environment: {', '.join(gone)}")
+    if arrived:
+        lines.append(f"added to this environment: {', '.join(arrived)}")
+    return (
+        "a run changed the environment it happened in:\n  "
+        + "\n  ".join(lines)
+        + "\n\nNothing here may remove a package, and no test may install one. `uv sync` makes an "
+        "environment match the lock, and the channel SDKs live outside it, so a sync strips them "
+        "(#89). Put them back with:\n  "
+        + _ENVIRONMENT_RECOVERY
+    )
+
+
+class EnvironmentGuard:
+    """The guard behind a fixture, for the tests that check the guard itself.
+
+    A test cannot import this module by name. ``tests`` holds no ``__init__.py``, so several
+    directories each carry a module called ``conftest`` and an import picks whichever one reached
+    ``sys.modules`` first.
+    """
+
+    @staticmethod
+    def compare(*, before: set[str], after: set[str]) -> str | None:
+        """Compare two sets of names, keying each side the way the session guard does."""
+        return _environment_change(
+            {_normal_distribution_name(n): n for n in before},
+            {_normal_distribution_name(n): n for n in after},
+        )
+
+    @staticmethod
+    def installed_names() -> set[str]:
+        return _installed_distribution_names()
+
+
+@pytest.fixture
+def environment_guard() -> EnvironmentGuard:
+    """The environment comparison, for a test that checks it."""
+    return EnvironmentGuard()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _fail_the_run_that_strips_its_own_environment() -> Iterator[None]:
+    """Fail the run when it removed a distribution, or added one (#90).
+
+    One scan at the start and one at the end. #45 measured a per-test scan of this shape at 1.4 ms,
+    which is ten seconds over this suite, and once per session answers the same question.
+    """
+    before = _installed_distributions()
+    yield
+    problem = _environment_change(before, _installed_distributions())
+    if problem is not None:
+        pytest.fail(problem, pytrace=False)

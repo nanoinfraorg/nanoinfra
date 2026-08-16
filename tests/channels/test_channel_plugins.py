@@ -2425,7 +2425,11 @@ def test_enable_optional_feature_refreshes_feishu_identity(
         },
     )
 
-    payload = enable_optional_feature("feishu", config_path=config_path)
+    # allow_install=False, because no test may reach a real package installer (#90). This test
+    # asks about an identity refresh and never about installing anything, and the dependency is
+    # already present above. Without the flag this call can shell out against the developer's own
+    # environment, which is the same hazard #45 closed for the data directory.
+    payload = enable_optional_feature("feishu", config_path=config_path, allow_install=False)
 
     instance = payload["features"][0]["instances"][0]
     assert instance["display_name"] == "Xubin Ren的智能助手"
