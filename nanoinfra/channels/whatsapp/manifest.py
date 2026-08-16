@@ -28,7 +28,12 @@ PLUGIN = ChannelPlugin(
     setup=SETUP_SPEC,
     management=ChannelManagementSpec(local_state_present=local_state_present),
     dependencies=(
-        "neonize>=0.3.18.post0,<0.4.0",
+        # neonize binds whatsmeow, and WhatsApp breaks an older build when it changes its
+        # protocol: a device then reads the QR and refuses to link, and the phone blames its own
+        # connection. The floor moves with the ceiling on purpose. A ceiling alone would leave
+        # every existing install on the version it already has, because pip upgrades nothing that
+        # already satisfies the requirement, so the fix would reach nobody who needs it.
+        "neonize>=0.4.3.post0,<0.5.0",
         "segno>=1.6.1,<2.0.0",
     ),
     webui="webui/index.ts",

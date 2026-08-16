@@ -2696,7 +2696,10 @@ def test_optional_dependency_metadata_for_enable():
         "wecom": ("wecom-aibot-sdk-python>=0.1.5",),
         "weixin": ("qrcode[pil]>=8.0", "pycryptodome>=3.20.0"),
         "whatsapp": (
-            "neonize>=0.3.18.post0,<0.4.0",
+            # The floor moves with the ceiling on purpose (#88). A ceiling alone leaves every
+            # existing install on the version it already holds, because pip upgrades nothing that
+            # already satisfies the requirement.
+            "neonize>=0.4.3.post0,<0.5.0",
             "segno>=1.6.1,<2.0.0",
         ),
     }
