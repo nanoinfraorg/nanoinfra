@@ -756,8 +756,8 @@ class MemoryStore:
 
     @staticmethod
     def dream_session_key() -> str:
-        """Return a unique session key for a Dream run, e.g. ``dream:20260528-100000``."""
-        return f"dream:{datetime.now():%Y%m%d-%H%M%S}"
+        """Return a unique session key for a Dream run, e.g. ``dream:20260528-100000.123456``."""
+        return f"dream:{datetime.now():%Y%m%d-%H%M%S.%f}"
 
     @staticmethod
     def build_dream_commit_message(prefix: str, diff_body: str) -> str:
