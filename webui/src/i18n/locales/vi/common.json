@@ -326,7 +326,34 @@
       "webSearch": "Tìm kiếm web",
       "imageGeneration": "Tạo hình ảnh",
       "voiceInput": "Nhập bằng giọng nói",
-      "workspace": "Không gian làm việc"
+      "workspace": "Không gian làm việc",
+      "security": {
+        "remote": {
+          "title": "Công việc từ xa",
+          "unattendedAllow": "Tác nhân tự chạy lệnh từ xa",
+          "interactiveAllow": "Lệnh từ xa chạy mà không hỏi",
+          "approve": "Một người phê duyệt từng lệnh từ xa",
+          "deny": "Lệnh từ xa bị từ chối",
+          "unavailable": "Gateway này không có cổng năng lực",
+          "grantsBypass": "Quyền cấp sẵn bỏ qua một lần phê duyệt: {{count}}",
+          "grantsInert": "Quyền cấp sẵn không khớp gì ở đây: {{count}}",
+          "credentialAllow": "Đọc một secret không cần phê duyệt",
+          "interactiveOnly": "Chỉ tương tác, không có người trực thì từ chối",
+          "unattendedOnly": "Chỉ khi không có người trực, tương tác thì từ chối",
+          "everyContext": "Tương tác và không có người trực",
+          "everyScopeDenied": "Mọi ngữ cảnh và mọi phạm vi",
+          "noPolicy": "Gateway này không gửi chính sách cổng"
+        },
+        "identity": {
+          "assertionMissing": "Proxy không nêu tên ai",
+          "sharedTokenAnswered": "Một proxy đã được cấu hình, và token dùng chung đã trả lời."
+        },
+        "approvals": {
+          "waiting": "{{count}} đang chờ",
+          "answer": "Phải có người trả lời",
+          "empty": "Không có hành động nào chờ trả lời"
+        }
+      }
     },
     "usage": {
       "title": "Hoạt động token",

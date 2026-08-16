@@ -34,6 +34,7 @@ import {
   Grid3X3,
   HardDrive,
   Hexagon,
+  Hourglass,
   ImageIcon,
   Layers,
   ListOrdered,
@@ -56,6 +57,7 @@ import {
   Sparkles,
   Trash2,
   Triangle,
+  UserRound,
   Waves,
   X,
   Zap,
@@ -152,6 +154,7 @@ import {
   type LocalPreferences,
 } from "@/lib/local-preferences";
 import { getRuntimeHost, isNativeRuntime } from "@/lib/runtime";
+import { remoteWorkSummary, type RemoteWorkClause } from "@/lib/security-overview";
 import { notifyMcpPresetsChanged } from "@/lib/mcp-preset-events";
 import { fmtDateTime, relativeTime } from "@/lib/format";
 import { useLogoFallback } from "@/hooks/useLogoFallback";
@@ -426,6 +429,10 @@ interface SettingsViewProps {
   onNativeEngineRestart?: () => Promise<string>;
   isRestarting?: boolean;
   hostChromeInset?: boolean;
+  /** How many actions wait for an answer. The sidebar already reads this count (#87). */
+  approvalsCount?: number;
+  /** Leave Settings for the Approvals view. That row is about work waiting, not config. */
+  onOpenApprovals?: () => void;
 }
 
 function modelPresetValue(payload: SettingsPayload): string {
@@ -631,6 +638,8 @@ export function SettingsView({
   onNativeEngineRestart,
   isRestarting = false,
   hostChromeInset = false,
+  approvalsCount = 0,
+  onOpenApprovals,
 }: SettingsViewProps) {
   const { t } = useTranslation();
   const { getToken, token } = useClient();
@@ -2032,7 +2041,9 @@ export function SettingsView({
             settings={settings}
             requiresRestart={hasPendingRestart}
             showBrandLogos={localPrefs.brandLogos}
+            approvalsCount={approvalsCount}
             onSelectSection={selectSection}
+            onOpenApprovals={onOpenApprovals}
           />
         );
       case "appearance":
@@ -2623,11 +2634,15 @@ function OverviewSettings({
   requiresRestart,
   onSelectSection,
   showBrandLogos,
+  approvalsCount,
+  onOpenApprovals,
 }: {
   settings: SettingsPayload;
   requiresRestart: boolean;
   onSelectSection: (section: SettingsSectionKey) => void;
   showBrandLogos: boolean;
+  approvalsCount: number;
+  onOpenApprovals?: () => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -2777,6 +2792,13 @@ function OverviewSettings({
         </SettingsGroup>
       </section>
 
+      <SecurityOverviewSection
+        settings={settings}
+        approvalsCount={approvalsCount}
+        onSelectSection={onSelectSection}
+        onOpenApprovals={onOpenApprovals}
+      />
+
       <section>
         <SettingsSectionTitle>{tx("settings.sections.about", "About")}</SettingsSectionTitle>
         <SettingsGroup>
@@ -2784,6 +2806,182 @@ function OverviewSettings({
         </SettingsGroup>
       </section>
     </div>
+  );
+}
+
+/**
+ * What the security posture is, at a glance -- nanoinfraorg/nanoinfra#87.
+ *
+ * Overview answers "what is installed" for AI, Capabilities and System. Security answered
+ * nothing here, and the gate policy sits three panels down inside Security. An operator who
+ * wanted to know whether an agent can touch a host had to read a matrix of five capability
+ * classes by three scope tiers by three execution contexts.
+ *
+ * This section is a glance and a door. The identity row and the remote row open Security, where
+ * #85 put the identity block and #26 put the matrix. The approvals row leaves Settings, because
+ * work waiting for an answer is not configuration.
+ *
+ * The level of the remote row comes from `remoteWorkSummary`, which is pure and which is the
+ * only reader of the policy here. This component adds no second reading, so no phrase on the
+ * screen can disagree with the derivation behind it.
+ */
+function SecurityOverviewSection({
+  settings,
+  approvalsCount,
+  onSelectSection,
+  onOpenApprovals,
+}: {
+  settings: SettingsPayload;
+  approvalsCount: number;
+  onSelectSection: (section: SettingsSectionKey) => void;
+  onOpenApprovals?: () => void;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  // One read of the gate block, for both rows that need it.
+  const gates = settings.advanced.gates;
+  const identity = gates?.identity;
+  const remote = remoteWorkSummary(gates);
+
+  const levels: Record<string, string> = {
+    unattendedAllow: tx(
+      "settings.overview.security.remote.unattendedAllow",
+      "Agents run remote commands on their own",
+    ),
+    interactiveAllow: tx(
+      "settings.overview.security.remote.interactiveAllow",
+      "Remote commands run without asking",
+    ),
+    approve: tx(
+      "settings.overview.security.remote.approve",
+      "A person approves each remote command",
+    ),
+    deny: tx("settings.overview.security.remote.deny", "Remote commands are refused"),
+    unavailable: tx(
+      "settings.overview.security.remote.unavailable",
+      "Gates are not available on this gateway",
+    ),
+  };
+
+  const clauseText = (clause: RemoteWorkClause): string => {
+    switch (clause.kind) {
+      case "grantsBypass":
+        return t("settings.overview.security.remote.grantsBypass", {
+          defaultValue: "Standing grants skip an approval: {{count}}",
+          count: clause.count ?? 0,
+        });
+      case "grantsInert":
+        return t("settings.overview.security.remote.grantsInert", {
+          defaultValue: "Standing grants match nothing here: {{count}}",
+          count: clause.count ?? 0,
+        });
+      case "credentialAllow":
+        return tx(
+          "settings.overview.security.remote.credentialAllow",
+          "A secret needs no approval",
+        );
+      case "interactiveOnly":
+        return tx(
+          "settings.overview.security.remote.interactiveOnly",
+          "Interactive only, unattended refused",
+        );
+      case "unattendedOnly":
+        return tx(
+          "settings.overview.security.remote.unattendedOnly",
+          "Unattended only, interactive refused",
+        );
+      case "everyContext":
+        return tx("settings.overview.security.remote.everyContext", "Interactive and unattended");
+      case "everyScopeDenied":
+        return tx(
+          "settings.overview.security.remote.everyScopeDenied",
+          "Every context and every scope",
+        );
+      case "noPolicy":
+        return tx(
+          "settings.overview.security.remote.noPolicy",
+          "This gateway sends no gate policy",
+        );
+    }
+  };
+
+  // The postures come from the Gates panel of #85. One vocabulary, and no second wording.
+  const postures: Record<string, string> = {
+    no_proxy: tx(
+      "settings.gates.identity.postures.noProxy",
+      "Shared token. No proxy names a person.",
+    ),
+    verified: tx("settings.gates.identity.postures.verified", "Verified assertion (JWT)"),
+    any_verified: tx(
+      "settings.gates.identity.postures.anyVerified",
+      "Verified assertion (JWT), open to every identity",
+    ),
+    plain: tx("settings.gates.identity.postures.plain", "Assertion header, not verified"),
+  };
+
+  return (
+    <section>
+      {/* The nav names this destination Security, and the section reads the same word. */}
+      <SettingsSectionTitle>{tx("settings.nav.advanced", "Security")}</SettingsSectionTitle>
+      <SettingsGroup>
+        {identity ? (
+          <OverviewListRow
+            icon={UserRound}
+            testId="overview-security-identity"
+            // A configured proxy that asserted nobody leaves every approval on this path
+            // naming nobody, while the deployment believes it names somebody (#85). The whole
+            // row warns, because the value it would otherwise show is the wrong answer.
+            tone={identity.assertionMissing ? "warning" : "neutral"}
+            title={tx("settings.gates.identity.title", "Identity")}
+            value={
+              identity.assertionMissing
+                ? tx(
+                  "settings.overview.security.identity.assertionMissing",
+                  "Proxy asserted nobody",
+                )
+                : identity.actor
+            }
+            caption={
+              identity.assertionMissing
+                ? tx(
+                  "settings.overview.security.identity.sharedTokenAnswered",
+                  "A proxy is set, and the shared token answered.",
+                )
+                : [postures[identity.posture] ?? identity.posture, identity.issuer]
+                  .filter(Boolean)
+                  .join(" · ")
+            }
+            onClick={() => onSelectSection("advanced")}
+          />
+        ) : null}
+        <OverviewListRow
+          icon={ShieldCheck}
+          testId="overview-security-remote"
+          title={tx("settings.overview.security.remote.title", "Remote work")}
+          value={levels[remote.level] ?? levels.unavailable}
+          caption={remote.clauses.map(clauseText).join(" · ")}
+          onClick={() => onSelectSection("advanced")}
+        />
+        <OverviewListRow
+          icon={Hourglass}
+          testId="overview-security-approvals"
+          title={tx("approvals.title", "Approvals")}
+          value={t("settings.overview.security.approvals.waiting", {
+            defaultValue: "{{count}} waiting",
+            count: approvalsCount,
+          })}
+          caption={
+            approvalsCount > 0
+              ? tx("settings.overview.security.approvals.answer", "Someone has to answer")
+              : tx(
+                "settings.overview.security.approvals.empty",
+                "No action waits for an answer",
+              )
+          }
+          onClick={() => onOpenApprovals?.()}
+        />
+      </SettingsGroup>
+    </section>
   );
 }
 
@@ -9572,11 +9770,20 @@ function ProviderIcon({
 
 function OverviewRowIcon({
   icon: Icon,
+  tone = "neutral",
 }: {
   icon: LucideIcon;
+  tone?: "neutral" | "warning";
 }) {
   return (
-    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[12px] bg-muted text-foreground/82 transition-colors group-hover:bg-muted/80 dark:bg-muted/70">
+    <span
+      className={cn(
+        "grid h-9 w-9 shrink-0 place-items-center rounded-[12px] transition-colors",
+        tone === "warning"
+          ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+          : "bg-muted text-foreground/82 group-hover:bg-muted/80 dark:bg-muted/70",
+      )}
+    >
       <Icon className="h-4 w-4" aria-hidden />
     </span>
   );
@@ -9633,6 +9840,8 @@ function OverviewListRow({
   value,
   caption,
   showBrandLogos = false,
+  tone = "neutral",
+  testId,
   onClick,
 }: {
   icon: LucideIcon;
@@ -9641,22 +9850,45 @@ function OverviewListRow({
   value: string;
   caption: string;
   showBrandLogos?: boolean;
+  /**
+   * `warning` marks the whole row, and not one word inside it (#87).
+   *
+   * A row warns when the state it reports is wrong rather than absent. The identity row of the
+   * Security section is that case: a configured proxy asserted nobody.
+   */
+  tone?: "neutral" | "warning";
+  testId?: string;
   onClick: () => void;
 }) {
+  const warn = tone === "warning";
   return (
     <button
       type="button"
       onClick={onClick}
+      data-testid={testId}
+      data-tone={tone}
       className="group flex min-h-[68px] w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-muted/30 sm:px-5"
     >
-      <OverviewRowIcon icon={Icon} />
+      <OverviewRowIcon icon={Icon} tone={tone} />
       <span className="min-w-0 flex-1">
         <span className="block text-[14px] font-medium leading-5 text-foreground">{title}</span>
-        <span className="mt-0.5 block truncate text-[12px] leading-5 text-muted-foreground">{caption}</span>
+        <span
+          className={cn(
+            "mt-0.5 block truncate text-[12px] leading-5",
+            warn ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground",
+          )}
+        >
+          {caption}
+        </span>
       </span>
       <span className="ml-auto flex min-w-0 max-w-[48%] items-center gap-2">
         <OverviewValueLogo provider={valueLogoProvider} showBrandLogos={showBrandLogos} />
-        <span className="truncate text-right text-[13px] leading-5 text-muted-foreground">
+        <span
+          className={cn(
+            "truncate text-right text-[13px] leading-5",
+            warn ? "font-medium text-amber-700 dark:text-amber-300" : "text-muted-foreground",
+          )}
+        >
           {value}
         </span>
         <ChevronRight

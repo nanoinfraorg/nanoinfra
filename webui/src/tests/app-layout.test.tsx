@@ -50,6 +50,24 @@ function mockFetchRoutes(routes: Record<string, unknown>): void {
   );
 }
 
+/** One action that waits for an answer, in the shape the inbox route sends (#27). */
+function pendingApproval(requestId: string) {
+  return {
+    capabilityClass: "mutate.remote",
+    executionContext: "interactive",
+    expiresInS: 107,
+    hostCount: 1,
+    hosts: ["web-01"],
+    originPath: "telegram",
+    payload: "nanoinfra approval request v1\nHosts: 1\n   1. web-01",
+    requestId,
+    samePath: false,
+    scope: "host",
+    sessionId: "telegram:chat-1",
+    targetDigest: "sha256:abc",
+  };
+}
+
 function baseSettingsPayload() {
   return {
     agent: {
@@ -443,6 +461,33 @@ describe("App layout", () => {
     expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Deny" })).toBeEnabled();
     expect(document.title).toBe("Approvals · nanoinfra");
+  });
+
+  it("carries the approvals count into Settings and opens the inbox from there", async () => {
+    // nanoinfraorg/nanoinfra#87. The Security section of Overview reads the count the sidebar
+    // already receives, and its row leaves Settings for the Approvals view. That row is about
+    // work waiting for an answer, not about configuration.
+    window.history.replaceState(null, "", "/#/settings?section=overview");
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/webui/gates/approvals": {
+        approvalPath: "webui",
+        count: 2,
+        degraded: false,
+        pending: [pendingApproval("req-1"), pendingApproval("req-2")],
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const row = await screen.findByTestId("overview-security-approvals");
+    await waitFor(() => expect(row).toHaveTextContent("2 waiting"));
+
+    fireEvent.click(row);
+
+    await waitFor(() => expect(document.title).toBe("Approvals · nanoinfra"));
+    expect(window.location.hash).toBe("#/approvals");
   });
 
   it("opens Skills from the main sidebar", async () => {

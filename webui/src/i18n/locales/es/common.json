@@ -326,7 +326,34 @@
       "webSearch": "Búsqueda web",
       "imageGeneration": "Generación de imágenes",
       "voiceInput": "Entrada de voz",
-      "workspace": "Espacio de trabajo"
+      "workspace": "Espacio de trabajo",
+      "security": {
+        "remote": {
+          "title": "Trabajo remoto",
+          "unattendedAllow": "Los agentes ejecutan comandos remotos por su cuenta",
+          "interactiveAllow": "Los comandos remotos se ejecutan sin preguntar",
+          "approve": "Una persona aprueba cada comando remoto",
+          "deny": "Los comandos remotos se deniegan",
+          "unavailable": "Esta pasarela no ofrece controles de capacidad",
+          "grantsBypass": "Concesiones permanentes que evitan una aprobación: {{count}}",
+          "grantsInert": "Concesiones permanentes que aquí no coinciden con nada: {{count}}",
+          "credentialAllow": "Leer un secreto no necesita aprobación",
+          "interactiveOnly": "Solo interactivo, desatendido denegado",
+          "unattendedOnly": "Solo desatendido, interactivo denegado",
+          "everyContext": "Interactivo y desatendido",
+          "everyScopeDenied": "Todos los contextos y todos los alcances",
+          "noPolicy": "Esta pasarela no envía política de controles"
+        },
+        "identity": {
+          "assertionMissing": "El proxy no nombró a nadie",
+          "sharedTokenAnswered": "Hay un proxy configurado y respondió el token compartido."
+        },
+        "approvals": {
+          "waiting": "{{count}} en espera",
+          "answer": "Alguien tiene que responder",
+          "empty": "Ninguna acción espera respuesta"
+        }
+      }
     },
     "usage": {
       "title": "Actividad de tokens",

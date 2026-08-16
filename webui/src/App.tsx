@@ -2311,6 +2311,8 @@ function Shell({
                     onNativeEngineRestart={onNativeEngineRestart}
                     isRestarting={isRestarting}
                     hostChromeInset={showHostChrome}
+                    approvalsCount={approvals.count}
+                    onOpenApprovals={onOpenApprovals}
                   />
                 </Suspense>
               </div>

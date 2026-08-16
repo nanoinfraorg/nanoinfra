@@ -475,7 +475,34 @@
       "webSearch": "Web search",
       "imageGeneration": "Image generation",
       "voiceInput": "Voice input",
-      "workspace": "Workspace"
+      "workspace": "Workspace",
+      "security": {
+        "remote": {
+          "title": "Remote work",
+          "unattendedAllow": "Agents run remote commands on their own",
+          "interactiveAllow": "Remote commands run without asking",
+          "approve": "A person approves each remote command",
+          "deny": "Remote commands are refused",
+          "unavailable": "Gates are not available on this gateway",
+          "grantsBypass": "Standing grants skip an approval: {{count}}",
+          "grantsInert": "Standing grants match nothing here: {{count}}",
+          "credentialAllow": "A secret needs no approval",
+          "interactiveOnly": "Interactive only, unattended refused",
+          "unattendedOnly": "Unattended only, interactive refused",
+          "everyContext": "Interactive and unattended",
+          "everyScopeDenied": "Every context and every scope",
+          "noPolicy": "This gateway sends no gate policy"
+        },
+        "identity": {
+          "assertionMissing": "Proxy asserted nobody",
+          "sharedTokenAnswered": "A proxy is set, and the shared token answered."
+        },
+        "approvals": {
+          "waiting": "{{count}} waiting",
+          "answer": "Someone has to answer",
+          "empty": "No action waits for an answer"
+        }
+      }
     },
     "usage": {
       "title": "Token activity",

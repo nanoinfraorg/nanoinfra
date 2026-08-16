@@ -326,7 +326,34 @@
       "webSearch": "Recherche web",
       "imageGeneration": "Génération d’images",
       "voiceInput": "Saisie vocale",
-      "workspace": "Espace de travail"
+      "workspace": "Espace de travail",
+      "security": {
+        "remote": {
+          "title": "Travail à distance",
+          "unattendedAllow": "Les agents lancent des commandes distantes seuls",
+          "interactiveAllow": "Les commandes distantes partent sans demander",
+          "approve": "Une personne approuve chaque commande distante",
+          "deny": "Les commandes distantes sont refusées",
+          "unavailable": "Cette passerelle n'offre pas de contrôles de capacité",
+          "grantsBypass": "Concessions permanentes qui évitent une approbation : {{count}}",
+          "grantsInert": "Concessions permanentes qui ne correspondent à rien ici : {{count}}",
+          "credentialAllow": "Lire un secret ne demande aucune approbation",
+          "interactiveOnly": "Interactif seulement, sans surveillance refusé",
+          "unattendedOnly": "Sans surveillance seulement, interactif refusé",
+          "everyContext": "Interactif et sans surveillance",
+          "everyScopeDenied": "Tous les contextes et toutes les portées",
+          "noPolicy": "Cette passerelle n'envoie aucune politique de contrôles"
+        },
+        "identity": {
+          "assertionMissing": "Le proxy n'a nommé personne",
+          "sharedTokenAnswered": "Un proxy est configuré, et le jeton partagé a répondu."
+        },
+        "approvals": {
+          "waiting": "{{count}} en attente",
+          "answer": "Quelqu'un doit répondre",
+          "empty": "Aucune action n'attend de réponse"
+        }
+      }
     },
     "usage": {
       "title": "Activité des tokens",
