@@ -160,16 +160,40 @@ export function Sidebar(props: SidebarProps) {
           onClick={collapsed ? props.onExpand : undefined}
           tabIndex={collapsed ? 0 : -1}
           className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-colors",
+            // The width follows the asset. A fixed 9 holds the square mark. ``w-auto``
+            // lets the wordmark take the width its shape asks for.
+            "-ml-0.5 flex h-9 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-colors",
             collapsed
-              ? "-ml-0.5 hover:bg-sidebar-accent/75"
-              : "pointer-events-none -ml-0.5",
+              ? "w-9 hover:bg-sidebar-accent/75"
+              : "w-auto pointer-events-none",
           )}
         >
+          {/*
+           * The header shows one brand asset at a time, and the rail width selects it.
+           *
+           * The open rail is 272 px wide. The wordmark goes there, because it states the
+           * product name. It replaces the square mark, and the header never shows both.
+           *
+           * The collapsed rail is 56 px wide. The wordmark is 1300 x 220, so it asks for
+           * 165 px at this height. It misses by 109 px. The square mark stays in the rail
+           * for that reason, and not for taste.
+           *
+           * The height is fixed and the width is free. A fixed width squashes a 5.909:1
+           * asset, so the height alone sets the size.
+           *
+           * ``alt`` stays empty for both assets, because the image is decoration. A
+           * collapsed rail gets its name from the button label, which names the control
+           * and not the product. An open rail makes this button inert, so nothing here
+           * needs a name. The product name reaches a screen reader from the document
+           * title one time.
+           */}
           <img
-            src="/brand/nanoinfra_mark.svg"
+            src={collapsed ? "/brand/nanoinfra_mark.svg" : "/brand/nanoinfra_wordmark.svg"}
             alt=""
-            className="h-8 w-8 select-none object-contain"
+            className={cn(
+              "select-none object-contain",
+              collapsed ? "h-8 w-8" : "h-7 w-auto",
+            )}
             draggable={false}
           />
         </button>

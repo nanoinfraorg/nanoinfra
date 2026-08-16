@@ -1,0 +1,31 @@
+<svg
+  width="1300"
+  height="220"
+  viewBox="0 0 1300 220"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+  <title>nanoinfra</title>
+  <g transform="translate(16 20) scale(0.2507)">
+    <rect x="60" y="40" width="680" height="720" rx="90" fill="#F4A949"/>
+    <rect x="150" y="150" width="500" height="110" rx="24" fill="#B94D0B"/>
+    <rect x="150" y="330" width="500" height="110" rx="24" fill="#D96016"/>
+    <rect x="150" y="510" width="500" height="110" rx="24" fill="#B94D0B"/>
+    <circle cx="230" cy="205" r="22" fill="#FBCB89"/>
+    <circle cx="230" cy="385" r="22" fill="#FBCB89"/>
+    <circle cx="230" cy="565" r="22" fill="#FBCB89"/>
+  </g>
+  <g fill="none" stroke="#B94D0B" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M260 164V78M260 118C260 91 276 77 299 77C323 77 339 93 339 119V164"/>
+    <path d="M458 164V78M458 121C458 95 441 77 416 77C391 77 374 95 374 121C374 146 391 164 416 164C441 164 458 146 458 121"/>
+    <path d="M493 164V78M493 118C493 91 509 77 532 77C556 77 572 93 572 119V164"/>
+    <path d="M691 121C691 147 675 164 649 164C623 164 607 147 607 121C607 94 623 77 649 77C675 77 691 94 691 121Z"/>
+  </g>
+  <g fill="none" stroke="#D96016" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M746 164V105M746 62L746 61"/>
+    <path d="M806 164V78M806 118C806 91 822 77 845 77C869 77 885 93 885 119V164"/>
+    <path d="M942 164V63C942 45 954 34 974 34C984 34 992 36 998 40M920 116H970"/>
+    <path d="M1015 164V78M1015 118C1015 91 1031 77 1054 77C1062 77 1070 78 1077 81"/>
+    <path d="M1196 164V78M1196 121C1196 95 1179 77 1154 77C1129 77 1112 95 1112 121C1112 146 1129 164 1154 164C1179 164 1196 146 1196 121"/>
+  </g>
+</svg>
