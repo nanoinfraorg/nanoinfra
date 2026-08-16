@@ -220,7 +220,8 @@
       "transcriptionProviderStatus": "Provider status",
       "transcriptionModel": "Model",
       "transcriptionLanguage": "Language",
-      "voiceLimits": "Limits"
+      "voiceLimits": "Limits",
+      "threadWidth": "Thread width"
     },
     "help": {
       "theme": "Switch between light and dark appearance.",
@@ -263,7 +264,8 @@
       "transcriptionProvider": "Uses the matching provider credentials from Providers.",
       "transcriptionProviderStatus": "API keys stay under providers, not in transcription settings.",
       "transcriptionModel": "Leave as the resolved default unless your provider needs a custom model id.",
-      "transcriptionLanguage": "Optional ISO-639 hint such as en, zh, ja, or ko."
+      "transcriptionLanguage": "Optional ISO-639 hint such as en, zh, ja, or ko.",
+      "threadWidth": "How wide a conversation runs. Tables and code blocks always get the extra room first."
     },
     "timezone": {
       "select": "Select timezone",
@@ -391,7 +393,10 @@
       "restartingEngine": "Restarting",
       "checking": "Checking",
       "running": "Running",
-      "needsSetup": "Needs setup"
+      "needsSetup": "Needs setup",
+      "widthStandard": "Standard",
+      "widthWide": "Wide",
+      "widthFull": "Full"
     },
     "status": {
       "loading": "Loading settings...",

@@ -168,7 +168,8 @@
       "transcriptionProviderStatus": "供應商狀態",
       "transcriptionModel": "模型",
       "transcriptionLanguage": "語言",
-      "voiceLimits": "限制"
+      "voiceLimits": "限制",
+      "threadWidth": "對話寬度"
     },
     "help": {
       "theme": "在淺色與深色外觀之間切換。",
@@ -211,7 +212,8 @@
       "transcriptionProvider": "使用 [供應商] 中對應供應商的憑證。",
       "transcriptionProviderStatus": "API 金鑰仍儲存在「供應商」中，不會寫入「語音轉寫」設定。",
       "transcriptionModel": "除非供應商需要自訂模型 ID，否則保留解析後的預設值即可。",
-      "transcriptionLanguage": "選填的 ISO-639 語言提示，例如 en、zh、ja 或 ko。"
+      "transcriptionLanguage": "選填的 ISO-639 語言提示，例如 en、zh、ja 或 ko。",
+      "threadWidth": "對話的寬度。多出的空間優先給表格與程式碼區塊。"
     },
     "values": {
       "light": "淺色",
@@ -242,7 +244,10 @@
       "restartingEngine": "正在重新啟動",
       "checking": "檢查中",
       "running": "執行中",
-      "needsSetup": "需要設定"
+      "needsSetup": "需要設定",
+      "widthStandard": "標準",
+      "widthWide": "較寬",
+      "widthFull": "全寬"
     },
     "status": {
       "loading": "正在載入設定…",

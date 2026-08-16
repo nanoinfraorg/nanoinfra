@@ -378,6 +378,23 @@
     }
   }
 
+  /* Content that is not prose reaches past the reading measure.
+   *
+   * A table or a code block that has to scroll sideways is harder to read than a long line of
+   * prose, so the two get different widths. The measure holds the text column, and this class lets
+   * a table use ``--thread-bleed`` instead, staying centred on the same axis.
+   *
+   * The fallback is the whole point: ``--thread-bleed`` is only defined on the thread's message
+   * column, so the same renderer inside a settings panel, a composer preview or a popover keeps
+   * its parent's width and moves nothing. The bleed also never exceeds the message region, which
+   * clips horizontally on purpose, so nothing here can produce a sideways scrollbar on the page.
+   */
+  .thread-bleed {
+    width: var(--thread-bleed, 100%);
+    max-width: var(--thread-bleed, 100%);
+    margin-inline-start: calc((100% - var(--thread-bleed, 100%)) / 2);
+  }
+
   @keyframes composer-status-strip-enter {
     0% {
       max-height: 0;

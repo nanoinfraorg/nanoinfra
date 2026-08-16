@@ -152,6 +152,7 @@ import {
   type LocalActivityMode,
   type LocalDensity,
   type LocalPreferences,
+  type ThreadWidth,
 } from "@/lib/local-preferences";
 import { getRuntimeHost, isNativeRuntime } from "@/lib/runtime";
 import { remoteWorkSummary, type RemoteWorkClause } from "@/lib/security-overview";
@@ -3157,6 +3158,25 @@ function AppearanceSettings({
               ]}
               onChange={(density) =>
                 onChangeLocalPrefs((prev) => ({ ...prev, density: density as LocalDensity }))
+              }
+            />
+          </SettingsRow>
+          <SettingsRow
+            title={tx("settings.rows.threadWidth", "Thread width")}
+            description={tx(
+              "settings.help.threadWidth",
+              "How wide a conversation runs. Tables and code blocks always get the extra room first.",
+            )}
+          >
+            <SegmentedControl
+              value={localPrefs.threadWidth}
+              options={[
+                { value: "standard", label: tx("settings.values.widthStandard", "Standard") },
+                { value: "wide", label: tx("settings.values.widthWide", "Wide") },
+                { value: "full", label: tx("settings.values.widthFull", "Full") },
+              ]}
+              onChange={(threadWidth) =>
+                onChangeLocalPrefs((prev) => ({ ...prev, threadWidth: threadWidth as ThreadWidth }))
               }
             />
           </SettingsRow>

@@ -25,6 +25,7 @@ import {
   findPromptElement,
   promptTop,
 } from "@/components/thread/promptNavigation";
+import { useThreadWidth } from "@/hooks/useThreadWidth";
 import { cn } from "@/lib/utils";
 import type { CliAppInfo, McpPresetInfo, SlashCommand, UIMessage } from "@/lib/types";
 
@@ -182,6 +183,7 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
   const composerDockRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastConversationKeyRef = useRef<string | null>(conversationKey);
+  const threadWidth = useThreadWidth();
   const pendingConversationScrollRef = useRef(true);
   const pendingPromptJumpRef = useRef<string | null>(null);
   const restoreScrollAfterPrependRef =
@@ -646,9 +648,12 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
           className={cn(
             "thread-layout mx-auto grid min-h-full w-full",
             hasMessages
-              ? "h-full max-w-[64rem]"
+              ? "h-full"
               : "max-w-[72rem] px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-6 sm:px-4 sm:py-12",
           )}
+          // The grid is as wide as the widest thing it may hold, which is a table at full bleed.
+          // The text column inside stays at the reading measure.
+          style={hasMessages ? { maxWidth: threadWidth.bleed } : undefined}
         >
           {hasMessages ? (
             <div
@@ -662,7 +667,16 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
                 hasVerticalOverflow ? "overflow-y-auto" : "overflow-hidden",
               )}
             >
-              <div ref={messageContentRef} className="mx-auto w-full max-w-[49.5rem]">
+              <div
+                ref={messageContentRef}
+                className="mx-auto w-full"
+                // ``--thread-bleed`` exists only here, so ``.thread-bleed`` is inert everywhere
+                // else the same renderers are used.
+                style={{
+                  maxWidth: threadWidth.measure,
+                  ["--thread-bleed" as string]: threadWidth.bleed,
+                }}
+              >
                 <ThreadMessages
                   messages={visibleMessages}
                   isStreaming={isStreaming}
@@ -720,7 +734,10 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
             >
               <div
                 data-testid="thread-composer-motion"
-                className="mx-auto w-full max-w-[58rem]"
+                className="mx-auto w-full"
+                // The dock only has to be wide enough for the composer inside it, which carries
+                // its own width. It follows the bleed so it never becomes the narrower of the two.
+                style={{ maxWidth: hasMessages ? threadWidth.bleed : "58rem" }}
               >
                 {composer}
               </div>

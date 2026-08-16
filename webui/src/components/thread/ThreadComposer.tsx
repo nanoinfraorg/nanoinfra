@@ -106,6 +106,7 @@ import {
   readDraggedSession,
 } from "@/lib/session-drag";
 import { formatQuotedUserMessage } from "@/lib/user-message-quote";
+import { useThreadWidth } from "@/hooks/useThreadWidth";
 import { cn } from "@/lib/utils";
 
 const VOICE_SHORTCUT_CODE = "KeyD";
@@ -963,6 +964,7 @@ export function ThreadComposer({
   onQuotedContextChange,
 }: ThreadComposerProps) {
   const { t } = useTranslation();
+  const threadWidth = useThreadWidth();
   const [value, setValue] = useState("");
   const [selectedSessionMentions, setSelectedSessionMentions] = useState<SessionMention[]>([]);
   const [sessionDragPreview, setSessionDragPreview] = useState<{
@@ -2240,13 +2242,16 @@ export function ThreadComposer({
           "thread-composer-surface group/composer relative mx-auto flex w-full flex-col overflow-visible transition-all duration-200",
           isHero
             ? "max-w-[58rem] rounded-[28px] bg-muted/30 focus-within:bg-muted/50 dark:bg-card dark:focus-within:bg-white/[0.06]"
-            : "max-w-[49.5rem] rounded-[22px] bg-muted/30 focus-within:bg-muted/50 dark:bg-card dark:focus-within:bg-white/[0.06]",
+            : "rounded-[22px] bg-muted/30 focus-within:bg-muted/50 dark:bg-card dark:focus-within:bg-white/[0.06]",
           disabled && "opacity-60",
           sessionDragPreview && "ring-1 ring-primary/25",
           isDragging && "ring-2 ring-primary/40 motion-reduce:ring-0 motion-reduce:border-primary",
           goalState?.active &&
             "goal-shell-glow ring-1 ring-sky-400/35 motion-reduce:ring-sky-400/25 dark:ring-sky-400/45",
         )}
+        // In a conversation the input stays the width of the text above it, so the two edges line
+        // up. The hero state keeps its own wider measure, which the class above still sets.
+        style={isHero ? undefined : { maxWidth: threadWidth.measure }}
       >
         {queuedPrompts.length > 0 ? (
           <QueuedPromptStack

@@ -168,7 +168,8 @@
       "transcriptionProviderStatus": "Status penyedia",
       "transcriptionModel": "Model",
       "transcriptionLanguage": "Bahasa",
-      "voiceLimits": "Batas"
+      "voiceLimits": "Batas",
+      "threadWidth": "Lebar percakapan"
     },
     "help": {
       "theme": "Beralih antara tampilan terang dan gelap.",
@@ -211,7 +212,8 @@
       "transcriptionProvider": "Menggunakan kredensial penyedia yang sesuai dari Penyedia.",
       "transcriptionProviderStatus": "Kunci API tetap berada di bagian penyedia, bukan di pengaturan transkripsi.",
       "transcriptionModel": "Biarkan memakai bawaan yang ter-resolve kecuali penyedia membutuhkan ID model khusus.",
-      "transcriptionLanguage": "Petunjuk ISO-639 opsional, seperti en, zh, ja, atau ko."
+      "transcriptionLanguage": "Petunjuk ISO-639 opsional, seperti en, zh, ja, atau ko.",
+      "threadWidth": "Seberapa lebar sebuah percakapan. Tabel dan blok kode mendapat ruang tambahan lebih dulu."
     },
     "values": {
       "light": "Terang",
@@ -242,7 +244,10 @@
       "restartingEngine": "Memulai ulang",
       "checking": "Memeriksa",
       "running": "Berjalan",
-      "needsSetup": "Perlu penyiapan"
+      "needsSetup": "Perlu penyiapan",
+      "widthStandard": "Standar",
+      "widthWide": "Lebar",
+      "widthFull": "Penuh"
     },
     "status": {
       "loading": "Memuat pengaturan...",
