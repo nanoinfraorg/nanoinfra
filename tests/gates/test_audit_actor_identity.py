@@ -306,13 +306,17 @@ class _Harness:
             if record["capability_class"] == capability_class and record["decision"] == decision
         ]
 
-    async def wait_for_one_pending(self, timeout_s: float = 5.0) -> Any:
-        for _ in range(int(timeout_s / 0.01)):
-            items = self.pending.pending()
-            if items:
-                return items[0]
-            await asyncio.sleep(0.01)
-        raise AssertionError("the executor never suspended an action")
+    async def wait_for_one_pending(
+        self, timeout_s: float | None = None, task: "asyncio.Task[Any] | None" = None
+    ):
+        """Wait until the executor suspends one action (#82).
+
+        The rule lives in ``tests/gates/conftest.py``. Three harnesses held three copies of it,
+        and every copy carried the same two defects, so a fix reached one file and left two.
+        """
+        from suspension_wait import wait_for_one_pending as _wait
+
+        return await _wait(self.pending, timeout_s, task)
 
 
 @pytest.fixture
