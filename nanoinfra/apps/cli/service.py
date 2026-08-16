@@ -229,6 +229,39 @@ def _command_exists(command: str) -> bool:
     return shutil.which(parts[0]) is not None
 
 
+def _other_virtualenv_bin(path: str) -> Path | None:
+    """The virtualenv that owns ``path``, when it is not the one this process runs in.
+
+    A console script beside a ``python`` is a virtualenv's ``bin`` directory. This gateway cannot
+    run anything from another one, so an app recorded there is not this gateway's app. The state
+    row goes and the file stays: reaching into another environment to delete a file is not
+    nanoinfra's business, and the operator gets told where it is.
+
+    A directory with no ``python`` beside the script says nothing about ownership, so it is not
+    treated as another environment. A file that survives an uninstall there is a real failure.
+    """
+    if not path:
+        return None
+    bindir = Path(path).parent
+    try:
+        if bindir.resolve() == Path(sys.executable).parent.resolve():
+            return None
+    except OSError:
+        return None
+    if any((bindir / name).exists() for name in ("python3", "python")):
+        return bindir
+    return None
+
+
+def _nothing_was_uninstalled(result: subprocess.CompletedProcess[str]) -> bool:
+    """Both ``uv`` and pip warn and exit 0 for a distribution they do not hold.
+
+    Only the return code was read, so a no-op reported as a removal.
+    """
+    output = f"{result.stdout or ''}\n{result.stderr or ''}".lower()
+    return "no packages to uninstall" in output or "as it is not installed" in output
+
+
 def _is_pip_install_command(command: str) -> bool:
     try:
         tokens = shlex.split(command)
@@ -1181,13 +1214,18 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
         strategy = self._strategy(app)
         entry_point = str(app.get("entry_point") or "").strip()
         managed_entry_path = str(installed_entry.get("entry_point_path") or "").strip()
+        other_env = _other_virtualenv_bin(managed_entry_path)
+        removed_nothing = False
         if strategy != "bundled":
             argv = self._argv_for_action(app, "uninstall", installed_entry=installed_entry)
             assert argv is not None
             result = self._run_argv(argv, timeout=self.runtime.install_timeout)
             if result.returncode != 0:
                 raise CliAppError(_truncate(result.stderr or result.stdout or "uninstall failed"), status=500)
-            still_managed = bool(managed_entry_path and Path(managed_entry_path).exists())
+            removed_nothing = _nothing_was_uninstalled(result)
+            still_managed = (
+                bool(managed_entry_path and Path(managed_entry_path).exists()) and other_env is None
+            )
             still_available = bool(entry_point and shutil.which(entry_point))
             if still_managed or (not managed_entry_path and still_available):
                 reason = (
@@ -1213,11 +1251,31 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
         installed.pop(str(app["name"]), None)
         self._save_installed(installed)
         self.remove_skill(str(app["name"]))
+        verification = (
+            ["state_absent", "managed_paths_absent"]
+            if still_available
+            else ["entry_point_absent", "state_absent", "managed_paths_absent"]
+        )
         if strategy == "bundled" and still_available:
             message = (
                 f"Removed {app['display_name']} from nanoinfra. {entry_point} "
                 "is still available because it is managed outside nanoinfra."
             )
+        elif other_env is not None:
+            # The app was installed while the gateway ran from another virtualenv. nanoinfra
+            # manages its own environment only, so the row goes and the file is named.
+            message = (
+                f"Removed {app['display_name']} from nanoinfra. {entry_point} stays at "
+                f"{managed_entry_path}, because it belongs to another virtualenv that this "
+                "gateway does not run from. Remove it there if you want it gone from disk."
+            )
+            verification = ["state_absent", "another_virtualenv"]
+        elif removed_nothing:
+            message = (
+                f"{app['display_name']} was already gone, so nanoinfra cleared the entry. "
+                "The package manager held nothing to remove."
+            )
+            verification = ["entry_point_absent", "state_absent", "package_absent"]
         elif still_available:
             message = (
                 f"Uninstalled CLI for {app['display_name']}, but another {entry_point} "
@@ -1231,9 +1289,7 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
                 "message": message,
                 "removed": True,
                 "still_available": still_available,
-                "verification": ["state_absent", "managed_paths_absent"]
-                if still_available
-                else ["entry_point_absent", "state_absent", "managed_paths_absent"],
+                "verification": verification,
             }
         }
 

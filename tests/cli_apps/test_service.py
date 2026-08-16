@@ -1037,3 +1037,132 @@ def test_uninstall_uses_uv_pip_when_pip_unavailable(
         sys.executable,
         "suno-cli",
     ]
+
+def _other_virtualenv(tmp_path: Path, entry_point: str) -> Path:
+    """A console script in a virtualenv that is not the running one.
+
+    This is the shape of the real report: the app was installed on 2026-08-03 while the gateway
+    ran from another checkout's virtualenv, and the gateway now runs from a different one. A
+    ``python3`` beside the script is what makes the directory recognisable as a virtualenv rather
+    than any directory that happens to hold a file.
+    """
+    bindir = tmp_path / "other" / ".venv" / "bin"
+    bindir.mkdir(parents=True)
+    script = bindir / entry_point
+    script.write_text("#!/bin/sh\n", encoding="utf-8")
+    script.chmod(0o755)
+    interpreter = bindir / "python3"
+    interpreter.write_text("", encoding="utf-8")
+    interpreter.chmod(0o755)
+    return script
+
+
+def test_uninstall_forgets_an_app_that_belongs_to_another_virtualenv(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A file in another virtualenv is not something this gateway can run.
+
+    The package manager removes nothing, because the distribution was never installed here, and
+    it exits 0 for a name it does not hold. The recorded path still exists, so the entry point
+    check kept the app installed, and every later attempt repeated it. The row therefore survived
+    forever while the entry point was not on PATH and the agent could never invoke it.
+    """
+    manager = _manager(tmp_path)
+    _seed_catalog(manager)
+    script = _other_virtualenv(tmp_path, "cli-anything-gimp")
+    manager._save_installed({
+        "gimp": {
+            "entry_point": "cli-anything-gimp",
+            "pip_distribution": "cli-anything-gimp",
+            "entry_point_path": str(script),
+        }
+    })
+    monkeypatch.setattr(
+        manager,
+        "_run_argv",
+        lambda argv, *, timeout: subprocess.CompletedProcess(
+            argv, 0, stdout="", stderr="warning: Skipping cli-anything-gimp as it is not installed\n"
+        ),
+    )
+    monkeypatch.setattr(manager, "_pip_available", staticmethod(lambda: True))
+    monkeypatch.setattr("nanoinfra.apps.cli.service.shutil.which", lambda command: None)
+
+    payload = manager.uninstall("gimp")
+
+    action = payload["last_action"]
+    assert action["ok"] is True
+    assert action["removed"] is True
+    assert "gimp" not in json.loads(manager.installed_path.read_text(encoding="utf-8"))["apps"]
+    assert str(script) in action["message"], (
+        "the file is left where it is, so the operator has to be told where it is"
+    )
+    assert script.exists(), "nanoinfra does not reach into another environment to delete a file"
+
+
+def test_uninstall_still_refuses_when_the_entry_point_is_reachable_here(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guard that matters is kept.
+
+    A recorded path in a directory that is not a virtualenv says nothing about ownership, so a
+    file that survives an uninstall there is a real failure and the app stays installed.
+    """
+    manager = _manager(tmp_path)
+    _seed_catalog(manager)
+    resolved = tmp_path / "bin" / "cli-anything-gimp"
+    resolved.parent.mkdir()
+    resolved.write_text("#!/bin/sh\n", encoding="utf-8")
+    manager._save_installed({
+        "gimp": {"entry_point": "cli-anything-gimp", "entry_point_path": str(resolved)}
+    })
+    monkeypatch.setattr(
+        manager,
+        "_run_argv",
+        lambda argv, *, timeout: subprocess.CompletedProcess(argv, 0, stdout="ok", stderr=""),
+    )
+
+    payload = manager.uninstall("gimp")
+
+    assert payload["last_action"]["ok"] is False
+    assert "gimp" in json.loads(manager.installed_path.read_text(encoding="utf-8"))["apps"]
+
+
+def test_uninstall_does_not_claim_a_removal_the_package_manager_did_not_make(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``uv`` and pip both warn and exit 0 for a name they do not hold.
+
+    Only the return code was read, so a no-op was reported as "Uninstalled CLI for Draw.io". The
+    row is still cleared, because a stale row nobody can clear is the same bug wearing the other
+    face, and the message says what actually happened.
+    """
+    manager = _manager(tmp_path)
+    _seed_catalog(manager)
+    manager._save_installed({
+        "gimp": {
+            "entry_point": "cli-anything-gimp",
+            "pip_distribution": "cli-anything-gimp",
+            "entry_point_path": str(tmp_path / "gone" / "bin" / "cli-anything-gimp"),
+        }
+    })
+    monkeypatch.setattr(
+        manager,
+        "_run_argv",
+        lambda argv, *, timeout: subprocess.CompletedProcess(
+            argv, 0, stdout="", stderr="WARNING: Skipping cli-anything-gimp as it is not installed\n"
+        ),
+    )
+    monkeypatch.setattr(manager, "_pip_available", staticmethod(lambda: True))
+    monkeypatch.setattr("nanoinfra.apps.cli.service.shutil.which", lambda command: None)
+
+    payload = manager.uninstall("gimp")
+
+    action = payload["last_action"]
+    assert action["ok"] is True
+    assert action["removed"] is True
+    assert "was already gone" in action["message"]
+    assert "Uninstalled CLI" not in action["message"]
+    assert "gimp" not in json.loads(manager.installed_path.read_text(encoding="utf-8"))["apps"]

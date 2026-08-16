@@ -651,6 +651,74 @@ describe("SettingsView Apps catalog", () => {
     expect(screen.queryByText("Uninstalled CLI for AnyGen.")).not.toBeInTheDocument();
   });
 
+  it("marks an installed app the gateway cannot resolve as missing", async () => {
+    // The reported state: a CLI recorded as installed whose entry point lives in another
+    // virtualenv, so it is not on PATH and the agent cannot invoke it. The gateway already
+    // answers this with `status: "missing"`, and a check mark said the opposite.
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/settings") return jsonResponse(settingsPayload());
+      if (url === "/api/settings/cli-apps") {
+        return jsonResponse({
+          apps: [{ ...installedAnyGen, available: false, status: "missing" }],
+          installed_count: 1,
+          catalog_updated_at: "2026-04-18",
+        });
+      }
+      if (url === "/api/settings/mcp-presets") {
+        return jsonResponse({ presets: [], installed_count: 0 });
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    }));
+
+    renderSettingsView();
+
+    expect(await screen.findByText("AnyGen")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Missing" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "App ready" })).not.toBeInTheDocument();
+  });
+
+  it("shows an uninstall that kept the app as an error and not as a confirmation", async () => {
+    // The payload carries `ok`, and only the message was read, so a refusal arrived in the tone
+    // of a success. This is the state that let the app look deleted while it was not.
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/settings") return jsonResponse(settingsPayload());
+      if (url === "/api/settings/cli-apps") {
+        return jsonResponse({
+          apps: [installedAnyGen],
+          installed_count: 1,
+          catalog_updated_at: "2026-04-18",
+        });
+      }
+      if (url === "/api/settings/mcp-presets") {
+        return jsonResponse({ presets: [], installed_count: 0 });
+      }
+      if (url === "/api/settings/cli-apps/uninstall?name=anygen") {
+        return jsonResponse({
+          apps: [installedAnyGen],
+          installed_count: 1,
+          catalog_updated_at: "2026-04-18",
+          last_action: {
+            ok: false,
+            message: "Uninstall for AnyGen completed, but cli-anything-anygen is still available on PATH, so nanoinfra kept it installed.",
+            removed: false,
+            still_available: true,
+          },
+        });
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    }));
+
+    renderSettingsView();
+
+    expect(await screen.findByText("AnyGen")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Uninstall app" }));
+
+    const message = await screen.findByText(/so nanoinfra kept it installed/);
+    expect(message.parentElement?.className).toContain("destructive");
+  });
+
   it("keeps runtime dependencies out of Apps and explains chat mentions", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
