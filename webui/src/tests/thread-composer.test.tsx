@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
+import { THREAD_WIDTHS } from "@/lib/local-preferences";
 import { SESSION_DRAG_TYPE } from "@/lib/session-drag";
 import type { ChatSummary, CliAppInfo, McpPresetInfo, SlashCommand } from "@/lib/types";
 
@@ -528,7 +529,11 @@ describe("ThreadComposer", () => {
     const input = screen.getByPlaceholderText("Type your message...");
     expect(input.className).toContain("min-h-[50px]");
     expect(input.className).toContain("text-[16px]");
-    expect(input.parentElement?.parentElement?.className).toContain("max-w-[49.5rem]");
+    // The width follows the thread width preference now, so the input keeps the same edges as the
+    // text above it. ``wide`` is the default.
+    expect((input.parentElement?.parentElement as HTMLElement).style.maxWidth).toBe(
+      THREAD_WIDTHS.wide.measure,
+    );
     expect(input.parentElement?.parentElement?.className).toContain("rounded-[22px]");
     expect(input.parentElement?.parentElement?.className).not.toContain("shadow-");
     expect(screen.getByRole("button", { name: "Attach files" }).className).toContain("bg-card");

@@ -168,7 +168,8 @@
       "transcriptionProviderStatus": "État du fournisseur",
       "transcriptionModel": "Modèle",
       "transcriptionLanguage": "Langue",
-      "voiceLimits": "Limites"
+      "voiceLimits": "Limites",
+      "threadWidth": "Largeur de la conversation"
     },
     "help": {
       "theme": "Basculer entre l’apparence claire et sombre.",
@@ -211,7 +212,8 @@
       "transcriptionProvider": "Utilise les identifiants du fournisseur correspondant dans la section Fournisseurs.",
       "transcriptionProviderStatus": "Les clés API restent dans les fournisseurs, pas dans les réglages de transcription.",
       "transcriptionModel": "Laissez le modèle résolu par défaut, sauf si votre fournisseur exige un identifiant personnalisé.",
-      "transcriptionLanguage": "Indice ISO-639 facultatif, comme en, zh, ja ou ko."
+      "transcriptionLanguage": "Indice ISO-639 facultatif, comme en, zh, ja ou ko.",
+      "threadWidth": "La largeur d'une conversation. Les tableaux et les blocs de code reçoivent l'espace supplémentaire en premier."
     },
     "values": {
       "light": "Clair",
@@ -242,7 +244,10 @@
       "restartingEngine": "Redémarrage",
       "checking": "Vérification",
       "running": "En cours",
-      "needsSetup": "Configuration requise"
+      "needsSetup": "Configuration requise",
+      "widthStandard": "Standard",
+      "widthWide": "Large",
+      "widthFull": "Complète"
     },
     "status": {
       "loading": "Chargement des réglages...",

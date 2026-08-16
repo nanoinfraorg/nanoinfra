@@ -168,7 +168,8 @@
       "transcriptionProviderStatus": "Trạng thái nhà cung cấp chuyển giọng nói",
       "transcriptionModel": "Mô hình chuyển giọng nói",
       "transcriptionLanguage": "Ngôn ngữ",
-      "voiceLimits": "Giới hạn"
+      "voiceLimits": "Giới hạn",
+      "threadWidth": "Chiều rộng cuộc trò chuyện"
     },
     "help": {
       "theme": "Chuyển giữa giao diện sáng và tối.",
@@ -211,7 +212,8 @@
       "transcriptionProvider": "Dùng thông tin xác thực của nhà cung cấp tương ứng trong mục Nhà cung cấp.",
       "transcriptionProviderStatus": "Khóa API nằm trong mục nhà cung cấp, không nằm trong cài đặt chuyển giọng nói.",
       "transcriptionModel": "Giữ mô hình mặc định đã phân giải, trừ khi nhà cung cấp yêu cầu ID mô hình tùy chỉnh.",
-      "transcriptionLanguage": "Gợi ý ISO-639 tùy chọn, chẳng hạn en, zh, ja hoặc ko."
+      "transcriptionLanguage": "Gợi ý ISO-639 tùy chọn, chẳng hạn en, zh, ja hoặc ko.",
+      "threadWidth": "Cuộc trò chuyện rộng bao nhiêu. Bảng và khối mã nhận phần không gian thêm trước."
     },
     "values": {
       "light": "Sáng",
@@ -242,7 +244,10 @@
       "restartingEngine": "Đang khởi động lại",
       "checking": "Đang kiểm tra",
       "running": "Đang chạy",
-      "needsSetup": "Cần thiết lập"
+      "needsSetup": "Cần thiết lập",
+      "widthStandard": "Chuẩn",
+      "widthWide": "Rộng",
+      "widthFull": "Toàn bộ"
     },
     "status": {
       "loading": "Đang tải cài đặt...",

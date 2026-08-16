@@ -220,7 +220,8 @@
       "transcriptionProviderStatus": "Status do provedor",
       "transcriptionModel": "Modelo",
       "transcriptionLanguage": "Idioma",
-      "voiceLimits": "Limites"
+      "voiceLimits": "Limites",
+      "threadWidth": "Largura da conversa"
     },
     "help": {
       "theme": "Alterna entre aparência clara e escura.",
@@ -263,7 +264,8 @@
       "transcriptionProvider": "Usa as credenciais do provedor correspondente em Provedores.",
       "transcriptionProviderStatus": "As chaves de API ficam em provedores, não nas configurações de transcrição.",
       "transcriptionModel": "Deixe como o padrão resolvido, a menos que seu provedor precise de um id de modelo personalizado.",
-      "transcriptionLanguage": "Dica ISO-639 opcional, como en, zh, ja ou ko."
+      "transcriptionLanguage": "Dica ISO-639 opcional, como en, zh, ja ou ko.",
+      "threadWidth": "Quão larga uma conversa fica. Tabelas e blocos de código recebem o espaço extra primeiro."
     },
     "timezone": {
       "select": "Selecionar fuso horário",
@@ -391,7 +393,10 @@
       "restartingEngine": "Reiniciando",
       "checking": "Verificando",
       "running": "Em execução",
-      "needsSetup": "Requer configuração"
+      "needsSetup": "Requer configuração",
+      "widthStandard": "Padrão",
+      "widthWide": "Larga",
+      "widthFull": "Completa"
     },
     "status": {
       "loading": "Carregando configurações...",

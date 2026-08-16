@@ -595,7 +595,7 @@ export default function MarkdownTextRenderer({
         return (
           <pre
             className={cn(
-              "my-3 overflow-x-auto rounded-lg border border-border/60 bg-muted/35",
+              "thread-bleed my-3 overflow-x-auto rounded-lg border border-border/60 bg-muted/35",
               "p-3 font-mono text-[0.8125rem] leading-snug text-foreground/90",
               "whitespace-pre [overflow-wrap:normal]",
             )}
@@ -679,7 +679,9 @@ export default function MarkdownTextRenderer({
             tabIndex={0}
             aria-label={t("message.dataTable", { defaultValue: "Data table" })}
             className={cn(
-              "not-prose mb-5 mt-3 w-full max-w-full overflow-x-auto rounded-lg",
+              // ``thread-bleed`` reaches past the reading measure inside a thread, and does
+              // nothing anywhere else, because the custom property only exists there.
+              "thread-bleed not-prose mb-5 mt-3 overflow-x-auto rounded-lg",
               "border border-border/65 bg-muted/20",
               "overscroll-x-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}

@@ -168,7 +168,8 @@
       "transcriptionProviderStatus": "プロバイダー状態",
       "transcriptionModel": "モデル",
       "transcriptionLanguage": "言語",
-      "voiceLimits": "制限"
+      "voiceLimits": "制限",
+      "threadWidth": "スレッドの幅"
     },
     "help": {
       "theme": "ライト表示とダーク表示を切り替えます。",
@@ -211,7 +212,8 @@
       "transcriptionProvider": "プロバイダー設定にある対応する認証情報を使います。",
       "transcriptionProviderStatus": "APIキーは文字起こし設定ではなくプロバイダー側に保存されます。",
       "transcriptionModel": "プロバイダーがカスタムモデルIDを必要としない限り、解決済みのデフォルトのままにします。",
-      "transcriptionLanguage": "en、zh、ja、ko などの任意の ISO-639 ヒント。"
+      "transcriptionLanguage": "en、zh、ja、ko などの任意の ISO-639 ヒント。",
+      "threadWidth": "会話の幅です。追加の余白は、まず表とコードブロックに使われます。"
     },
     "values": {
       "light": "ライト",
@@ -242,7 +244,10 @@
       "restartingEngine": "再起動中",
       "checking": "確認中",
       "running": "実行中",
-      "needsSetup": "設定が必要"
+      "needsSetup": "設定が必要",
+      "widthStandard": "標準",
+      "widthWide": "広い",
+      "widthFull": "全幅"
     },
     "status": {
       "loading": "設定を読み込んでいます...",

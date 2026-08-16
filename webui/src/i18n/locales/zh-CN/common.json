@@ -220,7 +220,8 @@
       "transcriptionProviderStatus": "提供商状态",
       "transcriptionModel": "模型",
       "transcriptionLanguage": "语言",
-      "voiceLimits": "限制"
+      "voiceLimits": "限制",
+      "threadWidth": "对话宽度"
     },
     "help": {
       "theme": "在浅色和深色外观之间切换。",
@@ -263,7 +264,8 @@
       "transcriptionProvider": "使用「提供商」中对应提供商的凭据。",
       "transcriptionProviderStatus": "API 密钥仍保存在“提供商”配置中，不写入“语音转写”设置。",
       "transcriptionModel": "除非提供商需要自定义模型 ID，否则保持解析后的默认值即可。",
-      "transcriptionLanguage": "可选 ISO-639 语言提示，例如 en、zh、ja 或 ko。"
+      "transcriptionLanguage": "可选 ISO-639 语言提示，例如 en、zh、ja 或 ko。",
+      "threadWidth": "对话的宽度。多出的空间优先给表格和代码块。"
     },
     "timezone": {
       "select": "选择时区",
@@ -391,7 +393,10 @@
       "restartingEngine": "正在重启",
       "checking": "检查中",
       "running": "运行中",
-      "needsSetup": "需要设置"
+      "needsSetup": "需要设置",
+      "widthStandard": "标准",
+      "widthWide": "较宽",
+      "widthFull": "全宽"
     },
     "status": {
       "loading": "正在加载设置...",
