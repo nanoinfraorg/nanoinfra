@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from nanoinfra.agent.memory import _HISTORY_ENTRY_HARD_CAP, MemoryStore
+from nanoinfra.agent.memory import (
+    _HISTORY_ENTRY_HARD_CAP,
+    MemoryCursorError,
+    MemoryStore,
+)
 
 
 @pytest.fixture
@@ -597,3 +601,144 @@ def test_raw_archive_handles_none_timestamp_and_missing_role(tmp_path: Path) -> 
     assert "[?] USER: message with none timestamp" in raw_history
     assert "[1720000000] ASSISTANT: message with int timestamp" in raw_history
     assert "[2026-07-28T12:00] UNKNOWN: message with missing role" in raw_history
+
+
+class TestMemoryWritesAreAtomic:
+    """``AGENTS.md`` claims this module writes atomically with fsync -- nanoinfraorg/nanoinfra#115.
+
+    One writer earned that claim and five did not. The failure is not theoretical: a torn
+    ``.dream_cursor`` reads as ``0`` through a suppressed ``ValueError``, which re-offers already
+    consolidated entries and pins the compaction floor at 0 so the history can never shrink again.
+    """
+
+    @pytest.mark.parametrize(
+        ("write", "read"),
+        [
+            ("write_memory", "read_memory"),
+            ("write_soul", "read_soul"),
+            ("write_user", "read_user"),
+        ],
+    )
+    def test_a_failed_replace_leaves_the_previous_content(
+        self,
+        store,
+        monkeypatch,
+        write: str,
+        read: str,
+    ) -> None:
+        getattr(store, write)("the durable content")
+
+        def explode(*_args: object, **_kwargs: object) -> None:
+            raise OSError("no space left on device")
+
+        monkeypatch.setattr("nanoinfra.agent.memory.os.replace", explode)
+        with pytest.raises(OSError):
+            getattr(store, write)("the write that failed")
+
+        assert getattr(store, read)() == "the durable content", (
+            "a partial write must not be able to replace a good file"
+        )
+
+    def test_a_failed_cursor_write_leaves_the_previous_cursor(self, store, monkeypatch) -> None:
+        store.set_last_dream_cursor(12)
+
+        def explode(*_args: object, **_kwargs: object) -> None:
+            raise OSError("no space left on device")
+
+        monkeypatch.setattr("nanoinfra.agent.memory.os.replace", explode)
+        with pytest.raises(OSError):
+            store.set_last_dream_cursor(13)
+
+        assert store.get_last_dream_cursor() == 12
+
+    def test_no_temporary_file_survives_a_successful_write(self, store) -> None:
+        store.write_memory("content")
+        store.set_last_dream_cursor(4)
+
+        leftovers = sorted(p.name for p in store.memory_dir.iterdir() if p.suffix == ".tmp")
+
+        assert leftovers == []
+
+    def test_no_temporary_file_survives_a_failed_write(self, store, monkeypatch) -> None:
+        def explode(*_args: object, **_kwargs: object) -> None:
+            raise OSError("no space left on device")
+
+        monkeypatch.setattr("nanoinfra.agent.memory.os.replace", explode)
+        with pytest.raises(OSError):
+            store.write_memory("content")
+
+        leftovers = sorted(p.name for p in store.memory_dir.iterdir() if p.suffix == ".tmp")
+
+        assert leftovers == []
+
+
+class TestDreamCursorIsValidated:
+    """The one cursor nobody validated -- nanoinfraorg/nanoinfra#116.
+
+    Every other cursor in this file passes ``_valid_cursor``, which even rejects ``bool``. This one
+    returned whatever ``int()`` accepted, so ``-5`` in one small file made ``keep_from`` zero and
+    disabled compaction permanently and silently.
+    """
+
+    @pytest.mark.parametrize("raw", ["-5", "abc", "1.5", "1 2", "0x10", "true"])
+    def test_a_value_that_is_not_a_cursor_is_refused_and_named(self, store, raw: str) -> None:
+        store._dream_cursor_file.parent.mkdir(parents=True, exist_ok=True)
+        store._dream_cursor_file.write_text(raw, encoding="utf-8")
+
+        with pytest.raises(MemoryCursorError) as caught:
+            store.get_last_dream_cursor()
+
+        assert str(store._dream_cursor_file) in str(caught.value), (
+            "the operator has to learn which file to look at"
+        )
+
+    def test_a_missing_file_still_means_nothing_was_dreamt(self, store) -> None:
+        # Absent is a legitimate state and reads as 0. Only a file that exists and holds a
+        # non-cursor is a refusal.
+        assert not store._dream_cursor_file.exists()
+        assert store.get_last_dream_cursor() == 0
+
+    @pytest.mark.parametrize("raw", ["0", "7", " 7 ", "7\n"])
+    def test_a_valid_cursor_reads_as_before(self, store, raw: str) -> None:
+        store._dream_cursor_file.parent.mkdir(parents=True, exist_ok=True)
+        store._dream_cursor_file.write_text(raw, encoding="utf-8")
+
+        assert store.get_last_dream_cursor() == int(raw.strip())
+
+    @pytest.mark.parametrize("raw", ["", "   ", "\n"])
+    def test_an_empty_file_is_a_state_and_not_corruption(self, store, raw: str) -> None:
+        """``GitStore.init`` touches every tracked file, and this file is tracked.
+
+        So an empty cursor is what a fresh workspace with git enabled holds, and refusing it would
+        break every first Dream run. It is safe to read as 0 because ``set_last_dream_cursor`` is
+        atomic: ``os.replace`` cannot leave this file empty, so empty is no longer a torn write.
+        """
+        store._dream_cursor_file.parent.mkdir(parents=True, exist_ok=True)
+        store._dream_cursor_file.write_text(raw, encoding="utf-8")
+
+        assert store.get_last_dream_cursor() == 0
+
+    def test_a_fresh_git_workspace_can_dream(self, store) -> None:
+        """The regression this nearly shipped: git.init made every first Dream run raise."""
+        store.write_soul("# Soul")
+        store.write_memory("# Memory")
+        for index in range(1, 22):
+            store.append_history(f"entry-{index:02d}")
+        assert store.git.init() is True
+
+        assert store.get_last_dream_cursor() == 0
+        assert store.build_dream_prompt() is not None
+
+    def test_compaction_is_not_disabled_by_a_broken_cursor(self, store) -> None:
+        """The consequence the issue measured, asserted directly.
+
+        A refusal here is louder than a wrong number: compaction that silently stops is how a
+        1.6 MB history file grows under a 1,000-entry limit.
+        """
+        store.max_history_entries = 3
+        for index in range(20):
+            store.append_history(f"event {index}")
+        store._dream_cursor_file.write_text("-5", encoding="utf-8")
+
+        with pytest.raises(MemoryCursorError):
+            store.compact_history()
