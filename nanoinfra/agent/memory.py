@@ -52,6 +52,16 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
+class MemoryCursorError(RuntimeError):
+    """A cursor file holds something that is not a cursor (#116).
+
+    Reading such a file as ``0`` is the failure, not the fix: ``0`` is a legal cursor that means
+    "nothing has been consolidated", so a torn or negative file silently re-offers entries that
+    were already folded into MEMORY.md and pins the compaction floor, which is how a history file
+    grows without bound under a configured limit.
+    """
+
+
 class DreamRunProgress:
     """Track tool failures that make a nominally completed Dream run unsafe to advance."""
 
@@ -252,7 +262,7 @@ class MemoryStore:
         return self.read_file(self.memory_file)
 
     def write_memory(self, content: str) -> None:
-        self.memory_file.write_text(content, encoding="utf-8")
+        self._atomic_write_text(self.memory_file, content)
 
     # -- SOUL.md -------------------------------------------------------------
 
@@ -260,7 +270,7 @@ class MemoryStore:
         return self.read_file(self.soul_file)
 
     def write_soul(self, content: str) -> None:
-        self.soul_file.write_text(content, encoding="utf-8")
+        self._atomic_write_text(self.soul_file, content)
 
     # -- USER.md -------------------------------------------------------------
 
@@ -268,7 +278,7 @@ class MemoryStore:
         return self.read_file(self.user_file)
 
     def write_user(self, content: str) -> None:
-        self.user_file.write_text(content, encoding="utf-8")
+        self._atomic_write_text(self.user_file, content)
 
     # -- context injection (used by context.py) ------------------------------
 
@@ -336,7 +346,7 @@ class MemoryStore:
                 record["session_key"] = session_key
             with open(self.history_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
-            self._cursor_file.write_text(str(cursor), encoding="utf-8")
+            self._atomic_write_text(self._cursor_file, str(cursor))
         return cursor
 
     @staticmethod
@@ -516,23 +526,30 @@ class MemoryStore:
         except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
             return None
 
-    def _write_entries(self, entries: list[dict[str, Any]]) -> None:
-        """Overwrite history.jsonl with the given entries (atomic write)."""
-        tmp_path = self.history_file.with_suffix(self.history_file.suffix + ".tmp")
+    @staticmethod
+    def _atomic_write_text(path: Path, text: str) -> None:
+        """Replace ``path`` with ``text``, or leave the previous content in place (#115).
+
+        ``AGENTS.md`` claims this module writes atomically with fsync. One writer earned that and
+        five used a plain ``write_text``, where an interrupted write leaves a truncated file. For
+        the dream cursor that is not a lost byte: an empty file read as ``0`` re-offers consolidated
+        entries, and a partial ``"1"`` from ``"12"`` walks the cursor backwards.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
         try:
             with open(tmp_path, "w", encoding="utf-8") as f:
-                for entry in entries:
-                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                f.write(text)
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(tmp_path, self.history_file)
+            os.replace(tmp_path, path)
 
             # fsync the directory so the rename is durable.
             # On Windows, opening a directory with O_RDONLY raises
             # PermissionError — skip the dir sync there (NTFS
             # journals metadata synchronously).
             with suppress(PermissionError):
-                fd = os.open(str(self.history_file.parent), os.O_RDONLY)
+                fd = os.open(str(path.parent), os.O_RDONLY)
                 try:
                     os.fsync(fd)
                 finally:
@@ -541,16 +558,50 @@ class MemoryStore:
             tmp_path.unlink(missing_ok=True)
             raise
 
+    def _write_entries(self, entries: list[dict[str, Any]]) -> None:
+        """Overwrite history.jsonl with the given entries (atomic write)."""
+        self._atomic_write_text(
+            self.history_file,
+            "".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in entries),
+        )
+
     # -- dream cursor --------------------------------------------------------
 
     def get_last_dream_cursor(self) -> int:
-        if self._dream_cursor_file.exists():
-            with suppress(ValueError, OSError):
-                return int(self._dream_cursor_file.read_text(encoding="utf-8").strip())
-        return 0
+        """The last consolidated cursor, or a refusal that names the file (#116).
+
+        Every other cursor in this file passes ``_valid_cursor``. This one returned whatever
+        ``int()`` accepted, so ``-5`` in one small file made the compaction floor zero and disabled
+        compaction permanently and silently. A file that is absent is a different fact: nothing has
+        been consolidated yet, and that reads as ``0``.
+        """
+        if not self._dream_cursor_file.exists():
+            return 0
+        try:
+            raw = self._dream_cursor_file.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise MemoryCursorError(f"cannot read {self._dream_cursor_file}: {exc}") from exc
+        if not raw:
+            # An empty file is a legitimate state, not corruption: ``GitStore.init`` touches every
+            # tracked file so the first commit can include it, and this file is tracked. Reading it
+            # as "nothing consolidated" is safe now that ``set_last_dream_cursor`` is atomic --
+            # ``os.replace`` cannot leave the file empty, so empty no longer means a torn write.
+            return 0
+        try:
+            parsed = int(raw)
+        except ValueError as exc:
+            raise MemoryCursorError(
+                f"{self._dream_cursor_file} holds {raw[:32]!r}, which is not a cursor"
+            ) from exc
+        cursor = self._valid_cursor(parsed)
+        if cursor is None:
+            raise MemoryCursorError(
+                f"{self._dream_cursor_file} holds {raw[:32]!r}, which is not a cursor"
+            )
+        return cursor
 
     def set_last_dream_cursor(self, cursor: int) -> None:
-        self._dream_cursor_file.write_text(str(cursor), encoding="utf-8")
+        self._atomic_write_text(self._dream_cursor_file, str(cursor))
 
     def get_latest_cursor(self) -> int:
         return max(self._next_cursor() - 1, 0)
