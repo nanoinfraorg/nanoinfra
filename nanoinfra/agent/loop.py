@@ -93,7 +93,8 @@ from nanoinfra.session.model_selection import (
 from nanoinfra.triggers.local_turns import LocalTriggerTurnCoordinator
 from nanoinfra.utils.cancellation import task_is_cancelling
 from nanoinfra.utils.document import reference_non_image_attachments
-from nanoinfra.utils.helpers import image_placeholder_text
+from nanoinfra.utils.helpers import declared_tool_call_ids as declared_tool_call_ids_of
+from nanoinfra.utils.helpers import image_placeholder_text, open_tool_call_ids
 from nanoinfra.utils.helpers import truncate_text as truncate_text_fn
 from nanoinfra.utils.llm_runtime import LLMRuntime
 from nanoinfra.utils.runtime import (
@@ -2072,20 +2073,13 @@ class AgentLoop:
         """Save new-turn messages into session, truncating large tool results."""
         from datetime import datetime
 
-        declared_tool_call_ids = {
-            str(tc["id"])
-            for m in session.messages
-            if m.get("role") == "assistant"
-            for tc_value in cast(Iterable[object], m.get("tool_calls") or [])
-            if isinstance(tc_value, dict)
-            for tc in (cast(dict[str, Any], tc_value),)
-            if tc.get("id")
-        }
-        fulfilled_tool_call_ids = {
-            str(m["tool_call_id"])
-            for m in session.messages
-            if m.get("role") == "tool" and m.get("tool_call_id")
-        }
+        # The ids still waiting for a result, and never every id the session has ever seen. A
+        # model that names a call after its slot repeats the name on every turn that calls that
+        # tool in that slot, so a session-wide "already fulfilled" set reads the second
+        # legitimate call as a duplicate and drops its result. The assistant message then holds
+        # an unanswered call, the provider refuses the request, and the refusal is not
+        # fallbackable -- so one collision made a session permanently unusable.
+        open_tool_calls = open_tool_call_ids(session.messages)
         last_assistant_idx: int | None = None
         # Redact before the loop truncates anything (#17). The chat transcript is
         # sessions/*.jsonl, and it holds role="tool" records, so a resolved credential in
@@ -2114,19 +2108,16 @@ class AgentLoop:
             if role == "tool":
                 tool_call_id = entry.get("tool_call_id")
                 tool_call_id_str = str(tool_call_id) if tool_call_id else ""
-                if (
-                    not tool_call_id_str
-                    or tool_call_id_str not in declared_tool_call_ids
-                    or tool_call_id_str in fulfilled_tool_call_ids
-                ):
-                    # Undeclared tool results corrupt future provider requests.
+                if not tool_call_id_str or tool_call_id_str not in open_tool_calls:
+                    # A result for a call nobody made, or a second result for one call, corrupts
+                    # every future provider request.
                     logger.warning(
                         "Dropping invalid tool result {} from session {} during persistence",
                         tool_call_id_str or "(missing id)",
                         session.key,
                     )
                     continue
-                fulfilled_tool_call_ids.add(tool_call_id_str)
+                open_tool_calls.discard(tool_call_id_str)
                 entry = self._bounded_tool_result(entry)
                 if entry.get("content") == []:
                     # Preserve the tool_call/result pair after block filtering. The test names
@@ -2149,16 +2140,9 @@ class AgentLoop:
             session.messages.append(entry)
             if role == "assistant":
                 last_assistant_idx = len(session.messages) - 1
-                declared_tool_call_ids.update(
-                    str(tc["id"])
-                    for tc_value in cast(
-                        Iterable[object],
-                        entry.get("tool_calls") or [],
-                    )
-                    if isinstance(tc_value, dict)
-                    for tc in (cast(dict[str, Any], tc_value),)
-                    if tc.get("id")
-                )
+                # An assistant message opens its own calls and closes whatever came before it:
+                # a call the model has already spoken past can no longer be answered.
+                open_tool_calls = set(declared_tool_call_ids_of(entry))
         if turn_latency_ms is not None and last_assistant_idx is not None:
             session.messages[last_assistant_idx]["latency_ms"] = int(turn_latency_ms)
         session.updated_at = datetime.now()
