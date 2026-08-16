@@ -1850,7 +1850,13 @@ export function SettingsView({
       if (action !== "test") {
         notifyCliAppsChanged(payload);
       }
-      setCliAppsMessage(payload.last_action?.message ?? null);
+      // The payload carries `ok`, and reading only the message painted a refusal in the tone of a
+      // confirmation. An uninstall that kept the app is the case that matters.
+      if (payload.last_action?.ok === false) {
+        setCliAppsError(payload.last_action.message ?? null);
+      } else {
+        setCliAppsMessage(payload.last_action?.message ?? null);
+      }
       setCliAppsFocusName(action === "uninstall" ? null : name);
     } catch (err) {
       setCliAppsError((err as Error).message);
@@ -7649,6 +7655,10 @@ function CliAppsCatalogRow({
   const testBusy = actionKey === `test:${app.name}`;
   const busy = installBusy || updateBusy || uninstallBusy || testBusy;
   const description = app.description || app.requires || app.entry_point || app.name;
+  // The gateway already answers this: an app recorded as installed whose entry point it cannot
+  // resolve is `status: "missing"`, and the agent cannot invoke it. A check mark there says the
+  // opposite of what is true, so the badge follows the resolution and not the state row.
+  const missing = app.installed && !app.available;
 
   return (
     <article className="apps-catalog-row group flex min-w-0 items-center gap-3 rounded-[14px] px-3 py-3 transition-colors hover:bg-muted/45">
@@ -7666,12 +7676,20 @@ function CliAppsCatalogRow({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <AppsActionButton
-                  ariaLabel={tx("settings.cliApps.statusInstalled", "CLI installed")}
+                  ariaLabel={
+                    missing
+                      ? tx("settings.cliApps.statusMissing", "Missing")
+                      : tx("settings.cliApps.statusInstalled", "CLI installed")
+                  }
                   busy={testBusy || updateBusy}
                   disabled={busy}
                   tone="installed"
                 >
-                  <Check className="h-4 w-4" aria-hidden />
+                  {missing ? (
+                    <CircleAlert className="h-4 w-4 text-amber-600 dark:text-amber-400" aria-hidden />
+                  ) : (
+                    <Check className="h-4 w-4" aria-hidden />
+                  )}
                 </AppsActionButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
