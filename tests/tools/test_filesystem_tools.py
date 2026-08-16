@@ -515,3 +515,134 @@ class TestWorkspaceRestriction:
         )
         assert "Successfully edited" in result
         assert target.read_text(encoding="utf-8") == "after\n"
+
+
+class TestProtectedMemoryPaths:
+    """The agent could truncate its own memory -- nanoinfraorg/nanoinfra#105.
+
+    The rule was enforced in two of the three places that can break it. `memory.py` enforces it at
+    path scope for Dream's own registry, `shell.py` carries six regexes for it, and the main
+    registry passed `allowed_dir=agent_workspace` with `restrict_to_workspace` defaulting to False,
+    so the writer the agent uses on an ordinary turn had no guard at all.
+
+    A `write_file` of `""` at `memory/history.jsonl` discards every conversation summary not yet
+    folded into MEMORY.md. A `write_file` of `"0"` on the cursor then re-dreams whatever is left.
+    """
+
+    @pytest.fixture()
+    def workspace(self, tmp_path):
+        ws = tmp_path / "ws"
+        (ws / "memory").mkdir(parents=True)
+        (ws / "memory" / "history.jsonl").write_text(
+            '{"cursor": 1, "timestamp": "2026-01-01 10:00", "content": "a fact"}\n',
+            encoding="utf-8",
+        )
+        (ws / "memory" / ".dream_cursor").write_text("1", encoding="utf-8")
+        (ws / "memory" / ".cursor").write_text("1", encoding="utf-8")
+        return ws
+
+    @pytest.mark.parametrize(
+        "relative",
+        ["memory/history.jsonl", "memory/.dream_cursor", "memory/.cursor"],
+    )
+    @pytest.mark.parametrize("restrict", [True, False])
+    @pytest.mark.asyncio
+    async def test_write_file_refuses_a_managed_memory_file(
+        self,
+        workspace,
+        relative: str,
+        restrict: bool,
+    ) -> None:
+        before = (workspace / relative).read_text(encoding="utf-8")
+        tool = WriteFileTool(
+            workspace=workspace,
+            allowed_dir=workspace if restrict else None,
+            restrict_to_workspace=restrict,
+        )
+
+        result = await tool.execute(path=relative, content="")
+
+        assert "Error" in result
+        assert (workspace / relative).read_text(encoding="utf-8") == before
+
+    @pytest.mark.asyncio
+    async def test_an_absolute_path_is_refused_too(self, workspace) -> None:
+        target = workspace / "memory" / "history.jsonl"
+        before = target.read_text(encoding="utf-8")
+        tool = WriteFileTool(workspace=workspace, allowed_dir=workspace)
+
+        result = await tool.execute(path=str(target), content="")
+
+        assert "Error" in result
+        assert target.read_text(encoding="utf-8") == before
+
+    @pytest.mark.asyncio
+    async def test_a_traversal_path_is_refused_too(self, workspace) -> None:
+        """The check runs on the resolved path, so spelling it differently changes nothing."""
+        target = workspace / "memory" / "history.jsonl"
+        before = target.read_text(encoding="utf-8")
+        tool = WriteFileTool(workspace=workspace, allowed_dir=workspace)
+
+        result = await tool.execute(path="memory/../memory/./history.jsonl", content="")
+
+        assert "Error" in result
+        assert target.read_text(encoding="utf-8") == before
+
+    @pytest.mark.asyncio
+    async def test_edit_file_refuses_them_as_well(self, workspace) -> None:
+        target = workspace / "memory" / "history.jsonl"
+        before = target.read_text(encoding="utf-8")
+        tool = EditFileTool(workspace=workspace, allowed_dir=workspace)
+
+        result = await tool.execute(
+            path="memory/history.jsonl",
+            old_string="a fact",
+            new_string="a lie",
+        )
+
+        assert "Error" in result
+        assert target.read_text(encoding="utf-8") == before
+
+    @pytest.mark.asyncio
+    async def test_the_refusal_says_what_manages_the_file(self, workspace) -> None:
+        tool = WriteFileTool(workspace=workspace, allowed_dir=workspace)
+
+        result = await tool.execute(path="memory/history.jsonl", content="")
+
+        assert "append_history" in result, (
+            "a refusal the model cannot act on becomes a retry loop"
+        )
+
+    @pytest.mark.asyncio
+    async def test_an_ordinary_memory_file_is_still_writable(self, workspace) -> None:
+        """MEMORY.md is the file Dream is supposed to edit, and it stays writable."""
+        tool = WriteFileTool(workspace=workspace, allowed_dir=workspace)
+
+        result = await tool.execute(path="memory/MEMORY.md", content="a durable fact")
+
+        assert "Error" not in result
+        assert (workspace / "memory" / "MEMORY.md").read_text(encoding="utf-8") == "a durable fact"
+
+    @pytest.mark.asyncio
+    async def test_an_unrelated_project_with_the_same_path_is_not_refused(
+        self,
+        workspace,
+        tmp_path,
+    ) -> None:
+        """The check names directories, so it cannot misfire on somebody else's repository.
+
+        A tail match on ``memory/history.jsonl`` would refuse a write to any project that happens
+        to hold that path, which is a false positive a user cannot work around. The agent's own
+        workspace is ``workspace`` here, and the target below belongs to a different tree.
+        """
+        elsewhere = tmp_path / "someones-project"
+        (elsewhere / "memory").mkdir(parents=True)
+        tool = WriteFileTool(workspace=workspace, allowed_dir=None)
+
+        result = await tool.execute(
+            path=str(elsewhere / "memory" / "history.jsonl"),
+            content="their data",
+        )
+
+        assert "Error" not in result
+        assert (elsewhere / "memory" / "history.jsonl").read_text(encoding="utf-8") == "their data"
