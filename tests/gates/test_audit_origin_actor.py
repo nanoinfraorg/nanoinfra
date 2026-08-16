@@ -282,13 +282,18 @@ class _Suspended:
             audit=self.audit,
         )
 
-    async def wait_for_one_pending(self, timeout_s: float = 5.0) -> Any:
-        for _ in range(int(timeout_s / 0.01)):
-            items = self.pending.pending()
-            if items:
-                return items[0]
-            await asyncio.sleep(0.01)
-        raise AssertionError("the executor never suspended an action")
+    async def wait_for_one_pending(
+        self, timeout_s: float | None = None, task: "asyncio.Task[Any] | None" = None
+    ) -> Any:
+        """Wait until the executor suspends one action (#82).
+
+        The rule lives in ``suspension_wait.py`` beside this file. This copy was the fourth: it
+        was written from an existing harness while the other three were being merged, which is
+        the argument for one place better than any comment could make it.
+        """
+        from suspension_wait import wait_for_one_pending as _wait
+
+        return await _wait(self.pending, timeout_s, task)
 
     def records(self, decision: str) -> list[dict[str, Any]]:
         return [record for record in self.audit.read_all() if record["decision"] == decision]
