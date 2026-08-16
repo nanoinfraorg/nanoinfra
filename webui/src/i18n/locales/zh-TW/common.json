@@ -949,6 +949,24 @@
         "grantDecision": "僅常設授權只在常設授權與操作相符時放行。除此之外沒有任何方式放行無人監督的遠端命令。",
         "singlePath": "已設定的已驗證通道少於兩條。此時對主機群組的操作沒有執行時的核准通道。請在下方新增一條通道，或宣告一條常設授權。"
       },
+      "identity": {
+        "title": "身分",
+        "postureLabel": "身分態勢",
+        "actorLabel": "你是",
+        "postures": {
+          "noProxy": "共用權杖。沒有代理伺服器指名任何人。",
+          "verified": "已驗證的斷言（JWT）",
+          "anyVerified": "已驗證的斷言（JWT），對每個身分開放",
+          "plain": "斷言標頭，未經驗證"
+        },
+        "issuer": "簽發方",
+        "claim": "身分 claim",
+        "header": "斷言標頭",
+        "approverRow": "請把這個值原樣寫進一列核准者。",
+        "assertionMissing": "已設定代理伺服器，但這次請求沒有帶來經過驗證的身分。閘道改讀共用權杖，因此這裡的每次核准都指名不到任何人。請檢查代理伺服器與斷言標頭。",
+        "plainCaution": "閘道只讀取這個標頭，不做任何驗證。誰能到達代理完全由代理伺服器決定。",
+        "anyVerifiedCaution": "提供方簽發的每個身分都能到達代理。allowAnyVerifiedIdentity 已開啟。"
+      },
       "approvers": {
         "title": "核准者",
         "empty": "沒有核准者。執行時沒有維運人員可以核准操作，因此核准決定會拒絕該操作。",

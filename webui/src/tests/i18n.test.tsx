@@ -321,6 +321,25 @@ const LOCALIZED_IDENTITY_KEYS = [
   "settings.gates.approvers.notAnAccountId",
   "settings.gates.approvers.blank",
 ];
+// Which authentication the deployment installed, in the gate panel (#85). The warning here says
+// that a configured proxy asserted nobody, so every approval names nobody. An operator who cannot
+// read that sentence cannot act on it.
+const LOCALIZED_IDENTITY_PANEL_KEYS = [
+  "settings.gates.identity.title",
+  "settings.gates.identity.postureLabel",
+  "settings.gates.identity.actorLabel",
+  "settings.gates.identity.postures.noProxy",
+  "settings.gates.identity.postures.verified",
+  "settings.gates.identity.postures.anyVerified",
+  "settings.gates.identity.postures.plain",
+  "settings.gates.identity.issuer",
+  "settings.gates.identity.claim",
+  "settings.gates.identity.header",
+  "settings.gates.identity.approverRow",
+  "settings.gates.identity.assertionMissing",
+  "settings.gates.identity.plainCaution",
+  "settings.gates.identity.anyVerifiedCaution",
+];
 // Who raised an action, in the audit viewer (#79). A reviewer reads a name in a log as
 // authenticated unless something says otherwise, so the sentence that calls it a claim of the
 // agent has to arrive in the reviewer's own language.
@@ -612,6 +631,7 @@ describe("webui i18n", () => {
         ...LOCALIZED_NEW_SURFACE_KEYS,
         ...LOCALIZED_APPROVALS_KEYS,
         ...LOCALIZED_IDENTITY_KEYS,
+        ...LOCALIZED_IDENTITY_PANEL_KEYS,
         ...LOCALIZED_ORIGIN_ACTOR_KEYS,
       ].filter(
         (key) => current.get(key) === english.get(key),

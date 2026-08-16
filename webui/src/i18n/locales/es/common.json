@@ -949,6 +949,24 @@
         "grantDecision": "Solo concesión permite una acción cuando una concesión permanente coincide con ella. Nada más permite un comando remoto desatendido.",
         "singlePath": "Hay menos de dos rutas autenticadas configuradas. Una acción sobre un grupo entonces no tiene ninguna vía de aprobación en ejecución. Añade una ruta abajo o declara una concesión permanente."
       },
+      "identity": {
+        "title": "Identidad",
+        "postureLabel": "Postura",
+        "actorLabel": "Eres",
+        "postures": {
+          "noProxy": "Token compartido. Ningún proxy nombra a una persona.",
+          "verified": "Aserción verificada (JWT)",
+          "anyVerified": "Aserción verificada (JWT), abierta a cualquier identidad",
+          "plain": "Cabecera de aserción, sin verificar"
+        },
+        "issuer": "Emisor",
+        "claim": "Claim de identidad",
+        "header": "Cabecera de aserción",
+        "approverRow": "Escribe este valor exacto en una fila de aprobador.",
+        "assertionMissing": "Hay un proxy configurado y a esta petición no llegó ninguna identidad verificada. El gateway leyó el token compartido, así que aquí cada aprobación no nombra a nadie. Revisa el proxy y la cabecera de aserción.",
+        "plainCaution": "El gateway lee esta cabecera y no verifica nada. El proxy decide por sí solo quién llega al agente.",
+        "anyVerifiedCaution": "Cualquier identidad que firme el proveedor puede llegar al agente. allowAnyVerifiedIdentity está activado."
+      },
       "approvers": {
         "title": "Aprobadores",
         "empty": "Sin aprobadores. Ningún operador puede aprobar una acción en ejecución. Una decisión de aprobación entonces rechaza la acción.",
