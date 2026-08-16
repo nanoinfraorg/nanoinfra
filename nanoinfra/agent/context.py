@@ -95,7 +95,7 @@ class ContextBuilder:
 
         memory = self.memory.read_memory()
         if memory and not self._is_template_content(memory, "memory/MEMORY.md"):
-            parts.append(f"# Memory\n\n## Long-term Memory\n{memory}")
+            parts.append(f"# Memory\n\n{self.memory.get_memory_context()}")
 
         active_skills = self.skills.get_always_skills()
         active_skills.extend(

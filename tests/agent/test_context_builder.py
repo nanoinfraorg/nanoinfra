@@ -328,6 +328,20 @@ class TestBuildSystemPrompt:
         result = builder.build_system_prompt()
         assert "Be helpful and concise." in result
 
+    def test_memory_context_comes_from_memory_store(self, tmp_path, monkeypatch):
+        builder = _builder(tmp_path)
+        builder.memory.write_memory("raw memory")
+        monkeypatch.setattr(
+            builder.memory,
+            "get_memory_context",
+            lambda: "## Long-term Memory\ncanonical memory",
+        )
+
+        result = builder.build_system_prompt(include_memory_recent_history=False)
+
+        assert "canonical memory" in result
+        assert "raw memory" not in result
+
     def test_includes_session_summary(self, tmp_path):
         builder = _builder(tmp_path)
         result = builder.build_system_prompt(session_summary="Previous chat about Python.")
