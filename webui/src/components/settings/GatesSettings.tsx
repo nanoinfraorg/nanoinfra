@@ -79,7 +79,14 @@ export function approverShape(channel: string, sender: string): ApproverShape {
   return "chatForm";
 }
 
-/** Read the gate block. An older gateway sends no block, and then the panel stays away. */
+/**
+ * Read the gate block. An older gateway sends no block, and then the panel stays away.
+ *
+ * The guard names the two fields the panel cannot render without. A field that only drives a
+ * marker is optional in `GatesPayload` instead, so the compiler holds each reader to handling
+ * its absence (#86). A guard that named every field would need an edit for every field the
+ * panel started reading, and that edit is what went missing.
+ */
 export function gatesPayloadFrom(settings: SettingsPayload): GatesPayload | null {
   const gates = settings.advanced.gates;
   if (!gates || !gates.policy || !gates.choices) return null;
@@ -132,7 +139,7 @@ export function GatesSettings({
 
   /** A row keeps the marker while it still holds the saved default value. */
   const isDefault = (path: string, current: unknown, previous: unknown): boolean =>
-    gates.from_default[path] === true && sameValue(current, previous);
+    gates.from_default?.[path] === true && sameValue(current, previous);
 
   const updateDraft = (change: (previous: GatesPolicy) => GatesPolicy) => {
     setDraft((previous) => (previous ? change(previous) : previous));
