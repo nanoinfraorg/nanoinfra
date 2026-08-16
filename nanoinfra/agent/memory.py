@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator, cast
 
+from filelock import FileLock
 from loguru import logger
 
 from nanoinfra.agent.redaction import TranscriptRedactor
@@ -117,6 +118,12 @@ class MemoryStore:
         self._oversize_logged = False  # rate-limit oversized-entry warning
         self._dream_prompt_oversize_logged = False
         self._append_lock = threading.Lock()  # serialize cursor allocation + append
+        # A ``threading.Lock`` is process-local, and ``nanoinfra/cli/agent.py`` runs over the same
+        # default workspace as ``nanoinfra gateway``. Replacing history.jsonl is a read followed by
+        # a rename, so a second process appending between the two loses that entry. The file lock is
+        # what both processes can see; the thread lock still serializes threads inside one of them,
+        # because ``FileLock`` counts re-entrant acquisitions per instance rather than per thread.
+        self._history_lock_path = self.memory_dir / ".history.lock"
         self._git = GitStore(workspace, tracked_files=[
             "SOUL.md", "USER.md", "memory/MEMORY.md", "memory/.dream_cursor",
         ])
@@ -196,7 +203,9 @@ class MemoryStore:
             entries.append({
                 "cursor": cursor,
                 "timestamp": timestamp,
-                "content": content,
+                # The migration is a writer of the durable transcript, so it owes the same three
+                # protections every other writer applies (#110).
+                "content": self._sanitized_history_content(content, _HISTORY_ENTRY_HARD_CAP),
             })
         return entries
 
@@ -317,25 +326,12 @@ class MemoryStore:
         """
         limit = max_chars if max_chars is not None else _HISTORY_ENTRY_HARD_CAP
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-        # Scrub before the cap. truncate_text keeps a head, so a cap applied
-        # first could cut through a credential and leave part of it durable.
-        raw = TranscriptRedactor.for_workspace(self.workspace).text(entry).rstrip()
-        if len(raw) > limit:
-            if not self._oversize_logged:
-                self._oversize_logged = True
-                logger.warning(
-                    "history entry exceeds {} chars ({}); truncating. "
-                    "Usually means a caller forgot its own cap; "
-                    "further occurrences suppressed.",
-                    limit, len(raw),
-                )
-            raw = truncate_text(raw, limit)
-        content = strip_think(raw)
+        content = self._sanitized_history_content(entry, limit)
         # Cursor allocation and the append must be atomic: concurrent writers
         # could otherwise read the same current cursor and emit duplicates.
-        with self._append_lock:
+        with self._append_lock, self._history_lock():
             cursor = self._next_cursor()
-            if raw and not content:
+            if entry.strip() and not content:
                 logger.debug(
                     "history entry {} stripped to empty (likely template leak); "
                     "persisting empty content to avoid re-polluting context",
@@ -348,6 +344,38 @@ class MemoryStore:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
             self._atomic_write_text(self._cursor_file, str(cursor))
         return cursor
+
+    def _history_lock(self) -> FileLock:
+        """The cross-process lock every writer of history.jsonl holds.
+
+        Always taken inside ``_append_lock`` where both are needed, so the nesting order is one
+        order everywhere.
+        """
+        return FileLock(str(self._history_lock_path), timeout=30)
+
+    def _sanitized_history_content(self, text: str, limit: int) -> str:
+        """The three protections `append_history`'s docstring promises, in one place (#110).
+
+        The migration wrote through ``_write_entries`` directly and skipped all three, so a
+        ``<think>`` block persisted verbatim and a 200,006-character entry landed where
+        ``append_history`` capped the same payload to 64,016. Routing the migration through
+        ``append_history`` instead would stamp ``now`` over the legacy file's own timestamps, which
+        are the record, so the steps move to where both writers share them.
+        """
+        # Scrub before the cap. truncate_text keeps a head, so a cap applied first could cut
+        # through a credential and leave part of it durable.
+        raw = TranscriptRedactor.for_workspace(self.workspace).text(text).rstrip()
+        if len(raw) > limit:
+            if not self._oversize_logged:
+                self._oversize_logged = True
+                logger.warning(
+                    "history entry exceeds {} chars ({}); truncating. "
+                    "Usually means a caller forgot its own cap; "
+                    "further occurrences suppressed.",
+                    limit, len(raw),
+                )
+            raw = truncate_text(raw, limit)
+        return strip_think(raw)
 
     @staticmethod
     def _valid_cursor(value: Any) -> int | None:
@@ -459,9 +487,18 @@ class MemoryStore:
         ]
 
     def compact_history(self) -> None:
-        """Drop oldest processed entries without discarding pending Dream input."""
+        """Drop oldest processed entries without discarding pending Dream input.
+
+        The read and the replace happen under the same lock every append holds (#107). Without it,
+        an entry appended between the two is erased by the rename, and the entry is a turn that
+        finished at an ordinary moment rather than a rare race.
+        """
         if self.max_history_entries <= 0:
             return
+        with self._append_lock, self._history_lock():
+            self._compact_history_locked()
+
+    def _compact_history_locked(self) -> None:
         entries = self._read_entries()
         if len(entries) <= self.max_history_entries:
             return
