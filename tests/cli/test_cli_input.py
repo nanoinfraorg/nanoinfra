@@ -41,10 +41,17 @@ async def test_read_interactive_input_async_handles_eof(mock_prompt_session):
         await terminal._read_interactive_input_async()
 
 
-def test_init_prompt_session_creates_session():
-    """Test that _init_prompt_session initializes the global session."""
-    # Ensure global is None before test
-    terminal._prompt_session = None
+def test_init_prompt_session_creates_session(monkeypatch):
+    """Test that _init_prompt_session initializes the global session.
+
+    The global goes through monkeypatch rather than a bare assignment (#84). A bare assignment
+    leaves whatever this test built in the module for every later test of the worker, and
+    `_read_interactive_input_async` reuses a session it finds there rather than build one. The
+    object this test leaves was constructed while `Path.home()` was mocked, so a later test
+    would read a session pointed at a directory that never existed. The restore is the
+    framework's job here and not the test author's memory.
+    """
+    monkeypatch.setattr(terminal, "_prompt_session", None)
 
     with patch("nanoinfra.cli.terminal.PromptSession") as mock_session_cls, \
          patch("nanoinfra.cli.terminal.FileHistory"), \
