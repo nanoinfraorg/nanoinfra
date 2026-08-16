@@ -642,19 +642,6 @@ def _advance_dream_cursor_if_behind(memory: Any) -> None:
         memory.set_last_dream_cursor(latest)
 
 
-def _commit_dream_changes(memory: Any) -> str | None:
-    """Commit durable Dream edits, without entering the commit path for a no-op run."""
-    if not memory.git.is_initialized():
-        return None
-    diff_body = memory.dream_content_diff()
-    if not diff_body:
-        return None
-    message = memory.build_dream_commit_message(
-        "dream: periodic memory consolidation",
-        diff_body,
-    )
-    return memory.git.auto_commit(message)
-
 
 _HEARTBEAT_PREAMBLE = (
     "[Your response will be delivered directly to the user's messaging app. "
@@ -1014,73 +1001,35 @@ def _run_gateway(
 
         # Dream is an internal job — run directly, not through the agent loop.
         if job.name == "dream":
-            from nanoinfra.agent.memory import DreamRunProgress, MemoryStore
+            from nanoinfra.agent.dream_run import run_dream
 
-            dream_session_key = MemoryStore.dream_session_key
-            prune_dream_sessions = MemoryStore.prune_dream_sessions
-
-            store = agent.context.memory
-            progress = DreamRunProgress()
-            resp = None
-            diff_body = ""
-            try:
-                result = store.build_dream_prompt()
-                if result is None:
-                    logger.info("Dream: nothing to process")
-                    return None
-                prompt, last_cursor = result
-                key = dream_session_key()
-                dream_runtime = agent.dream_runtime()
-                resp = await agent.process_direct(
-                    prompt,
-                    session_key=key,
-                    ephemeral=True,
-                    tools=store.build_dream_tools(),
-                    on_progress=progress,
-                    runtime=dream_runtime,
-                    # A schedule started this turn, so #5 must classify it as unattended (#49).
-                    metadata=_system_job_metadata("dream", message="memory consolidation"),
-                )
-                # The real file delta grounds the audit record; clean completion
-                # decides whether this history batch has finished processing.
-                diff_body = store.dream_content_diff()
-                completed = MemoryStore.dream_run_completed(
-                    resp,
-                    had_tool_errors=progress.had_tool_errors,
-                )
-                if completed:
-                    store.set_last_dream_cursor(last_cursor)
-                    if diff_body:
-                        logger.info(
-                            "Dream cron job completed, cursor advanced to {}",
-                            last_cursor,
-                        )
-                    else:
-                        logger.info(
-                            "Dream cron job completed with no memory changes; "
-                            "cursor advanced to {}",
-                            last_cursor,
-                        )
+            outcome = await run_dream(
+                store=agent.context.memory,
+                agent=agent,
+                commit_prefix="dream: periodic memory consolidation",
+                timezone_name=config.agents.defaults.timezone,
+            )
+            if not outcome.started:
+                if outcome.reason == "in_progress":
+                    logger.info("Dream: a run is already in progress; skipping this tick")
                 else:
-                    logger.warning(
-                        "Dream cron job did not complete; cursor remains at {}",
-                        store.get_last_dream_cursor(),
-                    )
-            except Exception:
-                logger.exception("Dream cron job failed")
-            finally:
-                from nanoinfra.webui.token_usage import record_response_token_usage
-
-                record_response_token_usage(
-                    resp,
-                    source="dream",
-                    timezone_name=config.agents.defaults.timezone,
+                    logger.info("Dream: nothing to process")
+                return None
+            if outcome.error:
+                logger.warning("Dream cron job failed: {}", outcome.error)
+            elif outcome.completed:
+                logger.info(
+                    "Dream cron job completed{}, cursor advanced to {}",
+                    "" if outcome.diff_body else " with no memory changes",
+                    outcome.last_cursor,
                 )
-                sha = _commit_dream_changes(store)
-                if sha:
-                    logger.info("Dream commit: {}", sha)
-                store.compact_history()
-                prune_dream_sessions(agent.sessions.sessions_dir)
+            else:
+                logger.warning(
+                    "Dream cron job did not complete; cursor remains at {}",
+                    agent.context.memory.get_last_dream_cursor(),
+                )
+            if outcome.commit_sha:
+                logger.info("Dream commit: {}", outcome.commit_sha)
             return None
 
         # Heartbeat is a system job that checks HEARTBEAT.md for active tasks.
