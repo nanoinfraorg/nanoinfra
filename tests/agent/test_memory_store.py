@@ -1,10 +1,13 @@
 """Tests for the restructured MemoryStore — pure file I/O layer."""
 
 import json
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
 import pytest
+from filelock import Timeout
 
 from nanoinfra.agent.memory import (
     _HISTORY_ENTRY_HARD_CAP,
@@ -742,3 +745,121 @@ class TestDreamCursorIsValidated:
 
         with pytest.raises(MemoryCursorError):
             store.compact_history()
+
+
+class TestCompactionDoesNotEraseConcurrentAppends:
+    """``compact_history`` replaced the file with no lock -- nanoinfraorg/nanoinfra#107.
+
+    ``append_history`` takes ``_append_lock`` and its docstring states "Every write to
+    history.jsonl passes through here". ``compact_history`` reads every entry and then replaces the
+    file, outside that lock, so an entry appended between the read and the replace is gone. The lock
+    is also a ``threading.Lock``, which is process-local, and ``nanoinfra/cli/agent.py`` is a second
+    process over the same default workspace as ``nanoinfra gateway``.
+    """
+
+    def test_an_entry_appended_during_compaction_survives(self, store, monkeypatch) -> None:
+        store.max_history_entries = 3
+        for index in range(10):
+            store.append_history(f"old {index}")
+        real_write = store._write_entries
+        writers: list[threading.Thread] = []
+
+        def write_after_a_concurrent_append(entries: list[dict]) -> None:
+            # The interleaving: compaction has read the file and is about to replace it. A turn
+            # finishing right here is an ordinary event, not a rare race. It runs on another thread,
+            # because an append from inside the locked section would be this test deadlocking
+            # itself rather than the property under test.
+            if not writers:
+                thread = threading.Thread(
+                    target=store.append_history,
+                    args=("the entry that must not vanish",),
+                )
+                writers.append(thread)
+                thread.start()
+                # Long enough for the thread to reach the lock. Without the lock it reaches the
+                # file instead, and the replace below erases it.
+                time.sleep(0.05)
+            real_write(entries)
+
+        monkeypatch.setattr(store, "_write_entries", write_after_a_concurrent_append)
+        store.compact_history()
+        for thread in writers:
+            thread.join(timeout=10)
+            assert not thread.is_alive(), "the append never completed; the lock is not released"
+
+        surviving = [entry["content"] for entry in store._read_entries()]
+        assert "the entry that must not vanish" in surviving
+
+    def test_a_second_process_cannot_replace_the_file_mid_append(self, store, tmp_path) -> None:
+        """The lock has to be one a second process observes, not a ``threading.Lock``."""
+        for index in range(5):
+            store.append_history(f"entry {index}")
+        other = MemoryStore(store.workspace)
+
+        sibling_lock = other._history_lock()
+        with store._history_lock():
+            with pytest.raises(Timeout):
+                sibling_lock.acquire(timeout=0.2, poll_interval=0.01)
+
+        # And it is a lock, not a wall: it releases.
+        with sibling_lock:
+            pass
+
+    def test_compaction_still_drops_what_it_should(self, store) -> None:
+        store.max_history_entries = 3
+        for index in range(10):
+            store.append_history(f"entry {index}")
+        store.set_last_dream_cursor(10)
+
+        store.compact_history()
+
+        assert len(store._read_entries()) == 3
+
+
+class TestLegacyMigrationUsesTheChokepoint:
+    """The migration wrote behind the only writer -- nanoinfraorg/nanoinfra#110.
+
+    ``append_history``'s docstring calls itself "the one place that scrubs known credential values
+    out of the durable transcript", and the migration called ``_write_entries`` directly, so
+    ``TranscriptRedactor``, ``strip_think`` and ``_HISTORY_ENTRY_HARD_CAP`` were all skipped.
+    """
+
+    def _migrate(self, workspace: Path, legacy_text: str) -> MemoryStore:
+        memory_dir = workspace / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        (memory_dir / "HISTORY.md").write_text(legacy_text, encoding="utf-8")
+        return MemoryStore(workspace)
+
+    def test_a_migrated_entry_has_its_think_block_stripped(self, tmp_path) -> None:
+        store = self._migrate(
+            tmp_path,
+            "[2026-01-01 10:00] USER: hello\n<think>the private reasoning</think>after\n",
+        )
+
+        contents = " ".join(entry["content"] for entry in store._read_entries())
+
+        assert "the private reasoning" not in contents
+        assert "after" in contents
+
+    def test_a_migrated_entry_obeys_the_hard_cap(self, tmp_path) -> None:
+        store = self._migrate(
+            tmp_path,
+            "[2026-01-01 10:00] USER: " + ("x" * (_HISTORY_ENTRY_HARD_CAP * 3)) + "\n",
+        )
+
+        longest = max(len(entry["content"]) for entry in store._read_entries())
+
+        assert longest <= _HISTORY_ENTRY_HARD_CAP + 64, (
+            "append_history caps the same payload, so a migration that skips the cap is the only "
+            "way a 200,000-character entry reaches the durable transcript"
+        )
+
+    def test_the_legacy_timestamp_survives_the_migration(self, tmp_path) -> None:
+        """The reason this is not simply routed through ``append_history``.
+
+        That method stamps ``now``, and the legacy file's own timestamps are the record. So the
+        three protections move to where both writers can share them.
+        """
+        store = self._migrate(tmp_path, "[2026-01-01 10:00] USER: hello\n")
+
+        assert store._read_entries()[0]["timestamp"] == "2026-01-01 10:00"
