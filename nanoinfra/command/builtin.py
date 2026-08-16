@@ -425,89 +425,68 @@ async def cmd_model(ctx: CommandContext) -> OutboundMessage:
 
 async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
     """Manually trigger a Dream consolidation run."""
-    import time
+    from nanoinfra.agent.dream_run import dream_run_in_progress, run_dream
 
     loop = ctx.loop
     msg = ctx.msg
 
+    # Checked before the task is created, so the operator is told now rather than watching
+    # "Dreaming..." resolve into a run that did nothing (#106).
+    if dream_run_in_progress():
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=(
+                "A Dream run is already in progress. "
+                "Its result will arrive when it finishes; nothing new was started."
+            ),
+        )
+
     async def _run_dream():
-        from nanoinfra.agent.memory import DreamRunProgress, MemoryStore
-
-        dream_session_key = MemoryStore.dream_session_key
-        build_dream_commit_message = MemoryStore.build_dream_commit_message
-        prune_dream_sessions = MemoryStore.prune_dream_sessions
-
-        store = loop.context.memory
-        progress = DreamRunProgress()
-        content = ""
-        resp = None
-        diff_body = ""
-        t0 = time.monotonic()
-        try:
-            result = store.build_dream_prompt()
-            if result is None:
-                await loop.bus.publish_outbound(OutboundMessage(
-                    channel=msg.channel, chat_id=msg.chat_id,
-                    content=_format_dream_no_input_message(),
-                    metadata={"render_as": "text"},
-                ))
-                return
-            prompt, last_cursor = result
-            key = dream_session_key()
-            dream_runtime = loop.dream_runtime()
-            resp = await loop.process_direct(
-                prompt,
-                session_key=key,
-                ephemeral=True,
-                tools=store.build_dream_tools(),
-                on_progress=progress,
-                runtime=dream_runtime,
-            )
-            elapsed = time.monotonic() - t0
-            # The real file delta grounds the audit record; clean completion
-            # decides whether this history batch has finished processing.
-            diff_body = store.dream_content_diff()
-            completed = MemoryStore.dream_run_completed(
-                resp,
-                had_tool_errors=progress.had_tool_errors,
-            )
-            if completed:
-                store.set_last_dream_cursor(last_cursor)
-                if diff_body:
-                    content = f"Dream completed in {elapsed:.1f}s."
-                else:
-                    content = f"Dream completed in {elapsed:.1f}s; no memory changes."
-            else:
-                content = (
-                    f"Dream did not complete after {elapsed:.1f}s; "
-                    "memory cursor was not advanced."
-                )
-        except Exception as e:
-            elapsed = time.monotonic() - t0
-            content = f"Dream failed after {elapsed:.1f}s: {e}"
-        finally:
-            from nanoinfra.webui.token_usage import record_response_token_usage
-
-            record_response_token_usage(
-                resp,
-                source="dream",
-                timezone_name=getattr(loop.context, "timezone", None),
-            )
-            if store.git.is_initialized():
-                commit_msg = build_dream_commit_message("dream: manual run", diff_body)
-                sha = store.git.auto_commit(commit_msg)
-                if sha:
-                    content += f" (commit {sha})"
-            store.compact_history()
-            prune_dream_sessions(loop.sessions.sessions_dir)
+        outcome = await run_dream(
+            store=loop.context.memory,
+            agent=loop,
+            commit_prefix="dream: manual run",
+            timezone_name=getattr(loop.context, "timezone", None),
+        )
         await loop.bus.publish_outbound(OutboundMessage(
-            channel=msg.channel, chat_id=msg.chat_id, content=content,
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=_format_dream_outcome(outcome),
+            # The no-input notice is prose, and the rest is a status line. An empty dict is the
+            # field's own default, so this is "no metadata" without an Optional.
+            metadata={"render_as": "text"} if outcome.reason == "no_input" else {},
         ))
 
     asyncio.create_task(_run_dream())
     return OutboundMessage(
         channel=msg.channel, chat_id=msg.chat_id, content="Dreaming...",
     )
+
+
+def _format_dream_outcome(outcome: Any) -> str:
+    """What the operator reads. The wording distinguishes the three endings that matter.
+
+    A run that did not complete is not a failure and is not a success: the cursor stayed where it
+    was, so the same batch is offered again.
+    """
+    if outcome.reason == "in_progress":
+        return "A Dream run is already in progress; nothing new was started."
+    if outcome.reason == "no_input":
+        return _format_dream_no_input_message()
+    if outcome.error:
+        content = f"Dream failed after {outcome.elapsed:.1f}s: {outcome.error}"
+    elif outcome.completed:
+        content = f"Dream completed in {outcome.elapsed:.1f}s"
+        content += "." if outcome.diff_body else "; no memory changes."
+    else:
+        content = (
+            f"Dream did not complete after {outcome.elapsed:.1f}s; "
+            "memory cursor was not advanced."
+        )
+    if outcome.commit_sha:
+        content += f" (commit {outcome.commit_sha})"
+    return content
 
 
 async def cmd_dream_prompt(ctx: CommandContext) -> OutboundMessage:
