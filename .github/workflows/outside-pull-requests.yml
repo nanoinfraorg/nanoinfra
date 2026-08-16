@@ -1,0 +1,50 @@
+name: Outside pull requests
+
+# This project does not take pull requests from outside the organization, so a pull request that
+# arrives from outside is closed with a note instead of sitting open.
+#
+# Why a workflow rather than a repository setting: GitHub has no switch that disables pull requests.
+# An interaction limit reaches the goal, and it also blocks issues and comments from the same
+# people, which would stop a user from reporting a bug. Disabling forks stops new forks and leaves
+# every existing fork able to open a pull request. This closes exactly pull requests, and it leaves
+# issues open.
+#
+# ``pull_request_target`` runs with this repository's token, which a fork's ``pull_request`` event
+# does not carry. Nothing here checks out the pull request, so the branch contents never run: the
+# job reads two values from the event payload and calls the API.
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  close:
+    name: Close and explain
+    runs-on: ubuntu-latest
+    # ``author_association`` is computed by GitHub, not supplied by the author. OWNER, MEMBER and
+    # COLLABORATOR are the people who belong here; CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR and NONE are
+    # not.
+    if: >-
+      github.event.pull_request.author_association != 'OWNER' &&
+      github.event.pull_request.author_association != 'MEMBER' &&
+      github.event.pull_request.author_association != 'COLLABORATOR'
+    steps:
+      - name: Close the pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh pr comment "$PR" --repo "$REPO" --body "$(cat <<'NOTE'
+          Thanks for the interest, and this repository does not accept pull requests from outside the organization, so this one is closed automatically.
+
+          **A bug report or an idea is welcome** — please open an [issue](https://github.com/nanoinfraorg/nanoinfra/issues). An issue that describes what broke, and how to reproduce it, is more use to this project than a patch, because the fix has to fit a design the issue can question.
+
+          Nothing was read from this branch. This note is automated.
+          NOTE
+          )"
+          gh pr close "$PR" --repo "$REPO"
