@@ -552,7 +552,16 @@ export interface GatesIdentity {
 
 export interface GatesPayload {
   policy: GatesPolicy;
-  from_default: Record<string, boolean>;
+  /**
+   * Which rows still hold a shipped default, for the marker beside them.
+   *
+   * Optional on purpose (#86). It drives a marker and nothing else, so a gateway that answers
+   * without it must still let an operator read and edit their policy. The optional type is what
+   * makes every reader handle that: a guard that listed the required fields needed an edit for
+   * every field the panel started reading, and the miss this fixes was exactly that edit being
+   * forgotten.
+   */
+  from_default?: Record<string, boolean>;
   choices: {
     "mutate.remote": string[];
     "mutate.inventory": string[];

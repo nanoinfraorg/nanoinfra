@@ -141,6 +141,21 @@ describe("GatesSettings", () => {
     expect(screen.queryByTestId("gates-settings")).not.toBeInTheDocument();
   });
 
+  it("renders without the default markers when the gateway sends no from_default map", () => {
+    // #86. `gatesPayloadFrom` guarded `policy` and `choices` and not this third field, so a
+    // partial block threw inside the render instead of hiding the panel. Hiding it would be the
+    // wrong trade: this map only drives a marker, and an operator who cannot read their own
+    // policy has lost more than a marker. So the reader treats an absent map as "no row is a
+    // default", and the type makes every reader handle that.
+    const payload = gatesPayload();
+    delete (payload as { from_default?: unknown }).from_default;
+
+    renderPanel(payload);
+
+    expect(screen.getByTestId("gates-settings")).toBeInTheDocument();
+    expect(screen.queryAllByText("default")).toHaveLength(0);
+  });
+
   it("marks every value that comes from a shipped default", () => {
     renderPanel(gatesPayload());
 
