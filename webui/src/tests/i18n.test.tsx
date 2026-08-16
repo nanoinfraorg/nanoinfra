@@ -340,6 +340,30 @@ const LOCALIZED_IDENTITY_PANEL_KEYS = [
   "settings.gates.identity.plainCaution",
   "settings.gates.identity.anyVerifiedCaution",
 ];
+// The Security section of Settings -> Overview (#87). One phrase says what an agent may do to a
+// host, so it is the sentence an operator acts on. A copy of the English here would leave a
+// reader guessing at the one row that reports risk.
+const LOCALIZED_SECURITY_OVERVIEW_KEYS = [
+  "settings.overview.security.remote.title",
+  "settings.overview.security.remote.unattendedAllow",
+  "settings.overview.security.remote.interactiveAllow",
+  "settings.overview.security.remote.approve",
+  "settings.overview.security.remote.deny",
+  "settings.overview.security.remote.unavailable",
+  "settings.overview.security.remote.grantsBypass",
+  "settings.overview.security.remote.grantsInert",
+  "settings.overview.security.remote.credentialAllow",
+  "settings.overview.security.remote.interactiveOnly",
+  "settings.overview.security.remote.unattendedOnly",
+  "settings.overview.security.remote.everyContext",
+  "settings.overview.security.remote.everyScopeDenied",
+  "settings.overview.security.remote.noPolicy",
+  "settings.overview.security.identity.assertionMissing",
+  "settings.overview.security.identity.sharedTokenAnswered",
+  "settings.overview.security.approvals.waiting",
+  "settings.overview.security.approvals.answer",
+  "settings.overview.security.approvals.empty",
+];
 // Who raised an action, in the audit viewer (#79). A reviewer reads a name in a log as
 // authenticated unless something says otherwise, so the sentence that calls it a claim of the
 // agent has to arrive in the reviewer's own language.
@@ -632,6 +656,7 @@ describe("webui i18n", () => {
         ...LOCALIZED_APPROVALS_KEYS,
         ...LOCALIZED_IDENTITY_KEYS,
         ...LOCALIZED_IDENTITY_PANEL_KEYS,
+        ...LOCALIZED_SECURITY_OVERVIEW_KEYS,
         ...LOCALIZED_ORIGIN_ACTOR_KEYS,
       ].filter(
         (key) => current.get(key) === english.get(key),

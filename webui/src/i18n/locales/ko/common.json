@@ -326,7 +326,34 @@
       "webSearch": "웹 검색",
       "imageGeneration": "이미지 생성",
       "voiceInput": "음성 입력",
-      "workspace": "작업공간"
+      "workspace": "작업공간",
+      "security": {
+        "remote": {
+          "title": "원격 작업",
+          "unattendedAllow": "에이전트가 혼자서 원격 명령을 실행합니다",
+          "interactiveAllow": "원격 명령이 묻지 않고 실행됩니다",
+          "approve": "사람이 원격 명령마다 승인합니다",
+          "deny": "원격 명령은 거부됩니다",
+          "unavailable": "이 게이트웨이에는 기능 게이트가 없습니다",
+          "grantsBypass": "승인을 건너뛰는 상시 권한: {{count}}",
+          "grantsInert": "여기서 아무것도 일치하지 않는 상시 권한: {{count}}",
+          "credentialAllow": "시크릿 읽기에는 승인이 필요 없습니다",
+          "interactiveOnly": "대화형만, 무인은 거부",
+          "unattendedOnly": "무인만, 대화형은 거부",
+          "everyContext": "대화형과 무인",
+          "everyScopeDenied": "모든 실행 맥락과 모든 범위",
+          "noPolicy": "이 게이트웨이는 게이트 정책을 보내지 않습니다"
+        },
+        "identity": {
+          "assertionMissing": "프록시가 아무도 지목하지 않았습니다",
+          "sharedTokenAnswered": "프록시가 설정되어 있고, 공유 토큰이 답했습니다."
+        },
+        "approvals": {
+          "waiting": "{{count}}건 대기 중",
+          "answer": "누군가 답해야 합니다",
+          "empty": "답변을 기다리는 작업이 없습니다"
+        }
+      }
     },
     "usage": {
       "title": "토큰 활동",

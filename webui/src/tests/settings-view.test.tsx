@@ -2,10 +2,13 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsView } from "@/components/settings/SettingsView";
+import type { SettingsSectionKey } from "@/components/settings/SettingsView";
 import { ClientProvider } from "@/providers/ClientProvider";
 import type {
   ChannelSetupContract,
   ChannelSetupContractField,
+  GatesIdentity,
+  GatesPolicy,
   SettingsPayload,
 } from "@/lib/types";
 
@@ -331,6 +334,79 @@ const installedAnyGen = {
   skill_installed: true,
 };
 
+/** The gate policy the gateway ships: an interactive approval, and no unattended remote work. */
+function gatePolicy(): GatesPolicy {
+  return {
+    approvers: [],
+    approvalPaths: ["webui"],
+    interactive: {
+      "mutate.remote": { host: "approve", group: "approve", all: "deny" },
+      "mutate.inventory": "allow",
+      "credential.access": "approve",
+    },
+    unattended: {
+      "mutate.remote": { host: "deny", group: "deny", all: "deny" },
+      "mutate.inventory": "deny",
+      "credential.access": "deny",
+    },
+    standingGrants: [],
+    audit: { retentionDays: 90, recordCommandText: false },
+  };
+}
+
+/** The identity block of a deployment that a trusted proxy names a person for (#85). */
+function verifiedIdentity(): GatesIdentity {
+  return {
+    posture: "verified",
+    issuer: "accounts.google.com",
+    identityClaim: "email",
+    assertionHeader: "",
+    actor: "webui:alberto@example.com",
+    assertionMissing: false,
+  };
+}
+
+/** A settings payload that carries the gate block, for the Security section of Overview (#87). */
+function settingsWithGates(
+  policy: GatesPolicy = gatePolicy(),
+  identity: GatesIdentity = verifiedIdentity(),
+): SettingsPayload {
+  const base = settingsPayload();
+  return {
+    ...base,
+    advanced: {
+      ...base.advanced,
+      gates: {
+        policy,
+        from_default: {},
+        choices: {
+          "mutate.remote": ["allow", "approve", "grant", "deny"],
+          "mutate.inventory": ["allow", "deny"],
+          "credential.access": ["allow", "approve", "grant", "deny"],
+          all: ["deny"],
+        },
+        identity,
+      },
+    },
+  };
+}
+
+/** The three requests the settings surface makes on mount, and a 404 for everything else. */
+function stubSettingsFetch(payload: SettingsPayload) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/settings") return jsonResponse(payload);
+      if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
+      if (url === "/api/settings/mcp-presets") {
+        return jsonResponse({ presets: [], installed_count: 0 });
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    }),
+  );
+}
+
 function renderSettingsView(
   options: {
     initialSection?:
@@ -346,8 +422,11 @@ function renderSettingsView(
       | "runtime";
     initialSettings?: SettingsPayload;
     showSidebar?: boolean;
+    approvalsCount?: number;
     onSettingsChange?: (payload: SettingsPayload) => void;
     onNativeEngineRestart?: () => Promise<string>;
+    onSectionChange?: (section: SettingsSectionKey) => void;
+    onOpenApprovals?: () => void;
   } = {},
 ) {
   render(
@@ -357,11 +436,14 @@ function renderSettingsView(
         initialSection={options.initialSection ?? "apps"}
         initialSettings={options.initialSettings}
         showSidebar={options.showSidebar}
+        approvalsCount={options.approvalsCount}
         onToggleTheme={() => {}}
         onBackToChat={() => {}}
         onModelNameChange={() => {}}
         onSettingsChange={options.onSettingsChange}
         onNativeEngineRestart={options.onNativeEngineRestart}
+        onSectionChange={options.onSectionChange}
+        onOpenApprovals={options.onOpenApprovals}
       />
     </ClientProvider>,
   );
@@ -4122,5 +4204,148 @@ describe("SettingsView Apps catalog", () => {
         }),
       ),
     );
+  });
+
+  /**
+   * Security on Overview -- nanoinfraorg/nanoinfra#87.
+   *
+   * Overview answers "what is installed" for AI, Capabilities and System. Security answered
+   * nothing there, and the gate policy sits three panels down inside Security. These tests hold
+   * the glance: three rows, the level the weakest decision gives, and the identity warning.
+   */
+  it("shows a security section with the identity, the remote level and the approvals count", async () => {
+    stubSettingsFetch(settingsWithGates());
+
+    renderSettingsView({ initialSection: "overview", approvalsCount: 2 });
+
+    const identity = await screen.findByTestId("overview-security-identity");
+    expect(identity).toHaveTextContent("Identity");
+    expect(identity).toHaveTextContent("webui:alberto@example.com");
+    expect(identity).toHaveTextContent("Verified assertion (JWT)");
+    expect(identity).toHaveTextContent("accounts.google.com");
+
+    const remote = screen.getByTestId("overview-security-remote");
+    expect(remote).toHaveTextContent("Remote work");
+    expect(remote).toHaveTextContent("A person approves each remote command");
+    expect(remote).toHaveTextContent("Interactive only, unattended refused");
+
+    const approvals = screen.getByTestId("overview-security-approvals");
+    expect(approvals).toHaveTextContent("Approvals");
+    expect(approvals).toHaveTextContent("2 waiting");
+    expect(approvals).toHaveTextContent("Someone has to answer");
+  });
+
+  it("reads the whole identity row as a warning when a proxy asserted nobody", async () => {
+    stubSettingsFetch(settingsWithGates(gatePolicy(), {
+      posture: "verified",
+      issuer: "https://accounts.google.com",
+      identityClaim: "email",
+      assertionHeader: "",
+      actor: "webui",
+      assertionMissing: true,
+    }));
+
+    renderSettingsView({ initialSection: "overview" });
+
+    const identity = await screen.findByTestId("overview-security-identity");
+    expect(identity).toHaveAttribute("data-tone", "warning");
+    expect(identity).toHaveTextContent("Proxy asserted nobody");
+    expect(identity).toHaveTextContent("A proxy is set, and the shared token answered.");
+  });
+
+  it("does not warn on the identity row when the deployment has no proxy", async () => {
+    stubSettingsFetch(settingsWithGates(gatePolicy(), {
+      posture: "no_proxy",
+      issuer: "",
+      identityClaim: "",
+      assertionHeader: "",
+      actor: "webui",
+      assertionMissing: false,
+    }));
+
+    renderSettingsView({ initialSection: "overview" });
+
+    const identity = await screen.findByTestId("overview-security-identity");
+    expect(identity).toHaveAttribute("data-tone", "neutral");
+    expect(identity).toHaveTextContent("webui");
+    expect(identity).toHaveTextContent("Shared token. No proxy names a person.");
+    expect(identity).not.toHaveTextContent("Proxy asserted nobody");
+  });
+
+  it("renders the security section when the gateway sends no gate block", async () => {
+    stubSettingsFetch(settingsPayload());
+
+    renderSettingsView({ initialSection: "overview" });
+
+    const remote = await screen.findByTestId("overview-security-remote");
+    expect(remote).toHaveTextContent("Gates are not available on this gateway");
+    expect(screen.queryByTestId("overview-security-identity")).not.toBeInTheDocument();
+    expect(screen.getByTestId("overview-security-approvals")).toBeInTheDocument();
+  });
+
+  it("never reads as though a person answers every action while standing grants run", async () => {
+    stubSettingsFetch(settingsWithGates({
+      ...gatePolicy(),
+      standingGrants: [
+        { id: "nightly", contexts: ["unattended"], hosts: ["web-1"], commands: ["uptime"] },
+        { id: "patch", contexts: ["unattended"], hosts: ["web-2"], commands: ["apt upgrade"] },
+      ],
+    }));
+
+    renderSettingsView({ initialSection: "overview" });
+
+    const remote = await screen.findByTestId("overview-security-remote");
+    expect(remote).toHaveTextContent("A person approves each remote command");
+    expect(remote).toHaveTextContent("Standing grants skip an approval: 2");
+  });
+
+  it("opens Security settings from the identity row", async () => {
+    const onSectionChange = vi.fn();
+    stubSettingsFetch(settingsWithGates());
+
+    renderSettingsView({ initialSection: "overview", onSectionChange });
+
+    fireEvent.click(await screen.findByTestId("overview-security-identity"));
+
+    expect(onSectionChange).toHaveBeenCalledWith("advanced");
+  });
+
+  it("opens Security settings from the remote work row", async () => {
+    const onSectionChange = vi.fn();
+    stubSettingsFetch(settingsWithGates());
+
+    renderSettingsView({ initialSection: "overview", onSectionChange });
+
+    fireEvent.click(await screen.findByTestId("overview-security-remote"));
+
+    expect(onSectionChange).toHaveBeenCalledWith("advanced");
+  });
+
+  it("leaves Settings for the Approvals view from the approvals row", async () => {
+    const onOpenApprovals = vi.fn();
+    const onSectionChange = vi.fn();
+    stubSettingsFetch(settingsWithGates());
+
+    renderSettingsView({
+      initialSection: "overview",
+      approvalsCount: 1,
+      onOpenApprovals,
+      onSectionChange,
+    });
+
+    fireEvent.click(await screen.findByTestId("overview-security-approvals"));
+
+    expect(onOpenApprovals).toHaveBeenCalledTimes(1);
+    expect(onSectionChange).not.toHaveBeenCalled();
+  });
+
+  it("says nothing waits when the approvals inbox is empty", async () => {
+    stubSettingsFetch(settingsWithGates());
+
+    renderSettingsView({ initialSection: "overview", approvalsCount: 0 });
+
+    const approvals = await screen.findByTestId("overview-security-approvals");
+    expect(approvals).toHaveTextContent("0 waiting");
+    expect(approvals).toHaveTextContent("No action waits for an answer");
   });
 });

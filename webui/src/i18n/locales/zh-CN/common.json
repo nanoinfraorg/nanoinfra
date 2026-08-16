@@ -475,7 +475,34 @@
       "webSearch": "网络搜索",
       "imageGeneration": "图片生成",
       "voiceInput": "语音识别",
-      "workspace": "工作区"
+      "workspace": "工作区",
+      "security": {
+        "remote": {
+          "title": "远程作业",
+          "unattendedAllow": "代理自行运行远程命令",
+          "interactiveAllow": "远程命令不询问就运行",
+          "approve": "每条远程命令都由人审批",
+          "deny": "远程命令被拒绝",
+          "unavailable": "这个网关没有能力门禁",
+          "grantsBypass": "跳过审批的常设授权：{{count}}",
+          "grantsInert": "在这里什么都匹配不到的常设授权：{{count}}",
+          "credentialAllow": "读取机密不需要审批",
+          "interactiveOnly": "只在交互，无人值守被拒绝",
+          "unattendedOnly": "只在无人值守，交互被拒绝",
+          "everyContext": "交互与无人值守",
+          "everyScopeDenied": "每个上下文与每个范围",
+          "noPolicy": "这个网关不发送门禁策略"
+        },
+        "identity": {
+          "assertionMissing": "代理服务器没有指名任何人",
+          "sharedTokenAnswered": "已配置代理服务器，由共享令牌作答。"
+        },
+        "approvals": {
+          "waiting": "{{count}} 项等待",
+          "answer": "需要有人回答",
+          "empty": "没有操作在等待回答"
+        }
+      }
     },
     "usage": {
       "title": "Token 用量",

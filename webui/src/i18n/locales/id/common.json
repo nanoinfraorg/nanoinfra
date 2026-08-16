@@ -326,7 +326,34 @@
       "webSearch": "Pencarian web",
       "imageGeneration": "Pembuatan gambar",
       "voiceInput": "Input suara",
-      "workspace": "Ruang kerja"
+      "workspace": "Ruang kerja",
+      "security": {
+        "remote": {
+          "title": "Kerja jarak jauh",
+          "unattendedAllow": "Agen menjalankan perintah jarak jauh sendiri",
+          "interactiveAllow": "Perintah jarak jauh berjalan tanpa bertanya",
+          "approve": "Satu orang menyetujui setiap perintah jarak jauh",
+          "deny": "Perintah jarak jauh ditolak",
+          "unavailable": "Gateway ini tidak menyediakan gerbang kapabilitas",
+          "grantsBypass": "Izin tetap yang melewati satu persetujuan: {{count}}",
+          "grantsInert": "Izin tetap yang di sini tidak cocok dengan apa pun: {{count}}",
+          "credentialAllow": "Membaca secret tidak perlu persetujuan",
+          "interactiveOnly": "Hanya interaktif, tanpa pengawasan ditolak",
+          "unattendedOnly": "Hanya tanpa pengawasan, interaktif ditolak",
+          "everyContext": "Interaktif dan tanpa pengawasan",
+          "everyScopeDenied": "Setiap konteks dan setiap cakupan",
+          "noPolicy": "Gateway ini tidak mengirim kebijakan gerbang"
+        },
+        "identity": {
+          "assertionMissing": "Proxy tidak menyebut siapa pun",
+          "sharedTokenAnswered": "Satu proxy dikonfigurasi, dan token bersama yang menjawab."
+        },
+        "approvals": {
+          "waiting": "{{count}} menunggu",
+          "answer": "Seseorang harus menjawab",
+          "empty": "Tidak ada tindakan yang menunggu jawaban"
+        }
+      }
     },
     "usage": {
       "title": "Aktivitas token",

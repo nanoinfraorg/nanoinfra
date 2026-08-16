@@ -326,7 +326,34 @@
       "webSearch": "Web 検索",
       "imageGeneration": "画像生成",
       "voiceInput": "音声入力",
-      "workspace": "ワークスペース"
+      "workspace": "ワークスペース",
+      "security": {
+        "remote": {
+          "title": "リモート作業",
+          "unattendedAllow": "エージェントが自分だけでリモートコマンドを実行します",
+          "interactiveAllow": "リモートコマンドは確認なしで実行されます",
+          "approve": "人がリモートコマンドを 1 件ずつ承認します",
+          "deny": "リモートコマンドは拒否されます",
+          "unavailable": "このゲートウェイには機能ゲートがありません",
+          "grantsBypass": "承認を省く常設権限: {{count}}",
+          "grantsInert": "ここでは何にも一致しない常設権限: {{count}}",
+          "credentialAllow": "シークレットの読み取りに承認は要りません",
+          "interactiveOnly": "対話のみ、無人は拒否",
+          "unattendedOnly": "無人のみ、対話は拒否",
+          "everyContext": "対話と無人",
+          "everyScopeDenied": "すべての実行文脈とすべての範囲",
+          "noPolicy": "このゲートウェイはゲートのポリシーを送りません"
+        },
+        "identity": {
+          "assertionMissing": "プロキシは誰も名指ししませんでした",
+          "sharedTokenAnswered": "プロキシは設定されており、共有トークンが応答しました。"
+        },
+        "approvals": {
+          "waiting": "{{count}} 件待機中",
+          "answer": "誰かが回答する必要があります",
+          "empty": "回答を待つ操作はありません"
+        }
+      }
     },
     "usage": {
       "title": "トークンアクティビティ",

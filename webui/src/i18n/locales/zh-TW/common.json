@@ -326,7 +326,34 @@
       "webSearch": "網路搜尋",
       "imageGeneration": "圖片生成",
       "voiceInput": "語音輸入",
-      "workspace": "工作區"
+      "workspace": "工作區",
+      "security": {
+        "remote": {
+          "title": "遠端作業",
+          "unattendedAllow": "代理自行執行遠端命令",
+          "interactiveAllow": "遠端命令不詢問就執行",
+          "approve": "每條遠端命令都由人核准",
+          "deny": "遠端命令被拒絕",
+          "unavailable": "這個閘道沒有能力閘門",
+          "grantsBypass": "跳過核准的常設授權：{{count}}",
+          "grantsInert": "在這裡什麼都比對不到的常設授權：{{count}}",
+          "credentialAllow": "讀取機密不需要核准",
+          "interactiveOnly": "只在互動，無人監督被拒絕",
+          "unattendedOnly": "只在無人監督，互動被拒絕",
+          "everyContext": "互動與無人監督",
+          "everyScopeDenied": "每個情境與每個範圍",
+          "noPolicy": "這個閘道不傳送閘門政策"
+        },
+        "identity": {
+          "assertionMissing": "代理伺服器沒有指名任何人",
+          "sharedTokenAnswered": "已設定代理伺服器，由共用權杖作答。"
+        },
+        "approvals": {
+          "waiting": "{{count}} 項等待",
+          "answer": "需要有人回覆",
+          "empty": "沒有操作在等待回覆"
+        }
+      }
     },
     "usage": {
       "title": "Token 用量",
