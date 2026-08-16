@@ -23,6 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { updateGatesPolicy } from "@/lib/api";
 import type {
+  GatesIdentity,
   GatesPayload,
   GatesPolicy,
   GatesStandingGrant,
@@ -407,6 +408,8 @@ export function GatesSettings({
           ) : null}
         </GatesGroup>
       </section>
+
+      <IdentitySection identity={gates.identity} />
 
       <section>
         <GatesTitle
@@ -821,6 +824,150 @@ export function GatesSettings({
 }
 
 /**
+ * Which authentication this deployment installed, and who it named here -- #85.
+ *
+ * The badge of #70 answers "who am I" in a narrow space, so it answers nothing else. This block
+ * has room for the two questions beside it: which authentication the gateway installed, and
+ * whether it worked for this request.
+ *
+ * The server sends a posture kind and facts, never a sentence. Every sentence here is a
+ * translated string, so an operator reads it in their own language.
+ *
+ * The warning is the reason the block exists. A configured proxy that asserted nobody leaves
+ * every approval on this path naming nobody, and the deployment believes it names somebody.
+ */
+function IdentitySection({ identity }: { identity?: GatesIdentity }) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  // An older gateway sends no block. Absent is not a posture, so the panel claims none.
+  if (!identity) return null;
+
+  const postures: Record<string, string> = {
+    no_proxy: tx(
+      "settings.gates.identity.postures.noProxy",
+      "Shared token. No proxy names a person.",
+    ),
+    verified: tx("settings.gates.identity.postures.verified", "Verified assertion (JWT)"),
+    any_verified: tx(
+      "settings.gates.identity.postures.anyVerified",
+      "Verified assertion (JWT), open to every identity",
+    ),
+    plain: tx("settings.gates.identity.postures.plain", "Assertion header, not verified"),
+  };
+  // A gateway newer than this panel can name a fifth posture. The panel then shows the value it
+  // received, because an unknown posture must not read as a known one.
+  const postureLabel = postures[identity.posture] ?? identity.posture;
+
+  const facts: Array<{ label: string; value: string }> = [];
+  if (identity.issuer) {
+    facts.push({ label: tx("settings.gates.identity.issuer", "Issuer"), value: identity.issuer });
+  }
+  if (identity.identityClaim) {
+    facts.push({
+      label: tx("settings.gates.identity.claim", "Identity claim"),
+      value: identity.identityClaim,
+    });
+  }
+  if (identity.assertionHeader) {
+    facts.push({
+      label: tx("settings.gates.identity.header", "Assertion header"),
+      value: identity.assertionHeader,
+    });
+  }
+
+  return (
+    <section>
+      <GatesTitle>{tx("settings.gates.identity.title", "Identity")}</GatesTitle>
+      <GatesGroup>
+        <div className="space-y-3 px-4 py-3.5 sm:px-5" data-testid="gates-identity">
+          <IdentityRow label={tx("settings.gates.identity.postureLabel", "Posture")}>
+            <div
+              className="text-[13.5px] leading-5 text-foreground"
+              data-testid="gates-identity-posture"
+            >
+              {postureLabel}
+            </div>
+            {facts.length > 0 ? (
+              <dl className="mt-1 space-y-0.5">
+                {/*
+                  The label wraps rather than sits in a fixed column. A translated label is
+                  longer than the English one, and a fixed column would cut it.
+                */}
+                {facts.map((fact) => (
+                  <div
+                    key={fact.label}
+                    className="flex flex-wrap items-baseline gap-x-2 text-[12px] leading-5"
+                  >
+                    <dt className="text-muted-foreground">{fact.label}</dt>
+                    <dd className="min-w-0 break-all font-mono text-[11.5px] text-foreground/85">
+                      {fact.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+          </IdentityRow>
+          <IdentityRow label={tx("settings.gates.identity.actorLabel", "You are")}>
+            {/* The whole string, and no ellipsis. The gate compares all of it (#66). */}
+            <code
+              className="inline-block break-all rounded bg-muted px-1.5 py-0.5 text-[12px] text-foreground"
+              data-testid="gates-identity-actor"
+            >
+              {identity.actor}
+            </code>
+            <p
+              className="mt-1 text-[12px] leading-5 text-muted-foreground"
+              data-testid="gates-identity-approver-row"
+            >
+              {tx(
+                "settings.gates.identity.approverRow",
+                "Write this exact value in an approver row.",
+              )}
+            </p>
+          </IdentityRow>
+        </div>
+        {identity.assertionMissing ? (
+          <GatesNote tone="warning" testId="gates-identity-assertion-missing">
+            {tx(
+              "settings.gates.identity.assertionMissing",
+              "A proxy is configured, and no verified identity reached this request. The gateway read the shared token instead, so every approval here names nobody. Check the proxy and the assertion header.",
+            )}
+          </GatesNote>
+        ) : null}
+        {identity.posture === "plain" ? (
+          <GatesNote tone="warning" testId="gates-identity-plain">
+            {tx(
+              "settings.gates.identity.plainCaution",
+              "The gateway reads this header and verifies nothing. The proxy alone decides who reaches the agent.",
+            )}
+          </GatesNote>
+        ) : null}
+        {identity.posture === "any_verified" ? (
+          <GatesNote tone="warning" testId="gates-identity-any-verified">
+            {tx(
+              "settings.gates.identity.anyVerifiedCaution",
+              "Every identity the provider signs for may reach the agent. allowAnyVerifiedIdentity is set.",
+            )}
+          </GatesNote>
+        ) : null}
+      </GatesGroup>
+    </section>
+  );
+}
+
+/** One labelled row of the identity block: a short label, and the value beside it. */
+function IdentityRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1 sm:flex-row sm:gap-3">
+      <span className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground sm:w-28 sm:shrink-0">
+        {label}
+      </span>
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
+/**
  * The form this approver row takes, or the mistake it carries -- nanoinfraorg/nanoinfra#71.
  *
  * One line, under the row it describes. A misconfigured approver is invisible until an approval
@@ -1170,6 +1317,7 @@ function GatesNote({
         tone === "warning" ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground",
       )}
       data-testid={testId}
+      data-tone={tone}
     >
       <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
       <span className="min-w-0">{children}</span>

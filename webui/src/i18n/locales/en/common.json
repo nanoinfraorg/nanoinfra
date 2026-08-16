@@ -949,6 +949,24 @@
         "grantDecision": "Grant only allows an action when a standing grant matches it. Nothing else allows an unattended remote command.",
         "singlePath": "Fewer than two authenticated paths are configured. A group action then has no runtime approval path. Add a path below, or declare a standing grant."
       },
+      "identity": {
+        "title": "Identity",
+        "postureLabel": "Posture",
+        "actorLabel": "You are",
+        "postures": {
+          "noProxy": "Shared token. No proxy names a person.",
+          "verified": "Verified assertion (JWT)",
+          "anyVerified": "Verified assertion (JWT), open to every identity",
+          "plain": "Assertion header, not verified"
+        },
+        "issuer": "Issuer",
+        "claim": "Identity claim",
+        "header": "Assertion header",
+        "approverRow": "Write this exact value in an approver row.",
+        "assertionMissing": "A proxy is configured, and no verified identity reached this request. The gateway read the shared token instead, so every approval here names nobody. Check the proxy and the assertion header.",
+        "plainCaution": "The gateway reads this header and verifies nothing. The proxy alone decides who reaches the agent.",
+        "anyVerifiedCaution": "Every identity the provider signs for may reach the agent. allowAnyVerifiedIdentity is set."
+      },
       "approvers": {
         "title": "Approvers",
         "empty": "No approvers. No operator can approve an action at run time. An approve decision then refuses the action.",

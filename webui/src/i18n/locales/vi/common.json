@@ -949,6 +949,24 @@
         "grantDecision": "Chỉ quyền cấp sẵn cho phép một hành động khi có quyền cấp sẵn khớp với nó. Không có cách nào khác cho phép một lệnh từ xa không có người trực.",
         "singlePath": "Số đường đã xác thực được cấu hình ít hơn hai. Khi đó hành động trên một nhóm không có đường phê duyệt lúc chạy. Hãy thêm một đường bên dưới, hoặc khai báo một quyền cấp sẵn."
       },
+      "identity": {
+        "title": "Danh tính",
+        "postureLabel": "Trạng thái tin cậy",
+        "actorLabel": "Bạn là",
+        "postures": {
+          "noProxy": "Token dùng chung. Không có proxy nào nêu tên một người.",
+          "verified": "Xác nhận đã kiểm chứng (JWT)",
+          "anyVerified": "Xác nhận đã kiểm chứng (JWT), mở cho mọi danh tính",
+          "plain": "Header xác nhận, không kiểm chứng"
+        },
+        "issuer": "Bên phát hành",
+        "claim": "Claim danh tính",
+        "header": "Header xác nhận",
+        "approverRow": "Hãy ghi đúng giá trị này vào một hàng người phê duyệt.",
+        "assertionMissing": "Một proxy đã được cấu hình, và không có danh tính đã kiểm chứng nào tới cùng yêu cầu này. Gateway đã đọc token dùng chung, nên mọi phê duyệt ở đây không nêu tên ai. Hãy kiểm tra proxy và header xác nhận.",
+        "plainCaution": "Gateway đọc header này và không kiểm chứng gì. Chỉ proxy quyết định ai tới được tác nhân.",
+        "anyVerifiedCaution": "Mọi danh tính do nhà cung cấp ký đều tới được tác nhân. allowAnyVerifiedIdentity đang bật."
+      },
       "approvers": {
         "title": "Người phê duyệt",
         "empty": "Không có người phê duyệt. Không người vận hành nào có thể phê duyệt hành động lúc chạy. Quyết định phê duyệt khi đó từ chối hành động.",

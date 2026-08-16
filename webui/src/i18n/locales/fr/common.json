@@ -949,6 +949,24 @@
         "grantDecision": "Concession seule autorise une action quand une concession permanente correspond. Rien d’autre n’autorise une commande distante sans surveillance.",
         "singlePath": "Moins de deux chemins authentifiés sont configurés. Une action sur un groupe n’a alors aucun chemin d’approbation à l’exécution. Ajoutez un chemin ci-dessous, ou déclarez une concession permanente."
       },
+      "identity": {
+        "title": "Identité",
+        "postureLabel": "Posture de confiance",
+        "actorLabel": "Vous êtes",
+        "postures": {
+          "noProxy": "Jeton partagé. Aucun proxy ne nomme une personne.",
+          "verified": "Assertion vérifiée (JWT)",
+          "anyVerified": "Assertion vérifiée (JWT), ouverte à toute identité",
+          "plain": "En-tête d’assertion, non vérifié"
+        },
+        "issuer": "Émetteur",
+        "claim": "Claim d’identité",
+        "header": "En-tête d’assertion",
+        "approverRow": "Écrivez cette valeur exacte dans une ligne d’approbateur.",
+        "assertionMissing": "Un proxy est configuré, et aucune identité vérifiée n’est arrivée avec cette requête. La passerelle a lu le jeton partagé, donc ici chaque approbation ne nomme personne. Vérifiez le proxy et l’en-tête d’assertion.",
+        "plainCaution": "La passerelle lit cet en-tête et ne vérifie rien. Le proxy décide seul qui atteint l’agent.",
+        "anyVerifiedCaution": "Toute identité signée par le fournisseur peut atteindre l’agent. allowAnyVerifiedIdentity est activé."
+      },
       "approvers": {
         "title": "Approbateurs",
         "empty": "Aucun approbateur. Aucun opérateur ne peut approuver une action à l’exécution. Une décision d’approbation refuse alors l’action.",

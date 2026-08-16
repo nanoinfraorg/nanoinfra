@@ -949,6 +949,24 @@
         "grantDecision": "Somente concessão permite uma ação quando uma concessão permanente corresponde a ela. Nada mais permite um comando remoto sem supervisão.",
         "singlePath": "Há menos de dois caminhos autenticados configurados. Uma ação sobre um grupo então não tem caminho de aprovação em execução. Adicione um caminho abaixo ou declare uma concessão permanente."
       },
+      "identity": {
+        "title": "Identidade",
+        "postureLabel": "Postura",
+        "actorLabel": "Você é",
+        "postures": {
+          "noProxy": "Token compartilhado. Nenhum proxy nomeia uma pessoa.",
+          "verified": "Asserção verificada (JWT)",
+          "anyVerified": "Asserção verificada (JWT), aberta a qualquer identidade",
+          "plain": "Cabeçalho de asserção, sem verificação"
+        },
+        "issuer": "Emissor",
+        "claim": "Claim de identidade",
+        "header": "Cabeçalho de asserção",
+        "approverRow": "Escreva este valor exato em uma linha de aprovador.",
+        "assertionMissing": "Há um proxy configurado, e nenhuma identidade verificada chegou nesta requisição. O gateway leu o token compartilhado, então aqui cada aprovação não nomeia ninguém. Verifique o proxy e o cabeçalho de asserção.",
+        "plainCaution": "O gateway lê este cabeçalho e não verifica nada. O proxy decide sozinho quem alcança o agente.",
+        "anyVerifiedCaution": "Qualquer identidade assinada pelo provedor pode alcançar o agente. allowAnyVerifiedIdentity está ligado."
+      },
       "approvers": {
         "title": "Aprovadores",
         "empty": "Sem aprovadores. Nenhum operador pode aprovar uma ação em execução. Uma decisão de aprovação então recusa a ação.",

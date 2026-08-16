@@ -18,7 +18,7 @@ agent, and the approver list gives no warning, because it was never the list for
 ``jwt`` block declares who may enter, the schema refuses a block that names nobody, and
 ``allowAnyVerifiedIdentity`` is the only way to open it.
 
-Four things live here:
+Five things live here:
 
 * ``admit_identity`` is the access decision, and it is pure. No clock, no key, no socket.
 * ``named_identity`` is the one rule about the identity itself: this gateway names it whole or
@@ -29,6 +29,12 @@ Four things live here:
   token would then buy the privileges of the shared token, which is a downgrade attack.
 * ``describe_trusted_proxy_posture`` is the startup echo. A posture an operator can forget
   about is a posture that surprises them later.
+* ``identity_panel_payload`` is the same posture for a screen (#85). It carries a posture kind
+  and facts, and never a sentence, because the WebUI carries ten locales and no server text
+  reaches nine of them in the right language.
+
+``trusted_proxy_posture_kind`` names the posture, and the two answers above both read it. So the
+startup log and the gate panel cannot disagree about one deployment.
 """
 
 from __future__ import annotations
@@ -36,7 +42,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from loguru import logger as _default_log
 
@@ -48,6 +54,7 @@ from nanoinfra.webui.assertion_jwt import (
     verify_assertion,
 )
 from nanoinfra.webui.http_utils import MAX_IDENTITY_CHARS, trusted_proxy_peer_assertion
+from nanoinfra.webui.latch_api import PATH_ACTOR, operator_actor
 
 if TYPE_CHECKING:
     from nanoinfra.channels.websocket.runtime import TrustedProxyAuthConfig
@@ -55,6 +62,19 @@ if TYPE_CHECKING:
 # How much of an attacker-chosen value reaches a log line. A key id and a claim value both come
 # from a token this gateway has not admitted, so both are truncated and quoted.
 _MAX_LOGGED_CHARS = 128
+
+# The posture of a deployment, in four values. ``trusted_proxy_posture_kind`` answers one of
+# them, and both the startup line and the panel payload read that answer.
+PostureKind = Literal["no_proxy", "verified", "any_verified", "plain"]
+
+#: No ``trustedProxyAuth`` block. The shared token authorizes, and the actor is the path name.
+POSTURE_NO_PROXY: PostureKind = "no_proxy"
+#: A ``jwt`` block whose identity list or required claims name who may enter.
+POSTURE_VERIFIED: PostureKind = "verified"
+#: A ``jwt`` block with ``allowAnyVerifiedIdentity`` set.
+POSTURE_ANY_VERIFIED: PostureKind = "any_verified"
+#: A ``plain`` block. The header is read and never verified.
+POSTURE_PLAIN: PostureKind = "plain"
 
 
 def _short(value: object) -> str:
@@ -282,13 +302,39 @@ def build_trusted_proxy_authenticator(
     )
 
 
+def trusted_proxy_posture_kind(config: TrustedProxyAuthConfig | None) -> PostureKind:
+    """Name the posture this config puts the gateway in.
+
+    This is the one place that decides. The startup line and the panel payload both read it, so
+    a screen cannot claim a posture the log denies.
+
+    The order of the questions is the rule:
+
+    * a missing block is answered first, because every question below reads a field;
+    * ``plain`` comes before every ``jwt`` question, because a block that verifies nothing
+      answers no question about verification;
+    * ``allowAnyVerifiedIdentity`` comes before the named lists, because it admits every
+      identity the provider signs for, whatever those lists hold.
+    """
+    if config is None:
+        return POSTURE_NO_PROXY
+    if config.assertion_format != "jwt":
+        return POSTURE_PLAIN
+    if config.allow_any_verified_identity:
+        return POSTURE_ANY_VERIFIED
+    return POSTURE_VERIFIED
+
+
 def describe_trusted_proxy_posture(config: TrustedProxyAuthConfig | None) -> AssertionPosture:
     """Say what this gateway trusts about an identity, in one line, at every start.
 
     The line names counts rather than identities. A log is shipped elsewhere often enough that
     an address list in it is a leak nobody chose.
     """
-    if config is None:
+    kind = trusted_proxy_posture_kind(config)
+    # A missing block and the ``no_proxy`` kind are one case. Both are named here, so every
+    # read below needs no guard of its own.
+    if config is None or kind == POSTURE_NO_PROXY:
         return AssertionPosture(
             warn=False,
             message=(
@@ -296,7 +342,7 @@ def describe_trusted_proxy_posture(config: TrustedProxyAuthConfig | None) -> Ass
                 'name "webui" and an approver entry must name that path'
             ),
         )
-    if config.assertion_format != "jwt":
+    if kind == POSTURE_PLAIN:
         return AssertionPosture(
             warn=True,
             message=(
@@ -305,7 +351,7 @@ def describe_trusted_proxy_posture(config: TrustedProxyAuthConfig | None) -> Ass
                 "alone decides who reaches the agent"
             ),
         )
-    if config.allow_any_verified_identity:
+    if kind == POSTURE_ANY_VERIFIED:
         return AssertionPosture(
             warn=True,
             message=(
@@ -325,11 +371,57 @@ def describe_trusted_proxy_posture(config: TrustedProxyAuthConfig | None) -> Ass
     )
 
 
+def identity_panel_payload(
+    config: TrustedProxyAuthConfig | None,
+    request: Any,
+) -> dict[str, Any]:
+    """Answer the posture and the actor for the gate panel, as facts and never as a sentence.
+
+    **The payload holds the posture, three facts, the actor and one flag. It holds no config
+    block.** A client that held ``trustedPeerCidrs`` and a JWKS URL would describe the shape of
+    the deployment to every reader of the page, and the panel needs none of it. ``issuer`` and
+    ``identityClaim`` belong to a ``jwt`` posture, and the header name belongs to ``plain``. A
+    posture that carries neither sends empty strings, so the key set never changes and the panel
+    needs no test for a missing field.
+
+    **The actor comes from ``operator_actor``**, which is the function the gate reads. The panel
+    tells the operator to write that value in an approver row, and ``gates.approvers`` compares
+    the whole string (#66). A second rule for the prefix here would drift, and the drift would
+    read as an approval that does not count.
+
+    **``assertionMissing`` is the warning this payload exists for.** A configured proxy plus an
+    actor of the bare path name means the assertion did not arrive or did not verify. The
+    gateway then authenticated the shared token, so every approval on this path names nobody
+    while the deployment believes it names somebody. A deployment with no proxy reaches the same
+    actor and raises no warning, because there the path name is the true and whole answer.
+    """
+    kind = trusted_proxy_posture_kind(config)
+    verified = kind in (POSTURE_VERIFIED, POSTURE_ANY_VERIFIED)
+    actor = operator_actor(request)
+    return {
+        "posture": kind,
+        "issuer": config.issuer if config is not None and verified else "",
+        "identityClaim": config.identity_claim if config is not None and verified else "",
+        "assertionHeader": (
+            config.assertion_header if config is not None and kind == POSTURE_PLAIN else ""
+        ),
+        "actor": actor,
+        "assertionMissing": kind != POSTURE_NO_PROXY and actor == PATH_ACTOR,
+    }
+
+
 __all__ = [
+    "POSTURE_ANY_VERIFIED",
+    "POSTURE_NO_PROXY",
+    "POSTURE_PLAIN",
+    "POSTURE_VERIFIED",
     "AssertionPosture",
+    "PostureKind",
     "TrustedProxyAuthenticator",
     "admit_identity",
     "build_trusted_proxy_authenticator",
     "describe_trusted_proxy_posture",
+    "identity_panel_payload",
     "named_identity",
+    "trusted_proxy_posture_kind",
 ]

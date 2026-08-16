@@ -949,6 +949,24 @@
         "grantDecision": "Hanya izin tetap mengizinkan sebuah tindakan bila ada izin tetap yang cocok. Tidak ada hal lain yang mengizinkan perintah jarak jauh tanpa pengawasan.",
         "singlePath": "Jalur terautentikasi yang dikonfigurasi kurang dari dua. Tindakan pada satu grup lalu tidak punya jalur persetujuan saat runtime. Tambahkan satu jalur di bawah, atau nyatakan satu izin tetap."
       },
+      "identity": {
+        "title": "Identitas",
+        "postureLabel": "Postur",
+        "actorLabel": "Anda adalah",
+        "postures": {
+          "noProxy": "Token bersama. Tidak ada proxy yang menyebut satu orang.",
+          "verified": "Asersi terverifikasi (JWT)",
+          "anyVerified": "Asersi terverifikasi (JWT), terbuka untuk setiap identitas",
+          "plain": "Header asersi, tidak diverifikasi"
+        },
+        "issuer": "Penerbit",
+        "claim": "Claim identitas",
+        "header": "Header asersi",
+        "approverRow": "Tulis nilai ini secara persis di satu baris penyetuju.",
+        "assertionMissing": "Satu proxy sudah dikonfigurasi, dan tidak ada identitas terverifikasi yang sampai pada permintaan ini. Gateway membaca token bersama, jadi setiap persetujuan di sini tidak menyebut siapa pun. Periksa proxy dan header asersi.",
+        "plainCaution": "Gateway membaca header ini dan tidak memverifikasi apa pun. Proxy sendiri yang memutuskan siapa yang sampai ke agen.",
+        "anyVerifiedCaution": "Setiap identitas yang ditandatangani penyedia bisa sampai ke agen. allowAnyVerifiedIdentity aktif."
+      },
       "approvers": {
         "title": "Penyetuju",
         "empty": "Tidak ada penyetuju. Tidak ada operator yang bisa menyetujui tindakan saat runtime. Keputusan setujui lalu menolak tindakan itu.",

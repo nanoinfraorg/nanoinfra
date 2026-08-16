@@ -3,6 +3,12 @@
 Keep WebUI Settings route handlers here, not in ``channels/websocket.py``.
 The websocket channel owns transport concerns; this module owns WebUI Settings
 request mapping and response shaping.
+
+**The identity block rides on every settings payload (#85).** The gate panel needs the posture
+of the deployment and the actor of this request, and one settings payload feeds every panel of
+the screen. So ``_with_restart_state`` attaches the block, and every handler hands it the
+request. A handler that answered a settings payload without it would drop the Identity block
+from the panel until the next reload.
 """
 
 from __future__ import annotations
@@ -39,6 +45,7 @@ from nanoinfra.optional_features import (
     with_channel_runtime_status,
 )
 from nanoinfra.pairing import approve_code, deny_code, list_pending
+from nanoinfra.webui.assertion_identity import identity_panel_payload
 from nanoinfra.webui.cli_apps_api import cli_apps_action, cli_apps_payload
 from nanoinfra.webui.http_utils import case_insensitive_header
 from nanoinfra.webui.http_utils import is_local_browser_request as _is_local_browser_request
@@ -132,6 +139,7 @@ class WebUISettingsRouter:
         runtime_capabilities: dict[str, Any],
         channel_feature_action: Callable[..., Any] | None = None,
         channel_runtime_status: Callable[[], dict[str, Any]] | None = None,
+        trusted_proxy_auth: Callable[[], Any] | None = None,
     ) -> None:
         self.bus = bus
         self.logger = logger
@@ -143,6 +151,10 @@ class WebUISettingsRouter:
         self._runtime_capabilities = runtime_capabilities
         self._channel_feature_action = channel_feature_action
         self._channel_runtime_status = channel_runtime_status
+        # The live ``trustedProxyAuth`` block, read on each request rather than held. The
+        # gateway rebuilds the identity seam when an operator replaces that block, so a copy
+        # kept here would describe a posture the gateway had stopped enforcing.
+        self._trusted_proxy_auth = trusted_proxy_auth
         self._restart_sections: set[str] = set()
         self._channel_connectors: dict[str, Any] = {}
 
@@ -247,10 +259,15 @@ class WebUISettingsRouter:
     def _with_restart_state(
         self,
         payload: dict[str, Any],
+        request: WsRequest,
         *,
         section: str | None = None,
     ) -> dict[str, Any]:
-        """Keep restart-required state alive for this gateway process."""
+        """Keep restart-required state alive for this gateway process, and name the operator.
+
+        The request is here for the identity block of #85. It is a parameter rather than a
+        default, so a new handler cannot forget it and lose the block by accident.
+        """
         if section and payload.get("requires_restart"):
             self._restart_sections.add(section)
         sections = sorted(self._restart_sections)
@@ -258,11 +275,35 @@ class WebUISettingsRouter:
         if sections:
             payload["requires_restart"] = True
         return decorate_settings_payload(
-            payload,
+            self._with_identity(payload, request),
             surface=self._runtime_surface,
             runtime_capability_overrides=self._runtime_capabilities,
             restart_required_sections=sections,
         )
+
+    def _with_identity(self, payload: dict[str, Any], request: WsRequest) -> dict[str, Any]:
+        """Attach the posture of the deployment and the actor of this request (#85).
+
+        The block travels inside the gate settings block, because that is the panel that reads
+        it and because a second request would answer a second actor. It carries facts and no
+        sentence: the WebUI holds ten locales, and no English text from a server reaches nine of
+        them in the right language.
+
+        A payload that holds no gate block gains nothing. The feature payloads of the channel
+        routes take this path as well, and they answer a different question.
+        """
+        if self._trusted_proxy_auth is None:
+            return payload
+        advanced = payload.get("advanced")
+        if not isinstance(advanced, dict):
+            return payload
+        advanced = cast(dict[str, Any], advanced)
+        gates = advanced.get("gates")
+        if not isinstance(gates, dict):
+            return payload
+        identity = identity_panel_payload(self._trusted_proxy_auth(), request)
+        gates_block = {**cast(dict[str, Any], gates), "identity": identity}
+        return {**payload, "advanced": {**advanced, "gates": gates_block}}
 
     def _parse_mcp_settings_query(self, request: WsRequest) -> QueryParams:
         query = self._query(request)
@@ -331,7 +372,8 @@ class WebUISettingsRouter:
                 settings_payload(
                     surface=self._runtime_surface,
                     runtime_capability_overrides=self._runtime_capabilities,
-                )
+                ),
+                request,
             )
         )
 
@@ -387,7 +429,7 @@ class WebUISettingsRouter:
             payload = update_agent_settings(self._query(request))
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
-        return self._json_response(self._with_restart_state(payload, section="runtime"))
+        return self._json_response(self._with_restart_state(payload, request, section="runtime"))
 
     def _handle_settings_model_configuration_create(self, request: WsRequest) -> Response:
         if not self._authorized(request):
@@ -396,7 +438,7 @@ class WebUISettingsRouter:
             payload = create_model_configuration(self._query(request))
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
-        return self._json_response(self._with_restart_state(payload))
+        return self._json_response(self._with_restart_state(payload, request))
 
     def _handle_settings_model_configuration_update(self, request: WsRequest) -> Response:
         if not self._authorized(request):
@@ -405,7 +447,7 @@ class WebUISettingsRouter:
             payload = update_model_configuration(self._query(request))
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
-        return self._json_response(self._with_restart_state(payload))
+        return self._json_response(self._with_restart_state(payload, request))
 
     def _handle_settings_model_configuration_delete(self, request: WsRequest) -> Response:
         if not self._authorized(request):
@@ -414,7 +456,7 @@ class WebUISettingsRouter:
             payload = delete_model_configuration(self._query(request))
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
-        return self._json_response(self._with_restart_state(payload))
+        return self._json_response(self._with_restart_state(payload, request))
 
     def _handle_settings_model_configurations_migrate(self, request: WsRequest) -> Response:
         if not self._authorized(request):
@@ -423,7 +465,7 @@ class WebUISettingsRouter:
             payload = migrate_model_configurations(self._query(request))
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
-        return self._json_response(self._with_restart_state(payload))
+        return self._json_response(self._with_restart_state(payload, request))
 
     def _handle_settings_model_call_order_update(self, request: WsRequest) -> Response:
         if not self._authorized(request):
@@ -432,7 +474,7 @@ class WebUISettingsRouter:
             payload = update_model_call_order(self._query(request))
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
-        return self._json_response(self._with_restart_state(payload))
+        return self._json_response(self._with_restart_state(payload, request))
 
     async def _handle_settings_provider_update(self, request: WsRequest) -> Response:
         if not self._authorized(request):
@@ -442,7 +484,7 @@ class WebUISettingsRouter:
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
         payload = await self._apply_image_generation_runtime_change(payload)
-        return self._json_response(self._with_restart_state(payload, section="image"))
+        return self._json_response(self._with_restart_state(payload, request, section="image"))
 
     def _handle_settings_provider_create(self, request: WsRequest) -> Response:
         if not self._authorized(request):
@@ -451,7 +493,7 @@ class WebUISettingsRouter:
             payload = create_provider_settings(self._parse_provider_settings_query(request))
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
-        return self._json_response(self._with_restart_state(payload))
+        return self._json_response(self._with_restart_state(payload, request))
 
     async def _handle_settings_provider_models(self, request: WsRequest) -> Response:
         if not self._authorized(request):
@@ -500,7 +542,7 @@ class WebUISettingsRouter:
             return self._error_response(e.status, e.message)
         if payload.get("status") in {"authorization_required", "pending"}:
             return self._json_response(payload)
-        return self._json_response(self._with_restart_state(payload))
+        return self._json_response(self._with_restart_state(payload, request))
 
     def _handle_settings_web_search_update(self, request: WsRequest) -> Response:
         if not self._authorized(request):
@@ -509,7 +551,7 @@ class WebUISettingsRouter:
             payload = update_web_search_settings(self._query(request))
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
-        return self._json_response(self._with_restart_state(payload, section="browser"))
+        return self._json_response(self._with_restart_state(payload, request, section="browser"))
 
     def _handle_settings_api_service(self, request: WsRequest) -> Response:
         if not self._authorized(request):
@@ -648,7 +690,7 @@ class WebUISettingsRouter:
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
         payload = await self._apply_image_generation_runtime_change(payload)
-        return self._json_response(self._with_restart_state(payload, section="image"))
+        return self._json_response(self._with_restart_state(payload, request, section="image"))
 
     async def _apply_image_generation_runtime_change(
         self,
@@ -682,7 +724,7 @@ class WebUISettingsRouter:
             payload = update_transcription_settings(self._query(request))
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
-        return self._json_response(self._with_restart_state(payload))
+        return self._json_response(self._with_restart_state(payload, request))
 
     def _handle_settings_network_safety_update(self, request: WsRequest) -> Response:
         if not self._authorized(request):
@@ -691,7 +733,7 @@ class WebUISettingsRouter:
             payload = update_network_safety_settings(self._query(request))
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
-        return self._json_response(self._with_restart_state(payload, section="runtime"))
+        return self._json_response(self._with_restart_state(payload, request, section="runtime"))
 
     def _parse_gates_settings_query(self, request: WsRequest) -> QueryParams:
         """Read the gate policy from a header, because a URL cannot carry a policy document."""
@@ -712,7 +754,7 @@ class WebUISettingsRouter:
             payload = update_gates_settings(self._parse_gates_settings_query(request))
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
-        return self._json_response(self._with_restart_state(payload, section="runtime"))
+        return self._json_response(self._with_restart_state(payload, request, section="runtime"))
 
     async def _handle_settings_cli_apps(self, request: WsRequest) -> Response:
         if not self._authorized(request):
@@ -788,7 +830,7 @@ class WebUISettingsRouter:
             payload,
         )
         payload = self._with_channel_runtime_status(payload)
-        return self._json_response(self._with_restart_state(payload, section="runtime"))
+        return self._json_response(self._with_restart_state(payload, request, section="runtime"))
 
     def _with_channel_runtime_status(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self._channel_runtime_status is None:
@@ -893,7 +935,11 @@ class WebUISettingsRouter:
         if not enable:
             features = await asyncio.to_thread(nanoinfra_features_payload)
             features = self._with_channel_runtime_status(features)
-            payload["nanoinfra_features"] = self._with_restart_state(features, section="runtime")
+            payload["nanoinfra_features"] = self._with_restart_state(
+                features,
+                request,
+                section="runtime",
+            )
             return self._json_response(payload)
 
         feature_query = {"name": [name]}
@@ -919,7 +965,11 @@ class WebUISettingsRouter:
             features,
         )
         features = self._with_channel_runtime_status(features)
-        payload["nanoinfra_features"] = self._with_restart_state(features, section="runtime")
+        payload["nanoinfra_features"] = self._with_restart_state(
+            features,
+            request,
+            section="runtime",
+        )
         return self._json_response(payload)
 
     async def _handle_settings_channel_validate(self, request: WsRequest) -> Response:
@@ -1156,7 +1206,11 @@ class WebUISettingsRouter:
             )
         features = self._with_channel_runtime_status(features)
         payload = dict(payload)
-        payload["nanoinfra_features"] = self._with_restart_state(features, section="runtime")
+        payload["nanoinfra_features"] = self._with_restart_state(
+            features,
+            request,
+            section="runtime",
+        )
         return payload
 
     def _allow_feature_package_install(self, connection: Any, request: WsRequest) -> bool:
@@ -1189,7 +1243,7 @@ class WebUISettingsRouter:
             return self._error_response(status, message)
         if action is None:
             return self._json_response(payload)
-        return self._json_response(self._with_restart_state(payload, section="runtime"))
+        return self._json_response(self._with_restart_state(payload, request, section="runtime"))
 
     async def _handle_settings_version_check(self, request: WsRequest) -> Response:
         if not self._authorized(request):

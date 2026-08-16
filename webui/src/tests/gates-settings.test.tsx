@@ -2,7 +2,12 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { GatesSettings } from "@/components/settings/GatesSettings";
-import type { GatesPayload, GatesPolicy, SettingsPayload } from "@/lib/types";
+import type {
+  GatesIdentity,
+  GatesPayload,
+  GatesPolicy,
+  SettingsPayload,
+} from "@/lib/types";
 
 const DEFAULT_MARKER_PATHS = [
   "approvers",
@@ -48,6 +53,7 @@ function withApprovers(approvers: Array<{ channel: string; sender: string }>): G
 function gatesPayload(
   policy: GatesPolicy = shippedPolicy(),
   fromDefault: Record<string, boolean> = {},
+  identity?: GatesIdentity,
 ): GatesPayload {
   const markers: Record<string, boolean> = {};
   for (const path of DEFAULT_MARKER_PATHS) markers[path] = fromDefault[path] ?? true;
@@ -60,7 +66,25 @@ function gatesPayload(
       "credential.access": ["approve", "deny"],
       all: ["deny"],
     },
+    ...(identity ? { identity } : {}),
   };
+}
+
+/** The identity block the gateway sends, in the shape of one deployment (#85). */
+function identityBlock(over: Partial<GatesIdentity> = {}): GatesIdentity {
+  return {
+    posture: "no_proxy",
+    issuer: "",
+    identityClaim: "",
+    assertionHeader: "",
+    actor: "webui",
+    assertionMissing: false,
+    ...over,
+  };
+}
+
+function renderIdentity(over: Partial<GatesIdentity> = {}) {
+  return renderPanel(gatesPayload(shippedPolicy(), {}, identityBlock(over)));
 }
 
 function settingsWith(gates: GatesPayload | undefined): SettingsPayload {
@@ -394,5 +418,112 @@ describe("GatesSettings", () => {
     renderPanel(gatesPayload(withApprovers([{ channel: "webui", sender: "webui" }])));
 
     expect(screen.getByTestId("gates-approver-shape-0")).toHaveAttribute("data-tone", "info");
+  });
+
+  /*
+    The identity block (#85). The badge of #70 answers "who am I" and nothing else, so this panel
+    answers the two questions beside it: which authentication this deployment installed, and
+    whether it worked for this request.
+  */
+  it("reads a deployment with no proxy as a shared token, and warns about nothing", () => {
+    renderIdentity();
+
+    expect(screen.getByTestId("gates-identity-posture")).toHaveTextContent(
+      "Shared token. No proxy names a person.",
+    );
+    expect(screen.getByTestId("gates-identity-actor")).toHaveTextContent("webui");
+    expect(screen.queryByTestId("gates-identity-assertion-missing")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("gates-identity-plain")).not.toBeInTheDocument();
+  });
+
+  it("names the issuer and the claim of a verified deployment", () => {
+    renderIdentity({
+      posture: "verified",
+      issuer: "accounts.google.com",
+      identityClaim: "email",
+      actor: "webui:alberto@example.com",
+    });
+
+    const block = screen.getByTestId("gates-identity");
+    expect(screen.getByTestId("gates-identity-posture")).toHaveTextContent(
+      "Verified assertion (JWT)",
+    );
+    expect(within(block).getByText("accounts.google.com")).toBeInTheDocument();
+    expect(within(block).getByText("email")).toBeInTheDocument();
+    expect(screen.getByTestId("gates-identity-actor")).toHaveTextContent(
+      "webui:alberto@example.com",
+    );
+  });
+
+  it("says a plain assertion is not verified, and names the header it reads", () => {
+    renderIdentity({
+      posture: "plain",
+      assertionHeader: "X-Access-Token",
+      actor: "webui:alberto@example.com",
+    });
+
+    expect(screen.getByTestId("gates-identity-posture")).toHaveTextContent(
+      "Assertion header, not verified",
+    );
+    expect(within(screen.getByTestId("gates-identity")).getByText("X-Access-Token"))
+      .toBeInTheDocument();
+    const caution = screen.getByTestId("gates-identity-plain");
+    expect(caution).toHaveTextContent("The proxy alone decides who reaches the agent.");
+    expect(caution).toHaveAttribute("data-tone", "warning");
+  });
+
+  it("names allowAnyVerifiedIdentity, because somebody turns it on and forgets", () => {
+    renderIdentity({
+      posture: "any_verified",
+      issuer: "accounts.google.com",
+      identityClaim: "email",
+      actor: "webui:alberto@example.com",
+    });
+
+    expect(screen.getByTestId("gates-identity-posture")).toHaveTextContent(
+      "Verified assertion (JWT), open to every identity",
+    );
+    expect(screen.getByTestId("gates-identity-any-verified")).toHaveTextContent(
+      "Every identity the provider signs for may reach the agent.",
+    );
+  });
+
+  it("warns when a proxy is configured and no verified identity arrived", () => {
+    // The state this block exists for. Every approval here names nobody, and nothing said so.
+    renderIdentity({
+      posture: "verified",
+      issuer: "accounts.google.com",
+      identityClaim: "email",
+      actor: "webui",
+      assertionMissing: true,
+    });
+
+    const warning = screen.getByTestId("gates-identity-assertion-missing");
+    expect(warning).toHaveTextContent("every approval here names nobody");
+    expect(warning).toHaveAttribute("data-tone", "warning");
+  });
+
+  it("tells the operator to write the whole actor in an approver row", () => {
+    // ``gates.approvers`` compares the whole string and strips no prefix (#66).
+    renderIdentity({ posture: "verified", actor: "webui:alberto@example.com" });
+
+    expect(screen.getByTestId("gates-identity-approver-row")).toHaveTextContent(
+      "Write this exact value in an approver row.",
+    );
+  });
+
+  it("stays away when the gateway sends no identity block", () => {
+    // An older gateway answers no block. Absent is not a posture, so the panel invents none.
+    renderPanel(gatesPayload());
+
+    expect(screen.queryByTestId("gates-identity")).not.toBeInTheDocument();
+    expect(screen.getByTestId("gates-settings")).toBeInTheDocument();
+  });
+
+  it("shows an unknown posture as the value it received", () => {
+    // A newer gateway can name a fifth posture. The panel must not claim one it does not know.
+    renderIdentity({ posture: "sealed_room" as GatesIdentity["posture"] });
+
+    expect(screen.getByTestId("gates-identity-posture")).toHaveTextContent("sealed_room");
   });
 });

@@ -525,6 +525,31 @@ export interface GatesPolicy {
   audit: GatesAuditPolicy;
 }
 
+/**
+ * Which authentication the gateway installed -- nanoinfraorg/nanoinfra#85.
+ *
+ * The server sends a kind and never a sentence, because this app carries ten locales.
+ */
+export type GatesIdentityPosture = "no_proxy" | "verified" | "any_verified" | "plain";
+
+/**
+ * The posture of the deployment, and the actor of this request.
+ *
+ * `issuer` and `identityClaim` belong to a verified posture, and `assertionHeader` belongs to an
+ * unverified one. A posture that has no such fact sends an empty string.
+ *
+ * `assertionMissing` is the warning. A proxy is configured, and the actor is the bare path name,
+ * so the assertion did not arrive or did not verify.
+ */
+export interface GatesIdentity {
+  posture: GatesIdentityPosture;
+  issuer: string;
+  identityClaim: string;
+  assertionHeader: string;
+  actor: string;
+  assertionMissing: boolean;
+}
+
 export interface GatesPayload {
   policy: GatesPolicy;
   from_default: Record<string, boolean>;
@@ -534,6 +559,8 @@ export interface GatesPayload {
     "credential.access": string[];
     all: string[];
   };
+  /** An older gateway sends no block, and the panel then shows no Identity section. */
+  identity?: GatesIdentity;
 }
 
 export interface GatesLatchAttempt {

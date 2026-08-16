@@ -354,6 +354,9 @@ class GatewayHTTPHandler:
             runtime_capabilities=self._capabilities,
             channel_feature_action=channel_feature_action,
             channel_runtime_status=channel_runtime_status,
+            # The posture the gate panel shows (#85). It is a read of the live block rather
+            # than a copy, because an operator can replace that block while the process runs.
+            trusted_proxy_auth=lambda: getattr(self.config, "trusted_proxy_auth", None),
         )
 
     def attach_latch_surface(self, surface: LatchOperatorSurface) -> None:

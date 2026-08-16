@@ -949,6 +949,24 @@
         "grantDecision": "仅常设授权只在常设授权与操作匹配时放行。除此之外没有任何方式放行无人值守的远程命令。",
         "singlePath": "已配置的已认证通道少于两条。此时对主机组的操作没有运行时审批通道。请在下方添加一条通道，或声明一条常设授权。"
       },
+      "identity": {
+        "title": "身份",
+        "postureLabel": "身份态势",
+        "actorLabel": "你是",
+        "postures": {
+          "noProxy": "共享令牌。没有代理服务器指名任何人。",
+          "verified": "已验证的断言（JWT）",
+          "anyVerified": "已验证的断言（JWT），对每个身份开放",
+          "plain": "断言标头，未经验证"
+        },
+        "issuer": "签发方",
+        "claim": "身份 claim",
+        "header": "断言标头",
+        "approverRow": "请把这个值原样写进一行审批人。",
+        "assertionMissing": "已配置代理服务器，但本次请求没有带来经过验证的身份。网关改读共享令牌，因此这里的每次审批都指名不到任何人。请检查代理服务器和断言标头。",
+        "plainCaution": "网关只读取这个标头，不做任何验证。谁能到达代理完全由代理服务器决定。",
+        "anyVerifiedCaution": "提供方签发的每个身份都能到达代理。allowAnyVerifiedIdentity 已开启。"
+      },
       "approvers": {
         "title": "审批人",
         "empty": "没有审批人。运行时没有运维人员可以批准操作，因此审批决定会拒绝该操作。",
