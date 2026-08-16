@@ -297,6 +297,84 @@ def _fail_the_run_for_a_write_to_the_real_installation() -> Iterator[None]:
     )
 
 
+# The config loader functions a module can bind at import time. `nanoinfra/config/__init__.py`,
+# `nanoinfra/channels/weixin/state.py`, `nanoinfra/channels/validation.py`,
+# `nanoinfra/cli/onboard.py` and five webui modules each carry a module level
+# `from nanoinfra.config.loader import ...` for one of these names.
+_LOADER_FUNCTION_NAMES = (
+    "get_config_path",
+    "load_config",
+    "save_config",
+    "set_config_path",
+    "resolve_config_env_vars",
+)
+
+
+def _stale_loader_bindings() -> list[tuple[str, str, str]]:
+    """Find every module that holds a stand-in for a config loader function (#80).
+
+    A test that replaces `nanoinfra.config.loader.get_config_path` restores the loader module and
+    reaches no copy of that name. So a module that runs its own `from nanoinfra.config.loader import
+    get_config_path` for the first time inside that window keeps the stand-in for the life of the
+    worker, and the stand-in usually answers with a `tmp_path` the test has already deleted.
+
+    A module that defines a function of the same name keeps it. `nanoinfra/config/paths.py` has its
+    own `get_config_path`, and it imports the loader one under another name.
+
+    Returns (module, attribute, repr of the stand-in) for each one.
+    """
+    from nanoinfra.config import loader
+
+    stale: list[tuple[str, str, str]] = []
+    for module_name, module in list(sys.modules.items()):
+        if not module_name.startswith("nanoinfra") or module is None:
+            continue
+        namespace = getattr(module, "__dict__", None)
+        if namespace is None:
+            continue
+        for name in _LOADER_FUNCTION_NAMES:
+            if name not in namespace:
+                continue
+            value = namespace[name]
+            if value is getattr(loader, name, None):
+                continue
+            if getattr(value, "__module__", None) == module_name:
+                continue
+            stale.append((module_name, name, repr(value)))
+    return stale
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _fail_the_run_for_a_captured_config_loader_function() -> Iterator[None]:
+    """Fail the run when a module kept a stand-in for a config loader function (#80).
+
+    `tests/cli/test_config_path_redirection.py` holds the deterministic half of this property, for
+    the one fixture that broke it. This guard is the wider net: about thirty places in the tree
+    patch a function on `nanoinfra.config.loader`, and each one is a chance to repeat #80,
+    because the product imports channels, the wizard and the webui lazily.
+
+    The scan runs once, at the end of the session, and it costs under a millisecond. A per test scan
+    measured 1.4 ms, which is ten seconds over this suite.
+
+    #80 cost a bisect over thirteen test files, because the symptom was an unrelated assertion in
+    `tests/channels` and the cause was a mock in `tests/cli`. The failure below names the module and
+    the attribute instead.
+    """
+    yield
+    stale = _stale_loader_bindings()
+    if not stale:
+        return
+    lines = "\n".join(f"  {module}.{name} = {value}" for module, name, value in stale)
+    pytest.fail(
+        f"a module kept a stand-in for a config loader function:\n{lines}\n"
+        "A test replaced the function on nanoinfra.config.loader, and one of these modules reached "
+        "its first import inside that window, so it never saw the real function (#80). Redirect "
+        "through loader._current_config_path, which every reader reaches through the live "
+        "get_config_path.",
+        pytrace=False,
+    )
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _use_windows_system_ca_for_default_http_clients() -> Iterator[None]:
     """Avoid reparsing certifi's CA bundle for every offline HTTP client.

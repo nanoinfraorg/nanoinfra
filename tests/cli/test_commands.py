@@ -1,7 +1,6 @@
 import asyncio
 import json
 import re
-import shutil
 import signal
 from contextlib import suppress
 from pathlib import Path
@@ -252,36 +251,29 @@ def test_commit_dream_changes_commits_real_edits(tmp_path) -> None:
     assert "Research notes" in message
 
 
-@pytest.fixture
-def mock_paths():
-    """Mock config/workspace paths for test isolation."""
-    with patch("nanoinfra.config.loader.get_config_path") as mock_cp, \
-         patch("nanoinfra.config.loader.save_config") as mock_sc, \
-         patch("nanoinfra.config.loader.load_config") as mock_lc, \
-         patch("nanoinfra.cli.commands.get_workspace_path") as mock_ws:
-        base_dir = Path("./test_onboard_data")
-        if base_dir.exists():
-            shutil.rmtree(base_dir)
-        base_dir.mkdir()
+# The model a planted config carries. A refresh must keep this value, and an overwrite must
+# drop it, so one string answers both questions.
+_PLANTED_MODEL = "ollama/qwen3-planted"
 
-        config_file = base_dir / "config.json"
-        workspace_dir = base_dir / "workspace"
 
-        mock_cp.return_value = config_file
-        mock_ws.return_value = workspace_dir
-        mock_lc.side_effect = lambda _config_path=None: Config()
+def _plant_an_existing_config(config_file: Path) -> None:
+    """Write a config that the real ``load_config`` accepts (nanoinfraorg/nanoinfra#80).
 
-        def _save_config(config: Config, config_path: Path | None = None):
-            target = config_path or config_file
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(json.dumps(config.model_dump(by_alias=True)), encoding="utf-8")
+    These tests wrote ``{"existing": true}``. That worked while a mock answered for
+    ``load_config``, and the real function rejects the file, because ``existing`` is not a
+    setting. A real config carries a real value instead, and the caller reads that value back.
+    """
+    from nanoinfra.config.loader import save_config
 
-        mock_sc.side_effect = _save_config
+    config = Config()
+    config.agents.defaults.model = _PLANTED_MODEL
+    save_config(config, config_file)
 
-        yield config_file, workspace_dir, mock_ws
 
-        if base_dir.exists():
-            shutil.rmtree(base_dir)
+def _saved_model(config_file: Path) -> str:
+    """Read the default model out of a saved config file."""
+    saved = Config.model_validate(json.loads(config_file.read_text(encoding="utf-8")))
+    return saved.agents.defaults.model
 
 
 def test_onboard_fresh_install(mock_paths):
@@ -312,13 +304,15 @@ def test_onboard_recommends_webui(mock_paths):
 def test_onboard_existing_config_refresh(mock_paths):
     """Config exists, user declines overwrite — should refresh (load-merge-save)."""
     config_file, workspace_dir, _ = mock_paths
-    config_file.write_text('{"existing": true}')
+    _plant_an_existing_config(config_file)
 
     result = runner.invoke(app, ["onboard"], input="n\n")
 
     assert result.exit_code == 0
     assert "Config already exists" in result.stdout
     assert "existing values preserved" in result.stdout
+    # The claim in that message, measured. A real load and a real save run here now.
+    assert _saved_model(config_file) == _PLANTED_MODEL
     assert workspace_dir.exists()
     assert (workspace_dir / "AGENTS.md").exists()
 
@@ -326,13 +320,14 @@ def test_onboard_existing_config_refresh(mock_paths):
 def test_onboard_existing_config_refresh_non_interactive(mock_paths):
     """Config exists, user specifies --refresh — should refresh non-interactively (no prompt)."""
     config_file, workspace_dir, _ = mock_paths
-    config_file.write_text('{"existing": true}')
+    _plant_an_existing_config(config_file)
 
     result = runner.invoke(app, ["onboard", "--refresh"])
 
     assert result.exit_code == 0
     assert "Config already exists" not in result.stdout
     assert "existing values preserved" in result.stdout
+    assert _saved_model(config_file) == _PLANTED_MODEL
     assert workspace_dir.exists()
     assert (workspace_dir / "AGENTS.md").exists()
 
@@ -340,13 +335,15 @@ def test_onboard_existing_config_refresh_non_interactive(mock_paths):
 def test_onboard_existing_config_overwrite(mock_paths):
     """Config exists, user confirms overwrite — should reset to defaults."""
     config_file, workspace_dir, _ = mock_paths
-    config_file.write_text('{"existing": true}')
+    _plant_an_existing_config(config_file)
 
     result = runner.invoke(app, ["onboard"], input="y\n")
 
     assert result.exit_code == 0
     assert "Config already exists" in result.stdout
     assert "Config reset to defaults" in result.stdout
+    # The other half of the claim: this path drops the planted value.
+    assert _saved_model(config_file) == Config().agents.defaults.model
     assert workspace_dir.exists()
 
 
