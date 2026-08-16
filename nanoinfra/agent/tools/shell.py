@@ -233,9 +233,16 @@ class ExecTool(Tool):
             r">\s*/dev/sd",                  # write to disk
             r"\b(shutdown|reboot|poweroff)\b",  # system power
             r":\(\)\s*\{.*\};\s*:",          # fork bomb
-            # Block writes to nanoinfra internal state files (#2989).
-            # history.jsonl / .dream_cursor are managed by append_history();
-            # direct writes corrupt the cursor format and crash /dream.
+            # Writes to memory/history.jsonl and the two cursors (#2989).
+            #
+            # What these five are: a guard against the spelling a model actually reaches for. They
+            # are not a control, and a reader must not treat them as one -- `truncate -s0`,
+            # `python -c "open(...)"` and a here-doc all walk past them.
+            #
+            # The control for a file tool is path scope, applied once in `_resolve_write` for every
+            # writer (#105). For a shell there is no path scope, only the sandbox, so these stay:
+            # #105 proposed deleting them on the grounds that path scope covers the same ground, and
+            # path scope does not reach a shell command at all.
             r">>?\s*\S*(?:history\.jsonl|\.dream_cursor)",            # > / >> redirect
             r"\btee\b[^|;&<>]*(?:history\.jsonl|\.dream_cursor)",     # tee / tee -a
             r"\b(?:cp|mv)\b(?:\s+[^\s|;&<>]+)+\s+\S*(?:history\.jsonl|\.dream_cursor)",  # cp/mv target

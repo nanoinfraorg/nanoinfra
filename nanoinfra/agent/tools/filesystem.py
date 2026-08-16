@@ -30,6 +30,14 @@ class FileToolsConfig(Base):
     enable: bool = True  # built-in file tools on by default
 
 
+#: Files under ``<workspace>/memory`` that a writer owns, so a tool must never write them (#105).
+#: ``history.jsonl`` is append-only through ``MemoryStore.append_history``, which allocates the
+#: cursor, scrubs credentials, strips think blocks and caps the entry. ``.cursor`` and
+#: ``.dream_cursor`` are that bookkeeping, and one wrong byte in either re-dreams consolidated
+#: entries or disables compaction permanently.
+_PROTECTED_MEMORY_FILENAMES = ("history.jsonl", ".cursor", ".dream_cursor")
+
+
 class _FsTool(Tool):
     """Shared base for filesystem tools — common init and path resolution."""
 
@@ -156,13 +164,53 @@ class _FsTool(Tool):
             extra_files_require_allowed_root=True,
         )
 
+    def _protected_memory_files(self) -> set[Path]:
+        """The memory files a writer manages, for whichever workspaces are in play (#105).
+
+        Two directories rather than a name match: a tail match on ``memory/history.jsonl`` would
+        refuse a write to somebody's own repository that happens to hold that path, and a false
+        positive a user cannot work around is worse than the narrow rule.
+        """
+        roots: list[Path] = []
+        if self._workspace is not None:
+            roots.append(Path(self._workspace))
+        project = current_tool_workspace(self._workspace).project_path
+        if project is not None:
+            roots.append(Path(project))
+        protected: set[Path] = set()
+        for root in roots:
+            try:
+                memory_dir = root.expanduser().resolve(strict=False) / "memory"
+            except (OSError, RuntimeError, ValueError):
+                continue
+            for name in _PROTECTED_MEMORY_FILENAMES:
+                protected.add(memory_dir / name)
+        return protected
+
+    def _refuse_protected_memory_write(self, resolved: Path) -> None:
+        try:
+            candidate = resolved.expanduser().resolve(strict=False)
+        except (OSError, RuntimeError, ValueError):
+            candidate = resolved
+        if candidate not in self._protected_memory_files():
+            return
+        raise PermissionError(
+            f"{candidate.name} is managed by append_history() and cannot be written directly. "
+            "A direct write discards conversation history that Dream has not consolidated yet, "
+            "and it corrupts the cursor format."
+        )
+
     def _resolve_write(self, path: str) -> Path:
-        return self._resolve_with_extra(
+        resolved = self._resolve_with_extra(
             path,
             self._extra_write_allowed_dirs,
             self._extra_write_allowed_files,
             include_media_dir=False,
         )
+        # One check at the single point every writer resolves through, rather than a rule enforced
+        # in two of the three places that can break it.
+        self._refuse_protected_memory_write(resolved)
+        return resolved
 
     def _resolve(self, path: str) -> Path:
         return self._resolve_read(path)
