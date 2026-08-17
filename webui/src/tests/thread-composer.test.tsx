@@ -2885,3 +2885,74 @@ describe("ThreadComposer", () => {
   });
 
 });
+
+describe("a pending approval", () => {
+  /**
+   * The sidebar shows a count badge, and a badge is only read by somebody already looking at the
+   * menu. An approval stops the agent until it is answered, so the composer carries the same fact
+   * where the eye already is — the amber twin of the `/goal` glow.
+   */
+  it("puts an amber glow on the composer and says what is waiting", () => {
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        pendingApprovals={1}
+        onOpenApprovals={vi.fn()}
+      />,
+    );
+
+    const surface = screen
+      .getByPlaceholderText("Type your message...")
+      .closest(".thread-composer-surface");
+    expect(surface?.className).toContain("approval-shell-glow");
+    expect(screen.getByRole("status").textContent).toMatch(/waiting for your answer/);
+  });
+
+  it("opens the inbox from the status line", () => {
+    const onOpenApprovals = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        pendingApprovals={2}
+        onOpenApprovals={onOpenApprovals}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+
+    expect(onOpenApprovals).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes precedence over the goal glow", () => {
+    /**
+     * Two breathing glows at once would say neither. A suspended action means the agent is *not*
+     * working, which is the opposite of what the goal glow claims.
+     */
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        pendingApprovals={1}
+        goalState={{ active: true, objective: "ship it" } as never}
+      />,
+    );
+
+    const surface = screen
+      .getByPlaceholderText("Type your message...")
+      .closest(".thread-composer-surface");
+    expect(surface?.className).toContain("approval-shell-glow");
+    expect(surface?.className).not.toContain("goal-shell-glow");
+  });
+
+  it("shows nothing when nothing is waiting", () => {
+    render(<ThreadComposer onSend={vi.fn()} placeholder="Type your message..." />);
+
+    const surface = screen
+      .getByPlaceholderText("Type your message...")
+      .closest(".thread-composer-surface");
+    expect(surface?.className).not.toContain("approval-shell-glow");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+})

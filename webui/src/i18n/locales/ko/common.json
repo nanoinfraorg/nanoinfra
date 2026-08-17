@@ -1473,7 +1473,10 @@
         "defaultShort": "기본",
         "full": "전체 접근 권한",
         "fullShort": "전체"
-      }
+      },
+      "approvalsWaiting_one": "{{count}}개 작업이 응답을 기다리고 있습니다",
+      "approvalsWaiting_other": "{{count}}개 작업이 응답을 기다리고 있습니다",
+      "approvalsReview": "검토"
     },
     "scrollToBottom": "맨 아래로 스크롤",
     "loadEarlier": "이전 메시지 불러오기",

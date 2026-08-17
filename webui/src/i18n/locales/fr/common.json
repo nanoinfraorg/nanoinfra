@@ -1473,7 +1473,10 @@
         "defaultShort": "Par défaut",
         "full": "Accès complet",
         "fullShort": "Complet"
-      }
+      },
+      "approvalsWaiting_one": "{{count}} action attend votre réponse",
+      "approvalsWaiting_other": "{{count}} actions attendent votre réponse",
+      "approvalsReview": "Examiner"
     },
     "scrollToBottom": "Faire défiler vers le bas",
     "loadEarlier": "Charger les messages précédents",

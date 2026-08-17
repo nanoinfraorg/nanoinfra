@@ -1473,7 +1473,10 @@
         "defaultShort": "Default",
         "full": "Full Access",
         "fullShort": "Full"
-      }
+      },
+      "approvalsWaiting_one": "{{count}} action is waiting for your answer",
+      "approvalsWaiting_other": "{{count}} actions are waiting for your answer",
+      "approvalsReview": "Review"
     },
     "scrollToBottom": "Scroll to bottom",
     "loadEarlier": "Load earlier messages",

@@ -200,6 +200,16 @@ interface ThreadComposerProps {
   runStartedAt?: number | null;
   /** Sustained objective for this chat (WebSocket ``goal_state``). */
   goalState?: GoalStateWsPayload;
+  /**
+   * How many suspended actions are waiting for a person, across every session.
+   *
+   * The sidebar carries the same number as a badge, and a badge is only read by somebody already
+   * looking at the menu. An approval stops the agent until it is answered, so the composer says so
+   * where the eye already is.
+   */
+  pendingApprovals?: number;
+  /** Opens the approvals inbox. Absent where there is no inbox to open. */
+  onOpenApprovals?: () => void;
   workspaceScope?: WorkspaceScopePayload | null;
   workspaceDefaultScope?: WorkspaceScopePayload | null;
   workspaceControls?: WorkspacesPayload["controls"] | null;
@@ -950,6 +960,8 @@ export function ThreadComposer({
   onTranscribeAudio,
   runStartedAt = null,
   goalState,
+  pendingApprovals = 0,
+  onOpenApprovals,
   workspaceScope = null,
   workspaceDefaultScope = null,
   workspaceControls = null,
@@ -965,6 +977,7 @@ export function ThreadComposer({
 }: ThreadComposerProps) {
   const { t } = useTranslation();
   const threadWidth = useThreadWidth();
+  const hasPendingApprovals = pendingApprovals > 0;
   const [value, setValue] = useState("");
   const [selectedSessionMentions, setSelectedSessionMentions] = useState<SessionMention[]>([]);
   const [sessionDragPreview, setSessionDragPreview] = useState<{
@@ -2246,13 +2259,49 @@ export function ThreadComposer({
           disabled && "opacity-60",
           sessionDragPreview && "ring-1 ring-primary/25",
           isDragging && "ring-2 ring-primary/40 motion-reduce:ring-0 motion-reduce:border-primary",
-          goalState?.active &&
+          // The goal glow says the agent is working. It yields to the approval glow, because a
+          // suspended action means it is *not* working and the next move is the operator's -- two
+          // breathing glows at once would say neither.
+          goalState?.active && !hasPendingApprovals &&
             "goal-shell-glow ring-1 ring-sky-400/35 motion-reduce:ring-sky-400/25 dark:ring-sky-400/45",
+          hasPendingApprovals &&
+            "approval-shell-glow ring-1 ring-amber-500/45 motion-reduce:ring-amber-500/35 dark:ring-amber-400/50",
         )}
         // In a conversation the input stays the width of the text above it, so the two edges line
         // up. The hero state keeps its own wider measure, which the class above still sets.
         style={isHero ? undefined : { maxWidth: threadWidth.measure }}
       >
+        {hasPendingApprovals ? (
+          <div
+            role="status"
+            className={cn(
+              "mx-3 mt-3 flex items-center justify-between gap-3 rounded-[14px] px-3 py-2",
+              "border border-amber-500/30 bg-amber-500/10 text-[12.5px] leading-5",
+              "text-amber-800 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200",
+            )}
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <Shield className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="truncate">
+                {t("thread.composer.approvalsWaiting", {
+                  count: pendingApprovals,
+                  defaultValue_one: "{{count}} action is waiting for your answer",
+                  defaultValue_other: "{{count}} actions are waiting for your answer",
+                  defaultValue: "{{count}} actions are waiting for your answer",
+                })}
+              </span>
+            </span>
+            {onOpenApprovals ? (
+              <button
+                type="button"
+                onClick={onOpenApprovals}
+                className="shrink-0 font-semibold underline-offset-2 hover:underline"
+              >
+                {t("thread.composer.approvalsReview", { defaultValue: "Review" })}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {queuedPrompts.length > 0 ? (
           <QueuedPromptStack
             prompts={queuedPrompts}

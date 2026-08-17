@@ -597,6 +597,53 @@
     }
   }
 
+  /* An action is suspended and waiting for a person.
+   *
+   * Same motion as `goal-shell-glow` on purpose, and a different hue: sky means the agent is working
+   * on something, amber means it stopped and the next move is yours. The sidebar badge carries the
+   * count, and a count you have to look at is a count you miss.
+   *
+   * Slower than the goal breath (6.4s against 4.8s), because this one can sit there for minutes and a
+   * fast pulse becomes something you want to cover with a window.
+   */
+  @keyframes approval-shell-glow-breathe {
+    0%,
+    100% {
+      filter: drop-shadow(0 0 10px hsl(38 92% 50% / 0.24))
+        drop-shadow(0 0 24px hsl(32 95% 44% / 0.15));
+    }
+    50% {
+      filter: drop-shadow(0 0 18px hsl(38 96% 46% / 0.36))
+        drop-shadow(0 0 40px hsl(32 100% 42% / 0.22));
+    }
+  }
+  .approval-shell-glow {
+    animation: approval-shell-glow-breathe 6.4s ease-in-out infinite;
+  }
+  @keyframes approval-shell-glow-breathe-dark {
+    0%,
+    100% {
+      filter: drop-shadow(0 0 12px hsl(40 96% 64% / 0.30))
+        drop-shadow(0 0 28px hsl(34 100% 58% / 0.18));
+    }
+    50% {
+      filter: drop-shadow(0 0 20px hsl(40 100% 70% / 0.44))
+        drop-shadow(0 0 44px hsl(34 100% 62% / 0.26));
+    }
+  }
+  .dark .approval-shell-glow {
+    animation-name: approval-shell-glow-breathe-dark;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .approval-shell-glow {
+      animation: none;
+      filter: drop-shadow(0 0 14px hsl(38 90% 48% / 0.26));
+    }
+    .dark .approval-shell-glow {
+      filter: drop-shadow(0 0 14px hsl(40 95% 62% / 0.34));
+    }
+  }
+
   @keyframes cli-app-linked-sheen {
     0% {
       transform: translateX(-140%) skewX(-14deg);

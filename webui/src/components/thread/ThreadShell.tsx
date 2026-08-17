@@ -316,6 +316,9 @@ interface ThreadShellProps {
   onWorkspaceScopeChange?: (scope: WorkspaceScopePayload) => void;
   settingsSnapshot?: SettingsPayload | null;
   onOpenModelSettings?: () => void;
+  /** Suspended actions waiting for a person, across every session. */
+  pendingApprovals?: number;
+  onOpenApprovals?: () => void;
   skills?: SkillSummary[];
 }
 
@@ -599,6 +602,8 @@ export function ThreadShell({
   onWorkspaceScopeChange,
   settingsSnapshot = null,
   onOpenModelSettings,
+  pendingApprovals = 0,
+  onOpenApprovals,
   skills = [],
 }: ThreadShellProps) {
   const { t } = useTranslation();
@@ -1397,6 +1402,8 @@ export function ThreadShell({
           onTranscribeAudio={transcribeAudio}
           runStartedAt={currentRunStartedAt}
           goalState={currentGoalState}
+          pendingApprovals={pendingApprovals}
+          onOpenApprovals={onOpenApprovals}
           workspaceScope={workspaceScope}
           workspaceDefaultScope={workspaceDefaultScope}
           workspaceControls={workspaceControls}
@@ -1439,6 +1446,8 @@ export function ThreadShell({
           runStartedAt={currentRunStartedAt}
           onTranscribeAudio={transcribeAudio}
           goalState={currentGoalState}
+          pendingApprovals={pendingApprovals}
+          onOpenApprovals={onOpenApprovals}
           workspaceScope={workspaceScope}
           workspaceDefaultScope={workspaceDefaultScope}
           workspaceControls={workspaceControls}
