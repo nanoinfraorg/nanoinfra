@@ -282,3 +282,136 @@ class TestTheCommitRule:
         assert outcome.started is True
         assert outcome.completed is True
         assert store.get_last_dream_cursor() == 5
+
+
+class TestTheSessionKeyCannotCollide:
+    """One-second resolution meant two runs shared a file -- nanoinfraorg/nanoinfra#122.
+
+    Two runs started in the same second held the same key, so they shared a session file *and* the
+    per-session dispatch lock -- serializing by accident rather than by design. The design is the
+    lock in this module, and the key's job is identity. A wall clock also steps backwards under NTP,
+    so more digits of it would not have been an answer.
+    """
+
+    def test_two_keys_made_in_the_same_second_differ(self) -> None:
+        keys = {MemoryStore.dream_session_key() for _ in range(200)}
+
+        assert len(keys) == 200
+
+    def test_the_key_still_reads_as_a_dream_session_at_a_time(self) -> None:
+        key = MemoryStore.dream_session_key()
+
+        assert key.startswith("dream:")
+        # The timestamp stays human-readable, because an operator reads these in a directory listing.
+        assert __import__("re").match(r"^dream:\d{8}-\d{6}-[0-9a-f]+$", key), key
+
+    def test_prune_still_recognises_the_new_shape(self, tmp_path) -> None:
+        from nanoinfra.session.manager import SessionManager
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir()
+        paths = []
+        for index in range(12):
+            key = MemoryStore.dream_session_key()
+            path = sessions_dir / f"{SessionManager._storage_key(key)}.jsonl"
+            path.write_text('{"_type": "metadata"}\n', encoding="utf-8")
+            import os
+            import time
+            os.utime(path, (time.time() - 100 + index, time.time() - 100 + index))
+            paths.append(path)
+
+        MemoryStore.prune_dream_sessions(sessions_dir, keep=10)
+
+        assert sum(1 for path in paths if path.exists()) == 10
+
+
+class TestAttributionOfACommit:
+    """A commit that says "dream" carries what Dream wrote -- nanoinfraorg/nanoinfra#111."""
+
+    @pytest.mark.asyncio
+    async def test_a_cursor_increment_alone_makes_no_dream_commit(self, tmp_path) -> None:
+        """`/dream-log` shows the newest `dream:` commit, so a bookkeeping commit became the answer
+        to "what did Dream change", while the real last memory change sat one commit back.
+        """
+        store = _store(tmp_path)
+        store.git.init()
+
+        async def process_direct(*_args: Any, **_kwargs: Any) -> Any:
+            return _response()  # completes, writes nothing
+
+        outcome = await run_dream(store=store, agent=_agent(store, tmp_path, process_direct))
+
+        assert outcome.completed is True
+        assert store.get_last_dream_cursor() == 5, "the batch was still retired"
+        assert outcome.commit_sha is None
+        assert not [c for c in store.git.log() if c.message.startswith("dream:")]
+
+    @pytest.mark.asyncio
+    async def test_an_edit_made_before_the_run_is_not_attributed_to_dream(self, tmp_path) -> None:
+        """A hand edit to SOUL.md, or a half-applied edit from a crashed run, used to be committed
+        as "dream: manual run" with no body: attributed to Dream, listed in `/dream-restore`, and
+        revertable as though Dream had written it.
+        """
+        store = _store(tmp_path)
+        store.git.init()
+        store.write_soul("# Soul\n- edited by a person")
+
+        async def process_direct(*_args: Any, **_kwargs: Any) -> Any:
+            store.write_memory("# Memory\n- written by dream")
+            return _response()
+
+        outcome = await run_dream(store=store, agent=_agent(store, tmp_path, process_direct))
+
+        assert outcome.commit_sha is not None
+        messages = [c.message for c in store.git.log()]
+        dream_commits = [m for m in messages if m.startswith("dream:")]
+        assert len(dream_commits) == 1
+        assert "SOUL.md" not in dream_commits[0], (
+            "the person's edit must not appear in the body of a commit that names Dream"
+        )
+        # The operational test: `/dream-log` and `/dream-restore` both filter on the `dream:`
+        # prefix, so a commit outside that prefix is not offered as a Dream change to undo.
+        outside = [m for m in messages if not m.startswith("dream:") and "SOUL.md" in m]
+        assert outside, "the person's edit is committed, outside the prefix Dream commits carry"
+        assert store.git.log(message_prefix="dream:")[0].message == dream_commits[0]
+
+
+class TestARepairedRunCounts:
+    """A repaired error is not a failure -- nanoinfraorg/nanoinfra#113.
+
+    The runner appends "[Analyze the error above and try a different approach.]" to a failed tool
+    result, so failure then success is the designed path. Latching on any error meant a run that did
+    exactly what it was asked reported "did not complete", and the next run re-derived the same facts
+    from the same entries, forever, on every run that ever mistyped an edit.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_error_a_later_call_repaired_still_completes(self, tmp_path) -> None:
+        store = _store(tmp_path)
+
+        async def process_direct(*_args: Any, **kwargs: Any) -> Any:
+            progress = kwargs["on_progress"]
+            await progress(tool_events=[{"phase": "error", "name": "edit_file"}])
+            await progress(tool_events=[{"phase": "end", "name": "write_file"}])
+            store.write_memory("# Memory\n- the fact that survived the retry")
+            return _response()
+
+        outcome = await run_dream(store=store, agent=_agent(store, tmp_path, process_direct))
+
+        assert outcome.completed is True
+        assert store.get_last_dream_cursor() == 5
+
+    @pytest.mark.asyncio
+    async def test_a_run_whose_last_action_failed_does_not_advance(self, tmp_path) -> None:
+        store = _store(tmp_path)
+
+        async def process_direct(*_args: Any, **kwargs: Any) -> Any:
+            progress = kwargs["on_progress"]
+            await progress(tool_events=[{"phase": "end", "name": "read_file"}])
+            await progress(tool_events=[{"phase": "error", "name": "write_file"}])
+            return _response()
+
+        outcome = await run_dream(store=store, agent=_agent(store, tmp_path, process_direct))
+
+        assert outcome.completed is False
+        assert store.get_last_dream_cursor() == 0

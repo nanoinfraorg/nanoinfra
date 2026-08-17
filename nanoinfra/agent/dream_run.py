@@ -126,6 +126,13 @@ async def _run_dream_locked(
         return DreamRunOutcome(started=False, reason="no_input")
     prompt, last_cursor = result
 
+    # A durable file already changed before this run started -- a person's edit, or a half-applied
+    # edit from a crashed run. `auto_commit` stages every tracked file, so leaving it here would fold
+    # it into this run's commit: attributed to Dream, listed by `/dream-restore`, and revertable as
+    # though Dream had written it (#111). It gets its own commit, under a message that says what it
+    # is, so what follows is Dream's alone.
+    _commit_pre_existing_edits(store)
+
     try:
         response = await agent.process_direct(
             prompt,
@@ -141,7 +148,7 @@ async def _run_dream_locked(
         diff_body = store.dream_content_diff()
         completed = MemoryStore.dream_run_completed(
             response,
-            had_tool_errors=progress.had_tool_errors,
+            ended_in_error=progress.ended_in_error,
         )
         if completed:
             store.set_last_dream_cursor(last_cursor)
@@ -214,3 +221,20 @@ def _finish_dream_run(
         logger.exception("Dream: pruning session files failed")
 
     return commit_sha
+
+
+def _commit_pre_existing_edits(store: Any) -> None:
+    """Commit durable memory edits that were already there, under a non-Dream message."""
+    try:
+        if not store.git.is_initialized():
+            return
+        pending = store.dream_content_diff()
+        if not pending:
+            return
+        sha = store.git.auto_commit(
+            "chore: memory edits made outside a Dream run\n\n" + pending
+        )
+        if sha:
+            logger.info("Dream: committed pre-existing memory edits as {}", sha)
+    except Exception:
+        logger.exception("Dream: committing pre-existing memory edits failed")
