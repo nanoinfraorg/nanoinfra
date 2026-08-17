@@ -27,7 +27,7 @@ from nanoinfra.agent.tools.schema import (
 from nanoinfra.diagrams.catalog import load_catalog
 from nanoinfra.diagrams.lookup import resolve_diagram
 from nanoinfra.diagrams.normalize import DiagramValidationError, normalize_diagram
-from nanoinfra.diagrams.store import DiagramStore
+from nanoinfra.diagrams.store import DiagramConflictError, DiagramStore
 from nanoinfra.diagrams.types import Diagram
 
 if TYPE_CHECKING:
@@ -89,8 +89,11 @@ _EDGE_SCHEMA = ObjectSchema(
 # on, only a guess. A 2-line wrapped legend renders up to ~290px wide (the
 # node's text column caps at 220px, plus icon/gap/padding), so undershooting
 # this is exactly what produced real overlapping "pills" in practice.
-_DEFAULT_NODE_WIDTH = 300.0
-_DEFAULT_NODE_HEIGHT = 130.0
+# These must match `webui/src/components/diagrams/autoLayout.ts`, and a test asserts it rather than
+# asking a reader to keep two files in step. They disagreed by 80x40 px, which made a layout the
+# product's own Auto Layout produced read as overlapping (#91).
+_DEFAULT_NODE_WIDTH = 220.0
+_DEFAULT_NODE_HEIGHT = 90.0
 _LAYOUT_MARGIN = 40.0
 _DEFAULT_CONTAINER_WIDTH = 900.0
 _DEFAULT_GROUP_STYLE = {"width": 320.0, "height": 220.0}
@@ -170,22 +173,44 @@ def _has_overlap(siblings: list[Any]) -> bool:
     return any(_boxes_overlap(a, b) for i, a in enumerate(siblings) for b in siblings[i + 1 :])
 
 
-def _resolve_overlaps(nodes: list[Any]) -> None:
-    """Last-resort safety net, run after ``_auto_layout_new_nodes``: that
-    function only repositions node ids it was told are brand-new, trusting
-    everything else at face value. If the model *also* re-guessed a position
-    for a node that already existed -- e.g. nudging siblings around to "make
-    room" instead of copying them forward unchanged, as it was told to --
-    those coordinates have no protection and can collide (this happened for
-    real: a diagram needed a manual Auto Layout in the visual editor to
-    un-overlap after an agent update).
+def _keep_stored_positions(candidate: list[Any], stored: list[Any]) -> None:
+    """A node that already existed keeps the position on disk (#91).
 
-    Only touches sibling groups that actually overlap; an already-sane
-    layout is left alone. When one does, every sibling in it (not just the
-    colliding pair) is re-shelf-packed in their existing top-to-bottom,
-    left-to-right order, so the result stays recognizable rather than
-    scrambled.
+    The model is told to copy positions forward unchanged, and when it does not -- nudging siblings
+    to "make room", or re-deriving a layout it never saw -- the old code accepted the new coordinates
+    and then re-packed the whole sibling group to fix the collision. Measured: renaming one label
+    moved 11 of 11 nodes, and there is no undo, because `diagrams/` is not versioned and the write is
+    a full replace.
+
+    Discarding the model's position for an existing node is stronger than repairing the damage
+    afterwards: the collision cannot happen, so nothing has to be re-packed, so an operator's layout
+    survives an agent update by construction. Rearranging an existing diagram stays an operator
+    action, which is what the browser's Auto Layout button is.
     """
+    positions = {node.id: dict(node.position) for node in stored}
+    for node in candidate:
+        previous = positions.get(node.id)
+        if previous is not None:
+            node.position = previous
+
+
+def _resolve_overlaps(nodes: list[Any], movable_ids: set[str]) -> None:
+    """Move a **new** node that landed on top of something, and nothing else (#91).
+
+    This used to re-pack every sibling in any group that overlapped, on the theory that the model may
+    have re-guessed a position for a node that already existed. The cost of that theory was measured:
+    renaming one label moved 11 of 11 nodes, a vertical `client -> dns -> lb -> web` flow became a
+    two-column shelf grid, and there is no undo -- `diagrams/` is not versioned and the write is a
+    full replace.
+
+    A node the operator placed is a decision. If the model nudges an existing node into a collision,
+    the diagram looks wrong until somebody fixes it, and that is recoverable; a layout silently
+    rewritten under an operator is not.
+
+    ``movable_ids`` is the set this call may reposition, which is the ids that did not exist before.
+    """
+    if not movable_ids:
+        return
     by_id = {node.id: node for node in nodes}
     by_parent: dict[str | None, list[Any]] = {}
     for node in nodes:
@@ -193,6 +218,8 @@ def _resolve_overlaps(nodes: list[Any]) -> None:
 
     for parent_id, siblings in by_parent.items():
         if len(siblings) < 2 or not _has_overlap(siblings):
+            continue
+        if not any(node.id in movable_ids for node in siblings):
             continue
         siblings.sort(key=lambda node: (node.position.get("y", 0.0), node.position.get("x", 0.0)))
 
@@ -210,7 +237,10 @@ def _resolve_overlaps(nodes: list[Any]) -> None:
                 row_y += row_height + _LAYOUT_MARGIN
                 cursor_x = _LAYOUT_MARGIN
                 row_height = 0.0
-            node.position = {"x": cursor_x, "y": row_y}
+            # The cursor walks every sibling so the packing stays in the same reading order, and only
+            # a movable node is written: an existing node keeps the position it was given.
+            if node.id in movable_ids:
+                node.position = {"x": cursor_x, "y": row_y}
             cursor_x += width + _LAYOUT_MARGIN
             row_height = max(row_height, height)
 
@@ -464,6 +494,11 @@ class UpdateDiagramTool(Tool):
     def __init__(self, store: DiagramStore, workspace: Path) -> None:
         self.store = store
         self.workspace = workspace
+        #: The revision each diagram held when this tool last previewed it (#93). An apply carries
+        #: the value, so an operator's save in between is a refusal rather than an overwrite. A
+        #: direct apply with no preview has nothing recorded and is the model's own risk, which is
+        #: the behaviour that shipped.
+        self._previewed_revisions: dict[str, int | None] = {}
 
     @property
     def name(self) -> str:
@@ -495,6 +530,7 @@ class UpdateDiagramTool(Tool):
         current = self.store.get(diagram_id)
         if current is None:
             return ToolResult.error(f"No saved diagram with id {diagram_id!r}.")
+        revision_now = self.store.revision(diagram_id)
 
         raw: dict[str, Any] = {
             "name": name if name is not None else current.name,
@@ -508,8 +544,9 @@ class UpdateDiagramTool(Tool):
             return ToolResult.error(f"Invalid diagram payload: {exc}")
 
         new_ids = {node.id for node in candidate.nodes} - {node.id for node in current.nodes}
+        _keep_stored_positions(candidate.nodes, current.nodes)
         _auto_layout_new_nodes(candidate.nodes, new_ids)
-        _resolve_overlaps(candidate.nodes)
+        _resolve_overlaps(candidate.nodes, new_ids)
         _fit_groups_to_children(candidate.nodes)
 
         catalog_types = load_catalog(self.workspace, skills_workspace_path=self.workspace)
@@ -520,6 +557,9 @@ class UpdateDiagramTool(Tool):
         diff = _diff_summary(current, candidate)
 
         if dry_run:
+            # The revision this preview was built from. The apply below carries it, so a save the
+            # operator makes while the user is deciding is a refusal and not a silent overwrite (#93).
+            self._previewed_revisions[diagram_id] = revision_now
             return (
                 "Preview (not saved):\n"
                 f"{diff}\n\n"
@@ -527,10 +567,21 @@ class UpdateDiagramTool(Tool):
                 "dry_run=false only after the user confirms."
             )
 
+        expected = self._previewed_revisions.pop(diagram_id, None)
         # Persist `candidate`, not the original `raw` -- it carries the
         # auto-arranged positions/group sizes computed above, which the
         # model's own (possibly overlapping) guesses must not overwrite.
-        saved = self.store.update(diagram_id, candidate.to_dict())
+        try:
+            saved = self.store.update(
+                diagram_id,
+                candidate.to_dict(),
+                expected_revision=expected,
+            )
+        except DiagramConflictError as exc:
+            return ToolResult.error(
+                f"Not saved -- {exc} Read the diagram again with read_diagram and redo the change "
+                "against what is there now."
+            )
         if saved is None:
             return ToolResult.error(f"No saved diagram with id {diagram_id!r}.")
         return f"Saved.\n{diff}"
@@ -604,7 +655,7 @@ class CreateDiagramTool(Tool):
 
         new_ids = {node.id for node in candidate.nodes}
         _auto_layout_new_nodes(candidate.nodes, new_ids)
-        _resolve_overlaps(candidate.nodes)
+        _resolve_overlaps(candidate.nodes, new_ids)
         _fit_groups_to_children(candidate.nodes)
 
         catalog_types = load_catalog(self.workspace, skills_workspace_path=self.workspace)

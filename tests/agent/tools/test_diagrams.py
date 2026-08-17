@@ -246,15 +246,18 @@ async def test_update_diagram_auto_arranges_new_nodes_ignoring_model_positions(t
 
     positions = {node_id: (by_id[node_id].position["x"], by_id[node_id].position["y"]) for node_id in ("new-a", "new-b", "new-c")}
     assert len(set(positions.values())) == 3, f"new nodes must not collide: {positions}"
+    # A pitch of 220 + 40, from the footprint the browser actually draws (#91). These read 380 and
+    # 260 before, from a 300x130 guess that made hand-arranged layouts register as overlapping.
     assert positions == {
         "new-a": (40.0, 90.0),
-        "new-b": (380.0, 90.0),
-        "new-c": (40.0, 260.0),
+        "new-b": (300.0, 90.0),
+        "new-c": (40.0, 220.0),
     }
 
-    # The group must grow to actually contain its new children.
+    # The group must grow to actually contain its new children. Smaller than it was, because the
+    # children are the size the canvas draws them rather than a 300x130 guess (#91).
     resized_group = by_id["group"]
-    assert resized_group.style == {"width": 720.0, "height": 430.0}
+    assert resized_group.style == {"width": 700.0, "height": 350.0}
 
 
 @pytest.mark.asyncio
@@ -472,7 +475,7 @@ def test_resolve_overlaps_leaves_a_non_overlapping_layout_untouched() -> None:
     nodes = [_plain_node("a", 40.0, 40.0), _plain_node("b", 500.0, 40.0)]
     original = [dict(n.position) for n in nodes]
 
-    _resolve_overlaps(nodes)
+    _resolve_overlaps(nodes, {node.id for node in nodes})
 
     assert [dict(n.position) for n in nodes] == original
 
@@ -483,7 +486,196 @@ def test_resolve_overlaps_repacks_only_the_colliding_sibling_set() -> None:
     untouched[0].parent_id = "other-group"
     nodes = overlapping + untouched
 
-    _resolve_overlaps(nodes)
+    _resolve_overlaps(nodes, {node.id for node in nodes})
 
     assert not _boxes_overlap(overlapping[0], overlapping[1])
     assert untouched[0].position == {"x": 40.0, "y": 40.0}
+
+
+def _valid(node_id: str, x: float, y: float) -> dict:
+    """A node the catalog accepts, so these tests exercise layout and not validation."""
+    return {
+        "id": node_id,
+        "position": {"x": x, "y": y},
+        "data": {
+            "label": node_id.upper(),
+            "componentTypeId": "monitoring",
+            "providerId": "prometheus",
+            "config": {},
+        },
+    }
+
+
+class TestAnApplyCarriesWhatItRead:
+    """A preview then an operator save then an apply -- nanoinfraorg/nanoinfra#93.
+
+    The agent previews adding a node, the operator adds a load balancer in the browser and saves, the
+    user says yes, and the agent applies what it previewed. The operator's node and edge were gone,
+    and the only trace was a diff printed after the write.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_apply_after_a_concurrent_save_is_refused(self, tmp_path) -> None:
+        from nanoinfra.agent.tools.diagrams import UpdateDiagramTool
+        from nanoinfra.diagrams.store import DiagramStore
+
+        store = DiagramStore(tmp_path)
+        diagram = store.create({
+            "name": "Topology",
+            "nodes": [_valid("web", 0, 0)],
+            "edges": [],
+        })
+        tool = UpdateDiagramTool(store, tmp_path)
+
+        preview = await tool.execute(
+            diagram_id=diagram.id,
+            nodes=[
+                _valid("web", 0, 0),
+                _valid("cache", 0, 0),
+            ],
+            edges=[],
+            dry_run=True,
+        )
+        assert "Preview" in str(preview)
+
+        # The operator saves in the browser while the user is deciding.
+        store.update(diagram.id, {
+            "nodes": [
+                _valid("web", 0, 0),
+                _valid("lb", 400, 0),
+            ],
+            "edges": [{"id": "e2", "source": "lb", "target": "web"}],
+        })
+
+        applied = await tool.execute(
+            diagram_id=diagram.id,
+            nodes=[
+                _valid("web", 0, 0),
+                _valid("cache", 0, 0),
+            ],
+            edges=[],
+            dry_run=False,
+        )
+
+        assert "changed" in str(applied).lower()
+        loaded = store.get(diagram.id)
+        assert loaded is not None
+        assert [node.id for node in loaded.nodes] == ["web", "lb"], "the operator's save survives"
+
+    @pytest.mark.asyncio
+    async def test_an_apply_with_no_concurrent_write_succeeds(self, tmp_path) -> None:
+        from nanoinfra.agent.tools.diagrams import UpdateDiagramTool
+        from nanoinfra.diagrams.store import DiagramStore
+
+        store = DiagramStore(tmp_path)
+        diagram = store.create({
+            "name": "Topology",
+            "nodes": [_valid("web", 0, 0)],
+            "edges": [],
+        })
+        tool = UpdateDiagramTool(store, tmp_path)
+        nodes = [
+            _valid("web", 0, 0),
+            _valid("cache", 0, 0),
+        ]
+
+        await tool.execute(diagram_id=diagram.id, nodes=nodes, edges=[], dry_run=True)
+        applied = await tool.execute(diagram_id=diagram.id, nodes=nodes, edges=[], dry_run=False)
+
+        assert "Saved" in str(applied)
+        loaded = store.get(diagram.id)
+        assert loaded is not None
+        assert sorted(node.id for node in loaded.nodes) == ["cache", "web"]
+
+
+class TestTheOperatorsLayoutIsADecision:
+    """An update re-packed every node -- nanoinfraorg/nanoinfra#91.
+
+    Python assumed a node footprint of 300x130 and the browser draws 220x90 with a horizontal pitch
+    of 270, so a layout the product's own Auto Layout produced read as overlapping. All seven seeded
+    diagrams tripped the detector, and renaming one label moved 11 of 11 nodes. There is no undo:
+    `diagrams/` is not versioned and the write is a full replace.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_rename_moves_nothing(self, tmp_path) -> None:
+        from nanoinfra.agent.tools.diagrams import UpdateDiagramTool
+        from nanoinfra.diagrams.store import DiagramStore
+
+        store = DiagramStore(tmp_path)
+        placed = [
+            _valid("client", 40, 20),
+            _valid("dns", 20, 140),
+            _valid("lb", 20, 260),
+            _valid("web", 20, 380),
+        ]
+        diagram = store.create({"name": "Flow", "nodes": placed, "edges": []})
+        tool = UpdateDiagramTool(store, tmp_path)
+
+        await tool.execute(diagram_id=diagram.id, nodes=placed, edges=[], dry_run=True)
+        await tool.execute(
+            diagram_id=diagram.id,
+            nodes=[
+                {**node, "data": {**node["data"], "label": node["data"]["label"] + "!"}}
+                for node in placed
+            ],
+            edges=[],
+            dry_run=False,
+        )
+
+        loaded = store.get(diagram.id)
+        assert loaded is not None
+        after = {node.id: (node.position["x"], node.position["y"]) for node in loaded.nodes}
+        before = {node["id"]: (node["position"]["x"], node["position"]["y"]) for node in placed}
+        assert after == before, "a node the operator placed is a decision, not a suggestion"
+
+    @pytest.mark.asyncio
+    async def test_a_new_node_is_still_placed_clear_of_the_others(self, tmp_path) -> None:
+        from nanoinfra.agent.tools.diagrams import UpdateDiagramTool
+        from nanoinfra.diagrams.store import DiagramStore
+
+        store = DiagramStore(tmp_path)
+        placed = [_valid("web", 40, 40)]
+        diagram = store.create({"name": "Flow", "nodes": placed, "edges": []})
+        tool = UpdateDiagramTool(store, tmp_path)
+
+        await tool.execute(
+            diagram_id=diagram.id,
+            nodes=[*placed, _valid("cache", 40, 40)],
+            edges=[],
+            dry_run=True,
+        )
+        await tool.execute(
+            diagram_id=diagram.id,
+            nodes=[*placed, _valid("cache", 40, 40)],
+            edges=[],
+            dry_run=False,
+        )
+
+        loaded = store.get(diagram.id)
+        assert loaded is not None
+        positions = {node.id: (node.position["x"], node.position["y"]) for node in loaded.nodes}
+        assert positions["web"] == (40, 40), "the existing node did not move"
+        assert positions["cache"] != (40, 40), "and the new one was placed somewhere else"
+
+
+def test_the_python_footprint_matches_what_the_browser_draws() -> None:
+    """One footprint, checked rather than commented -- #91.
+
+    A comment naming the browser's values is not enough: the two already disagreed, by 80x40 pixels,
+    which is what made a hand-arranged layout read as overlapping.
+    """
+    import re as _re
+    from pathlib import Path as _Path
+
+    from nanoinfra.agent.tools.diagrams import _DEFAULT_NODE_HEIGHT, _DEFAULT_NODE_WIDTH
+
+    source = _Path(__file__).parents[3] / "webui" / "src" / "components" / "diagrams" / "autoLayout.ts"
+    text = source.read_text(encoding="utf-8")
+    width = int(_re.search(r"const NODE_WIDTH = (\d+)", text).group(1))
+    height = int(_re.search(r"const NODE_HEIGHT = (\d+)", text).group(1))
+
+    assert (_DEFAULT_NODE_WIDTH, _DEFAULT_NODE_HEIGHT) == (float(width), float(height)), (
+        f"the browser draws {width}x{height} and Python assumes "
+        f"{_DEFAULT_NODE_WIDTH}x{_DEFAULT_NODE_HEIGHT}"
+    )
