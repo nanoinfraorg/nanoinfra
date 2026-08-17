@@ -1583,7 +1583,14 @@
     "failed": "Không thể xem trước tệp này.",
     "routeMissing": "Xem trước tệp cần gateway mới nhất. Hãy khởi động lại nanoinfra gateway rồi thử lại.",
     "resize": "Đổi kích thước bản xem trước tệp",
-    "truncated": "Bản xem trước bị cắt vì tệp này lớn."
+    "truncated": "Bản xem trước bị cắt vì tệp này lớn.",
+    "renderMode": "Cách hiển thị tệp này",
+    "raw": "Nguồn",
+    "rendered": "Xem trước",
+    "truncatedNoPreview": "Tệp lớn chỉ được hiển thị dưới dạng mã nguồn.",
+    "rendering": "Đang kết xuất biểu đồ...",
+    "mermaidFailed": "Không thể kết xuất biểu đồ này.",
+    "viewSource": "Xem mã nguồn"
   },
   "code": {
     "fallbackLanguage": "mã",

@@ -31,22 +31,19 @@ const VOID_TAGS = /<(area|base|br|col|embed|hr|img|input|link|meta|source|track|
 export function toPortableSvg(markup: string): string {
   if (typeof DOMParser === "undefined" || typeof XMLSerializer === "undefined") return markup;
 
-  const wellFormed = asWellFormedXml(markup);
-  if (wellFormed === null) return markup;
-
-  const root = parseXml(wellFormed)?.documentElement;
+  // Closed unconditionally, and parsed exactly once. The tempting shape -- parse, and only repair
+  // if that fails -- means every single mermaid render leaves an `XML Parsing Error: mismatched
+  // tag. Expected: </br>` in the console, because a failed `DOMParser` parse logs even though it
+  // returns a document the caller can inspect. That is indistinguishable from the defect this
+  // function exists to fix. The replacement is a no-op on markup that is already well formed, so
+  // repairing first costs nothing and leaves the console clean.
+  const root = parseXml(markup.replace(VOID_TAGS, "<$1$2/>"))?.documentElement;
   if (!root || root.localName?.toLowerCase() !== "svg") return markup;
 
   if (!root.getAttribute("xmlns")) root.setAttribute("xmlns", SVG_NS);
   applyIntrinsicSize(root);
 
   return new XMLSerializer().serializeToString(root);
-}
-
-function asWellFormedXml(markup: string): string | null {
-  if (parsesAsXml(markup)) return markup;
-  const closed = markup.replace(VOID_TAGS, "<$1$2/>");
-  return parsesAsXml(closed) ? closed : null;
 }
 
 function parseXml(markup: string): Document | null {
@@ -56,10 +53,6 @@ function parseXml(markup: string): Document | null {
   } catch {
     return null;
   }
-}
-
-function parsesAsXml(markup: string): boolean {
-  return parseXml(markup) !== null;
 }
 
 function applyIntrinsicSize(svg: Element): void {

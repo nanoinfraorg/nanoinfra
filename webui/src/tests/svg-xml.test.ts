@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { toPortableSvg } from "@/lib/svg-xml";
 
@@ -102,5 +102,19 @@ describe("toPortableSvg", () => {
     toPortableSvg(hostile);
 
     expect((window as unknown as { __svgXmlPwned?: boolean }).__svgXmlPwned).toBeUndefined();
+  });
+
+  it("parses once, so a repaired diagram leaves no parse error in the console", () => {
+    // Reported from the preview panel: opening a .mmd logged "XML Parsing Error: mismatched tag.
+    // Expected: </br>" twice per render. Nothing was broken -- that was this function probing with
+    // a parse it expected to fail, and a failed DOMParser parse logs even when its result is
+    // handled. Repairing first and parsing once removes the noise entirely.
+    const parseFromString = vi.spyOn(DOMParser.prototype, "parseFromString");
+
+    toPortableSvg(MERMAID_SHAPED);
+
+    expect(parseFromString).toHaveBeenCalledTimes(1);
+    expect(parseFromString.mock.calls[0]?.[0]).not.toMatch(/<br>/);
+    parseFromString.mockRestore();
   });
 });

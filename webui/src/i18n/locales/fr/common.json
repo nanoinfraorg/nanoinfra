@@ -1583,7 +1583,14 @@
     "failed": "Impossible de prévisualiser ce fichier.",
     "routeMissing": "L’aperçu du fichier nécessite le dernier gateway. Redémarrez nanoinfra gateway puis réessayez.",
     "resize": "Redimensionner l’aperçu du fichier",
-    "truncated": "L’aperçu est tronqué car le fichier est volumineux."
+    "truncated": "L’aperçu est tronqué car le fichier est volumineux.",
+    "renderMode": "Comment afficher ce fichier",
+    "raw": "Source",
+    "rendered": "Aperçu",
+    "truncatedNoPreview": "Les fichiers volumineux sont affichés uniquement comme source.",
+    "rendering": "Génération du diagramme...",
+    "mermaidFailed": "Ce diagramme n’a pas pu être affiché.",
+    "viewSource": "Voir la source"
   },
   "code": {
     "fallbackLanguage": "code",

@@ -1583,7 +1583,14 @@
     "failed": "無法預覽這個檔案。",
     "routeMissing": "檔案預覽需要最新版本的閘道。請重新啟動 nanoinfra 閘道後再試一次。",
     "resize": "調整檔案預覽寬度",
-    "truncated": "檔案較大，因此預覽內容已截斷。"
+    "truncated": "檔案較大，因此預覽內容已截斷。",
+    "renderMode": "如何顯示此檔案",
+    "raw": "原始碼",
+    "rendered": "預覽",
+    "truncatedNoPreview": "較大的檔案僅以原始碼顯示。",
+    "rendering": "正在繪製圖表…",
+    "mermaidFailed": "無法繪製此圖表。",
+    "viewSource": "檢視原始碼"
   },
   "code": {
     "fallbackLanguage": "程式碼",
