@@ -85,28 +85,6 @@ executor_role="executor"
 fetcher_role="fetcher"
 mcp_host_role="mcp-host"
 
-# Render deploy path (see render.yaml + render-config.json). Gated on Render's
-# automatic RENDER=true env var so local Docker/podman usage is unaffected.
-# Initializes the on-disk config from the committed template (wiring secrets via
-# ${VAR} env vars, keeping runtime data on the persistent disk) and appends the
-# --config flag. Logs each decision so a failed start is diagnosable in Render's
-# logs. Privilege dropping is handled below, for every root start (not just here).
-if [ "$RENDER" = "true" ]; then
-    echo "[entrypoint] Render deploy — starting as $(id)"
-    mkdir -p "$dir" || echo "[entrypoint] warning: mkdir $dir failed"
-    config="$dir/config.json"
-    # Initialize config only when it does not already exist, so WebUI/provider
-    # settings edited at runtime survive restarts. The disk persists config.json
-    # across deploys; overwriting it every boot would discard those changes.
-    if [ ! -f "$config" ]; then
-        echo "[entrypoint] initializing $config from render-config.json"
-        cp /app/render-config.json "$config" || echo "[entrypoint] warning: cp config failed"
-    else
-        echo "[entrypoint] existing $config found — leaving it in place"
-    fi
-    set -- "$@" --config "$config"
-fi
-
 # The executor resolves credentials out of the workspace, so it needs the same workspace the
 # agent uses. Three sources, in order: NANOINFRA_WORKSPACE, then a --workspace/-w flag on the
 # command, then nanoinfra's default. A shell cannot see a workspace that only config.json sets,
@@ -531,11 +509,11 @@ warn_split_not_enforced() {
     echo "[entrypoint] warning: split is organisational here, not kernel-enforced." >&2
 }
 
-# Drop privileges whenever the container starts as root. Render mounts the
-# persistent disk root-owned, and a plain `docker run` also defaults to root now,
-# so this covers both. Chown the data dir so the non-root user can write it, then
-# re-exec as nanoinfra. Fail closed: if the privilege drop cannot be performed,
-# exit rather than run the agent as root.
+# Drop privileges whenever the container starts as root. A plain `docker run`
+# defaults to root, and a root-owned bind mount or volume lands the data dir there
+# too, so this covers both. Chown the data dir so the non-root user can write it,
+# then re-exec as nanoinfra. Fail closed: if the privilege drop cannot be
+# performed, exit rather than run the agent as root.
 if [ "$(id -u)" = "0" ]; then
     # This recursive chown runs before prepare_executor_paths, because it would otherwise
     # hand the executor's two directories back to the agent account.
