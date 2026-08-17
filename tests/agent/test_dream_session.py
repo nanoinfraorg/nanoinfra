@@ -9,10 +9,18 @@ from nanoinfra.session.manager import SessionManager
 
 class TestDreamSessionKey:
     def test_contains_timestamp(self):
+        """The timestamp stays readable, and a uniqueness suffix follows it (#122).
+
+        One-second resolution made two runs in the same second share a session file. The suffix is
+        what cannot collide; the timestamp is what an operator reads in a directory listing. This
+        lands with the run lock in ``agent/dream_run.py``, because a unique key on its own removes an
+        accidental serialization without putting a real one in its place.
+        """
         key = MemoryStore.dream_session_key()
         assert key.startswith("dream:")
-        ts_part = key.split(":", 1)[1]
-        datetime.strptime(ts_part, "%Y%m%d-%H%M%S")
+        stamp, _, unique = key.split(":", 1)[1].rpartition("-")
+        datetime.strptime(stamp, "%Y%m%d-%H%M%S")
+        assert unique and unique.isalnum()
 
     def test_unique_across_calls(self):
         now = datetime(2026, 5, 28, 10, 0, 0)

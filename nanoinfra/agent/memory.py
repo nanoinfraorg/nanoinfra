@@ -17,6 +17,7 @@ from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator, cast
+from uuid import uuid4
 
 from filelock import FileLock
 from loguru import logger
@@ -64,10 +65,22 @@ class MemoryCursorError(RuntimeError):
 
 
 class DreamRunProgress:
-    """Track tool failures that make a nominally completed Dream run unsafe to advance."""
+    """Whether a Dream run's tools ended in a good state (#113).
+
+    The old flag latched on any ``phase == "error"`` for the whole run, and the runner appends
+    "[Analyze the error above and try a different approach.]" to a failed tool result -- so failure
+    then success is the *designed* path. A run that mistyped one ``old_text`` and then wrote the file
+    correctly was reported as "did not complete", the cursor stayed put, and the next run re-derived
+    the same facts from the same entries. Forever, on every run that ever mistyped an edit.
+
+    So the question is the end state and not the history of attempts: did the last thing the model
+    did fail? ``had_tool_errors`` is kept for reporting, because "it recovered from an error" is
+    worth logging even when it does not block.
+    """
 
     def __init__(self) -> None:
         self.had_tool_errors = False
+        self.ended_in_error = False
 
     async def __call__(
         self,
@@ -75,11 +88,17 @@ class DreamRunProgress:
         tool_events: list[dict[str, Any]] | None = None,
         **_kwargs: Any,
     ) -> None:
-        if any(
-            isinstance(cast(object, event), dict) and event.get("phase") == "error"
-            for event in tool_events or ()
-        ):
-            self.had_tool_errors = True
+        for raw_event in tool_events or ():
+            if not isinstance(cast(object, raw_event), dict):
+                continue
+            phase = raw_event.get("phase")
+            if phase == "error":
+                self.had_tool_errors = True
+                self.ended_in_error = True
+            elif phase in ("end", "success"):
+                # A later call that worked is the model repairing itself, which is the path the
+                # runner's own retry hint asks for.
+                self.ended_in_error = False
 
 
 class MemoryStore:
@@ -288,12 +307,6 @@ class MemoryStore:
 
     def write_user(self, content: str) -> None:
         self._atomic_write_text(self.user_file, content)
-
-    # -- context injection (used by context.py) ------------------------------
-
-    def get_memory_context(self) -> str:
-        long_term = self.read_memory()
-        return f"## Long-term Memory\n{long_term}" if long_term else ""
 
     # -- history.jsonl — append-only, JSONL format ---------------------------
 
@@ -783,11 +796,16 @@ class MemoryStore:
     def dream_run_completed(
         resp: object | None,
         *,
-        had_tool_errors: bool = False,
+        ended_in_error: bool = False,
     ) -> bool:
-        """Return True only when a Dream turn completed without tool failures."""
+        """True when the turn finished and its last tool action did not fail (#113).
+
+        ``ended_in_error`` replaces a flag that latched on any error at any point: that could not
+        tell a failed write from a failed read the model then worked around, and re-dreaming a batch
+        that was already consolidated is the more expensive mistake of the two.
+        """
         metadata = getattr(resp, "metadata", None)
-        if had_tool_errors or not isinstance(metadata, dict):
+        if ended_in_error or not isinstance(metadata, dict):
             return False
         return cast(dict[str, Any], metadata).get("_stop_reason") == "completed"
 
@@ -844,8 +862,16 @@ class MemoryStore:
 
     @staticmethod
     def dream_session_key() -> str:
-        """Return a unique session key for a Dream run, e.g. ``dream:20260528-100000``."""
-        return f"dream:{datetime.now():%Y%m%d-%H%M%S}"
+        """A key no other run can hold, e.g. ``dream:20260528-100000-1f4c9ab2`` (#122).
+
+        The timestamp alone had one-second resolution, so two runs started in the same second shared
+        a session file *and* the per-session dispatch lock -- they serialized by accident rather than
+        by design. Serialization is the lock in ``agent/dream_run.py``; this is identity, and a wall
+        clock cannot provide it at any resolution because NTP moves it backwards.
+
+        The timestamp stays because an operator reads these in a directory listing.
+        """
+        return f"dream:{datetime.now():%Y%m%d-%H%M%S}-{uuid4().hex[:8]}"
 
     @staticmethod
     def build_dream_commit_message(prefix: str, diff_body: str) -> str:
