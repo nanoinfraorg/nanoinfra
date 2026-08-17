@@ -16,7 +16,7 @@ from nanoinfra.command.builtin import (
     cmd_dream_restore,
 )
 from nanoinfra.command.router import CommandContext
-from nanoinfra.utils.gitstore import CommitInfo
+from nanoinfra.utils.gitstore import CommitInfo, RevertResult
 
 
 class _FakeStore:
@@ -59,7 +59,7 @@ class _FakeGit:
         initialized: bool = True,
         commits: list[CommitInfo] | None = None,
         diff_map: dict[str, tuple[CommitInfo, str] | None] | None = None,
-        revert_result: str | None = None,
+        revert_result: "RevertResult | None" = None,
     ):
         self._initialized = initialized
         self._commits = commits or []
@@ -523,7 +523,13 @@ async def test_dream_restore_success_mentions_files_and_followup() -> None:
     )
     git = _FakeGit(
         diff_map={commit.sha: (commit, diff)},
-        revert_result="eeee9999",
+        # What the operation actually wrote, which is not the same set as the commit's diff: that
+        # difference is the defect in #117, so the listing must follow this and not `diff`.
+        revert_result=RevertResult(
+            sha="eeee9999",
+            restored=["SOUL.md", "memory/MEMORY.md"],
+            discarded=[],
+        ),
     )
 
     out = await cmd_dream_restore(_make_ctx("/dream-restore abcd1234", git, args="abcd1234"))
@@ -531,8 +537,33 @@ async def test_dream_restore_success_mentions_files_and_followup() -> None:
     assert "Restored Dream memory to the state before `abcd1234`." in out.content
     assert "- New safety commit: `eeee9999`" in out.content
     assert "- Restored files: `SOUL.md`, `memory/MEMORY.md`" in out.content
+    assert "Discarded" not in out.content
     assert "Use `/dream-log eeee9999` to inspect the restore diff." in out.content
     assert git.revert_calls == [("abcd1234", "dream:")]
+
+
+@pytest.mark.asyncio
+async def test_dream_restore_says_when_it_threw_later_work_away() -> None:
+    """The half the old listing could not express (#117).
+
+    A restore of a middle commit rewinds files that moved on since. The command used to report a
+    clean restore of the commit's own diff, so the destroyed work was never named anywhere.
+    """
+    commit = CommitInfo(sha="abcd1234", message="dream: older", timestamp="2026-04-04 08:00")
+    git = _FakeGit(
+        diff_map={commit.sha: (commit, "diff --git a/SOUL.md b/SOUL.md\n")},
+        revert_result=RevertResult(
+            sha="eeee9999",
+            restored=["SOUL.md"],
+            discarded=["SOUL.md"],
+        ),
+    )
+
+    out = await cmd_dream_restore(_make_ctx("/dream-restore abcd1234", git, args="abcd1234"))
+
+    assert "Discarded later changes" in out.content
+    assert "`SOUL.md`" in out.content
+    assert "moved on" in out.content
 
 
 @pytest.mark.asyncio
@@ -542,7 +573,7 @@ async def test_dream_restore_rejects_non_dream_commit_clearly() -> None:
     )
     git = _FakeGit(
         diff_map={commit.sha: (commit, "unrelated diff")},
-        revert_result="eeee9999",
+        revert_result=RevertResult(sha="eeee9999", restored=["SOUL.md"], discarded=[]),
     )
 
     out = await cmd_dream_restore(_make_ctx("/dream-restore cccc3333", git, args="cccc3333"))

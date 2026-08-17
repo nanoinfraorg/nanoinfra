@@ -297,3 +297,77 @@ class TestMemoryStoreGitProperty:
         from nanoinfra.agent.memory import MemoryStore
         store = MemoryStore(tmp_path)
         assert store.git is store._git
+
+
+class TestRevertTouchesOnlyOneCommitsFiles:
+    """``revert`` rewound every tracked file -- nanoinfraorg/nanoinfra#117.
+
+    Its docstring says "Revert (undo) the changes introduced by the given commit", and the loop ran
+    over ``self._tracked_files`` rather than the commit's own paths, so a later and unrelated dream
+    was destroyed by reverting an earlier one. ``/dream-log`` offers the operation for any commit the
+    user inspected, and ``/dream-restore`` listed "Restored files:" from *that commit's* diff -- so
+    it destroyed work it did not name, and named work it did not restore.
+    """
+
+    def test_a_middle_revert_leaves_a_later_unrelated_file_alone(self, git_ready):
+        ws = git_ready._workspace
+        (ws / "SOUL.md").write_text("fact A", encoding="utf-8")
+        git_ready.auto_commit("dream: A")
+        (ws / "SOUL.md").write_text("fact B", encoding="utf-8")
+        middle = git_ready.auto_commit("dream: B")
+        (ws / "USER.md").write_text("fact C", encoding="utf-8")
+        git_ready.auto_commit("dream: C")
+
+        result = git_ready.revert(middle)
+
+        assert result is not None
+        assert (ws / "SOUL.md").read_text(encoding="utf-8") == "fact A"
+        assert (ws / "USER.md").read_text(encoding="utf-8") == "fact C", (
+            "fact C belongs to a later dream that the reverted commit never touched"
+        )
+        assert result.restored == ["SOUL.md"]
+
+    def test_the_result_names_what_it_wrote(self, git_ready):
+        ws = git_ready._workspace
+        (ws / "SOUL.md").write_text("v1", encoding="utf-8")
+        (ws / "USER.md").write_text("u1", encoding="utf-8")
+        both = git_ready.auto_commit("dream: both")
+
+        result = git_ready.revert(both)
+
+        assert result is not None
+        assert sorted(result.restored) == ["SOUL.md", "USER.md"]
+
+    def test_a_later_change_to_the_same_file_is_reported_as_discarded(self, git_ready):
+        """The case a listing must not hide: restoring this does lose work."""
+        ws = git_ready._workspace
+        (ws / "SOUL.md").write_text("fact A", encoding="utf-8")
+        target = git_ready.auto_commit("dream: A")
+        (ws / "SOUL.md").write_text("fact A\nfact B", encoding="utf-8")
+        git_ready.auto_commit("dream: B")
+
+        result = git_ready.revert(target)
+
+        assert result is not None
+        assert result.discarded == ["SOUL.md"]
+
+    def test_nothing_is_discarded_when_the_target_is_the_latest(self, git_ready):
+        ws = git_ready._workspace
+        (ws / "SOUL.md").write_text("fact A", encoding="utf-8")
+        latest = git_ready.auto_commit("dream: A")
+
+        result = git_ready.revert(latest)
+
+        assert result is not None
+        assert result.discarded == []
+
+    def test_the_new_commit_sha_is_still_available(self, git_ready):
+        ws = git_ready._workspace
+        (ws / "SOUL.md").write_text("v2", encoding="utf-8")
+        target = git_ready.auto_commit("v2")
+
+        result = git_ready.revert(target)
+
+        assert result is not None
+        assert result.sha
+        assert git_ready.log()[0].sha == result.sha
