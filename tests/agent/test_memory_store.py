@@ -901,3 +901,43 @@ class TestHistoryReachesTheModelAsData:
         assert len(outer) > 3, "the frame is longer than the fence the entry carried"
         assert body.count(outer) == 2, "the frame opens once and closes once"
         assert "## Editing" in body.split(outer)[1], "the entry sits inside the frame"
+
+
+class TestTheHistoryCeilingIsACeiling:
+    """``max_history_entries`` was not a bound -- nanoinfraorg/nanoinfra#118.
+
+    ``compact_history`` had exactly two production callers and both were Dream drivers. ``dream``
+    defaults to disabled, so with Dream off the compactor never ran at all: 5,000 entries under a
+    1,000 limit, 1.6 MB, and every turn re-parses the whole file. A stuck cursor pinned the floor at
+    0 and produced the same result with Dream on.
+    """
+
+    def test_appending_past_the_limit_compacts_without_dream(self, store) -> None:
+        store.max_history_entries = 20
+        store.set_last_dream_cursor(200)
+
+        for index in range(120):
+            store.append_history(f"entry {index}")
+
+        kept = store._read_entries()
+        assert len(kept) <= 40, (
+            f"the file holds {len(kept)} entries under a limit of 20, and nothing else will trim it"
+        )
+        assert kept[-1]["content"] == "entry 119", "the newest entry is never the one dropped"
+
+    def test_unconsolidated_entries_are_still_never_dropped(self, store) -> None:
+        """The bound must not cost Dream its input: an entry the cursor has not passed stays."""
+        store.max_history_entries = 5
+
+        for index in range(60):
+            store.append_history(f"entry {index}")
+
+        kept = store._read_entries()
+        assert len(kept) == 60, "nothing was consolidated, so nothing may be dropped"
+
+    def test_a_limit_of_zero_still_means_no_compaction(self, store) -> None:
+        store.max_history_entries = 0
+        for index in range(30):
+            store.append_history(f"entry {index}")
+
+        assert len(store._read_entries()) == 30

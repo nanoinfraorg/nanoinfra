@@ -372,7 +372,35 @@ class MemoryStore:
             with open(self.history_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
             self._atomic_write_text(self._cursor_file, str(cursor))
+            self._compact_if_over_band()
         return cursor
+
+    def _compact_if_over_band(self) -> None:
+        """Keep the file near ``max_history_entries`` from the path that grows it (#118).
+
+        Compaction used to have two callers and both were Dream drivers, and ``dream`` defaults to
+        disabled -- so the configured limit was not a limit at all: 5,000 entries under a limit of
+        1,000, and every turn re-parsing 1.6 MB. A ceiling cannot depend on a feature the operator
+        may have turned off.
+
+        The band exists so an append is not a rewrite. Compaction runs when the file is well past
+        the limit, not on every line. Called with both locks already held, so it calls the locked
+        body directly.
+        """
+        if self.max_history_entries <= 0:
+            return
+        band = self.max_history_entries + max(20, self.max_history_entries // 5)
+        if self._entry_count() <= band:
+            return
+        self._compact_history_locked()
+
+    def _entry_count(self) -> int:
+        """Lines in history.jsonl, without parsing them."""
+        try:
+            with open(self.history_file, "rb") as handle:
+                return sum(1 for _ in handle)
+        except OSError:
+            return 0
 
     def _history_lock(self) -> FileLock:
         """The cross-process lock every writer of history.jsonl holds.
@@ -743,11 +771,28 @@ class MemoryStore:
         )
         return (prompt, batch[-1]["cursor"])
 
+    def files_shown_in_part(self) -> set[Path]:
+        """The durable files too large to embed whole in the Dream prompt (#108).
+
+        A file in this set is one the model cannot be shown in full, so it must not receive a
+        whole-file write: it would replace content it never read. The registry reads this to decide
+        which tool each file gets, so the prompt and the tools cannot disagree.
+        """
+        oversized: set[Path] = set()
+        for path in (self.soul_file, self.user_file, self.memory_file):
+            try:
+                if path.exists() and len(path.read_text(encoding="utf-8")) > self._DREAM_FILE_EMBED_CAP:
+                    oversized.add(path)
+            except OSError:
+                continue
+        return oversized
+
     def _render_current_memory_files(self) -> str:
         """Render the durable memory files' current contents for the Dream prompt.
 
-        Missing files render as ``(empty)``; oversized files are capped. The
-        section is the ground truth the model must edit against.
+        Missing files render as ``(empty)``. A file over the embed cap is shown in part and **says
+        so**, because the section used to claim it was the whole file while carrying its first 8 KB,
+        and the template tells the model not to rely on a remembered version (#108).
         """
         files = [
             ("SOUL.md", self.soul_file),
@@ -755,15 +800,34 @@ class MemoryStore:
             ("memory/MEMORY.md", self.memory_file),
         ]
         blocks: list[str] = []
+        partial: list[str] = []
         for label, path in files:
             try:
                 content = path.read_text(encoding="utf-8") if path.exists() else ""
             except OSError:
                 content = ""
             if len(content) > self._DREAM_FILE_EMBED_CAP:
-                content = truncate_text(content, self._DREAM_FILE_EMBED_CAP) + "\n...[truncated]"
+                total = len(content)
+                content = truncate_text(content, self._DREAM_FILE_EMBED_CAP)
+                partial.append(label)
+                header = (
+                    f"### {label} (shown in part: the first {self._DREAM_FILE_EMBED_CAP:,} of "
+                    f"{total:,} characters, so this is not the whole file)"
+                )
+                blocks.append(f"{header}\n{content}")
+                continue
             blocks.append(f"### {label}\n{content}" if content.strip() else f"### {label}\n(empty)")
-        return "## Current Memory Files\n" + "\n\n".join(blocks)
+        section = "## Current Memory Files\n" + "\n\n".join(blocks)
+        if partial:
+            section += (
+                "\n\n**"
+                + ", ".join(partial)
+                + " is shown in part, so you have no `write_file` for it: use `edit_file` or "
+                "`apply_patch` to change the lines you can see. A whole-file write would delete "
+                "the part of the file that is not in this prompt. `read_file` gives you the rest "
+                "when you need to prune beyond what is shown.**"
+            )
+        return section
 
     def dream_content_diff(self) -> str:
         """Structured summary of uncommitted changes to the durable memory files.
@@ -811,6 +875,11 @@ class MemoryStore:
 
         extra_read = [BUILTIN_SKILLS_DIR] if BUILTIN_SKILLS_DIR.exists() else None
         editable_files = [self.memory_file, self.soul_file, self.user_file]
+        # A file the prompt could only show in part gets `edit_file` and `apply_patch`, and no
+        # `write_file`: the pair of a partial view and a whole-file write is what deleted 8 KB of
+        # durable facts (#108). Editing what it saw stays possible, which is what pruning needs.
+        shown_in_part = self.files_shown_in_part()
+        replaceable_files = [path for path in editable_files if path not in shown_in_part]
 
         tools.register(ReadFileTool(
             workspace=workspace,
@@ -833,7 +902,7 @@ class MemoryStore:
         tools.register(WriteFileTool(
             workspace=workspace,
             allowed_dir=skills_dir,
-            extra_write_allowed_files=editable_files,
+            extra_write_allowed_files=replaceable_files,
             file_states=file_states,
         ))
         return tools

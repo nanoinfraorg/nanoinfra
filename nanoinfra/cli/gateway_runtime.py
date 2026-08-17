@@ -637,9 +637,24 @@ def _install_gateway_shutdown_handlers(
 
 
 def _advance_dream_cursor_if_behind(memory: Any) -> None:
+    """Retire pending Dream input at startup when Dream is disabled.
+
+    This costs two things, and neither was visible before (#118): the entries are never consolidated
+    into durable memory, and the ``# Recent History`` block is built from the same cursor, so the
+    assistant also stops seeing them. A restart with Dream off therefore looks like the agent
+    forgetting the recent conversation, which "Dream: disabled" does not suggest.
+    """
     latest = memory.get_latest_cursor()
-    if memory.get_last_dream_cursor() < latest:
-        memory.set_last_dream_cursor(latest)
+    current = memory.get_last_dream_cursor()
+    if current >= latest:
+        return
+    memory.set_last_dream_cursor(latest)
+    logger.info(
+        "Dream is disabled: retiring history entries {}..{} unconsolidated. "
+        "They will not reach durable memory, and they leave the recent-history block.",
+        current + 1,
+        latest,
+    )
 
 
 
