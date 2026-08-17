@@ -80,6 +80,37 @@ const OAUTH_CODE_HEADER = "X-Nanoinfra-OAuth-Code";
 const OAUTH_CALLBACK_HEADER = "X-Nanoinfra-OAuth-Callback";
 const PROVIDER_VALUES_HEADER = "X-Nanoinfra-Provider-Values";
 const DIAGRAM_VALUES_HEADER = "X-Nanoinfra-Diagram-Values";
+const DIAGRAM_CHUNK_COUNT_HEADER = "X-Nanoinfra-Diagram-Chunks";
+
+/**
+ * Bytes per chunk of a diagram body. Must equal `_DIAGRAM_CHUNK_BYTES` in
+ * `nanoinfra/webui/ws_http.py`, and a Python test asserts that rather than trusting this comment.
+ *
+ * The whole body used to travel in one header on a GET, and the gateway drops a request line over
+ * 8192 bytes with no status code and no error body — the connection closes and this client reported
+ * "Failed to save: <network error>". The limit is bytes and not nodes, so an operator could not
+ * predict where their canvas stopped being savable.
+ *
+ * `websockets`' `process_request` exposes the request line and headers and never a body, so a POST
+ * body is not available on this transport. Chunked headers are what it can carry.
+ */
+const DIAGRAM_CHUNK_BYTES = 6000;
+
+function diagramValuesHeaders(diagram: Diagram): Record<string, string> {
+  const encoded = encodeURIComponent(JSON.stringify(diagram));
+  const chunks: string[] = [];
+  for (let index = 0; index < encoded.length; index += DIAGRAM_CHUNK_BYTES) {
+    chunks.push(encoded.slice(index, index + DIAGRAM_CHUNK_BYTES));
+  }
+  if (chunks.length === 0) chunks.push("");
+  const headers: Record<string, string> = {
+    [DIAGRAM_CHUNK_COUNT_HEADER]: String(chunks.length),
+  };
+  chunks.forEach((chunk, index) => {
+    headers[`${DIAGRAM_VALUES_HEADER}-${index}`] = chunk;
+  });
+  return headers;
+}
 const SECRET_VALUES_HEADER = "X-Nanoinfra-Secret-Values";
 const SERVER_VALUES_HEADER = "X-Nanoinfra-Server-Values";
 const GATES_VALUES_HEADER = "X-Nanoinfra-Gates-Values";
@@ -1296,7 +1327,7 @@ export async function createDiagram(
   return request<DiagramDetailPayload>(
     `${base}/api/webui/diagrams/create`,
     token,
-    { headers: { [DIAGRAM_VALUES_HEADER]: encodeURIComponent(JSON.stringify(diagram)) } },
+    { headers: diagramValuesHeaders(diagram) },
   );
 }
 
@@ -1309,7 +1340,7 @@ export async function updateDiagram(
   return request<DiagramDetailPayload>(
     `${base}/api/webui/diagrams/${encodeURIComponent(id)}/update`,
     token,
-    { headers: { [DIAGRAM_VALUES_HEADER]: encodeURIComponent(JSON.stringify(diagram)) } },
+    { headers: diagramValuesHeaders(diagram) },
   );
 }
 

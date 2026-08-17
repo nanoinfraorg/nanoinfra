@@ -58,12 +58,50 @@ def _normalize_nodes(raw_nodes: list[Any]) -> list[DiagramNode]:
         except (KeyError, TypeError, ValueError):
             logger.warning("Dropping malformed diagram node: {}", entry)
 
+    _refuse_duplicate_ids(nodes)
     node_ids = {node.id for node in nodes}
     for node in nodes:
         if node.parent_id is not None and node.parent_id not in node_ids:
             logger.warning("Dropping dangling parentId {!r} on node {!r}", node.parent_id, node.id)
             node.parent_id = None
+    _refuse_parent_cycles(nodes)
     return nodes
+
+
+def _refuse_duplicate_ids(nodes: list[DiagramNode]) -> None:
+    """Two nodes cannot share an id (#101).
+
+    ``_diff_summary`` keys nodes by id, so a duplicate collapsed into one line of the diff an operator
+    approves: they approved "one node modified" and got a document with two nodes under one id. A diff
+    that cannot show two nodes cannot describe the write, and this is the last place that can say no.
+    """
+    seen: set[str] = set()
+    for node in nodes:
+        if node.id in seen:
+            raise DiagramValidationError(
+                f"duplicate node id {node.id!r}: two nodes cannot share an id, because a preview "
+                "keyed by id cannot show them both"
+            )
+        seen.add(node.id)
+
+
+def _refuse_parent_cycles(nodes: list[DiagramNode]) -> None:
+    """A node cannot be its own ancestor (#101).
+
+    ``parentId == id`` and an ``A -> B -> A`` chain both passed, because the check was only that the
+    parent exists. Neither is a document a canvas can draw.
+    """
+    parents = {node.id: node.parent_id for node in nodes}
+    for start in parents:
+        seen = {start}
+        current = parents[start]
+        while current is not None:
+            if current in seen:
+                raise DiagramValidationError(
+                    f"node {start!r} is inside its own parent chain, which no canvas can draw"
+                )
+            seen.add(current)
+            current = parents.get(current)
 
 
 def _normalize_edges(raw_edges: list[Any], node_ids: set[str]) -> list[DiagramEdge]:

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 
@@ -350,3 +351,70 @@ class TestTheModelSeesTheSkillStateTheOperatorSet:
         assert skill_state(tool_view) == skill_state(route_view), (
             "the model is told a component is operable through a skill the operator switched off"
         )
+
+
+def test_the_chunk_size_matches_between_the_client_and_the_server() -> None:
+    """One number in two languages, checked -- nanoinfraorg/nanoinfra#92.
+
+    A comment asking a reader to keep two files in step is what the node footprint already had when
+    it drifted by 80x40 px (#91), so this is asserted instead.
+    """
+    import re as _re
+
+    from nanoinfra.webui.ws_http import _DIAGRAM_CHUNK_BYTES
+
+    source = Path(__file__).parents[1].parent / "webui" / "src" / "lib" / "api.ts"
+    text = source.read_text(encoding="utf-8")
+    match = _re.search(r"const DIAGRAM_CHUNK_BYTES = (\d+);", text)
+
+    assert match is not None, "the client no longer declares a chunk size"
+    assert int(match.group(1)) == _DIAGRAM_CHUNK_BYTES
+
+
+def test_a_chunk_fits_inside_one_header_line() -> None:
+    """The point of the number: a line the server would drop must be impossible to build."""
+    from websockets.http11 import MAX_LINE_LENGTH
+
+    from nanoinfra.webui.ws_http import (
+        _DIAGRAM_CHUNK_BYTES,
+        _DIAGRAM_VALUES_HEADER,
+        diagram_values_headers,
+    )
+
+    body = {"name": "x" * 40_000, "targets": [], "nodes": [], "edges": []}
+    headers = diagram_values_headers(body)
+
+    assert len(headers) > 2, "a body this size has to be split"
+    for name, value in headers.items():
+        assert len(name.encode()) + len(value.encode()) + 4 <= MAX_LINE_LENGTH, name
+    longest_name = f"{_DIAGRAM_VALUES_HEADER}-511"
+    assert len(longest_name.encode()) + _DIAGRAM_CHUNK_BYTES + 4 <= MAX_LINE_LENGTH
+
+
+def test_a_missing_chunk_is_not_saved_as_a_whole_diagram() -> None:
+    """Half a body must not become a saved diagram.
+
+    The first chunk on its own can be **valid JSON** -- a complete small diagram, followed by more
+    nodes in the chunk that never arrived. So a parse failure is not the guard: the count is.
+    """
+    from urllib.parse import quote
+
+    from websockets.datastructures import Headers
+    from websockets.http11 import Request as WsRequest
+
+    from nanoinfra.webui.ws_http import _diagram_values_from_request
+
+    complete_but_partial = quote(
+        '{"name":"A","targets":[],"nodes":[],"edges":[]}',
+        safe="",
+    )
+    request = WsRequest(
+        "/api/webui/diagrams/create",
+        Headers([
+            ("X-Nanoinfra-Diagram-Chunks", "2"),
+            ("X-Nanoinfra-Diagram-Values-0", complete_but_partial),
+        ]),
+    )
+
+    assert json.loads(unquote(complete_but_partial)), "the fragment parses on its own"
+    assert _diagram_values_from_request(request) is None

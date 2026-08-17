@@ -164,14 +164,15 @@ def test_list_diagrams_reports_a_corrupt_file(tmp_path: Path):
     good = store.create({"name": "Good"})
 
     diagrams_dir = tmp_path / "diagrams"
-    (diagrams_dir / "corrupt.json").write_text("not json{", encoding="utf-8")
+    # A valid id, so this exercises unreadable *content* rather than an unusable name (#100).
+    (diagrams_dir / f"{'a' * 32}.json").write_text("not json{", encoding="utf-8")
 
     summaries = store.list_diagrams()
 
     by_status = {s.status for s in summaries}
     assert by_status == {"ok", "unreadable"}
     assert next(s for s in summaries if s.status == "ok").id == good.id
-    assert "corrupt.json" in next(s for s in summaries if s.status == "unreadable").name
+    assert "a" * 32 in next(s for s in summaries if s.status == "unreadable").name
 
 
 def test_list_diagrams_reports_a_malformed_wrapper(tmp_path: Path):
@@ -179,8 +180,8 @@ def test_list_diagrams_reports_a_malformed_wrapper(tmp_path: Path):
     good = store.create({"name": "Good"})
 
     diagrams_dir = tmp_path / "diagrams"
-    (diagrams_dir / "malformed.json").write_text(json.dumps({"version": 1}), encoding="utf-8")
-    (diagrams_dir / "not-an-object.json").write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+    (diagrams_dir / f"{'b' * 32}.json").write_text(json.dumps({"version": 1}), encoding="utf-8")
+    (diagrams_dir / f"{'c' * 32}.json").write_text(json.dumps([1, 2, 3]), encoding="utf-8")
 
     summaries = store.list_diagrams()
 
@@ -372,3 +373,102 @@ class TestASecretFieldHoldsAReference:
         })
 
         assert diagram.nodes[0].data.config["image"] == "postgres:17"
+
+
+class TestADocumentNoCanvasCanDrawIsRefused:
+    """The store is the last place that can say no -- nanoinfraorg/nanoinfra#101.
+
+    `_diff_summary` keys nodes by id, so two nodes sharing an id collapsed into one line of the diff
+    an operator approves: they approved "one node modified" and got a document with two nodes under
+    one id. `normalize.py` also accepted `parentId == id` and an `A -> B -> A` parent cycle, because
+    it checked only that the parent exists.
+    """
+
+    def test_a_duplicate_node_id_is_refused(self, tmp_path: Path):
+        store = DiagramStore(tmp_path)
+
+        with pytest.raises(DiagramValidationError) as caught:
+            store.create({
+                "name": "Two webs",
+                "nodes": [
+                    {"id": "web", "data": {"label": "Web"}},
+                    {"id": "web", "data": {"label": "Web #2"}},
+                ],
+                "edges": [],
+            })
+
+        assert "web" in str(caught.value)
+        assert "duplicate" in str(caught.value).lower()
+
+    def test_a_self_parent_is_refused(self, tmp_path: Path):
+        store = DiagramStore(tmp_path)
+
+        with pytest.raises(DiagramValidationError) as caught:
+            store.create({
+                "name": "Its own child",
+                "nodes": [{"id": "group", "parentId": "group", "data": {"label": "Group"}}],
+                "edges": [],
+            })
+
+        assert "group" in str(caught.value)
+
+    def test_a_parent_cycle_is_refused(self, tmp_path: Path):
+        store = DiagramStore(tmp_path)
+
+        with pytest.raises(DiagramValidationError) as caught:
+            store.create({
+                "name": "A loop",
+                "nodes": [
+                    {"id": "a", "parentId": "b", "data": {"label": "A"}},
+                    {"id": "b", "parentId": "a", "data": {"label": "B"}},
+                ],
+                "edges": [],
+            })
+
+        assert "own parent chain" in str(caught.value)
+
+    def test_a_normal_parent_chain_is_still_accepted(self, tmp_path: Path):
+        store = DiagramStore(tmp_path)
+
+        diagram = store.create({
+            "name": "Nested",
+            "nodes": [
+                {"id": "outer", "data": {"label": "Outer"}},
+                {"id": "inner", "parentId": "outer", "data": {"label": "Inner"}},
+                {"id": "leaf", "parentId": "inner", "data": {"label": "Leaf"}},
+            ],
+            "edges": [],
+        })
+
+        assert [node.id for node in diagram.nodes] == ["outer", "inner", "leaf"]
+
+
+class TestAnEntryTheStoreWillNotServeIsNotOffered:
+    """A gallery entry that could not be opened or deleted -- nanoinfraorg/nanoinfra#100.
+
+    `list_diagrams` took `diagram_id = path.stem` with no id check, while `get`, `update` and `delete`
+    all enforce `_VALID_ID_RE`. So the listing showed a row whose detail was a 404 and whose delete was
+    a 404. The regex is not over-strict: it is the reason no `../../etc` value ever becomes a path. The
+    defect was the listing, not the rule.
+    """
+
+    def test_a_file_with_an_unusable_name_is_not_offered_as_a_diagram(self, tmp_path: Path):
+        store = DiagramStore(tmp_path)
+        real = store.create({"name": "Real one", "nodes": [], "edges": []})
+        (tmp_path / "diagrams" / "prod-topology.json").write_text(
+            json.dumps({
+                "version": 1,
+                "diagram": {"name": "Prod topology", "nodes": [], "edges": [], "targets": []},
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+            }),
+            encoding="utf-8",
+        )
+
+        summaries = store.list_diagrams()
+
+        openable = [s for s in summaries if s.status == "ok"]
+        assert [s.id for s in openable] == [real.id]
+        flagged = [s for s in summaries if s.status != "ok"]
+        assert len(flagged) == 1, "and it is not silently invisible either"
+        assert "prod-topology" in flagged[0].name
