@@ -309,7 +309,19 @@ def _websocket_origin_payload(
     if session_manager is not None:
         data = session_manager.read_session_file(session_key)
         if isinstance(data, dict):
-            title = str(data.get("title") or "")
+            # A WebUI chat's title lives under ``metadata``, and this read the top level -- which is
+            # always absent, so *every* automation linked to a WebUI chat resolved an empty title and
+            # the panel fell through to the preview. It then showed the first message of the
+            # conversation, which for a chat that started with a slash command is that command.
+            #
+            # The sidebar answers the same question correctly from the flattened session index, so the
+            # two readers disagreed about one fact. The top level is kept first for a store that ever
+            # writes it there.
+            metadata = data.get("metadata")
+            nested_title = (
+                cast(dict[str, Any], metadata).get("title") if isinstance(metadata, dict) else None
+            )
+            title = str(data.get("title") or nested_title or "")
             preview = _session_preview(data.get("messages"))
 
     return {
@@ -330,6 +342,11 @@ def _session_preview(messages: Any) -> str:
             continue
         message = cast(dict[str, Any], message_value)
         if is_hidden_history_message(message):
+            continue
+        if message.get("_command"):
+            # A slash command is what the operator typed at the app, not what the conversation is
+            # about. It named a job after `/model deepseek` -- a command that had failed. The record
+            # carries this marker already, so nothing here has to recognise command text.
             continue
         text = _message_preview_text(message)
         if not text:
