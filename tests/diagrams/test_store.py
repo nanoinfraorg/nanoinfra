@@ -154,7 +154,12 @@ def test_delete_missing_returns_false(tmp_path: Path):
     assert store.delete("does-not-exist") is False
 
 
-def test_list_diagrams_skips_corrupt_file(tmp_path: Path):
+def test_list_diagrams_reports_a_corrupt_file(tmp_path: Path):
+    """It used to skip it, and the operator got no error at all -- #96.
+
+    The file is still on disk, so an absence sends them looking for something they still have. The
+    gallery says it cannot be read.
+    """
     store = DiagramStore(tmp_path)
     good = store.create({"name": "Good"})
 
@@ -162,10 +167,14 @@ def test_list_diagrams_skips_corrupt_file(tmp_path: Path):
     (diagrams_dir / "corrupt.json").write_text("not json{", encoding="utf-8")
 
     summaries = store.list_diagrams()
-    assert [s.id for s in summaries] == [good.id]
+
+    by_status = {s.status for s in summaries}
+    assert by_status == {"ok", "unreadable"}
+    assert next(s for s in summaries if s.status == "ok").id == good.id
+    assert "corrupt.json" in next(s for s in summaries if s.status == "unreadable").name
 
 
-def test_list_diagrams_skips_malformed_wrapper(tmp_path: Path):
+def test_list_diagrams_reports_a_malformed_wrapper(tmp_path: Path):
     store = DiagramStore(tmp_path)
     good = store.create({"name": "Good"})
 
@@ -174,7 +183,9 @@ def test_list_diagrams_skips_malformed_wrapper(tmp_path: Path):
     (diagrams_dir / "not-an-object.json").write_text(json.dumps([1, 2, 3]), encoding="utf-8")
 
     summaries = store.list_diagrams()
-    assert [s.id for s in summaries] == [good.id]
+
+    assert [s.id for s in summaries if s.status == "ok"] == [good.id]
+    assert len([s for s in summaries if s.status == "unreadable"]) == 2
 
 
 def test_get_returns_none_for_corrupt_file(tmp_path: Path):
@@ -271,7 +282,8 @@ def test_a_stored_format_version_from_the_future_is_refused(tmp_path: Path):
     path.write_text(_json.dumps(wrapper), encoding="utf-8")
 
     assert store.get(diagram.id) is None, "a format this build cannot read must not be guessed at"
-    assert not any(s.id == diagram.id for s in store.list_diagrams())
+    listed = next(s for s in store.list_diagrams() if s.id == diagram.id)
+    assert listed.status == "unreadable", "and the operator is told, rather than left with a gap"
 
 
 def _secret_node(value: str) -> dict:

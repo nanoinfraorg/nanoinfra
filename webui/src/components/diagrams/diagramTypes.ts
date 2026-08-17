@@ -46,6 +46,14 @@ export interface DiagramSummary {
   targets: string[];
   nodeCount: number;
   updatedAt: string;
+  /**
+   * ``ok``, ``modified_outside`` or ``unreadable``.
+   *
+   * Four writers reach the diagram files and three are not the store, so a hand-written change is
+   * reported rather than rendered as the operator's own — and a file the store cannot parse appears
+   * here as an error instead of vanishing from the gallery with only a server-side log line.
+   */
+  status?: "ok" | "modified_outside" | "unreadable";
 }
 
 /** A fresh, unsaved diagram — the id is assigned server-side on first save. */

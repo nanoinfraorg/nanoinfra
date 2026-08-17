@@ -65,6 +65,16 @@ export function DiagramList({ diagrams, onOpen, onNew, onDelete }: DiagramListPr
                 <span className="text-[10.5px] text-muted-foreground/70">
                   Updated {new Date(d.updatedAt).toLocaleString()}
                 </span>
+                {d.status === "unreadable" ? (
+                  <span className="text-[10.5px] font-medium text-destructive-text">
+                    This file is on disk and cannot be read. Nothing was deleted.
+                  </span>
+                ) : null}
+                {d.status === "modified_outside" ? (
+                  <span className="text-[10.5px] font-medium text-amber-600 dark:text-amber-400">
+                    Changed outside nanoinfra. Its history may not be what this row says.
+                  </span>
+                ) : null}
                 <button
                   type="button"
                   onClick={(event) => {

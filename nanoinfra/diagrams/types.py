@@ -182,6 +182,14 @@ class DiagramSummary:
     targets: list[str]
     node_count: int
     updated_at: str
+    #: ``ok``, ``modified_outside`` or ``unreadable`` (#96).
+    #:
+    #: Four writers reach ``diagrams/*.json`` and three of them are not the store: an ungated
+    #: ``write_file``, ``exec``, and the seed. That cannot be prevented from inside the store, so the
+    #: gallery reports it instead of rendering a foreign write as the operator's own -- and a file the
+    #: store cannot parse appears as an error rather than vanishing, which is the worst answer
+    #: available.
+    status: str = "ok"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -190,4 +198,5 @@ class DiagramSummary:
             "targets": self.targets,
             "nodeCount": self.node_count,
             "updatedAt": self.updated_at,
+            "status": self.status,
         }

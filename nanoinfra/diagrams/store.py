@@ -8,6 +8,7 @@ atomicity comes from ``_write_text_atomic`` per write.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import uuid
@@ -57,6 +58,45 @@ class DiagramConflictError(RuntimeError):
 # exact shape before touching the filesystem, so a value like "../../etc" can
 # never be joined into a path outside self.root.
 _VALID_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _content_digest(body: dict[str, Any], *, revision: int) -> str:
+    """A digest over the diagram body and its revision, stable across key order."""
+    canonical = json.dumps(
+        {"revision": revision, "diagram": body},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _digest_matches(wrapper: dict[str, Any]) -> bool:
+    """Whether this store wrote the content in *wrapper*.
+
+    A wrapper with no digest predates the field, and that is not evidence of tampering: it reads as
+    written by the store, and the next write adds the digest.
+    """
+    stored = wrapper.get("content_digest")
+    if not isinstance(stored, str) or not stored:
+        return True
+    revision = wrapper.get("revision")
+    revision = revision if isinstance(revision, int) and not isinstance(revision, bool) else 1
+    body = wrapper.get("diagram")
+    if not isinstance(body, dict):
+        return False
+    return stored == _content_digest(cast(dict[str, Any], body), revision=revision)
+
+
+def _unreadable_summary(diagram_id: str, path: Path) -> DiagramSummary:
+    return DiagramSummary(
+        id=diagram_id,
+        name=f"Unreadable diagram ({path.name})",
+        targets=[],
+        node_count=0,
+        updated_at="",
+        status="unreadable",
+    )
 
 
 def _now_iso() -> str:
@@ -118,14 +158,18 @@ class DiagramStore:
             return []
         summaries: list[DiagramSummary] = []
         for path in self.root.glob("*.json"):
+            diagram_id = path.stem
             wrapper = self._read_wrapper(path)
             if wrapper is None:
+                # It is on disk and the operator cannot see it: that is the failure this reports
+                # (#96). A silent absence sent them looking for a file they still have.
+                summaries.append(_unreadable_summary(diagram_id, path))
                 continue
-            diagram_id = path.stem
             try:
                 diagram = normalize_diagram(wrapper["diagram"], diagram_id=diagram_id)
             except Exception:
-                logger.warning("Skipping invalid diagram file {}", path)
+                logger.warning("Unreadable diagram file {}", path)
+                summaries.append(_unreadable_summary(diagram_id, path))
                 continue
             updated_at = str(wrapper.get("updated_at") or wrapper.get("created_at") or "")
             summaries.append(
@@ -135,6 +179,7 @@ class DiagramStore:
                     targets=diagram.targets,
                     node_count=len(diagram.nodes),
                     updated_at=updated_at,
+                    status="ok" if _digest_matches(wrapper) else "modified_outside",
                 )
             )
         summaries.sort(key=lambda s: s.updated_at, reverse=True)
@@ -299,10 +344,16 @@ class DiagramStore:
             # external input.
             raise ValueError(f"Refusing to write diagram with invalid id: {diagram.id!r}")
         ensure_dir(self.root)
+        body = diagram.to_dict()
         wrapper = {
             "version": _STORE_VERSION,
             "revision": revision,
-            "diagram": diagram.to_dict(),
+            # What this store wrote. A writer that is not this store will not maintain it, so a
+            # mismatch is how a hand-written change becomes visible instead of passing as the
+            # operator's own (#96). It is a digest and not a signature: it detects, and a writer who
+            # knows about it can reproduce it. Prevention is not available from here.
+            "content_digest": _content_digest(body, revision=revision),
+            "diagram": body,
             "created_at": created_at,
             "updated_at": updated_at,
         }
