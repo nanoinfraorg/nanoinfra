@@ -941,3 +941,123 @@ class TestTheHistoryCeilingIsACeiling:
             store.append_history(f"entry {index}")
 
         assert len(store._read_entries()) == 30
+
+
+class TestNothingIsDeletedUnreadNoteworthy:
+    """Four bounds compounded into 16 KB in and 1 KB read -- nanoinfraorg/nanoinfra#109.
+
+    ``raw_archive`` persists up to 16,000 characters, ``build_dream_prompt`` showed Dream
+    ``truncate_text(content, 1000)`` head-kept, and ``compact_history`` then deleted the entry once
+    the cursor passed it. Messages 4 to 63 of a 120-message raw archive were read by nothing, ever,
+    and then deleted.
+
+    Worst on the degraded path: the provider being down is what produces the largest raw entries, so
+    the case with the least summarisation is the case that loses the most.
+
+    The choice made here, with the reason: **a batch that does not fit takes fewer entries, never
+    less of each entry.** The cursor advances per batch, so an entry left out of this run is offered
+    again by the next one, while an entry shown in part is consumed and gone.
+    """
+
+    def test_a_raw_entry_reaches_dream_whole(self, store) -> None:
+        body = "\n".join(f"USER: message {i:04d} with enough text to matter" for i in range(200))
+        store.append_history(f"[RAW] 200 messages\n{body}")
+
+        result = store.build_dream_prompt()
+
+        assert result is not None
+        prompt = result[0]
+        assert "message 0000" in prompt
+        assert "message 0199" in prompt, (
+            "the tail of a raw archive is the part nothing else will ever read"
+        )
+
+    def test_a_batch_that_does_not_fit_takes_fewer_entries(self, store) -> None:
+        for index in range(20):
+            body = "\n".join(f"USER: entry {index} line {i}" for i in range(400))
+            store.append_history(f"[RAW] 400 messages\n{body}")
+
+        result = store.build_dream_prompt()
+
+        assert result is not None
+        prompt, last_cursor = result
+        assert last_cursor < 20, "a batch this large must not be retired in one run"
+        assert len(prompt) < 200_000, "and the prompt must still be bounded"
+
+    def test_what_is_left_out_is_offered_again(self, store) -> None:
+        for index in range(20):
+            body = "\n".join(f"USER: entry {index} line {i}" for i in range(400))
+            store.append_history(f"[RAW] 400 messages\n{body}")
+
+        first = store.build_dream_prompt()
+        assert first is not None
+        store.set_last_dream_cursor(first[1])
+
+        second = store.build_dream_prompt()
+
+        assert second is not None
+        assert second[1] > first[1], "the rest comes back rather than being consumed unread"
+
+    def test_a_summarised_entry_is_still_shown_in_brief(self, store) -> None:
+        """A summary is already condensed, so the display bound stays where it was."""
+        store.append_history("x" * 6000)
+
+        result = store.build_dream_prompt()
+
+        assert result is not None
+        body = result[0].split("## Conversation History", 1)[1]
+        assert "truncated" in body or len(body) < 4000
+
+
+class TestTheSummariserReadsWhatTheCursorPasses:
+    """The head-keeping budget in front of the only summariser -- nanoinfraorg/nanoinfra#109.
+
+    ``_truncate_to_token_budget`` keeps the head, so when a chunk exceeded the summariser's input
+    budget the **newest** messages were dropped from the summary input, and ``last_consolidated``
+    advanced over them anyway. That is not a trade-off: either the tail is summarised, or the cursor
+    does not pass it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_every_message_reaches_the_summariser(self, tmp_path) -> None:
+        from types import SimpleNamespace
+
+        from nanoinfra.agent.memory import Consolidator, MemoryStore
+
+        store = MemoryStore(tmp_path)
+        seen: list[str] = []
+
+        class _Provider:
+            async def chat_with_retry(self, **kwargs):
+                seen.append(kwargs["messages"][1]["content"])
+                return SimpleNamespace(content="a summary", finish_reason="stop")
+
+        runtime = SimpleNamespace(
+            provider=_Provider(),
+            model="m",
+            context_window_tokens=2_000,
+            generation=SimpleNamespace(max_tokens=200, temperature=0.2, reasoning_effort=None),
+        )
+        messages = [
+            {"role": "user", "content": f"message {index:04d} " + "padding " * 40}
+            for index in range(120)
+        ]
+
+        from unittest.mock import MagicMock
+
+        from nanoinfra.session.manager import SessionManager
+
+        consolidator = Consolidator(
+            store=store,
+            sessions=MagicMock(spec=SessionManager),
+            build_messages=MagicMock(return_value=[]),
+            get_tool_definitions=MagicMock(return_value=[]),
+        )
+        await consolidator.archive(messages, runtime=runtime)
+
+        combined = "\n".join(seen)
+        assert "message 0000" in combined
+        assert "message 0119" in combined, (
+            "the newest messages were dropped from the summary input and retired anyway"
+        )
+        assert len(seen) > 1, "a batch over the budget is summarised in passes, not truncated"

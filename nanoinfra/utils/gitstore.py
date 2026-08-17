@@ -223,9 +223,11 @@ class GitStore:
         holds nested files, so this walks rather than reading one level.
         """
         found: list[str] = []
+        from dulwich.object_store import iter_tree_contents
+
         for entry in cast(
             "Iterable[TreeEntry]",
-            repo.object_store.iter_tree_contents(tree.id),
+            iter_tree_contents(repo.object_store, tree.id),
         ):
             found.append(entry.path.decode("utf-8", errors="replace"))
         return found

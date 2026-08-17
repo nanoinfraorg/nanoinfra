@@ -66,6 +66,11 @@ GIT_TRACKED_FILES = ("SOUL.md", "USER.md", "memory/MEMORY.md", "memory/.dream_cu
 GIT_TRACKED_DIRS = ("skills",)
 
 
+#: Ceiling on a raw fallback dump. Defined above the store because the Dream prompt's own per-entry
+#: cap is derived from it: a raw entry is the only representation its messages will ever have (#109).
+_RAW_ARCHIVE_MAX_CHARS = 16_000
+
+
 class MemoryCursorError(RuntimeError):
     """A cursor file holds something that is not a cursor (#116).
 
@@ -117,11 +122,9 @@ class MemoryStore:
     """Pure file I/O for memory files: MEMORY.md, history.jsonl, SOUL.md, USER.md."""
 
     _DEFAULT_MAX_HISTORY = 1000
-    # Durable files whose real working-tree delta grounds Dream commit messages.
-    # Deliberately excludes memory/.dream_cursor so progress bookkeeping never
-    # appears as a durable-memory edit in the audit record.
-    #: Deliberately excludes memory/.dream_cursor so progress bookkeeping never appears as a
-    #: durable-memory edit. Everything else Dream can write is derived, never re-declared (#112).
+    #: Durable files whose real working-tree delta grounds Dream commit messages. Deliberately
+    #: excludes memory/.dream_cursor so progress bookkeeping never appears as a durable-memory edit.
+    #: Everything else Dream can write is derived from the registry, never re-declared (#112).
     _DREAM_CONTENT_PATHS = ("SOUL.md", "USER.md", "memory/MEMORY.md")
     # Per-file cap when embedding current contents into the Dream prompt. The
     # durable files are tiny in practice (~5 KB total), but a runaway file must
@@ -733,6 +736,47 @@ class MemoryStore:
             return text
         return self.default_dream_prompt()
 
+    #: What one entry may contribute to the Dream prompt. A summary is already condensed, so a brief
+    #: display costs nothing. A ``[RAW]`` entry is different: it exists *because* no summarisation
+    #: happened, so it is the only representation those messages will ever have, and the part not
+    #: shown is read by nothing and then deleted by the compactor (#109).
+    _DREAM_ENTRY_CAP = 1_000
+    _DREAM_RAW_ENTRY_CAP = _RAW_ARCHIVE_MAX_CHARS
+
+    #: What the whole history section may contribute. When the batch does not fit, the batch gets
+    #: smaller -- never the entries. The cursor advances per batch, so an entry left out of this run
+    #: is offered again by the next one, while an entry shown in part is consumed and gone.
+    _DREAM_HISTORY_SECTION_CAP = 48_000
+
+    def _dream_history_batch(
+        self,
+        entries: list[dict[str, Any]],
+        *,
+        max_entries: int,
+    ) -> tuple[list[dict[str, Any]], str]:
+        """Choose the entries for one run, and render them.
+
+        Always takes at least one entry: a single entry larger than the section cap still has to be
+        consolidated, and refusing it would stall the cursor behind it forever.
+        """
+        chosen: list[dict[str, Any]] = []
+        lines: list[str] = []
+        used = 0
+        for entry in entries[:max_entries]:
+            content = str(entry.get("content") or "")
+            cap = (
+                self._DREAM_RAW_ENTRY_CAP
+                if content.lstrip().startswith("[RAW]")
+                else self._DREAM_ENTRY_CAP
+            )
+            rendered = f"[{entry['timestamp']}] {truncate_text(content, cap)}"
+            if chosen and used + len(rendered) > self._DREAM_HISTORY_SECTION_CAP:
+                break
+            chosen.append(entry)
+            lines.append(rendered)
+            used += len(rendered)
+        return chosen, "\n".join(lines)
+
     def build_dream_prompt(self, *, max_entries: int = 20) -> tuple[str, int] | None:
         """Build the Dream prompt with unprocessed history context.
 
@@ -748,11 +792,9 @@ class MemoryStore:
         if not entries:
             return None
 
-        batch = entries[:max_entries]
-        history_text = "\n".join(
-            f"[{e['timestamp']}] {truncate_text(e['content'], 1000)}"
-            for e in batch
-        )
+        batch, history_text = self._dream_history_batch(entries, max_entries=max_entries)
+        if not batch:
+            return None
         template = self._dream_template()
         files_section = self._render_current_memory_files()
         # The history is the last thing the model reads and the least trustworthy thing in the
@@ -1038,7 +1080,6 @@ class MemoryStore:
 # Individual history.jsonl writers cap their own payloads tightly; the
 # _HISTORY_ENTRY_HARD_CAP at append_history() is a belt-and-suspenders default
 # that catches any new caller that forgot to set its own cap.
-_RAW_ARCHIVE_MAX_CHARS = 16_000       # fallback dump (LLM failed)
 _ARCHIVE_SUMMARY_MAX_CHARS = 8_000    # LLM-produced consolidation summary
 _HISTORY_ENTRY_HARD_CAP = 64_000      # emergency cap in append_history
 
@@ -1244,8 +1285,67 @@ class Consolidator:
         messages_to_summarize = public_history_messages(
             summary_messages if summary_messages is not None else messages
         )
-        formatted = MemoryStore._format_messages(messages_to_summarize)
-        formatted = self._truncate_to_token_budget(formatted, runtime=runtime)
+        # A batch larger than the summariser's input budget is split, and never truncated (#109).
+        # ``_truncate_to_token_budget`` keeps the head, so the **newest** messages used to be dropped
+        # from the summary input while the cursor advanced over them anyway: they were read by
+        # nothing, ever, and then deleted by the compactor. Splitting costs one provider call per
+        # chunk and loses nothing.
+        chunks = self._chunks_within_budget(messages_to_summarize, runtime=runtime)
+        summaries: list[str] = []
+        for chunk in chunks:
+            summary = await self._summarize_one_chunk(
+                chunk,
+                original=messages,
+                runtime=runtime,
+                session_key=session_key,
+            )
+            if summary is None:
+                return None
+            summaries.append(summary)
+        return "\n\n".join(summaries) if summaries else None
+
+    def _chunks_within_budget(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        runtime: LLMRuntime,
+    ) -> list[list[dict[str, Any]]]:
+        """Split messages so each chunk's formatted text fits the summariser's input budget.
+
+        A single message over the budget still forms its own chunk: it is truncated by the call
+        below, and stalling the cursor behind one oversized message would be worse than a partial
+        summary of that one message.
+        """
+        budget = self._input_token_budget(runtime)
+        if budget <= 0:
+            return [messages]
+        chunks: list[list[dict[str, Any]]] = []
+        current: list[dict[str, Any]] = []
+        for message in messages:
+            candidate = [*current, message]
+            rendered = MemoryStore._format_messages(candidate)
+            if current and estimate_message_tokens({"content": rendered}) > budget:
+                chunks.append(current)
+                current = [message]
+                continue
+            current = candidate
+        if current:
+            chunks.append(current)
+        return chunks
+
+    async def _summarize_one_chunk(
+        self,
+        chunk: list[dict[str, Any]],
+        *,
+        original: list[dict[str, Any]],
+        runtime: LLMRuntime,
+        session_key: str | None,
+    ) -> str | None:
+        """Summarize one chunk. Returns None when the provider failed and a raw dump was written."""
+        formatted = self._truncate_to_token_budget(
+            MemoryStore._format_messages(chunk),
+            runtime=runtime,
+        )
         system_prompt = render_template(
             "agent/consolidator_archive.md",
             strip=True,
@@ -1268,11 +1368,11 @@ class Consolidator:
             )
         except Exception:
             logger.warning("Consolidation provider call failed, raw-dumping to history")
-            self.store.raw_archive(messages, session_key=session_key)
+            self.store.raw_archive(original, session_key=session_key)
             return None
         if response.finish_reason == "error":
             logger.warning("Consolidation provider returned an error, raw-dumping to history")
-            self.store.raw_archive(messages, session_key=session_key)
+            self.store.raw_archive(original, session_key=session_key)
             return None
         summary = response.content or "[no summary]"
         self.store.append_history(
