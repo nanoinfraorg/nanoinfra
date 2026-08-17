@@ -104,6 +104,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Textarea } from "@/components/ui/textarea";
 import { isLoopbackHost } from "@/lib/network";
 import {
@@ -10139,35 +10140,6 @@ function StatusPill({
   );
 }
 
-function SegmentedControl({
-  value,
-  options,
-  onChange,
-}: {
-  value: string;
-  options: Array<{ value: string; label: string }>;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="inline-flex h-8 items-center rounded-full bg-muted p-0.5 text-[12px] font-medium text-muted-foreground">
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          aria-pressed={value === option.value}
-          onClick={() => onChange(option.value)}
-          className={cn(
-            "rounded-full px-3 py-1 transition-colors",
-            value === option.value &&
-              "bg-background text-foreground ring-1 ring-inset ring-border/45",
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 function NumberInput({
   value,

@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 
-type Theme = "light" | "dark";
+export type Theme = "light" | "dark";
 const STORAGE_KEY = "nanoinfra-webui.theme";
 const ThemeContext = createContext<Theme>("light");
 
