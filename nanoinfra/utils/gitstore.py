@@ -27,6 +27,21 @@ class GitStoreError(RuntimeError):
 
 
 @dataclass
+class RevertResult:
+    """What one revert wrote, and what it cost.
+
+    ``restored`` is the paths written, which are the paths the reverted commit changed and no
+    others. ``discarded`` is the subset whose content had moved on since that commit, so restoring
+    them threw later work away -- a caller has to be able to say that instead of reporting a clean
+    restore (#117).
+    """
+
+    sha: str
+    restored: list[str]
+    discarded: list[str]
+
+
+@dataclass
 class CommitInfo:
     sha: str  # Short SHA (8 chars)
     message: str
@@ -495,16 +510,22 @@ class GitStore:
 
     # -- restore ---------------------------------------------------------------
 
-    def revert(self, commit: str, *, message_prefix: str | None = None) -> str | None:
-        """Revert (undo) the changes introduced by the given commit.
+    def revert(self, commit: str, *, message_prefix: str | None = None) -> RevertResult | None:
+        """Undo the changes introduced by the given commit, and only those.
 
-        Restores all tracked memory files to the state at the commit's parent,
-        then creates a new commit recording the revert. When *message_prefix*
-        is provided, commits outside that history are rejected before any files
-        are changed.
+        The paths this commit changed are restored to the state at its parent. A tracked file the
+        commit never touched is left alone: the loop used to run over every tracked file, so
+        reverting one dream destroyed a later and unrelated one (#117).
 
-        Returns the new commit SHA, or ``None`` when the commit cannot be reverted.
-        Repository and filesystem failures raise :class:`GitStoreError`.
+        A path whose content at HEAD differs from its content in this commit has been changed since,
+        and restoring it discards that work. Those paths come back in ``discarded`` so a caller can
+        say so rather than report a clean restore.
+
+        When *message_prefix* is provided, commits outside that history are rejected before any
+        files are changed.
+
+        Returns ``None`` when the commit cannot be reverted. Repository and filesystem failures
+        raise :class:`GitStoreError`.
         """
         if not self.is_initialized():
             return None
@@ -539,24 +560,45 @@ class GitStore:
                     logger.warning("Git revert: cannot revert root commit {}", commit)
                     return None
 
-                # Use the parent's tree — this undoes the commit's changes
                 parent_obj = cast("Commit", repo[typed_commit.parents[0]])
-                tree = cast("Tree", repo[parent_obj.tree])
+                parent_tree = cast("Tree", repo[parent_obj.tree])
+                commit_tree = cast("Tree", repo[typed_commit.tree])
+                head_tree = self._head_tree(repo)
 
                 restored: list[str] = []
+                discarded: list[str] = []
                 for filepath in self._tracked_files:
-                    content = self._read_blob_from_tree(repo, tree, filepath)
-                    if content is not None:
-                        dest = self._workspace / filepath
-                        dest.write_text(content, encoding="utf-8")
+                    at_commit = self._read_blob_from_tree(repo, commit_tree, filepath)
+                    at_parent = self._read_blob_from_tree(repo, parent_tree, filepath)
+                    if at_commit == at_parent:
+                        # This commit did not change this file, so undoing the commit has nothing
+                        # to say about it.
+                        continue
+                    if at_parent is None:
+                        # The commit added the file. Undoing that means removing it again.
+                        (self._workspace / filepath).unlink(missing_ok=True)
                         restored.append(filepath)
+                        continue
+                    dest = self._workspace / filepath
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_text(at_parent, encoding="utf-8")
+                    restored.append(filepath)
+                    at_head = (
+                        self._read_blob_from_tree(repo, head_tree, filepath)
+                        if head_tree is not None
+                        else None
+                    )
+                    if at_head is not None and at_head != at_commit:
+                        discarded.append(filepath)
 
             if not restored:
                 return None
 
             # Commit the restored state
-            msg = f"revert: undo {commit}"
-            return self.auto_commit(msg)
+            sha = self.auto_commit(f"revert: undo {commit}")
+            if not sha:
+                return None
+            return RevertResult(sha=sha, restored=sorted(restored), discarded=sorted(discarded))
         except Exception as exc:
             raise GitStoreError(f"Git revert failed for {commit}") from exc
 

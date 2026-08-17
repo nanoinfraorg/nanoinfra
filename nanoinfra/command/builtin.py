@@ -776,15 +776,26 @@ async def cmd_dream_restore(ctx: CommandContext) -> OutboundMessage:
                 "Use `/dream-restore` to list recent versions."
             )
         else:
-            changed_files = _format_changed_files(result[1])
-            new_sha = git.revert(sha, message_prefix=_DREAM_COMMIT_PREFIX)
-            if new_sha:
-                content = (
-                    f"Restored Dream memory to the state before `{sha}`.\n\n"
-                    f"- New safety commit: `{new_sha}`\n"
-                    f"- Restored files: {changed_files}\n\n"
-                    f"Use `/dream-log {new_sha}` to inspect the restore diff."
-                )
+            reverted = git.revert(sha, message_prefix=_DREAM_COMMIT_PREFIX)
+            if reverted:
+                # The listing reports what the operation wrote, and never the diff of the commit
+                # the user typed: those two were different sets, so the message named work it had
+                # not restored and stayed silent about work it had destroyed (#117).
+                lines = [
+                    f"Restored Dream memory to the state before `{sha}`.",
+                    "",
+                    f"- New safety commit: `{reverted.sha}`",
+                    f"- Restored files: {', '.join(f'`{p}`' for p in reverted.restored)}",
+                ]
+                if reverted.discarded:
+                    later = ", ".join(f"`{path}`" for path in reverted.discarded)
+                    lines.append(
+                        f"- **Discarded later changes** in {later}. Those files had moved on "
+                        f"since `{sha}`, and this restore threw that away. "
+                        f"`/dream-log` shows what was in them."
+                    )
+                lines.extend(["", f"Use `/dream-log {reverted.sha}` to inspect the restore diff."])
+                content = "\n".join(lines)
             else:
                 content = (
                     f"Couldn't restore Dream change `{sha}`.\n\n"
