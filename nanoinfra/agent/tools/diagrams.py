@@ -29,6 +29,15 @@ from nanoinfra.diagrams.lookup import resolve_diagram
 from nanoinfra.diagrams.normalize import DiagramValidationError, normalize_diagram
 from nanoinfra.diagrams.store import DiagramConflictError, DiagramStore
 from nanoinfra.diagrams.types import Diagram
+from nanoinfra.diagrams.write_gate import (
+    PreviewOutcome,
+    consume_preview,
+    payload_digest,
+    preview_revision,
+    record_diagram_write,
+    record_preview,
+    refusal_message,
+)
 
 if TYPE_CHECKING:
     from nanoinfra.agent.tools.context import ToolContext
@@ -494,11 +503,6 @@ class UpdateDiagramTool(Tool):
     def __init__(self, store: DiagramStore, workspace: Path) -> None:
         self.store = store
         self.workspace = workspace
-        #: The revision each diagram held when this tool last previewed it (#93). An apply carries
-        #: the value, so an operator's save in between is a refusal rather than an overwrite. A
-        #: direct apply with no preview has nothing recorded and is the model's own risk, which is
-        #: the behaviour that shipped.
-        self._previewed_revisions: dict[str, int | None] = {}
 
     @property
     def name(self) -> str:
@@ -556,10 +560,17 @@ class UpdateDiagramTool(Tool):
 
         diff = _diff_summary(current, candidate)
 
+        payload = candidate.to_dict()
         if dry_run:
-            # The revision this preview was built from. The apply below carries it, so a save the
-            # operator makes while the user is deciding is a refusal and not a silent overwrite (#93).
-            self._previewed_revisions[diagram_id] = revision_now
+            # The digest of exactly what an apply may write, and the revision it was built from,
+            # recorded on the server (#93, #95). ``dry_run`` alone was the whole gate, and it is a
+            # parameter the model sets: preview one payload and apply another used to be accepted.
+            record_preview(
+                self.workspace,
+                diagram_id,
+                payload_digest(payload),
+                revision=revision_now,
+            )
             return (
                 "Preview (not saved):\n"
                 f"{diff}\n\n"
@@ -567,16 +578,15 @@ class UpdateDiagramTool(Tool):
                 "dry_run=false only after the user confirms."
             )
 
-        expected = self._previewed_revisions.pop(diagram_id, None)
+        expected = preview_revision(self.workspace, diagram_id)
+        outcome = consume_preview(self.workspace, diagram_id, payload_digest(payload))
+        if outcome is not PreviewOutcome.OK:
+            return ToolResult.error(refusal_message(outcome, diagram_id))
         # Persist `candidate`, not the original `raw` -- it carries the
         # auto-arranged positions/group sizes computed above, which the
         # model's own (possibly overlapping) guesses must not overwrite.
         try:
-            saved = self.store.update(
-                diagram_id,
-                candidate.to_dict(),
-                expected_revision=expected,
-            )
+            saved = self.store.update(diagram_id, payload, expected_revision=expected)
         except DiagramConflictError as exc:
             return ToolResult.error(
                 f"Not saved -- {exc} Read the diagram again with read_diagram and redo the change "
@@ -584,6 +594,7 @@ class UpdateDiagramTool(Tool):
             )
         if saved is None:
             return ToolResult.error(f"No saved diagram with id {diagram_id!r}.")
+        record_diagram_write(diagram_id=diagram_id, tool="update_diagram", summary=diff)
         return f"Saved.\n{diff}"
 
 

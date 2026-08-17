@@ -163,6 +163,8 @@ async def test_update_diagram_persists_when_dry_run_false(tmp_path: Path) -> Non
     }]
 
     tool = UpdateDiagramTool(store, tmp_path)
+    # An apply carries the preview that authorized it (#95).
+    await tool.execute(diagram_id=diagram_id, nodes=new_nodes, edges=[], dry_run=True)
     result = await tool.execute(diagram_id=diagram_id, nodes=new_nodes, edges=[], dry_run=False)
 
     assert not getattr(result, "is_error", False)
@@ -186,6 +188,8 @@ async def test_update_diagram_rejects_unknown_component_without_persisting(tmp_p
     }]
 
     tool = UpdateDiagramTool(store, tmp_path)
+    # An apply carries the preview that authorized it (#95).
+    await tool.execute(diagram_id=diagram_id, nodes=new_nodes, edges=[], dry_run=True)
     result = await tool.execute(diagram_id=diagram_id, nodes=new_nodes, edges=[], dry_run=False)
 
     assert result.is_error
@@ -238,6 +242,8 @@ async def test_update_diagram_auto_arranges_new_nodes_ignoring_model_positions(t
     )
 
     tool = UpdateDiagramTool(store, tmp_path)
+    # An apply carries the preview that authorized it (#95).
+    await tool.execute(diagram_id=diagram_id, nodes=nodes, edges=[], dry_run=True)
     result = await tool.execute(diagram_id=diagram_id, nodes=nodes, edges=[], dry_run=False)
     assert not getattr(result, "is_error", False)
 
@@ -292,6 +298,8 @@ async def test_update_diagram_auto_layout_handles_wide_group_alongside_plain_nod
     ]
 
     tool = UpdateDiagramTool(store, tmp_path)
+    # An apply carries the preview that authorized it (#95).
+    await tool.execute(diagram_id=diagram_id, nodes=nodes, edges=[], dry_run=True)
     result = await tool.execute(diagram_id=diagram_id, nodes=nodes, edges=[], dry_run=False)
     assert not getattr(result, "is_error", False)
 
@@ -314,6 +322,8 @@ async def test_update_diagram_gives_new_untyped_group_a_default_size(tmp_path: P
     }]
 
     tool = UpdateDiagramTool(store, tmp_path)
+    # An apply carries the preview that authorized it (#95).
+    await tool.execute(diagram_id=diagram_id, nodes=nodes, edges=[], dry_run=True)
     result = await tool.execute(diagram_id=diagram_id, nodes=nodes, edges=[], dry_run=False)
     assert not getattr(result, "is_error", False)
 
@@ -334,6 +344,8 @@ async def test_update_diagram_preserves_group_style_when_not_touched(tmp_path: P
     unchanged_nodes = [n.to_dict() for n in before.nodes]
 
     tool = UpdateDiagramTool(store, tmp_path)
+    # An apply carries the preview that authorized it (#95).
+    await tool.execute(diagram_id=diagram_id, nodes=unchanged_nodes, edges=[], dry_run=True)
     result = await tool.execute(diagram_id=diagram_id, nodes=unchanged_nodes, edges=[], dry_run=False)
     assert not getattr(result, "is_error", False)
 
@@ -456,6 +468,8 @@ async def test_update_diagram_resolves_overlap_caused_by_repositioned_existing_n
     }]
 
     tool = UpdateDiagramTool(store, tmp_path)
+    # An apply carries the preview that authorized it (#95).
+    await tool.execute(diagram_id=diagram_id, nodes=new_nodes, edges=[], dry_run=True)
     result = await tool.execute(diagram_id=diagram_id, nodes=new_nodes, edges=[], dry_run=False)
     assert not getattr(result, "is_error", False)
 
