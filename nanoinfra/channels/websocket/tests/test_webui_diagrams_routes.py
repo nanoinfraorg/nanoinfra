@@ -14,6 +14,7 @@ import pytest
 
 from nanoinfra.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
 from nanoinfra.webui.gateway_services import GatewayServices, build_gateway_services
+from nanoinfra.webui.ws_http import diagram_values_headers
 
 from .ws_test_client import InProcessHttpChannel
 from .ws_test_client import http_get as _http_get
@@ -296,3 +297,88 @@ async def test_unknown_diagram_route_returns_404_not_spa(bus: MagicMock, tmp_pat
     finally:
         await channel.stop()
         await server_task
+
+
+@pytest.mark.asyncio
+async def test_a_diagram_larger_than_one_header_line_can_still_be_saved(
+    bus: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """A diagram over ~8 KB could not be saved at all -- nanoinfraorg/nanoinfra#92.
+
+    The whole body travelled in one HTTP header on a GET, and `websockets` drops a request line over
+    8192 bytes: no status code, no error body, the connection closed, and the browser showing
+    "Failed to save: <network error>". The limit is **bytes and not nodes**, so where a deployment
+    hits it depends on labels and config and an operator cannot predict it -- the 11-node seeded
+    example already encodes to 4871 bytes, 60% of the ceiling.
+
+    Worse, the agent writes straight to disk, so it could create a diagram the browser renders and
+    can never save again.
+    """
+    port = _free_port()
+    base_url = f"http://127.0.0.1:{port}"
+    channel = _ch(bus, tmp_path, port)
+    server_task = asyncio.create_task(channel.start())
+    try:
+        token = channel.gateway.tokens.issue_api_token(300)
+        auth = {"Authorization": f"Bearer {token}"}
+        nodes = [
+            {
+                "id": f"node-{index:03d}",
+                "position": {"x": index * 40, "y": index * 20},
+                "data": {
+                    "label": f"Service {index:03d} with a label long enough to be realistic",
+                    "componentTypeId": "compute",
+                    "providerId": "docker",
+                    "config": {"image": f"registry.example.invalid/service-{index:03d}:1.0"},
+                },
+            }
+            for index in range(40)
+        ]
+        body = {"name": "Large topology", "targets": [], "nodes": nodes, "edges": []}
+        assert len(json.dumps(body)) > 8192, "this payload has to exceed one header line"
+
+        created = await _http_get(
+            f"{base_url}/api/webui/diagrams/create",
+            headers={**auth, **diagram_values_headers(body)},
+        )
+
+        assert created.status_code == 200
+        assert len(created.json()["diagram"]["nodes"]) == 40
+
+        detail = await _http_get(
+            f"{base_url}/api/webui/diagrams/{created.json()['diagram']['id']}",
+            headers=auth,
+        )
+        assert len(detail.json()["diagram"]["nodes"]) == 40
+    finally:
+        await channel.stop()
+        server_task.cancel()
+
+
+@pytest.mark.asyncio
+async def test_the_in_process_double_refuses_a_line_the_socket_would_drop(
+    bus: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """The blind spot itself, held shut -- nanoinfraorg/nanoinfra#92.
+
+    These tests are titled end-to-end and route through `InProcessHttpChannel`, which builds a
+    `websockets.http11.Request` in memory: no request line is parsed, so the 8192-byte limit never
+    applied and the double answered 200 for any size. A test that cannot fail reads as coverage.
+    """
+    import httpx
+
+    from .ws_test_client import _refuse_a_line_the_real_server_would_drop
+
+    oversized = httpx.Request(
+        "GET",
+        "http://127.0.0.1/api/webui/diagrams/create",
+        headers={"X-Nanoinfra-Diagram-Values": "x" * 9000},
+    )
+
+    with pytest.raises(httpx.RemoteProtocolError) as caught:
+        _refuse_a_line_the_real_server_would_drop(oversized)
+
+    assert "8192" in str(caught.value)
+    assert "no status code" in str(caught.value)

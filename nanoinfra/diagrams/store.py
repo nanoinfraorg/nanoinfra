@@ -159,6 +159,23 @@ class DiagramStore:
         summaries: list[DiagramSummary] = []
         for path in self.root.glob("*.json"):
             diagram_id = path.stem
+            if not _VALID_ID_RE.match(diagram_id):
+                # ``get``, ``update`` and ``delete`` all enforce this and the listing did not, so the
+                # gallery showed a row whose detail was a 404 and whose delete was a 404 (#100). The
+                # regex is why no ``../../etc`` value ever becomes a path, so the listing applies it
+                # rather than the rule being relaxed -- and the file is reported, because a diagram
+                # that vanished with no message is this module's other failure mode.
+                summaries.append(
+                    DiagramSummary(
+                        id=diagram_id,
+                        name=f"Unusable file name ({path.name})",
+                        targets=[],
+                        node_count=0,
+                        updated_at="",
+                        status="unusable_name",
+                    )
+                )
+                continue
             wrapper = self._read_wrapper(path)
             if wrapper is None:
                 # It is on disk and the operator cannot see it: that is the failure this reports

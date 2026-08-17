@@ -57,10 +57,42 @@ class InProcessHttpChannel(WebSocketChannel):
             _IN_PROCESS_HTTP_CHANNELS.pop(self.config.port, None)
 
 
+def _refuse_a_line_the_real_server_would_drop(request: httpx.Request) -> None:
+    """Hold this double to the limit the socket holds -- nanoinfraorg/nanoinfra#92.
+
+    These are "End-to-end tests" that route through this double, and it builds a
+    ``websockets.http11.Request`` in memory: no request line is ever parsed, so
+    ``MAX_LINE_LENGTH`` never applies. A diagram body travelled in one header on a GET, and past
+    8192 bytes the real server dropped the connection with no status code and no error body -- while
+    this double answered 200 for any size. A test that cannot fail is worse than no test, because it
+    reads as coverage.
+
+    The real server also caps the number of headers, so both limits live here.
+    """
+    from websockets.http11 import MAX_LINE_LENGTH, MAX_NUM_HEADERS
+
+    header_items = list(request.headers.multi_items())
+    if len(header_items) > MAX_NUM_HEADERS:
+        raise httpx.RemoteProtocolError(
+            f"the real server accepts {MAX_NUM_HEADERS} headers and this request carries "
+            f"{len(header_items)}"
+        )
+    for name, value in header_items:
+        # The wire form is ``name: value\r\n``, which is what the server's line reader measures.
+        line_length = len(name.encode()) + len(value.encode()) + 4
+        if line_length > MAX_LINE_LENGTH:
+            raise httpx.RemoteProtocolError(
+                f"header {name!r} is {line_length} bytes on the wire and the real server drops a "
+                f"line over {MAX_LINE_LENGTH}: it closes the connection with no status code, which "
+                "the browser shows as a network error"
+            )
+
+
 async def _in_process_http_get(
     channel: InProcessHttpChannel,
     request: httpx.Request,
 ) -> httpx.Response:
+    _refuse_a_line_the_real_server_would_drop(request)
     ws_request = WsRequest(
         request.url.raw_path.decode("ascii"),
         Headers(list(request.headers.multi_items())),

@@ -17,7 +17,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 from loguru import logger
 from websockets.http11 import Request as WsRequest
@@ -175,6 +175,38 @@ from nanoinfra.webui.workspaces import WebUIWorkspaceController
 _SLOW_WEBUI_HTTP_LOG_MS = 1_000
 _AUTOMATION_VALUES_HEADER = "X-Nanoinfra-Automation-Values"
 _DIAGRAM_VALUES_HEADER = "X-Nanoinfra-Diagram-Values"
+
+#: A diagram body is larger than one HTTP header line allows, so it travels in numbered chunks (#92).
+#:
+#: ``websockets`` drops a request line over ``MAX_LINE_LENGTH`` (8192 bytes) with no status code and no
+#: error body: the connection closes and the browser shows a network error. The limit is bytes and not
+#: nodes, so an operator could not predict where their canvas became unsavable, and the 11-node seeded
+#: example already used 60% of it.
+#:
+#: ``process_request`` in ``websockets`` exposes the request line and the headers and never a body, so
+#: a POST body is not available on this transport. Chunked headers are what it can carry.
+_DIAGRAM_CHUNK_COUNT_HEADER = "X-Nanoinfra-Diagram-Chunks"
+
+#: Bytes per chunk. A header line is ``name: value\r\n``, the names here are under 50 bytes, and 6000
+#: leaves room for that plus the safety margin. ``MAX_NUM_HEADERS`` is 128, so this carries about
+#: 700 KB of body -- far past any diagram, and still a bound.
+_DIAGRAM_CHUNK_BYTES = 6000
+
+
+def diagram_values_headers(payload: dict[str, Any]) -> dict[str, str]:
+    """The headers that carry one diagram body, split so no line exceeds the limit (#92).
+
+    Kept beside the reader so the two cannot drift, and exported for the WebUI's own client to mirror.
+    """
+    encoded = quote(json.dumps(payload, ensure_ascii=False), safe="")
+    chunks = [
+        encoded[index : index + _DIAGRAM_CHUNK_BYTES]
+        for index in range(0, len(encoded), _DIAGRAM_CHUNK_BYTES)
+    ] or [""]
+    headers = {_DIAGRAM_CHUNK_COUNT_HEADER: str(len(chunks))}
+    for index, chunk in enumerate(chunks):
+        headers[f"{_DIAGRAM_VALUES_HEADER}-{index}"] = chunk
+    return headers
 _SECRET_VALUES_HEADER = "X-Nanoinfra-Secret-Values"
 _SERVER_VALUES_HEADER = "X-Nanoinfra-Server-Values"
 
@@ -1697,6 +1729,34 @@ def _automation_values_from_request(request: WsRequest) -> dict[str, Any] | None
     return cast(dict[str, Any], values) if isinstance(values, dict) else None
 
 
+def _diagram_values_raw(request: WsRequest) -> str:
+    """Reassemble the diagram body from its chunk headers (#92).
+
+    An unchunked ``X-Nanoinfra-Diagram-Values`` still reads, because a client from before this change
+    sends one and a small diagram is the case where it worked.
+    """
+    count_raw = _case_insensitive_header(request.headers, _DIAGRAM_CHUNK_COUNT_HEADER)
+    if not count_raw:
+        return _case_insensitive_header(request.headers, _DIAGRAM_VALUES_HEADER) or ""
+    try:
+        count = int(count_raw)
+    except ValueError:
+        return ""
+    if count < 1 or count > 512:
+        return ""
+    parts: list[str] = []
+    for index in range(count):
+        part = _case_insensitive_header(request.headers, f"{_DIAGRAM_VALUES_HEADER}-{index}")
+        if not part:
+            # A missing chunk is a truncated body, and half a diagram must not be saved as a whole
+            # one -- the first chunk alone can be valid JSON, so a parse failure is not the guard.
+            # The splitter never emits an empty chunk when there is more than one, so empty here
+            # means absent. The caller treats "" as an invalid payload.
+            return ""
+        parts.append(part)
+    return "".join(parts)
+
+
 def _diagram_values_from_request(request: WsRequest) -> dict[str, Any] | None:
     """Read the full diagram body from ``X-Nanoinfra-Diagram-Values``.
 
@@ -1704,7 +1764,7 @@ def _diagram_values_from_request(request: WsRequest) -> dict[str, Any] | None:
     "no changes" here — create/update always need a complete diagram body,
     so a missing or malformed header is treated the same: an invalid payload.
     """
-    raw = _case_insensitive_header(request.headers, _DIAGRAM_VALUES_HEADER)
+    raw = _diagram_values_raw(request)
     if not raw:
         return None
     try:
