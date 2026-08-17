@@ -82,9 +82,22 @@ def _compute_line_ages(
 class GitStore:
     """Git-backed version control for memory files."""
 
-    def __init__(self, workspace: Path, tracked_files: list[str]):
+    def __init__(
+        self,
+        workspace: Path,
+        tracked_files: list[str],
+        tracked_dirs: list[str] | None = None,
+    ):
+        """*tracked_dirs* are directories whose whole contents are versioned.
+
+        Dream is instructed to create ``skills/<name>/SKILL.md`` and its registry grants a write over
+        that directory, so the set of files is not known in advance (#112). A directory in the tracked
+        set is expanded wherever a concrete list is needed, so a skill Dream authored is committed,
+        diffed and reverted like any other durable memory.
+        """
         self._workspace = workspace
         self._tracked_files = tracked_files
+        self._tracked_dirs = list(tracked_dirs or [])
 
     def is_initialized(self) -> bool:
         """Check if the git repo has been initialized."""
@@ -142,7 +155,7 @@ class GitStore:
             # Initial commit
             porcelain.add(
                 str(self._workspace),
-                paths=self._staging_paths(".gitignore", *self._tracked_files),
+                paths=self._staging_paths(".gitignore", *self.tracked_paths()),
             )
             porcelain.commit(
                 str(self._workspace),
@@ -182,7 +195,7 @@ class GitStore:
                 if isinstance(message_value, str)
                 else cast(bytes, message_value)
             )
-            porcelain.add(str(self._workspace), paths=self._staging_paths(*self._tracked_files))
+            porcelain.add(str(self._workspace), paths=self._staging_paths(*self.tracked_paths()))
             sha_bytes = porcelain.commit(
                 str(self._workspace),
                 message=msg_bytes,
@@ -201,6 +214,37 @@ class GitStore:
             raise GitStoreError(f"Git auto-commit failed: {message}") from exc
 
     # -- internal helpers ------------------------------------------------------
+
+    @staticmethod
+    def _tree_paths(repo: "Repo", tree: "Tree") -> list[str]:
+        """Every file path in a tree, recursively.
+
+        A revert has to consider a path the working tree no longer holds, and a tracked directory
+        holds nested files, so this walks rather than reading one level.
+        """
+        found: list[str] = []
+        for entry in cast(
+            "Iterable[TreeEntry]",
+            repo.object_store.iter_tree_contents(tree.id),
+        ):
+            found.append(entry.path.decode("utf-8", errors="replace"))
+        return found
+
+    def tracked_paths(self) -> list[str]:
+        """Every versioned path: the declared files, plus what lives in the tracked directories.
+
+        A directory holds files that did not exist when this store was constructed, so the list is
+        read from disk each time rather than cached.
+        """
+        found = list(self._tracked_files)
+        for rel in self._tracked_dirs:
+            root = self._workspace / rel
+            if not root.is_dir():
+                continue
+            for path in sorted(root.rglob("*")):
+                if path.is_file():
+                    found.append(path.relative_to(self._workspace).as_posix())
+        return found
 
     def _staging_paths(self, *paths: str) -> list[str]:
         """Return absolute paths without resolving tracked-file symlinks."""
@@ -257,6 +301,10 @@ class GitStore:
             lines.append(f"!{d}/")
         for f in self._tracked_files:
             lines.append(f"!{f}")
+        for d in self._tracked_dirs:
+            # The directory and everything under it, because the file names are not known here.
+            lines.append(f"!{d}/")
+            lines.append(f"!{d}/**")
         lines.append("!.gitignore")
         return "\n".join(lines) + "\n"
 
@@ -567,7 +615,12 @@ class GitStore:
 
                 restored: list[str] = []
                 discarded: list[str] = []
-                for filepath in self._tracked_files:
+                # A path in the reverted commit but absent from the working tree still has to be
+                # considered, so the candidate set is the union of both.
+                candidates = dict.fromkeys(
+                    [*self.tracked_paths(), *self._tree_paths(repo, commit_tree)]
+                )
+                for filepath in candidates:
                     at_commit = self._read_blob_from_tree(repo, commit_tree, filepath)
                     at_parent = self._read_blob_from_tree(repo, parent_tree, filepath)
                     if at_commit == at_parent:

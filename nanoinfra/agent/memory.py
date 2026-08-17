@@ -55,6 +55,17 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
+#: The versioned memory set, defined once. The bootstrap in ``utils/helpers.py`` used to repeat it
+#: and left ``memory/.dream_cursor`` out, so a bootstrapped workspace and a store disagreed about what
+#: git tracks -- the same "two lists" shape as #111 and #105.
+GIT_TRACKED_FILES = ("SOUL.md", "USER.md", "memory/MEMORY.md", "memory/.dream_cursor")
+
+#: Directories whose whole contents are versioned. ``dream.md`` instructs Dream to create
+#: ``skills/<name>/SKILL.md`` and its registry grants the write, and a skill with ``always: true``
+#: reaches every system prompt -- so it is durable memory and belongs in the audit record (#112).
+GIT_TRACKED_DIRS = ("skills",)
+
+
 class MemoryCursorError(RuntimeError):
     """A cursor file holds something that is not a cursor (#116).
 
@@ -109,6 +120,8 @@ class MemoryStore:
     # Durable files whose real working-tree delta grounds Dream commit messages.
     # Deliberately excludes memory/.dream_cursor so progress bookkeeping never
     # appears as a durable-memory edit in the audit record.
+    #: Deliberately excludes memory/.dream_cursor so progress bookkeeping never appears as a
+    #: durable-memory edit. Everything else Dream can write is derived, never re-declared (#112).
     _DREAM_CONTENT_PATHS = ("SOUL.md", "USER.md", "memory/MEMORY.md")
     # Per-file cap when embedding current contents into the Dream prompt. The
     # durable files are tiny in practice (~5 KB total), but a runaway file must
@@ -144,9 +157,11 @@ class MemoryStore:
         # what both processes can see; the thread lock still serializes threads inside one of them,
         # because ``FileLock`` counts re-entrant acquisitions per instance rather than per thread.
         self._history_lock_path = self.memory_dir / ".history.lock"
-        self._git = GitStore(workspace, tracked_files=[
-            "SOUL.md", "USER.md", "memory/MEMORY.md", "memory/.dream_cursor",
-        ])
+        self._git = GitStore(
+            workspace,
+            tracked_files=list(GIT_TRACKED_FILES),
+            tracked_dirs=list(GIT_TRACKED_DIRS),
+        )
         self._maybe_migrate_legacy_history()
 
     @property
@@ -758,7 +773,27 @@ class MemoryStore:
         """
         if not self._git.is_initialized():
             return ""
-        return self._git.summarize_working_tree(list(self._DREAM_CONTENT_PATHS))
+        return self._git.summarize_working_tree(self.dream_audit_paths())
+
+    def dream_audit_paths(self) -> list[str]:
+        """Every path a Dream run can change, which is what the audit record must cover (#112).
+
+        Derived rather than declared a second time: the registry grants a write over the skills
+        directory, so a skill Dream authored has to appear in the diff, the commit and
+        ``/dream-restore`` like any other durable memory. ``memory/.dream_cursor`` stays out, because
+        bookkeeping is not a memory change.
+        """
+        paths: list[str] = list(self._DREAM_CONTENT_PATHS)
+        for rel in GIT_TRACKED_DIRS:
+            root = self.workspace / rel
+            if not root.is_dir():
+                continue
+            paths.extend(
+                path.relative_to(self.workspace).as_posix()
+                for path in sorted(root.rglob("*"))
+                if path.is_file()
+            )
+        return paths
 
     def build_dream_tools(self) -> ToolRegistry:
         """Build the restricted tool registry used by Dream runs."""

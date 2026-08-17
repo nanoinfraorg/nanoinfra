@@ -958,15 +958,15 @@ def sync_workspace_templates(workspace: Path, silent: bool = False) -> list[str]
 
     # Initialize git for memory version control
     try:
+        from nanoinfra.agent.memory import GIT_TRACKED_DIRS, GIT_TRACKED_FILES
         from nanoinfra.utils.gitstore import GitStore
 
+        # The same set the store uses. This list used to be repeated here without
+        # ``memory/.dream_cursor``, so the generated .gitignore and the store disagreed (#111).
         gs = GitStore(
             workspace,
-            tracked_files=[
-                "SOUL.md",
-                "USER.md",
-                "memory/MEMORY.md",
-            ],
+            tracked_files=list(GIT_TRACKED_FILES),
+            tracked_dirs=list(GIT_TRACKED_DIRS),
         )
         gs.init()
     except Exception:
