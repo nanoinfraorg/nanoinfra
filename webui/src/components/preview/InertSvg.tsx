@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import { toPortableSvg } from "@/lib/svg-xml";
 import { cn } from "@/lib/utils";
 
 /** Base64 of the UTF-8 bytes, chunked because a 384 KiB file is ~400k arguments to `apply`. */
@@ -34,7 +35,14 @@ export function InertSvg({
   label: string;
   className?: string;
 }) {
-  const src = useMemo(() => `data:image/svg+xml;base64,${utf8ToBase64(markup)}`, [markup]);
+  // An `<img>` parses its source as XML and needs an intrinsic size to lay out, and a `.svg` on
+  // disk satisfies neither if it came from mermaid: unclosed `<br>` in a label, `width="100%"`
+  // with no height. Normalised rather than refused, because the file is a perfectly good SVG for
+  // every HTML consumer -- it is this stricter path that needs the repair.
+  const src = useMemo(
+    () => `data:image/svg+xml;base64,${utf8ToBase64(toPortableSvg(markup))}`,
+    [markup],
+  );
 
   return (
     <div className={cn("flex min-h-full items-center justify-center p-4", className)}>
