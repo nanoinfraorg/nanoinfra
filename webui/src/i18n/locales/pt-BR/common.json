@@ -1473,7 +1473,10 @@
         "defaultShort": "Padrão",
         "full": "Acesso total",
         "fullShort": "Total"
-      }
+      },
+      "approvalsWaiting_one": "{{count}} ação espera sua resposta",
+      "approvalsWaiting_other": "{{count}} ações esperam sua resposta",
+      "approvalsReview": "Revisar"
     },
     "scrollToBottom": "Rolar para o final",
     "loadEarlier": "Carregar mensagens anteriores",

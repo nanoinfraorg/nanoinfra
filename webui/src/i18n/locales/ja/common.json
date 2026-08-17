@@ -1473,7 +1473,10 @@
         "defaultShort": "既定",
         "full": "フルアクセス",
         "fullShort": "フル"
-      }
+      },
+      "approvalsWaiting_one": "{{count}} 件の操作が回答を待っています",
+      "approvalsWaiting_other": "{{count}} 件の操作が回答を待っています",
+      "approvalsReview": "確認"
     },
     "scrollToBottom": "一番下へスクロール",
     "loadEarlier": "以前のメッセージを読み込む",

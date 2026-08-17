@@ -1473,7 +1473,10 @@
         "defaultShort": "Bawaan",
         "full": "Akses penuh",
         "fullShort": "Penuh"
-      }
+      },
+      "approvalsWaiting_one": "{{count}} tindakan menunggu jawaban Anda",
+      "approvalsWaiting_other": "{{count}} tindakan menunggu jawaban Anda",
+      "approvalsReview": "Tinjau"
     },
     "scrollToBottom": "Gulir ke bawah",
     "loadEarlier": "Muat pesan sebelumnya",

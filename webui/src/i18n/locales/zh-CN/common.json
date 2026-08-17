@@ -1473,7 +1473,10 @@
         "defaultShort": "默认",
         "full": "完全访问权限",
         "fullShort": "完全"
-      }
+      },
+      "approvalsWaiting_one": "{{count}} 个操作正在等待你的答复",
+      "approvalsWaiting_other": "{{count}} 个操作正在等待你的答复",
+      "approvalsReview": "查看"
     },
     "scrollToBottom": "滚动到底部",
     "loadEarlier": "加载更早消息",

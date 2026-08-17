@@ -2248,6 +2248,9 @@ function Shell({
                 onWorkspaceScopeChange={applyWorkspaceScope}
                 settingsSnapshot={settingsSnapshot}
                 onOpenModelSettings={onOpenModelSettings}
+                // The count the sidebar badge already shows. The composer says it where the eye is.
+                pendingApprovals={approvals.count}
+                onOpenApprovals={onOpenApprovals}
                 skills={skills}
               />
             </div>

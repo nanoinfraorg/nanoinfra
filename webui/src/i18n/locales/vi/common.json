@@ -1473,7 +1473,10 @@
         "defaultShort": "Mặc định",
         "full": "Toàn quyền truy cập",
         "fullShort": "Toàn quyền"
-      }
+      },
+      "approvalsWaiting_one": "{{count}} hành động đang chờ bạn trả lời",
+      "approvalsWaiting_other": "{{count}} hành động đang chờ bạn trả lời",
+      "approvalsReview": "Xem lại"
     },
     "scrollToBottom": "Cuộn xuống cuối",
     "loadEarlier": "Tải tin nhắn trước đó",
