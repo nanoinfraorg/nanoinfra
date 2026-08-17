@@ -1,11 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { AlertCircle, ChevronRight, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { CodeBlock } from "@/components/CodeBlock";
 import { splitFilePath } from "@/components/FileReferenceChip";
+import { MarkdownText } from "@/components/MarkdownText";
+import { InertSvg } from "@/components/preview/InertSvg";
+import { SegmentedControl } from "@/components/ui/segmented-control";
+import { useFilePreviewMode } from "@/hooks/useFilePreviewMode";
 import { ApiError, fetchFilePreview } from "@/lib/api";
+import { rendererForPath } from "@/lib/file-preview-render";
 import type { FilePreviewPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +23,20 @@ interface FilePreviewPanelProps {
   onResizeStart?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onClose: () => void;
 }
+
+/** Loaded on demand, and that is load-bearing rather than a nicety.
+ *
+ * `MermaidPreview` imports Streamdown, which until now was only reachable through
+ * `MarkdownText`'s own `lazy()`. Importing it statically from this panel put the whole markdown
+ * vendor chunk into the eager graph, and rollup's `manualChunks` then emitted
+ * `syntax-highlight` and `markdown-vendor` importing each other -- a cycle that builds
+ * cleanly and throws `can't access lexical declaration ... before initialization` in the
+ * browser. Keeping the import dynamic keeps the two chunks acyclic, which is the same reason
+ * `vite.config.ts` pins Refractor's HAST helper next to Refractor.
+ */
+const MermaidPreview = lazy(async () => ({
+  default: (await import("@/components/preview/MermaidPreview")).MermaidPreview,
+}));
 
 type PreviewState =
   | { status: "loading" }
@@ -86,6 +105,15 @@ export function FilePreviewPanel({
     ...directoryParts,
     fileName,
   ].join("/")}`;
+  const renderer = rendererForPath(displayPath);
+  const [mode, setMode] = useFilePreviewMode(displayPath, renderer);
+  const showSource = useCallback(() => setMode("raw"), [setMode]);
+  // A truncated payload is not a smaller document: half an `<svg>` is not a smaller picture, and
+  // half a flowchart is a parse error. Rendering either would report a large file as a broken one.
+  const truncated = state.status === "ready" && state.payload.truncated;
+  const effectiveMode = truncated ? "raw" : mode;
+  const canRender = renderer !== null && state.status === "ready";
+
   const errorMessage = state.status === "error"
     ? (state.error instanceof ApiError
       ? (state.error.status === 404 && /API route not found/i.test(state.error.message)
@@ -196,6 +224,25 @@ export function FilePreviewPanel({
                 );
               })}
             </nav>
+            {canRender ? (
+              <SegmentedControl
+                size="sm"
+                className="shrink-0"
+                value={effectiveMode}
+                disabled={truncated}
+                ariaLabel={t("filePreview.renderMode", { defaultValue: "How to show this file" })}
+                title={truncated
+                  ? t("filePreview.truncatedNoPreview", {
+                    defaultValue: "Large files are shown as source only.",
+                  })
+                  : undefined}
+                options={[
+                  { value: "raw", label: t("filePreview.raw", { defaultValue: "Raw" }) },
+                  { value: "preview", label: t("filePreview.rendered", { defaultValue: "Preview" }) },
+                ]}
+                onChange={(next) => setMode(next === "preview" ? "preview" : "raw")}
+              />
+            ) : null}
             <button
               type="button"
               onClick={onClose}
@@ -237,15 +284,32 @@ export function FilePreviewPanel({
                     })}
                   </div>
                 ) : null}
-                <CodeBlock
-                  language={state.payload.language}
-                  code={state.payload.content}
-                  chrome="none"
-                  highlight
-                  showLineNumbers
-                  wrapLongLines={false}
-                  className="min-h-full"
-                />
+                {effectiveMode === "preview" && renderer === "mermaid" ? (
+                  <Suspense
+                    fallback={
+                      <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        {t("filePreview.rendering", { defaultValue: "Rendering diagram..." })}
+                      </div>
+                    }
+                  >
+                    <MermaidPreview source={state.payload.content} onShowSource={showSource} />
+                  </Suspense>
+                ) : effectiveMode === "preview" && renderer === "svg" ? (
+                  <InertSvg markup={state.payload.content} label={fileName} />
+                ) : effectiveMode === "preview" && renderer === "markdown" ? (
+                  <MarkdownText className="px-4 py-3">{state.payload.content}</MarkdownText>
+                ) : (
+                  <CodeBlock
+                    language={state.payload.language}
+                    code={state.payload.content}
+                    chrome="none"
+                    highlight
+                    showLineNumbers
+                    wrapLongLines={false}
+                    className="min-h-full"
+                  />
+                )}
               </div>
             )}
           </div>

@@ -46,6 +46,8 @@ describe("FilePreviewPanel", () => {
     vi.mocked(fetchFilePreview).mockResolvedValue({
       path: "/Users/hr/workspace/quicksort.py",
       display_path: "quicksort.py",
+      project_path: "/Users/hr/workspace",
+      size: 11,
       language: "python",
       content: "print('ok')",
       truncated: false,
@@ -80,6 +82,8 @@ describe("FilePreviewPanel", () => {
     vi.mocked(fetchFilePreview).mockResolvedValue({
       path: "/workspace/notes.md",
       display_path: "notes.md",
+      project_path: "/workspace",
+      size: 7,
       language: "markdown",
       content: "# Notes",
       truncated: false,

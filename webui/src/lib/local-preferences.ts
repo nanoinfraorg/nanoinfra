@@ -62,6 +62,52 @@ export function readLocalPreferences(): LocalPreferences {
   }
 }
 
+export type FilePreviewMode = "raw" | "preview";
+
+/** Whether each kind of file opens rendered or as source, remembered per extension.
+ *
+ * Deliberately its own storage key rather than a field of ``LocalPreferences``: Settings holds
+ * the whole preferences object in state captured at mount and writes it back whenever any
+ * setting changes, so a map updated from the preview panel while Settings was open would be
+ * silently overwritten by the next unrelated toggle.
+ */
+export const FILE_PREVIEW_MODES_STORAGE_KEY = "nanoinfra-webui.file-preview-modes";
+export const FILE_PREVIEW_MODES_CHANGED_EVENT = "nanoinfra-webui.file-preview-modes-changed";
+
+export function normalizeFilePreviewMode(value: unknown): FilePreviewMode | null {
+  return value === "raw" || value === "preview" ? value : null;
+}
+
+export function readFilePreviewModes(): Record<string, FilePreviewMode> {
+  try {
+    const raw = window.localStorage.getItem(FILE_PREVIEW_MODES_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const modes: Record<string, FilePreviewMode> = {};
+    for (const [extension, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const mode = normalizeFilePreviewMode(value);
+      if (mode) modes[extension] = mode;
+    }
+    return modes;
+  } catch {
+    return {};
+  }
+}
+
+export function writeFilePreviewMode(extension: string, mode: FilePreviewMode): void {
+  const modes = { ...readFilePreviewModes(), [extension]: mode };
+  try {
+    window.localStorage.setItem(FILE_PREVIEW_MODES_STORAGE_KEY, JSON.stringify(modes));
+  } catch {
+    // Browser-only preferences should never block the panel.
+  }
+  window.dispatchEvent(new CustomEvent<Record<string, FilePreviewMode>>(
+    FILE_PREVIEW_MODES_CHANGED_EVENT,
+    { detail: modes },
+  ));
+}
+
 export function writeLocalPreferences(preferences: LocalPreferences): void {
   try {
     window.localStorage.setItem(LOCAL_PREFS_STORAGE_KEY, JSON.stringify(preferences));

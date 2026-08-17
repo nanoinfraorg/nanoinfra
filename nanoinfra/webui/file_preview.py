@@ -158,6 +158,11 @@ def _language_for_path(path: Path) -> str:
         "jsx": "jsx",
         "md": "markdown",
         "mdx": "markdown",
+        # ``.mermaid`` already answers itself through the fallback below; ``.mmd`` is the
+        # spelling the diagram tools write, and it would otherwise report the language as
+        # "mmd", which no highlighter or renderer knows.
+        "mermaid": "mermaid",
+        "mmd": "mermaid",
         "mjs": "javascript",
         "mts": "typescript",
         "py": "python",
