@@ -495,6 +495,25 @@ def find_legal_message_start(messages: list[dict[str, Any]]) -> int:
     return start
 
 
+def fence_as_data(text: str, *, label: str) -> str:
+    """Wrap untrusted text so a model reads it as data and it cannot close its own frame.
+
+    Conversation history carries TOOL rows, so a fetched web page and shell output reach durable
+    memory through it. Interpolated bare, an entry's own ``## Heading`` sat at the same level as the
+    template's sections and read as instruction (#114).
+
+    The fence is one backtick longer than the longest run in the text, so content that carries a
+    fence cannot end the block early.
+
+    This lowers the chance a model follows the text. It does not stop a model that decides to, and
+    nothing here should be read as a boundary: the durable control is that what the model writes is
+    committed and reviewable.
+    """
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * max(3, longest + 1)
+    return f"{label}\n{fence}\n{text}\n{fence}"
+
+
 def declared_tool_calls(message: dict[str, Any]) -> list[tuple[str, str]]:
     """The ``(id, tool name)`` pairs an assistant message declares, in order."""
     found: list[tuple[str, str]] = []
