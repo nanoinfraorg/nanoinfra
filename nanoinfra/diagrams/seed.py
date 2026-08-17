@@ -709,10 +709,27 @@ def seed_example_diagram_if_new_workspace(store: DiagramStore) -> None:
     not per-request/per-tool-call, since every other caller of DiagramStore
     (agent tools, tests) must see an actually-empty store when it is empty.
     """
-    if store.root.is_dir():
+    # Three different facts, and the old check conflated all of them into "does the directory
+    # exist" (#103):
+    #
+    # - ``diagrams/`` exists. It is also the parent of ``diagrams/catalog/``, so an operator who
+    #   added a workspace catalog override first -- the path the tool's own error text recommends --
+    #   created it and silently lost this feature.
+    # - the workspace holds diagrams. Then there is nothing to seed.
+    # - this workspace was seeded once already. Then an operator who deleted the examples chose to,
+    #   and putting them back would undo that.
+    #
+    # The marker carries the third, which nothing else can express.
+    marker = store.root / ".seeded"
+    if marker.exists() or any(store.root.glob("*.json")):
         return
     for raw in EXAMPLE_DIAGRAMS:
         store.create(raw)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(
+        "This workspace received the example diagrams. Delete this file to receive them again.\n",
+        encoding="utf-8",
+    )
 
 
 __all__ = ["EXAMPLE_DIAGRAMS", "seed_example_diagram_if_new_workspace"]

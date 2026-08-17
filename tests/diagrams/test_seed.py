@@ -76,3 +76,20 @@ def test_example_diagram_edges_reference_real_node_ids() -> None:
         for edge in diagram["edges"]:
             assert edge["source"] in node_ids, f"{diagram['name']!r} edge {edge['id']!r} has unknown source"
             assert edge["target"] in node_ids, f"{diagram['name']!r} edge {edge['id']!r} has unknown target"
+
+
+def test_seeds_a_workspace_that_only_has_a_catalog_override(tmp_path: Path):
+    """`diagrams/` is also the parent of `diagrams/catalog/` -- #103.
+
+    The product tells the operator to create a workspace catalog override, and creating it used to
+    disable the example diagrams with no message at all.
+    """
+    override = tmp_path / "diagrams" / "catalog" / "my-components.json"
+    override.parent.mkdir(parents=True)
+    override.write_text('{"componentTypes": []}', encoding="utf-8")
+    store = DiagramStore(tmp_path)
+
+    seed_example_diagram_if_new_workspace(store)
+
+    assert store.list_diagrams(), "an operator following the documented path received nothing"
+    assert override.exists(), "and their override is untouched"

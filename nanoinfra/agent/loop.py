@@ -673,6 +673,7 @@ class AgentLoop:
             provider_snapshot_loader=provider_snapshot_loader,
             image_generation_provider_configs=self._image_generation_provider_configs,
             timezone=self.context.timezone or "UTC",
+            disabled_skills=frozenset(self.context.skills.disabled_skills),
             workspace_sandbox=self.workspace_scopes.sandbox_status,
             runtime_events=self.runtime_events,
         )

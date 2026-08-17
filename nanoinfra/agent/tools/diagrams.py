@@ -27,6 +27,7 @@ from nanoinfra.agent.tools.schema import (
 from nanoinfra.diagrams.catalog import load_catalog
 from nanoinfra.diagrams.lookup import resolve_diagram
 from nanoinfra.diagrams.normalize import DiagramValidationError, normalize_diagram
+from nanoinfra.diagrams.runtime_context import frame_diagram_json
 from nanoinfra.diagrams.store import DiagramConflictError, DiagramStore
 from nanoinfra.diagrams.types import Diagram
 from nanoinfra.diagrams.write_gate import (
@@ -38,6 +39,7 @@ from nanoinfra.diagrams.write_gate import (
     record_preview,
     refusal_message,
 )
+from nanoinfra.security.workspace_access import current_tool_workspace
 
 if TYPE_CHECKING:
     from nanoinfra.agent.tools.context import ToolContext
@@ -341,17 +343,59 @@ def _diff_summary(before: Diagram, after: Diagram) -> str:
     return "\n".join(lines)
 
 
-class ListDiagramsTool(Tool):
+class _WorkspaceScopedDiagramTool(Tool):
+    """Resolve the workspace on every call, not at construction (#97).
+
+    Every other tool calls ``current_tool_workspace``: ``filesystem.py``, ``shell.py``,
+    ``cli_apps.py``, ``message.py``, ``image_generation.py``. These captured the default workspace at
+    construction, so a WebUI session scoped to another project -- and confined by
+    ``restrict_to_workspace`` -- still listed, read and rewrote the default workspace's diagrams,
+    including any ``kind: "secret"`` config in them. ``agent/loop.py`` binds that scope for the turn,
+    so the path is reachable and these are testable.
+
+    A store bound at construction cannot honour a scope that changes per turn, so the store is
+    resolved here too.
+    """
+
+    def __init__(
+        self,
+        store: DiagramStore,
+        workspace: Path | None = None,
+        disabled_skills: frozenset[str] = frozenset(),
+    ) -> None:
+        self._default_store = store
+        self._default_workspace = Path(workspace) if workspace is not None else store.workspace_path
+        self._disabled = disabled_skills
+
+    def _disabled_skills(self) -> set[str]:
+        return set(self._disabled)
+
+    @property
+    def workspace(self) -> Path:
+        scoped = current_tool_workspace(self._default_workspace).project_path
+        return Path(scoped) if scoped is not None else self._default_workspace
+
+    @property
+    def store(self) -> DiagramStore:
+        workspace = self.workspace
+        if workspace == self._default_store.workspace_path:
+            return self._default_store
+        return DiagramStore(workspace)
+
+
+class ListDiagramsTool(_WorkspaceScopedDiagramTool):
     """List saved Infra Diagrams (id, name, targets, node count, last update)."""
 
     capability_class = "read"
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
-        return cls(DiagramStore(Path(ctx.workspace)))
+        return cls(
+            DiagramStore(Path(ctx.workspace)),
+            Path(ctx.workspace),
+            ctx.disabled_skills,
+        )
 
-    def __init__(self, store: DiagramStore) -> None:
-        self.store = store
 
     @property
     def name(self) -> str:
@@ -375,7 +419,7 @@ class ListDiagramsTool(Tool):
 
     async def execute(self, **kwargs: Any) -> Any:
         summaries = [summary.to_dict() for summary in self.store.list_diagrams()]
-        return json.dumps(summaries, ensure_ascii=False)
+        return frame_diagram_json(json.dumps(summaries, ensure_ascii=False))
 
 
 @tool_parameters(
@@ -388,17 +432,19 @@ class ListDiagramsTool(Tool):
         required=["diagram_id_or_name"],
     )
 )
-class GetDiagramTool(Tool):
+class GetDiagramTool(_WorkspaceScopedDiagramTool):
     """Fetch one saved diagram's full content (nodes, edges, targets)."""
 
     capability_class = "read"
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
-        return cls(DiagramStore(Path(ctx.workspace)))
+        return cls(
+            DiagramStore(Path(ctx.workspace)),
+            Path(ctx.workspace),
+            ctx.disabled_skills,
+        )
 
-    def __init__(self, store: DiagramStore) -> None:
-        self.store = store
 
     @property
     def name(self) -> str:
@@ -417,7 +463,7 @@ class GetDiagramTool(Tool):
         diagram = resolve_diagram(self.store, diagram_id_or_name)
         if diagram is None:
             return ToolResult.error(f"No saved diagram matches {diagram_id_or_name!r}.")
-        return json.dumps(diagram.to_dict(), ensure_ascii=False)
+        return frame_diagram_json(json.dumps(diagram.to_dict(), ensure_ascii=False))
 
 
 class ListDiagramComponentsTool(Tool):
@@ -430,8 +476,17 @@ class ListDiagramComponentsTool(Tool):
         workspace = Path(ctx.workspace)
         return cls(workspace)
 
-    def __init__(self, workspace: Path) -> None:
-        self.workspace = workspace
+    def __init__(self, workspace: Path, disabled_skills: frozenset[str] = frozenset()) -> None:
+        self._default_workspace = Path(workspace)
+        self._disabled = disabled_skills
+
+    def _disabled_skills(self) -> set[str]:
+        return set(self._disabled)
+
+    @property
+    def workspace(self) -> Path:
+        scoped = current_tool_workspace(self._default_workspace).project_path
+        return Path(scoped) if scoped is not None else self._default_workspace
 
     @property
     def name(self) -> str:
@@ -456,7 +511,14 @@ class ListDiagramComponentsTool(Tool):
         return True
 
     async def execute(self, **kwargs: Any) -> Any:
-        component_types = load_catalog(self.workspace, skills_workspace_path=self.workspace)
+        component_types = load_catalog(
+            self.workspace,
+            skills_workspace_path=self.workspace,
+            # The route passes this and the tool did not, so `skill_enabled` was computed from an
+            # empty set: the model was told it could operate a component through a skill the
+            # operator had switched off (#99).
+            disabled_skills=self._disabled_skills(),
+        )
         payload = {"componentTypes": [component_type.to_dict() for component_type in component_types]}
         return json.dumps(payload, ensure_ascii=False)
 
@@ -490,7 +552,7 @@ class ListDiagramComponentsTool(Tool):
         required=["diagram_id", "nodes", "edges"],
     )
 )
-class UpdateDiagramTool(Tool):
+class UpdateDiagramTool(_WorkspaceScopedDiagramTool):
     """Preview (default) or persist a full-replacement update to a saved diagram."""
 
     capability_class = "mutate.local"
@@ -498,11 +560,8 @@ class UpdateDiagramTool(Tool):
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
         workspace = Path(ctx.workspace)
-        return cls(DiagramStore(workspace), workspace)
+        return cls(DiagramStore(workspace), workspace, ctx.disabled_skills)
 
-    def __init__(self, store: DiagramStore, workspace: Path) -> None:
-        self.store = store
-        self.workspace = workspace
 
     @property
     def name(self) -> str:
@@ -553,7 +612,14 @@ class UpdateDiagramTool(Tool):
         _resolve_overlaps(candidate.nodes, new_ids)
         _fit_groups_to_children(candidate.nodes)
 
-        catalog_types = load_catalog(self.workspace, skills_workspace_path=self.workspace)
+        catalog_types = load_catalog(
+            self.workspace,
+            skills_workspace_path=self.workspace,
+            # The route passes this and the tool did not, so `skill_enabled` was computed from an
+            # empty set: the model was told it could operate a component through a skill the
+            # operator had switched off (#99).
+            disabled_skills=self._disabled_skills(),
+        )
         errors = _unknown_component_errors(candidate, catalog_types)
         if errors:
             return ToolResult.error("Not saved -- unknown component(s):\n" + "\n".join(errors))
@@ -615,7 +681,7 @@ class UpdateDiagramTool(Tool):
         required=["name", "nodes", "edges"],
     )
 )
-class CreateDiagramTool(Tool):
+class CreateDiagramTool(_WorkspaceScopedDiagramTool):
     """Preview (default) or create a brand-new saved diagram."""
 
     capability_class = "mutate.local"
@@ -623,11 +689,8 @@ class CreateDiagramTool(Tool):
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
         workspace = Path(ctx.workspace)
-        return cls(DiagramStore(workspace), workspace)
+        return cls(DiagramStore(workspace), workspace, ctx.disabled_skills)
 
-    def __init__(self, store: DiagramStore, workspace: Path) -> None:
-        self.store = store
-        self.workspace = workspace
 
     @property
     def name(self) -> str:
@@ -669,7 +732,14 @@ class CreateDiagramTool(Tool):
         _resolve_overlaps(candidate.nodes, new_ids)
         _fit_groups_to_children(candidate.nodes)
 
-        catalog_types = load_catalog(self.workspace, skills_workspace_path=self.workspace)
+        catalog_types = load_catalog(
+            self.workspace,
+            skills_workspace_path=self.workspace,
+            # The route passes this and the tool did not, so `skill_enabled` was computed from an
+            # empty set: the model was told it could operate a component through a skill the
+            # operator had switched off (#99).
+            disabled_skills=self._disabled_skills(),
+        )
         errors = _unknown_component_errors(candidate, catalog_types)
         if errors:
             return ToolResult.error("Not created -- unknown component(s):\n" + "\n".join(errors))
