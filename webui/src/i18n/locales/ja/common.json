@@ -1583,7 +1583,14 @@
     "failed": "このファイルをプレビューできませんでした。",
     "routeMissing": "ファイルプレビューには最新の gateway が必要です。nanoinfra gateway を再起動してから再試行してください。",
     "resize": "ファイルプレビューの幅を変更",
-    "truncated": "ファイルが大きいため、プレビューは途中まで表示されています。"
+    "truncated": "ファイルが大きいため、プレビューは途中まで表示されています。",
+    "renderMode": "このファイルの表示方法",
+    "raw": "ソース",
+    "rendered": "プレビュー",
+    "truncatedNoPreview": "大きなファイルはソースのみ表示されます。",
+    "rendering": "図を描画しています...",
+    "mermaidFailed": "この図を描画できませんでした。",
+    "viewSource": "ソースを表示"
   },
   "code": {
     "fallbackLanguage": "コード",

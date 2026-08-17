@@ -1583,7 +1583,14 @@
     "failed": "Tidak dapat mempratinjau file ini.",
     "routeMissing": "Pratinjau file memerlukan gateway terbaru. Mulai ulang nanoinfra gateway lalu coba lagi.",
     "resize": "Ubah ukuran pratinjau file",
-    "truncated": "Pratinjau dipotong karena file ini besar."
+    "truncated": "Pratinjau dipotong karena file ini besar.",
+    "renderMode": "Cara menampilkan file ini",
+    "raw": "Sumber",
+    "rendered": "Pratinjau",
+    "truncatedNoPreview": "File besar hanya ditampilkan sebagai sumber.",
+    "rendering": "Merender diagram...",
+    "mermaidFailed": "Diagram ini tidak dapat dirender.",
+    "viewSource": "Lihat sumber"
   },
   "code": {
     "fallbackLanguage": "kode",

@@ -1583,7 +1583,14 @@
     "failed": "No se pudo previsualizar este archivo.",
     "routeMissing": "La vista previa necesita el gateway más reciente. Reinicia nanoinfra gateway e inténtalo de nuevo.",
     "resize": "Cambiar el tamaño de la vista previa",
-    "truncated": "La vista previa está truncada porque el archivo es grande."
+    "truncated": "La vista previa está truncada porque el archivo es grande.",
+    "renderMode": "Cómo mostrar este archivo",
+    "raw": "Original",
+    "rendered": "Vista previa",
+    "truncatedNoPreview": "Los archivos grandes solo se muestran como código.",
+    "rendering": "Generando el diagrama...",
+    "mermaidFailed": "No se pudo representar este diagrama.",
+    "viewSource": "Ver código"
   },
   "code": {
     "fallbackLanguage": "código",

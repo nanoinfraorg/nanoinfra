@@ -1583,7 +1583,14 @@
     "failed": "无法预览这个文件。",
     "routeMissing": "文件预览需要最新的网关。请重启 nanoinfra gateway 后再试。",
     "resize": "调整文件预览宽度",
-    "truncated": "文件较大，当前只显示前半部分预览。"
+    "truncated": "文件较大，当前只显示前半部分预览。",
+    "renderMode": "如何显示此文件",
+    "raw": "源码",
+    "rendered": "预览",
+    "truncatedNoPreview": "较大的文件仅以源码形式显示。",
+    "rendering": "正在渲染图表...",
+    "mermaidFailed": "无法渲染此图表。",
+    "viewSource": "查看源码"
   },
   "code": {
     "fallbackLanguage": "代码",

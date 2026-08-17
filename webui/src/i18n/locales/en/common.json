@@ -1583,7 +1583,14 @@
     "failed": "Could not preview this file.",
     "routeMissing": "File preview needs the latest gateway. Restart nanoinfra gateway and try again.",
     "resize": "Resize file preview",
-    "truncated": "Preview is truncated because this file is large."
+    "truncated": "Preview is truncated because this file is large.",
+    "renderMode": "How to show this file",
+    "raw": "Raw",
+    "rendered": "Preview",
+    "truncatedNoPreview": "Large files are shown as source only.",
+    "rendering": "Rendering diagram...",
+    "mermaidFailed": "This diagram could not be rendered.",
+    "viewSource": "View source"
   },
   "code": {
     "fallbackLanguage": "code",
