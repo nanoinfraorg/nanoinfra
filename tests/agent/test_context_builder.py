@@ -481,3 +481,32 @@ class TestBuildMessages:
         user_msg = messages[-1]["content"]
         assert isinstance(user_msg, list)
         assert any(b.get("type") == "image_url" for b in user_msg)
+
+
+class TestMemoryHasACeiling:
+    """MEMORY.md was injected whole, with no cap -- nanoinfraorg/nanoinfra#119.
+
+    The only mechanism that shrinks the file is Dream, and above the embed cap Dream could not see
+    the part it would prune, so the file's growth and the pruner's blindness scaled together.
+    """
+
+    def test_a_large_memory_file_does_not_reach_the_prompt_whole(self, tmp_path) -> None:
+        builder = _builder(tmp_path)
+        builder.memory.write_memory("# Memory\n" + "\n".join(f"- fact {i:05d}" for i in range(8000)))
+
+        prompt = builder.build_system_prompt(include_memory_recent_history=False)
+
+        assert "fact 00000" in prompt, "the start of the file is what a model needs most"
+        assert "fact 07999" not in prompt, "the file reached the prompt whole, so there is no cap"
+        assert "shown in part" in prompt, (
+            "a prompt that silently drops half the memory teaches the model a false premise"
+        )
+
+    def test_a_small_memory_file_is_untouched(self, tmp_path) -> None:
+        builder = _builder(tmp_path)
+        builder.memory.write_memory("# Memory\n- one fact")
+
+        prompt = builder.build_system_prompt(include_memory_recent_history=False)
+
+        assert "- one fact" in prompt
+        assert "shown in part" not in prompt

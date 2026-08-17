@@ -515,3 +515,71 @@ class TestTheTrackedSetHasOneDefinition:
 
         assert list(store.git._tracked_files) == list(GIT_TRACKED_FILES)
         assert list(store.git._tracked_dirs) == list(GIT_TRACKED_DIRS)
+
+
+class TestDreamCannotReplaceWhatItDidNotSee:
+    """A partial view plus a whole-file write -- nanoinfraorg/nanoinfra#108.
+
+    ``_render_current_memory_files`` caps each embedded file at 8 KB, the section's docstring calls
+    it "the ground truth the model must edit against", and the template tells the model "do not rely
+    on a remembered version of a file". ``write_file`` was registered for those exact files with no
+    read-before-write check.
+
+    So Dream was shown the first 8 KB of a 16 KB MEMORY.md, was told that was the file, was told to
+    prune, and issued one ``write_file``. 8 KB of durable facts went.
+    """
+
+    def test_the_prompt_says_when_a_file_is_shown_in_part(self, tmp_path) -> None:
+        store = _store(tmp_path)
+        store.write_memory("# Memory\n" + "\n".join(f"- fact {i:04d}" for i in range(1200)))
+
+        result = store.build_dream_prompt()
+
+        assert result is not None
+        prompt = result[0]
+        assert "shown in part" in prompt or "not the whole file" in prompt, (
+            "a model told a false premise acts on it"
+        )
+
+    def test_a_file_shown_in_part_gets_no_whole_file_write(self, tmp_path) -> None:
+        from nanoinfra.agent.tools.filesystem import WriteFileTool
+
+        store = _store(tmp_path)
+        store.write_memory("# Memory\n" + "\n".join(f"- fact {i:04d}" for i in range(1200)))
+
+        registry = store.build_dream_tools()
+        writer = next(
+            (t for t in registry._tools.values() if isinstance(t, WriteFileTool)),
+            None,
+        )
+
+        assert writer is not None
+        allowed = {Path(p).as_posix() for p in writer._extra_write_allowed_files}
+        assert store.memory_file.as_posix() not in allowed, (
+            "a file the model saw in part must be editable and not replaceable"
+        )
+
+    def test_a_file_that_fits_is_still_replaceable(self, tmp_path) -> None:
+        from nanoinfra.agent.tools.filesystem import WriteFileTool
+
+        store = _store(tmp_path)
+        store.write_memory("# Memory\n- one small fact")
+
+        registry = store.build_dream_tools()
+        writer = next(t for t in registry._tools.values() if isinstance(t, WriteFileTool))
+
+        allowed = {Path(p).as_posix() for p in writer._extra_write_allowed_files}
+        assert store.memory_file.as_posix() in allowed
+
+    def test_the_edit_tool_still_reaches_an_oversized_file(self, tmp_path) -> None:
+        """Pruning has to stay possible: the model edits what it saw."""
+        from nanoinfra.agent.tools.filesystem import EditFileTool
+
+        store = _store(tmp_path)
+        store.write_memory("# Memory\n" + "\n".join(f"- fact {i:04d}" for i in range(1200)))
+
+        registry = store.build_dream_tools()
+        editor = next(t for t in registry._tools.values() if isinstance(t, EditFileTool))
+
+        allowed = {Path(p).as_posix() for p in editor._extra_write_allowed_files}
+        assert store.memory_file.as_posix() in allowed
