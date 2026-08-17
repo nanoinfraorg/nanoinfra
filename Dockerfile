@@ -48,12 +48,6 @@ RUN for channel in $(printf '%s' "$NANOINFRA_CHANNELS" | tr ',' ' '); do \
         python -m scripts.install_channel_dependencies "$channel"; \
     done
 
-# Render deploy template (see render.yaml): committed gateway config that wires
-# secrets through ${ANTHROPIC_API_KEY} / ${NANOINFRA_WEB_TOKEN} env vars (resolved
-# at startup). Lives in the code dir (/app), not the data dir, so a mounted disk
-# won't shadow it. Only used when RENDER=true; ignored by local runs.
-COPY render-config.json ./
-
 # Two accounts, because item 15 (nanoinfraorg/nanoinfra#18) splits the agent from
 # the executor. Two processes on one uid give no kernel-enforced separation: either
 # one can ptrace the other and read its memory, so the credential the executor holds
@@ -118,9 +112,9 @@ RUN useradd -m -u 1000 -s /bin/bash nanoinfra && \
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
 
-# Start as root so the entrypoint can chown the data dir (on Render, the
-# freshly-mounted root-owned persistent disk) before dropping to the non-root
-# nanoinfra user via setpriv. The entrypoint drops privileges on every root start
+# Start as root so the entrypoint can chown the data dir (a freshly-mounted volume
+# or bind mount arrives root-owned) before dropping to the non-root nanoinfra user
+# via setpriv. The entrypoint drops privileges on every root start
 # and fails closed if it cannot, so the agent never runs as root (see
 # entrypoint.sh).
 #
@@ -143,8 +137,8 @@ RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/ent
 # the absence of Landlock support. An operator reads which one they have.
 USER root
 ENV HOME=/home/nanoinfra
-# Ensure crash output reaches Render logs (app output is otherwise swallowed on
-# non-graceful exit).
+# Ensure crash output reaches the container logs (app output is otherwise swallowed
+# on non-graceful exit).
 ENV PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1
 
 # Gateway health endpoint and optional WebUI/WebSocket channel ports

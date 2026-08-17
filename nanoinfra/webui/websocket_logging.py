@@ -20,9 +20,9 @@ _DISCONNECT_TYPES: tuple[type[BaseException], ...] = (
 
 # InvalidMessage is raised when the peer never sends a valid WebSocket/HTTP-GET
 # opening handshake: HEAD probes ("unsupported HTTP method; expected GET"),
-# port scanners, uptime monitors, and TLS-to-plain-port attempts. On a public
-# endpoint (e.g. a Render *.onrender.com service) this is constant background
-# noise from the internet, not an operational error.
+# port scanners, uptime monitors, and TLS-to-plain-port attempts. On any
+# internet-facing endpoint this is constant background noise, not an
+# operational error.
 _MALFORMED_HANDSHAKE_TYPES: tuple[type[BaseException], ...] = (InvalidMessage,)
 
 _SUPPRESSED_TYPES: tuple[type[BaseException], ...] = (

@@ -195,21 +195,9 @@ If nanoinfra worked for you, a star on GitHub is the simplest way to support the
 - Want to run nanoinfra in chat apps like Telegram, Discord, WeChat or Feishu? See [Chat Apps](https://docs.nanoinfra.org/chat-apps/)
 - Want Docker or Linux service deployment? See [Deployment](https://docs.nanoinfra.org/deployment/)
 
-<a id="deploy-to-render"></a>
-
 ## ☁️ Deploy
 
-**Render — one click**
-
-Deploy nanoinfra's gateway and bundled WebUI from the repository's ready-to-use Blueprint:
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/nanoinfraorg/nanoinfra)
-
-Render will ask for `ANTHROPIC_API_KEY` and a private `NANOINFRA_WEB_TOKEN`, then provision persistent storage for sessions, memory, and WebUI history. Persistent disks require a paid Render service.
-
-**Self-host**
-
-Prefer your own infrastructure? Follow the [deployment guide](https://docs.nanoinfra.org/deployment/) for Docker, Docker Compose, Linux services, and macOS LaunchAgent setup.
+Follow the [deployment guide](https://docs.nanoinfra.org/deployment/) for Docker, Docker Compose, Linux services, and macOS LaunchAgent setup.
 
 ## 🌐 WebUI
 
