@@ -32,7 +32,7 @@ Root access, on a short leash: the agent reaches your hosts with credentials you
 | Connect Telegram, Discord, WeChat, Slack, Email, Mattermost, or another chat app | [Chat Apps](https://docs.nanoinfra.org/chat-apps/) |
 | Configure providers, fallback models, Langfuse, MCP, web tools, or security | [Docs](https://docs.nanoinfra.org/) and [Configuration](https://docs.nanoinfra.org/configuration/) |
 | Understand or extend the internals | [Architecture](https://docs.nanoinfra.org/architecture/) and [Development](https://docs.nanoinfra.org/development/) |
-| Deploy to the cloud or keep nanoinfra running as a service | [Deployment](https://docs.nanoinfra.org/deployment/) |
+| Run nanoinfra on your own server or keep it running as a service | [Deployment](https://docs.nanoinfra.org/deployment/) |
 
 ## What can nanoinfra do?
 
@@ -193,11 +193,7 @@ If nanoinfra worked for you, a star on GitHub is the simplest way to support the
 - Want web search, MCP, security settings, or more config options? See [Configuration](https://docs.nanoinfra.org/configuration/)
 - Want to run locally? See [Ollama](https://docs.nanoinfra.org/providers/#ollama), [vLLM or another local OpenAI-compatible server](https://docs.nanoinfra.org/providers/#vllm-or-other-local-openai-compatible-server), and the full [provider reference](https://docs.nanoinfra.org/configuration/#providers).
 - Want to run nanoinfra in chat apps like Telegram, Discord, WeChat or Feishu? See [Chat Apps](https://docs.nanoinfra.org/chat-apps/)
-- Want Docker or Linux service deployment? See [Deployment](https://docs.nanoinfra.org/deployment/)
-
-## ☁️ Deploy
-
-Follow the [deployment guide](https://docs.nanoinfra.org/deployment/) for Docker, Docker Compose, Linux services, and macOS LaunchAgent setup.
+- Want Docker, Docker Compose, a Linux service, or a macOS LaunchAgent? See [Deployment](https://docs.nanoinfra.org/deployment/)
 
 ## 🌐 WebUI
 
