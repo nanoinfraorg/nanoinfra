@@ -2,6 +2,7 @@ import type { MermaidConfig } from "mermaid";
 import type { DiagramPlugin } from "streamdown";
 
 import type { Theme } from "@/hooks/useTheme";
+import { toPortableSvg } from "@/lib/svg-xml";
 
 interface MermaidModule {
   initialize: (config: MermaidConfig) => void;
@@ -68,7 +69,12 @@ export const mermaidDiagramPlugin: DiagramPlugin = {
     },
     render: async (id: string, source: string) => {
       const mermaid = await loadMermaid(config);
-      return mermaid.render(id, source);
+      const { svg } = await mermaid.render(id, source);
+      // Normalised here rather than at the display site, because Streamdown reuses this exact
+      // string for its SVG and PNG downloads. Mermaid's raw output is HTML-flavoured and has no
+      // intrinsic size, which is invisible when injected into the page and fatal the moment it is
+      // consumed as an image: the PNG came back empty and the SVG would not open in Edge.
+      return { svg: toPortableSvg(svg) };
     },
   }),
 };
