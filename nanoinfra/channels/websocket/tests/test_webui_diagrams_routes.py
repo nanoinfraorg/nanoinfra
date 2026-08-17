@@ -145,9 +145,14 @@ async def test_diagram_crud_round_trip(bus: MagicMock, tmp_path: Path) -> None:
         )
         assert updated.status_code == 200
         assert updated.json()["diagram"]["name"] == "Renamed"
+        # This route is a partial update, so a rename must not take the content with it (#94). The
+        # assertion used to stop at the name, and passed while the node was destroyed.
+        assert [n["id"] for n in updated.json()["diagram"]["nodes"]] == ["a"]
+        assert updated.json()["diagram"]["targets"] == ["prod-web-01"]
 
         detail_after_update = await _http_get(f"{base_url}/api/webui/diagrams/{diagram_id}", headers=auth)
         assert detail_after_update.json()["diagram"]["name"] == "Renamed"
+        assert [n["id"] for n in detail_after_update.json()["diagram"]["nodes"]] == ["a"]
 
         deleted = await _http_get(f"{base_url}/api/webui/diagrams/{diagram_id}/delete", headers=auth)
         assert deleted.status_code == 200
