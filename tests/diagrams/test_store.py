@@ -272,3 +272,91 @@ def test_a_stored_format_version_from_the_future_is_refused(tmp_path: Path):
 
     assert store.get(diagram.id) is None, "a format this build cannot read must not be guessed at"
     assert not any(s.id == diagram.id for s in store.list_diagrams())
+
+
+def _secret_node(value: str) -> dict:
+    return {
+        "id": "db",
+        "position": {"x": 0, "y": 0},
+        "data": {
+            "label": "DB",
+            "componentTypeId": "database",
+            "providerId": "postgres",
+            "config": {"image": "postgres:17", "password": value},
+        },
+    }
+
+
+class TestASecretFieldHoldsAReference:
+    """The UI promises "stored in Secrets Manager" and nothing made it true -- #98.
+
+    The catalog declares `{"key":"password","kind":"secret"}`, the inspector renders it as a password
+    field with that placeholder, and no file in `nanoinfra/diagrams/` referenced the secret store at
+    all. Measured: the value landed in plaintext on disk at 0644, in the WebUI detail payload, in the
+    `/infradiagrams` prompt block, and in the `get_diagram` tool result. So an operator types a
+    production password into a field labelled "stored in Secrets Manager" and it leaves for the model
+    provider.
+    """
+
+    def test_a_raw_value_is_refused(self, tmp_path: Path):
+        store = DiagramStore(tmp_path)
+
+        with pytest.raises(DiagramValidationError) as caught:
+            store.create({"name": "Prod", "nodes": [_secret_node("hunter2")], "edges": []})
+
+        message = str(caught.value)
+        assert "password" in message
+        assert "secret://" in message, "the refusal has to say what to write instead"
+        assert "hunter2" not in message, "and it must not echo the value it refused"
+
+    def test_a_reference_is_stored(self, tmp_path: Path):
+        store = DiagramStore(tmp_path)
+
+        diagram = store.create({
+            "name": "Prod",
+            "nodes": [_secret_node("secret://prod-db-password")],
+            "edges": [],
+        })
+
+        assert diagram.nodes[0].data.config["password"] == "secret://prod-db-password"
+        on_disk = next((tmp_path / "diagrams").glob("*.json")).read_text(encoding="utf-8")
+        assert "secret://prod-db-password" in on_disk
+
+    def test_an_empty_value_is_still_allowed(self, tmp_path: Path):
+        store = DiagramStore(tmp_path)
+
+        diagram = store.create({"name": "Prod", "nodes": [_secret_node("")], "edges": []})
+
+        assert diagram.nodes[0].data.config["password"] == ""
+
+    def test_a_value_already_on_disk_never_reaches_a_reader(self, tmp_path: Path):
+        """An existing diagram keeps working, and stops leaking.
+
+        Refusing to read it would make the diagram vanish from the gallery, which is the failure mode
+        in #96. It renders, with the value replaced and a warning for the operator.
+        """
+        import json as _json
+
+        store = DiagramStore(tmp_path)
+        diagram = store.create({"name": "Prod", "nodes": [_secret_node("")], "edges": []})
+        path = next((tmp_path / "diagrams").glob("*.json"))
+        wrapper = _json.loads(path.read_text(encoding="utf-8"))
+        wrapper["diagram"]["nodes"][0]["data"]["config"]["password"] = "hunter2"
+        path.write_text(_json.dumps(wrapper), encoding="utf-8")
+
+        loaded = store.get(diagram.id)
+
+        assert loaded is not None
+        assert loaded.nodes[0].data.config["password"] != "hunter2"
+        assert "secret" in loaded.nodes[0].data.config["password"].lower()
+
+    def test_a_field_the_catalog_does_not_call_secret_is_untouched(self, tmp_path: Path):
+        store = DiagramStore(tmp_path)
+
+        diagram = store.create({
+            "name": "Prod",
+            "nodes": [_secret_node("")],
+            "edges": [],
+        })
+
+        assert diagram.nodes[0].data.config["image"] == "postgres:17"

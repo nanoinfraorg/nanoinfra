@@ -188,14 +188,28 @@ export function NodeInspector({
               </div>
             ) : (
               <input
-                type={field.kind === "secret" ? "password" : "text"}
+                // A secret field holds a reference and never a value, and the field says so.
+                // The placeholder used to read "stored in Secrets Manager" while the text was
+                // written to the diagram file in plaintext and sent to the model, so an operator
+                // was invited to type a production password into it.
+                type="text"
                 disabled={node.data.locked}
                 value={node.data.config[field.key] ?? ""}
-                placeholder={field.kind === "secret" ? "stored in Secrets Manager" : field.placeholder}
+                placeholder={
+                  field.kind === "secret"
+                    ? "secret://name-of-a-stored-secret"
+                    : field.placeholder
+                }
                 onChange={(event) => onChangeConfig(field.key, event.target.value)}
                 className="h-9 rounded-[10px] border border-border/45 bg-background px-2.5 text-[13px] text-foreground outline-none focus-visible:border-border disabled:opacity-60"
               />
             )}
+            {field.kind === "secret" && !linkedNode ? (
+              <span className="text-[11px] text-muted-foreground">
+                Store the value under Secrets and reference it here. This field is saved in the
+                diagram file, so a value typed here would not be protected.
+              </span>
+            ) : null}
             {linkedNode ? (
               <span className="text-[11px] text-muted-foreground">
                 Connected via the diagram — edit it on that component, or remove the connection to type

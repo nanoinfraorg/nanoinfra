@@ -17,7 +17,7 @@ from typing import Any, cast
 
 from loguru import logger
 
-from nanoinfra.diagrams.normalize import normalize_diagram
+from nanoinfra.diagrams.normalize import DiagramValidationError, normalize_diagram
 from nanoinfra.diagrams.types import Diagram, DiagramSummary
 from nanoinfra.utils.helpers import (
     _write_text_atomic,  # pyright: ignore[reportPrivateUsage]
@@ -25,6 +25,22 @@ from nanoinfra.utils.helpers import (
 )
 
 _STORE_VERSION = 1
+
+
+#: What a ``kind: "secret"`` config field may hold: a reference to the secret store, never a value
+#: (#98). The store this product ships is write-only by design -- no tool and no API returns a
+#: decrypted value -- which is exactly the property a field the UI labels "stored in Secrets Manager"
+#: needs. Nothing in this module referenced that store, so the label was a promise the code did not
+#: keep: the value sat in plaintext at 0644 and reached the model in two separate paths.
+SECRET_REF_PREFIX = "secret://"
+
+#: What a reader sees where a raw value was already stored. Refusing to read the diagram would make
+#: it vanish from the gallery, which is its own defect (#96), so it renders without the value.
+SECRET_VALUE_WITHHELD = "[secret withheld: not a secret:// reference]"
+
+
+class DiagramSecretPolicyError(DiagramValidationError):
+    """A secret field was given a value instead of a reference (#98)."""
 
 
 class DiagramConflictError(RuntimeError):
@@ -141,14 +157,78 @@ class DiagramStore:
         if wrapper is None:
             return None
         try:
-            return normalize_diagram(wrapper["diagram"], diagram_id=diagram_id)
+            diagram = normalize_diagram(wrapper["diagram"], diagram_id=diagram_id)
         except Exception:
             logger.warning("Skipping invalid diagram file {}", path)
             return None
+        self._withhold_stored_secret_values(diagram)
+        return diagram
+
+    def _secret_field_keys(self) -> dict[tuple[str, str], set[str]]:
+        """``(componentTypeId, providerId) -> the keys the catalog calls secret``.
+
+        Read from the catalog on each call, the same no-cache choice ``load_catalog`` documents: these
+        files are small and admin-edited.
+        """
+        from nanoinfra.diagrams.catalog import load_catalog
+
+        keys: dict[tuple[str, str], set[str]] = {}
+        for component in load_catalog(self.workspace_path):
+            for provider in component.providers:
+                secret_keys = {
+                    field.key for field in provider.fields if field.kind == "secret"
+                }
+                if secret_keys:
+                    keys[(component.id, provider.id)] = secret_keys
+        return keys
+
+    def _refuse_secret_values(self, diagram: Diagram) -> None:
+        """Refuse a write that carries a secret value rather than a reference (#98)."""
+        secret_keys = self._secret_field_keys()
+        for node in diagram.nodes:
+            wanted = secret_keys.get((node.data.component_type_id, node.data.provider_id))
+            if not wanted:
+                continue
+            for key in sorted(wanted):
+                value = node.data.config.get(key)
+                if not isinstance(value, str) or not value:
+                    continue
+                if value.startswith(SECRET_REF_PREFIX) or value == SECRET_VALUE_WITHHELD:
+                    continue
+                # The message never echoes the value it refused.
+                raise DiagramSecretPolicyError(
+                    f"node {node.id!r} field {key!r} is a secret field and must hold a reference, "
+                    f"not a value. Store the value in Secrets and put "
+                    f"{SECRET_REF_PREFIX}<name> here."
+                )
+
+    def _withhold_stored_secret_values(self, diagram: Diagram) -> None:
+        """Replace a raw value already on disk, so a reader never receives it (#98)."""
+        secret_keys = self._secret_field_keys()
+        for node in diagram.nodes:
+            wanted = secret_keys.get((node.data.component_type_id, node.data.provider_id))
+            if not wanted:
+                continue
+            for key in sorted(wanted):
+                value = node.data.config.get(key)
+                if not isinstance(value, str) or not value:
+                    continue
+                if value.startswith(SECRET_REF_PREFIX):
+                    continue
+                logger.warning(
+                    "Diagram {} node {!r} field {!r} holds a stored secret value rather than a "
+                    "{} reference. It is withheld from readers; move it into Secrets.",
+                    diagram.id,
+                    node.id,
+                    key,
+                    SECRET_REF_PREFIX,
+                )
+                node.data.config[key] = SECRET_VALUE_WITHHELD
 
     def create(self, raw: dict[str, Any]) -> Diagram:
         diagram_id = uuid.uuid4().hex
         diagram = normalize_diagram(raw, diagram_id=diagram_id)
+        self._refuse_secret_values(diagram)
         now = _now_iso()
         self._write(diagram, created_at=now, updated_at=now)
         return diagram
@@ -186,6 +266,7 @@ class DiagramStore:
         current = cast(dict[str, Any], existing.get("diagram") or {})
         merged = {**current, **raw}
         diagram = normalize_diagram(merged, diagram_id=diagram_id)
+        self._refuse_secret_values(diagram)
         created_at = str(existing.get("created_at") or _now_iso())
         self._write(
             diagram,
