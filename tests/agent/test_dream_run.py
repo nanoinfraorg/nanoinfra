@@ -415,3 +415,103 @@ class TestARepairedRunCounts:
 
         assert outcome.completed is False
         assert store.get_last_dream_cursor() == 0
+
+
+class TestEverythingDreamCanWriteIsAudited:
+    """The audit set covered three files out of everything -- nanoinfraorg/nanoinfra#112.
+
+    ``dream.md`` *instructs* Dream to create ``skills/<name>/SKILL.md``, ``build_dream_tools`` grants
+    ``write_file`` over that directory, and a skill whose frontmatter says ``always: true`` is loaded
+    into **every** system prompt. None of it was in ``_DREAM_CONTENT_PATHS`` or in the tracked set, so
+    a run whose only edit was a skill reported "no memory changes", committed nothing, kept no
+    history, retired the batch, and then injected its new text into every later prompt.
+
+    ``always: true`` makes a skill more durable than MEMORY.md, not less.
+    """
+
+    def test_every_place_the_registry_can_write_is_versioned(self, tmp_path) -> None:
+        """The two sets are derived from one place, so they cannot drift apart again."""
+        from nanoinfra.agent.memory import GIT_TRACKED_DIRS
+        from nanoinfra.agent.tools.apply_patch import ApplyPatchTool
+        from nanoinfra.agent.tools.filesystem import EditFileTool, WriteFileTool
+
+        store = _store(tmp_path)
+        registry = store.build_dream_tools()
+        writers = [
+            tool
+            for tool in registry._tools.values()
+            if isinstance(tool, (WriteFileTool, EditFileTool, ApplyPatchTool))
+        ]
+        assert writers, "the registry must grant some write, or this test proves nothing"
+
+        writable_dirs = {
+            Path(tool._allowed_dir).relative_to(store.workspace).as_posix()
+            for tool in writers
+            if tool._allowed_dir is not None
+        }
+        writable_files = {
+            Path(path).relative_to(store.workspace).as_posix()
+            for tool in writers
+            for path in tool._extra_write_allowed_files
+        }
+
+        assert writable_dirs <= set(GIT_TRACKED_DIRS), (
+            f"the registry can write {writable_dirs - set(GIT_TRACKED_DIRS)}, which git does not track"
+        )
+        assert writable_files <= set(store._DREAM_CONTENT_PATHS), (
+            f"the registry can write {writable_files - set(store._DREAM_CONTENT_PATHS)}, "
+            "which the audit record does not cover"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_run_that_writes_only_a_skill_is_reported_and_committed(self, tmp_path) -> None:
+        store = _store(tmp_path)
+        store.git.init()
+
+        async def process_direct(*_args: Any, **_kwargs: Any) -> Any:
+            skill = store.workspace / "skills" / "ops-check" / "SKILL.md"
+            skill.parent.mkdir(parents=True, exist_ok=True)
+            skill.write_text(
+                "---\nname: ops-check\ndescription: check ops\nalways: true\n---\n\nRun the checks.\n",
+                encoding="utf-8",
+            )
+            return _response()
+
+        outcome = await run_dream(store=store, agent=_agent(store, tmp_path, process_direct))
+
+        assert outcome.diff_body, "the operator was told nothing changed"
+        assert "skills/ops-check/SKILL.md" in outcome.diff_body
+        assert outcome.commit_sha is not None
+        assert store.git.log(message_prefix="dream:"), "it must appear in /dream-restore"
+
+    @pytest.mark.asyncio
+    async def test_a_skill_dream_wrote_can_be_reverted(self, tmp_path) -> None:
+        store = _store(tmp_path)
+        store.git.init()
+        skill = store.workspace / "skills" / "ops-check" / "SKILL.md"
+
+        async def process_direct(*_args: Any, **_kwargs: Any) -> Any:
+            skill.parent.mkdir(parents=True, exist_ok=True)
+            skill.write_text("---\nname: ops-check\nalways: true\n---\n\nbody\n", encoding="utf-8")
+            return _response()
+
+        outcome = await run_dream(store=store, agent=_agent(store, tmp_path, process_direct))
+        assert outcome.commit_sha is not None
+
+        reverted = store.git.revert(outcome.commit_sha.replace("revert", ""), message_prefix="dream:") \
+            if False else store.git.revert(store.git.log(message_prefix="dream:")[0].sha)
+
+        assert reverted is not None
+        assert not skill.exists(), "undoing the commit that added the skill removes it again"
+
+
+class TestTheTrackedSetHasOneDefinition:
+    """Two lists, and they disagreed -- the leftover half of nanoinfraorg/nanoinfra#111."""
+
+    def test_the_bootstrap_and_the_store_track_the_same_paths(self, tmp_path) -> None:
+        from nanoinfra.agent.memory import GIT_TRACKED_DIRS, GIT_TRACKED_FILES
+
+        store = _store(tmp_path)
+
+        assert list(store.git._tracked_files) == list(GIT_TRACKED_FILES)
+        assert list(store.git._tracked_dirs) == list(GIT_TRACKED_DIRS)
