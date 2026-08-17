@@ -27,7 +27,14 @@ jobs:
     # ``author_association`` is computed by GitHub, not supplied by the author. OWNER, MEMBER and
     # COLLABORATOR are the people who belong here; CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR and NONE are
     # not.
+    #
+    # Dependabot is exempt, and that exemption is not a nicety. It carries no association this job
+    # would accept, so the first version of this workflow closed seven of its security-update pull
+    # requests within minutes of the alerts being raised -- a control that silences the repository's
+    # own vulnerability reporting is worse than the drive-by pull requests it was written for. Its
+    # branches are in this repository, and nothing here reads their contents.
     if: >-
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
       github.event.pull_request.author_association != 'OWNER' &&
       github.event.pull_request.author_association != 'MEMBER' &&
       github.event.pull_request.author_association != 'COLLABORATOR'
