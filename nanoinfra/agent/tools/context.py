@@ -141,6 +141,12 @@ class ToolContext:
     provider_snapshot_loader: Callable[..., ProviderSnapshot] | None = None
     image_generation_provider_configs: dict[str, ProviderConfig] | None = None
     timezone: str = "UTC"
+    #: Skills the operator switched off, from ``agents.defaults.disabled_skills``.
+    #:
+    #: The diagram catalog computes ``skill_enabled`` from this, and the tool used to omit it while
+    #: the WebUI route passed it -- so the model was told a component was operable through a skill the
+    #: operator had disabled (#99). Two views of one fact, and the one the model read was wrong.
+    disabled_skills: frozenset[str] = frozenset()
     workspace_sandbox: WorkspaceSandboxStatus | None = None
     runtime_events: RuntimeEventBus | None = None
     # The gate runtime from nanoinfra/gates/runtime.py (#33). Typed loosely on purpose:

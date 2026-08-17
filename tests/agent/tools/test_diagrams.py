@@ -32,7 +32,20 @@ def _assert_no_overlaps(nodes) -> None:
 
 
 def _decode(value: object) -> object:
-    return json.loads(str(value))
+    """Parse a tool result, stripping the data frame it now carries (#102).
+
+    Diagram labels and config are authored by a user or an earlier turn, so both the attached path
+    and the tool results frame them as data. The frame is prose plus a fence; the payload is the
+    fenced block.
+    """
+    return json.loads(_unframe(str(value)))
+
+
+def _unframe(text: str) -> str:
+    if "```" not in text:
+        return text
+    body = text.split("```", 1)[1]
+    return body.split("```", 1)[0].strip()
 
 
 def _seed_diagram(store: DiagramStore) -> str:
