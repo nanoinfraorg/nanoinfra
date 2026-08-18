@@ -412,7 +412,7 @@ class ToolsConfig(Base):
     image_generation: ImageGenerationToolConfig = Field(
         default_factory=lambda: _lazy_default("nanoinfra.agent.tools.image_generation", "ImageGenerationToolConfig"),
     )
-    restrict_to_workspace: bool = False  # policy intent: keep tool access inside workspace when possible
+    restrict_to_workspace: bool = True  # keep tool access inside the workspace; see loader._migrate_config for the upgrade pin (#135)
     webui_allow_local_service_access: bool = Field(
         default=True,
         validation_alias=AliasChoices(
