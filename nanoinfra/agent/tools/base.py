@@ -1,6 +1,7 @@
 """Base class for agent tools."""
 from __future__ import annotations
 
+import json
 import math
 import typing
 from abc import ABC, abstractmethod
@@ -275,8 +276,61 @@ class Tool(ABC):
             return params
         return self._cast_object(params, schema)
 
+    @staticmethod
+    def _container_type_from_union(schema: dict[str, Any]) -> str | None:
+        """Return "object"/"array" when a oneOf/anyOf union admits only that container.
+
+        A union that also admits a string is left alone on purpose. A provider that sends
+        ``'{"a": 1}'`` for ``oneOf: [string, object]`` may have meant the string, and guessing
+        wrong there silently changes the caller's argument. Only an unambiguous union is decoded.
+        """
+        for key in ("oneOf", "anyOf"):
+            branches = schema.get(key)
+            if not isinstance(branches, list):
+                continue
+            types = {
+                Tool._resolve_type(cast(dict[str, Any], b).get("type"))
+                for b in cast(list[Any], branches)
+                if isinstance(b, dict)
+            }
+            types.discard("null")
+            if "string" in types:
+                return None
+            if types == {"object"}:
+                return "object"
+            if types == {"array"}:
+                return "array"
+        return None
+
+    def _decode_json_container(self, val: str, wanted: str) -> Any:
+        """Decode a JSON-encoded object or array, or return the string untouched.
+
+        Some providers string-encode a structured argument. Our own tools hit this too --
+        apply_patch takes an array of objects, diagrams and servers take nested objects -- so
+        without this the call is rejected locally, and for an MCP tool with a oneOf schema it
+        passes local validation and is refused by the server instead.
+        Upstream HKUDS/nanobot#5311 (nanoinfraorg/nanoinfra#146).
+        """
+        text = val.strip()
+        if not text or text[0] not in "[{":
+            return val
+        try:
+            decoded = cast(object, json.loads(text))
+        except (ValueError, TypeError):
+            # Malformed JSON stays a string, so validation reports the real problem.
+            return val
+        if wanted == "object" and isinstance(decoded, dict):
+            return cast(dict[str, Any], decoded)
+        if wanted == "array" and isinstance(decoded, list):
+            return cast(list[Any], decoded)
+        return val
+
     def _cast_value(self, val: Any, schema: dict[str, Any]) -> Any:
         t = self._resolve_type(schema.get("type"))
+        if t is None:
+            t = self._container_type_from_union(schema)
+        if isinstance(val, str) and t in ("object", "array"):
+            val = self._decode_json_container(val, t)
 
         if t == "boolean" and isinstance(val, bool):
             return val
