@@ -5,6 +5,7 @@
 
 <div align="center">
   <p>
+    <a href="https://github.com/nanoinfraorg/nanoinfra/releases/latest"><img src="https://img.shields.io/github/v/release/nanoinfraorg/nanoinfra?label=latest&logo=github" alt="Latest release"></a>
     <a href="https://github.com/nanoinfraorg/nanoinfra"><img src="https://img.shields.io/github/stars/nanoinfraorg/nanoinfra?style=flat&logo=github" alt="GitHub stars"></a>
     <a href="https://pypi.org/project/nanoinfra/"><img src="https://img.shields.io/pypi/v/nanoinfra" alt="PyPI version"></a>
     <a href="https://github.com/nanoinfraorg/nanoinfra/actions/workflows/ci.yml"><img src="https://github.com/nanoinfraorg/nanoinfra/actions/workflows/ci.yml/badge.svg?branch=main" alt="Test Suite"></a>
@@ -241,32 +242,16 @@ Browse the [repo docs](https://docs.nanoinfra.org/) for the latest features and 
 
 ## Releases
 
-**Latest release: [v0.9.0 - The Short Leash Release](https://github.com/nanoinfraorg/nanoinfra/releases/tag/v0.9.0)**
+The badge at the top of this page is the current release. What changed in it, and in every
+release before it, lives in one place:
 
-The Short Leash Release makes the security posture on the landing page true in the code. Every mutating and remote-execution tool now passes a gate, and the agent process no longer holds the credentials or the transports it used to.
+- **[Release archive](https://docs.nanoinfra.org/release-archive/)** — what each release changed
+  and why, including the faults found along the way.
+- **[GitHub releases](https://github.com/nanoinfraorg/nanoinfra/releases)** — per-release notes,
+  breaking changes, and tags.
 
-- **Capability gates.** Each tool carries a capability class (`read`, `mutate.local`, `mutate.inventory`, `mutate.remote`, `credential.access`), and each action resolves a scope of `host`, `group`, or `all`. Policy lives in a `gates` block in `config.json`, and an unattended context denies remote execution by default. `all` scope is denied with no runtime path at all
-- **The agent asks, and another process decides.** Remote execution, web fetch and search, and stdio MCP servers each run in their own process behind a Unix socket, under their own account, and under a Landlock policy. The agent process holds no credential store and no transport, so a prompt injection that reaches a tool reaches neither
-- **A human approves an unusual action, on a different path.** An `approve` decision suspends the action and waits. The approval must arrive from an authenticated path other than the one the request came from, it covers the exact resolved command and host list the executor rendered, and it expires. Recurring work uses standing grants in config instead, so a human is prompted for the unusual case and keeps reading the prompt
-- **A denial is terminal.** A refused action latches its capability class for that session, so the agent cannot retry with a slightly different command until something gets through. Only an operator clears the latch, and the latch survives a restart because it rebuilds from the audit log
-- **Every decision is on the record.** An append-only audit log holds one record per decision, including denials, expiries, and latched refusals. It holds a command digest by default, because a resolved command routinely embeds a secret
-- **Three new surfaces in the WebUI:** the gate policy panel in Settings, the latch banner in a session, and the audit log viewer. Plus an approvals inbox with its own route and an unread count
-- Credential values no longer reach a transcript, a reasoning pane, or an SDK snapshot. `export_unredacted_with_secrets` is the one documented exception
-
-[Read the v0.9.0 release notes](https://github.com/nanoinfraorg/nanoinfra/releases/tag/v0.9.0)
-
-## Recent Updates
-
-- **2026-08-15** v0.9.1 fixes what v0.9.0 shipped broken: the latch clear and the approvals inbox could not answer over the WebSocket transport, an allowed action refused its own credential, the Secrets form could not take an SSH private key, and a diagnosed traceback could write a plaintext credential into a log file.
-- **2026-08-15** Capability gates on every mutating tool, remote execution and web access in their own confined processes, human approval on a second path, terminal denials, and an append-only audit log.
-- **2026-08-13** Moved to the nanoinfraorg organisation, docs at docs.nanoinfra.org, a self-hosted skills catalog, and Windows support dropped.
-- **2026-08-07** Durable subagent transcripts, drag-to-attach sessions, trusted-proxy auth, and session-retention/Dream data-loss fixes.
-- **2026-08-07** Secrets and Servers: encrypted credential storage, a server inventory, and agent-driven remote execution (SSH/Ansible Runner/SSM/API) with durable job tracking.
-- **2026-08-04** Infra Diagrams: visual designer with real persistence, a dynamic component catalog, and agent tools with an approval gate.
-- **2026-07-24** Guided first-run setup, inline subagents, and model switching from the composer.
-- **2026-07-23** Grok OAuth with hosted X Search, live image settings, and clearer fallback models.
-
-For older updates, see the [release archive](https://docs.nanoinfra.org/release-archive/) or [GitHub releases](https://github.com/nanoinfraorg/nanoinfra/releases).
+Versions are `MAJOR.MINOR.PATCH`. A breaking change is called out at the top of its release notes
+and marked `!` in the commit that made it.
 
 ## 🤝 Contribute
 
