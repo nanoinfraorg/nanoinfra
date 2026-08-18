@@ -91,6 +91,7 @@ class AgentPlugin:
     root: Path
     description: str
     repository: str
+    version: str
     display_name: str
     category: str
     accent_color: str | None
@@ -248,6 +249,7 @@ def _load_manifest(plugin_root: Path) -> AgentPlugin | None:
         root=plugin_root,
         description=_string(payload.get("description")),
         repository=_string(payload.get("repository")),
+        version=_string(payload.get("version")),
         display_name=_string(ours.get("displayName")) or name,
         category=_string(ours.get("category")) or "Plugin",
         accent_color=_accent_color(ours.get("accentColor")),

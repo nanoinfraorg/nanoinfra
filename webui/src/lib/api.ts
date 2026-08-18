@@ -1,4 +1,5 @@
 import type {
+  AgentPluginsPayload,
   ApiServicePayload,
   AutomationsPayload,
   AutomationUpdatePayload,
@@ -526,6 +527,23 @@ export async function fetchWorkspaces(
 ): Promise<WorkspacesPayload> {
   return request<WorkspacesPayload>(
     `${base}/api/workspaces`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+/**
+ * Read Agent Plugins state. There is no mutating counterpart on purpose: activation lives in
+ * `tools.agentPlugins` and is reconciled by the executor, so a toggle here would be a second
+ * authority. See nanoinfraorg/nanoinfra#141.
+ */
+export async function fetchAgentPlugins(
+  token: string,
+  base: string = "",
+): Promise<AgentPluginsPayload> {
+  return request<AgentPluginsPayload>(
+    `${base}/api/settings/agent-plugins`,
     token,
     undefined,
     API_READ_TIMEOUT_MS,

@@ -71,6 +71,7 @@ import {
   SIDEBAR_SELECTION_ITEM_CLASS,
   SidebarSelectionHighlight,
 } from "@/components/SidebarSelectionHighlight";
+import { AgentPluginsSettings } from "@/components/settings/AgentPluginsSettings";
 import { GatesAuditLog } from "@/components/settings/GatesAuditLog";
 import { GatesSettings } from "@/components/settings/GatesSettings";
 import { SkillsCatalogSettings } from "@/components/settings/SkillsCatalogSettings";
@@ -2262,6 +2263,8 @@ export function SettingsView({
             onMcpToolsChange={handleMcpToolsChange}
             onRestart={restartViaSettingsSurface}
             isRestarting={isRestarting || hostEngineApplying}
+            /* Read-only by design: activation lives in tools.agentPlugins (#141, #142). */
+            agentPluginsPanel={<AgentPluginsSettings />}
           />
         );
       case "automations":
@@ -7467,6 +7470,7 @@ function AppsCatalogSettings({
   onMcpToolsChange,
   onRestart,
   isRestarting,
+  agentPluginsPanel,
 }: {
   cliApps: CliAppsPayload | null;
   mcpPresets: McpPresetsPayload | null;
@@ -7500,6 +7504,8 @@ function AppsCatalogSettings({
   onMcpToolsChange: (name: string, enabledTools: string[]) => void;
   onRestart?: () => void;
   isRestarting?: boolean;
+  /** Rendered as-is. Agent Plugins are read-only here, so this panel takes no handlers. */
+  agentPluginsPanel?: ReactNode;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -7651,6 +7657,8 @@ function AppsCatalogSettings({
           onImportConfig={onImportMcpConfig}
         />
       ) : null}
+
+      {agentPluginsPanel}
 
       <ThirdPartyBrandNotice />
     </div>
