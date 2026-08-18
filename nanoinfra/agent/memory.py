@@ -25,7 +25,7 @@ from loguru import logger
 from nanoinfra.agent.redaction import TranscriptRedactor
 from nanoinfra.runtime_context import public_history_messages
 from nanoinfra.session.manager import MIN_COMPACTED_REPLAY_MESSAGES, Session, SessionManager
-from nanoinfra.utils.gitstore import GitStore
+from nanoinfra.utils.gitstore import GitStore, GitStoreError
 from nanoinfra.utils.helpers import (
     content_with_media_breadcrumbs,
     ensure_dir,
@@ -165,6 +165,10 @@ class MemoryStore:
             tracked_files=list(GIT_TRACKED_FILES),
             tracked_dirs=list(GIT_TRACKED_DIRS),
         )
+        # Repair an ignore file written before the <dir>/* fix, so an existing workspace stops
+        # reporting its own runtime files as untracked (#146, upstream HKUDS/nanobot#5246).
+        with suppress(GitStoreError, OSError):
+            self._git.ensure_gitignore()
         self._maybe_migrate_legacy_history()
 
     @property

@@ -1,6 +1,6 @@
 """Search tools: file discovery and grep."""
 
-# pyright: reportIncompatibleMethodOverride=false, reportPrivateUsage=false
+# pyright: reportPrivateUsage=false
 
 from __future__ import annotations
 
@@ -416,7 +416,7 @@ class GrepTool(_SearchTool):
             block.append(f"{marker} {line_no}| {lines[line_no - 1]}")
         return "\n".join(block)
 
-    async def execute(
+    async def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         pattern: str,
         path: str = ".",

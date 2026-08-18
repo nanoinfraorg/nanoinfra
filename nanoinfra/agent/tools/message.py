@@ -1,6 +1,5 @@
 """Message tool for sending messages to users."""
 
-# pyright: reportIncompatibleMethodOverride=false
 
 from contextvars import ContextVar, Token
 from pathlib import Path
@@ -145,7 +144,7 @@ class MessageTool(Tool):
                 resolved.append(str(resolve_workspace_path(p, workspace, access.allowed_root)))
         return resolved
 
-    async def execute(
+    async def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         content: str,
         channel: str | None = None,

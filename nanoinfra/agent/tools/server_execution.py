@@ -28,7 +28,6 @@ A denied approval and an expired one both arrive as a refusal, so both become te
 below and both latch the class (#15).
 """
 
-# pyright: reportIncompatibleMethodOverride=false
 
 from __future__ import annotations
 
@@ -147,7 +146,7 @@ class ExecuteOnServerTool(Tool):
             "refusal is final for that action."
         )
 
-    async def execute(
+    async def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         server_id_or_name: str,
         command: str,

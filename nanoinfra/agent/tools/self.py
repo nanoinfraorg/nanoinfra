@@ -2,7 +2,7 @@
 
 # RuntimeState intentionally exposes a narrow set of AgentLoop internals to
 # this manually registered tool. Tool.execute accepts heterogeneous schemas.
-# pyright: reportPrivateUsage=false, reportIncompatibleMethodOverride=false
+# pyright: reportPrivateUsage=false
 
 from __future__ import annotations
 
@@ -344,7 +344,7 @@ class MyTool(Tool):
     # Action dispatch
     # ------------------------------------------------------------------
 
-    async def execute(
+    async def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         action: str,
         key: str | None = None,

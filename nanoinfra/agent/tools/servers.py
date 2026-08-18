@@ -7,7 +7,6 @@ execute_on_server, which is the only tool allowed to resolve a
 secretRef to a real credential.
 """
 
-# pyright: reportIncompatibleMethodOverride=false
 
 from __future__ import annotations
 
@@ -196,7 +195,7 @@ class GetServerTool(Tool):
     def read_only(self) -> bool:
         return True
 
-    async def execute(self, server_id_or_name: str, **kwargs: Any) -> Any:
+    async def execute(self, server_id_or_name: str, **kwargs: Any) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
         server = resolve_server(self.store, server_id_or_name)
         if server is None:
             return ToolResult.error(f"No server matches {server_id_or_name!r}.")
@@ -253,7 +252,7 @@ class CreateServerTool(Tool):
             "reachable, and there is no tool yet that connects to it."
         )
 
-    async def execute(
+    async def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         name: str,
         providerId: str,  # noqa: N803
@@ -326,7 +325,7 @@ class UpdateServerTool(Tool):
             "same arguments only after the user explicitly approves."
         )
 
-    async def execute(
+    async def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         server_id: str,
         name: str,
@@ -402,7 +401,7 @@ class DeleteServerTool(Tool):
             "dry_run=false only after the user explicitly approves."
         )
 
-    async def execute(self, server_id: str, dry_run: bool = True, **kwargs: Any) -> Any:
+    async def execute(self, server_id: str, dry_run: bool = True, **kwargs: Any) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
         server = self.store.get(server_id)
         if server is None:
             return ToolResult.error(f"No server with id {server_id!r}.")
