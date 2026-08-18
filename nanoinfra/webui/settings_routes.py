@@ -45,6 +45,7 @@ from nanoinfra.optional_features import (
     with_channel_runtime_status,
 )
 from nanoinfra.pairing import approve_code, deny_code, list_pending
+from nanoinfra.webui.agent_plugins_api import agent_plugins_payload
 from nanoinfra.webui.assertion_identity import identity_panel_payload
 from nanoinfra.webui.cli_apps_api import cli_apps_action, cli_apps_payload
 from nanoinfra.webui.http_utils import case_insensitive_header
@@ -203,6 +204,10 @@ class WebUISettingsRouter:
             return self._handle_settings_network_safety_update(request)
         if path == "/api/settings/gates/update":
             return self._handle_settings_gates_update(request)
+        # No install/update/uninstall counterpart on purpose: tools.agentPlugins is the authority
+        # and the panel is read-only (#141, #142).
+        if path == "/api/settings/agent-plugins":
+            return await self._handle_settings_agent_plugins(request)
         if path == "/api/settings/cli-apps":
             return await self._handle_settings_cli_apps(request)
         if path == "/api/settings/cli-apps/install":
@@ -755,6 +760,16 @@ class WebUISettingsRouter:
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
         return self._json_response(self._with_restart_state(payload, request, section="runtime"))
+
+    async def _handle_settings_agent_plugins(self, request: WsRequest) -> Response:
+        if not self._authorized(request):
+            return self._unauthorized()
+        try:
+            payload = await asyncio.to_thread(agent_plugins_payload)
+        except Exception:
+            self.logger.exception("failed to load Agent Plugins payload")
+            return self._error_response(500, "failed to load Agent Plugins")
+        return self._json_response(payload)
 
     async def _handle_settings_cli_apps(self, request: WsRequest) -> Response:
         if not self._authorized(request):

@@ -1034,6 +1034,38 @@ export interface CliAppInfo {
   manifest?: AppManifest;
 }
 
+/** One installed Agent Plugins v1 package, as the read-only panel sees it. */
+export interface AgentPluginInfo {
+  name: string;
+  display_name: string;
+  description: string;
+  repository: string;
+  version: string;
+  category: string;
+  accent_color: string | null;
+  logo: string | null;
+  permissions: string[];
+  skills: string[];
+  mcp_servers: string[];
+  /**
+   * `modified` is the state worth showing: the package is listed in config but its content
+   * changed since it was activated, so it deactivated itself and needs review. It looks like
+   * "off" and it means something else.
+   */
+  state: "active" | "modified" | "inactive";
+  declared: boolean;
+}
+
+export interface AgentPluginsPayload {
+  plugins: AgentPluginInfo[];
+  /** Names in `tools.agentPlugins` that no installed package provides. */
+  unknown: string[];
+  /** Always false. Activation lives in config, so this panel cannot change anything. */
+  editable: boolean;
+  authority: string;
+  error?: string;
+}
+
 export interface CliAppsPayload {
   apps: CliAppInfo[];
   installed_count: number;
