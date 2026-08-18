@@ -15,6 +15,17 @@ So three processes make three claims, and each claim is a test here:
 
 The checks walk whole syntax trees. A lazy import inside a function would satisfy a grep and fail
 these tests.
+
+**What these checks do and do not enforce (nanoinfraorg/nanoinfra#150).** The syntax-tree checks
+read the files of the host package itself and do not follow into what those files import, so they
+enforce *direct* reach. That is a deliberate scope: a process that reads config cannot avoid what
+config imports.
+
+The scenario test below measures the live interpreter, and it measures it at import. That is not
+the whole picture either: the host imports config lazily inside ``_configured_servers``, so its
+reach at import is not its reach after the first connection.
+``test_the_hosts_reach_after_first_use_is_pinned`` measures that second moment and pins the exact
+set, so the known exception is recorded and anything new fails.
 """
 
 from __future__ import annotations
@@ -240,6 +251,53 @@ def test_a_compromised_host_holds_no_secret_store_in_memory() -> None:
         if name == prefix or name.startswith(f"{prefix}.")
     ]
     assert reachable == []
+
+
+def test_the_hosts_reach_after_first_use_is_pinned() -> None:
+    """What the host can reach once it has resolved a server, not merely at import.
+
+    The test above proves the host is clean when it loads. It stays clean only until
+    ``_configured_servers`` runs, because that is where config is imported: ``config.loader`` calls
+    ``ensure_tool_config_refs()``, which resolves ``ToolsConfig``'s field types, which imports
+    ``nanoinfra.agent.tools.web``, which imports the fetcher's client. Any process that reads config
+    inherits that chain, so it is structural rather than an accident of this file.
+
+    The credential-bearing prefixes must stay unreachable at *both* moments. The fetcher client is
+    the one known exception, and it is pinned exactly: if this set grows, something new arrived and
+    this test is where it surfaces. Closing the exception means moving the tool config classes out
+    of the tool modules, which is tracked separately (nanoinfraorg/nanoinfra#151).
+    """
+    program = (
+        "import json, sys\n"
+        "import nanoinfra.gates.mcp_host.server as server\n"
+        "try:\n"
+        "    server._configured_servers()\n"
+        "except Exception:\n"
+        "    pass\n"
+        "loaded = sorted(name for name in sys.modules if name.startswith('nanoinfra'))\n"
+        "print(json.dumps(loaded))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", program], capture_output=True, text=True, timeout=120
+    )
+
+    assert result.returncode == 0, result.stderr
+    loaded: list[str] = json.loads(result.stdout)
+    reachable = sorted(
+        name
+        for name in loaded
+        for prefix in _FORBIDDEN_PREFIXES
+        if name == prefix or name.startswith(f"{prefix}.")
+    )
+
+    # A credential store or an execution backend must never appear, at any moment.
+    assert [name for name in reachable if not name.startswith("nanoinfra.gates.fetcher")] == []
+    # And the fetcher exception stays exactly this wide.
+    assert reachable == [
+        "nanoinfra.gates.fetcher",
+        "nanoinfra.gates.fetcher.client",
+        "nanoinfra.gates.fetcher.protocol",
+    ]
 
 
 # ------------------------------------------- the agent starts no stdio child
