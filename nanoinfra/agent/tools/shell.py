@@ -961,8 +961,27 @@ class ExecTool(Tool):
             r"(?<![A-Za-z])(?:[A-Za-z]:[^\s\"'|><;]*|\\\\[^\s\"'|><;]+(?:\\[^\s\"'|><;]+)*)",
             command
         )
-        posix_paths = re.findall(r"(?:^|[\s|>='\"])(/[^\s\"'>;|<]+)", command) # POSIX: /absolute only
-        home_paths = re.findall(r"(?:^|[\s>='\"])(~[/+][^\s\"'>;|<]*)", command) # POSIX/Windows home shortcut: ~/ or ~+
+        # The prefix class has to cover every punctuation a shell can put directly before a path,
+        # not just whitespace: `cat </etc/shadow`, `rsync h:/etc/shadow`, `$(</etc/shadow)`,
+        # `cp x,/etc/shadow` and `{/etc/shadow,...}` all read as a path to the shell. A prefix this
+        # regex does not list is a path the caller below never checks, which is a silent bypass and
+        # not a cosmetic gap (#134).
+        #
+        # The trailing rstrip is a separate concern: `(cat /etc/shadow)` used to yield
+        # `/etc/shadow)`, which still resolved outside the workspace and was still blocked, but
+        # named a path that does not exist. Stripping makes the refusal name the real path.
+        #
+        # `//host/share` is dropped because a leading double slash is implementation-defined on
+        # POSIX; the Windows branch above is what claims UNC paths.
+        posix_paths = [
+            p.rstrip(");},")
+            for p in re.findall(r"(?:^|[\s|><='\"({,:])(/[^\"'>;|<()\s]+)", command)
+            if not p.startswith("//")
+        ]
+        home_paths = [
+            p.rstrip(");},")
+            for p in re.findall(r"(?:^|[\s|><='\"({,:])(~[/+][^\"'>;|<()\s]+)", command)
+        ]
         return win_paths + posix_paths + home_paths
 
     @staticmethod
