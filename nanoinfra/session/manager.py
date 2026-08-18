@@ -1357,6 +1357,7 @@ class SessionManager:
         self.sessions_dir = self._jsonl_store.sessions_dir
         self.legacy_sessions_dir = self._jsonl_store.legacy_sessions_dir
         self._cache: OrderedDict[str, Session] = OrderedDict()
+        self._delete_observer: Callable[[str], None] | None = None
         # Preserve identity for sessions held by active callers without retaining idle ones.
         self._overflow_cache: WeakValueDictionary[str, Session] = WeakValueDictionary()
         self._max_cached_sessions = SESSION_CACHE_MAX_SIZE
@@ -1496,10 +1497,22 @@ class SessionManager:
         self._cache.pop(key, None)
         self._overflow_cache.pop(key, None)
 
+    def set_delete_observer(self, observer: Callable[[str], None]) -> None:
+        """Observe explicit session deletion for process-local state cleanup.
+
+        SessionManager owns every durable deletion entrypoint, the WebUI and the fork rollback
+        paths included, so a consumer that has per-session state in memory watches this boundary
+        once instead of remembering to clean up at each caller (#145, upstream 2f19068e).
+        """
+        self._delete_observer = observer
+
     def delete_session(self, key: str) -> bool:
         """Delete a persisted session and invalidate its cache entry."""
         self.invalidate(key)
-        return self._store.delete(key)
+        deleted = self._store.delete(key)
+        if self._delete_observer is not None:
+            self._delete_observer(key)
+        return deleted
 
     def fork_session_before_user_index(
         self,
