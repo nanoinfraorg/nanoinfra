@@ -426,12 +426,16 @@ def test_run_argv_logs_command_exit_and_output(
         encoding: str,
         errors: str,
         timeout: int,
+        env: dict[str, str],
     ) -> subprocess.CompletedProcess[str]:
         assert capture_output is True
         assert text is True
         assert encoding == "utf-8"
         assert errors == "replace"
         assert timeout == 5
+        # The installer runs on the minimal allowlist, not the parent environ (#133).
+        assert env["PYTHONUNBUFFERED"] == "1"
+        assert not any(key.endswith("_API_KEY") for key in env)
         return subprocess.CompletedProcess(argv, 0, stdout="installed ok", stderr="")
 
     monkeypatch.setattr(cli_service, "logger", _Logger())

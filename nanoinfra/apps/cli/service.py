@@ -997,6 +997,36 @@ class CliAppManager:
             return None
         raise CliAppError("this CLI app uses an unsupported install strategy")
 
+    def _subprocess_env(self) -> dict[str, str]:
+        """Minimal env for CLI app subprocesses — no API keys or secrets.
+
+        Mirrors the shell tool's allowlist (``agent/tools/shell.py:_build_env``) so
+        an installed app cannot read provider credentials out of the parent
+        process environment. See nanoinfraorg/nanoinfra#133.
+        """
+        if sys.platform == "win32":
+            sr = os.environ.get("SYSTEMROOT", r"C:\Windows")
+            env = {
+                "SYSTEMROOT": sr,
+                "COMSPEC": os.environ.get("COMSPEC", f"{sr}\\system32\\cmd.exe"),
+                "USERPROFILE": os.environ.get("USERPROFILE", ""),
+                "HOMEDRIVE": os.environ.get("HOMEDRIVE", "C:"),
+                "HOMEPATH": os.environ.get("HOMEPATH", "\\"),
+                "TEMP": os.environ.get("TEMP", f"{sr}\\Temp"),
+                "TMP": os.environ.get("TMP", f"{sr}\\Temp"),
+                "PATHEXT": os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD"),
+                "PATH": os.environ.get("PATH", f"{sr}\\system32;{sr}"),
+                "PYTHONUNBUFFERED": "1",
+            }
+            return {key: value for key, value in env.items() if value is not None}
+        return {
+            "HOME": os.environ.get("HOME", "/tmp"),
+            "LANG": os.environ.get("LANG", "C.UTF-8"),
+            "TERM": os.environ.get("TERM", "dumb"),
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "PYTHONUNBUFFERED": "1",
+        }
+
     def _run_argv(self, argv: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
         command = subprocess.list2cmdline(argv)
         logger.info("CLI Apps: running {}", command)
@@ -1007,6 +1037,7 @@ class CliAppManager:
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
+            env=self._subprocess_env(),
         )
         logger.info("CLI Apps: command exited with code {}: {}", result.returncode, command)
         output = (result.stderr or result.stdout or "").strip()
@@ -1437,7 +1468,7 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
                 encoding="utf-8",
                 errors="replace",
                 timeout=effective_timeout,
-                env=os.environ.copy(),
+                env=self._subprocess_env(),
             )
         except subprocess.TimeoutExpired:
             return f"CLI app '{name}' timed out after {effective_timeout}s"
