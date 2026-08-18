@@ -468,6 +468,32 @@ def _merge_unique_list(base: object, override: object) -> object:
     return result
 
 
+def _merge_chat_extra_body(
+    kwargs: dict[str, Any],
+    extra_body: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge configured Chat Completions fields without clobbering tools.
+
+    ``tools`` has to stay at the top level. Sent inside ``extra_body`` the SDK lets it *replace*
+    the functions nanoinfra generated from its own tool registry, so configuring an OpenRouter
+    server tool silently removed every local tool from the request (upstream 57d81bc1, #145).
+    Configured tools are appended to ours rather than substituted for them.
+    """
+    regular_extra = {key: value for key, value in extra_body.items() if key != "tools"}
+    merged = dict(kwargs)
+    if regular_extra:
+        existing = kwargs.get("extra_body", {})
+        merged["extra_body"] = _deep_merge(existing, regular_extra)
+    if "tools" in extra_body:
+        current_tools = kwargs.get("tools")
+        configured_tools = extra_body["tools"]
+        if isinstance(current_tools, list) and isinstance(configured_tools, list):
+            merged["tools"] = [*current_tools, *configured_tools]
+        else:
+            merged["tools"] = configured_tools
+    return merged
+
+
 def _merge_responses_extra_body(
     body: dict[str, Any],
     extra_body: dict[str, Any],
@@ -972,14 +998,14 @@ class OpenAICompatProvider(LLMProvider):
                 if msg.get("role") == "assistant" and "reasoning_content" not in msg:
                     msg["reasoning_content"] = ""
 
-        # Merge user-configured extra_body last so it can override or
-        # extend provider-specific defaults (e.g. chat_template_kwargs,
-        # guided_json, repetition_penalty).  Uses recursive merge so
-        # nested dicts like {"chat_template_kwargs": {"enable_thinking": false}}
-        # do not clobber sibling keys already set by thinking-style logic.
+        # Merge user-configured extra_body last so ordinary fields can override or extend
+        # provider-specific defaults (e.g. chat_template_kwargs, guided_json,
+        # repetition_penalty). Uses recursive merge so nested dicts like
+        # {"chat_template_kwargs": {"enable_thinking": false}} do not clobber sibling keys
+        # already set by thinking-style logic. Configured ``tools`` are kept at the top level,
+        # because inside extra_body they would replace our own generated functions.
         if self._extra_body:
-            existing = kwargs.get("extra_body", {})
-            kwargs["extra_body"] = _deep_merge(existing, self._extra_body)
+            kwargs = _merge_chat_extra_body(kwargs, self._extra_body)
 
         return kwargs
 
