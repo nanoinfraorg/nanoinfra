@@ -19,6 +19,40 @@ _STRIP_SKILL_FRONTMATTER = re.compile(
 )
 _SKILL_REFERENCE = re.compile(r"(?<![\w$])\$([A-Za-z0-9_-]+)")
 
+# The Agent Skills identity contract. A skill that arrives inside an Agent Plugin package is
+# validated against this before it is ever loaded, so the check lives at module scope rather than
+# on the loader (nanoinfraorg/nanoinfra#138).
+_SKILL_NAME = re.compile(r"^(?!.*--)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
+
+
+def parse_skill_metadata(content: str) -> dict[str, object] | None:
+    """Parse a skill document's YAML frontmatter."""
+    if not (match := _STRIP_SKILL_FRONTMATTER.match(content)):
+        return None
+    try:
+        parsed = yaml.safe_load(match.group(1))
+    except yaml.YAMLError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return {str(key): value for key, value in cast(dict[object, object], parsed).items()}
+
+
+def valid_skill_metadata(metadata: dict[str, object], name: str) -> bool:
+    """Return whether metadata satisfies the Agent Skills identity contract.
+
+    The directory name is the identity, so a manifest that names something else is refused
+    rather than trusted: otherwise a package could ship a skill that shadows another by name.
+    """
+    description = metadata.get("description")
+    return (
+        metadata.get("name") == name
+        and len(name) <= 64
+        and _SKILL_NAME.fullmatch(name) is not None
+        and isinstance(description, str)
+        and 1 <= len(description.strip()) <= 1024
+    )
+
 
 class SkillsLoader:
     """
