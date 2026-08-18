@@ -242,7 +242,10 @@ def test_the_public_surface_matches_the_ported_upstream_module() -> None:
         "enabled_agent_plugin_skill_dirs",
         "enabled_agent_plugin_skills",
         "merged_mcp_servers",
+        "reconcile_agent_plugins",
+        "ReconcileResult",
         "set_agent_plugin_enabled",
+        "workspace_from_config",
     }
     imported = {
         "annotations", "base64", "json", "re", "suppress", "dataclass", "replace", "sha256",

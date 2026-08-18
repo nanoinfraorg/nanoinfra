@@ -422,6 +422,29 @@ def _stdio_mcp_server_names(config: Any) -> list[str]:
     return names
 
 
+def _reconcile_agent_plugins_for_gateway(config: Any) -> None:
+    """Make plugin activation match tools.agentPlugins before anything reads it (#141).
+
+    Runs before the MCP host start decision, because reconciling can add or remove the stdio
+    servers that decision counts. A failure here must not stop the gateway: an unreadable plugin
+    tree costs the operator their plugins, not their agent.
+    """
+    from nanoinfra.agent.plugins import reconcile_agent_plugins, workspace_from_config
+
+    declared = list(getattr(getattr(config, "tools", None), "agent_plugins", []) or [])
+    try:
+        result = reconcile_agent_plugins(workspace_from_config(config), declared)
+    except (OSError, RuntimeError) as exc:
+        logger.warning("plugins: could not reconcile Agent Plugin activation: {}", exc)
+        return
+    if result.enabled:
+        logger.info("plugins: activated {}", ", ".join(result.enabled))
+    if result.disabled:
+        logger.info("plugins: deactivated {}", ", ".join(result.disabled))
+    if result.failed:
+        logger.warning("plugins: could not change {}", ", ".join(result.failed))
+
+
 def _start_mcp_host_for_gateway(config: Any) -> "MCPHostProcess | None":
     """Start the process that runs stdio MCP servers (#22).
 
@@ -431,6 +454,8 @@ def _start_mcp_host_for_gateway(config: Any) -> "MCPHostProcess | None":
     """
     from nanoinfra.gates.mcp_host.client import SOCKET_ENV_VAR, default_socket_path
     from nanoinfra.gates.mcp_host.supervisor import MCPHostStartError, start_mcp_host
+
+    _reconcile_agent_plugins_for_gateway(config)
 
     if not _stdio_mcp_server_names(config):
         logger.info("gates: no stdio MCP server is configured, so the gateway starts no MCP host")

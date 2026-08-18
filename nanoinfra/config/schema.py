@@ -430,6 +430,15 @@ class ToolsConfig(Base):
         ),
     )  # allow non-local WebUI clients to install optional packages and agent skills
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+    # Agent Plugin identities the operator has activated (#141). This list is the authority: the
+    # executor reconciles activation markers against it, and enabling a package that ships an
+    # mcp.json grants a new stdio process, so the decision belongs in a git-reviewed file rather
+    # than in a directory the agent can write.
+    agent_plugins: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("agentPlugins", "agent_plugins"),
+        serialization_alias="agentPlugins",
+    )
     ssrf_whitelist: list[str] = Field(default_factory=list)  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
 
 
