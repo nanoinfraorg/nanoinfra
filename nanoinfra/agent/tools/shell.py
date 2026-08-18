@@ -339,6 +339,10 @@ class ExecTool(Tool):
                 prepared.env,
                 prepared.shell_program,
                 prepared.login,
+                # Own the whole group, so a timeout or a cancel can take the descendants with
+                # it. Killing only the direct child left `cmd &` style grandchildren running
+                # with nobody supervising them (#145, upstream d64b8460).
+                process_tree=True,
             )
 
             try:
@@ -347,10 +351,10 @@ class ExecTool(Tool):
                     timeout=prepared.timeout,
                 )
             except asyncio.TimeoutError:
-                await self._kill_process(process)
+                await self._kill_process_tree(process)
                 return ToolResult.error(f"Error: Command timed out after {prepared.timeout} seconds")
             except asyncio.CancelledError:
-                await self._kill_process(process)
+                await self._kill_process_tree(process)
                 raise
 
             # Safety-net reap: asyncio *should* have reaped the child via
@@ -387,7 +391,7 @@ class ExecTool(Tool):
             # Kill and reap the child if it was spawned but an unexpected
             # error prevented communicate() from completing.
             if process is not None:
-                await self._kill_process(process)
+                await self._kill_process_tree(process)
             return ToolResult.error(f"Error executing command: {str(e)}")
 
     async def _execute_session(
