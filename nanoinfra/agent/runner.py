@@ -57,6 +57,7 @@ from nanoinfra.utils.runtime import (
     repeated_external_lookup_error,
     repeated_workspace_violation_error,
 )
+from nanoinfra.utils.token_calibration import calibration_key, record_observation
 
 GoalContinueMessage = str | Callable[[], str | None]
 ProgressCallback = Callable[[str], Awaitable[None]]
@@ -1314,10 +1315,37 @@ class AgentRunner:
         if total > 0:
             usage["total_tokens"] = total
             usage.setdefault("provider_tokens", total)
+            self._calibrate_prompt_estimate(spec, messages, usage)
             return usage
         if response.finish_reason == "error":
             return {}
         return self._estimate_response_usage(spec, messages, response)
+
+    def _calibrate_prompt_estimate(
+        self,
+        spec: AgentRunSpec,
+        messages: list[dict[str, Any]],
+        usage: dict[str, int],
+    ) -> None:
+        """Learn how far our estimate sits from what the provider actually charged (#153).
+
+        Only runs when the provider reported a real prompt size, which is the one moment the truth
+        is available. Costs one local tokenizer pass; the alternative is a count_tokens round trip
+        per turn.
+        """
+        observed = usage.get("prompt_tokens", 0)
+        if observed <= 0:
+            return
+        try:
+            tools = spec.tools.get_definitions()
+        except Exception:
+            tools = None
+        estimated, _source = estimate_prompt_tokens_chain(
+            spec.runtime.provider, spec.runtime.model, messages, tools
+        )
+        record_observation(
+            calibration_key(spec.runtime.provider, spec.runtime.model), estimated, observed
+        )
 
     def _estimate_response_usage(
         self,
