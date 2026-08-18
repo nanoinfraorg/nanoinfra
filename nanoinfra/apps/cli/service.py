@@ -673,6 +673,19 @@ class CliAppManager:
         return not _has_shell_meta(install_cmd)
 
     def _skill_path(self, name: str) -> Path:
+        """A CLI App's skill is a workspace skill, deliberately not an Agent Plugin package.
+
+        Upstream emits ``plugins/<name>/skills/<name>/SKILL.md`` here instead. Do not port that
+        (nanoinfraorg/nanoinfra#144, decided 2026-08-17). Activation for Agent Plugins lives in
+        ``tools.agentPlugins`` and is reconciled by the executor (#141), so a CLI App skill written
+        as a package would be inert until config listed it -- silently breaking every already
+        installed app -- unless the installer wrote config or wrote an activation marker itself.
+        Both of those put a second activation authority beside the config one.
+
+        CLI Apps and Agent Plugins are different channels: this installer owns the executable, its
+        updates, and its removal, and the install is the operator's own act. A registry package is
+        activated by config because enabling one can grant a stdio process.
+        """
         return self.workspace / "skills" / _safe_skill_name(name) / "SKILL.md"
 
     def _app_payload(
