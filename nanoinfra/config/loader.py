@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any, cast, overload
 
+from loguru import logger
 from pydantic import BaseModel, ValidationError
 from pydantic_settings import SettingsError
 
@@ -338,8 +339,27 @@ def _env_replace(match: re.Match[str]) -> str:
     return value
 
 
+_WARNED_MIGRATIONS: set[str] = set()
+
+
+def _warn_once(key: str, message: str) -> None:
+    """Log a migration notice one time per process.
+
+    The config is re-read on every change by the watcher, so an unconditional log here would
+    repeat the same notice for the life of the gateway and train the operator to skip it.
+    """
+    if key in _WARNED_MIGRATIONS:
+        return
+    _WARNED_MIGRATIONS.add(key)
+    logger.warning(message)
+
+
 def _migrate_config(data: dict[str, Any]) -> dict[str, Any]:
-    """Migrate old config formats to current."""
+    """Migrate old config formats to current.
+
+    This runs only for a config file that was read from disk, never for the environment-only
+    path, so "the key is absent" means an existing installation rather than a fresh one.
+    """
     # Move tools.exec.restrictToWorkspace → tools.restrictToWorkspace
     tools_value = data.get("tools", {})
     if not isinstance(tools_value, dict):
@@ -352,6 +372,27 @@ def _migrate_config(data: dict[str, Any]) -> dict[str, Any]:
         and "restrictToWorkspace" not in tools
     ):
         tools["restrictToWorkspace"] = exec_cfg.pop("restrictToWorkspace")
+
+    # The shipped default for tools.restrictToWorkspace changed from false to true (#135). Flipping
+    # it alone would start blocking commands on every installation that has been running without
+    # it, so an install that never chose a value keeps the one it has been running with.
+    #
+    # Absence is a safe signal here because save_config writes a full model_dump: any config this
+    # codebase has written carries the key explicitly. A file without it was written by an older
+    # release or by hand, and either way its behaviour is the unrestricted one.
+    #
+    # The cost is stated rather than hidden: a hand-written minimal config on a *new* install also
+    # gets the permissive value. Tightening a guard under a config we did not write is the worse
+    # error, so the log says what happened and how to opt in.
+    if "restrictToWorkspace" not in tools:
+        tools["restrictToWorkspace"] = False
+        _warn_once(
+            "restrict_to_workspace_pinned",
+            "tools.restrictToWorkspace is not set in config.json, so it stays false to preserve "
+            "current behaviour. New installations default to true. Set it explicitly to confine "
+            "tool file access to the workspace.",
+        )
+        data["tools"] = tools
 
     # Move tools.myEnabled / tools.mySet → tools.my.{enable, allowSet}.
     # The old flat keys shipped in the initial MyTool landing; wrapping them in a

@@ -1382,7 +1382,9 @@ def test_update_network_safety_settings_default_access_is_webui_only(
 
     saved = load_config(config_path)
     assert config_path.read_text(encoding="utf-8") == before
-    assert saved.tools.restrict_to_workspace is False
+    # An unrelated tools setting keeps its shipped default; the saved config carries the key
+    # explicitly, so the #135 upgrade pin does not apply to it.
+    assert saved.tools.restrict_to_workspace is True
     assert payload["advanced"]["webui_default_access_mode"] == "full"
     assert payload["requires_restart"] is False
 
