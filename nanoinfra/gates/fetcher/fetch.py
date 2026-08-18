@@ -18,6 +18,7 @@ import json
 import re
 from dataclasses import dataclass
 from typing import Any, cast
+from urllib.parse import parse_qsl, urlparse
 
 import httpx
 from loguru import logger
@@ -41,6 +42,63 @@ DEFAULT_MAX_CHARS = 50000
 # The model puts a URL in backticks or quotes often enough that a strip is cheaper than a refusal.
 # The strip happens here rather than in the caller, because the check that follows it lives here.
 _URL_WRAPPERS = " \t\r\n`\"'"
+
+
+# Forwarding a URL to the remote Jina reader discloses it to a third party, so a URL that embeds
+# credential material must never leave the machine. This fetcher holds no host credential, and that
+# is beside the point here: the credential is in the URL the caller handed us, so the guard belongs
+# at the URL.
+#
+# Matching is by parameter *name*, never by value. A value that looks secret is usually a search
+# term ("?q=token"); a name that says secret usually is one. The asymmetry sets the error to prefer:
+# over-matching costs a fall back to the local readability reader, under-matching leaks a secret.
+_CREDENTIAL_QUERY_PARAMS = frozenset({
+    "access_token", "api-key", "api-token", "apikey", "api_key", "api_token",
+    "auth", "authorization", "client_assertion", "client_secret", "code",
+    "credential", "credentials", "id_token", "jwt", "key", "password",
+    "passwd", "private_key", "pwd", "refresh_token", "samlresponse", "secret",
+    "session_id", "session_token", "sessionid", "sig", "signature", "sso_token",
+    "ticket", "token",
+})
+_CREDENTIAL_QUERY_PREFIXES = ("x-amz-", "x-goog-")
+
+
+def _url_carries_credentials(url: str) -> bool:
+    """True when this URL must not be disclosed to a third-party reader."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        # An unparseable URL cannot be cleared, so it is refused. Fail closed.
+        return True
+    if parsed.username is not None or parsed.password is not None:
+        return True
+    # Some frameworks still accept semicolons as query separators. Splitting on them here can
+    # over-match a value, and the cost of that is only using the local extractor instead.
+    query = parsed.query.replace(";", "&")
+    for name, _value in parse_qsl(query, keep_blank_values=True):
+        lowered = name.strip().lower()
+        if lowered in _CREDENTIAL_QUERY_PARAMS or lowered.startswith(_CREDENTIAL_QUERY_PREFIXES):
+            return True
+    return False
+
+
+def _redact_url_for_log(url: str) -> str:
+    """Return only a URL's origin, excluding userinfo, path, query, and fragment."""
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not parsed.scheme or hostname is None:
+            return "<redacted URL>"
+        if ":" in hostname:
+            hostname = f"[{hostname}]"
+        try:
+            port = parsed.port
+        except ValueError:
+            port = None
+        authority = f"{hostname}:{port}" if port is not None else hostname
+        return f"{parsed.scheme}://{authority}"
+    except ValueError:
+        return "<redacted URL>"
 
 
 @dataclass(slots=True)
@@ -104,12 +162,24 @@ class WebFetch:
 
     async def _fetch_jina(self, url: str, max_chars: int) -> Payload | None:
         """Try fetching via Jina Reader API. Returns None on failure."""
+        if _url_carries_credentials(url):
+            # Origin only. The query is the thing being protected, so it cannot go in the log
+            # that records the refusal.
+            logger.debug(
+                "Skipping Jina Reader for {}: URL carries credential material",
+                _redact_url_for_log(url),
+            )
+            return None
+        # httpx drops the fragment when it builds the request, so this strip changes nothing
+        # today. It is here because an OAuth implicit flow puts a token in the fragment, and
+        # that must not start travelling the day the transport changes.
+        forwarded_url = url.split("#", 1)[0]
         try:
             headers = {"Accept": "application/json", "User-Agent": self.user_agent}
             if self.jina_api_key:
                 headers["Authorization"] = f"Bearer {self.jina_api_key}"
             async with httpx.AsyncClient(proxy=self.proxy, timeout=20.0) as client:
-                r = await client.get(f"https://r.jina.ai/{url}", headers=headers)
+                r = await client.get(f"https://r.jina.ai/{forwarded_url}", headers=headers)
                 if r.status_code == 429:
                     logger.debug("Jina Reader rate limited, falling back to readability")
                     return None
