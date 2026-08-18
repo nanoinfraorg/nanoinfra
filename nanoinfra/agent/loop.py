@@ -431,6 +431,10 @@ class AgentLoop:
         # One file-read/write tracker per logical session. The tool registry is
         # shared by this loop, so tools resolve the active state via contextvars.
         self._file_state_store = FileStateStore()
+        # SessionManager owns every durable deletion entrypoint, the WebUI and the fork rollback
+        # paths included, so the boundary is observed once here rather than each caller
+        # remembering to drop this process-local state (#145, upstream 2f19068e).
+        self.sessions.set_delete_observer(self._file_state_store.discard)
         self._exec_session_manager = ExecSessionManager()
         self.runner = AgentRunner()
         self.subagents = SubagentManager(

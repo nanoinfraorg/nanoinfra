@@ -93,3 +93,33 @@ def test_eviction_returns_a_usable_tracker() -> None:
 
     assert isinstance(replacement, FileStates)
     replacement.record_write(__file__)
+
+
+def test_deleting_a_session_drops_its_file_state(tmp_path) -> None:
+    """The wiring, not just the method: discard is useless if nobody calls it.
+
+    SessionManager owns every durable deletion path, so AgentLoop observes that boundary once
+    rather than each caller remembering to clean up (upstream 2f19068e).
+    """
+    from nanoinfra.session.manager import SessionManager
+
+    store = FileStateStore()
+    manager = SessionManager(tmp_path / "workspace", sessions_root=tmp_path / "sessions")
+    manager.set_delete_observer(store.discard)
+
+    manager.save(manager.get_or_create("chat:1"))
+    tracked = store.for_session("chat:1")
+
+    manager.delete_session("chat:1")
+
+    assert store.for_session("chat:1") is not tracked
+
+
+def test_a_manager_with_no_observer_still_deletes(tmp_path) -> None:
+    """The observer is optional; deletion must not depend on one being set."""
+    from nanoinfra.session.manager import SessionManager
+
+    manager = SessionManager(tmp_path / "workspace", sessions_root=tmp_path / "sessions")
+    manager.save(manager.get_or_create("chat:1"))
+
+    assert manager.delete_session("chat:1") is True
