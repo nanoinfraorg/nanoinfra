@@ -12,6 +12,8 @@ import hmac
 import json as _json
 import time
 import uuid
+from collections import OrderedDict
+from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, cast
 
 from aiohttp import web
@@ -47,7 +49,70 @@ API_CHAT_ID = "default"
 _AGENT_LOOP_KEY = web.AppKey[Any]("agent_loop")
 _MODEL_NAME_KEY = web.AppKey[str]("model_name")
 _REQUEST_TIMEOUT_KEY = web.AppKey[float]("request_timeout")
-_SESSION_LOCKS_KEY = web.AppKey[dict[str, asyncio.Lock]]("session_locks")
+_SESSION_LOCKS_KEY = web.AppKey["SessionLocks"]("session_locks")
+
+class SessionLocks:
+    """Per-session locks with a bound on how many are kept.
+
+    ``session_id`` arrives in the request body, so a caller can name as many sessions as it likes.
+    A plain dict here grows one ``asyncio.Lock`` per distinct id and never shrinks, which is a
+    memory-exhaustion path an unauthenticated caller controls (upstream HKUDS/nanobot#4883).
+
+    Eviction is reference-counted rather than plain LRU, and that distinction is the whole point.
+    A lock may only be dropped while no request holds it *or is waiting on it*. Dropping one that
+    is in use would hand the next request for that session a different lock object, and the two
+    would stop being serialized -- turning a memory fix into a concurrency bug. When every lock is
+    busy the bound is exceeded on purpose; correctness wins over the cap.
+    """
+
+    __slots__ = ("_locks", "_max_idle", "_users")
+
+    def __init__(self, *, max_idle: int = 1024) -> None:
+        if max_idle <= 0:
+            raise ValueError("max_idle must be positive")
+        self._locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
+        self._users: dict[str, int] = {}
+        self._max_idle = max_idle
+
+    @contextlib.asynccontextmanager
+    async def acquire(self, key: str) -> AsyncGenerator[None]:
+        """Hold this session's lock for the duration of the block."""
+        lock = self._locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[key] = lock
+        self._locks.move_to_end(key)
+        # Counted before the await, so nothing can evict this entry while we wait for it.
+        self._users[key] = self._users.get(key, 0) + 1
+        try:
+            async with lock:
+                yield
+        finally:
+            remaining = self._users[key] - 1
+            if remaining:
+                self._users[key] = remaining
+            else:
+                del self._users[key]
+                self._evict_idle()
+
+    def _evict_idle(self) -> None:
+        """Drop the oldest locks nobody is using, until the bound is met."""
+        if len(self._locks) <= self._max_idle:
+            return
+        for key in list(self._locks):
+            if len(self._locks) <= self._max_idle:
+                return
+            if key not in self._users:
+                del self._locks[key]
+
+    def __len__(self) -> int:
+        return len(self._locks)
+
+    def in_use(self, key: str) -> bool:
+        """Whether any request currently holds or awaits this session's lock."""
+        return key in self._users
+
+
 _MISSING = object()
 
 
@@ -306,12 +371,11 @@ async def handle_chat_completions(request: web.Request) -> web.Response | web.St
         return _error_json(400, f"Only configured model '{model_name}' is available")
 
     session_key = f"api:{session_id}" if session_id else API_SESSION_KEY
-    session_locks: dict[str, asyncio.Lock] = _app_value(
+    session_locks: SessionLocks = _app_value(
         request.app,
         _SESSION_LOCKS_KEY,
         "session_locks",
     )
-    session_lock = session_locks.setdefault(session_key, asyncio.Lock())
 
     logger.info(
         "API request session_key={} media={} text={} stream={}",
@@ -345,7 +409,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response | web.St
         async def _run() -> None:
             nonlocal stream_failed
             try:
-                async with session_lock:
+                async with session_locks.acquire(session_key):
                     response = await asyncio.wait_for(
                         agent_loop.process_direct(
                             content=text,
@@ -388,7 +452,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response | web.St
 
     # -- non-streaming path (original logic) --
     try:
-        async with session_lock:
+        async with session_locks.acquire(session_key):
             try:
                 response = await asyncio.wait_for(
                     agent_loop.process_direct(
@@ -465,7 +529,7 @@ def create_app(
     app[_AGENT_LOOP_KEY] = agent_loop
     app[_MODEL_NAME_KEY] = model_name
     app[_REQUEST_TIMEOUT_KEY] = request_timeout
-    app[_SESSION_LOCKS_KEY] = {}  # per-user locks, keyed by session_key
+    app[_SESSION_LOCKS_KEY] = SessionLocks()  # per-session locks, bounded (#4883)
 
     @web.middleware
     async def auth_middleware(

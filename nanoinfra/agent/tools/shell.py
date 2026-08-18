@@ -71,6 +71,35 @@ def _reap_pid(pid: int) -> None:
         logger.debug("_reap_pid({}): {}", pid, exc)
 
 
+# Said once per process. The gateway builds an ExecTool per turn, so a per-instance log would be
+# noise an operator learns to scroll past. A set rather than a rebound flag, because a module
+# global in caps cannot be reassigned under strict typing.
+_warned_once: set[str] = set()
+
+
+def _warn_if_workspace_restriction_stands_alone(restrict: bool, sandbox: str) -> None:
+    """Say plainly that restrictToWorkspace alone does not contain a shell.
+
+    The guard reads the command text, and command text cannot be reasoned about completely: a
+    relative symlink inside the workspace resolves outside it at open time, and the guard never
+    sees an absolute path to check. Verified: with no sandbox, `cat link.txt` reads the symlink's
+    target outside the workspace; with tools.exec.sandbox = "bwrap" the same command gets ENOENT,
+    because the target is not in the mount namespace.
+
+    So an operator who set restrictToWorkspace and nothing else is less contained than they think,
+    and silence would let them keep thinking it. Upstream tracks the hole as HKUDS/nanobot#4072 and
+    HKUDS/nanobot#4790; this is nanoinfraorg/nanoinfra#147.
+    """
+    if "unsandboxed_restriction" in _warned_once or not restrict or sandbox or _IS_WINDOWS:
+        return
+    _warned_once.add("unsandboxed_restriction")
+    logger.warning(
+        "tools.restrictToWorkspace is on but tools.exec.sandbox is unset, so shell commands are "
+        "confined by command-text checks only. A symlink inside the workspace still resolves "
+        "outside it. Set tools.exec.sandbox to \"bwrap\" for a boundary the kernel enforces."
+    )
+
+
 # Policy note appended to recoverable workspace-boundary guard errors.
 _WORKSPACE_BOUNDARY_NOTE = (
     "\n\nNote: this is a hard policy boundary, not a transient failure. "
@@ -251,6 +280,7 @@ class ExecTool(Tool):
         ]
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
+        _warn_if_workspace_restriction_stands_alone(restrict_to_workspace, sandbox)
         if allow_local_preview_access is not None:
             webui_allow_local_service_access = allow_local_preview_access
         self.webui_allow_local_service_access = webui_allow_local_service_access
