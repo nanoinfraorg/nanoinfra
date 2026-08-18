@@ -94,11 +94,21 @@ class SkillsLoader:
         Returns:
             List of skill info dicts with 'name', 'path', 'source'.
         """
+        # Precedence is workspace > plugin > builtin. The workspace file is the operator's own and
+        # wins outright. A plugin package was reviewed and installed deliberately, so it beats a
+        # builtin of the same name. The builtin is the fallback.
         skills = self._skill_entries_from_dir(self.workspace_skills, "workspace")
-        workspace_names = {entry["name"] for entry in skills}
+        seen_names = {entry["name"] for entry in skills}
+
+        for name, path in self._plugin_skills():
+            if name in seen_names:
+                continue
+            skills.append({"name": name, "path": str(path), "source": "plugin"})
+            seen_names.add(name)
+
         if self.builtin_skills and self.builtin_skills.exists():
             skills.extend(
-                self._skill_entries_from_dir(self.builtin_skills, "builtin", skip_names=workspace_names)
+                self._skill_entries_from_dir(self.builtin_skills, "builtin", skip_names=seen_names)
             )
 
         if self.disabled_skills:
@@ -107,6 +117,16 @@ class SkillsLoader:
         if filter_unavailable:
             return [skill for skill in skills if self._check_requirements(self._get_skill_meta(skill["name"]))]
         return skills
+
+    def _plugin_skills(self) -> list[tuple[str, Path]]:
+        """Return skills from Agent Plugins the operator has enabled.
+
+        Imported here rather than at module scope: plugins.py imports the two metadata helpers
+        from this module, so a top-level import would close a cycle.
+        """
+        from nanoinfra.agent.plugins import enabled_agent_plugin_skills
+
+        return enabled_agent_plugin_skills(self.workspace)
 
     def load_skill(self, name: str) -> str | None:
         """
@@ -118,14 +138,22 @@ class SkillsLoader:
         Returns:
             Skill content or None if not found.
         """
-        roots = [self.workspace_skills]
-        if self.builtin_skills:
-            roots.append(self.builtin_skills)
-        for root in roots:
-            path = root / name / "SKILL.md"
-            if path.exists():
-                return path.read_text(encoding="utf-8")
-        return None
+        # Resolved through the listing rather than by walking roots, because a plugin skill lives
+        # inside its package and only the listing knows which packages are currently active.
+        entry = next(
+            (
+                skill
+                for skill in self.list_skills(filter_unavailable=False)
+                if skill["name"] == name
+            ),
+            None,
+        )
+        if entry is None:
+            return None
+        try:
+            return Path(entry["path"]).read_text(encoding="utf-8")
+        except OSError:
+            return None
 
     def load_skills_for_context(self, skill_names: list[str]) -> str:
         """

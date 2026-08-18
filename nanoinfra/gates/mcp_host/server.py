@@ -128,14 +128,23 @@ SettingsLoader = Callable[[str], StdioServerSettings]
 
 
 def _configured_servers() -> dict[str, MCPServerConfig]:
-    """Read the MCP servers from the host's own config.
+    """Read the MCP servers from the host's own config, plus enabled Agent Plugins.
 
-    The import stays local. The config module pulls in a large part of the package, and this
+    The plugin merge happens *here* and not only on the agent side, because this is the process
+    that starts the program. A plugin server resolved anywhere else would run wherever that caller
+    lives; resolved here it inherits this account and this process's Landlock rules like every
+    other stdio server (nanoinfraorg/nanoinfra#140).
+
+    Activation is re-read on every resolution rather than cached, so a package that changed since
+    it was enabled stops resolving without the host being restarted.
+
+    The imports stay local. The config module pulls in a large part of the package, and this
     process must not pay for that at import time.
     """
+    from nanoinfra.agent.plugins import merged_mcp_servers
     from nanoinfra.config.loader import load_config, resolve_config_env_vars
 
-    return dict(resolve_config_env_vars(load_config()).tools.mcp_servers)
+    return merged_mcp_servers(resolve_config_env_vars(load_config()))
 
 
 def load_stdio_settings(server_name: str) -> StdioServerSettings:

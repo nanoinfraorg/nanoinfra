@@ -410,8 +410,12 @@ def _stdio_mcp_server_names(config: Any) -> list[str]:
     A server with a command and no type is stdio, which is what the tool already reads. So the
     start decision here matches the tool's own reading of the same config.
     """
+    # Includes servers declared by enabled Agent Plugins (#140). Without them a package whose only
+    # component is an MCP server would never get a host to run in.
+    from nanoinfra.agent.plugins import merged_mcp_servers
+
     names: list[str] = []
-    for name, server in config.tools.mcp_servers.items():
+    for name, server in merged_mcp_servers(config).items():
         kind = getattr(server, "type", None) or ("stdio" if getattr(server, "command", None) else "")
         if kind == "stdio":
             names.append(name)
