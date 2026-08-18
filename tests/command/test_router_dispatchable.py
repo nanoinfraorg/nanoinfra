@@ -70,9 +70,21 @@ class TestIsDispatchableCommand:
         assert router.is_dispatchable_command("  /new  ")
         assert router.is_dispatchable_command("  /pairing list  ")
 
-    def test_unknown_slash_command_not_matched(self, router: CommandRouter) -> None:
-        assert not router.is_dispatchable_command("/unknown")
-        assert not router.is_dispatchable_command("/foo bar")
+    def test_unknown_slash_command_is_dispatched_so_it_can_be_rejected(
+        self, router: CommandRouter
+    ) -> None:
+        """An unknown slash command is claimed here on purpose (#145).
+
+        It used to fall through to the LLM, which then had to guess what the operator meant. A
+        plain "unknown command" is better than a guess, and rejecting it needs dispatch to take it.
+        """
+        assert router.is_dispatchable_command("/unknown")
+        assert router.is_dispatchable_command("/foo bar")
+
+    def test_plain_prose_is_still_left_to_the_model(self, router: CommandRouter) -> None:
+        """Only slash-prefixed text is claimed; ordinary text is a message, not a typo."""
+        assert not router.is_dispatchable_command("what is the status")
+        assert not router.is_dispatchable_command("tell me about /new")
 
 
 @pytest.mark.parametrize(
