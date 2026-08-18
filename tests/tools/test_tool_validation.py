@@ -813,3 +813,38 @@ def test_cast_nullable_param_no_crash() -> None:
     assert result["name"] == "hello"
     result = tool.cast_params({"name": None})
     assert result["name"] is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [float("nan"), float("inf"), float("-inf"), "NaN", "Infinity", "-Infinity"],
+)
+def test_cast_params_rejects_non_finite_numbers(value: float | str) -> None:
+    """JSON number parameters must remain finite after schema-driven casting.
+
+    JSON itself has no NaN or Infinity, but Python's json module both emits and accepts them, so a
+    model can hand one over. Ported from upstream 99e07e13.
+    """
+    tool = CastTestTool(
+        {
+            "type": "object",
+            "properties": {"rate": {"type": "number"}},
+        }
+    )
+
+    result = tool.cast_params({"rate": value})
+
+    assert tool.validate_params(result) == ["rate must be finite"]
+
+
+def test_finite_numbers_still_validate() -> None:
+    """The guard must not reject an ordinary value, integer or float."""
+    tool = CastTestTool(
+        {
+            "type": "object",
+            "properties": {"rate": {"type": "number"}},
+        }
+    )
+
+    for value in (0, -1, 1.5, "2.5"):
+        assert tool.validate_params(tool.cast_params({"rate": value})) == []
