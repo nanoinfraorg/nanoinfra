@@ -39,6 +39,7 @@ from nanoinfra.utils.helpers import (
     truncate_text_to_tokens,
 )
 from nanoinfra.utils.prompt_templates import render_template
+from nanoinfra.utils.token_calibration import calibration_key, corrected
 from nanoinfra.utils.workspace_prompts import (
     WORKSPACE_PROMPT_MAX_CHARS,
     has_workspace_prompt_override,
@@ -1250,12 +1251,20 @@ class Consolidator:
             session_key=session.key,
             unified_session=self.unified_session,
         )
-        return estimate_prompt_tokens_chain(
+        estimated, source = estimate_prompt_tokens_chain(
             runtime.provider,
             runtime.model,
             probe_messages,
             self._get_tool_definitions(),
         )
+        # Scale by what the provider actually charged for comparable prompts. Without this the
+        # trigger compares a tiktoken guess against a real context window and can sit under budget
+        # while the true prompt is already over it (#153).
+        key = calibration_key(runtime.provider, runtime.model)
+        applied = corrected(key, estimated)
+        if applied != estimated:
+            source = f"{source}+calibrated"
+        return applied, source
 
     def _input_token_budget(self, runtime: LLMRuntime) -> int:
         """Available input token budget for consolidation LLM."""
