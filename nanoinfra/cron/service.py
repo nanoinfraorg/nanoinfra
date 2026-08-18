@@ -173,6 +173,10 @@ class CronService:
         self._timer_task: asyncio.Task[None] | None = None
         self._running = False
         self._active_executions = 0
+        # True while the in-memory store holds a result that is not on disk yet. A save that
+        # failed must keep the in-memory snapshot authoritative, because reloading the older disk
+        # snapshot would make an already-executed job due again and repeat its side effect (#145).
+        self._store_dirty = False
         self.max_sleep_ms = max_sleep_ms
 
     def _should_persist_store(self) -> bool:
@@ -308,6 +312,10 @@ class CronService:
           load (during ``start``) can return ``None`` to signal an unrecoverable
           state to the caller.
         """
+        # Never replace state a previous save failed to persist: the older on-disk snapshot could
+        # make an already-executed job due again and repeat its side effect (#145).
+        if self._store_dirty and self._store:
+            return self._store
         if self._active_executions > 0 and self._store and not reload_during_execution:
             return self._store
         loaded = self._load_jobs()
@@ -350,6 +358,9 @@ class CronService:
         if not self._store:
             return
 
+        # Set before serialization and before the write, so every exceptional exit below leaves
+        # the in-memory snapshot marked authoritative until a later save succeeds.
+        self._store_dirty = True
         self.store_path.parent.mkdir(parents=True, exist_ok=True)
 
         data = {
@@ -402,6 +413,8 @@ class CronService:
         }
 
         self._atomic_write(self.store_path, json.dumps(data, indent=2, ensure_ascii=False))
+        # Only now is the disk snapshot authoritative again.
+        self._store_dirty = False
 
     @staticmethod
     def _atomic_write(path: Path, content: str) -> None:
@@ -521,6 +534,13 @@ class CronService:
         reload_store = self._active_executions == 0
         self._active_executions += 1
         try:
+            # A previous tick may have completed external side effects and failed to persist the
+            # schedule that advanced past them. Persist that exact snapshot before reloading or
+            # executing anything, or the older disk state replays the same job.
+            if self._store_dirty:
+                self._save_store()
+                return
+
             store = self._load_store(reload_during_execution=reload_store)
             # If a hot reload found a corrupt store on disk, ``self._store`` may
             # still hold the previous, known-good in-memory snapshot.  Keep using
@@ -539,9 +559,18 @@ class CronService:
                 await self._execute_job(job)
 
             self._save_store()
+        except Exception:
+            # A load or persist failure must not kill the scheduler. The tick runs inside a task
+            # nobody awaits, so an escaping exception used to stop every future job in silence.
+            logger.exception(
+                "Cron: tick failed ({}); keeping in-memory state and retrying on next tick",
+                self.store_path,
+            )
         finally:
             self._active_executions -= 1
-        self._arm_timer()
+            # Always re-arm, even on an unexpected failure, so one bad tick cannot end the
+            # schedule. This was outside the finally, which is what made the stop silent.
+            self._arm_timer()
 
     async def _execute_job(self, job: CronJob) -> None:
         """Execute a single job."""
@@ -804,6 +833,10 @@ class CronService:
         reload_store = self._active_executions == 0
         self._active_executions += 1
         try:
+            # A manual run is another side-effecting entrypoint. Do not start one while the result
+            # of a previous timer execution is still only in memory.
+            if self._store_dirty:
+                self._save_store()
             store = self._require_store(reload_during_execution=reload_store)
             for job in store.jobs:
                 if job.id == job_id:
