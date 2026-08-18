@@ -5,6 +5,8 @@ import errno
 import json
 import os
 import re
+import secrets
+import shutil
 from collections import OrderedDict
 from contextlib import suppress
 from copy import deepcopy
@@ -14,9 +16,10 @@ from pathlib import Path
 from typing import Any, Callable, Protocol, TypedDict, cast
 from weakref import WeakValueDictionary
 
+from filelock import FileLock
 from loguru import logger
 
-from nanoinfra.config.paths import get_legacy_sessions_dir
+from nanoinfra.config.paths import get_legacy_sessions_dir, get_runtime_subdir
 from nanoinfra.providers.base import ProviderConversationState
 from nanoinfra.runtime_context import (
     RUNTIME_CONTEXT_HISTORY_META,
@@ -45,6 +48,16 @@ _SESSION_PREVIEW_MAX_CHARS = 120
 _SESSION_LIST_PREVIEW_MAX_RECORDS = 200
 _SESSION_LIST_PREVIEW_MAX_CHARS = 1_000_000
 _SESSION_DATA_ERRORS = (ValueError, TypeError, AttributeError, KeyError)
+
+# Session history lives outside the workspace (#136), so each workspace needs a namespace under the
+# shared root. The namespace is a random id recorded *inside* the workspace rather than a hash of
+# its path: an operator who renames or relocates a workspace would otherwise orphan every
+# transcript it owns. The marker travels with the directory, so the history travels with it.
+_WORKSPACE_STATE_DIR = ".nanoinfra"
+_WORKSPACE_ID_FILE = "workspace-id"
+_WORKSPACE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_WORKSPACE_BACKREF_FILE = ".workspace"
+_SESSION_MIGRATION_LOCK_TIMEOUT_SECONDS = 30
 _PROVIDER_STATE_RECORD_TYPE = "provider_state"
 _PROVIDER_STATE_RECORD_PREFIX_RE = re.compile(
     r'^\s*\{\s*"_type"\s*:\s*"provider_state"\s*(?:,|\})'
@@ -701,13 +714,160 @@ class SessionStore(Protocol):
 class JsonlSessionStore:
     """JSONL implementation of session persistence."""
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, *, sessions_root: Path | None = None):
         # The workspace stays, because a save scrubs the pending messages of a provider state
         # and the redactor needs it to tell a workspace with a stored secret from one without
         # (#52). A workspace with no secret then costs no round trip.
-        self.workspace = workspace
-        self.sessions_dir = ensure_dir(workspace / "sessions")
-        self.legacy_sessions_dir = get_legacy_sessions_dir()
+        canonical_workspace = Path(workspace).expanduser().resolve(strict=False)
+        ensure_dir(canonical_workspace)
+        root = (
+            Path(sessions_root).expanduser().resolve(strict=False)
+            if sessions_root is not None
+            else get_runtime_subdir("sessions").resolve(strict=False)
+        )
+        # The whole point of #136 is that the agent's filesystem tools cannot reach transcripts.
+        # A root inside the workspace would restore exactly what this moves away from, so it is
+        # refused rather than silently accepted.
+        if root == canonical_workspace or root.is_relative_to(canonical_workspace):
+            raise RuntimeError(
+                "session storage must be outside the agent workspace; "
+                "move --config outside --workspace or choose a nested workspace directory"
+            )
+        ensure_dir(root)
+        with suppress(OSError):
+            os.chmod(root, 0o700)
+        self.workspace = canonical_workspace
+        # The gateway and a CLI invocation can start at once, and both would migrate. One lock on
+        # the shared root makes the namespace claim and the migration happen once.
+        self._migration_lock = FileLock(
+            str(root / ".workspace-migration.lock"),
+            timeout=_SESSION_MIGRATION_LOCK_TIMEOUT_SECONDS,
+        )
+        with self._migration_lock:
+            workspace_id = self._load_or_create_workspace_id(canonical_workspace, root)
+            self.sessions_dir = ensure_dir(root / workspace_id)
+            self.legacy_sessions_dir = get_legacy_sessions_dir()
+            self._write_workspace_backref(self.sessions_dir, canonical_workspace)
+            self._migrate_from_workspace(canonical_workspace)
+
+    @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        with suppress(PermissionError, NotImplementedError):
+            fd = os.open(path, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            except OSError as exc:
+                if exc.errno != errno.EINVAL:
+                    raise
+            finally:
+                os.close(fd)
+
+    @classmethod
+    def _write_text_atomic(cls, path: Path, content: str, *, mode: int = 0o600) -> None:
+        tmp = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+        try:
+            with open(tmp, "x", encoding="utf-8") as handle:
+                os.chmod(tmp, mode)
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, path)
+            cls._fsync_directory(path.parent)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    @staticmethod
+    def _workspace_id_path(workspace: Path) -> Path:
+        state_dir = workspace / _WORKSPACE_STATE_DIR
+        if state_dir.is_symlink():
+            raise RuntimeError(f"workspace state directory must not be a symlink: {state_dir}")
+        ensure_dir(state_dir)
+        return state_dir / _WORKSPACE_ID_FILE
+
+    @staticmethod
+    def _read_workspace_id(marker: Path) -> str:
+        if marker.is_symlink():
+            raise RuntimeError(f"workspace identity marker must not be a symlink: {marker}")
+        value = marker.read_text(encoding="utf-8").strip()
+        if not _WORKSPACE_ID_RE.fullmatch(value):
+            raise RuntimeError(
+                f"workspace identity marker is invalid: {marker}; "
+                "restore its original 32-character identifier before starting nanoinfra"
+            )
+        return value
+
+    @classmethod
+    def _load_or_create_workspace_id(cls, workspace: Path, root: Path) -> str:
+        """Return this workspace's stable namespace, creating it on first use."""
+        marker = cls._workspace_id_path(workspace)
+        if marker.is_symlink() or marker.exists():
+            return cls._read_workspace_id(marker)
+        # Workspace cleanup can delete the marker while the store it names still holds history.
+        # The backref written into each store lets that history be reclaimed instead of stranded.
+        recovered = cls._find_workspace_namespace(workspace, root)
+        workspace_id = recovered or secrets.token_hex(16)
+        cls._write_text_atomic(marker, f"{workspace_id}\n")
+        return workspace_id
+
+    @classmethod
+    def _find_workspace_namespace(cls, workspace: Path, root: Path) -> str | None:
+        """Recover the namespace of an existing store that names this workspace."""
+        matches: list[str] = []
+        with suppress(OSError):
+            for sessions_dir in root.iterdir():
+                if (
+                    not _WORKSPACE_ID_RE.fullmatch(sessions_dir.name)
+                    or sessions_dir.is_symlink()
+                    or not sessions_dir.is_dir()
+                ):
+                    continue
+                backref = sessions_dir / _WORKSPACE_BACKREF_FILE
+                if backref.is_symlink() or not backref.is_file():
+                    continue
+                with suppress(OSError, ValueError):
+                    recorded = Path(backref.read_text(encoding="utf-8").strip()).expanduser()
+                    if recorded.resolve(strict=False) == workspace:
+                        matches.append(sessions_dir.name)
+        # Two stores claiming one workspace is ambiguous, and picking one could hide history.
+        if len(matches) != 1:
+            if matches:
+                logger.warning(
+                    "Multiple session stores name workspace {}; starting a new one", workspace
+                )
+            return None
+        return matches[0]
+
+    @classmethod
+    def _write_workspace_backref(cls, sessions_dir: Path, workspace: Path) -> None:
+        backref = sessions_dir / _WORKSPACE_BACKREF_FILE
+        if backref.exists():
+            return
+        try:
+            cls._write_text_atomic(backref, f"{workspace}\n")
+        except OSError as exc:
+            logger.debug("Failed to write sessions workspace backref: {}", exc)
+
+    def _migrate_from_workspace(self, workspace: Path) -> None:
+        """Move legacy in-workspace session files into the out-of-workspace store."""
+        old_dir = workspace / "sessions"
+        if old_dir.is_symlink():
+            # The link could name anything, including a directory that is not ours to empty.
+            logger.warning("Skipping symlinked legacy sessions directory: {}", old_dir)
+            return
+        if not old_dir.is_dir():
+            return
+        for src in sorted(old_dir.glob("*.jsonl")):
+            if src.is_symlink() or not src.is_file():
+                logger.warning("Skipping unsafe legacy session file: {}", src)
+                continue
+            dst = self.sessions_dir / src.name
+            # Never clobber: a file already in the new store is the live one.
+            if dst.exists():
+                continue
+            try:
+                shutil.move(str(src), str(dst))
+            except OSError as exc:
+                logger.warning("Failed to migrate session {}: {}", src, exc)
 
     @staticmethod
     def safe_key(key: str) -> str:
@@ -1184,9 +1344,15 @@ class JsonlSessionStore:
 class SessionManager:
     """Manage session identity, caching, retention, and persistence."""
 
-    def __init__(self, workspace: Path, *, store: SessionStore | None = None):
+    def __init__(
+        self,
+        workspace: Path,
+        *,
+        store: SessionStore | None = None,
+        sessions_root: Path | None = None,
+    ):
         self.workspace = workspace
-        self._jsonl_store = JsonlSessionStore(workspace)
+        self._jsonl_store = JsonlSessionStore(workspace, sessions_root=sessions_root)
         self._store: SessionStore = store if store is not None else self._jsonl_store
         self.sessions_dir = self._jsonl_store.sessions_dir
         self.legacy_sessions_dir = self._jsonl_store.legacy_sessions_dir

@@ -138,6 +138,29 @@ def _isolate_the_operator_installation(
 
 
 @pytest.fixture(autouse=True)
+def _isolate_sessions_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Redirect session storage away from the active runtime data directory.
+
+    Session history lives outside the workspace (nanoinfraorg/nanoinfra#136), under the runtime
+    data root. Two things follow for tests. They must not write into the operator's real
+    installation, and the root must not land *inside* the workspace, because the store refuses
+    that placement by design -- and most suites use ``tmp_path`` as the workspace. So both roots
+    are siblings of ``tmp_path`` rather than children of it.
+    """
+    runtime_root = tmp_path.parent / f"{tmp_path.name}-runtime-root"
+    legacy_root = tmp_path.parent / f"{tmp_path.name}-legacy-sessions-root"
+
+    def runtime_subdir(name: str) -> Path:
+        path = runtime_root / name
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    monkeypatch.setattr("nanoinfra.session.manager.get_runtime_subdir", runtime_subdir)
+    monkeypatch.setattr("nanoinfra.session.manager.get_legacy_sessions_dir", lambda: legacy_root)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _pin_the_captured_terminal_width(monkeypatch: pytest.MonkeyPatch) -> None:
     """Render a captured CLI output at one width, whatever the length of a tmp path (#45).
 
