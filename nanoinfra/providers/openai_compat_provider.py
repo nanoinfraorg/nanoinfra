@@ -88,6 +88,10 @@ _ALLOWED_MSG_KEYS = frozenset({
 })
 _ALNUM = string.ascii_letters + string.digits
 
+# Google's documented last-resort value for tool history that predates thought
+# signatures, e.g. a conversation migrated from another provider (#145, 0c684c5a).
+_GEMINI_SKIP_THOUGHT_SIGNATURE = "skip_thought_signature_validator"
+
 _STANDARD_TC_KEYS = frozenset({"id", "type", "index", "function"})
 _STANDARD_FN_KEYS = frozenset({"name", "arguments"})
 _DEFAULT_OPENROUTER_HEADERS = {
@@ -715,6 +719,8 @@ class OpenAICompatProvider(LLMProvider):
         if strip_reasoning:
             for msg in sanitized:
                 msg.pop("reasoning_content", None)
+        if self._spec and self._spec.name == "gemini":
+            sanitized = self._ensure_gemini_thought_signatures(sanitized)
 
         def map_id(value: Any) -> Any:
             if not isinstance(value, str):
@@ -1008,6 +1014,86 @@ class OpenAICompatProvider(LLMProvider):
             kwargs = _merge_chat_extra_body(kwargs, self._extra_body)
 
         return kwargs
+
+    @staticmethod
+    def _gemini_thought_signature(tool_call: dict[str, Any]) -> str | None:
+        """Return Gemini's thought signature attached to a tool call, if any.
+
+        Gemini's OpenAI-compatible endpoint returns tool calls with an ``extra_content`` field:
+        ``{"google": {"thought_signature": "..."}}``. We preserve it through the parse to
+        serialize round-trip so replayed calls stay valid. Calls produced by another provider,
+        which is what a mid-conversation model switch leaves behind, carry no signature.
+        """
+        extra = tool_call.get("extra_content")
+        if not isinstance(extra, dict):
+            return None
+        google = cast(dict[str, Any], extra).get("google")
+        if not isinstance(google, dict):
+            return None
+        signature = cast(dict[str, Any], google).get("thought_signature")
+        if isinstance(signature, str) and signature:
+            return signature
+        return None
+
+    def _ensure_gemini_thought_signatures(
+        self, messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Keep migrated tool history wire-valid without losing tool context.
+
+        Gemini requires the first call in each function-call step to carry a thought signature.
+        Native parallel calls deliberately leave later calls unsigned, so their original order
+        has to survive. For a step that is wholly unsigned because it was imported from another
+        provider, Google documents ``skip_thought_signature_validator`` as the migration value.
+        Dropping the history instead would cost the model the tool context it is reasoning from.
+        """
+        kept: list[dict[str, Any]] = []
+        for msg in messages:
+            role = msg.get("role")
+            calls = msg.get("tool_calls")
+            if role != "assistant" or not isinstance(calls, list) or not calls:
+                kept.append(msg)
+                continue
+
+            call_values = cast(list[object], calls)
+            typed_calls = [
+                cast(dict[str, Any], tool_call)
+                for tool_call in call_values
+                if isinstance(tool_call, dict)
+            ]
+            if not typed_calls:
+                # Nothing usable in the step. Keep any prose it carried and drop the rest.
+                if msg.get("content"):
+                    clean = dict(msg)
+                    clean.pop("tool_calls", None)
+                    kept.append(clean)
+                continue
+
+            clean_calls = typed_calls
+            if self._gemini_thought_signature(typed_calls[0]) is None:
+                first = dict(typed_calls[0])
+                extra_value = first.get("extra_content")
+                extra = (
+                    dict(cast(dict[str, Any], extra_value))
+                    if isinstance(extra_value, dict)
+                    else {}
+                )
+                google_value = extra.get("google")
+                google = (
+                    dict(cast(dict[str, Any], google_value))
+                    if isinstance(google_value, dict)
+                    else {}
+                )
+                google["thought_signature"] = _GEMINI_SKIP_THOUGHT_SIGNATURE
+                extra["google"] = google
+                first["extra_content"] = extra
+                clean_calls = [first, *typed_calls[1:]]
+
+            if clean_calls != call_values:
+                msg = dict(msg)
+                msg["tool_calls"] = clean_calls
+            kept.append(msg)
+        return kept
+
 
     def _should_use_responses_api(
         self,
