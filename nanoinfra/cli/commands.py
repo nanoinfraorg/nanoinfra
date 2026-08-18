@@ -523,6 +523,104 @@ def channels_login(
 plugins_app = typer.Typer(help="Manage optional nanoinfra features")
 app.add_typer(plugins_app, name="plugins")
 
+# Named agent-plugins and not plugins: `nanoinfra plugins` already means optional features
+# (channel SDKs and friends), and Agent Plugins are a different thing entirely.
+#
+# Read-only on purpose, and not merely by preference. Activation is declared in
+# tools.agentPlugins and reconciled by the executor (#141), so a CLI that enabled a package would
+# be a second authority contradicting the first. Inspection is what an operator needs here, since
+# the WebUI panel is read-only for the same reason.
+agent_plugins_app = typer.Typer(help="Inspect installed Agent Plugins")
+app.add_typer(agent_plugins_app, name="agent-plugins")
+
+
+def _agent_plugin_state(config_path: str | None):
+    """Resolve the workspace and the discovered packages for one command."""
+    from nanoinfra.agent.plugins import discover_agent_plugins
+    from nanoinfra.config.loader import load_config, set_config_path
+    from nanoinfra.config.paths import get_workspace_path
+
+    resolved = Path(config_path).expanduser().resolve() if config_path else None
+    if resolved is not None:
+        set_config_path(resolved)
+    config = load_config(resolved)
+    workspace = get_workspace_path(config.agents.defaults.workspace)
+    declared = set(config.tools.agent_plugins or [])
+    return workspace, discover_agent_plugins(workspace), declared
+
+
+@agent_plugins_app.command("list")
+def agent_plugins_list(
+    config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+):
+    """List installed Agent Plugins and whether each one is active."""
+    workspace, plugins, declared = _agent_plugin_state(config_path)
+    if not plugins:
+        console.print(f"No Agent Plugins installed under {escape(str(workspace / 'plugins'))}.")
+        return
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("NAME")
+    table.add_column("STATE")
+    table.add_column("BUNDLES")
+    for plugin in plugins:
+        bundles: list[str] = []
+        if plugin.mcp_servers:
+            bundles.append(f"{len(plugin.mcp_servers)} mcp")
+        # A package listed in config that is not active failed its fingerprint check, which is a
+        # different situation from one nobody listed.
+        if plugin.enabled:
+            state = "active"
+        elif plugin.name in declared:
+            state = "modified"
+        else:
+            state = "inactive"
+        table.add_row(plugin.name, state, ", ".join(bundles) or "skills only")
+    console.print(table)
+
+    unknown = sorted(declared - {plugin.name for plugin in plugins})
+    if unknown:
+        console.print(
+            f"[yellow]tools.agentPlugins names no installed package: {escape(', '.join(unknown))}"
+            "[/yellow]"
+        )
+
+
+@agent_plugins_app.command("show")
+def agent_plugins_show(
+    name: str = typer.Argument(..., help="Agent Plugin identity (e.g. acme.deploy-toolkit)"),
+    config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+):
+    """Show one Agent Plugin's components and why it is or is not active."""
+    _workspace, plugins, declared = _agent_plugin_state(config_path)
+    plugin = next((item for item in plugins if item.name == name), None)
+    if plugin is None:
+        console.print(f"[red]No Agent Plugin named {escape(name)} is installed.[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"[bold]{escape(plugin.display_name)}[/bold] ({escape(plugin.name)})")
+    if plugin.description:
+        console.print(escape(plugin.description))
+    console.print(f"  root       {escape(str(plugin.root))}")
+    console.print(f"  category   {escape(plugin.category)}")
+    if plugin.repository:
+        console.print(f"  repository {escape(plugin.repository)}")
+    console.print(f"  mcp        {escape(', '.join(plugin.mcp_servers)) or 'none'}")
+    if plugin.permissions:
+        console.print(f"  permissions {escape(', '.join(plugin.permissions))}")
+
+    if plugin.enabled:
+        console.print("  state      [green]active[/green]")
+    elif plugin.name in declared:
+        console.print(
+            "  state      [yellow]modified[/yellow] — listed in tools.agentPlugins, but its "
+            "content changed since it was activated. Restart the gateway to review and re-bind it."
+        )
+    else:
+        console.print(
+            "  state      inactive — add it to tools.agentPlugins in config.json to activate it."
+        )
+
 
 @plugins_app.command("list")
 def plugins_list(

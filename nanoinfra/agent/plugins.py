@@ -292,17 +292,27 @@ def merged_mcp_servers(config: object) -> dict[str, MCPServerConfig]:
 
     A plugin tree that cannot be read costs the operator nothing: their own servers are returned.
     """
-    from nanoinfra.config.paths import get_workspace_path
-
     tools = getattr(config, "tools", None)
     configured = dict(getattr(tools, "mcp_servers", {}) or {})
-    agents = getattr(config, "agents", None)
-    workspace_setting = getattr(getattr(agents, "defaults", None), "workspace", None)
     try:
-        return agent_plugin_mcp_servers(get_workspace_path(workspace_setting), configured)
+        return agent_plugin_mcp_servers(workspace_from_config(config), configured)
     except (OSError, RuntimeError) as exc:
         logger.warning("Ignoring Agent Plugin MCP servers: {}", exc)
         return configured
+
+
+def workspace_from_config(config: object) -> Path:
+    """Resolve the agent workspace from a config object, tolerating a partial one.
+
+    Callers include the gateway, the mcp-host, and the agent's tool layer, and tests hand each of
+    them a stand-in namespace rather than a full Config. Reaching through the attributes directly
+    would turn a partial stand-in into an AttributeError in production code paths that only needed
+    a default.
+    """
+    from nanoinfra.config.paths import get_workspace_path
+
+    agents = getattr(config, "agents", None)
+    return get_workspace_path(getattr(getattr(agents, "defaults", None), "workspace", None))
 
 
 def discover_agent_plugins(workspace: Path) -> list[AgentPlugin]:
@@ -336,6 +346,63 @@ def set_agent_plugin_enabled(workspace: Path, name: str, enabled: bool) -> None:
     else:
         marker.unlink(missing_ok=True)
     _invalidate_skill_cache(workspace)
+
+
+@dataclass(frozen=True, slots=True)
+class ReconcileResult:
+    """What one reconcile changed, for the operator's log."""
+
+    enabled: tuple[str, ...] = ()
+    disabled: tuple[str, ...] = ()
+    unknown: tuple[str, ...] = ()
+    failed: tuple[str, ...] = ()
+
+
+def reconcile_agent_plugins(workspace: Path, declared: list[str]) -> ReconcileResult:
+    """Make on-disk activation match ``tools.agentPlugins``.
+
+    Config is the authority. Enabling a package that ships an ``mcp.json`` grants a new stdio
+    process, so that decision belongs in a file a human reviews, not in a marker directory or a
+    UI toggle. This walks the installed packages once and moves each one to the state config asks
+    for.
+
+    Re-enabling a listed package re-binds its fingerprint, which is the point: config naming an
+    identity is the reviewed moment. Between reconciles the content binding still holds, so a
+    package that mutates while the gateway runs loses its marker on the next read.
+
+    A name no package provides is reported rather than raised. A typo in config must be visible
+    without taking the gateway down with it.
+    """
+    wanted = dict.fromkeys(name.strip() for name in declared if name.strip())
+    installed = {plugin.name: plugin for plugin in _installed_plugins(workspace)}
+    enabled: list[str] = []
+    disabled: list[str] = []
+    failed: list[str] = []
+
+    for name, plugin in sorted(installed.items()):
+        should_be_on = name in wanted
+        currently_on = _enabled(workspace, plugin)
+        if should_be_on == currently_on:
+            continue
+        try:
+            set_agent_plugin_enabled(workspace, name, should_be_on)
+        except (OSError, RuntimeError, ValueError) as exc:
+            logger.warning("Could not reconcile Agent Plugin '{}': {}", name, exc)
+            failed.append(name)
+            continue
+        (enabled if should_be_on else disabled).append(name)
+
+    unknown = tuple(name for name in wanted if name not in installed)
+    if unknown:
+        logger.warning(
+            "tools.agentPlugins names no installed package: {}", ", ".join(sorted(unknown))
+        )
+    return ReconcileResult(
+        enabled=tuple(enabled),
+        disabled=tuple(disabled),
+        unknown=unknown,
+        failed=tuple(failed),
+    )
 
 
 def _string(value: object) -> str:
