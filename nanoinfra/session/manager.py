@@ -8,7 +8,8 @@ import re
 import secrets
 import shutil
 from collections import OrderedDict
-from contextlib import suppress
+from collections.abc import Generator
+from contextlib import contextmanager, suppress
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -58,6 +59,10 @@ _WORKSPACE_ID_FILE = "workspace-id"
 _WORKSPACE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _WORKSPACE_BACKREF_FILE = ".workspace"
 _SESSION_MIGRATION_LOCK_TIMEOUT_SECONDS = 30
+# Guards the canonical *.jsonl files. Longer than the migration timeout because a save may follow a
+# large history read, and a spurious timeout here would surface as a lost turn.
+_SESSION_FILES_LOCK_FILENAME = ".session-files.lock"
+_SESSION_FILES_LOCK_TIMEOUT_SECONDS = 60
 _PROVIDER_STATE_RECORD_TYPE = "provider_state"
 _PROVIDER_STATE_RECORD_PREFIX_RE = re.compile(
     r'^\s*\{\s*"_type"\s*:\s*"provider_state"\s*(?:,|\})'
@@ -747,8 +752,31 @@ class JsonlSessionStore:
             workspace_id = self._load_or_create_workspace_id(canonical_workspace, root)
             self.sessions_dir = ensure_dir(root / workspace_id)
             self.legacy_sessions_dir = get_legacy_sessions_dir()
+            # Serializes access to the canonical session files across processes (#152). Taken
+            # *inside* the migration lock here and never the other way round, so the one place
+            # that holds both fixes the order and no caller can invert it into a deadlock.
+            self._session_files_lock = FileLock(
+                str(self.sessions_dir / _SESSION_FILES_LOCK_FILENAME),
+                timeout=_SESSION_FILES_LOCK_TIMEOUT_SECONDS,
+            )
             self._write_workspace_backref(self.sessions_dir, canonical_workspace)
             self._migrate_from_workspace(canonical_workspace)
+
+    @contextmanager
+    def locked_session_files(self) -> Generator[Path, None, None]:
+        """Hold the session-file lock for a whole read-modify-write.
+
+        This is the only way to be safe against a lost update. Serializing the individual
+        operations is not enough: two writers that each load, mutate and save will still have the
+        second overwrite the first, because the mutation happens between the two locked calls. A
+        caller that reads a session, changes it, and writes it back has to hold the lock across all
+        three, which is what this is for.
+
+        Re-entrant: ``FileLock`` counts acquisitions per instance, so the locked public methods
+        below can be called inside this block without deadlocking.
+        """
+        with self._session_files_lock:
+            yield self.sessions_dir
 
     @staticmethod
     def _fsync_directory(path: Path) -> None:
@@ -904,6 +932,11 @@ class JsonlSessionStore:
         return self.legacy_sessions_dir / f"{self.safe_key(key)}.jsonl"
 
     def load(self, key: str) -> Session | None:
+        """Serialized against other processes (#152); see locked_session_files."""
+        with self._session_files_lock:
+            return self._load_unlocked(key)
+
+    def _load_unlocked(self, key: str) -> Session | None:
         path = self.get_session_path(key)
         if not path.exists():
             return None
@@ -1073,6 +1106,11 @@ class JsonlSessionStore:
         }
 
     def save(self, session: Session, *, fsync: bool = False) -> None:
+        """Serialized against other processes (#152); see locked_session_files."""
+        with self._session_files_lock:
+            self._save_unlocked(session, fsync=fsync)
+
+    def _save_unlocked(self, session: Session, *, fsync: bool = False) -> None:
         path = self.get_session_path(session.key)
         tmp_path = path.with_suffix(".jsonl.tmp")
 
@@ -1122,6 +1160,11 @@ class JsonlSessionStore:
             raise
 
     def delete(self, key: str) -> bool:
+        """Serialized against other processes (#152); see locked_session_files."""
+        with self._session_files_lock:
+            return self._delete_unlocked(key)
+
+    def _delete_unlocked(self, key: str) -> bool:
         paths = [
             self.get_session_path(key),
             self.get_legacy_lossy_path(key),
@@ -1139,6 +1182,11 @@ class JsonlSessionStore:
         return deleted
 
     def read(self, key: str) -> SessionPayload | None:
+        """Serialized against other processes (#152); see locked_session_files."""
+        with self._session_files_lock:
+            return self._read_unlocked(key)
+
+    def _read_unlocked(self, key: str) -> SessionPayload | None:
         path = self.get_session_path(key)
         if not path.exists():
             return None
@@ -1195,6 +1243,11 @@ class JsonlSessionStore:
             return None
 
     def read_metadata(self, key: str) -> SessionMetadataPayload | None:
+        """Serialized against other processes (#152); see locked_session_files."""
+        with self._session_files_lock:
+            return self._read_metadata_unlocked(key)
+
+    def _read_metadata_unlocked(self, key: str) -> SessionMetadataPayload | None:
         path = self.get_session_path(key)
         if not path.exists():
             return None
@@ -1241,6 +1294,11 @@ class JsonlSessionStore:
             return None
 
     def list_sessions(self) -> list[SessionInfo]:
+        """Serialized against other processes (#152); see locked_session_files."""
+        with self._session_files_lock:
+            return self._list_sessions_unlocked()
+
+    def _list_sessions_unlocked(self) -> list[SessionInfo]:
         sessions: list[SessionInfo] = []
 
         for path in self.sessions_dir.glob("*.jsonl"):
@@ -1530,6 +1588,18 @@ class SessionManager:
         """
         if before_user_index < 0:
             return None
+        # Held across the read of the source and the write of the target (#152). Without it a
+        # concurrent write to the source mid-copy yields a fork of a state that never existed,
+        # which is worse than a caller waiting.
+        with self._jsonl_store.locked_session_files():
+            return self._fork_locked(source_key, target_key, before_user_index)
+
+    def _fork_locked(
+        self,
+        source_key: str,
+        target_key: str,
+        before_user_index: int,
+    ) -> Session | None:
         source = self._cached(source_key) or self._load(source_key)
         if source is None:
             return None

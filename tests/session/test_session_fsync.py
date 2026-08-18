@@ -64,7 +64,11 @@ class TestSaveFsync:
         session = manager.get_or_create("test:unsupported-directory-fsync")
         session.add_message("user", "hello")
         directory_fd = 987654
-        with (
+        # The session-file lock also calls os.open, and these tests patch it module-wide, so the
+        # lock is taken first. FileLock counts acquisitions per instance, so save()'s own acquire
+        # inside the patch is a no-op and never reaches the patched os.open (#152).
+        with manager._jsonl_store.locked_session_files():
+         with (
             patch("nanoinfra.session.manager.os.open", return_value=directory_fd) as open_dir,
             patch(
                 "nanoinfra.session.manager.os.fsync",
@@ -84,7 +88,11 @@ class TestSaveFsync:
         """Only EINVAL is an expected unsupported-directory-fsync result."""
         session = manager.get_or_create("test:directory-fsync-io-error")
         directory_fd = 987654
-        with (
+        # The session-file lock also calls os.open, and these tests patch it module-wide, so the
+        # lock is taken first. FileLock counts acquisitions per instance, so save()'s own acquire
+        # inside the patch is a no-op and never reaches the patched os.open (#152).
+        with manager._jsonl_store.locked_session_files():
+         with (
             patch("nanoinfra.session.manager.os.open", return_value=directory_fd),
             patch(
                 "nanoinfra.session.manager.os.fsync",
