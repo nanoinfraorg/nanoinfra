@@ -423,7 +423,9 @@ class TestAnnounceResult:
     async def test_publishes_inbound_message(self, tmp_path):
         sm = _manager(tmp_path)
         published = []
-        sm.bus.publish_inbound = AsyncMock(side_effect=lambda msg: published.append(msg))
+        sm.bus.publish_inbound_nowait = MagicMock(
+            side_effect=lambda msg: (published.append(msg), True)[1]
+        )
 
         await sm._announce_result(
             "t1", "label", "task", "result text",
@@ -441,7 +443,9 @@ class TestAnnounceResult:
     async def test_session_key_override(self, tmp_path):
         sm = _manager(tmp_path)
         published = []
-        sm.bus.publish_inbound = AsyncMock(side_effect=lambda msg: published.append(msg))
+        sm.bus.publish_inbound_nowait = MagicMock(
+            side_effect=lambda msg: (published.append(msg), True)[1]
+        )
 
         await sm._announce_result(
             "t1", "label", "task", "result",
@@ -454,7 +458,9 @@ class TestAnnounceResult:
     async def test_session_key_override_fallback(self, tmp_path):
         sm = _manager(tmp_path)
         published = []
-        sm.bus.publish_inbound = AsyncMock(side_effect=lambda msg: published.append(msg))
+        sm.bus.publish_inbound_nowait = MagicMock(
+            side_effect=lambda msg: (published.append(msg), True)[1]
+        )
 
         await sm._announce_result(
             "t1", "label", "task", "result",
@@ -467,7 +473,9 @@ class TestAnnounceResult:
     async def test_ok_status_text(self, tmp_path):
         sm = _manager(tmp_path)
         published = []
-        sm.bus.publish_inbound = AsyncMock(side_effect=lambda msg: published.append(msg))
+        sm.bus.publish_inbound_nowait = MagicMock(
+            side_effect=lambda msg: (published.append(msg), True)[1]
+        )
 
         await sm._announce_result(
             "t1", "label", "task", "result",
@@ -480,7 +488,9 @@ class TestAnnounceResult:
     async def test_error_status_text(self, tmp_path):
         sm = _manager(tmp_path)
         published = []
-        sm.bus.publish_inbound = AsyncMock(side_effect=lambda msg: published.append(msg))
+        sm.bus.publish_inbound_nowait = MagicMock(
+            side_effect=lambda msg: (published.append(msg), True)[1]
+        )
 
         await sm._announce_result(
             "t1", "label", "task", "error details",
@@ -493,7 +503,9 @@ class TestAnnounceResult:
     async def test_origin_message_id_in_metadata(self, tmp_path):
         sm = _manager(tmp_path)
         published = []
-        sm.bus.publish_inbound = AsyncMock(side_effect=lambda msg: published.append(msg))
+        sm.bus.publish_inbound_nowait = MagicMock(
+            side_effect=lambda msg: (published.append(msg), True)[1]
+        )
 
         await sm._announce_result(
             "t1", "label", "task", "result",

@@ -583,7 +583,9 @@ class SubagentManager:
             metadata=metadata,
         )
 
-        await self.bus.publish_inbound(msg)
+        # Agent-side publish: this process is the inbound consumer, so a blocking put here
+        # would stop the turn that has to drain the queue (#147).
+        self.bus.publish_inbound_nowait(msg)
         logger.debug("Subagent [{}] announced result to {}:{}", task_id, origin['channel'], origin['chat_id'])
 
     @staticmethod

@@ -284,7 +284,8 @@ async def request_image_generation_reload(
     """Ask the running agent loop to refresh its image generation tool."""
     loop = asyncio.get_running_loop()
     ack: asyncio.Future[dict[str, Any]] = loop.create_future()
-    await bus.publish_inbound(
+    # Agent-side publish; see MessageBus.publish_inbound_nowait (#147).
+    bus.publish_inbound_nowait(
         InboundMessage(
             channel="system",
             sender_id="webui-settings",
