@@ -302,7 +302,7 @@ class TestPathAppendPlatform:
         captured_cmd = None
         captured_env = {}
 
-        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True):
+        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True, **_kwargs):
             nonlocal captured_cmd
             captured_cmd = cmd
             captured_env.update(env)
@@ -331,7 +331,7 @@ class TestPathAppendPlatform:
         captured_cmd = None
         captured_env = {}
 
-        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True, *, stdin=None):
+        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True, **_kwargs):
             nonlocal captured_cmd
             captured_cmd = cmd
             captured_env.update(env)
@@ -359,7 +359,7 @@ class TestPathAppendPlatform:
         captured_cmd = None
         captured_env = {}
 
-        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True, *, stdin=None):
+        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True, **_kwargs):
             nonlocal captured_cmd
             captured_cmd = cmd
             captured_env.update(env)
@@ -389,7 +389,7 @@ class TestPathAppendPlatform:
 
         captured_env = {}
 
-        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True):
+        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True, **_kwargs):
             captured_env.update(env)
             return mock_proc
 
@@ -412,7 +412,7 @@ class TestPathAppendPlatform:
 
         captured_env = {}
 
-        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True, *, stdin=None):
+        async def capture_spawn(cmd, cwd, env, shell_program=None, login=True, **_kwargs):
             captured_env.update(env)
             return mock_proc
 
@@ -558,7 +558,7 @@ class TestExecuteEndToEnd:
         mock_proc.returncode = 0
         captured_login = []
 
-        async def capture_spawn(cmd, cwd, env, shell_program=None, login=None, *, stdin=None):
+        async def capture_spawn(cmd, cwd, env, shell_program=None, login=None, **_kwargs):
             captured_login.append(login)
             return mock_proc
 

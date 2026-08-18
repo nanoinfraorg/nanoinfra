@@ -1031,7 +1031,9 @@ class CliAppManager:
                 "PATH": os.environ.get("PATH", f"{sr}\\system32;{sr}"),
                 "PYTHONUNBUFFERED": "1",
             }
-            return {key: value for key, value in env.items() if value is not None}
+            # Every value above comes from os.environ.get with a default, so all of them are
+            # strings. Upstream filters None here; under strict typing that comparison is dead.
+            return env
         return {
             "HOME": os.environ.get("HOME", "/tmp"),
             "LANG": os.environ.get("LANG", "C.UTF-8"),
