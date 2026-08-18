@@ -282,6 +282,29 @@ def agent_plugin_mcp_servers(
     return servers | configured
 
 
+def merged_mcp_servers(config: object) -> dict[str, MCPServerConfig]:
+    """Return a config's MCP servers plus those of enabled plugins.
+
+    Three call sites need this same view and must agree: the gateway decides whether to start the
+    mcp-host at all, the mcp-host resolves what to launch, and the agent's tool registry lists what
+    exists. One of them disagreeing means either a server that never starts or a tool that cannot
+    connect, so the merge lives here rather than being written out three times.
+
+    A plugin tree that cannot be read costs the operator nothing: their own servers are returned.
+    """
+    from nanoinfra.config.paths import get_workspace_path
+
+    tools = getattr(config, "tools", None)
+    configured = dict(getattr(tools, "mcp_servers", {}) or {})
+    agents = getattr(config, "agents", None)
+    workspace_setting = getattr(getattr(agents, "defaults", None), "workspace", None)
+    try:
+        return agent_plugin_mcp_servers(get_workspace_path(workspace_setting), configured)
+    except (OSError, RuntimeError) as exc:
+        logger.warning("Ignoring Agent Plugin MCP servers: {}", exc)
+        return configured
+
+
 def discover_agent_plugins(workspace: Path) -> list[AgentPlugin]:
     """Return component and lifecycle state for discovered plugins."""
     return [
