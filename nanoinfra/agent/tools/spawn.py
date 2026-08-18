@@ -1,6 +1,5 @@
 """Spawn tool for creating background subagents."""
 
-# pyright: reportIncompatibleMethodOverride=false
 
 from __future__ import annotations
 
@@ -75,7 +74,7 @@ class SpawnTool(Tool):
             "and use a dedicated subdirectory when helpful."
         )
 
-    async def execute(
+    async def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         task: str,
         label: str | None = None,

@@ -1,6 +1,6 @@
 """Provider wrapper that transparently fails over to fallback models on error."""
 
-# pyright: reportIncompatibleMethodOverride=false, reportIncompatibleVariableOverride=false
+# pyright: reportIncompatibleVariableOverride=false
 
 from __future__ import annotations
 
@@ -186,7 +186,7 @@ class FallbackProvider(LLMProvider):
             return True
         return False
 
-    async def chat(self, **kwargs: Any) -> LLMResponse:
+    async def chat(self, **kwargs: Any) -> LLMResponse:  # pyright: ignore[reportIncompatibleMethodOverride]
         if not self._has_fallbacks:
             return await self._primary.chat(**kwargs)
         return await self._try_with_fallback(
@@ -212,7 +212,7 @@ class FallbackProvider(LLMProvider):
             has_streamed=None,
         )
 
-    async def chat_stream(self, **kwargs: Any) -> LLMResponse:
+    async def chat_stream(self, **kwargs: Any) -> LLMResponse:  # pyright: ignore[reportIncompatibleMethodOverride]
         on_stream_recover = kwargs.pop("on_stream_recover", None)
         if not self._has_fallbacks:
             return await self._primary.chat_stream(**kwargs)

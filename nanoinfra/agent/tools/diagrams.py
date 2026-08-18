@@ -7,7 +7,6 @@ read-only precedent this reuses (``DiagramStore``, ``load_catalog``,
 ``normalize_diagram``) instead of re-implementing anything.
 """
 
-# pyright: reportIncompatibleMethodOverride=false
 
 from __future__ import annotations
 
@@ -459,7 +458,7 @@ class GetDiagramTool(_WorkspaceScopedDiagramTool):
             "copied forward exactly instead of being reconstructed from memory."
         )
 
-    async def execute(self, diagram_id_or_name: str, **kwargs: Any) -> Any:
+    async def execute(self, diagram_id_or_name: str, **kwargs: Any) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
         diagram = resolve_diagram(self.store, diagram_id_or_name)
         if diagram is None:
             return ToolResult.error(f"No saved diagram matches {diagram_id_or_name!r}.")
@@ -580,7 +579,7 @@ class UpdateDiagramTool(_WorkspaceScopedDiagramTool):
             "overlap -- do not spend effort guessing pixel coordinates, any placeholder works."
         )
 
-    async def execute(
+    async def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         diagram_id: str,
         nodes: list[Any],
@@ -710,7 +709,7 @@ class CreateDiagramTool(_WorkspaceScopedDiagramTool):
             "already-saved diagram instead of starting a new one, use update_diagram."
         )
 
-    async def execute(
+    async def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         name: str,
         nodes: list[Any],

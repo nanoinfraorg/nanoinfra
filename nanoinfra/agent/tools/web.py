@@ -23,7 +23,6 @@ settings through ``nanoinfra.gates.fetcher.server.load_web_settings`` on every r
 operator who changes the provider reaches the next search.
 """
 
-# pyright: reportIncompatibleMethodOverride=false
 
 from __future__ import annotations
 
@@ -209,7 +208,7 @@ class WebSearchTool(Tool):
     # search, because ``ddgs`` is not safe to call concurrently. The fetcher answers one connection
     # at a time, so the process supplies that serialization now.
 
-    async def execute(
+    async def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         query: str,
         count: int | None = None,
@@ -296,7 +295,7 @@ class WebFetchTool(Tool):
     def read_only(self) -> bool:
         return True
 
-    async def execute(
+    async def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         url: str,
         extract_mode: str = "markdown",

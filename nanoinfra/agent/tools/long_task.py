@@ -1,6 +1,5 @@
 """Sustained-goal tools with explicit user opt-in at the execution boundary."""
 
-# pyright: reportIncompatibleMethodOverride=false
 
 from __future__ import annotations
 
@@ -193,7 +192,7 @@ class CreateGoalTool(Tool, _GoalToolsMixin):
         content = "\n\n".join(part for part in (guidance, state) if part)
         return RuntimeContextBlock(source="goal", content=content)
 
-    async def execute(
+    async def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         objective: str,
         ui_summary: str | None = None,
@@ -301,7 +300,7 @@ class UpdateGoalTool(Tool, _GoalToolsMixin):
             "the requested objective changes."
         )
 
-    async def execute(
+    async def execute(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         action: str,
         recap: str | None = None,

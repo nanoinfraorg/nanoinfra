@@ -103,6 +103,58 @@ class GitStore:
         """Check if the git repo has been initialized."""
         return (self._workspace / ".git").is_dir()
 
+    def ensure_gitignore(self) -> bool:
+        """Add any missing content re-ignore lines to an existing .gitignore.
+
+        ``init()`` returns early once ``.git`` exists, so a workspace created before the
+        ``<dir>/*`` fix keeps an ignore file that never ignores runtime files. This repairs it in
+        place on the next start.
+
+        Additive on purpose. An operator's own rules are theirs, so nothing is removed or
+        reordered -- only the missing re-ignore lines are appended, and each one is followed by the
+        negations it must not outrank. Returns whether the file changed.
+        """
+        if not self.is_initialized():
+            return False
+        gitignore = self._workspace / ".gitignore"
+        if not gitignore.is_file():
+            return False
+        try:
+            existing = gitignore.read_text(encoding="utf-8")
+        except OSError as exc:
+            logger.debug("Could not read {}: {}", gitignore, exc)
+            return False
+
+        present = set(existing.splitlines())
+        missing: list[str] = []
+        for directory in sorted(self._tracked_dirs_of_tracked_files()):
+            if f"{directory}/*" in present:
+                continue
+            missing.append(f"{directory}/*")
+            # Re-state the negations after the re-ignore: git takes the last matching rule, so a
+            # bare `memory/*` appended at the end would hide MEMORY.md itself.
+            missing.extend(
+                f"!{f}" for f in self._tracked_files if str(Path(f).parent) == directory
+            )
+        if not missing:
+            return False
+
+        try:
+            gitignore.write_text(
+                existing.rstrip("\n") + "\n" + "\n".join(missing) + "\n", encoding="utf-8"
+            )
+        except OSError as exc:
+            logger.debug("Could not update {}: {}", gitignore, exc)
+            return False
+        logger.info("Repaired {} so runtime files under tracked directories stay ignored", gitignore)
+        return True
+
+    def _tracked_dirs_of_tracked_files(self) -> set[str]:
+        """Directories that hold a tracked file, which therefore need a contents re-ignore."""
+        return {
+            str(Path(f).parent) for f in self._tracked_files if str(Path(f).parent) != "."
+        }
+
     # -- init ------------------------------------------------------------------
 
     def init(self) -> bool:
@@ -292,15 +344,24 @@ class GitStore:
         return False
 
     def _build_gitignore(self) -> str:
-        """Generate .gitignore content from tracked files."""
-        dirs: set[str] = set()
-        for f in self._tracked_files:
-            parent = str(Path(f).parent)
-            if parent != ".":
-                dirs.add(parent)
+        """Generate .gitignore content from tracked files.
+
+        A tracked file inside a directory needs three lines, not two. ``!memory/`` un-ignores the
+        directory so git will descend into it, but it also stops the top-level ``/*`` rule from
+        applying to anything *within* it -- so every runtime file the agent later writes there
+        (``history.jsonl``, ``.cursor``, ``raw/``) became permanently untracked and showed up as
+        noise in every status. ``memory/*`` re-ignores the contents, and the per-file negations
+        below then re-admit exactly the files we track.
+
+        Order matters: the directory negation, then the contents re-ignore, then the file
+        negations. Git applies the last matching rule, so a re-ignore after the negations would
+        undo them. Addresses upstream HKUDS/nanobot#5246 (nanoinfraorg/nanoinfra#146).
+        """
+        dirs = self._tracked_dirs_of_tracked_files()
         lines = ["/*"]
         for d in sorted(dirs):
             lines.append(f"!{d}/")
+            lines.append(f"{d}/*")
         for f in self._tracked_files:
             lines.append(f"!{f}")
         for d in self._tracked_dirs:
