@@ -83,6 +83,20 @@ class RuntimeModelUpdatedEvent(OutboundEvent):
 
 
 @dataclass(frozen=True)
+class DiagramUpdatedEvent(OutboundEvent):
+    """A saved diagram changed on the server (``nanoinfra/diagrams/changes.py``).
+
+    Chat-independent, like :class:`RuntimeModelUpdatedEvent`: it is published
+    with ``chat_id="*"`` and fanned out to every websocket connection, because
+    the Diagrams view is not attached to a chat.
+    """
+
+    diagram_id: str
+    kind: str = "updated"
+    revision: int | None = None
+
+
+@dataclass(frozen=True)
 class TurnModelUpdatedEvent(OutboundEvent):
     """The fallback model currently handling one chat turn."""
 

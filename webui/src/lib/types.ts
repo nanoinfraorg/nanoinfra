@@ -1520,6 +1520,14 @@ export type InboundEvent =
       goal_state: GoalStateWsPayload;
     }
   | {
+      /** A saved diagram changed server-side (agent tool, REST route, another tab). */
+      event: "diagram_updated";
+      diagram_id: string;
+      kind: "created" | "updated" | "deleted" | string;
+      /** Revision now on disk; absent for a delete. */
+      revision?: number;
+    }
+  | {
       event: "session_updated";
       chat_id: string;
       scope?: "metadata" | "thread" | string;

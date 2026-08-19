@@ -21,6 +21,7 @@ from nanoinfra.bus.outbound_events import (
     GoalStateSyncEvent,
     GoalStatusEvent,
     ProgressEvent,
+    DiagramUpdatedEvent,
     RuntimeModelUpdatedEvent,
     SessionUpdatedEvent,
     TurnEndEvent,
@@ -33,10 +34,13 @@ from nanoinfra.channels.websocket.runtime import (
     _is_valid_chat_id,
     _parse_envelope,
     _parse_inbound_payload,
+    publish_diagram_update,
     publish_runtime_model_update,
 )
 from nanoinfra.config.loader import load_config, save_config
 from nanoinfra.config.schema import Config, ModelPresetConfig
+from nanoinfra.diagrams.changes import subscribe_diagram_changes
+from nanoinfra.diagrams.store import DiagramStore
 from nanoinfra.runtime_context import RUNTIME_CONTEXT_INPUT_META, WEBUI_QUOTE_SOURCE
 from nanoinfra.session import webui_turns as wth
 from nanoinfra.session.manager import SessionManager
@@ -1115,6 +1119,126 @@ async def test_send_broadcasts_runtime_model_updates() -> None:
     assert payload["event"] == "runtime_model_updated"
     assert payload["model_name"] == "openai/gpt-4.1"
     assert payload["model_preset"] == "fast"
+
+
+@pytest.mark.asyncio
+async def test_send_broadcasts_diagram_updates() -> None:
+    bus = MessageBus()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    chat_one = AsyncMock()
+    chat_two = AsyncMock()
+    channel._attach(chat_one, "chat-1")
+    channel._attach(chat_two, "chat-2")
+
+    publish_diagram_update(bus, "a" * 32, "updated", 7)
+    await channel.send(bus.outbound.get_nowait())
+
+    # Not scoped to a chat: the Diagrams view has none to attach to.
+    for conn in (chat_one, chat_two):
+        payload = json.loads(conn.send.call_args.args[0])
+        assert payload == {
+            "event": "diagram_updated",
+            "diagram_id": "a" * 32,
+            "kind": "updated",
+            "revision": 7,
+        }
+
+
+@pytest.mark.asyncio
+async def test_a_deleted_diagram_broadcasts_without_a_revision() -> None:
+    bus = MessageBus()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    publish_diagram_update(bus, "b" * 32, "deleted", None)
+    await channel.send(bus.outbound.get_nowait())
+
+    payload = json.loads(mock_ws.send.call_args.args[0])
+    assert payload == {"event": "diagram_updated", "diagram_id": "b" * 32, "kind": "deleted"}
+
+
+@pytest.mark.asyncio
+async def test_the_diagram_frame_carries_no_diagram_body() -> None:
+    """Only the id and revision travel; a client refetches over the REST route.
+
+    Diagram node config can hold ``secret://`` references and provider fields,
+    and this frame is broadcast to every connection -- so it carries neither.
+    """
+    bus = MessageBus()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    publish_diagram_update(bus, "c" * 32, "created", 1)
+    await channel.send(bus.outbound.get_nowait())
+
+    payload = json.loads(mock_ws.send.call_args.args[0])
+    assert set(payload) == {"event", "diagram_id", "kind", "revision"}
+
+
+@pytest.mark.asyncio
+async def test_a_store_write_reaches_the_bus_while_the_channel_is_started(tmp_path) -> None:
+    bus = MessageBus()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus, workspace_path=tmp_path),
+    )
+    channel._diagram_unsubscribe = subscribe_diagram_changes(channel._on_diagram_change)
+    try:
+        created = DiagramStore(tmp_path).create({"name": "Example"})
+    finally:
+        channel._diagram_unsubscribe()
+        channel._diagram_unsubscribe = None
+
+    msg = bus.outbound.get_nowait()
+    assert msg.channel == "websocket"
+    assert msg.chat_id == "*"
+    assert isinstance(msg.event, DiagramUpdatedEvent)
+    assert msg.event.diagram_id == created.id
+    assert msg.event.kind == "created"
+    assert msg.event.revision == 1
+
+
+@pytest.mark.asyncio
+async def test_a_write_to_another_workspace_is_not_broadcast(tmp_path) -> None:
+    """A turn scoped to another project writes diagrams this WebUI cannot open."""
+    bus = MessageBus()
+    served = tmp_path / "served"
+    served.mkdir()
+    other = tmp_path / "other"
+    other.mkdir()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus, workspace_path=served),
+    )
+    channel._diagram_unsubscribe = subscribe_diagram_changes(channel._on_diagram_change)
+    try:
+        DiagramStore(other).create({"name": "Theirs"})
+    finally:
+        channel._diagram_unsubscribe()
+        channel._diagram_unsubscribe = None
+
+    assert bus.outbound.empty()
+
+
+@pytest.mark.asyncio
+async def test_stop_drops_the_diagram_listener(tmp_path) -> None:
+    bus = MessageBus()
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus, workspace_path=tmp_path),
+    )
+    channel._diagram_unsubscribe = subscribe_diagram_changes(channel._on_diagram_change)
+    await channel.stop()
+
+    DiagramStore(tmp_path).create({"name": "Example"})
+
+    assert channel._diagram_unsubscribe is None
+    assert bus.outbound.empty()
 
 
 @pytest.mark.asyncio

@@ -1306,6 +1306,56 @@ describe("NanoinfraClient", () => {
     expect(handler).toHaveBeenCalledWith("openai/gpt-4.1", "fast");
   });
 
+  it("dispatches diagram updates globally", () => {
+    const client = new NanoinfraClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const handler = vi.fn();
+    client.onDiagramUpdate(handler);
+    client.connect();
+    lastSocket().fakeOpen();
+
+    lastSocket().fakeMessage({
+      event: "diagram_updated",
+      diagram_id: "a".repeat(32),
+      kind: "updated",
+      revision: 7,
+    });
+
+    // Not routed per chat: the Diagrams view is not attached to one.
+    expect(handler).toHaveBeenCalledWith("a".repeat(32), "updated", 7);
+  });
+
+  it("dispatches a diagram delete without a revision", () => {
+    const client = new NanoinfraClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const handler = vi.fn();
+    const unsubscribe = client.onDiagramUpdate(handler);
+    client.connect();
+    lastSocket().fakeOpen();
+
+    lastSocket().fakeMessage({
+      event: "diagram_updated",
+      diagram_id: "b".repeat(32),
+      kind: "deleted",
+    });
+    expect(handler).toHaveBeenCalledWith("b".repeat(32), "deleted", undefined);
+
+    unsubscribe();
+    lastSocket().fakeMessage({
+      event: "diagram_updated",
+      diagram_id: "b".repeat(32),
+      kind: "created",
+      revision: 1,
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it("dispatches turn model updates to the active chat", () => {
     const client = new NanoinfraClient({
       url: "ws://test",

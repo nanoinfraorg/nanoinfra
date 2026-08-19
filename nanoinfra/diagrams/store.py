@@ -18,6 +18,7 @@ from typing import Any, cast
 
 from loguru import logger
 
+from nanoinfra.diagrams.changes import DiagramChange, DiagramChangeKind, notify_diagram_change
 from nanoinfra.diagrams.normalize import DiagramValidationError, normalize_diagram
 from nanoinfra.diagrams.types import Diagram, DiagramSummary
 from nanoinfra.utils.helpers import (
@@ -293,6 +294,7 @@ class DiagramStore:
         self._refuse_secret_values(diagram)
         now = _now_iso()
         self._write(diagram, created_at=now, updated_at=now)
+        self._announce(diagram_id, "created", revision=1)
         return diagram
 
     def update(
@@ -336,6 +338,7 @@ class DiagramStore:
             updated_at=_now_iso(),
             revision=stored_revision + 1,
         )
+        self._announce(diagram_id, "updated", revision=stored_revision + 1)
         return diagram
 
     def delete(self, diagram_id: str) -> bool:
@@ -343,7 +346,29 @@ class DiagramStore:
         if path is None or not path.is_file():
             return False
         path.unlink()
+        self._announce(diagram_id, "deleted")
         return True
+
+    def _announce(
+        self,
+        diagram_id: str,
+        kind: DiagramChangeKind,
+        *,
+        revision: int | None = None,
+    ) -> None:
+        """Tell in-process listeners this diagram changed (see ``changes.py``).
+
+        Called only after the write is durable, so a listener never announces a
+        save that then failed.
+        """
+        notify_diagram_change(
+            DiagramChange(
+                workspace=self.workspace_path,
+                diagram_id=diagram_id,
+                kind=kind,
+                revision=revision,
+            )
+        )
 
     def _write(
         self,
