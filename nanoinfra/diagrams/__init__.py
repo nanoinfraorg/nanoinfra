@@ -9,6 +9,11 @@ from nanoinfra.diagrams.catalog import (
     ProviderIntegration,
     load_catalog,
 )
+from nanoinfra.diagrams.changes import (
+    DiagramChange,
+    notify_diagram_change,
+    subscribe_diagram_changes,
+)
 from nanoinfra.diagrams.lookup import resolve_diagram
 from nanoinfra.diagrams.normalize import DiagramValidationError, normalize_diagram
 from nanoinfra.diagrams.runtime_context import diagram_runtime_context
@@ -25,6 +30,7 @@ __all__ = [
     "ComponentProvider",
     "ComponentType",
     "Diagram",
+    "DiagramChange",
     "DiagramEdge",
     "DiagramNode",
     "DiagramNodeData",
@@ -36,5 +42,7 @@ __all__ = [
     "diagram_runtime_context",
     "load_catalog",
     "normalize_diagram",
+    "notify_diagram_change",
     "resolve_diagram",
+    "subscribe_diagram_changes",
 ]

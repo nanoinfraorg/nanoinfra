@@ -27,6 +27,7 @@ from nanoinfra.bus.events import (
     OutboundMessage,
 )
 from nanoinfra.bus.outbound_events import (
+    DiagramUpdatedEvent,
     GoalStateSyncEvent,
     GoalStatusEvent,
     ProgressEvent,
@@ -41,6 +42,7 @@ from nanoinfra.bus.queue import MessageBus
 from nanoinfra.channels.base import BaseChannel
 from nanoinfra.command.builtin import builtin_command_starts_agent_turn
 from nanoinfra.config.schema import Base
+from nanoinfra.diagrams.changes import DiagramChange, subscribe_diagram_changes
 from nanoinfra.runtime_context import (
     RUNTIME_CONTEXT_INPUT_META,
     WEBUI_QUOTE_METADATA,
@@ -476,6 +478,22 @@ def publish_runtime_model_update(
     )
 
 
+def publish_diagram_update(
+    bus: MessageBus,
+    diagram_id: str,
+    kind: str,
+    revision: int | None,
+) -> None:
+    """Enqueue a saved-diagram change for websocket subscribers (fan-out in-channel)."""
+    bus.outbound.put_nowait(
+        outbound_message_for_event(
+            channel="websocket",
+            chat_id="*",
+            event=DiagramUpdatedEvent(diagram_id=diagram_id, kind=kind, revision=revision),
+        )
+    )
+
+
 def _parse_inbound_payload(raw: str) -> str | None:
     """Parse a client frame into text; return None for empty or unrecognized content."""
     text = raw.strip()
@@ -567,6 +585,9 @@ class WebSocketChannel(BaseChannel):
         self._webui_connections: set[ServerConnection] = set()
         self._stop_event: asyncio.Event | None = None
         self._server_task: asyncio.Task[None] | None = None
+        # Set while started: drops the diagram-change listener again on stop, so a
+        # restarted channel does not accumulate one broadcast per past start.
+        self._diagram_unsubscribe: Callable[[], None] | None = None
 
         self.gateway = gateway
         self._http_router = gateway.http
@@ -592,6 +613,20 @@ class WebSocketChannel(BaseChannel):
         """Idempotently subscribe *connection* to *chat_id*."""
         self._subs.setdefault(chat_id, set()).add(connection)
         self._conn_chats.setdefault(connection, set()).add(chat_id)
+
+    def _on_diagram_change(self, change: DiagramChange) -> None:
+        """Turn one in-process diagram write into a broadcast (``diagrams/changes.py``).
+
+        Filtered to the workspace this gateway's Diagrams routes actually read
+        (``GatewayHTTPHandler.diagrams``, itself the skills workspace). A diagram
+        tool runs under whatever workspace the turn is scoped to
+        (``_WorkspaceScopedDiagramTool.store``), and a write to another project is
+        not one this WebUI can open -- announcing it would only make every client
+        refetch an id that 404s for them.
+        """
+        if self._http_router.diagrams.workspace_path != Path(change.workspace):
+            return
+        publish_diagram_update(self.bus, change.diagram_id, change.kind, change.revision)
 
     async def send_webui_protocol_error(
         self,
@@ -788,6 +823,8 @@ class WebSocketChannel(BaseChannel):
 
         self._running = True
         self._stop_event = asyncio.Event()
+        if self._diagram_unsubscribe is None:
+            self._diagram_unsubscribe = subscribe_diagram_changes(self._on_diagram_change)
 
         ssl_context = self._build_ssl_context()
         scheme = "wss" if ssl_context else "ws"
@@ -1261,6 +1298,12 @@ class WebSocketChannel(BaseChannel):
     # -- Outbound WebSocket events -----------------------------------------
 
     async def stop(self) -> None:
+        # Dropped before the not-running guard: a listener outlives the socket it
+        # was registered for otherwise, and would keep publishing frames nobody
+        # is left to deliver.
+        if self._diagram_unsubscribe is not None:
+            self._diagram_unsubscribe()
+            self._diagram_unsubscribe = None
         if not self._running:
             return
         self._running = False
@@ -1338,6 +1381,13 @@ class WebSocketChannel(BaseChannel):
             await self.send_runtime_model_updated(
                 model_name=event.model,
                 model_preset=event.model_preset,
+            )
+            return
+        if isinstance(event, DiagramUpdatedEvent):
+            await self.send_diagram_updated(
+                diagram_id=event.diagram_id,
+                kind=event.kind,
+                revision=event.revision,
             )
             return
 
@@ -1721,6 +1771,34 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         for connection in conns:
             await self._safe_send_to(connection, raw, label=" runtime_model_updated ")
+
+    async def send_diagram_updated(
+        self,
+        *,
+        diagram_id: Any,
+        kind: Any = "updated",
+        revision: Any = None,
+    ) -> None:
+        """Broadcast a saved-diagram change to every open websocket connection.
+
+        Not scoped to a chat, the same as ``send_runtime_model_updated``: the
+        Diagrams view has no chat to attach to. The frame carries the id and
+        revision only -- a client that cares refetches through the authenticated
+        REST route, so no diagram body (and no config field) travels here.
+        """
+        conns = list(self._conn_chats)
+        if not conns or not isinstance(diagram_id, str) or not diagram_id.strip():
+            return
+        body: dict[str, Any] = {
+            "event": "diagram_updated",
+            "diagram_id": diagram_id.strip(),
+            "kind": kind if isinstance(kind, str) and kind.strip() else "updated",
+        }
+        if isinstance(revision, int) and not isinstance(revision, bool):
+            body["revision"] = revision
+        raw = json.dumps(body, ensure_ascii=False)
+        for connection in conns:
+            await self._safe_send_to(connection, raw, label=" diagram_updated ")
 
     async def send_turn_model_updated(
         self,

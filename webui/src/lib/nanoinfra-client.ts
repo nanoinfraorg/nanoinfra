@@ -76,6 +76,13 @@ type SessionUpdateHandler = (
   workspaceScope?: WorkspaceScopePayload,
 ) => void;
 type RunStatusHandler = (chatId: string, startedAt: number | null) => void;
+export type DiagramUpdateKind = "created" | "updated" | "deleted" | string;
+/** Carries the id only — the body is refetched through the authenticated REST route. */
+export type DiagramUpdateHandler = (
+  diagramId: string,
+  kind: DiagramUpdateKind,
+  revision?: number,
+) => void;
 
 /** Structured errors surfaced to the UI.
  *
@@ -167,6 +174,7 @@ export class NanoinfraClient {
   private operatorActorHandlers = new Set<OperatorActorHandler>();
   private runtimeModelHandlers = new Set<RuntimeModelHandler>();
   private sessionUpdateHandlers = new Set<SessionUpdateHandler>();
+  private diagramUpdateHandlers = new Set<DiagramUpdateHandler>();
   private runStatusHandlers = new Set<RunStatusHandler>();
   private errorHandlers = new Set<ErrorHandler>();
   // chat_id -> handlers listening on it
@@ -277,6 +285,14 @@ export class NanoinfraClient {
     this.sessionUpdateHandlers.add(handler);
     return () => {
       this.sessionUpdateHandlers.delete(handler);
+    };
+  }
+
+  /** Subscribe to server-side diagram writes (``diagram_updated`` frames). */
+  onDiagramUpdate(handler: DiagramUpdateHandler): Unsubscribe {
+    this.diagramUpdateHandlers.add(handler);
+    return () => {
+      this.diagramUpdateHandlers.delete(handler);
     };
   }
 
@@ -1052,6 +1068,11 @@ export class NanoinfraClient {
       return;
     }
 
+    if (parsed.event === "diagram_updated") {
+      this.emitDiagramUpdate(parsed.diagram_id, parsed.kind, parsed.revision);
+      return;
+    }
+
     if (parsed.event === "error" && parsed.detail === "workspace_scope_rejected") {
       this.emitError({
         kind: "workspace_scope_rejected",
@@ -1098,6 +1119,16 @@ export class NanoinfraClient {
   ): void {
     for (const handler of this.sessionUpdateHandlers) {
       handler(chatId, scope, workspaceScope);
+    }
+  }
+
+  private emitDiagramUpdate(
+    diagramId: string,
+    kind: DiagramUpdateKind,
+    revision?: number,
+  ): void {
+    for (const handler of this.diagramUpdateHandlers) {
+      handler(diagramId, kind, revision);
     }
   }
 

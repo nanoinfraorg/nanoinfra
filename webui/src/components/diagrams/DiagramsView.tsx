@@ -1,15 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ReactFlowProvider, useReactFlow, type Edge, type Node } from "@xyflow/react";
-import { Check, ChevronDown, ChevronLeft, Code2, Download, Save, Waypoints } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  Code2,
+  Download,
+  RefreshCw,
+  Save,
+  Waypoints,
+} from "lucide-react";
 
 import { ComponentPalette } from "./ComponentPalette";
 import { DiagramCanvas, type DiagramSelection } from "./DiagramCanvas";
 import { DiagramList } from "./DiagramList";
 import { EdgeInspector, NodeInspector } from "./DiagramInspector";
+import { diagramFingerprint } from "./diagramFingerprint";
+import { resolveIncomingDiagramChange } from "./diagramLiveUpdate";
 import { diagramToText } from "./diagramToText";
 import { exportDiagramImage } from "./exportDiagramImage";
 import { ComponentCatalogProvider, useComponentCatalog } from "./useComponentCatalog";
-import { useDiagrams } from "@/hooks/useDiagrams";
+import { useDiagramUpdates, useDiagrams } from "@/hooks/useDiagrams";
 import { useServers } from "@/hooks/useServers";
 import { createBlankDiagram, type Diagram, type DiagramNodeData } from "./diagramTypes";
 
@@ -184,9 +195,11 @@ interface DiagramEditorProps {
   onBack: () => void;
   onSaved: (diagram: Diagram) => void;
   onSave: (diagram: Diagram) => Promise<Diagram>;
+  /** Refetch this diagram from the server, or ``null`` if it is gone. */
+  onReload: (id: string) => Promise<Diagram | null>;
 }
 
-function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps) {
+function DiagramEditor({ diagram, onBack, onSaved, onSave, onReload }: DiagramEditorProps) {
   const { componentTypes, findComponentType, groupType } = useComponentCatalog();
   const [mode, setMode] = useState<ViewMode>("visual");
   const [diagramId, setDiagramId] = useState(diagram.id);
@@ -203,10 +216,22 @@ function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps)
   // easy to miss as confirmation the click actually did anything.
   const [justSaved, setJustSaved] = useState(false);
   const justSavedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The content the server is known to hold, as a fingerprint. Everything the
+  // live-update path decides comes from comparing this with the canvas: no
+  // per-mutation "dirty" flag to keep in step with a dozen setNodes callers.
+  const [baseline, setBaseline] = useState(() => diagramFingerprint(diagram));
+  // An external change held back because the canvas has unsaved edits — the
+  // operator picks Reload or Keep mine. Applying it without asking is what
+  // would silently discard a half-finished layout.
+  const [incoming, setIncoming] = useState<Diagram | null>(null);
+  const [removedElsewhere, setRemovedElsewhere] = useState(false);
+  const [liveNotice, setLiveNotice] = useState(false);
+  const liveNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
       if (justSavedTimeoutRef.current) clearTimeout(justSavedTimeoutRef.current);
+      if (liveNoticeTimeoutRef.current) clearTimeout(liveNoticeTimeoutRef.current);
     };
   }, []);
 
@@ -251,12 +276,108 @@ function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps)
     [diagramAsData, componentTypes],
   );
 
+  const fingerprint = useMemo(() => diagramFingerprint(diagramAsData), [diagramAsData]);
+  const dirty = fingerprint !== baseline;
+  // Read at decision time, not at subscribe time: the refetch below is a round
+  // trip, and a drag that lands during it must still count as an unsaved edit --
+  // otherwise those few hundred milliseconds are a window where an incoming
+  // change is applied over work the operator had just started.
+  const fingerprintRef = useRef(fingerprint);
+  fingerprintRef.current = fingerprint;
+  const baselineRef = useRef(baseline);
+  baselineRef.current = baseline;
+
+  /** Replace what the canvas shows with *next*, keeping the selection if it survived. */
+  const applyDiagram = useCallback((next: Diagram) => {
+    setDiagramId(next.id);
+    setDiagramName(next.name);
+    setTargets(next.targets);
+    setNodes(toFlowNodes(next));
+    setEdges(toFlowEdges(next));
+    setBaseline(diagramFingerprint(next));
+    setIncoming(null);
+    setRemovedElsewhere(false);
+    setSelection((prev) => {
+      if (!prev) return null;
+      const survived =
+        prev.kind === "node"
+          ? next.nodes.some((n) => n.id === prev.id)
+          : next.edges.some((e) => e.id === prev.id);
+      return survived ? prev : null;
+    });
+  }, []);
+
+  const flashLiveNotice = useCallback(() => {
+    setLiveNotice(true);
+    if (liveNoticeTimeoutRef.current) clearTimeout(liveNoticeTimeoutRef.current);
+    liveNoticeTimeoutRef.current = setTimeout(() => setLiveNotice(false), 3000);
+  }, []);
+
+  // Live updates: a ``diagram_updated`` frame says *which* diagram changed, not
+  // how, so the body is refetched through the same authenticated route the
+  // editor already uses. Only the id is trusted from the socket.
+  useDiagramUpdates(
+    useCallback(
+      (changedId: string, kind: string) => {
+        if (!diagramId || changedId !== diagramId) return;
+
+        const settle = (fresh: Diagram | null) => {
+          const onScreen = fingerprintRef.current;
+          const verdict = resolveIncomingDiagramChange({
+            fresh: fresh ? diagramFingerprint(fresh) : null,
+            onScreen,
+            baseline: baselineRef.current,
+          });
+          switch (verdict) {
+            case "ignore":
+              // The server holds what is on screen (typically this editor's own
+              // save echoing back), so record that and show nothing.
+              setBaseline(onScreen);
+              setIncoming(null);
+              return;
+            case "apply":
+              if (fresh) {
+                applyDiagram(fresh);
+                flashLiveNotice();
+              }
+              return;
+            case "ask":
+              setIncoming(fresh);
+              return;
+            case "gone":
+              onBack();
+              return;
+            case "gone-with-edits":
+              setRemovedElsewhere(true);
+              return;
+          }
+        };
+
+        // A delete needs no fetch, and asking for one would only log a 404.
+        if (kind === "deleted") {
+          settle(null);
+          return;
+        }
+        void onReload(changedId)
+          .then(settle)
+          .catch((e: unknown) => {
+            console.error("Failed to refresh diagram after a server-side change", e);
+          });
+      },
+      [applyDiagram, diagramId, flashLiveNotice, onBack, onReload],
+    ),
+  );
+
   const handleSave = useCallback(async () => {
     setSaving(true);
     setSaveError(null);
     try {
       const saved = await onSave(diagramAsData);
       setDiagramId(saved.id);
+      // What the server now holds — so an unrelated later frame is compared
+      // against the save that actually landed, not the one before it.
+      setBaseline(diagramFingerprint(saved));
+      setIncoming(null);
       setLastSavedAt(new Date().toLocaleTimeString());
       setJustSaved(true);
       if (justSavedTimeoutRef.current) clearTimeout(justSavedTimeoutRef.current);
@@ -268,6 +389,22 @@ function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps)
       setSaving(false);
     }
   }, [diagramAsData, onSave, onSaved]);
+
+  /** Re-save a diagram deleted underneath us as a new document, keeping the edits. */
+  const handleRecreate = useCallback(async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const saved = await onSave({ ...diagramAsData, id: "" });
+      applyDiagram(saved);
+      setLastSavedAt(new Date().toLocaleTimeString());
+      onSaved(saved);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }, [applyDiagram, diagramAsData, onSave, onSaved]);
 
   const handleToggleTarget = useCallback((server: string) => {
     setTargets((prev) => (prev.includes(server) ? prev.filter((s) => s !== server) : [...prev, server]));
@@ -404,6 +541,7 @@ function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps)
               <span className="text-[11px] text-muted-foreground">
                 {targets.length > 0 ? `Targets: ${targets.join(", ")}` : "No targets selected yet"}
                 {lastSavedAt ? ` · Saved ${lastSavedAt}` : diagramId ? "" : " · Not saved yet"}
+                {liveNotice ? " · Updated from server" : dirty ? " · Unsaved changes" : ""}
               </span>
               {saveError ? (
                 <span className="text-[11px] text-destructive-text">Failed to save: {saveError}</span>
@@ -451,6 +589,50 @@ function DiagramEditor({ diagram, onBack, onSaved, onSave }: DiagramEditorProps)
             </button>
           </div>
         </div>
+
+        {removedElsewhere ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-destructive/10 px-4 py-2 text-[12px] text-destructive-text">
+            <span>
+              This diagram was deleted on the server. Your unsaved changes are still here, but saving
+              would fail — keep them as a new diagram instead.
+            </span>
+            <button
+              type="button"
+              onClick={() => void handleRecreate()}
+              disabled={saving}
+              className="flex h-7 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-2.5 text-[12px] font-medium text-foreground hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Save className="h-3.5 w-3.5" /> Save as new
+            </button>
+            <button
+              type="button"
+              onClick={onBack}
+              className="h-7 rounded-full px-2.5 text-[12px] font-medium text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+            >
+              Discard and go back
+            </button>
+          </div>
+        ) : incoming ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-muted/50 px-4 py-2 text-[12px] text-foreground">
+            <span>
+              This diagram changed on the server while you had unsaved edits.
+            </span>
+            <button
+              type="button"
+              onClick={() => applyDiagram(incoming)}
+              className="flex h-7 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-2.5 text-[12px] font-medium text-foreground hover:bg-muted/70"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Reload (discard mine)
+            </button>
+            <button
+              type="button"
+              onClick={() => setIncoming(null)}
+              className="h-7 rounded-full px-2.5 text-[12px] font-medium text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+            >
+              Keep mine
+            </button>
+          </div>
+        ) : null}
 
         {mode === "visual" ? (
           <div className="flex min-h-0 flex-1">
@@ -624,6 +806,7 @@ export function DiagramsView({ diagramId = null, onDiagramIdChange }: DiagramsVi
           onBack={handleBack}
           onSaved={handleSaved}
           onSave={save}
+          onReload={load}
         />
       )}
     </ComponentCatalogProvider>

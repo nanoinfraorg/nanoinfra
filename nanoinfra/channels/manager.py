@@ -14,6 +14,7 @@ from loguru import logger
 
 from nanoinfra.bus.events import OutboundMessage
 from nanoinfra.bus.outbound_events import (
+    DiagramUpdatedEvent,
     ProgressEvent,
     RetryWaitEvent,
     RuntimeModelUpdatedEvent,
@@ -711,7 +712,7 @@ class ChannelManager:
                     continue
 
                 if (
-                    isinstance(event, RuntimeModelUpdatedEvent)
+                    isinstance(event, RuntimeModelUpdatedEvent | DiagramUpdatedEvent)
                     and msg.channel == "websocket"
                     and "websocket" not in self.channels
                 ):
