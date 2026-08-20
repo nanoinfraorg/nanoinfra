@@ -2955,32 +2955,32 @@ def test_gateway_bound_cron_runs_as_session_turn(
     assert msg.session_key_override == "telegram:-100123:topic:42"
     assert msg.metadata["message_thread_id"] == 42
 
-    feishu_job = CronJob(
+    matrix_job = CronJob(
         id="telegram-topic",
-        name="Feishu topic",
+        name="Matrix topic",
         payload=CronPayload(
-            message="Check the Feishu topic.",
-            session_key="telegram:oc_abc:om_root123",
+            message="Check the Matrix topic.",
+            session_key="telegram:tg_abc:tg_root123",
             origin_channel="telegram",
-            origin_chat_id="oc_abc",
+            origin_chat_id="tg_abc",
             origin_metadata={
                 "chat_type": "group",
-                "message_id": "om_root123",
-                "thread_id": "om_root123",
+                "message_id": "tg_root123",
+                "thread_id": "tg_root123",
             },
         ),
     )
 
-    response = asyncio.run(cron.on_job(feishu_job))
+    response = asyncio.run(cron.on_job(matrix_job))
 
     assert response == "Checked the repo."
     msg = seen["cron_msg"]
     assert isinstance(msg, InboundMessage)
     assert msg.channel == "telegram"
-    assert msg.chat_id == "oc_abc"
-    assert msg.session_key_override == "telegram:oc_abc:om_root123"
-    assert msg.metadata["message_id"] == "om_root123"
-    assert msg.metadata["thread_id"] == "om_root123"
+    assert msg.chat_id == "tg_abc"
+    assert msg.session_key_override == "telegram:tg_abc:tg_root123"
+    assert msg.metadata["message_id"] == "tg_root123"
+    assert msg.metadata["thread_id"] == "tg_root123"
 
 
 @pytest.mark.parametrize("setup_error", [None, "No API key configured"])
@@ -3697,7 +3697,7 @@ def test_gateway_shutdown_event_exits_forever_runtime_tasks(
     assert seen["cron_stopped"] is True
     assert seen["shutdown_handlers_restored"] is True
     # Channel cleanup must run before cancellation drains the manager task.
-    # DingTalk's stream SDK can otherwise swallow cancellation and reconnect.
+    # A channel's stream SDK can otherwise swallow cancellation and reconnect.
     assert shutdown_order == ["channels_stopped", "channel_task_cleaned_up"]
 
 

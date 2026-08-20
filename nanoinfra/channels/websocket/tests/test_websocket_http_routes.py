@@ -1117,8 +1117,8 @@ async def test_pairing_routes_require_token_and_approve_or_deny(
     pending = [
         {
             "code": "ABCD-EFGH",
-            "channel": "feishu",
-            "sender_id": "ou_123",
+            "channel": "signal",
+            "sender_id": "sig_123",
             "created_at": 1_000.0,
             "expires_at": 1_600.0,
         }
@@ -1129,7 +1129,7 @@ async def test_pairing_routes_require_token_and_approve_or_deny(
     monkeypatch.setattr("nanoinfra.webui.settings_routes.list_pending", lambda: list(pending))
     monkeypatch.setattr(
         "nanoinfra.webui.settings_routes.approve_code",
-        lambda code: approved.append(code) or ("feishu", "ou_123") if code == "ABCD-EFGH" else None,
+        lambda code: approved.append(code) or ("signal", "sig_123") if code == "ABCD-EFGH" else None,
     )
     monkeypatch.setattr(
         "nanoinfra.webui.settings_routes.deny_code",
@@ -1157,8 +1157,8 @@ async def test_pairing_routes_require_token_and_approve_or_deny(
     assert listed.status_code == 200
     body = json.loads(listed.body.decode())
     assert body["requests"][0]["code"] == "ABCD-EFGH"
-    assert body["requests"][0]["channel"] == "feishu"
-    assert body["requests"][0]["sender_id"] == "ou_123"
+    assert body["requests"][0]["channel"] == "signal"
+    assert body["requests"][0]["sender_id"] == "sig_123"
     assert body["requests"][0]["created_at_ms"] == 1_000_000
     assert body["requests"][0]["expires_at_ms"] == 1_600_000
 
@@ -1171,7 +1171,7 @@ async def test_pairing_routes_require_token_and_approve_or_deny(
     assert approved_response.status_code == 200
     body = json.loads(approved_response.body.decode())
     assert body["last_action"]["action"] == "approve"
-    assert body["last_action"]["sender_id"] == "ou_123"
+    assert body["last_action"]["sender_id"] == "sig_123"
     assert approved == ["ABCD-EFGH"]
 
     denied_action = await channel.gateway.http.settings_routes.dispatch(
@@ -2011,14 +2011,14 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
 async def test_sessions_list_only_returns_websocket_sessions_by_default(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Seed a realistic multi-channel disk state: CLI, Slack, Lark and
+    # Seed a realistic multi-channel disk state: CLI, Slack, Signal and
     # websocket sessions all live in the same ``sessions/`` directory.
     sm = _seed_many(
         tmp_path,
         [
             "cli:direct",
             "slack:C123",
-            "lark:oc_abc",
+            "signal:sig_abc",
             "websocket:alpha",
             "websocket:beta",
         ],
@@ -2165,12 +2165,12 @@ async def test_webui_automations_route_lists_all_jobs_and_allows_user_actions(
         session_key="unified:default",
     )
     external_job = cron.add_job(
-        name="WeChat quiz",
+        name="Signal quiz",
         schedule=CronSchedule(kind="every", every_ms=3_600_000),
         message="Send a quiz",
-        session_key="weixin:wx-chat",
-        origin_channel="weixin",
-        origin_chat_id="wx-chat",
+        session_key="signal:sig-chat",
+        origin_channel="signal",
+        origin_chat_id="sig-chat",
     )
     past_one_shot_job = cron.add_job(
         name="Past one-shot",
@@ -2190,7 +2190,7 @@ async def test_webui_automations_route_lists_all_jobs_and_allows_user_actions(
         )
     )
     session_manager = _seed_session(tmp_path, key="websocket:abc")
-    external_session = Session(key="weixin:wx-chat")
+    external_session = Session(key="signal:sig-chat")
     external_session.add_message("user", "Scheduled cron job triggered")
     session_manager.save(external_session)
     channel = _ch(
@@ -2212,7 +2212,7 @@ async def test_webui_automations_route_lists_all_jobs_and_allows_user_actions(
             headers=auth,
         )
         assert resp.status_code == 200
-        assert "wx-chat" not in resp.text
+        assert "sig-chat" not in resp.text
         assert "unified:default" not in resp.text
         body = resp.json()
         by_id = {job["id"]: job for job in body["jobs"]}
@@ -2228,7 +2228,7 @@ async def test_webui_automations_route_lists_all_jobs_and_allows_user_actions(
         assert "session_key" not in by_id[external_job.id]["payload"]
         assert "origin_channel" not in by_id[external_job.id]["payload"]
         assert "origin_chat_id" not in by_id[external_job.id]["payload"]
-        assert by_id[external_job.id]["origin"]["channel"] == "weixin"
+        assert by_id[external_job.id]["origin"]["channel"] == "signal"
         assert "session_key" not in by_id[external_job.id]["origin"]
         assert "chat_id" not in by_id[external_job.id]["origin"]
         assert by_id[external_job.id]["origin"]["preview"] == ""

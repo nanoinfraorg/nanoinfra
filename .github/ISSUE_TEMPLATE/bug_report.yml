@@ -84,17 +84,14 @@ body:
       label: Channel / Platform
       description: Which messaging platform are you using?
       options:
-        - Weixin (Personal WeChat)
-        - WeCom (Enterprise WeChat)
-        - Feishu (Lark)
-        - DingTalk
         - Telegram
         - Discord
         - Slack
-        - QQ
+        - Signal
         - WhatsApp
         - Email
         - MS Teams
+        - Mattermost
         - Matrix
         - WebSocket
         - API Server

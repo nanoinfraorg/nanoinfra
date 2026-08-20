@@ -1166,7 +1166,7 @@ class TestRequestContext:
         tool = _make_tool()
         ctx = RequestContext(
             channel="telegram",
-            chat_id="oc_abc123",
+            chat_id="tg_abc123",
             sender_id="ou_user456",
         )
 
@@ -1175,14 +1175,14 @@ class TestRequestContext:
                 "request.channel: 'telegram'"
             )
             assert await tool.execute(action="check", key="request.chat_id") == (
-                "request.chat_id: 'oc_abc123'"
+                "request.chat_id: 'tg_abc123'"
             )
             assert await tool.execute(action="check", key="request.sender_id") == (
                 "request.sender_id: 'ou_user456'"
             )
             summary = await tool.execute(action="check")
 
-        assert "oc_abc123" not in summary
+        assert "tg_abc123" not in summary
         assert "ou_user456" not in summary
 
     @pytest.mark.asyncio
@@ -1201,8 +1201,8 @@ class TestRequestContext:
         tool = _make_tool()
         ctx = RequestContext(
             channel="telegram",
-            chat_id="oc_abc123",
-            session_key="telegram:oc_abc123",
+            chat_id="tg_abc123",
+            session_key="telegram:tg_abc123",
         )
 
         with patch("nanoinfra.agent.tools.self.logger.info") as info:
@@ -1213,5 +1213,5 @@ class TestRequestContext:
             "self.{} | {} | session:{}",
             "modify",
             "temperature = 0.2",
-            "telegram:oc_abc123",
+            "telegram:tg_abc123",
         )

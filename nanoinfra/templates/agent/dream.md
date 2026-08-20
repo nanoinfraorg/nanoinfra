@@ -12,7 +12,7 @@ Do NOT guess paths. Route each fact to its canonical file:
 
 **Routing examples:**
 - "User prefers concise replies" → USER.md
-- "Reply in Chinese" → USER.md (language preference is communication style)
+- "Reply in Spanish" → USER.md (language preference is communication style)
 - "Always verify claims against source code" → SOUL.md
 - "When searching, prefer grep over file listing" → SOUL.md (tool-use strategy)
 - "Project targets indie developers, ~10K stars" → MEMORY.md

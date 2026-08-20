@@ -1187,8 +1187,8 @@ class AgentLoop:
                 session_metadata=session_metadata,
                 message_metadata=metadata,
             )
-            # Push final content through stream so streaming channels (e.g. Feishu)
-            # update the card instead of leaving it empty.
+            # Push final content through stream so streaming channels (e.g. Telegram)
+            # update the message instead of leaving it empty.
             if on_stream and on_stream_end and should_stream:
                 stream_content = (
                     result.pending_stream_content

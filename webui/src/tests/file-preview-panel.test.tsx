@@ -102,7 +102,7 @@ describe("FilePreviewPanel", () => {
     expect(fetchFilePreview).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      await setAppLanguage("zh-CN");
+      await setAppLanguage("ja");
     });
 
     expect(fetchFilePreview).toHaveBeenCalledTimes(1);

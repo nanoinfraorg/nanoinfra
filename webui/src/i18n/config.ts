@@ -2,8 +2,6 @@ export const LOCALE_STORAGE_KEY = "nanoinfra.locale";
 
 export const supportedLocales = [
   { code: "en", label: "English", nativeLabel: "English" },
-  { code: "zh-CN", label: "Chinese (Simplified)", nativeLabel: "简体中文" },
-  { code: "zh-TW", label: "Chinese (Traditional)", nativeLabel: "繁體中文" },
   { code: "fr", label: "French", nativeLabel: "Français" },
   { code: "ja", label: "Japanese", nativeLabel: "日本語" },
   { code: "ko", label: "Korean", nativeLabel: "한국어" },
@@ -29,17 +27,6 @@ export function normalizeLocale(
   if (exact) return exact.code;
 
   const lower = trimmed.toLowerCase();
-  if (lower === "zh" || lower.startsWith("zh-cn") || lower.startsWith("zh-sg")) {
-    return "zh-CN";
-  }
-  if (
-    lower.startsWith("zh-tw") ||
-    lower.startsWith("zh-hk") ||
-    lower.startsWith("zh-mo") ||
-    lower.startsWith("zh-hant")
-  ) {
-    return "zh-TW";
-  }
   if (lower === "pt" || lower.startsWith("pt-")) {
     return "pt-BR";
   }

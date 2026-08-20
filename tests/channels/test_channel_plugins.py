@@ -293,16 +293,17 @@ def test_special_setup_validation_is_owned_by_channel_package(name: str):
 
 
 def test_no_channel_ships_an_interactive_connector() -> None:
-    """Feishu and signal were the only two, and both were removed.
+    """Feishu and Weixin were the only two, and both were removed.
 
     The connector contract stays because it is what a future interactive channel would declare
     against, so this asserts the current truth rather than parametrising over nothing.
     """
     from nanoinfra.channels.registry import discover_plugins
 
+    plugins = [load_channel_package(name) for name in discover_plugins()]
+    assert all(plugin is not None for plugin in plugins)
     with_connector = [
-        name for name in discover_plugins()
-        if getattr(load_channel_package(name), "connect", None) is not None
+        plugin.name for plugin in plugins if plugin is not None and plugin.connector is not None
     ]
     assert with_connector == []
 
@@ -808,10 +809,10 @@ def test_discover_plugins_excludes_internal_helpers():
 
     names = discover_plugins()
 
-    assert "_feishu_ws" not in names
+    assert "_manifest" not in names
     assert "_setup" not in names
     assert "setup" not in names
-    assert "_feishu_instances" not in names
+    assert "base" not in names
 
 
 def test_discover_enabled_imports_only_enabled_packages():
@@ -1316,9 +1317,9 @@ def test_plugins_enable_channel_installs_extra_and_writes_config(monkeypatch, tm
 
     from nanoinfra.cli.commands import app
 
-    class _WeixinChannel(_FakePlugin):
+    class _SignalChannel(_FakePlugin):
         name = "signal"
-        display_name = "Weixin"
+        display_name = "Signal"
 
         @classmethod
         def default_config(cls):
@@ -1338,7 +1339,7 @@ def test_plugins_enable_channel_installs_extra_and_writes_config(monkeypatch, tm
         installed=False,
         commands=commands,
         channels=["signal"],
-        channel_cls=_WeixinChannel,
+        channel_cls=_SignalChannel,
     )
 
     result = runner.invoke(app, ["plugins", "enable", "signal", "--config", str(config_path)])
@@ -2160,16 +2161,16 @@ def test_enable_uses_uv_when_tool_environment_has_no_pip(
     else:
         monkeypatch.delenv("PIP_INDEX_URL", raising=False)
 
-    assert optional_features.install_extra("discord", ["lark-oapi>=1.5.0"], runner=_run).ok is True
+    assert optional_features.install_extra("discord", ["discord.py>=2.4.0"], runner=_run).ok is True
     assert calls == [
-        [sys.executable, "-m", "pip", "install", "lark-oapi>=1.5.0"],
+        [sys.executable, "-m", "pip", "install", "discord.py>=2.4.0"],
         [
             "uv",
             "pip",
             "install",
             "--python",
             sys.executable,
-            "lark-oapi>=1.5.0",
+            "discord.py>=2.4.0",
         ],
     ]
     assert call_envs[0] is None
@@ -2251,11 +2252,10 @@ def test_optional_dependency_metadata_for_enable():
     assert deps["bedrock"] == ["boto3>=1.43.0"]
     for dep_name in (
         "aiohttp",
-        "lark-oapi",
+        "discord.py",
         "msgpack",
         "python-telegram-bot",
         "python-socketio",
-        "qq-botpy",
         "slack-sdk",
         "slackify-markdown",
     ):

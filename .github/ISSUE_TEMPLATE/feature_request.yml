@@ -36,7 +36,7 @@ body:
       label: Related Component
       description: Which part of nanoinfra does this relate to?
       options:
-        - Channel (WeChat, Feishu, Telegram, etc.)
+        - Channel (Telegram, Slack, Discord, etc.)
         - LLM Provider
         - Agent / Prompts
         - Skills / Plugins

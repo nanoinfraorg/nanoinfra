@@ -514,8 +514,8 @@ describe("webui i18n", () => {
     localStorage.removeItem(LOCALE_STORAGE_KEY);
     expect(resolveInitialLocale()).toBe("en");
 
-    localStorage.setItem(LOCALE_STORAGE_KEY, "zh-CN");
-    expect(resolveInitialLocale()).toBe("zh-CN");
+    localStorage.setItem(LOCALE_STORAGE_KEY, "ja");
+    expect(resolveInitialLocale()).toBe("ja");
   });
 
   it("switches UI copy and document locale through the language switcher", async () => {
@@ -534,13 +534,13 @@ describe("webui i18n", () => {
     expect(document.documentElement.lang).toBe("en");
 
     await user.click(screen.getByRole("button", { name: "Change language" }));
-    await user.click(screen.getByRole("menuitemradio", { name: /简体中文/i }));
+    await user.click(screen.getByRole("menuitemradio", { name: /日本語/i }));
 
     await waitFor(() => {
-      expect(document.documentElement.lang).toBe("zh-CN");
+      expect(document.documentElement.lang).toBe("ja");
     });
-    expect(localStorage.getItem("nanoinfra.locale")).toBe("zh-CN");
-    expect(screen.getByPlaceholderText("输入消息…")).toBeInTheDocument();
+    expect(localStorage.getItem("nanoinfra.locale")).toBe("ja");
+    expect(screen.getByPlaceholderText("メッセージを入力…")).toBeInTheDocument();
   });
 
   it("updates the composer aria label when the language changes", async () => {
@@ -666,20 +666,20 @@ describe("webui i18n", () => {
     }
   });
 
-  it("keeps Simplified Chinese settings overview copy localized", () => {
-    const settings = resources["zh-CN"].common.settings;
+  it("keeps Japanese settings overview copy localized", () => {
+    const settings = resources["ja"].common.settings;
 
-    expect(settings.nav.browser).toBe("网络");
-    expect(settings.sections.webSearch).toBe("网络搜索");
-    expect(settings.byok.tabs.webSearch).toBe("网络搜索");
-    expect(settings.overview.webSearch).toBe("网络搜索");
-    expect(settings.overview.workspace).toBe("工作区");
-    expect(settings.skills.installedTab).toBe("已安装");
-    expect(settings.skills.discoverTab).toBe("发现");
-    expect(settings.skills.marketplaceProviderFilter).toBe("技能来源");
-    expect(settings.skills.marketplaceProviderAll).toBe("全部");
-    expect(settings.skills.marketplaceSearchPlaceholder).toBe("搜索技能");
-    expect(settings.skills.marketplaceTrendingTitle).toBe("各市场热门技能");
+    expect(settings.nav.browser).toBe("ウェブ");
+    expect(settings.sections.webSearch).toBe("ウェブ検索");
+    expect(settings.byok.tabs.webSearch).toBe("ウェブ検索");
+    expect(settings.overview.webSearch).toBe("Web 検索");
+    expect(settings.overview.workspace).toBe("ワークスペース");
+    expect(settings.skills.installedTab).toBe("インストール済み");
+    expect(settings.skills.discoverTab).toBe("見つける");
+    expect(settings.skills.marketplaceProviderFilter).toBe("スキルの提供元");
+    expect(settings.skills.marketplaceProviderAll).toBe("すべて");
+    expect(settings.skills.marketplaceSearchPlaceholder).toBe("スキルを検索");
+    expect(settings.skills.marketplaceTrendingTitle).toBe("マーケット別トレンド");
   });
 
   it("keeps Indonesian and Vietnamese settings free of copied Spanish help text", () => {
