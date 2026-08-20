@@ -34,7 +34,7 @@ async def test_message_tool_keeps_task_local_context() -> None:
     tool = MessageTool(send_callback=send_callback)
 
     async def task_one() -> str:
-        with request_context(RequestContext(channel="feishu", chat_id="chat-a")):
+        with request_context(RequestContext(channel="telegram", chat_id="chat-a")):
             entered.set()
             await release.wait()
             return await tool.execute(content="one")
@@ -47,9 +47,9 @@ async def test_message_tool_keeps_task_local_context() -> None:
 
     result_one, result_two = await asyncio.gather(task_one(), task_two())
 
-    assert result_one == "Message sent to feishu:chat-a"
+    assert result_one == "Message sent to telegram:chat-a"
     assert result_two == "Message sent to email:chat-b"
-    assert ("feishu", "chat-a", "one") in seen
+    assert ("telegram", "chat-a", "one") in seen
     assert ("email", "chat-b", "two") in seen
 
 
@@ -119,7 +119,7 @@ async def test_cron_tool_keeps_task_local_context(tmp_path) -> None:
 
     async def task_one() -> str:
         with request_context(
-            RequestContext(channel="feishu", chat_id="chat-a", session_key="feishu:chat-a")
+            RequestContext(channel="telegram", chat_id="chat-a", session_key="telegram:chat-a")
         ):
             entered.set()
             await release.wait()
@@ -139,9 +139,9 @@ async def test_cron_tool_keeps_task_local_context(tmp_path) -> None:
     assert result_two.startswith("Created job")
 
     jobs = tool._cron.list_jobs()
-    assert {job.payload.session_key for job in jobs} == {"feishu:chat-a", "email:chat-b"}
+    assert {job.payload.session_key for job in jobs} == {"telegram:chat-a", "email:chat-b"}
     assert {(job.payload.origin_channel, job.payload.origin_chat_id) for job in jobs} == {
-        ("feishu", "chat-a"),
+        ("telegram", "chat-a"),
         ("email", "chat-b"),
     }
 
@@ -214,13 +214,13 @@ async def test_spawn_tool_basic_request_context_and_execute() -> None:
 
     tool = SpawnTool(_Manager())
     with request_context(RequestContext(
-        channel="feishu",
+        channel="telegram",
         chat_id="chat-abc",
         runtime=_runtime(),
     )):
         result = await tool.execute(task="do something")
     assert result == "ok: do something"
-    assert seen == [("feishu", "chat-abc", "feishu:chat-abc")]
+    assert seen == [("telegram", "chat-abc", "telegram:chat-abc")]
 
 
 @pytest.mark.asyncio

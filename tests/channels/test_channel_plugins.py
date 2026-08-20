@@ -7,7 +7,6 @@ import json
 import subprocess
 import sys
 import tomllib
-from dataclasses import replace
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from types import SimpleNamespace
@@ -282,7 +281,7 @@ def test_channels_config_has_no_per_channel_fields():
 
 @pytest.mark.parametrize(
     "name",
-    ["websocket", "telegram", "discord", "slack", "email", "feishu", "matrix", "weixin", "whatsapp"],
+    ["websocket", "telegram", "discord", "slack", "email", "matrix", "whatsapp"],
 )
 def test_special_setup_validation_is_owned_by_channel_package(name: str):
     plugin = load_channel_package(name)
@@ -293,23 +292,26 @@ def test_special_setup_validation_is_owned_by_channel_package(name: str):
     assert plugin.setup.validator.__module__ == f"nanoinfra.channels.{name}.validation"
 
 
-@pytest.mark.parametrize("name", ["feishu", "weixin"])
-def test_interactive_connector_is_owned_by_channel_package(name: str):
-    plugin = load_channel_package(name)
+def test_no_channel_ships_an_interactive_connector() -> None:
+    """Feishu and signal were the only two, and both were removed.
 
-    assert plugin is not None
-    assert plugin.connector is not None
-    assert plugin.connector.startswith(f"nanoinfra.channels.{name}.")
-    assert plugin.load_connector().__class__.__module__ == f"nanoinfra.channels.{name}.connect"
+    The connector contract stays because it is what a future interactive channel would declare
+    against, so this asserts the current truth rather than parametrising over nothing.
+    """
+    from nanoinfra.channels.registry import discover_plugins
+
+    with_connector = [
+        name for name in discover_plugins()
+        if getattr(load_channel_package(name), "connect", None) is not None
+    ]
+    assert with_connector == []
 
 
 def test_descriptor_defaults_cover_onboarding_fields_without_runtime_import():
-    qq = load_channel_package("qq")
+    """Defaults come from the descriptor, so reading them must not import a runtime."""
     email = load_channel_package("email")
 
-    assert qq is not None
     assert email is not None
-    assert channel_default_config(qq)["msgFormat"] == "plain"
     assert channel_default_config(email)["imapPort"] == 993
     assert channel_default_config(email)["smtpPort"] == 587
 
@@ -732,39 +734,6 @@ def test_generic_plugin_validation_enforces_composite_requirements(
     assert "deviceId" in partial["missing_fields"]
     assert complete["status"] == "configured"
     assert complete["can_enable"] is True
-
-
-def test_webui_save_rejects_duplicate_feishu_ids_without_writing(monkeypatch, tmp_path):
-    from nanoinfra.config import loader
-    from nanoinfra.webui.settings_api import WebUISettingsError
-    from nanoinfra.webui.settings_routes import WebUISettingsRouter
-
-    config_path = tmp_path / "config.json"
-    config_path.write_text(
-        json.dumps({
-            "channels": {
-                "feishu": {
-                    "instances": [
-                        {"id": "default", "enabled": True, "appId": "A"},
-                        {"id": "default", "enabled": False, "appId": "B"},
-                    ]
-                }
-            }
-        }),
-        encoding="utf-8",
-    )
-    before = config_path.read_text(encoding="utf-8")
-    monkeypatch.setattr(loader, "_current_config_path", config_path)
-    router = object.__new__(WebUISettingsRouter)
-
-    with pytest.raises(WebUISettingsError, match="duplicate Feishu instance id 'default'") as error:
-        router._save_channel_config_values(
-            "feishu",
-            {"channels.feishu.appId": "updated"},
-        )
-
-    assert error.value.status == 400
-    assert config_path.read_text(encoding="utf-8") == before
 
 
 def test_discover_plugins_skips_names_outside_enabled_set():
@@ -1293,19 +1262,19 @@ def test_plugins_list_shows_available_features(monkeypatch):
     from nanoinfra.config.schema import Config
 
     runner = CliRunner()
-    config = Config.model_validate({"channels": {"weixin": {"enabled": True}}})
+    config = Config.model_validate({"channels": {"signal": {"enabled": True}}})
     monkeypatch.setattr("nanoinfra.config.loader.load_config", lambda config_path=None: config)
-    _stub_channel_packages(monkeypatch, "weixin")
+    _stub_channel_packages(monkeypatch, "signal")
     monkeypatch.setattr(
         "nanoinfra.optional_features.optional_dependency_groups",
-        lambda: {"weixin": ["qrcode[pil]>=8.0"], "bedrock": ["boto3>=1.43.0"]},
+        lambda: {"signal": ["qrcode[pil]>=8.0"], "bedrock": ["boto3>=1.43.0"]},
     )
 
     result = runner.invoke(app, ["plugins", "list"])
 
     assert result.exit_code == 0
     assert "Available Features" in result.stdout
-    assert "weixin" in result.stdout
+    assert "signal" in result.stdout
     assert "bedrock" in result.stdout
     assert "channel" in result.stdout
     assert "feature" in result.stdout
@@ -1348,7 +1317,7 @@ def test_plugins_enable_channel_installs_extra_and_writes_config(monkeypatch, tm
     from nanoinfra.cli.commands import app
 
     class _WeixinChannel(_FakePlugin):
-        name = "weixin"
+        name = "signal"
         display_name = "Weixin"
 
         @classmethod
@@ -1358,30 +1327,30 @@ def test_plugins_enable_channel_installs_extra_and_writes_config(monkeypatch, tm
     commands: list[list[str]] = []
     config_path = tmp_path / "config.json"
     config_path.write_text(
-        json.dumps({"channels": {"weixin": {"enabled": False, "token": "keep"}}}),
+        json.dumps({"channels": {"signal": {"enabled": False, "token": "keep"}}}),
         encoding="utf-8",
     )
 
     runner = CliRunner()
     _stub_optional_feature_cli(
         monkeypatch,
-        extras={"weixin": ["qrcode[pil]>=8.0", "pycryptodome>=3.20.0"]},
+        extras={"signal": ["qrcode[pil]>=8.0", "pycryptodome>=3.20.0"]},
         installed=False,
         commands=commands,
-        channels=["weixin"],
+        channels=["signal"],
         channel_cls=_WeixinChannel,
     )
 
-    result = runner.invoke(app, ["plugins", "enable", "weixin", "--config", str(config_path)])
+    result = runner.invoke(app, ["plugins", "enable", "signal", "--config", str(config_path)])
 
     assert result.exit_code == 0
     assert commands == [
         [sys.executable, "-m", "pip", "install", "qrcode[pil]>=8.0", "pycryptodome>=3.20.0"]
     ]
     data = json.loads(config_path.read_text(encoding="utf-8"))
-    assert data["channels"]["weixin"]["enabled"] is True
-    assert data["channels"]["weixin"]["token"] == "keep"
-    assert data["channels"]["weixin"]["allowFrom"] == []
+    assert data["channels"]["signal"]["enabled"] is True
+    assert data["channels"]["signal"]["token"] == "keep"
+    assert data["channels"]["signal"]["allowFrom"] == []
 
 
 def test_plugins_enable_extra_without_channel_only_installs(monkeypatch, tmp_path):
@@ -1974,32 +1943,6 @@ def test_disable_multi_instance_channel_without_importing_runtime(monkeypatch, t
     assert [item["enabled"] for item in feature["instances"]] == [True, False]
 
 
-def test_feishu_enable_rejects_duplicate_instance_ids_without_writing(tmp_path):
-    from nanoinfra.channels.registry import load_channel_plugin
-    from nanoinfra.optional_features import OptionalFeatureError, set_channel_config_enabled
-
-    config_path = tmp_path / "config.json"
-    config_path.write_text(
-        json.dumps({
-            "channels": {
-                "feishu": {
-                    "instances": [
-                        {"id": "default", "enabled": False, "appId": "A"},
-                        {"id": "default", "enabled": True, "appId": "B"},
-                    ]
-                }
-            }
-        }),
-        encoding="utf-8",
-    )
-    before = config_path.read_text(encoding="utf-8")
-
-    with pytest.raises(OptionalFeatureError, match="duplicate Feishu instance id 'default'"):
-        set_channel_config_enabled(config_path, "feishu", load_channel_plugin("feishu"), True)
-
-    assert config_path.read_text(encoding="utf-8") == before
-
-
 def test_optional_features_payload_counts_enabled_channel_with_missing_dependency(
     monkeypatch,
 ):
@@ -2028,7 +1971,7 @@ def test_live_runtime_status_overrides_enabled_configuration_for_webui():
 
     payload = {
         "features": [{
-            "name": "feishu",
+            "name": "discord",
             "type": "channel",
             "enabled": True,
             "ready": True,
@@ -2042,8 +1985,8 @@ def test_live_runtime_status_overrides_enabled_configuration_for_webui():
         "enabled_count": 1,
     }
     runtime_status = {
-        "feishu": {
-            "owner": "feishu",
+        "discord": {
+            "owner": "discord",
             "instance_id": "default",
             "state": "failed",
             "running": False,
@@ -2149,56 +2092,6 @@ def test_optional_features_payload_marks_enabled_channel_missing_credentials(mon
     assert "configured_fields" not in discord
 
 
-def test_optional_features_payload_detects_saved_weixin_login_state(tmp_path, monkeypatch):
-    from nanoinfra.optional_features import optional_features_payload
-
-    state_dir = tmp_path / "weixin-state"
-    state_dir.mkdir()
-    (state_dir / "account.json").write_text(
-        json.dumps({"token": "saved-weixin-token"}),
-        encoding="utf-8",
-    )
-    config = Config.model_validate({
-        "channels": {
-            "weixin": {
-                "enabled": True,
-                "stateDir": str(state_dir),
-            }
-        }
-    })
-    _stub_channel_packages(monkeypatch, "weixin")
-    monkeypatch.setattr("nanoinfra.optional_features.optional_dependency_groups", lambda: {})
-
-    payload = optional_features_payload(config=config)
-
-    weixin = payload["features"][0]
-    assert weixin["enabled"] is True
-    assert weixin["configured"] is True
-
-
-def test_optional_features_payload_detects_legacy_default_weixin_state(tmp_path, monkeypatch):
-    from nanoinfra.config import loader
-    from nanoinfra.optional_features import optional_features_payload
-
-    config_path = tmp_path / "config.json"
-    loader.save_config(Config(), config_path)
-    monkeypatch.setattr(loader, "_current_config_path", config_path)
-    state_dir = tmp_path / "weixin"
-    state_dir.mkdir()
-    (state_dir / "account.json").write_text(
-        json.dumps({"token": "legacy-weixin-token"}),
-        encoding="utf-8",
-    )
-    _stub_channel_packages(monkeypatch, "weixin")
-    monkeypatch.setattr("nanoinfra.optional_features.optional_dependency_groups", lambda: {})
-
-    payload = optional_features_payload(config=Config())
-
-    weixin = payload["features"][0]
-    assert weixin["enabled"] is False
-    assert weixin["configured"] is True
-
-
 @pytest.mark.parametrize("device_id", ["", "DEVICE-ID"])
 def test_optional_features_payload_requires_matrix_device_id_for_token_login(
     monkeypatch,
@@ -2223,264 +2116,6 @@ def test_optional_features_payload_requires_matrix_device_id_for_token_login(
     payload = optional_features_payload(config=config)
 
     assert payload["features"][0]["configured"] is bool(device_id)
-
-
-def test_optional_features_payload_marks_disabled_feishu_as_configured(monkeypatch):
-    from nanoinfra.optional_features import optional_features_payload
-
-    config = Config.model_validate({
-        "channels": {
-            "feishu": {
-                "enabled": False,
-                "appId": "cli_test",
-                "appSecret": "secret",
-            }
-        }
-    })
-
-    plugin = load_channel_package("feishu")
-    assert plugin is not None
-    _stub_channel_registry(
-        monkeypatch,
-        replace(plugin, runtime="missing.feishu.runtime:FeishuChannel"),
-    )
-    monkeypatch.setattr("nanoinfra.optional_features.optional_dependency_groups", lambda: {})
-
-    payload = optional_features_payload(config=config)
-
-    feishu = payload["features"][0]
-    assert feishu["name"] == "feishu"
-    assert feishu["enabled"] is False
-    assert feishu["configured"] is True
-    assert feishu["ready"] is False
-    assert feishu["setup"]["fields"][0]["key"] == "channels.feishu.appId"
-    assert payload["enabled_count"] == 0
-
-
-def test_optional_features_payload_lists_feishu_instances(monkeypatch):
-    from nanoinfra.channels.plugin import load_channel_package
-    from nanoinfra.optional_features import optional_features_payload
-
-    config = Config.model_validate({
-        "channels": {
-            "feishu": {
-                "instances": [
-                    {
-                        "id": "default",
-                        "name": "nanoinfra",
-                        "displayName": "Voraflare Bot",
-                        "avatarUrl": "https://example.com/bot.png",
-                        "enabled": True,
-                        "appId": "cli_default",
-                        "appSecret": "secret",
-                    },
-                    {
-                        "id": "product",
-                        "name": "Product bot",
-                        "enabled": False,
-                        "appId": "cli_product",
-                        "appSecret": "secret",
-                    },
-                ]
-            }
-        }
-    })
-    plugin = load_channel_package("feishu")
-    assert plugin is not None
-    _stub_channel_registry(
-        monkeypatch,
-        replace(plugin, runtime="missing.feishu.runtime:FeishuChannel"),
-    )
-    monkeypatch.setattr("nanoinfra.optional_features.optional_dependency_groups", lambda: {})
-
-    payload = optional_features_payload(config=config)
-
-    feishu = payload["features"][0]
-    assert feishu["name"] == "feishu"
-    assert feishu["enabled"] is True
-    assert feishu["configured"] is True
-    assert payload["enabled_count"] == 1
-    assert feishu["instances"] == [
-        {
-            "id": "default",
-            "name": "nanoinfra",
-            "display_name": "Voraflare Bot",
-            "avatar_url": "https://example.com/bot.png",
-            "enabled": True,
-            "configured": True,
-            "config_values": {
-                "channels.feishu.appId": "cli_default",
-                "channels.feishu.domain": "feishu",
-                "channels.feishu.groupPolicy": "mention",
-                "channels.feishu.topicIsolation": "true",
-            },
-            "configured_fields": [
-                "channels.feishu.appId",
-                "channels.feishu.appSecret",
-                "channels.feishu.domain",
-                "channels.feishu.groupPolicy",
-                "channels.feishu.topicIsolation",
-            ],
-        },
-        {
-            "id": "product",
-            "name": "Product bot",
-            "display_name": "Product bot",
-            "avatar_url": "",
-            "enabled": False,
-            "configured": True,
-            "config_values": {
-                "channels.feishu.appId": "cli_product",
-                "channels.feishu.domain": "feishu",
-                "channels.feishu.groupPolicy": "mention",
-                "channels.feishu.topicIsolation": "true",
-            },
-            "configured_fields": [
-                "channels.feishu.appId",
-                "channels.feishu.appSecret",
-                "channels.feishu.domain",
-                "channels.feishu.groupPolicy",
-                "channels.feishu.topicIsolation",
-            ],
-        },
-    ]
-
-
-def test_optional_features_payload_does_not_refresh_saved_feishu_identity(monkeypatch, tmp_path):
-    from nanoinfra.channels.feishu import runtime as feishu_module
-    from nanoinfra.config import loader
-    from nanoinfra.optional_features import optional_features_payload
-
-    config_path = tmp_path / "config.json"
-    save_config(
-        Config.model_validate({
-            "channels": {
-                "feishu": {
-                    "instances": [{
-                        "id": "default",
-                        "name": "nanoinfra",
-                        "enabled": True,
-                        "appId": "cli_default",
-                        "appSecret": "secret",
-                    }]
-                }
-            }
-        }),
-        config_path,
-    )
-    monkeypatch.setattr(loader, "_current_config_path", config_path)
-    _stub_channel_packages(monkeypatch, "feishu")
-    monkeypatch.setattr("nanoinfra.optional_features.optional_dependency_groups", lambda: {})
-    monkeypatch.setattr(
-        feishu_module,
-        "fetch_feishu_app_identity",
-        lambda *_args: pytest.fail("feature discovery must not call Feishu"),
-    )
-    before = config_path.read_text(encoding="utf-8")
-
-    payload = optional_features_payload()
-
-    instance = payload["features"][0]["instances"][0]
-    assert instance["display_name"] == "nanoinfra"
-    assert instance["avatar_url"] == ""
-    assert config_path.read_text(encoding="utf-8") == before
-
-
-def test_enable_optional_feature_refreshes_feishu_identity(
-    monkeypatch,
-    tmp_path,
-):
-    from nanoinfra.channels.feishu import runtime as feishu_module
-    from nanoinfra.config import loader
-    from nanoinfra.optional_features import enable_optional_feature
-
-    config_path = tmp_path / "config.json"
-    save_config(
-        Config.model_validate({
-            "channels": {
-                "feishu": {
-                    "instances": [{
-                        "id": "default",
-                        "name": "nanoinfra",
-                        "enabled": True,
-                        "appId": "cli_default",
-                        "appSecret": "secret",
-                    }]
-                }
-            }
-        }),
-        config_path,
-    )
-    monkeypatch.setattr(loader, "_current_config_path", config_path)
-    _stub_channel_packages(monkeypatch, "feishu")
-    monkeypatch.setattr("nanoinfra.optional_features.optional_dependency_groups", lambda: {})
-    monkeypatch.setattr(feishu_module, "FEISHU_AVAILABLE", True)
-    monkeypatch.setattr(
-        feishu_module,
-        "fetch_feishu_app_identity",
-        lambda *_args: {
-            "displayName": "Xubin Ren的智能助手",
-            "avatarUrl": "https://example.com/assistant.png",
-            "identityFetchedAt": "2026-07-06T00:00:00Z",
-        },
-    )
-
-    # allow_install=False, because no test may reach a real package installer (#90). This test
-    # asks about an identity refresh and never about installing anything, and the dependency is
-    # already present above. Without the flag this call can shell out against the developer's own
-    # environment, which is the same hazard #45 closed for the data directory.
-    payload = enable_optional_feature("feishu", config_path=config_path, allow_install=False)
-
-    instance = payload["features"][0]["instances"][0]
-    assert instance["display_name"] == "Xubin Ren的智能助手"
-    assert instance["avatar_url"] == "https://example.com/assistant.png"
-
-    data = json.loads(config_path.read_text(encoding="utf-8"))
-    saved = data["channels"]["feishu"]["instances"][0]
-    assert saved["displayName"] == "Xubin Ren的智能助手"
-    assert saved["avatarUrl"] == "https://example.com/assistant.png"
-    assert saved["identityFetchedAt"] == "2026-07-06T00:00:00Z"
-
-
-def test_optional_features_payload_preserves_legacy_flat_feishu_config(monkeypatch, tmp_path):
-    from nanoinfra.channels.feishu import runtime as feishu_module
-    from nanoinfra.config import loader
-    from nanoinfra.optional_features import optional_features_payload
-
-    config_path = tmp_path / "config.json"
-    save_config(
-        Config.model_validate({
-            "channels": {
-                "feishu": {
-                    "enabled": True,
-                    "appId": "cli_legacy",
-                    "appSecret": "legacy-secret",
-                    "groupPolicy": "mention",
-                }
-            }
-        }),
-        config_path,
-    )
-    monkeypatch.setattr(loader, "_current_config_path", config_path)
-    _stub_channel_packages(monkeypatch, "feishu")
-    monkeypatch.setattr("nanoinfra.optional_features.optional_dependency_groups", lambda: {})
-    monkeypatch.setattr(
-        feishu_module,
-        "fetch_feishu_app_identity",
-        lambda *_args: pytest.fail("feature discovery must not call Feishu"),
-    )
-    before = config_path.read_text(encoding="utf-8")
-
-    payload = optional_features_payload()
-
-    assert payload["features"][0]["instances"][0]["display_name"] == "nanoinfra"
-    assert config_path.read_text(encoding="utf-8") == before
-    saved = json.loads(config_path.read_text(encoding="utf-8"))["channels"]["feishu"]
-    assert saved["appId"] == "cli_legacy"
-    assert saved["appSecret"] == "legacy-secret"
-    assert "displayName" not in saved
-    assert "avatarUrl" not in saved
-    assert "instances" not in saved
 
 
 @pytest.mark.parametrize(
@@ -2525,7 +2160,7 @@ def test_enable_uses_uv_when_tool_environment_has_no_pip(
     else:
         monkeypatch.delenv("PIP_INDEX_URL", raising=False)
 
-    assert optional_features.install_extra("feishu", ["lark-oapi>=1.5.0"], runner=_run).ok is True
+    assert optional_features.install_extra("discord", ["lark-oapi>=1.5.0"], runner=_run).ok is True
     assert calls == [
         [sys.executable, "-m", "pip", "install", "lark-oapi>=1.5.0"],
         [
@@ -2581,11 +2216,11 @@ def test_install_extra_logs_command_and_output(monkeypatch):
 
     monkeypatch.setattr(optional_features, "logger", _Logger())
 
-    result = optional_features.install_extra("weixin", ["qrcode[pil]>=8.0"], runner=_run)
+    result = optional_features.install_extra("signal", ["qrcode[pil]>=8.0"], runner=_run)
 
     assert result.ok is True
-    assert any("Installing optional feature 'weixin':" in record for record in records)
-    assert any("Optional feature 'weixin' install exited with code 0" in record for record in records)
+    assert any("Installing optional feature 'signal':" in record for record in records)
+    assert any("Optional feature 'signal' install exited with code 0" in record for record in records)
     assert any("install ok" in record for record in records)
 
 
@@ -2616,7 +2251,6 @@ def test_optional_dependency_metadata_for_enable():
     assert deps["bedrock"] == ["boto3>=1.43.0"]
     for dep_name in (
         "aiohttp",
-        "dingtalk-stream",
         "lark-oapi",
         "msgpack",
         "python-telegram-bot",
@@ -2651,25 +2285,16 @@ def test_optional_dependency_metadata_for_enable():
         "olostep support",
     )
     channel_names = {
-        "dingtalk",
         "discord",
-        "feishu",
         "matrix",
-        "mochat",
         "msteams",
-        "napcat",
-        "qq",
         "slack",
         "telegram",
-        "wecom",
-        "weixin",
         "whatsapp",
     }
     assert channel_names.isdisjoint(deps)
     expected_channel_dependencies = {
-        "dingtalk": ("dingtalk-stream>=0.24.0,<1.0.0",),
         "discord": ("discord.py>=2.5.2,<3.0.0",),
-        "feishu": ("lark-oapi>=1.5.0,<2.0.0",),
         "matrix": (
             "matrix-nio[e2e]>=0.25.2; sys_platform != 'win32'",
             "matrix-nio>=0.25.2; sys_platform == 'win32'",
@@ -2677,16 +2302,7 @@ def test_optional_dependency_metadata_for_enable():
             "mistune>=3.0.0,<4.0.0",
             "nh3>=0.2.17,<1.0.0",
         ),
-        "mochat": (
-            "python-socketio>=5.16.0,<6.0.0",
-            "msgpack>=1.1.0,<2.0.0",
-        ),
         "msteams": ("PyJWT>=2.0,<3.0", "cryptography>=41.0"),
-        "napcat": ("aiohttp>=3.9.0,<4.0.0",),
-        "qq": (
-            "aiohttp>=3.9.0,<4.0.0",
-            "qq-botpy>=1.2.0,<2.0.0",
-        ),
         "slack": (
             "aiohttp>=3.9.0,<4.0.0",
             "slack-sdk>=3.39.0,<4.0.0",
@@ -2697,8 +2313,6 @@ def test_optional_dependency_metadata_for_enable():
             "socksio>=1.0.0,<2.0.0",
             "python-socks[asyncio]>=2.8.0,<3.0.0; sys_platform != 'win32'",
         ),
-        "wecom": ("wecom-aibot-sdk-python>=0.1.5",),
-        "weixin": ("qrcode[pil]>=8.0", "pycryptodome>=3.20.0"),
         "whatsapp": (
             # The floor moves with the ceiling on purpose (#88). A ceiling alone leaves every
             # existing install on the version it already holds, because pip upgrades nothing that
@@ -2860,24 +2474,6 @@ async def test_manager_skips_disabled_channel_package(monkeypatch):
 # ---------------------------------------------------------------------------
 # Channel default_config() and dict-to-Pydantic conversion
 # ---------------------------------------------------------------------------
-
-def test_channel_default_config():
-    """Channels expose default_config() returning a dict with 'enabled': False."""
-    from nanoinfra.channels.dingtalk.runtime import DingTalkChannel
-    cfg = DingTalkChannel.default_config()
-    assert isinstance(cfg, dict)
-    assert cfg["enabled"] is False
-    assert "clientId" in cfg
-
-
-def test_channel_init_from_dict():
-    """Channels accept a raw dict and convert to Pydantic internally."""
-    from nanoinfra.channels.dingtalk.runtime import DingTalkChannel
-    bus = MessageBus()
-    ch = DingTalkChannel({"enabled": False, "clientId": "test-id", "allowFrom": ["*"]}, bus)
-    assert ch.config.client_id == "test-id"
-    assert ch.config.allow_from == ["*"]
-
 
 def test_channels_config_send_max_retries_default():
     """ChannelsConfig should have send_max_retries with default value of 3."""
@@ -3185,25 +2781,25 @@ def test_outbound_duplicate_suppression_is_scoped_to_origin_message() -> None:
     mgr._origin_reply_fingerprints = {}
 
     first = OutboundMessage(
-        channel="feishu",
+        channel="discord",
         chat_id="chat123",
         content="Done",
         metadata={"message_id": "msg-1"},
     )
     duplicate = OutboundMessage(
-        channel="feishu",
+        channel="discord",
         chat_id="chat123",
         content="  Done  ",
         metadata={"origin_message_id": "msg-1"},
     )
     separate_turn = OutboundMessage(
-        channel="feishu",
+        channel="discord",
         chat_id="chat123",
         content="Done",
         metadata={"message_id": "msg-2"},
     )
     new_origin_content = OutboundMessage(
-        channel="feishu",
+        channel="discord",
         chat_id="chat123",
         content="Done with extra details",
         metadata={"origin_message_id": "msg-1"},
@@ -3701,11 +3297,11 @@ async def test_notify_restart_done_waits_until_channel_starts():
     mgr.config = fake_config
     mgr.bus = MessageBus()
     channel = _StartableChannel(fake_config, mgr.bus)
-    mgr.channels = {"feishu": channel}
+    mgr.channels = {"discord": channel}
     mgr._dispatch_task = None
     mgr._send_with_retry = AsyncMock()
 
-    notice = RestartNotice(channel="feishu", chat_id="oc_123", started_at_raw="100.0")
+    notice = RestartNotice(channel="discord", chat_id="oc_123", started_at_raw="100.0")
     with patch("nanoinfra.channels.manager.consume_restart_notice_from_env", return_value=notice):
         task = mgr._notify_restart_done_if_needed()
 
@@ -3719,7 +3315,7 @@ async def test_notify_restart_done_waits_until_channel_starts():
     mgr._send_with_retry.assert_awaited_once()
     sent_channel, sent_msg = mgr._send_with_retry.await_args.args
     assert sent_channel is channel
-    assert sent_msg.channel == "feishu"
+    assert sent_msg.channel == "discord"
     assert sent_msg.chat_id == "oc_123"
     assert sent_msg.content.startswith("Restart completed")
 

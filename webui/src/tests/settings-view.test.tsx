@@ -185,7 +185,7 @@ function channelSetupField(
 }
 
 function channelSetupContract(
-  channel: "discord" | "email" | "feishu" | "matrix" | "qq",
+  channel: "discord" | "email" | "matrix",
 ): ChannelSetupContract {
   const field = (
     name: string,
@@ -225,24 +225,6 @@ function channelSetupContract(
           field("allowFrom", "list"),
           field("verifyDkim", "bool", { defaultValue: "true" }),
           field("verifySpf", "bool", { defaultValue: "true" }),
-        ],
-      };
-    case "feishu":
-      return {
-        official_url: "https://open.feishu.cn/app",
-        fields: [
-          field("appId", "string", { required: true }),
-          field("appSecret", "secret", { required: true }),
-          field("domain", "enum", {
-            choices: ["feishu", "lark"],
-            defaultValue: "feishu",
-          }),
-          field("groupPolicy", "enum", {
-            choices: ["mention", "open"],
-            defaultValue: "mention",
-          }),
-          field("allowFrom", "list"),
-          field("topicIsolation", "bool"),
         ],
       };
     case "matrix":
@@ -995,311 +977,9 @@ describe("SettingsView Apps catalog", () => {
     );
   });
 
-  it("starts Feishu connect in WebUI instead of showing a CLI command", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url === "/api/settings") return jsonResponse(settingsPayload());
-      if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
-      if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
-      if (url === "/api/settings/nanoinfra-features") {
-        return jsonResponse({
-          features: [{
-            name: "feishu",
-            display_name: "Feishu",
-            webui: "webui/index.tsx",
-            type: "channel",
-            enabled: false,
-            configured: false,
-            installed: true,
-            ready: false,
-            status: "not_enabled",
-            install_supported: true,
-            requires_restart: true,
-          }],
-          enabled_count: 0,
-        });
-      }
-      if (url === "/api/settings/channels/feishu/connect/start?domain=feishu&instance_id=default&mode=replace") {
-        return jsonResponse({
-          session_id: "feishu-session",
-          status: "pending",
-          qr_url: "https://accounts.feishu.cn/login?device_code=device",
-          domain: "feishu",
-          interval_ms: 5000,
-          expires_at_ms: Date.now() + 600_000,
-          message: "Scan with Feishu or Lark to connect.",
-        });
-      }
-      return { ok: false, status: 404, json: async () => ({}) } as Response;
-    });
-    vi.stubGlobal("fetch", fetchMock);
 
-    renderSettingsView({ initialSection: "channels" });
 
-    expect(await screen.findByRole("button", { name: "View Feishu settings" })).toBeInTheDocument();
-    expect(screen.queryByText("nanoinfra channels login feishu")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "nanoinfra" }));
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
 
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/settings/channels/feishu/connect/start?domain=feishu&instance_id=default&mode=replace",
-        expect.objectContaining({
-          headers: { Authorization: "Bearer tok" },
-        }),
-      ),
-    );
-    expect(await screen.findByText("Scan with Feishu")).toBeInTheDocument();
-    expect(screen.getByText("Waiting for authorization...")).toBeInTheDocument();
-  });
-
-  it("starts Feishu connect from the default assistant action", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url === "/api/settings") return jsonResponse(settingsPayload());
-      if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
-      if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
-      if (url === "/api/settings/nanoinfra-features") {
-        return jsonResponse({
-          features: [{
-            name: "feishu",
-            display_name: "Feishu",
-            webui: "webui/index.tsx",
-            type: "channel",
-            enabled: false,
-            configured: false,
-            installed: true,
-            ready: false,
-            status: "not_enabled",
-            install_supported: true,
-            requires_restart: true,
-          }],
-          enabled_count: 0,
-        });
-      }
-      if (url === "/api/settings/channels/feishu/connect/start?domain=feishu&instance_id=default&mode=replace") {
-        return jsonResponse({
-          session_id: "feishu-switch-session",
-          status: "pending",
-          qr_url: "https://accounts.feishu.cn/login?device_code=switch-device",
-          domain: "feishu",
-          interval_ms: 5000,
-          expires_at_ms: Date.now() + 600_000,
-          message: "Scan with Feishu or Lark to connect.",
-        });
-      }
-      return { ok: false, status: 404, json: async () => ({}) } as Response;
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderSettingsView({ initialSection: "channels" });
-
-    expect(await screen.findByRole("button", { name: "View Feishu settings" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "nanoinfra" }));
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/settings/channels/feishu/connect/start?domain=feishu&instance_id=default&mode=replace",
-        expect.objectContaining({
-          headers: { Authorization: "Bearer tok" },
-        }),
-      ),
-    );
-    expect(await screen.findByText("Scan with Feishu")).toBeInTheDocument();
-  });
-
-  it("enables configured Feishu assistant without starting a new connect flow", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url === "/api/settings") return jsonResponse(settingsPayload());
-      if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
-      if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
-      if (url === "/api/settings/nanoinfra-features") {
-        return jsonResponse({
-          features: [{
-            name: "feishu",
-            display_name: "Feishu",
-            webui: "webui/index.tsx",
-            type: "channel",
-            enabled: false,
-            configured: true,
-            installed: true,
-            ready: false,
-            status: "not_enabled",
-            install_supported: true,
-            requires_restart: true,
-          }],
-          enabled_count: 0,
-        });
-      }
-      if (url === "/api/settings/nanoinfra-features/enable?name=feishu&instance_id=default") {
-        return jsonResponse({
-          features: [{
-            name: "feishu",
-            display_name: "Feishu",
-            webui: "webui/index.tsx",
-            type: "channel",
-            enabled: true,
-            running: true,
-            runtime_status: "running",
-            configured: true,
-            instances: [{
-              id: "default",
-              name: "nanoinfra",
-              enabled: true,
-              running: true,
-              runtime_status: "running",
-              configured: true,
-              config_values: { "channels.feishu.appId": "cli_test" },
-              configured_fields: [
-                "channels.feishu.appId",
-                "channels.feishu.appSecret",
-              ],
-            }],
-            installed: true,
-            ready: true,
-            status: "enabled",
-            install_supported: true,
-            requires_restart: true,
-          }],
-          enabled_count: 1,
-          requires_restart: false,
-          last_action: { ok: true, message: "Enabled channel 'feishu'", enabled: true },
-        });
-      }
-      if (url === "/api/settings/channels/feishu/connect/start?domain=feishu&instance_id=default&mode=replace") {
-        throw new Error("Feishu connect should not start when credentials are already configured");
-      }
-      return { ok: false, status: 404, json: async () => ({}) } as Response;
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderSettingsView({ initialSection: "channels" });
-
-    fireEvent.click(await screen.findByRole("button", { name: "nanoinfra" }));
-    fireEvent.click(await screen.findByRole("switch", { name: "nanoinfra assistant" }));
-
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/settings/nanoinfra-features/enable?name=feishu&instance_id=default",
-        expect.objectContaining({
-          headers: { Authorization: "Bearer tok" },
-        }),
-      ),
-    );
-    expect(fetchMock.mock.calls.some(([input]) =>
-      String(input) === "/api/settings/channels/feishu/connect/start?domain=feishu&instance_id=default&mode=replace",
-    )).toBe(false);
-    expect(screen.getByRole("switch", { name: "nanoinfra assistant" })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
-  });
-
-  it("shows Feishu assistant instances in the channel details", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url === "/api/settings") return jsonResponse(settingsPayload());
-        if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
-        if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
-        if (url === "/api/settings/nanoinfra-features") {
-          return jsonResponse({
-            features: [{
-              name: "feishu",
-              display_name: "Feishu",
-              webui: "webui/index.tsx",
-              type: "channel",
-              enabled: true,
-              configured: true,
-              installed: true,
-              ready: true,
-              status: "enabled",
-              install_supported: true,
-              requires_restart: true,
-              setup: channelSetupContract("feishu"),
-              instances: [
-                {
-                  id: "default",
-                  name: "nanoinfra",
-                  display_name: "Support Bot",
-                  avatar_url: "https://example.com/support.png",
-                  enabled: true,
-                  configured: true,
-                  config_values: {
-                    "channels.feishu.appId": "cli_default",
-                    "channels.feishu.domain": "feishu",
-                    "channels.feishu.groupPolicy": "mention",
-                    "channels.feishu.allowFrom": "",
-                    "channels.feishu.topicIsolation": "true",
-                  },
-                  configured_fields: [
-                    "channels.feishu.appId",
-                    "channels.feishu.appSecret",
-                    "channels.feishu.domain",
-                    "channels.feishu.groupPolicy",
-                    "channels.feishu.topicIsolation",
-                  ],
-                },
-                {
-                  id: "product",
-                  name: "Product bot",
-                  display_name: "Product Helper",
-                  avatar_url: "https://example.com/product.png",
-                  enabled: false,
-                  configured: true,
-                  config_values: { "channels.feishu.appId": "cli_product" },
-                  configured_fields: [
-                    "channels.feishu.appId",
-                    "channels.feishu.appSecret",
-                  ],
-                },
-              ],
-            }],
-            enabled_count: 1,
-          });
-        }
-        return { ok: false, status: 404, json: async () => ({}) } as Response;
-      }),
-    );
-
-    renderSettingsView({ initialSection: "channels" });
-
-    expect(await screen.findByText("Product Helper")).toBeInTheDocument();
-    expect(screen.getAllByText("Support Bot")).toHaveLength(1);
-    expect(document.querySelector('img[src="https://example.com/support.png"]')).toBeTruthy();
-
-    expect(screen.getByRole("button", { name: /Support Bot/ })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-    expect(screen.getByRole("button", { name: /Product Helper/ })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-
-    expect(screen.queryByText("cli_def...ault")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Support Bot/ }));
-    expect(screen.getByRole("button", { name: /Support Bot/ })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
-    expect(screen.getAllByText("cli_def...ault").length).toBeGreaterThan(0);
-    expect(screen.getByText("Advanced")).toBeInTheDocument();
-    expect(screen.getByText("Topic isolation")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /Product Helper/ }));
-    expect(screen.getByRole("button", { name: /Support Bot/ })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-    expect(screen.getByRole("button", { name: /Product Helper/ })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
-  });
 
   it("renders external multi-instance channels from the shared contract", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -1378,135 +1058,7 @@ describe("SettingsView Apps catalog", () => {
     expect(screen.getByText("Saved")).toBeInTheDocument();
   });
 
-  it("shows a single Feishu assistant without a duplicate assistant list", async () => {
-    const reconnectUrls: string[] = [];
-    const feishuPayload = {
-      features: [{
-        name: "feishu",
-        display_name: "Feishu",
-        webui: "webui/index.tsx",
-        type: "channel",
-        enabled: true,
-        configured: true,
-        installed: true,
-        ready: true,
-        status: "enabled",
-        running: true,
-        runtime_status: "running",
-        install_supported: true,
-        requires_restart: true,
-        instances: [{
-          id: "default",
-          name: "nanoinfra",
-          display_name: "Support Bot",
-          avatar_url: "https://example.com/support.png",
-          enabled: true,
-          running: true,
-          runtime_status: "running",
-          configured: true,
-          config_values: { "channels.feishu.appId": "cli_support" },
-          configured_fields: [
-            "channels.feishu.appId",
-            "channels.feishu.appSecret",
-          ],
-        }],
-      }],
-      enabled_count: 1,
-    };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url === "/api/settings") return jsonResponse(settingsPayload());
-        if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
-        if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
-        if (url === "/api/settings/nanoinfra-features") return jsonResponse(feishuPayload);
-        if (url === "/api/settings/nanoinfra-features/enable?name=feishu&instance_id=default") {
-          reconnectUrls.push(url);
-          return jsonResponse(feishuPayload);
-        }
-        return { ok: false, status: 404, json: async () => ({}) } as Response;
-      }),
-    );
 
-    renderSettingsView({ initialSection: "channels" });
-
-    await screen.findByText("Support Bot");
-    expect(screen.getAllByText("Support Bot")).toHaveLength(1);
-    expect(screen.getByText("1 assistant connected")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Support Bot assistant" })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
-    expect(screen.queryByText("cli_sup...port")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Support Bot" }));
-    expect(screen.getByText("cli_sup...port")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Replace assistant" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
-    await waitFor(() => expect(reconnectUrls).toHaveLength(1));
-    expect(document.querySelector('img[src="https://example.com/support.png"]')).toBeTruthy();
-  });
-
-  it("does not call a configured Feishu assistant connected after runtime failure", async () => {
-    const runtimeError = "Channel failed to start. Check gateway logs.";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url === "/api/settings") return jsonResponse(settingsPayload());
-        if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
-        if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
-        if (url === "/api/settings/nanoinfra-features") {
-          return jsonResponse({
-            features: [{
-              name: "feishu",
-              display_name: "Feishu",
-              webui: "webui/index.tsx",
-              type: "channel",
-              enabled: true,
-              configured: true,
-              installed: true,
-              ready: false,
-              running: false,
-              runtime_status: "failed",
-              runtime_error: runtimeError,
-              status: "failed",
-              install_supported: true,
-              requires_restart: false,
-              instances: [{
-                id: "default",
-                name: "test",
-                enabled: true,
-                configured: true,
-                running: false,
-                runtime_status: "failed",
-                runtime_error: runtimeError,
-                config_values: { "channels.feishu.appId": "cli_test" },
-                configured_fields: [
-                  "channels.feishu.appId",
-                  "channels.feishu.appSecret",
-                ],
-              }],
-            }],
-            enabled_count: 0,
-          });
-        }
-        return { ok: false, status: 404, json: async () => ({}) } as Response;
-      }),
-    );
-
-    renderSettingsView({ initialSection: "channels" });
-
-    await screen.findByText("No assistant connected");
-    expect(screen.getByText("0 running · 1 channels")).toBeInTheDocument();
-    expect(screen.getAllByText("Failed").length).toBeGreaterThan(0);
-    expect(screen.getByText(runtimeError)).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "test assistant" })).toHaveAttribute(
-      "aria-checked",
-      "false",
-    );
-    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
-  });
 
   it("shows group behavior fields as options", async () => {
     vi.stubGlobal(
@@ -1870,21 +1422,15 @@ describe("SettingsView Apps catalog", () => {
     const channels = [
       ["websocket", "WebSocket", "Open WebSocket setup"],
       ["telegram", "Telegram", "Open Telegram setup"],
-      ["feishu", "Feishu", "Open Feishu setup"],
       ["slack", "Slack", "Open Slack setup"],
       ["discord", "Discord", "Open Discord setup"],
       ["email", "Email", "Open Email setup"],
       ["matrix", "Matrix", "Open Matrix setup"],
       ["whatsapp", "WhatsApp", "Open WhatsApp setup"],
-      ["dingtalk", "DingTalk", "Open DingTalk setup"],
-      ["wecom", "WeCom", "Open WeCom setup"],
-      ["weixin", "WeChat", "Open WeChat setup"],
-      ["qq", "QQ", "Open QQ setup"],
       ["signal", "Signal", "Open Signal setup"],
       ["msteams", "Microsoft Teams", "Open Teams setup"],
-      ["napcat", "NapCat", "Open NapCat setup"],
     ] as const;
-    const hiddenChannels = [["mochat", "MoChat"]] as const;
+    const hiddenChannels = [] as const;
 
     vi.stubGlobal(
       "fetch",
@@ -1898,7 +1444,7 @@ describe("SettingsView Apps catalog", () => {
             features: channels.map(([name, displayName]) => ({
               name,
               display_name: displayName,
-              webui: ["feishu", "weixin"].includes(name) ? "webui/index.tsx" : "webui/index.ts",
+              webui: "webui/index.ts",
               type: "channel",
               enabled: name === "websocket",
               installed: true,
@@ -1929,9 +1475,6 @@ describe("SettingsView Apps catalog", () => {
 
     for (const [, displayName, guideLabel] of channels) {
       fireEvent.click(await screen.findByRole("button", { name: `View ${displayName} settings` }));
-      if (displayName === "Feishu") {
-        fireEvent.click(screen.getByRole("button", { name: "nanoinfra" }));
-      }
       const guide = screen.getByRole("link", { name: guideLabel });
       expect(guide).toHaveAttribute("href", expect.stringMatching(/^https:\/\//));
       expect(guide.querySelector("span[aria-hidden] img, span[aria-hidden] svg")).not.toBeNull();
@@ -1949,10 +1492,10 @@ describe("SettingsView Apps catalog", () => {
         if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
         if (url === "/api/settings/nanoinfra-features") {
           return jsonResponse({
-            features: ["email", "feishu", "matrix", "qq"].map((name) => ({
+            features: ["email", "matrix", "discord"].map((name) => ({
               name,
-              display_name: name === "qq" ? "QQ" : name[0].toUpperCase() + name.slice(1),
-              webui: name === "feishu" ? "webui/index.tsx" : "webui/index.ts",
+              display_name: name[0].toUpperCase() + name.slice(1),
+              webui: "webui/index.ts",
               type: "channel",
               enabled: true,
               installed: true,
@@ -1960,7 +1503,7 @@ describe("SettingsView Apps catalog", () => {
               status: "enabled",
               install_supported: true,
               requires_restart: true,
-              setup: channelSetupContract(name as "email" | "feishu" | "matrix" | "qq"),
+              setup: channelSetupContract(name as "email" | "matrix" | "discord"),
             })),
             enabled_count: 4,
           });
@@ -1980,16 +1523,6 @@ describe("SettingsView Apps catalog", () => {
     expect(within(consent).getByRole("radio", { name: "Granted" })).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("true")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "View Feishu settings" }));
-    fireEvent.click(screen.getByRole("button", { name: "nanoinfra" }));
-    fireEvent.click(screen.getByText("Advanced"));
-    const region = screen.getByRole("radiogroup", { name: "Region" });
-    expect(within(region).getByRole("radio", { name: "Feishu" })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
-    expect(within(region).getByRole("radio", { name: "Lark" })).toBeInTheDocument();
-
     fireEvent.click(screen.getByRole("button", { name: "View Matrix settings" }));
     fireEvent.click(screen.getByText("Advanced"));
     const matrixBehavior = screen.getByRole("radiogroup", { name: "Group behavior" });
@@ -1999,14 +1532,6 @@ describe("SettingsView Apps catalog", () => {
     );
     expect(within(matrixBehavior).getByRole("radio", { name: "Allowlist" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "View QQ settings" }));
-    fireEvent.click(screen.getByText("Advanced"));
-    const format = screen.getByRole("radiogroup", { name: "Message format" });
-    expect(within(format).getByRole("radio", { name: "Plain text" })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
-    expect(within(format).getByRole("radio", { name: "Markdown" })).toBeInTheDocument();
   });
 
   it("does not offer to disable the websocket channel", async () => {

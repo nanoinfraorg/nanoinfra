@@ -97,8 +97,17 @@ def test_management_contract_is_not_declared_on_runtime_base_class() -> None:
 
 
 def test_multi_instance_support_is_declared_by_management_spec() -> None:
+    """No shipped channel declares multi_instance any more.
+
+    Feishu was the only one, and it was removed with the other Asia-market channels. The contract
+    machinery stays because it is what a future multi-instance channel would declare against, so
+    this asserts the current truth rather than pretending a subject exists.
+    """
     assert _SINGLE_PLUGIN.management.multi_instance is False
-    assert load_channel_plugin("feishu").management.multi_instance is True
+    assert [
+        name for name in discover_plugins()
+        if load_channel_plugin(name).management.multi_instance
+    ] == []
 
 
 @pytest.mark.parametrize(
@@ -213,28 +222,6 @@ def _instance_contract_cases():
             "default",
             {"default"},
             id="single-instance-default",
-        ),
-        pytest.param(
-            load_channel_plugin("feishu"),
-            {
-                "instances": [
-                    {
-                        "id": "default",
-                        "enabled": True,
-                        "appId": "cli_default",
-                        "appSecret": "secret",
-                    },
-                    {
-                        "id": "product",
-                        "enabled": True,
-                        "appId": "cli_product",
-                        "appSecret": "secret",
-                    },
-                ]
-            },
-            "product",
-            {"default", "product"},
-            id="feishu-multi-instance",
         ),
     ]
 
@@ -355,124 +342,6 @@ def test_channel_feature_instances_use_generic_setup_snapshot() -> None:
             ],
         }
     ]
-
-
-def test_feishu_instance_contract_skips_duplicate_app_identity() -> None:
-    section = {
-        "instances": [
-            {
-                "id": "default",
-                "enabled": True,
-                "appId": "cli_same",
-                "appSecret": "secret",
-                "domain": "feishu",
-            },
-            {
-                "id": "assistant-copy",
-                "enabled": True,
-                "appId": "cli_same",
-                "appSecret": "secret",
-                "domain": "feishu",
-            },
-        ]
-    }
-
-    specs = channel_instance_specs(load_channel_plugin("feishu"), section)
-
-    assert [spec.instance_id for spec in specs] == ["default"]
-
-
-def test_feishu_feature_state_matches_runtime_duplicate_filter() -> None:
-    section = {
-        "instances": [
-            {
-                "id": "default",
-                "enabled": True,
-                "appId": "cli_same",
-                "appSecret": "secret",
-                "domain": "feishu",
-            },
-            {
-                "id": "assistant-copy",
-                "enabled": True,
-                "appId": "cli_same",
-                "appSecret": "secret",
-                "domain": "feishu",
-            },
-        ]
-    }
-
-    instances = channel_feature_instances(
-        load_channel_plugin("feishu"),
-        section,
-        setup_spec=channel_setup_spec("feishu"),
-    )
-
-    assert instances is not None
-    assert [(item["id"], item["enabled"]) for item in instances] == [
-        ("default", True),
-        ("assistant-copy", False),
-    ]
-
-
-def test_feishu_runtime_duplicate_ignores_disabled_identity_owner() -> None:
-    section = {
-        "instances": [
-            {
-                "id": "default",
-                "enabled": False,
-                "appId": "cli_same",
-                "appSecret": "secret-a",
-                "domain": "feishu",
-            },
-            {
-                "id": "assistant-copy",
-                "enabled": True,
-                "appId": "cli_same",
-                "appSecret": "secret-b",
-                "domain": "feishu",
-            },
-        ]
-    }
-
-    specs = channel_instance_specs(load_channel_plugin("feishu"), section)
-
-    assert [spec.instance_id for spec in specs] == ["assistant-copy"]
-
-
-def test_feishu_instance_write_preserves_duplicate_app_identity() -> None:
-    section = {
-        "instances": [
-            {
-                "id": "default",
-                "enabled": True,
-                "appId": "cli_same",
-                "appSecret": "secret-a",
-            },
-            {
-                "id": "assistant-copy",
-                "enabled": True,
-                "appId": "cli_same",
-                "appSecret": "secret-b",
-            },
-        ]
-    }
-
-    updated = channel_set_config_enabled(
-        load_channel_plugin("feishu"),
-        section,
-        False,
-        instance_id="assistant-copy",
-    )
-
-    assert [instance["id"] for instance in updated["instances"]] == [
-        "default",
-        "assistant-copy",
-    ]
-    assert updated["instances"][0]["appSecret"] == "secret-a"
-    assert updated["instances"][1]["appId"] == "cli_same"
-    assert updated["instances"][1]["appSecret"] == "secret-b"
-    assert updated["instances"][1]["enabled"] is False
 
 
 def test_channel_instance_contract_materializes_generators() -> None:

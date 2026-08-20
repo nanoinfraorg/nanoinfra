@@ -155,7 +155,7 @@ async def test_dream_no_history_explains_how_to_create_input(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_dream_internal_run_silences_progress(tmp_path) -> None:
-    msg = InboundMessage(channel="feishu", sender_id="u1", chat_id="chat1", content="/dream")
+    msg = InboundMessage(channel="telegram", sender_id="u1", chat_id="chat1", content="/dream")
     store = _FakeStore(_FakeGit(initialized=False), dream_prompt_result=("dream prompt", 123))
     bus = _FakeBus()
     calls = []

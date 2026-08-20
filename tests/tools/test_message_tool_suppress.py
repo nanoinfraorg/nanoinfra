@@ -28,7 +28,7 @@ class TestMessageToolSuppressLogic:
         loop = _make_loop(tmp_path)
         tool_call = ToolCallRequest(
             id="call1", name="message",
-            arguments={"content": "Hello", "channel": "feishu", "chat_id": "chat123"},
+            arguments={"content": "Hello", "channel": "telegram", "chat_id": "chat123"},
         )
         calls = iter([
             LLMResponse(content="", tool_calls=[tool_call]),
@@ -42,7 +42,7 @@ class TestMessageToolSuppressLogic:
         if isinstance(mt, MessageTool):
             mt.set_send_callback(AsyncMock(side_effect=lambda m: sent.append(m)))
 
-        msg = InboundMessage(channel="feishu", sender_id="user1", chat_id="chat123", content="Send")
+        msg = InboundMessage(channel="telegram", sender_id="user1", chat_id="chat123", content="Send")
         result = await loop._process_message(msg)
 
         assert len(sent) == 1
@@ -67,13 +67,13 @@ class TestMessageToolSuppressLogic:
         if isinstance(mt, MessageTool):
             mt.set_send_callback(AsyncMock(side_effect=lambda m: sent.append(m)))
 
-        msg = InboundMessage(channel="feishu", sender_id="user1", chat_id="chat123", content="Send email")
+        msg = InboundMessage(channel="telegram", sender_id="user1", chat_id="chat123", content="Send email")
         result = await loop._process_message(msg)
 
         assert len(sent) == 1
         assert sent[0].channel == "email"
         assert result is not None  # not suppressed
-        assert result.channel == "feishu"
+        assert result.channel == "telegram"
 
     @pytest.mark.asyncio
     async def test_not_suppress_when_no_message_tool_used(self, tmp_path: Path) -> None:
@@ -81,7 +81,7 @@ class TestMessageToolSuppressLogic:
         loop.provider.chat_with_retry = AsyncMock(return_value=LLMResponse(content="Hello!", tool_calls=[]))
         loop.tools.get_definitions = MagicMock(return_value=[])
 
-        msg = InboundMessage(channel="feishu", sender_id="user1", chat_id="chat123", content="Hi")
+        msg = InboundMessage(channel="telegram", sender_id="user1", chat_id="chat123", content="Hi")
         result = await loop._process_message(msg)
 
         assert result is not None
@@ -94,7 +94,7 @@ class TestMessageToolSuppressLogic:
         loop = _make_loop(tmp_path)
         tool_call = ToolCallRequest(
             id="call1", name="message",
-            arguments={"content": "Tool reply", "channel": "feishu", "chat_id": "chat123"},
+            arguments={"content": "Tool reply", "channel": "telegram", "chat_id": "chat123"},
         )
         calls = iter([
             LLMResponse(content="First answer", tool_calls=[]),
@@ -113,10 +113,10 @@ class TestMessageToolSuppressLogic:
 
         pending_queue = asyncio.Queue()
         await pending_queue.put(
-            InboundMessage(channel="feishu", sender_id="user1", chat_id="chat123", content="follow-up")
+            InboundMessage(channel="telegram", sender_id="user1", chat_id="chat123", content="follow-up")
         )
 
-        msg = InboundMessage(channel="feishu", sender_id="user1", chat_id="chat123", content="Start")
+        msg = InboundMessage(channel="telegram", sender_id="user1", chat_id="chat123", content="Start")
         result = await loop._process_message(msg, pending_queue=pending_queue)
 
         assert len(sent) == 1
@@ -160,7 +160,7 @@ class TestMessageToolTurnTracking:
         tool = MessageTool()
         from nanoinfra.agent.tools.context import RequestContext, request_context
 
-        with request_context(RequestContext(channel="feishu", chat_id="chat1")):
+        with request_context(RequestContext(channel="telegram", chat_id="chat1")):
             assert not tool._sent_in_turn
             tool._sent_in_turn = True
             assert tool._sent_in_turn

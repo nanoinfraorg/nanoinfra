@@ -95,8 +95,8 @@ def mock_paths(
     A module that runs that line keeps the mock. ``mock.patch`` restores the loader module and
     reaches no copy of the name, so the mock stayed for the life of the worker, and it answered
     with a directory this fixture had already deleted. Four modules each held one:
-    ``nanoinfra.channels.weixin.state``, ``nanoinfra.channels.whatsapp.state``,
-    ``nanoinfra.channels.validation`` and ``nanoinfra.cli.onboard``. The weixin one failed
+    ``nanoinfra.channels.slack.state``, ``nanoinfra.channels.whatsapp.state``,
+    ``nanoinfra.channels.validation`` and ``nanoinfra.cli.onboard``. The slack one failed
     ``tests/channels/test_channel_plugins.py``, which reads a legacy default state directory
     beside the config file.
 

@@ -9,15 +9,15 @@ the loader module, and it reaches no other module, so any module that ran
 for the **first time** inside that window kept the mock for the life of the worker. `onboard`
 imports channel modules and the wizard lazily, so four modules kept one:
 
-    nanoinfra.channels.weixin.state.get_config_path   = <MagicMock name='get_config_path'>
+    nanoinfra.channels.whatsapp.state.get_config_path   = <MagicMock name='get_config_path'>
     nanoinfra.channels.whatsapp.state.get_config_path = <MagicMock name='get_config_path'>
     nanoinfra.channels.validation.load_config         = <MagicMock name='load_config'>
     nanoinfra.cli.onboard.get_config_path             = <MagicMock name='get_config_path'>
     nanoinfra.cli.onboard.load_config                 = <MagicMock name='load_config'>
 
 The mock answered with a directory the fixture had already deleted, so
-`tests/channels/test_channel_plugins.py::test_optional_features_payload_detects_legacy_default_weixin_state`
-read `configured` as False. That test asks whether a `weixin/account.json` sits beside the config
+`tests/channels/test_channel_plugins.py::test_optional_features_payload_detects_legacy_default_whatsapp_state`
+read `configured` as False. That test asks whether a `slack/account.json` sits beside the config
 file, and the stale mock pointed the answer at a dead path.
 
 The suite order is how we noticed. `pytest tests/cli/ tests/channels/` failed and
@@ -29,7 +29,6 @@ never a collection order.
 from __future__ import annotations
 
 import importlib.util
-import json
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import NonCallableMock
@@ -94,20 +93,17 @@ def test_the_fixture_leaves_every_loader_function_alone(mock_paths) -> None:
         )
 
 
-def _plant_a_legacy_weixin_state(config_file: Path) -> None:
-    """Write the `weixin/account.json` that sits beside a config file."""
-    state_dir = config_file.parent / "weixin"
+def _plant_a_legacy_whatsapp_state(config_file: Path) -> None:
+    """Write the `whatsapp-auth/neonize.db` that sits beside a config file."""
+    state_dir = config_file.parent / "whatsapp-auth"
     state_dir.mkdir(parents=True)
-    (state_dir / "account.json").write_text(
-        json.dumps({"token": "legacy-weixin-token"}),
-        encoding="utf-8",
-    )
+    (state_dir / "neonize.db").write_bytes(b"legacy-session")
 
 
 def test_a_module_imported_now_still_follows_the_config_path(mock_paths, tmp_path) -> None:
     """The defect of #80, as a property rather than as a collection order.
 
-    `nanoinfra.channels.weixin.state` binds `get_config_path` at module level, and it derives a
+    `nanoinfra.channels.whatsapp.state` binds `get_config_path` at module level, and it derives a
     legacy default state directory from it. A fresh copy of that module stands for the first lazy
     import that `onboard` triggers.
 
@@ -117,13 +113,13 @@ def test_a_module_imported_now_still_follows_the_config_path(mock_paths, tmp_pat
     test reading a deleted directory.
     """
     config_file, _, _ = mock_paths
-    _plant_a_legacy_weixin_state(config_file)
+    _plant_a_legacy_whatsapp_state(config_file)
 
-    weixin_state = _load_a_fresh_copy("nanoinfra.channels.weixin.state")
+    whatsapp_state = _load_a_fresh_copy("nanoinfra.channels.whatsapp.state")
 
-    assert weixin_state.get_config_path.__module__ == "nanoinfra.config.loader"
+    assert whatsapp_state.get_config_path.__module__ == "nanoinfra.config.loader"
     # `None` is the section a channel with no saved config has, so this reads the legacy default.
-    assert weixin_state.local_state_present(None) is True
+    assert whatsapp_state.local_state_present(None) is True
 
     # Move the config path, to a directory that holds no saved state. A live binding follows and
     # answers False. A stand-in keeps pointing at the directory above and answers True.
@@ -131,7 +127,7 @@ def test_a_module_imported_now_still_follows_the_config_path(mock_paths, tmp_pat
     elsewhere.mkdir()
     loader.set_config_path(elsewhere / "config.json")
 
-    assert weixin_state.local_state_present(None) is False
+    assert whatsapp_state.local_state_present(None) is False
 
 
 def test_the_onboard_command_writes_a_config_the_loader_can_read(mock_paths) -> None:

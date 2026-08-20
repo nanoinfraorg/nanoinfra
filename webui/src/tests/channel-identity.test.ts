@@ -115,17 +115,13 @@ describe("channelSetup", () => {
 
   it("loads setup copy from the channel-owned locale", () => {
     const setup = channelSetup(feature({
-      name: "dingtalk",
-      display_name: "DingTalk",
+      name: "slack",
+      display_name: "Slack",
       webui: "webui/index.ts",
     }), "zh-CN");
 
-    expect(setup.summary).toBe("钉钉需要 Stream 模式的应用凭据。");
-    expect(setup.steps[0]).toBe("创建或选择一个已启用 Stream 模式的钉钉应用。");
-    expect(setup.fields).toContainEqual(expect.objectContaining({
-      key: "channels.dingtalk.allowFrom",
-      label: "允许的用户",
-    }));
+    expect(setup.summary).toBe("Slack 默认使用 Socket Mode，因此同时需要应用级令牌和机器人令牌。");
+    expect(setup.steps[0]).toBe("使用提供的 manifest 创建 Slack 应用并启用 Socket Mode。");
   });
 });
 
