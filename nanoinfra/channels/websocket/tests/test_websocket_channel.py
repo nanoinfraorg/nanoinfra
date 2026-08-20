@@ -18,10 +18,10 @@ from nanoinfra.bus.events import (
     OutboundMessage,
 )
 from nanoinfra.bus.outbound_events import (
+    DiagramUpdatedEvent,
     GoalStateSyncEvent,
     GoalStatusEvent,
     ProgressEvent,
-    DiagramUpdatedEvent,
     RuntimeModelUpdatedEvent,
     SessionUpdatedEvent,
     TurnEndEvent,
