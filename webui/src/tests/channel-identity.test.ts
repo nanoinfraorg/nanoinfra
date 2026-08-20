@@ -118,10 +118,10 @@ describe("channelSetup", () => {
       name: "slack",
       display_name: "Slack",
       webui: "webui/index.ts",
-    }), "zh-CN");
+    }), "ja");
 
-    expect(setup.summary).toBe("Slack 默认使用 Socket Mode，因此同时需要应用级令牌和机器人令牌。");
-    expect(setup.steps[0]).toBe("使用提供的 manifest 创建 Slack 应用并启用 Socket Mode。");
+    expect(setup.summary).toBe("Slack は既定で Socket Mode を使うため、アプリレベルとボットレベルの両方のトークンが必要です。");
+    expect(setup.steps[0]).toBe("提供されたマニフェストから Slack アプリを作成し、Socket Mode を有効にします。");
   });
 });
 

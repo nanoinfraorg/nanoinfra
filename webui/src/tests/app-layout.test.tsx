@@ -1147,7 +1147,7 @@ describe("App layout", () => {
   });
 
   it("localizes the Automations surface", async () => {
-    await i18n.changeLanguage("zh-CN");
+    await i18n.changeLanguage("ja");
     mockFetchRoutes({
       "/api/settings": baseSettingsPayload(),
       "/api/webui/automations": {
@@ -1160,7 +1160,7 @@ describe("App layout", () => {
             delete_after_run: false,
             schedule: { kind: "every", every_ms: 86_400_000 },
             payload: {
-              message: "检查仓库状态",
+              message: "检查仓库状態",
               kind: "agent_turn",
             },
             state: {
@@ -1191,23 +1191,23 @@ describe("App layout", () => {
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
-    const sidebar = screen.getByRole("navigation", { name: "侧边栏导航" });
-    fireEvent.click(within(sidebar).getByRole("button", { name: "自动任务" }));
+    const sidebar = screen.getByRole("navigation", { name: "サイドバーのナビゲーション" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "自動タスク" }));
 
-    const heading = await screen.findByRole("heading", { name: "自动任务" });
+    const heading = await screen.findByRole("heading", { name: "自動タスク" });
     expect(heading).toBeInTheDocument();
     const automationsMain = heading.closest("main");
     expect(automationsMain).not.toBeNull();
-    expect(within(automationsMain as HTMLElement).queryByText("设置")).not.toBeInTheDocument();
-    expect(screen.getByText("任务队列")).toBeInTheDocument();
+    expect(within(automationsMain as HTMLElement).queryByText("設定")).not.toBeInTheDocument();
+    expect(screen.getByText("キュー")).toBeInTheDocument();
     expect(screen.getAllByText("每日检查").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("检查仓库状态").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("每 1天")).toBeInTheDocument();
-    expect(screen.queryByText("最近健康状态")).not.toBeInTheDocument();
+    expect(screen.getAllByText("检查仓库状態").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("1 日 ごと")).toBeInTheDocument();
+    expect(screen.queryByText("最近健康状態")).not.toBeInTheDocument();
     expect(screen.queryByText("近期无问题")).not.toBeInTheDocument();
     expect(screen.queryByText("Workspace automations")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "刷新" })).not.toBeInTheDocument();
-    expect(document.title).toBe("自动任务 · nanoinfra");
+    expect(document.title).toBe("自動タスク · nanoinfra");
   });
 
   it("fully collapses the native host sidebar and previews it on hover", async () => {
@@ -1346,35 +1346,35 @@ describe("App layout", () => {
         state: { next_run_at_ms: Date.UTC(2026, 3, 17, 10, 0, 0) },
       },
     ]);
-    await i18n.changeLanguage("zh-CN");
+    await i18n.changeLanguage("ja");
 
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
-    const sidebar = screen.getByRole("navigation", { name: "侧边栏导航" });
+    const sidebar = screen.getByRole("navigation", { name: "サイドバーのナビゲーション" });
     await waitFor(() =>
       expect(
         within(sidebar).getByRole("button", { name: /^First chat$/ }),
       ).toBeInTheDocument(),
     );
 
-    fireEvent.pointerDown(screen.getByLabelText(/First chat.*话题操作/), {
+    fireEvent.pointerDown(screen.getByLabelText(/First chat.*トピック操作/), {
       button: 0,
     });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "删除" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "削除" }));
 
     await waitFor(() =>
       expect(screen.getByText("Daily repo check")).toBeInTheDocument(),
     );
     expect(getSessionAutomationsSpy).toHaveBeenCalledWith("websocket:chat-a");
     expect(
-      screen.getByText("这个话题有关联的自动任务。删除话题也会删除这些自动任务。"),
+      screen.getByText("このチャットにはスケジュール済みの自動タスクがあります。削除するとそれらも削除されます。"),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("This chat has scheduled automations. Deleting it will also delete them."),
     ).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    fireEvent.click(screen.getByRole("button", { name: "削除" }));
 
     await waitFor(() =>
       expect(deleteChatSpy).toHaveBeenCalledWith("websocket:chat-a", {

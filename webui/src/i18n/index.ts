@@ -18,8 +18,6 @@ import {
 } from "./config";
 
 import enCommon from "./locales/en/common.json";
-import zhCNCommon from "./locales/zh-CN/common.json";
-import zhTWCommon from "./locales/zh-TW/common.json";
 import frCommon from "./locales/fr/common.json";
 import jaCommon from "./locales/ja/common.json";
 import koCommon from "./locales/ko/common.json";
@@ -30,8 +28,6 @@ import idCommon from "./locales/id/common.json";
 
 export const resources = {
   en: { common: enCommon, ...channelLocaleResources("en") },
-  "zh-CN": { common: zhCNCommon, ...channelLocaleResources("zh-CN") },
-  "zh-TW": { common: zhTWCommon, ...channelLocaleResources("zh-TW") },
   fr: { common: frCommon, ...channelLocaleResources("fr") },
   ja: { common: jaCommon, ...channelLocaleResources("ja") },
   ko: { common: koCommon, ...channelLocaleResources("ko") },

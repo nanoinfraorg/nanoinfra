@@ -68,8 +68,8 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByText("Check the project status")).toBeInTheDocument();
   });
 
-  it("localizes the panel chrome in Simplified Chinese", async () => {
-    await setAppLanguage("zh-CN");
+  it("localizes the panel chrome in Japanese", async () => {
+    await setAppLanguage("ja");
     const user = userEvent.setup();
 
     render(
@@ -80,12 +80,12 @@ describe("SessionInfoPopover", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "会话详情" }));
+    await user.click(screen.getByRole("button", { name: "セッション詳細" }));
 
-    expect(await screen.findByText("会话")).toBeInTheDocument();
-    expect(screen.getByText("自动任务")).toBeInTheDocument();
+    expect(await screen.findByText("セッション")).toBeInTheDocument();
+    expect(screen.getByText("自動タスク")).toBeInTheDocument();
     expect(screen.getByText("Morning check")).toBeInTheDocument();
-    expect(screen.getByText(/下次/)).toBeInTheDocument();
+    expect(screen.getByText(/次回/)).toBeInTheDocument();
     expect(screen.queryByText("Session")).not.toBeInTheDocument();
     expect(screen.queryByText("Automations")).not.toBeInTheDocument();
   });

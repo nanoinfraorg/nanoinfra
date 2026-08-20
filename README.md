@@ -30,7 +30,7 @@ Root access, on a short leash: the agent reaches your hosts with credentials you
 | Install nanoinfra with no terminal/config background | [Start Without Technical Background](https://docs.nanoinfra.org/start-without-technical-background/) |
 | Install quickly and get one CLI reply | [Install](#-install) and [Quick Start](#-quick-start) |
 | Open the bundled browser UI | [WebUI](#-webui) |
-| Connect Telegram, Discord, WeChat, Slack, Email, Mattermost, or another chat app | [Chat Apps](https://docs.nanoinfra.org/chat-apps/) |
+| Connect Telegram, Discord, Slack, Signal, Email, Mattermost, or another chat app | [Chat Apps](https://docs.nanoinfra.org/chat-apps/) |
 | Configure providers, fallback models, Langfuse, MCP, web tools, or security | [Docs](https://docs.nanoinfra.org/) and [Configuration](https://docs.nanoinfra.org/configuration/) |
 | Understand or extend the internals | [Architecture](https://docs.nanoinfra.org/architecture/) and [Development](https://docs.nanoinfra.org/development/) |
 | Run nanoinfra on your own server or keep it running as a service | [Deployment](https://docs.nanoinfra.org/deployment/) |
@@ -40,7 +40,7 @@ Root access, on a short leash: the agent reaches your hosts with credentials you
 nanoinfra is a self-hosted personal AI agent runtime. It can:
 
 - run in a browser WebUI or terminal
-- connect to Telegram, Discord, Slack, WeChat, Email, Mattermost, and other chat apps
+- connect to Telegram, Discord, Slack, Signal, Email, Mattermost, and other chat apps
 - use tools such as files, shell, web search, web fetch, MCP, cron, image generation, and subagents
 - keep session history and long-term memory through Dream
 - run long-horizon goals and scheduled automations
@@ -50,7 +50,7 @@ nanoinfra is a self-hosted personal AI agent runtime. It can:
 ## 💡 Why nanoinfra
 
 - **Persistent workflows**: goals, memory, tools, and chat context survive long-running work.
-- **Chat-native reach**: WebUI, API, Telegram, Feishu, Slack, Discord, Teams, email, and Mattermost.
+- **Chat-native reach**: WebUI, API, Telegram, Slack, Discord, Signal, Teams, email, and Mattermost.
 - **Model freedom**: OpenAI-compatible APIs, local LLMs, image generation, search, and fallbacks.
 - **Small core**: readable internals with MCP, memory, deployment, and automation built in.
 - **Own your stack**: inspect, customize, self-host, and extend without a giant platform.
@@ -193,7 +193,7 @@ If nanoinfra worked for you, a star on GitHub is the simplest way to support the
 - Want to understand provider/model matching? See [Providers and Models](https://docs.nanoinfra.org/providers/)
 - Want web search, MCP, security settings, or more config options? See [Configuration](https://docs.nanoinfra.org/configuration/)
 - Want to run locally? See [Ollama](https://docs.nanoinfra.org/providers/#ollama), [vLLM or another local OpenAI-compatible server](https://docs.nanoinfra.org/providers/#vllm-or-other-local-openai-compatible-server), and the full [provider reference](https://docs.nanoinfra.org/configuration/#providers).
-- Want to run nanoinfra in chat apps like Telegram, Discord, WeChat or Feishu? See [Chat Apps](https://docs.nanoinfra.org/chat-apps/)
+- Want to run nanoinfra in chat apps like Telegram, Discord, Slack or Signal? See [Chat Apps](https://docs.nanoinfra.org/chat-apps/)
 - Want Docker, Docker Compose, a Linux service, or a macOS LaunchAgent? See [Deployment](https://docs.nanoinfra.org/deployment/)
 
 ## 🌐 WebUI

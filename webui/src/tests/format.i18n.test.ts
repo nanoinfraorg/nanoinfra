@@ -24,7 +24,7 @@ describe("localized format helpers", () => {
     await setAppLanguage("en");
     const english = relativeTime(value);
 
-    await setAppLanguage("zh-CN");
+    await setAppLanguage("ja");
     const chinese = relativeTime(value);
 
     expect(english).toBe(
@@ -34,7 +34,7 @@ describe("localized format helpers", () => {
       ),
     );
     expect(chinese).toBe(
-      new Intl.RelativeTimeFormat("zh-CN", { numeric: "auto" }).format(
+      new Intl.RelativeTimeFormat("ja", { numeric: "auto" }).format(
         -1,
         "minute",
       ),
@@ -71,10 +71,10 @@ describe("localized format helpers", () => {
     const value = Date.parse("2026-04-18T08:34:56Z");
     const date = new Date(value);
 
-    await setAppLanguage("zh-CN");
+    await setAppLanguage("ja");
 
     expect(formatMessageEndTime(value)).toBe(
-      new Intl.DateTimeFormat("zh-CN", {
+      new Intl.DateTimeFormat("ja", {
         hour: "2-digit",
         minute: "2-digit",
       }).format(date),
@@ -85,10 +85,10 @@ describe("localized format helpers", () => {
     const value = Date.parse("2026-04-16T08:34:56Z");
     const date = new Date(value);
 
-    await setAppLanguage("zh-CN");
+    await setAppLanguage("ja");
 
     expect(formatMessageEndTime(value)).toBe(
-      new Intl.DateTimeFormat("zh-CN", {
+      new Intl.DateTimeFormat("ja", {
         dateStyle: "medium",
         timeStyle: "short",
       }).format(date),
