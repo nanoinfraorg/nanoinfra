@@ -45,7 +45,7 @@ async def test_maybe_continue_turn_queues_internal_message():
     ctx = SimpleNamespace(
         session=SimpleNamespace(metadata=meta),
         msg=InboundMessage(
-            channel="feishu",
+            channel="telegram",
             sender_id="u1",
             chat_id="c1",
             content="start",
@@ -58,7 +58,7 @@ async def test_maybe_continue_turn_queues_internal_message():
                 "goal_requested": True,
             },
         ),
-        session_key="feishu:c1",
+        session_key="telegram:c1",
         pending_queue=pending,
         stop_reason="max_iterations",
         final_content="paused",
@@ -98,8 +98,8 @@ async def test_internal_continuation_respects_round_limit():
     }
     ctx = SimpleNamespace(
         session=SimpleNamespace(metadata=meta),
-        msg=InboundMessage(channel="feishu", sender_id="u1", chat_id="c1", content="start"),
-        session_key="feishu:c1",
+        msg=InboundMessage(channel="telegram", sender_id="u1", chat_id="c1", content="start"),
+        session_key="telegram:c1",
         pending_queue=asyncio.Queue(),
         stop_reason="max_iterations",
         final_content="paused",

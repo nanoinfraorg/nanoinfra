@@ -310,7 +310,9 @@ def test_channel_format_hint_absent_for_unknown(tmp_path) -> None:
     prompt = builder.build_system_prompt(channel=None)
     assert "Format Hint" not in prompt
 
-    prompt2 = builder.build_system_prompt(channel="feishu")
+    # A name no channel package claims. The point is the unknown branch, so it must not be a
+    # channel that ships a hint.
+    prompt2 = builder.build_system_prompt(channel="not-a-channel")
     assert "Format Hint" not in prompt2
 
 

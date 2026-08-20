@@ -14,22 +14,15 @@ from nanoinfra.channels.plugin import ChannelPlugin, load_channel_package
 from nanoinfra.channels.registry import channel_default_enabled, discover_plugins
 
 EXPECTED_CHANNELS = {
-    "dingtalk",
     "discord",
     "email",
-    "feishu",
     "matrix",
     "mattermost",
-    "mochat",
     "msteams",
-    "napcat",
-    "qq",
     "signal",
     "slack",
     "telegram",
     "websocket",
-    "wecom",
-    "weixin",
     "whatsapp",
 }
 
@@ -184,27 +177,6 @@ def test_runtime_classes_do_not_declare_persisted_management_hooks() -> None:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
         assert declared.isdisjoint(management_hooks), f"{name} runtime owns {declared & management_hooks}"
-
-
-def test_feishu_package_manifest_owns_runtime_and_webui_metadata() -> None:
-    plugin = load_channel_package("feishu")
-
-    assert plugin is not None
-    assert plugin.runtime == "nanoinfra.channels.feishu.runtime:FeishuChannel"
-    assert plugin.dependencies == ("lark-oapi>=1.5.0,<2.0.0",)
-    assert plugin.connector == "nanoinfra.channels.feishu.connect:FeishuConnectStore"
-    assert plugin.management.multi_instance is True
-    assert plugin.webui == "webui/index.tsx"
-
-
-def test_weixin_package_manifest_owns_runtime_and_webui_metadata() -> None:
-    plugin = load_channel_package("weixin")
-
-    assert plugin is not None
-    assert plugin.runtime == "nanoinfra.channels.weixin.runtime:WeixinChannel"
-    assert plugin.dependencies == ("qrcode[pil]>=8.0", "pycryptodome>=3.20.0")
-    assert plugin.connector == "nanoinfra.channels.weixin.connect:WeixinConnectStore"
-    assert plugin.webui == "webui/index.tsx"
 
 
 def test_package_manifests_do_not_import_runtimes() -> None:

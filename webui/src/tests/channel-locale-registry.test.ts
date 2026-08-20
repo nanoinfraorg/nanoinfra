@@ -9,21 +9,15 @@ import { registeredChannelUiContributions } from "@/channel-plugins/registry";
 import { supportedLocales } from "@/i18n/config";
 
 const expectedChannels = [
-  "dingtalk",
   "discord",
   "email",
-  "feishu",
   "matrix",
   "mattermost",
   "msteams",
-  "napcat",
-  "qq",
   "signal",
   "slack",
   "telegram",
   "websocket",
-  "wecom",
-  "weixin",
   "whatsapp",
 ];
 

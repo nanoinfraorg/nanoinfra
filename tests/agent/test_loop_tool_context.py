@@ -140,7 +140,7 @@ async def test_request_context_bindings_are_isolated_between_concurrent_tasks() 
         finally:
             reset_request_context(token)
 
-    first = RequestContext(channel="feishu", chat_id="first", session_key="feishu:first")
+    first = RequestContext(channel="telegram", chat_id="first", session_key="telegram:first")
     second = RequestContext(channel="telegram", chat_id="second", session_key="telegram:second")
 
     observed = await asyncio.gather(

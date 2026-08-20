@@ -2956,12 +2956,12 @@ def test_gateway_bound_cron_runs_as_session_turn(
     assert msg.metadata["message_thread_id"] == 42
 
     feishu_job = CronJob(
-        id="feishu-topic",
+        id="telegram-topic",
         name="Feishu topic",
         payload=CronPayload(
             message="Check the Feishu topic.",
-            session_key="feishu:oc_abc:om_root123",
-            origin_channel="feishu",
+            session_key="telegram:oc_abc:om_root123",
+            origin_channel="telegram",
             origin_chat_id="oc_abc",
             origin_metadata={
                 "chat_type": "group",
@@ -2976,9 +2976,9 @@ def test_gateway_bound_cron_runs_as_session_turn(
     assert response == "Checked the repo."
     msg = seen["cron_msg"]
     assert isinstance(msg, InboundMessage)
-    assert msg.channel == "feishu"
+    assert msg.channel == "telegram"
     assert msg.chat_id == "oc_abc"
-    assert msg.session_key_override == "feishu:oc_abc:om_root123"
+    assert msg.session_key_override == "telegram:oc_abc:om_root123"
     assert msg.metadata["message_id"] == "om_root123"
     assert msg.metadata["thread_id"] == "om_root123"
 

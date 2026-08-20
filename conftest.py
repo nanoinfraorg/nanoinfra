@@ -322,7 +322,7 @@ def _fail_the_run_for_a_write_to_the_real_installation() -> Iterator[None]:
 
 
 # The config loader functions a module can bind at import time. `nanoinfra/config/__init__.py`,
-# `nanoinfra/channels/weixin/state.py`, `nanoinfra/channels/validation.py`,
+# `nanoinfra/channels/validation.py`,
 # `nanoinfra/cli/onboard.py` and five webui modules each carry a module level
 # `from nanoinfra.config.loader import ...` for one of these names.
 _LOADER_FUNCTION_NAMES = (

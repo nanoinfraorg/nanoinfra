@@ -917,7 +917,7 @@ describe("App layout", () => {
           },
           {
             id: "external-quiz",
-            name: "WeChat quiz",
+            name: "Slack quiz",
             enabled: true,
             protected: false,
             delete_after_run: false,
@@ -933,7 +933,7 @@ describe("App layout", () => {
               run_history: [],
             },
             origin: {
-              channel: "weixin",
+              channel: "slack",
               title: "",
               preview: "",
             },
@@ -970,9 +970,9 @@ describe("App layout", () => {
     expect(screen.getAllByText("Daily repo check").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Check the repo status").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Release prep").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("WeChat quiz")).toBeInTheDocument();
-    expect(screen.getByText("WeChat")).toBeInTheDocument();
-    expect(screen.queryByText("weixin:wx-chat")).not.toBeInTheDocument();
+    expect(screen.getByText("Slack quiz")).toBeInTheDocument();
+    expect(screen.getByText("Slack")).toBeInTheDocument();
+    expect(screen.queryByText("slack:wx-chat")).not.toBeInTheDocument();
     expect(screen.queryByText("memory with dream state")).not.toBeInTheDocument();
     expect(screen.getByText("heartbeat")).toBeInTheDocument();
     expect(within(sidebar).getByRole("button", { name: "Automations" })).toHaveAttribute(
@@ -984,13 +984,13 @@ describe("App layout", () => {
     const searchInput = within(automationsMain as HTMLElement).getByPlaceholderText(
       "Search task, message, linked chat, or schedule",
     );
-    fireEvent.change(searchInput, { target: { value: "WeChat" } });
+    fireEvent.change(searchInput, { target: { value: "Slack" } });
     await waitFor(() => expect(screen.queryByText("Daily repo check")).not.toBeInTheDocument());
-    expect(screen.getAllByText("WeChat quiz").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Slack quiz").length).toBeGreaterThanOrEqual(1);
 
     fireEvent.change(searchInput, { target: { value: "09-23" } });
     await waitFor(() => expect(screen.queryByText("Daily repo check")).not.toBeInTheDocument());
-    expect(screen.getAllByText("WeChat quiz").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Slack quiz").length).toBeGreaterThanOrEqual(1);
   });
 
   it("edits a past one-time automation without resubmitting its old schedule", async () => {
