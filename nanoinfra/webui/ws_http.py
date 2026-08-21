@@ -40,6 +40,7 @@ from nanoinfra.security.workspace_access import WorkspaceScope
 from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.normalize import ServerValidationError
 from nanoinfra.servers.store import ServerStore
+from nanoinfra.triggers.local_store import TriggerDisabledError, TriggerNotFoundError
 from nanoinfra.triggers.local_types import LocalTrigger
 from nanoinfra.utils.subagent_channel_display import scrub_subagent_messages_for_channel
 from nanoinfra.webui.approvals_api import (
@@ -74,6 +75,7 @@ from nanoinfra.webui.gateway_tokens import GatewayTokenStore, token_response_pay
 from nanoinfra.webui.http_utils import (
     TRUSTED_PROXY_AUTHENTICATED_ATTR,
     TRUSTED_PROXY_IDENTITY_ATTR,
+    bearer_token,
 )
 from nanoinfra.webui.http_utils import (
     case_insensitive_header as _case_insensitive_header,
@@ -211,6 +213,26 @@ def diagram_values_headers(payload: dict[str, Any]) -> dict[str, str]:
     return headers
 _SECRET_VALUES_HEADER = "X-Nanoinfra-Secret-Values"
 _SERVER_VALUES_HEADER = "X-Nanoinfra-Server-Values"
+#: One trigger's message, sent by whatever fired it. A header rather than a body because this
+#: transport never exposes one (see the note above), and a header rather than the query string
+#: because a query string is logged by every proxy it passes and this content becomes a prompt.
+_TRIGGER_MESSAGE_HEADER = "X-Nanoinfra-Trigger-Message"
+#: An optional caller-supplied key so a monitor that retries a timed-out POST does not run the
+#: automation twice. A retrying caller is the normal case, not the exceptional one.
+_TRIGGER_IDEMPOTENCY_HEADER = "X-Nanoinfra-Trigger-Idempotency-Key"
+#: Generous for an alert line, and still a bound on what one caller can push into a prompt.
+#:
+#: Deliberately well under ``MAX_LINE_LENGTH`` (8192). Past that the transport drops the connection
+#: with no status code and no error body, so a caller learns nothing. The point of a cap here is
+#: that it is reached *first* and answers with a reason. 6000 is the same figure the diagram
+#: chunking uses for the same reason.
+_TRIGGER_MESSAGE_MAX_BYTES = 6000
+#: How long a seen idempotency key is remembered. Long enough to cover a caller's own retry
+#: window, short enough that the set cannot grow without limit.
+_TRIGGER_IDEMPOTENCY_TTL_S = 900.0
+#: Minimum seconds between fires of one trigger. A rate limit, not a queue: an over-rate caller is
+#: told so rather than silently buffered.
+_TRIGGER_MIN_INTERVAL_S = 1.0
 
 # Fix for #5190: On Windows, mimetypes.guess_type() reads the registry key
 # HKEY_CLASSES_ROOT\.js\Content Type, which is commonly set to 'text/plain'
@@ -370,6 +392,10 @@ class GatewayHTTPHandler:
         self.cron_service = cron_service
         self.local_trigger_store = local_trigger_store
         self.automation_state_store = automation_state_store
+        #: (trigger id, caller key) -> when it was first seen.
+        self._trigger_idempotency: dict[tuple[str, str], float] = {}
+        #: trigger id -> when it last fired, for the per-trigger rate limit.
+        self._trigger_last_fire: dict[str, float] = {}
         self.cron_pending_job_ids = cron_pending_job_ids
         self.local_trigger_pending_ids = local_trigger_pending_ids
         self._log = log
@@ -961,7 +987,124 @@ class GatewayHTTPHandler:
         m = re.match(r"^/api/webui/automations/([^/]+)/state/reset$", got)
         if m:
             return self._handle_automation_state_reset(request, m.group(1))
+        m = re.match(r"^/api/triggers/([^/]+)/fire$", got)
+        if m:
+            return self._handle_trigger_fire(request, m.group(1))
+        m = re.match(r"^/api/webui/automations/([^/]+)/key$", got)
+        if m:
+            return self._handle_trigger_key_issue(request, m.group(1))
+        m = re.match(r"^/api/webui/automations/([^/]+)/key/revoke$", got)
+        if m:
+            return self._handle_trigger_key_revoke(request, m.group(1))
         return None
+
+    def _handle_trigger_key_issue(self, request: WsRequest, trigger_id: str) -> Response:
+        """Mint a key and return it once. Operator-authenticated, unlike the fire route."""
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if self.local_trigger_store is None:
+            return _http_error(503, "trigger service unavailable")
+        key = self.local_trigger_store.issue_key(trigger_id)
+        if key is None:
+            return _http_error(404, "automation not found")
+        # The only response that ever carries the plaintext. Nothing stores it, so an operator who
+        # loses it issues another -- which is also how rotation works.
+        return _http_json_response({"id": trigger_id, "key": key})
+
+    def _handle_trigger_key_revoke(self, request: WsRequest, trigger_id: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if self.local_trigger_store is None:
+            return _http_error(503, "trigger service unavailable")
+        if self.local_trigger_store.get(trigger_id) is None:
+            return _http_error(404, "automation not found")
+        return _http_json_response(
+            {"id": trigger_id, "revoked": self.local_trigger_store.revoke_key(trigger_id)}
+        )
+
+    def _handle_trigger_fire(self, request: WsRequest, trigger_id: str) -> Response:
+        """Fire one trigger, authenticated only by that trigger's own key.
+
+        This route does not run a turn. Its whole job is ``store.enqueue``, so HTTP ingress
+        inherits the retry, the dead-letter, the crash recovery and the run records that the CLI
+        path already has -- one delivery path, not two.
+
+        A wrong id and a wrong key return the same 401, so the endpoint is not a trigger
+        directory. Nothing here reads a gateway token: a key authorises exactly one trigger, and
+        the gateway's own tokens live in memory and would not survive a restart anyway.
+        """
+        if self.local_trigger_store is None:
+            return _http_error(503, "trigger service unavailable")
+        presented = bearer_token(request.headers) or ""
+        if not self.local_trigger_store.verify_key(trigger_id, presented):
+            return _http_error(401, "Unauthorized")
+
+        raw = _case_insensitive_header(request.headers, _TRIGGER_MESSAGE_HEADER) or ""
+        # The raw form is what the transport measured, and percent-encoding inflates it, so both
+        # halves are checked: the wire length so the answer is a 413 rather than a closed socket,
+        # and the decoded length because that is what reaches the prompt.
+        if len(raw.encode("utf-8")) > _TRIGGER_MESSAGE_MAX_BYTES:
+            return _http_error(413, "trigger message is too large")
+        message = unquote(raw).strip()
+        if not message:
+            return _http_error(400, f"{_TRIGGER_MESSAGE_HEADER} is required")
+        if len(message.encode("utf-8")) > _TRIGGER_MESSAGE_MAX_BYTES:
+            # Refused rather than truncated: a caller told its payload was rejected can adapt, and
+            # one whose alert was silently cut in half cannot.
+            return _http_error(413, "trigger message is too large")
+
+        idempotency = (
+            _case_insensitive_header(request.headers, _TRIGGER_IDEMPOTENCY_HEADER) or ""
+        ).strip()
+        now = time.monotonic()
+        self._purge_trigger_fire_state(now)
+        if idempotency:
+            seen = self._trigger_idempotency.get((trigger_id, idempotency))
+            if seen is not None:
+                # Deliberately 200, not 409. The caller asked for exactly-once and got it; a
+                # retry that reports failure would make it retry again.
+                return _http_json_response({"queued": False, "duplicate": True})
+        last = self._trigger_last_fire.get(trigger_id)
+        if last is not None and now - last < _TRIGGER_MIN_INTERVAL_S:
+            return _http_error(429, "trigger fired too recently")
+
+        try:
+            delivery = self.local_trigger_store.enqueue(trigger_id, message)
+        except TriggerDisabledError:
+            return _http_error(409, "trigger is disabled")
+        except TriggerNotFoundError:
+            # Only reachable if the trigger vanished between verify and enqueue. Same shape as a
+            # bad key, so the race does not become a way to probe for ids.
+            return _http_error(401, "Unauthorized")
+        except ValueError as exc:
+            return _http_error(400, str(exc))
+
+        self._trigger_last_fire[trigger_id] = now
+        if idempotency:
+            self._trigger_idempotency[(trigger_id, idempotency)] = now
+        return _http_json_response({"queued": True, "delivery_id": delivery.id})
+
+    def _purge_trigger_fire_state(self, now: float) -> None:
+        """Drop expired idempotency keys and stale rate-limit stamps.
+
+        Both maps are per-process and bounded by this sweep. Nothing here needs to survive a
+        restart: a restart is already a window in which a duplicate could land, and the delivery
+        queue is what makes that survivable.
+        """
+        expired = [
+            key
+            for key, seen in self._trigger_idempotency.items()
+            if now - seen > _TRIGGER_IDEMPOTENCY_TTL_S
+        ]
+        for key in expired:
+            self._trigger_idempotency.pop(key, None)
+        stale = [
+            trigger_id
+            for trigger_id, seen in self._trigger_last_fire.items()
+            if now - seen > _TRIGGER_IDEMPOTENCY_TTL_S
+        ]
+        for trigger_id in stale:
+            self._trigger_last_fire.pop(trigger_id, None)
 
     def _handle_automation_state_get(self, request: WsRequest, automation_id: str) -> Response:
         if not self.check_api_token(request):

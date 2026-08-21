@@ -71,6 +71,12 @@ class LocalTrigger:
     delivery: str = DEFAULT_DELIVERY_POLICY
     #: Skills this trigger's prompt carries in full. Empty means the whole catalogue.
     skills: list[str] = field(default_factory=list[str])
+    #: SHA-256 of this trigger's key, or empty when it has none. The plaintext is shown once at
+    #: issue time and never stored, so a stolen triggers.json yields no working key. A plain
+    #: digest rather than a KDF is deliberate: the key is 32 random bytes, not a password, so
+    #: there is no dictionary to stretch against.
+    key_hash: str = ""
+    key_created_at_ms: int = 0
     origin_metadata: dict[str, Any] = field(default_factory=dict)
     created_at_ms: int = 0
     updated_at_ms: int = 0
@@ -103,6 +109,8 @@ class LocalTrigger:
             sender_id=str(_get(data, "senderId", "sender_id", "trigger") or "trigger"),
             delivery=normalize_policy(data.get("delivery")),
             skills=_names(data.get("skills")),
+            key_hash=str(_get(data, "keyHash", "key_hash", "") or ""),
+            key_created_at_ms=_int_or_zero(_get(data, "keyCreatedAtMs", "key_created_at_ms", 0)),
             origin_metadata=dict(_get(data, "originMetadata", "origin_metadata", {}) or {}),
             created_at_ms=_int_or_zero(_get(data, "createdAtMs", "created_at_ms", 0)),
             updated_at_ms=_int_or_zero(_get(data, "updatedAtMs", "updated_at_ms", 0)),
@@ -124,6 +132,8 @@ class LocalTrigger:
             "senderId": self.sender_id,
             "delivery": self.delivery,
             "skills": list(self.skills),
+            "keyHash": self.key_hash,
+            "keyCreatedAtMs": self.key_created_at_ms,
             "originMetadata": self.origin_metadata,
             "createdAtMs": self.created_at_ms,
             "updatedAtMs": self.updated_at_ms,
