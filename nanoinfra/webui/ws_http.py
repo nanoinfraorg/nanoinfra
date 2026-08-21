@@ -996,7 +996,60 @@ class GatewayHTTPHandler:
         m = re.match(r"^/api/webui/automations/([^/]+)/key/revoke$", got)
         if m:
             return self._handle_trigger_key_revoke(request, m.group(1))
+        if got == "/api/webui/automations/failed":
+            return self._handle_failed_deliveries(request)
+        m = re.match(r"^/api/webui/automations/failed/([^/]+)/replay$", got)
+        if m:
+            return self._handle_replay_failed_delivery(request, m.group(1))
         return None
+
+    def _handle_failed_deliveries(self, request: WsRequest) -> Response:
+        """Dead-lettered deliveries, newest first. Content is included: it is what the operator
+        needs in order to decide whether replaying is safe."""
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if self.local_trigger_store is None:
+            return _http_error(503, "trigger service unavailable")
+        deliveries = self.local_trigger_store.list_failed_deliveries()
+        return _http_json_response(
+            {
+                "deliveries": [
+                    {
+                        "id": delivery.id,
+                        "trigger_id": delivery.trigger_id,
+                        "content": delivery.content,
+                        "attempts": delivery.attempts,
+                        "last_error": delivery.last_error,
+                        "created_at_ms": delivery.created_at_ms,
+                        "replay_of": delivery.replay_of or None,
+                    }
+                    for delivery in deliveries
+                ]
+            }
+        )
+
+    def _handle_replay_failed_delivery(self, request: WsRequest, delivery_id: str) -> Response:
+        """Requeue one dead-lettered delivery.
+
+        A replay is a new execution with a known provenance, not a recording being played back, so
+        it passes the same gates as the original. Nothing about having run once before is a reason
+        to skip an approval.
+        """
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if self.local_trigger_store is None:
+            return _http_error(503, "trigger service unavailable")
+        try:
+            replay = self.local_trigger_store.replay_failed_delivery(delivery_id)
+        except TriggerDisabledError:
+            return _http_error(409, "trigger is disabled")
+        except TriggerNotFoundError:
+            return _http_error(409, "the trigger this delivery belongs to no longer exists")
+        if replay is None:
+            return _http_error(404, "delivery not found")
+        return _http_json_response(
+            {"queued": True, "delivery_id": replay.id, "replay_of": replay.replay_of}
+        )
 
     def _handle_trigger_key_issue(self, request: WsRequest, trigger_id: str) -> Response:
         """Mint a key and return it once. Operator-authenticated, unlike the fire route."""

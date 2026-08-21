@@ -136,6 +136,9 @@ class CronRunRecord:
     status: Literal["ok", "error", "skipped"]
     duration_ms: int = 0
     error: str | None = None
+    #: Why this run happened: "scheduled", "manual" or "retry". A record written before this
+    #: existed reads as "scheduled", which is what it almost certainly was.
+    reason: str = "scheduled"
 
     @classmethod
     def from_store_dict(cls, data: dict[str, Any]) -> CronRunRecord:
@@ -144,6 +147,7 @@ class CronRunRecord:
             status=data["status"],
             duration_ms=_store_int(get_camel_snake(data, "durationMs", "duration_ms", 0)),
             error=data.get("error"),
+            reason=str(data.get("reason") or "scheduled"),
         )
 
 

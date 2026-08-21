@@ -403,6 +403,7 @@ class CronService:
                                 "status": r.status,
                                 "durationMs": r.duration_ms,
                                 "error": r.error,
+                                "reason": r.reason,
                             }
                             for r in j.state.run_history
                         ],
@@ -588,8 +589,12 @@ class CronService:
             # schedule. This was outside the finally, which is what made the stop silent.
             self._arm_timer()
 
-    async def _execute_job(self, job: CronJob) -> None:
-        """Execute a single job."""
+    async def _execute_job(self, job: CronJob, *, reason: str = "scheduled") -> None:
+        """Execute a single job.
+
+        ``reason`` reaches the run history so a forced run is distinguishable from a scheduled one.
+        Without it, "why did this run at 14:07 when it is a daily 09:00 job" had no answer.
+        """
         start_ms = _now_ms()
         logger.info("Cron: executing job '{}' ({})", job.name, job.id)
 
@@ -626,6 +631,7 @@ class CronService:
             status=job.state.last_status,
             duration_ms=end_ms - start_ms,
             error=job.state.last_error,
+            reason=reason,
         ))
         job.state.run_history = job.state.run_history[-self._MAX_RUN_HISTORY:]
 
@@ -919,7 +925,9 @@ class CronService:
                         return False
                     if not force and not job.enabled:
                         return False
-                    await self._execute_job(job)
+                    # A retry is a scheduled run the scheduler asked for; a manual one is not.
+                    reason = "retry" if job.state.retry_pending else "manual"
+                    await self._execute_job(job, reason=reason)
                     self._save_store()
                     return True
             return False

@@ -317,6 +317,81 @@ class LocalTriggerStore:
                     recovered += 1
         return recovered
 
+    # --- replay -------------------------------------------------------------
+    #
+    # A dead-lettered delivery is a JSON file describing exactly what to do, and until now the
+    # only way to act on it was to read it and retype the command.
+
+    def list_failed_deliveries(
+        self,
+        *,
+        trigger_id: str | None = None,
+        limit: int = 50,
+    ) -> list[TriggerDelivery]:
+        """Dead-lettered deliveries, newest first."""
+        self._ensure_dirs()
+        found: list[TriggerDelivery] = []
+        with self._lock:
+            # Reverse-sorted by filename, which starts with the creation timestamp.
+            for path in sorted(self.failed_dir.glob("*.json"), reverse=True):
+                if len(found) >= max(0, limit):
+                    break
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    delivery = TriggerDelivery.from_dict(data.get("delivery", data), path=path)
+                except Exception:
+                    logger.exception("Trigger: failed to parse dead-lettered delivery {}", path)
+                    continue
+                if trigger_id and delivery.trigger_id != trigger_id:
+                    continue
+                found.append(delivery)
+        return found
+
+    def replay_failed_delivery(self, delivery_id: str) -> TriggerDelivery | None:
+        """Requeue a dead-lettered delivery as a new one that names its origin.
+
+        A new id rather than a reused one, because the original's run records describe what
+        happened to the original. ``replay_of`` is what keeps the two connected, so a replay reads
+        as a replay in history instead of as a fresh event.
+
+        Attempts reset: the point of a replay is that the operator believes the cause is fixed.
+        """
+        self._ensure_dirs()
+        with self._lock:
+            triggers = self._load_triggers_unlocked()
+            for path in sorted(self.failed_dir.glob("*.json")):
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    original = TriggerDelivery.from_dict(data.get("delivery", data), path=path)
+                except Exception:
+                    logger.exception("Trigger: failed to parse dead-lettered delivery {}", path)
+                    continue
+                if original.id != delivery_id:
+                    continue
+                trigger = self._find_unlocked(triggers, original.trigger_id)
+                if trigger is None:
+                    raise TriggerNotFoundError(f"trigger not found: {original.trigger_id}")
+                if not trigger.enabled:
+                    raise TriggerDisabledError(f"trigger is disabled: {original.trigger_id}")
+                replay = TriggerDelivery(
+                    id=f"tdl_{uuid.uuid4().hex[:12]}",
+                    trigger_id=original.trigger_id,
+                    content=original.content,
+                    created_at_ms=_now_ms(),
+                    replay_of=original.id,
+                )
+                target = self.inbox_dir / f"{replay.created_at_ms}-{replay.id}.json"
+                self._atomic_write(
+                    target, json.dumps(_delivery_payload(replay), ensure_ascii=False)
+                )
+                replay.path = target
+                self.write_delivery_run_record(replay, trigger=trigger, status="queued")
+                # The original stays in failed/ as the record of what went wrong. Deleting it
+                # would erase the reason someone chose to replay.
+                return replay
+        return None
+
+
     def complete_delivery(self, delivery: TriggerDelivery) -> None:
         """Delete a claimed delivery after it is handled."""
         if delivery.path is None:
@@ -555,6 +630,7 @@ def _delivery_run_record(
         "kind": "local_trigger",
         "trigger_id": delivery.trigger_id,
         "delivery_id": delivery.id,
+        **({"replay_of": delivery.replay_of} if delivery.replay_of else {}),
         "content": _run_record_text(delivery.content),
         "created_at_ms": delivery.created_at_ms,
         "attempts": delivery.attempts,

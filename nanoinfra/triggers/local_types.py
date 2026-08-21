@@ -158,6 +158,9 @@ class TriggerDelivery:
     #: Earliest time this delivery may be claimed again. Zero means "now", which is what every
     #: delivery written before backoff existed carries, so old files stay claimable.
     not_before_ms: int = 0
+    #: The dead-lettered delivery this one was replayed from. Lineage, not a copy: a replay must
+    #: be identifiable in history rather than reading as a fresh event.
+    replay_of: str = ""
     path: Path | None = field(default=None, compare=False, repr=False)
 
     @classmethod
@@ -175,6 +178,7 @@ class TriggerDelivery:
             attempts=_int_or_zero(data.get("attempts", 0)),
             last_error=data.get("lastError") or data.get("last_error"),
             not_before_ms=_int_or_zero(_get(data, "notBeforeMs", "not_before_ms", 0)),
+            replay_of=str(_get(data, "replayOf", "replay_of", "") or ""),
             path=path,
         )
 
@@ -187,4 +191,5 @@ class TriggerDelivery:
             "attempts": self.attempts,
             "lastError": self.last_error,
             "notBeforeMs": self.not_before_ms,
+            "replayOf": self.replay_of,
         }

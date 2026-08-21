@@ -185,6 +185,7 @@ def _serialize_job(
                     "status": record.status,
                     "duration_ms": record.duration_ms,
                     "error": record.error,
+                    "reason": record.reason,
                 }
                 for record in job.state.run_history[-5:]
             ],
