@@ -15,6 +15,7 @@ from typing import Any, cast
 from filelock import FileLock
 from loguru import logger
 
+from nanoinfra.automations.delivery import normalize_policy
 from nanoinfra.triggers.local_types import LocalTrigger, TriggerDelivery, TriggerRunRecord
 from nanoinfra.utils.backoff import BackoffPolicy, next_attempt_at_ms
 from nanoinfra.utils.helpers import truncate_text
@@ -136,7 +137,13 @@ class LocalTriggerStore:
             self._save_triggers_unlocked(triggers)
             return trigger
 
-    def update(self, trigger_id: str, *, name: str | None = None) -> LocalTrigger | None:
+    def update(
+        self,
+        trigger_id: str,
+        *,
+        name: str | None = None,
+        delivery: str | None = None,
+    ) -> LocalTrigger | None:
         """Update mutable trigger fields."""
         self._ensure_dirs()
         with self._lock:
@@ -146,6 +153,8 @@ class LocalTriggerStore:
                 return None
             if name is not None:
                 trigger.name = _clean_name(name)
+            if delivery is not None:
+                trigger.delivery = normalize_policy(delivery)
             trigger.updated_at_ms = _now_ms()
             self._save_triggers_unlocked(triggers)
             return trigger

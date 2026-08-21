@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast, overload
 
+from nanoinfra.automations.delivery import DEFAULT_DELIVERY_POLICY, normalize_policy
 from nanoinfra.utils.backoff import (
     DEFAULT_BASE_DELAY_MS,
     DEFAULT_MAX_DELAY_MS,
@@ -192,6 +193,8 @@ class CronJob:
     payload: CronPayload = field(default_factory=CronPayload)
     state: CronJobState = field(default_factory=CronJobState)
     retry: CronRetryPolicy = field(default_factory=CronRetryPolicy)
+    #: Whether this job's outcome reaches the operator. Defaults to today's behaviour.
+    delivery: str = DEFAULT_DELIVERY_POLICY
     created_at_ms: int = 0
     updated_at_ms: int = 0
     delete_after_run: bool = False
@@ -226,6 +229,7 @@ class CronJob:
             payload=CronPayload.from_store_dict(data.get("payload") or {}),
             state=CronJobState.from_store_dict(data.get("state") or {}),
             retry=CronRetryPolicy.from_store_dict(data.get("retry")),
+            delivery=normalize_policy(data.get("delivery")),
             created_at_ms=_store_int(get_camel_snake(data, "createdAtMs", "created_at_ms", 0)),
             updated_at_ms=_store_int(get_camel_snake(data, "updatedAtMs", "updated_at_ms", 0)),
             delete_after_run=bool(

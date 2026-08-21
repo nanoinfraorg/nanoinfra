@@ -10,6 +10,9 @@ from typing import Any
 from loguru import logger
 
 from nanoinfra.agent.automation_turns import AutomationTurnError
+from nanoinfra.agent.turn_delivery import AUTOMATION_WITHHOLD_DELIVERY_META
+from nanoinfra.automations.delivery import normalize_policy, should_deliver
+from nanoinfra.automations.state import AutomationDeliveryLog, response_fingerprint
 from nanoinfra.bus.events import InboundMessage, OutboundMessage
 from nanoinfra.triggers.local_session_turns import LOCAL_TRIGGER_META
 from nanoinfra.triggers.local_store import LocalTriggerStore
@@ -24,6 +27,8 @@ async def run_local_trigger_queue(
     is_channel_enabled: Callable[[str], bool],
     poll_interval_s: float = 0.5,
     batch_size: int = 20,
+    delivery_log: AutomationDeliveryLog | None = None,
+    publish: Callable[[OutboundMessage], Awaitable[None]] | None = None,
 ) -> None:
     """Poll local trigger deliveries and submit them as session turns."""
     if submit_turn is None:
@@ -48,6 +53,8 @@ async def run_local_trigger_queue(
                     delivery,
                     submit_turn=submit_turn,
                     is_channel_enabled=is_channel_enabled,
+                    delivery_log=delivery_log,
+                    publish=publish,
                 )
                 store.complete_delivery(delivery)
             except asyncio.CancelledError as exc:
@@ -133,6 +140,8 @@ async def _deliver_delivery(
     *,
     submit_turn: Callable[[InboundMessage], Awaitable[OutboundMessage | None]],
     is_channel_enabled: Callable[[str], bool],
+    delivery_log: AutomationDeliveryLog | None = None,
+    publish: Callable[[OutboundMessage], Awaitable[None]] | None = None,
 ) -> None:
     trigger = store.get(delivery.trigger_id)
     if trigger is None:
@@ -143,15 +152,28 @@ async def _deliver_delivery(
         raise _TerminalDeliveryError(f"target channel is not enabled: {trigger.channel}")
 
     store.write_delivery_run_record(delivery, trigger=trigger, status="processing")
+    policy = normalize_policy(trigger.delivery)
+    metadata = _delivery_metadata(trigger, delivery)
+    withholding = policy != "always" and publish is not None
+    if withholding:
+        metadata[AUTOMATION_WITHHOLD_DELIVERY_META] = True
     msg = InboundMessage(
         channel=trigger.channel,
         sender_id=trigger.sender_id,
         chat_id=trigger.chat_id,
         content=delivery.content,
-        metadata=_delivery_metadata(trigger, delivery),
+        metadata=metadata,
         session_key_override=trigger.session_key,
     )
     response = await submit_turn(msg)
+    if withholding and response is not None and publish is not None:
+        await _deliver_if_policy_allows(
+            trigger,
+            response,
+            policy=policy,
+            delivery_log=delivery_log,
+            publish=publish,
+        )
     store.record_delivery(
         trigger.id,
         status="ok",
@@ -164,6 +186,39 @@ async def _deliver_delivery(
         status="ok",
         response=response.content if response else "",
     )
+
+
+
+async def _deliver_if_policy_allows(
+    trigger: LocalTrigger,
+    response: OutboundMessage,
+    *,
+    policy: str,
+    delivery_log: AutomationDeliveryLog | None,
+    publish: Callable[[OutboundMessage], Awaitable[None]],
+) -> None:
+    """Publish a withheld trigger response, or record that it was silenced and why."""
+    content = response.content or ""
+    fingerprint = response_fingerprint(content)
+    last = delivery_log.last_fingerprint(trigger.id) if delivery_log else None
+    deliver = should_deliver(
+        policy,  # pyright: ignore[reportArgumentType]
+        content=content,
+        # A failed turn raises out of submit_turn, so the retry path owns it and never reaches here.
+        failed=False,
+        last_fingerprint=last,
+        fingerprint=fingerprint,
+    )
+    if not deliver:
+        logger.info(
+            "Trigger: '{}' silenced by its '{}' delivery policy", trigger.name, policy
+        )
+        return
+    await publish(response)
+    if delivery_log is not None:
+        # After the publish, not before: a failed send must not teach an on-change policy that
+        # the operator had already been told.
+        delivery_log.record(trigger.id, fingerprint)
 
 
 def _write_delivery_run_record(

@@ -176,6 +176,7 @@ import { shortWorkspacePath } from "@/lib/workspace";
 import { useClient } from "@/providers/ClientProvider";
 import type {
   ApiServicePayload,
+  AutomationDeliveryPolicy,
   AutomationsPayload,
   AutomationUpdatePayload,
   CliAppInfo,
@@ -6454,6 +6455,7 @@ type AutomationEveryUnit = "second" | "minute" | "hour" | "day";
 type AutomationEditDraft = {
   name: string;
   message: string;
+  delivery: AutomationDeliveryPolicy;
   scheduleKind: "at" | "every" | "cron";
   everyValue: string;
   everyUnit: AutomationEveryUnit;
@@ -6496,6 +6498,12 @@ function AutomationEditDialog({
     { value: "every", label: tx("settings.automations.scheduleTypes.every", "Interval") },
     { value: "cron", label: tx("settings.automations.scheduleTypes.cron", "Cron") },
     { value: "at", label: tx("settings.automations.scheduleTypes.at", "Once") },
+  ];
+  const deliveryOptions = [
+    { value: "always", label: tx("settings.automations.deliveryTypes.always", "Always") },
+    { value: "on-change", label: tx("settings.automations.deliveryTypes.on-change", "On change") },
+    { value: "on-error", label: tx("settings.automations.deliveryTypes.on-error", "On failure") },
+    { value: "never", label: tx("settings.automations.deliveryTypes.never", "Never") },
   ];
   const unitLabels: Record<AutomationEveryUnit, string> = {
     second: tx("settings.automations.everyUnits.second", "Seconds"),
@@ -6647,6 +6655,42 @@ function AutomationEditDialog({
                   />
                 </label>
               ) : null}
+
+              {/* Collapsed by default, and that is the honest representation of the defaults:
+                  every field in here already holds today's behaviour, so not opening it is the
+                  supported path. Name, message and schedule stay primary. */}
+              <details className="group rounded-[14px] bg-background/40 px-3 py-2">
+                <summary className="cursor-pointer list-none text-[12px] font-medium text-muted-foreground marker:content-none">
+                  <span className="inline-flex items-center gap-1.5">
+                    <ChevronRight
+                      className="h-3.5 w-3.5 transition-transform group-open:rotate-90"
+                      aria-hidden
+                    />
+                    {tx("settings.automations.advanced", "Advanced")}
+                  </span>
+                </summary>
+                <div className="mt-3 space-y-1.5">
+                  <span className="text-[12px] font-medium text-muted-foreground">
+                    {tx("settings.automations.fields.delivery", "When to notify me")}
+                  </span>
+                  <SegmentedControl
+                    value={draft.delivery}
+                    options={deliveryOptions}
+                    onChange={(value) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        delivery: normalizeDeliveryPolicy(value),
+                      }))
+                    }
+                  />
+                  <p className="pt-1 text-[11.5px] leading-4 text-muted-foreground/80">
+                    {tx(
+                      `settings.automations.deliveryHelp.${draft.delivery}`,
+                      DELIVERY_HELP_FALLBACK[draft.delivery],
+                    )}
+                  </p>
+                </div>
+              </details>
 
               {validation ? (
                 <div className="rounded-[12px] bg-destructive/8 px-3 py-2 text-[12px] text-destructive-text">
@@ -6872,6 +6916,27 @@ function sortAutomationJobs(jobs: SessionAutomationJob[], sort: AutomationSort):
   });
 }
 
+
+
+const DELIVERY_HELP_FALLBACK: Record<AutomationDeliveryPolicy, string> = {
+  always: "Send every result.",
+  "on-change": "Send only when the result differs from the last one delivered.",
+  "on-error": "Send only when the run fails.",
+  never: "Never send, not even on failure. The run history still records what happened.",
+};
+
+const AUTOMATION_DELIVERY_POLICIES: AutomationDeliveryPolicy[] = [
+  "always",
+  "on-change",
+  "on-error",
+  "never",
+];
+
+/** An unrecognised value reads as "always": being noisy about a bad value beats going silent. */
+function normalizeDeliveryPolicy(value: string | undefined): AutomationDeliveryPolicy {
+  return AUTOMATION_DELIVERY_POLICIES.find((policy) => policy === value) ?? "always";
+}
+
 function automationDraftFromJob(job: SessionAutomationJob | null): AutomationEditDraft {
   const every = automationIntervalDraft(job?.schedule.every_ms ?? 3_600_000);
   const scheduleKind = job?.schedule.kind === "at" || job?.schedule.kind === "cron"
@@ -6880,6 +6945,7 @@ function automationDraftFromJob(job: SessionAutomationJob | null): AutomationEdi
   return {
     name: job?.name ?? "",
     message: job?.payload.message ?? "",
+    delivery: normalizeDeliveryPolicy(job?.delivery),
     scheduleKind,
     everyValue: every.value,
     everyUnit: every.unit,
@@ -6943,11 +7009,11 @@ function automationUpdatePayloadFromDraft(
   const name = draft.name.trim();
   if (isLocalTriggerAutomation(job)) {
     if (!name) return "invalid";
-    return { name };
+    return { name, delivery: draft.delivery };
   }
   const message = draft.message.trim();
   if (!name || !message) return "invalid";
-  const payload: AutomationUpdatePayload = { name, message };
+  const payload: AutomationUpdatePayload = { name, message, delivery: draft.delivery };
   const schedule = automationSchedulePayloadFromDraft(draft);
   if (typeof schedule === "string") return schedule;
   if (automationScheduleChanged(draft, job, schedule)) {

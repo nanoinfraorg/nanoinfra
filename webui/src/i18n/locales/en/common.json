@@ -799,7 +799,8 @@
         "unit": "Unit",
         "cronExpression": "Cron expression",
         "timezone": "Timezone",
-        "runAt": "Run at"
+        "runAt": "Run at",
+        "delivery": "When to notify me"
       },
       "scheduleTypes": {
         "every": "Interval",
@@ -834,6 +835,19 @@
         "reset": "Reset",
         "loading": "Loading…",
         "empty": "This automation remembers nothing yet"
+      },
+      "advanced": "Advanced",
+      "deliveryTypes": {
+        "always": "Always",
+        "on-change": "On change",
+        "on-error": "On failure",
+        "never": "Never"
+      },
+      "deliveryHelp": {
+        "always": "Send every result.",
+        "on-change": "Send only when the result differs from the last one delivered.",
+        "on-error": "Send only when the run fails.",
+        "never": "Never send, not even on failure. The run history still records what happened."
       }
     },
     "oauth": {

@@ -799,7 +799,8 @@
         "unit": "Unité",
         "cronExpression": "Expression cron",
         "timezone": "Fuseau horaire",
-        "runAt": "Exécuter à"
+        "runAt": "Exécuter à",
+        "delivery": "Quand me prévenir"
       },
       "scheduleTypes": {
         "every": "Intervalle",
@@ -834,6 +835,19 @@
         "reset": "Réinitialiser",
         "loading": "Chargement…",
         "empty": "Cette automatisation ne mémorise encore rien"
+      },
+      "advanced": "Avancé",
+      "deliveryTypes": {
+        "always": "Toujours",
+        "on-change": "Au changement",
+        "on-error": "En cas d'échec",
+        "never": "Jamais"
+      },
+      "deliveryHelp": {
+        "always": "Envoyer chaque résultat.",
+        "on-change": "Envoyer uniquement si le résultat diffère du dernier envoyé.",
+        "on-error": "Envoyer uniquement en cas d'échec.",
+        "never": "Ne jamais envoyer, même en cas d'échec. L'historique conserve ce qui s'est passé."
       }
     },
     "oauth": {

@@ -799,7 +799,8 @@
         "unit": "Đơn vị",
         "cronExpression": "Biểu thức cron",
         "timezone": "Múi giờ",
-        "runAt": "Chạy lúc"
+        "runAt": "Chạy lúc",
+        "delivery": "Khi nào thông báo cho tôi"
       },
       "scheduleTypes": {
         "every": "Khoảng lặp",
@@ -834,6 +835,19 @@
         "reset": "Đặt lại",
         "loading": "Đang tải…",
         "empty": "Tự động hóa này chưa ghi nhớ gì"
+      },
+      "advanced": "Nâng cao",
+      "deliveryTypes": {
+        "always": "Luôn luôn",
+        "on-change": "Khi thay đổi",
+        "on-error": "Khi thất bại",
+        "never": "Không bao giờ"
+      },
+      "deliveryHelp": {
+        "always": "Gửi mọi kết quả.",
+        "on-change": "Chỉ gửi khi kết quả khác lần gửi trước.",
+        "on-error": "Chỉ gửi khi lần chạy thất bại.",
+        "never": "Không bao giờ gửi, kể cả khi thất bại. Lịch sử vẫn ghi lại."
       }
     },
     "oauth": {

@@ -6,9 +6,15 @@ import asyncio
 import hashlib
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Protocol
 
+from loguru import logger
+
 from nanoinfra.agent.tools.cron import CronTool
+from nanoinfra.agent.turn_delivery import AUTOMATION_WITHHOLD_DELIVERY_META
+from nanoinfra.automations.delivery import normalize_policy, should_deliver
+from nanoinfra.automations.state import AutomationDeliveryLog, response_fingerprint
 from nanoinfra.bus.events import InboundMessage, OutboundMessage
 from nanoinfra.cron.session_delivery import origin_delivery_context
 from nanoinfra.cron.session_turns import CRON_DEFER_UNTIL_IDLE_META, CRON_TRIGGER_META
@@ -67,6 +73,8 @@ async def run_bound_cron_job(
     *,
     agent: BoundCronAgent,
     cron: CronRunRecorder,
+    delivery_log: AutomationDeliveryLog | None = None,
+    publish: Callable[[OutboundMessage], Awaitable[None]] | None = None,
 ) -> str | None:
     """Execute a session-bound cron job as a normal agent session turn."""
     session_key = job.payload.session_key
@@ -95,6 +103,12 @@ async def run_bound_cron_job(
         ),
     }
     metadata[CRON_DEFER_UNTIL_IDLE_META] = True
+    policy = normalize_policy(job.delivery)
+    # Only withhold when there is a decision to make. Leaving the default path untouched means an
+    # existing job's delivery keeps going through exactly the code it went through before.
+    withholding = policy != "always" and publish is not None
+    if withholding:
+        metadata[AUTOMATION_WITHHOLD_DELIVERY_META] = True
     run_record_base: dict[str, Any] = {
         "job_id": job.id,
         "job_name": job.name,
@@ -151,4 +165,42 @@ async def run_bound_cron_job(
             "response": response,
         },
     )
+    if withholding and resp is not None and publish is not None:
+        await _deliver_if_policy_allows(
+            job,
+            resp,
+            policy=policy,
+            delivery_log=delivery_log,
+            publish=publish,
+        )
     return response
+
+
+async def _deliver_if_policy_allows(
+    job: CronJob,
+    response: OutboundMessage,
+    *,
+    policy: str,
+    delivery_log: AutomationDeliveryLog | None,
+    publish: Callable[[OutboundMessage], Awaitable[None]],
+) -> None:
+    """Publish a withheld cron response, or record that it was silenced and why."""
+    content = response.content or ""
+    fingerprint = response_fingerprint(content)
+    last = delivery_log.last_fingerprint(job.id) if delivery_log else None
+    deliver = should_deliver(
+        policy,  # pyright: ignore[reportArgumentType]
+        content=content,
+        # A failure never reaches here: run_bound_cron_job raises, and the retry path owns it.
+        failed=False,
+        last_fingerprint=last,
+        fingerprint=fingerprint,
+    )
+    if not deliver:
+        logger.info("Cron: job '{}' silenced by its '{}' delivery policy", job.name, policy)
+        return
+    await publish(response)
+    if delivery_log is not None:
+        # Recorded only after a successful publish. Recording first would mean a failed send
+        # taught an on-change policy that the operator had already been told.
+        delivery_log.record(job.id, fingerprint)

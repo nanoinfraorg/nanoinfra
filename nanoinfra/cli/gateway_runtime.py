@@ -839,6 +839,8 @@ def _run_gateway(
     from nanoinfra.agent.model_presets import load_model_preset_catalog
     from nanoinfra.agent.tools.message import MessageTool
     from nanoinfra.agent.turn_delivery import TurnDeliveryFactory
+    from nanoinfra.automations.state import AutomationDeliveryLog
+    from nanoinfra.bus.events import OutboundMessage
     from nanoinfra.bus.queue import MessageBus
     from nanoinfra.bus.runtime_events import RuntimeEventBus
     from nanoinfra.channels.manager import ChannelManager
@@ -945,6 +947,16 @@ def _run_gateway(
     cron_store_path = config.workspace_path / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
     trigger_store = LocalTriggerStore(config.workspace_path)
+    automation_delivery_log = AutomationDeliveryLog(config.workspace_path)
+
+    async def _publish_automation_outcome(msg: OutboundMessage) -> None:
+        """Publish a withheld automation response.
+
+        Reads the bus at send time rather than at build time, for the same reason
+        ``_approval_delivery_watcher`` does: the task list is assembled before the channels run,
+        and a bound method pins one object at the wrong moment.
+        """
+        await bus.publish_outbound(msg)
 
     turn_delivery_factory = TurnDeliveryFactory(
         bus,
@@ -1151,7 +1163,13 @@ def _run_gateway(
             return response
 
         if is_bound_cron_job(job):
-            return await run_bound_cron_job(job, agent=agent, cron=cron)
+            return await run_bound_cron_job(
+                job,
+                agent=agent,
+                cron=cron,
+                delivery_log=automation_delivery_log,
+                publish=_publish_automation_outcome,
+            )
 
         reason = "unbound agent cron job must be recreated from a chat session"
         logger.warning(
@@ -1386,6 +1404,8 @@ def _run_gateway(
                         store=trigger_store,
                         submit_turn=agent.submit_local_trigger_turn,
                         is_channel_enabled=lambda name: channels.get_channel(name) is not None,
+                        delivery_log=automation_delivery_log,
+                        publish=_publish_automation_outcome,
                     ),
                     name="nanoinfra-local-triggers",
                 ),

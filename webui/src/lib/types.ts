@@ -151,6 +151,7 @@ export interface SessionAutomationJob {
       error?: string | null;
     }>;
   };
+  delivery?: AutomationDeliveryPolicy | string;
   origin?: {
     session_key?: string;
     channel: string;
@@ -166,9 +167,12 @@ export interface SessionAutomationJob {
 
 export interface SessionAutomationsPayload { jobs: SessionAutomationJob[]; }
 export interface AutomationsPayload { jobs: SessionAutomationJob[]; }
+export type AutomationDeliveryPolicy = "always" | "on-change" | "on-error" | "never";
+
 export interface AutomationUpdatePayload {
   name?: string;
   message?: string;
+  delivery?: AutomationDeliveryPolicy;
   schedule?: {
     kind: "at" | "every" | "cron";
     at_ms?: number;
