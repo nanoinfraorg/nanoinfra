@@ -8,6 +8,9 @@ from functools import lru_cache
 from typing import Any, cast
 
 AUTOMATION_HISTORY_META = "_automation_turn"
+#: Skills the automation running this turn declared. Written by the runner, read when the prompt is
+#: built. Absent or empty means the full catalogue, which is what every automation had before.
+AUTOMATION_SKILLS_META = "_automation_skills"
 
 
 @dataclass(frozen=True)
@@ -64,6 +67,21 @@ def _automation_specs() -> tuple[AutomationTurnSpec, ...]:
     return (CRON_AUTOMATION_SPEC, LOCAL_TRIGGER_AUTOMATION_SPEC)
 
 
+
+
+def automation_declared_skills(metadata: Mapping[str, Any] | None) -> list[str] | None:
+    """Return the skills this automation declared, or ``None`` for the full catalogue.
+
+    ``None`` rather than an empty list, because the two mean different things to the prompt
+    builder: no declaration is "show everything", and an empty declaration would be "show
+    nothing", which no automation record can currently express and which would be a footgun.
+    """
+    raw = cast(object, (metadata or {}).get(AUTOMATION_SKILLS_META))
+    if not isinstance(raw, (list, tuple)):
+        return None
+    entries = list(cast("list[object] | tuple[object, ...]", raw))
+    names = [str(name).strip() for name in entries if str(name).strip()]
+    return names or None
 
 def automation_identity(
     metadata: Mapping[str, Any] | None,

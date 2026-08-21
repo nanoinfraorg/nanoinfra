@@ -800,7 +800,8 @@
         "cronExpression": "Expressão cron",
         "timezone": "Fuso horário",
         "runAt": "Executar em",
-        "delivery": "Quando me avisar"
+        "delivery": "Quando me avisar",
+        "skills": "Skills a carregar"
       },
       "scheduleTypes": {
         "every": "Intervalo",
@@ -848,7 +849,9 @@
         "on-change": "Enviar apenas quando o resultado for diferente do último entregue.",
         "on-error": "Enviar apenas quando a execução falhar.",
         "never": "Nunca enviar, nem ao falhar. O histórico continua registrando o ocorrido."
-      }
+      },
+      "skillsHelp": "Sem selecionar nenhuma, todas são resumidas, como antes. Selecionar algumas carrega-as por completo e deixa as demais fora do prompt desta automação.",
+      "skillsEmpty": "Nenhuma skill instalada"
     },
     "oauth": {
       "authentication": "Autenticação OAuth",

@@ -800,7 +800,8 @@
         "cronExpression": "Ekspresi cron",
         "timezone": "Zona waktu",
         "runAt": "Jalankan pada",
-        "delivery": "Kapan memberi tahu saya"
+        "delivery": "Kapan memberi tahu saya",
+        "skills": "Skill yang dimuat"
       },
       "scheduleTypes": {
         "every": "Interval",
@@ -848,7 +849,9 @@
         "on-change": "Kirim hanya jika hasilnya berbeda dari yang terakhir dikirim.",
         "on-error": "Kirim hanya jika eksekusi gagal.",
         "never": "Jangan pernah kirim, bahkan saat gagal. Riwayat tetap mencatat kejadiannya."
-      }
+      },
+      "skillsHelp": "Tanpa memilih, semua skill diringkas seperti sebelumnya. Memilih beberapa akan memuatnya penuh dan mengeluarkan sisanya dari prompt otomasi ini.",
+      "skillsEmpty": "Belum ada skill terpasang"
     },
     "oauth": {
       "authentication": "Autentikasi OAuth",

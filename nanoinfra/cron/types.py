@@ -88,6 +88,14 @@ class CronPayload:
         )
 
 
+
+def _store_names(value: Any) -> list[str]:
+    """Read a stored list of names, tolerating a null or a stray scalar."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    entries = list(cast("list[object] | tuple[object, ...]", value))
+    return [str(name).strip() for name in entries if str(name).strip()]
+
 @dataclass
 class CronRetryPolicy:
     """How a failed run is retried. Off by default, so upgrading changes nothing."""
@@ -195,6 +203,9 @@ class CronJob:
     retry: CronRetryPolicy = field(default_factory=CronRetryPolicy)
     #: Whether this job's outcome reaches the operator. Defaults to today's behaviour.
     delivery: str = DEFAULT_DELIVERY_POLICY
+    #: Skills this job's prompt carries in full. Empty means the whole catalogue is summarised,
+    #: which is what every job had before.
+    skills: list[str] = field(default_factory=list[str])
     created_at_ms: int = 0
     updated_at_ms: int = 0
     delete_after_run: bool = False
@@ -230,6 +241,7 @@ class CronJob:
             state=CronJobState.from_store_dict(data.get("state") or {}),
             retry=CronRetryPolicy.from_store_dict(data.get("retry")),
             delivery=normalize_policy(data.get("delivery")),
+            skills=_store_names(data.get("skills")),
             created_at_ms=_store_int(get_camel_snake(data, "createdAtMs", "created_at_ms", 0)),
             updated_at_ms=_store_int(get_camel_snake(data, "updatedAtMs", "updated_at_ms", 0)),
             delete_after_run=bool(

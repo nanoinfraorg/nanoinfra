@@ -165,6 +165,7 @@ def _serialize_job(
 
     payload["protected"] = job.payload.kind == "system_event"
     payload["delivery"] = job.delivery
+    payload["skills"] = list(job.skills)
     payload["retry"] = {
         "attempts": job.retry.attempts,
         "base_delay_ms": job.retry.base_delay_ms,
@@ -229,6 +230,7 @@ def _serialize_trigger(
 
     payload["protected"] = False
     payload["delivery"] = trigger.delivery
+    payload["skills"] = list(trigger.skills)
     payload["delete_after_run"] = False
     payload["created_at_ms"] = trigger.created_at_ms
     payload["updated_at_ms"] = trigger.updated_at_ms

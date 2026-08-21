@@ -800,7 +800,8 @@
         "cronExpression": "Biểu thức cron",
         "timezone": "Múi giờ",
         "runAt": "Chạy lúc",
-        "delivery": "Khi nào thông báo cho tôi"
+        "delivery": "Khi nào thông báo cho tôi",
+        "skills": "Kỹ năng cần tải"
       },
       "scheduleTypes": {
         "every": "Khoảng lặp",
@@ -848,7 +849,9 @@
         "on-change": "Chỉ gửi khi kết quả khác lần gửi trước.",
         "on-error": "Chỉ gửi khi lần chạy thất bại.",
         "never": "Không bao giờ gửi, kể cả khi thất bại. Lịch sử vẫn ghi lại."
-      }
+      },
+      "skillsHelp": "Không chọn gì thì mọi kỹ năng được tóm tắt như trước. Chọn một số sẽ tải đầy đủ chúng và loại phần còn lại khỏi prompt của tự động hóa này.",
+      "skillsEmpty": "Chưa cài kỹ năng nào"
     },
     "oauth": {
       "authentication": "Xác thực OAuth",

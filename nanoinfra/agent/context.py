@@ -140,8 +140,14 @@ class ContextBuilder:
         include_memory_recent_history: bool = True,
         session_key: str | None = None,
         unified_session: bool = False,
+        declared_skills: Sequence[str] | None = None,
     ) -> str:
-        """Build the system prompt from identity, bootstrap files, memory, and skills."""
+        """Build the system prompt from identity, bootstrap files, memory, and skills.
+
+        ``declared_skills`` narrows the catalogue for one turn: the named skills load in full and
+        nothing else is even summarised. It is focus, not a boundary -- a skill is prompt content,
+        so this changes what the model is told about, not what it can reach.
+        """
         root = workspace or self.workspace
         parts = [self._get_identity(channel=channel, workspace=root)]
 
@@ -155,10 +161,12 @@ class ContextBuilder:
         if memory and not self._is_template_content(memory, "memory/MEMORY.md"):
             parts.append(f"# Memory\n\n{self._bounded_long_term_memory(memory)}")
 
+        # Always-skills survive a declaration. The operator set those globally, and an automation
+        # narrowing its own catalogue should not quietly override a global decision.
         active_skills = self.skills.get_always_skills()
         active_skills.extend(
             name
-            for name in (active_skill_names or ())
+            for name in (*(declared_skills or ()), *(active_skill_names or ()))
             if name not in active_skills
         )
         if active_skills:
@@ -166,7 +174,12 @@ class ContextBuilder:
             if active_content:
                 parts.append(f"# Active Skills\n\n{active_content}")
 
-        skills_summary = self.skills.build_skills_summary(exclude=set(active_skills))
+        if declared_skills:
+            # Declared skills are already loaded in full above, so there is nothing left to
+            # summarise: the whole point is that this turn sees these and not the catalogue.
+            skills_summary = ""
+        else:
+            skills_summary = self.skills.build_skills_summary(exclude=set(active_skills))
         if skills_summary:
             parts.append(render_template("agent/skills_section.md", skills_summary=skills_summary))
 
@@ -285,6 +298,7 @@ class ContextBuilder:
         include_memory_recent_history: bool = True,
         session_key: str | None = None,
         unified_session: bool = False,
+        declared_skills: Sequence[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
         root = workspace or self.workspace
@@ -304,6 +318,7 @@ class ContextBuilder:
                     include_memory_recent_history=include_memory_recent_history,
                     session_key=session_key,
                     unified_session=unified_session,
+                    declared_skills=declared_skills,
                 ),
             },
             *history,

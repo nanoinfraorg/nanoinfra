@@ -800,7 +800,8 @@
         "cronExpression": "Cron 式",
         "timezone": "タイムゾーン",
         "runAt": "実行日時",
-        "delivery": "通知するタイミング"
+        "delivery": "通知するタイミング",
+        "skills": "読み込むスキル"
       },
       "scheduleTypes": {
         "every": "間隔",
@@ -848,7 +849,9 @@
         "on-change": "前回送信した結果と異なる場合のみ送信します。",
         "on-error": "実行が失敗した場合のみ送信します。",
         "never": "失敗時も含め送信しません。実行履歴には記録されます。"
-      }
+      },
+      "skillsHelp": "何も選ばなければ従来どおり全スキルを要約します。選ぶとそれらを全文読み込み、他はこの自動化のプロンプトから除外されます。",
+      "skillsEmpty": "インストール済みのスキルはありません"
     },
     "oauth": {
       "authentication": "OAuth 認証",
