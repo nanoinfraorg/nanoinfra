@@ -7,6 +7,7 @@ import hashlib
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from loguru import logger
@@ -16,12 +17,19 @@ from nanoinfra.agent.turn_delivery import AUTOMATION_WITHHOLD_DELIVERY_META
 from nanoinfra.automations.delivery import normalize_policy, should_deliver
 from nanoinfra.automations.state import AutomationDeliveryLog, response_fingerprint
 from nanoinfra.bus.events import InboundMessage, OutboundMessage
+from nanoinfra.cron.service import CronJobTerminalError
 from nanoinfra.cron.session_delivery import origin_delivery_context
 from nanoinfra.cron.session_turns import CRON_DEFER_UNTIL_IDLE_META, CRON_TRIGGER_META
 from nanoinfra.cron.types import CronJob
 from nanoinfra.cron.webui_metadata import cron_proactive_delivery_metadata
+from nanoinfra.runtime_context import RUNTIME_CONTEXT_INPUT_META, RuntimeContextBlock
 from nanoinfra.session.automation_turns import AUTOMATION_SKILLS_META
 from nanoinfra.utils.prompt_templates import render_template
+from nanoinfra.webui.resource_mentions import (
+    ResourceMentionResolver,
+    UnresolvedMentionError,
+    resource_mentions_runtime_context,
+)
 
 if TYPE_CHECKING:
     from nanoinfra.agent.tools.registry import ToolRegistry
@@ -76,11 +84,24 @@ async def run_bound_cron_job(
     cron: CronRunRecorder,
     delivery_log: AutomationDeliveryLog | None = None,
     publish: Callable[[OutboundMessage], Awaitable[None]] | None = None,
+    workspace_path: Path | None = None,
 ) -> str | None:
     """Execute a session-bound cron job as a normal agent session turn."""
     session_key = job.payload.session_key
     if not session_key:
         raise ValueError(f"cron job {job.id} is missing payload.session_key")
+
+    # Before anything else. A reference that no longer resolves stops the run rather than letting
+    # the model fall back to matching on a name -- the fallback reintroduces exactly the ambiguity
+    # the reference removed, and there is nobody watching at 03:00.
+    reference_context: RuntimeContextBlock | None = None
+    if job.references and workspace_path is not None:
+        resolution = ResourceMentionResolver(workspace_path).resolve(job.references)
+        try:
+            resolution.require_all_resolved()
+        except UnresolvedMentionError as exc:
+            raise CronJobTerminalError(str(exc)) from exc
+        reference_context = resource_mentions_runtime_context(resolution.resolved)
 
     prompt = render_template(
         "agent/cron_reminder.md",
@@ -104,6 +125,8 @@ async def run_bound_cron_job(
         ),
     }
     metadata[CRON_DEFER_UNTIL_IDLE_META] = True
+    if reference_context is not None:
+        metadata[RUNTIME_CONTEXT_INPUT_META] = [reference_context]
     if job.skills:
         metadata[AUTOMATION_SKILLS_META] = list(job.skills)
     policy = normalize_policy(job.delivery)

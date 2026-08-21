@@ -17,6 +17,22 @@ def _int_or_zero(value: Any) -> int:
     return 0 if value is None or value == "" else int(value)
 
 
+def _references(value: Any) -> list[dict[str, str]]:
+    """Read stored ``{kind, id}`` pairs, dropping anything malformed."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    out: list[dict[str, str]] = []
+    for entry in list(cast("list[object] | tuple[object, ...]", value)):
+        if not isinstance(entry, dict):
+            continue
+        item = cast("dict[str, object]", entry)
+        kind = str(item.get("kind") or "").strip()
+        ident = str(item.get("id") or "").strip()
+        if kind and ident:
+            out.append({"kind": kind, "id": ident})
+    return out
+
+
 def _names(value: Any) -> list[str]:
     """Read a stored list of names, tolerating a null or a stray scalar."""
     if not isinstance(value, (list, tuple)):
@@ -71,6 +87,8 @@ class LocalTrigger:
     delivery: str = DEFAULT_DELIVERY_POLICY
     #: Skills this trigger's prompt carries in full. Empty means the whole catalogue.
     skills: list[str] = field(default_factory=list[str])
+    #: Resources this trigger references, as ``{"kind": ..., "id": ...}``. See CronJob.references.
+    references: list[dict[str, str]] = field(default_factory=list[dict[str, str]])
     #: SHA-256 of this trigger's key, or empty when it has none. The plaintext is shown once at
     #: issue time and never stored, so a stolen triggers.json yields no working key. A plain
     #: digest rather than a KDF is deliberate: the key is 32 random bytes, not a password, so
@@ -109,6 +127,7 @@ class LocalTrigger:
             sender_id=str(_get(data, "senderId", "sender_id", "trigger") or "trigger"),
             delivery=normalize_policy(data.get("delivery")),
             skills=_names(data.get("skills")),
+            references=_references(data.get("references")),
             key_hash=str(_get(data, "keyHash", "key_hash", "") or ""),
             key_created_at_ms=_int_or_zero(_get(data, "keyCreatedAtMs", "key_created_at_ms", 0)),
             origin_metadata=dict(_get(data, "originMetadata", "origin_metadata", {}) or {}),
@@ -132,6 +151,7 @@ class LocalTrigger:
             "senderId": self.sender_id,
             "delivery": self.delivery,
             "skills": list(self.skills),
+            "references": [dict(item) for item in self.references],
             "keyHash": self.key_hash,
             "keyCreatedAtMs": self.key_created_at_ms,
             "originMetadata": self.origin_metadata,

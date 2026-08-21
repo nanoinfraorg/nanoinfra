@@ -146,6 +146,7 @@ class LocalTriggerStore:
         name: str | None = None,
         delivery: str | None = None,
         skills: list[str] | None = None,
+        references: list[dict[str, str]] | None = None,
     ) -> LocalTrigger | None:
         """Update mutable trigger fields."""
         self._ensure_dirs()
@@ -160,6 +161,8 @@ class LocalTriggerStore:
                 trigger.delivery = normalize_policy(delivery)
             if skills is not None:
                 trigger.skills = list(skills)
+            if references is not None:
+                trigger.references = [dict(item) for item in references]
             trigger.updated_at_ms = _now_ms()
             self._save_triggers_unlocked(triggers)
             return trigger

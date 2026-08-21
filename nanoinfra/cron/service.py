@@ -36,6 +36,14 @@ from nanoinfra.utils.run_records import (
 )
 
 
+class CronJobTerminalError(RuntimeError):
+    """A failure retrying cannot fix.
+
+    A reference that no longer resolves fails identically on every attempt, so burning a backed-off
+    retry budget to re-learn that only delays the one notification the operator needs.
+    """
+
+
 class CronJobSkippedError(Exception):
     """Raised by cron callbacks when a job was intentionally skipped."""
 
@@ -417,6 +425,7 @@ class CronService:
                     },
                     "delivery": j.delivery,
                     "skills": list(j.skills),
+                    "references": [dict(item) for item in j.references],
                     "createdAtMs": j.created_at_ms,
                     "updatedAtMs": j.updated_at_ms,
                     "deleteAfterRun": j.delete_after_run,
@@ -596,6 +605,7 @@ class CronService:
         Without it, "why did this run at 14:07 when it is a daily 09:00 job" had no answer.
         """
         start_ms = _now_ms()
+        terminal = False
         logger.info("Cron: executing job '{}' ({})", job.name, job.id)
 
         try:
@@ -606,6 +616,11 @@ class CronService:
             job.state.last_error = None
             logger.info("Cron: job '{}' completed", job.name)
 
+        except CronJobTerminalError as e:
+            terminal = True
+            job.state.last_status = "error"
+            job.state.last_error = str(e)
+            logger.error("Cron: job '{}' cannot run: {}", job.name, job.state.last_error)
         except CronJobSkippedError as e:
             job.state.last_status = "skipped"
             job.state.last_error = str(e) or None
@@ -635,7 +650,7 @@ class CronService:
         ))
         job.state.run_history = job.state.run_history[-self._MAX_RUN_HISTORY:]
 
-        if self._schedule_retry(job):
+        if not terminal and self._schedule_retry(job):
             # A retry is pending, so the job keeps its slot: a one-shot must not be disabled or
             # deleted while it still has attempts left, and a recurring job must not skip ahead
             # to its next scheduled slot as though the failure had not happened.
@@ -739,6 +754,7 @@ class CronService:
         retry: CronRetryPolicy | None = None,
         delivery: str | None = None,
         skills: list[str] | None = None,
+        references: list[dict[str, str]] | None = None,
     ) -> CronJob:
         """Add a new job."""
         _validate_schedule_for_add(schedule)
@@ -765,6 +781,7 @@ class CronService:
             retry=retry or CronRetryPolicy(),
             delivery=normalize_policy(delivery),
             skills=list(skills or []),
+            references=[dict(item) for item in (references or [])],
             created_at_ms=now,
             updated_at_ms=now,
             delete_after_run=delete_after_run,
@@ -855,6 +872,7 @@ class CronService:
         retry: CronRetryPolicy | None = None,
         delivery: str | None = None,
         skills: list[str] | None = None,
+        references: list[dict[str, str]] | None = None,
     ) -> CronJob | Literal["not_found", "protected"]:
         """Update mutable fields of an existing job. System jobs cannot be updated.
 
@@ -874,6 +892,8 @@ class CronService:
             job.delivery = normalize_policy(delivery)
         if skills is not None:
             job.skills = list(skills)
+        if references is not None:
+            job.references = [dict(item) for item in references]
         if schedule is not None:
             _validate_schedule_for_add(schedule)
             job.schedule = schedule

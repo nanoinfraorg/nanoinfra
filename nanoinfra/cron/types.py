@@ -89,6 +89,22 @@ class CronPayload:
 
 
 
+def _store_references(value: Any) -> list[dict[str, str]]:
+    """Read stored ``{kind, id}`` pairs, dropping anything malformed."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    out: list[dict[str, str]] = []
+    for entry in list(cast("list[object] | tuple[object, ...]", value)):
+        if not isinstance(entry, dict):
+            continue
+        item = cast("dict[str, object]", entry)
+        kind = str(item.get("kind") or "").strip()
+        ident = str(item.get("id") or "").strip()
+        if kind and ident:
+            out.append({"kind": kind, "id": ident})
+    return out
+
+
 def _store_names(value: Any) -> list[str]:
     """Read a stored list of names, tolerating a null or a stray scalar."""
     if not isinstance(value, (list, tuple)):
@@ -210,6 +226,11 @@ class CronJob:
     #: Skills this job's prompt carries in full. Empty means the whole catalogue is summarised,
     #: which is what every job had before.
     skills: list[str] = field(default_factory=list[str])
+    #: Resources this job references, as ``{"kind": ..., "id": ...}``. Ids only: the name is
+    #: re-read at run time, so a renamed server keeps resolving. Resolved *before* the turn is
+    #: built, and an id that no longer resolves stops the run rather than letting the model fall
+    #: back to matching on a name.
+    references: list[dict[str, str]] = field(default_factory=list[dict[str, str]])
     created_at_ms: int = 0
     updated_at_ms: int = 0
     delete_after_run: bool = False
@@ -246,6 +267,7 @@ class CronJob:
             retry=CronRetryPolicy.from_store_dict(data.get("retry")),
             delivery=normalize_policy(data.get("delivery")),
             skills=_store_names(data.get("skills")),
+            references=_store_references(data.get("references")),
             created_at_ms=_store_int(get_camel_snake(data, "createdAtMs", "created_at_ms", 0)),
             updated_at_ms=_store_int(get_camel_snake(data, "updatedAtMs", "updated_at_ms", 0)),
             delete_after_run=bool(
