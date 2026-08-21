@@ -166,6 +166,7 @@ def _serialize_job(
     payload["protected"] = job.payload.kind == "system_event"
     payload["delivery"] = job.delivery
     payload["skills"] = list(job.skills)
+    payload["references"] = [dict(item) for item in job.references]
     payload["retry"] = {
         "attempts": job.retry.attempts,
         "base_delay_ms": job.retry.base_delay_ms,
@@ -232,6 +233,7 @@ def _serialize_trigger(
     payload["protected"] = False
     payload["delivery"] = trigger.delivery
     payload["skills"] = list(trigger.skills)
+    payload["references"] = [dict(item) for item in trigger.references]
     # Whether a key exists, never the key. The plaintext is returned once at issue time and is
     # not stored, so there is nothing here that could leak it.
     payload["has_key"] = bool(trigger.key_hash)

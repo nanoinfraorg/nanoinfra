@@ -118,17 +118,19 @@ import {
   enableNanoinfraFeature,
   fetchApiService,
   fetchAutomationState,
+  fetchDiagrams,
   fetchAutomations,
-  fetchSettings,
-  fetchSettingsUsage,
   fetchCliApps,
   fetchMcpPresets,
   fetchNanoinfraFeatures,
   fetchProviderModels,
+  fetchSettings,
+  fetchSettingsUsage,
   importMcpConfig,
   loginProviderOAuth,
   logoutProviderOAuth,
   migrateModelConfigurations,
+  fetchServers,
   resetAutomationState,
   runAutomationAction,
   runCliAppAction,
@@ -147,6 +149,7 @@ import {
   updateTranscriptionSettings,
   updateWebSearchSettings,
 } from "@/lib/api";
+import type { ServerSummary } from "@/lib/api";
 import { notifyCliAppsChanged } from "@/lib/cli-app-events";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import {
@@ -173,10 +176,16 @@ import {
 } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
 import { shortWorkspacePath } from "@/lib/workspace";
+import {
+  resourceMentionsInText,
+  type ResourceMentionTarget,
+} from "@/components/CliAppMentionText";
+import type { DiagramSummary } from "@/components/diagrams/diagramTypes";
 import { useClient } from "@/providers/ClientProvider";
 import type {
   ApiServicePayload,
   AutomationDeliveryPolicy,
+  ResourceMention,
   AutomationsPayload,
   AutomationUpdatePayload,
   CliAppInfo,
@@ -1923,6 +1932,32 @@ export function SettingsView({
     }
   };
 
+  // Mention candidates for the automation editor. Fetched once: a mention resolves server-side
+  // against the store when the automation runs, so a stale menu entry is refused rather than
+  // silently acted on.
+  const [mentionServers, setMentionServers] = useState<ServerSummary[]>([]);
+  const [mentionDiagrams, setMentionDiagrams] = useState<DiagramSummary[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchServers(token)
+      .then((payload) => {
+        if (!cancelled) setMentionServers(payload.servers);
+      })
+      .catch(() => {
+        if (!cancelled) setMentionServers([]);
+      });
+    void fetchDiagrams(token)
+      .then((payload) => {
+        if (!cancelled) setMentionDiagrams(payload.diagrams);
+      })
+      .catch(() => {
+        if (!cancelled) setMentionDiagrams([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
   const handleAutomationStateFetch = async (id: string) =>
     (await fetchAutomationState(token, id)).values;
 
@@ -2418,6 +2453,8 @@ export function SettingsView({
         job={automationPendingEdit}
         saving={automationAction === `update:${automationPendingEdit?.id ?? ""}`}
         skills={skills}
+        servers={mentionServers}
+        diagrams={mentionDiagrams}
         onOpenChange={(open) => {
           if (!open) setAutomationPendingEdit(null);
         }}
@@ -6212,6 +6249,200 @@ function automationMessageNeedsExpansion(message: string): boolean {
   return message.length > 360 || message.split(/\r?\n/).length > 6;
 }
 
+/**
+ * The automation's prompt, with the same `@server:`/`@diagram:` affordance the chat composer has.
+ *
+ * A reference typed by hand would be a name the run has to re-resolve, which is the failure this
+ * whole feature exists to remove. So the menu is here, at the moment the operator authors it.
+ *
+ * A reference that no longer resolves is shown as broken **while editing**, not at 03:00.
+ */
+function AutomationMessageField({
+  value,
+  references,
+  servers,
+  diagrams,
+  tx,
+  onChange,
+}: {
+  value: string;
+  references: ResourceMention[];
+  servers: ServerSummary[];
+  diagrams: DiagramSummary[];
+  tx: (key: string, fallback: string, values?: Record<string, unknown>) => string;
+  onChange: (message: string, references: ResourceMention[]) => void;
+}) {
+  const [caret, setCaret] = useState(0);
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+
+  const query = useMemo(() => {
+    const before = value.slice(0, Math.min(Math.max(caret, 0), value.length));
+    const match = /(?:^|\s)@((?:server|diagram):[\p{L}\p{N}_-]*)$/iu.exec(before);
+    if (!match) return null;
+    const token = match[1] ?? "";
+    const colon = token.indexOf(":");
+    return {
+      kind: token.slice(0, colon).toLowerCase() as "server" | "diagram",
+      text: token.slice(colon + 1).toLowerCase(),
+      start: before.length - token.length - 1,
+    };
+  }, [caret, value]);
+
+  const options = useMemo(() => {
+    if (!query) return [];
+    if (query.kind === "server") {
+      return servers
+        .filter((server) => [server.name, server.providerId, ...server.tags]
+          .join(" ").toLowerCase().includes(query.text))
+        .slice(0, 6)
+        .map((server) => ({ id: server.id, name: server.name, kind: "server" as const }));
+    }
+    return diagrams
+      .filter((diagram) => [diagram.name, ...diagram.targets]
+        .join(" ").toLowerCase().includes(query.text))
+      .slice(0, 6)
+      .map((diagram) => ({ id: diagram.id, name: diagram.name, kind: "diagram" as const }));
+  }, [diagrams, query, servers]);
+
+  const nameFor = (reference: ResourceMention): string | null => {
+    if (reference.kind === "server") {
+      return servers.find((server) => server.id === reference.id)?.name ?? null;
+    }
+    return diagrams.find((diagram) => diagram.id === reference.id)?.name ?? null;
+  };
+
+  const targets = useMemo<ResourceMentionTarget[]>(() => [
+    ...servers.map((server) => ({
+      kind: "server" as const,
+      id: server.id,
+      name: server.name,
+      detail: [server.providerId, ...server.tags].filter(Boolean).join(" · "),
+    })),
+    ...diagrams.map((diagram) => ({
+      kind: "diagram" as const,
+      id: diagram.id,
+      name: diagram.name,
+      detail: `${diagram.nodeCount} nodes`,
+    })),
+  ], [diagrams, servers]);
+
+  /**
+   * What the text references, plus anything stored that no longer resolves.
+   *
+   * Resolved through the same helper the composer uses -- this had its own regex for a while and
+   * the two disagreed on a dotted name. A stored reference whose id is still written but whose
+   * resource is gone is kept, because showing it as broken here is the whole point of surfacing
+   * it at authoring time rather than at 03:00.
+   */
+  const live = useMemo<ResourceMention[]>(() => {
+    const resolved = resourceMentionsInText(value, targets)
+      .map((target) => ({ kind: target.kind, id: target.id }));
+    const seen = new Set(resolved.map((item) => `${item.kind}:${item.id}`));
+    const stillWritten = references.filter((item) => (
+      !seen.has(`${item.kind}:${item.id}`)
+      && value.toLowerCase().includes(`${item.kind}:${item.id}`.toLowerCase())
+    ));
+    return [...resolved, ...stillWritten];
+  }, [references, targets, value]);
+
+  const broken = live.filter((reference) => nameFor(reference) === null);
+
+  const insert = (option: { id: string; name: string; kind: "server" | "diagram" }) => {
+    if (!query) return;
+    const token = `@${option.kind}:${option.id}`;
+    const next = `${value.slice(0, query.start)}${token} ${value.slice(caret)}`;
+    const nextReferences = [
+      ...live.filter((item) => !(item.kind === option.kind && item.id === option.id)),
+      { kind: option.kind, id: option.id },
+    ];
+    onChange(next, nextReferences);
+    requestAnimationFrame(() => {
+      const el = ref.current;
+      if (!el) return;
+      const cursor = query.start + token.length + 1;
+      el.focus();
+      el.setSelectionRange(cursor, cursor);
+      setCaret(cursor);
+    });
+  };
+
+  return (
+    <div className="relative space-y-1.5">
+      <Textarea
+        ref={ref}
+        value={value}
+        onChange={(event) => {
+          // Falling back to the end of the value, not to zero: a programmatic assignment leaves
+          // selectionStart at 0, and a caret of 0 makes the picker impossible to open.
+          setCaret(event.target.selectionStart ?? event.target.value.length);
+          onChange(event.target.value, live);
+        }}
+        onKeyUp={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
+        onClick={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
+        className="min-h-[160px] resize-none rounded-[12px] font-mono text-[12.5px] leading-5"
+      />
+      {/* The picker is a div rather than a ul: an intervening li carries no role, which breaks
+          the listbox-owns-option relationship the accessibility tree needs. */}
+      {options.length > 0 ? (
+        <div
+          role="listbox"
+          aria-label={tx("settings.automations.referencePicker", "Reference a resource")}
+          className="absolute inset-x-0 top-full z-20 mt-1 grid gap-0.5 rounded-[14px] border border-border/40 bg-popover p-1 shadow-lg"
+        >
+          {options.map((option) => (
+            <button
+              key={`${option.kind}-${option.id}`}
+              type="button"
+              role="option"
+              aria-selected={false}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                insert(option);
+              }}
+              className="w-full rounded-[10px] px-2.5 py-1.5 text-left text-[12.5px] hover:bg-accent"
+            >
+              {option.name}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {live.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5 pt-0.5">
+          {live.map((reference) => {
+            const name = nameFor(reference);
+            return (
+              <span
+                key={`${reference.kind}-${reference.id}`}
+                data-testid={`automation-reference-${reference.kind}-${reference.id}`}
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-[11px] leading-4",
+                  name
+                    ? "bg-primary/12 text-foreground/85"
+                    : "bg-destructive/12 text-destructive-text",
+                )}
+              >
+                {name ?? tx(
+                  "settings.automations.referenceMissing",
+                  "{{kind}} no longer exists",
+                  { kind: reference.kind },
+                )}
+              </span>
+            );
+          })}
+        </div>
+      ) : null}
+      {broken.length > 0 ? (
+        <p className="text-[11.5px] leading-4 text-destructive-text">
+          {tx(
+            "settings.automations.referenceBrokenHint",
+            "This automation will refuse to run until the missing reference is removed.",
+          )}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function AutomationStatePanel({
   job,
   tx,
@@ -6458,6 +6689,7 @@ type AutomationEditDraft = {
   message: string;
   delivery: AutomationDeliveryPolicy;
   skills: string[];
+  references: ResourceMention[];
   scheduleKind: "at" | "every" | "cron";
   everyValue: string;
   everyUnit: AutomationEveryUnit;
@@ -6478,12 +6710,16 @@ function AutomationEditDialog({
   job,
   saving,
   skills,
+  servers,
+  diagrams,
   onOpenChange,
   onSave,
 }: {
   job: SessionAutomationJob | null;
   saving: boolean;
   skills: SkillSummary[];
+  servers: ServerSummary[];
+  diagrams: DiagramSummary[];
   onOpenChange: (open: boolean) => void;
   onSave: (job: SessionAutomationJob, values: AutomationUpdatePayload) => void | Promise<void>;
 }) {
@@ -6552,10 +6788,15 @@ function AutomationEditDialog({
                   <span className="text-[12px] font-medium text-muted-foreground">
                     {tx("settings.automations.fields.message", "Message")}
                   </span>
-                  <Textarea
+                  <AutomationMessageField
                     value={draft.message}
-                    onChange={(event) => setDraft((prev) => ({ ...prev, message: event.target.value }))}
-                    className="min-h-[160px] resize-none rounded-[12px] text-[13px] leading-5"
+                    references={draft.references}
+                    servers={servers}
+                    diagrams={diagrams}
+                    tx={tx}
+                    onChange={(message, references) =>
+                      setDraft((prev) => ({ ...prev, message, references }))
+                    }
                   />
                 </label>
               ) : null}
@@ -6997,6 +7238,7 @@ function automationDraftFromJob(job: SessionAutomationJob | null): AutomationEdi
     message: job?.payload.message ?? "",
     delivery: normalizeDeliveryPolicy(job?.delivery),
     skills: [...(job?.skills ?? [])],
+    references: [...(job?.references ?? [])],
     scheduleKind,
     everyValue: every.value,
     everyUnit: every.unit,
@@ -7060,7 +7302,12 @@ function automationUpdatePayloadFromDraft(
   const name = draft.name.trim();
   if (isLocalTriggerAutomation(job)) {
     if (!name) return "invalid";
-    return { name, delivery: draft.delivery, skills: draft.skills };
+    return {
+      name,
+      delivery: draft.delivery,
+      skills: draft.skills,
+      references: draft.references,
+    };
   }
   const message = draft.message.trim();
   if (!name || !message) return "invalid";
@@ -7069,6 +7316,7 @@ function automationUpdatePayloadFromDraft(
     message,
     delivery: draft.delivery,
     skills: draft.skills,
+    references: draft.references,
   };
   const schedule = automationSchedulePayloadFromDraft(draft);
   if (typeof schedule === "string") return schedule;

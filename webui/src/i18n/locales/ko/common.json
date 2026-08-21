@@ -851,7 +851,10 @@
         "never": "실패해도 보내지 않습니다. 실행 기록에는 남습니다."
       },
       "skillsHelp": "선택하지 않으면 이전처럼 모든 스킬을 요약합니다. 선택하면 해당 스킬을 전문으로 불러오고 나머지는 이 자동화의 프롬프트에서 제외합니다.",
-      "skillsEmpty": "설치된 스킬이 없습니다"
+      "skillsEmpty": "설치된 스킬이 없습니다",
+      "referencePicker": "리소스 참조",
+      "referenceMissing": "{{kind}}가 더 이상 존재하지 않습니다",
+      "referenceBrokenHint": "누락된 참조를 제거할 때까지 이 자동화는 실행을 거부합니다."
     },
     "oauth": {
       "authentication": "OAuth 인증",
@@ -1489,7 +1492,15 @@
         "cliTitle": "CLI 앱: {{name}}",
         "mcpTitle": "MCP 서버: {{name}}",
         "sessionBadge": "Nanoinfra 대화",
-        "sessionDescription": "@{{name}}을 이전 채팅으로 참조"
+        "sessionDescription": "@{{name}}을 이전 채팅으로 참조",
+        "referenceGroup": "참조",
+        "referenceBadge": "참조",
+        "serverPrefixHint": "{{count}}개 서버 중 하나 참조",
+        "diagramPrefixHint": "{{count}}개 다이어그램 중 하나 참조",
+        "serverGroup": "서버",
+        "diagramGroup": "다이어그램",
+        "serverBadge": "서버",
+        "diagramBadge": "다이어그램"
       },
       "workspace": {
         "accessAria": "작업공간 접근 모드",

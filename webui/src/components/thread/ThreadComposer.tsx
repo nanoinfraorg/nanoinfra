@@ -14,6 +14,7 @@ import {
   CapabilityMentionToken,
   cliAppInitials,
   mcpPresetInitials,
+  resourceMentionsInText,
   splitCapabilityMentionSegments,
   type CapabilityMentionSegment,
   type ResourceMentionTarget,
@@ -329,6 +330,8 @@ interface CliAppMentionQuery {
 export const RESOURCE_MENTION_KINDS = ["server", "diagram"] as const;
 /** Matches the server-side bound, so the composer cannot build a payload the gateway will trim. */
 const RESOURCE_MENTIONS_LIMIT = 16;
+/** A name safe to put in a mention token: no space and no colon for the parser to split on. */
+const TOKENISABLE_NAME = /^[\p{L}\p{N}_.-]+$/u;
 export type ResourceMentionKind = (typeof RESOURCE_MENTION_KINDS)[number];
 
 type MentionCandidate = {
@@ -348,6 +351,8 @@ type MentionCandidate = {
       reference: ResourceMention;
       detail: string;
     }
+  /** A discoverability entry on a bare `@`: choosing it types the prefix. Nothing is referenced. */
+  | { kind: "prefix"; prefix: ResourceMentionKind; detail: string }
 );
 
 interface MentionInsertion {
@@ -1312,7 +1317,8 @@ export function ThreadComposer({
     const beforeCaret = value.slice(0, caret);
     // The colon is in the class so `@server:db-01` stays one token. Without it the menu closed
     // the moment the colon was typed, which is what made a namespaced mention impossible.
-    const match = /(?:^|\s)@([\p{L}\p{N}_:-]*)$/iu.exec(beforeCaret);
+    // The dot is in the class so a name like "barrahome.org" keeps the menu open while typing.
+    const match = /(?:^|\s)@([\p{L}\p{N}_:.-]*)$/iu.exec(beforeCaret);
     if (!match) return null;
     const token = match[1];
     const colon = token.indexOf(":");
@@ -1343,34 +1349,46 @@ export function ThreadComposer({
     ),
     [cliApps, mcpPresets, sessions],
   );
-  const [selectedResourceMentions, setSelectedResourceMentions] = useState<
-    ResourceMentionTarget[]
-  >([]);
   /**
-   * Only references whose token is still in the text are sent.
+   * Every resource this workspace has, as mention targets.
    *
-   * Without this an operator who inserted a mention and then deleted it would still ship the
-   * reference -- a thing the agent acts on that nobody can see in the message.
+   * Deliberately the whole catalogue rather than only what the operator clicked. A token typed or
+   * pasted by hand is a normal thing to do -- an operator who copied a diagram id out of the
+   * Diagrams view had no chip and, worse, no reference on the wire, because the decoration was
+   * keyed on click history. Deriving both from the text against this list means what is decorated
+   * and what is sent are the same thing by construction.
    */
-  const liveResourceMentions = useMemo<ResourceMention[]>(() => {
-    const present = new Set<string>();
-    const pattern = /(?:^|[\s([{])@((?:server|diagram):[\p{L}\p{N}_-]+)(?=$|[^\p{L}\p{N}_:-])/giu;
-    for (const match of value.matchAll(pattern)) {
-      present.add((match[1] ?? "").toLowerCase());
-    }
-    return selectedResourceMentions
-      .filter((item) => present.has(`${item.kind}:${item.id}`.toLowerCase()))
-      .map((item) => ({ kind: item.kind, id: item.id }));
-  }, [selectedResourceMentions, value]);
+  const resourceTargets = useMemo<ResourceMentionTarget[]>(() => [
+    ...servers.map((server) => ({
+      kind: "server" as const,
+      id: server.id,
+      name: server.name,
+      detail: [server.providerId, ...server.tags].filter(Boolean).join(" · "),
+    })),
+    ...diagrams.map((diagram) => ({
+      kind: "diagram" as const,
+      id: diagram.id,
+      name: diagram.name,
+      detail: `${diagram.nodeCount} nodes`,
+    })),
+  ], [diagrams, servers]);
+
+  /** The references actually present in the text, in the order they appear. */
+  const liveResourceMentions = useMemo<ResourceMention[]>(
+    () => resourceMentionsInText(value, resourceTargets)
+      .slice(0, RESOURCE_MENTIONS_LIMIT)
+      .map((target) => ({ kind: target.kind, id: target.id })),
+    [resourceTargets, value],
+  );
   const mentionSegments = useMemo(
     () => splitCapabilityMentionSegments(
       value,
       cliApps,
       mcpPresets,
       selectedSessionMentions,
-      selectedResourceMentions,
+      resourceTargets,
     ),
-    [cliApps, mcpPresets, selectedResourceMentions, selectedSessionMentions, value],
+    [cliApps, mcpPresets, resourceTargets, selectedSessionMentions, value],
   );
   const sessionDragInsertion = sessionDragPreview
     ? mentionInsertion(
@@ -1426,6 +1444,31 @@ export function ThreadComposer({
           reference: { kind: "diagram" as const, id: diagram.id },
         }));
     }
+    // Without these, the only way to learn that "@server:" exists is to be told. They appear on
+    // an unprefixed query and disappear as soon as a prefix is typed.
+    const prefixCandidates: MentionCandidate[] = cliAppMention.kind
+      ? []
+      : ([
+        { prefix: "server" as const, count: servers.length },
+        { prefix: "diagram" as const, count: diagrams.length },
+      ])
+        .filter(({ count }) => count > 0)
+        .filter(({ prefix }) => prefix.startsWith(cliAppMention.query))
+        .map(({ prefix, count }) => ({
+          kind: "prefix" as const,
+          prefix,
+          name: `${prefix}:`,
+          displayName: `${prefix}:`,
+          detail: prefix === "server"
+            ? t("thread.composer.mentions.serverPrefixHint", {
+                defaultValue: "Reference one of {{count}} servers",
+                count,
+              })
+            : t("thread.composer.mentions.diagramPrefixHint", {
+                defaultValue: "Reference one of {{count}} diagrams",
+                count,
+              }),
+        }));
     const sessionCandidates: MentionCandidate[] = availableSessionMentions
       .filter((mention) => (
         activeSessionMentions.length < SESSION_MENTIONS_LIMIT
@@ -1484,17 +1527,18 @@ export function ThreadComposer({
         initials: mcpPresetInitials(preset),
       }));
     const groups = [
+      { candidates: prefixCandidates, reserved: 2 },
       { candidates: cliCandidates, reserved: 2 },
       { candidates: mcpCandidates, reserved: 2 },
       { candidates: sessionCandidates, reserved: 4 },
     ];
-    let remaining = 8;
+    let remaining = 10;
     const counts = groups.map(({ candidates, reserved }) => {
       const count = Math.min(candidates.length, reserved);
       remaining -= count;
       return count;
     });
-    for (const index of [2, 0, 1]) {
+    for (const index of [3, 1, 2, 0]) {
       const extra = Math.min(remaining, groups[index].candidates.length - counts[index]);
       counts[index] += extra;
       remaining -= extra;
@@ -1783,25 +1827,42 @@ export function ThreadComposer({
           candidate.mention,
         ]);
       }
+      if (candidate.kind === "prefix") {
+        // Type the prefix and keep the menu open so the next keystroke filters the real list.
+        // No trailing space: a space would end the token and close the menu immediately.
+        const prefix = value.slice(0, Math.min(Math.max(start, 0), value.length));
+        const suffix = value.slice(Math.min(Math.max(end, start), value.length));
+        const leading = prefix && !/\s$/.test(prefix) ? " " : "";
+        const next = `${prefix}${leading}@${candidate.prefix}:${suffix}`;
+        const cursor = prefix.length + leading.length + candidate.prefix.length + 2;
+        setValue(next);
+        setCursorPosition(cursor);
+        setCliAppMenuDismissed(false);
+        setSlashMenuDismissed(false);
+        setInlineError(null);
+        resizeTextarea();
+        requestAnimationFrame(() => {
+          const el = textareaRef.current;
+          if (!el) return;
+          el.focus();
+          el.setSelectionRange(cursor, cursor);
+        });
+        return;
+      }
       // A resource keeps its id in state and only its `kind:name` in the text. The name is for
       // the operator; the server re-reads it from the store, so a rename does not strand the
       // reference.
       let token = candidate.name;
       if (candidate.kind === "server" || candidate.kind === "diagram") {
-        const reference = candidate.reference;
-        setSelectedResourceMentions((current) => [
-          ...current.filter(
-            (item) => !(item.kind === reference.kind && item.id === reference.id),
-          ),
-          {
-            kind: candidate.kind,
-            id: reference.id,
-            name: candidate.name,
-            detail: candidate.detail,
-          },
-        ].slice(-RESOURCE_MENTIONS_LIMIT));
-        // The id goes in the text and the chip shows the name, so a rename does not strand it.
-        token = `${candidate.kind}:${reference.id}`;
+        // Nothing is recorded here. The token in the text is the record, resolved against the
+        // catalogue, so a hand-typed token behaves exactly like a clicked one.
+        //
+        // The name goes in the text when it can be one word, so the operator does not read a
+        // uuid; a name with a space, a colon or a dot -- "Example: blog on Azure",
+        // "barrahome.org" -- falls back to the id rather than producing a token the parser splits.
+        token = TOKENISABLE_NAME.test(candidate.name)
+          ? `${candidate.kind}:${candidate.name}`
+          : `${candidate.kind}:${candidate.reference.id}`;
       }
       const insertion = mentionInsertion(value, token, start, end);
       setValue(insertion.value);
@@ -3005,10 +3066,12 @@ function CliAppMentionPalette({
     layout.maxHeight - SLASH_PALETTE_CHROME_PX,
   );
   const listRef = useSelectedOptionScroll(selectedIndex);
-  const groupedCandidates = (["cli", "mcp", "session", "server", "diagram"] as const)
+  const groupedCandidates = (["prefix", "cli", "mcp", "session", "server", "diagram"] as const)
     .map((kind) => ({
       kind,
-      label: kind === "session"
+      label: kind === "prefix"
+        ? t("thread.composer.mentions.referenceGroup", { defaultValue: "Reference" })
+        : kind === "session"
         ? t("thread.composer.mentions.sessionGroup")
         : kind === "cli"
           ? t("thread.composer.mentions.cliGroup")
@@ -3044,12 +3107,15 @@ function CliAppMentionPalette({
             {group.items.map(({ candidate, index }) => {
               const selected = index === selectedIndex;
               const name = candidate.name;
-              const resource = candidate.kind === "server" || candidate.kind === "diagram";
+              const resource = candidate.kind === "server" || candidate.kind === "diagram"
+                || candidate.kind === "prefix";
               const typeLabel = candidate.kind === "cli"
                 ? t("thread.composer.mentions.cliBadge")
                 : candidate.kind === "mcp"
                   ? t("thread.composer.mentions.mcpBadge")
-                  : candidate.kind === "server"
+                  : candidate.kind === "prefix"
+                    ? t("thread.composer.mentions.referenceBadge", { defaultValue: "Reference" })
+                    : candidate.kind === "server"
                     ? t("thread.composer.mentions.serverBadge", { defaultValue: "Server" })
                     : candidate.kind === "diagram"
                       ? t("thread.composer.mentions.diagramBadge", { defaultValue: "Diagram" })
@@ -3134,7 +3200,7 @@ function MentionCandidateLogo({
   if (!branded) {
     const Icon = candidate.kind === "session"
       ? MessageCircle
-      : candidate.kind === "server"
+      : candidate.kind === "server" || (candidate.kind === "prefix" && candidate.prefix === "server")
         ? Server
         : Network;
     return (

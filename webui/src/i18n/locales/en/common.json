@@ -851,7 +851,10 @@
         "never": "Never send, not even on failure. The run history still records what happened."
       },
       "skillsHelp": "Pick none to summarise every skill, as before. Picking some loads those in full and leaves the rest out of this automation's prompt.",
-      "skillsEmpty": "No skills installed"
+      "skillsEmpty": "No skills installed",
+      "referencePicker": "Reference a resource",
+      "referenceMissing": "{{kind}} no longer exists",
+      "referenceBrokenHint": "This automation will refuse to run until the missing reference is removed."
     },
     "oauth": {
       "authentication": "OAuth authentication",
@@ -1473,7 +1476,15 @@
         "cliTitle": "CLI app: {{name}}",
         "mcpTitle": "MCP server: {{name}}",
         "sessionBadge": "Nanoinfra conversation",
-        "sessionDescription": "Reference @{{name}} as a previous chat"
+        "sessionDescription": "Reference @{{name}} as a previous chat",
+        "referenceGroup": "Reference",
+        "referenceBadge": "Reference",
+        "serverPrefixHint": "Reference one of {{count}} servers",
+        "diagramPrefixHint": "Reference one of {{count}} diagrams",
+        "serverGroup": "Servers",
+        "diagramGroup": "Diagrams",
+        "serverBadge": "Server",
+        "diagramBadge": "Diagram"
       },
       "encoding": "Encoding…",
       "remove": "Remove attachment",

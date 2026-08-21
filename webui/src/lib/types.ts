@@ -160,6 +160,7 @@ export interface SessionAutomationJob {
   };
   delivery?: AutomationDeliveryPolicy | string;
   skills?: string[];
+  references?: ResourceMention[];
   origin?: {
     session_key?: string;
     channel: string;
@@ -182,6 +183,7 @@ export interface AutomationUpdatePayload {
   message?: string;
   delivery?: AutomationDeliveryPolicy;
   skills?: string[];
+  references?: ResourceMention[];
   schedule?: {
     kind: "at" | "every" | "cron";
     at_ms?: number;

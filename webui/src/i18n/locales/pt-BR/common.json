@@ -851,7 +851,10 @@
         "never": "Nunca enviar, nem ao falhar. O histórico continua registrando o ocorrido."
       },
       "skillsHelp": "Sem selecionar nenhuma, todas são resumidas, como antes. Selecionar algumas carrega-as por completo e deixa as demais fora do prompt desta automação.",
-      "skillsEmpty": "Nenhuma skill instalada"
+      "skillsEmpty": "Nenhuma skill instalada",
+      "referencePicker": "Referenciar um recurso",
+      "referenceMissing": "o {{kind}} não existe mais",
+      "referenceBrokenHint": "Esta automação recusará executar até que a referência ausente seja removida."
     },
     "oauth": {
       "authentication": "Autenticação OAuth",
@@ -1473,7 +1476,15 @@
         "cliTitle": "Aplicativo CLI: {{name}}",
         "mcpTitle": "Servidor MCP: {{name}}",
         "sessionBadge": "Conversa do Nanoinfra",
-        "sessionDescription": "Referenciar @{{name}} como chat anterior"
+        "sessionDescription": "Referenciar @{{name}} como chat anterior",
+        "referenceGroup": "Referência",
+        "referenceBadge": "Referência",
+        "serverPrefixHint": "Referenciar um de {{count}} servidores",
+        "diagramPrefixHint": "Referenciar um de {{count}} diagramas",
+        "serverGroup": "Servidores",
+        "diagramGroup": "Diagramas",
+        "serverBadge": "Servidor",
+        "diagramBadge": "Diagrama"
       },
       "encoding": "Codificando…",
       "remove": "Remover anexo",
