@@ -64,6 +64,17 @@ def _executor(tmp_path: Path, gates: GatesConfig | None = None, *, audit: Any = 
     )
 
 
+def _granted_with_credential() -> GatesConfig:
+    """A grant plus the credential.access allow the decryption needs.
+
+    The grant alone covers mutate.remote, and credential.access refuses under the unattended
+    defaults -- which is correct, and which means a test about the decryption has to get past it.
+    """
+    gates = _granted()
+    gates.unattended.credential_access = "allow"  # type: ignore[assignment]
+    return gates
+
+
 def _granted() -> GatesConfig:
     return GatesConfig.model_validate(
         {
@@ -307,3 +318,51 @@ async def test_the_command_text_never_reaches_the_audit_record(tmp_path: Path) -
         )
 
     assert "hunter2" not in str(audit.read_all())
+
+
+@pytest.mark.asyncio
+async def test_an_unset_key_says_so_instead_of_blaming_a_deleted_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Found the hard way: the operator had approved the action and got a message about a secret
+    that "no longer exists", while the secret was untouched and the key was simply not in that
+    process's environment. Two different facts with two different fixes, so they read differently.
+    """
+    secret = SecretStore(tmp_path).create(
+        {"name": "prod-key", "kind": "token", "providerId": "local", "value": "k"}
+    )
+    _server(tmp_path, secret_ref=secret.id)
+    # The gateway was started without it. The secret file is still on disk.
+    monkeypatch.delenv("NANOINFRA_SECRETS_KEY", raising=False)
+
+    with patch(_BACKEND, new=AsyncMock()) as run:
+        response = await _executor(tmp_path, _granted_with_credential()).handle(
+            _request(command=_GRANTED_COMMAND)
+        )
+
+    assert not response.ok
+    text = str(response.error or response.output)
+    assert "NANOINFRA_SECRETS_KEY" in text
+    assert "no longer exists" not in text
+    # And it says the secret is fine, so nobody goes looking through the store for it.
+    assert "untouched" in text
+    # No transport was opened and no job was recorded, because nothing ran.
+    run.assert_not_called()
+    assert JobStore(tmp_path).list_jobs() == []
+
+
+@pytest.mark.asyncio
+async def test_a_genuinely_missing_secret_still_says_that(tmp_path: Path) -> None:
+    """The other half of the distinction: this one really is gone."""
+    _server(tmp_path, secret_ref="deadbeefdeadbeefdeadbeefdeadbeef")
+
+    with patch(_BACKEND, new=AsyncMock()) as run:
+        response = await _executor(tmp_path, _granted_with_credential()).handle(
+            _request(command=_GRANTED_COMMAND)
+        )
+
+    assert not response.ok
+    text = str(response.error or response.output)
+    assert "no longer exists" in text
+    assert "NANOINFRA_SECRETS_KEY" not in text
+    run.assert_not_called()
