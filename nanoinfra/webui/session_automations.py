@@ -231,6 +231,10 @@ def _serialize_trigger(
     payload["protected"] = False
     payload["delivery"] = trigger.delivery
     payload["skills"] = list(trigger.skills)
+    # Whether a key exists, never the key. The plaintext is returned once at issue time and is
+    # not stored, so there is nothing here that could leak it.
+    payload["has_key"] = bool(trigger.key_hash)
+    payload["key_created_at_ms"] = trigger.key_created_at_ms or None
     payload["delete_after_run"] = False
     payload["created_at_ms"] = trigger.created_at_ms
     payload["updated_at_ms"] = trigger.updated_at_ms

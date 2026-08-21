@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import errno
+import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -161,6 +163,58 @@ class LocalTriggerStore:
             trigger.updated_at_ms = _now_ms()
             self._save_triggers_unlocked(triggers)
             return trigger
+
+    # --- keys ---------------------------------------------------------------
+    #
+    # A trigger key exists so something that can reach a port but cannot run a local command --
+    # a monitor, a CI job, a backup -- can fire one trigger and nothing else. It authorises
+    # exactly that trigger: it does not read sessions, does not list triggers, does not answer
+    # gate approvals, and does not enumerate.
+
+    def issue_key(self, trigger_id: str) -> str | None:
+        """Mint a key, store only its digest, and return the plaintext once.
+
+        Returns ``None`` when the trigger does not exist. Calling this again replaces the old key,
+        which is what rotation is -- there is deliberately no way to read an existing key back.
+        """
+        self._ensure_dirs()
+        with self._lock:
+            triggers = self._load_triggers_unlocked()
+            trigger = self._find_unlocked(triggers, trigger_id)
+            if trigger is None:
+                return None
+            plaintext = f"ntk_{secrets.token_urlsafe(32)}"
+            trigger.key_hash = _hash_key(plaintext)
+            trigger.key_created_at_ms = _now_ms()
+            trigger.updated_at_ms = trigger.key_created_at_ms
+            self._save_triggers_unlocked(triggers)
+            return plaintext
+
+    def revoke_key(self, trigger_id: str) -> bool:
+        """Drop a trigger's key. Reports whether there was one."""
+        self._ensure_dirs()
+        with self._lock:
+            triggers = self._load_triggers_unlocked()
+            trigger = self._find_unlocked(triggers, trigger_id)
+            if trigger is None or not trigger.key_hash:
+                return False
+            trigger.key_hash = ""
+            trigger.key_created_at_ms = 0
+            trigger.updated_at_ms = _now_ms()
+            self._save_triggers_unlocked(triggers)
+            return True
+
+    def verify_key(self, trigger_id: str, presented: str) -> bool:
+        """Constant-time check of a presented key against one trigger's digest.
+
+        A trigger with no key verifies nothing: a key must be issued before the trigger can be
+        fired remotely, so an unconfigured trigger is closed rather than open.
+        """
+        trigger = self.get(trigger_id)
+        if trigger is None or not trigger.key_hash or not presented:
+            return False
+        return hmac.compare_digest(trigger.key_hash, _hash_key(presented))
+
 
     def delete(self, trigger_id: str) -> bool:
         """Delete a trigger by ID."""
@@ -463,6 +517,10 @@ class LocalTriggerStore:
             tmp_path.unlink(missing_ok=True)
             raise
 
+
+
+def _hash_key(plaintext: str) -> str:
+    return hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
 
 def _new_trigger_id(existing_ids: set[str]) -> str:
     for _ in range(100):
