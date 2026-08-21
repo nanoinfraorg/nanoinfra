@@ -1169,6 +1169,7 @@ def _run_gateway(
                 cron=cron,
                 delivery_log=automation_delivery_log,
                 publish=_publish_automation_outcome,
+                workspace_path=config.workspace_path,
             )
 
         reason = "unbound agent cron job must be recreated from a chat session"

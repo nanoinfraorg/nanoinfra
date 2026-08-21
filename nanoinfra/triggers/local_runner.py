@@ -14,11 +14,17 @@ from nanoinfra.agent.turn_delivery import AUTOMATION_WITHHOLD_DELIVERY_META
 from nanoinfra.automations.delivery import normalize_policy, should_deliver
 from nanoinfra.automations.state import AutomationDeliveryLog, response_fingerprint
 from nanoinfra.bus.events import InboundMessage, OutboundMessage
+from nanoinfra.runtime_context import RUNTIME_CONTEXT_INPUT_META
 from nanoinfra.session.automation_turns import AUTOMATION_SKILLS_META
 from nanoinfra.triggers.local_session_turns import LOCAL_TRIGGER_META
 from nanoinfra.triggers.local_store import LocalTriggerStore
 from nanoinfra.triggers.local_types import LocalTrigger, TriggerDelivery
 from nanoinfra.webui.metadata import WEBUI_MESSAGE_SOURCE_METADATA_KEY, WEBUI_TURN_METADATA_KEY
+from nanoinfra.webui.resource_mentions import (
+    ResourceMentionResolver,
+    UnresolvedMentionError,
+    resource_mentions_runtime_context,
+)
 
 
 async def run_local_trigger_queue(
@@ -152,11 +158,25 @@ async def _deliver_delivery(
     if not is_channel_enabled(trigger.channel):
         raise _TerminalDeliveryError(f"target channel is not enabled: {trigger.channel}")
 
+    # Alongside the other preconditions, and before the processing record is written: a reference
+    # that no longer resolves is not something a retry fixes, and the model must not get a chance
+    # to fall back to matching on a name.
+    reference_context = None
+    if trigger.references:
+        resolution = ResourceMentionResolver(store.workspace_path).resolve(trigger.references)
+        try:
+            resolution.require_all_resolved()
+        except UnresolvedMentionError as exc:
+            raise _TerminalDeliveryError(str(exc)) from exc
+        reference_context = resource_mentions_runtime_context(resolution.resolved)
+
     store.write_delivery_run_record(delivery, trigger=trigger, status="processing")
     policy = normalize_policy(trigger.delivery)
     metadata = _delivery_metadata(trigger, delivery)
     if trigger.skills:
         metadata[AUTOMATION_SKILLS_META] = list(trigger.skills)
+    if reference_context is not None:
+        metadata[RUNTIME_CONTEXT_INPUT_META] = [reference_context]
     withholding = policy != "always" and publish is not None
     if withholding:
         metadata[AUTOMATION_WITHHOLD_DELIVERY_META] = True
