@@ -33,6 +33,7 @@ function settingsPayload(): SettingsPayload {
       temperature: 0.1,
       reasoning_effort: null,
       timezone: "UTC",
+      max_concurrent_subagents: 1,
       tool_hint_max_length: 40,
     },
     model_presets: [{
@@ -576,6 +577,53 @@ describe("SettingsView Apps catalog", () => {
         expect.any(Object),
       );
     });
+  });
+
+  it("edits the subagent limit from the Agents tab and asks for a restart", async () => {
+    const base = settingsPayload();
+    const saved = {
+      ...base,
+      agent: { ...base.agent, max_concurrent_subagents: 3 },
+      requires_restart: true,
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/settings") return jsonResponse(base);
+      if (url.startsWith("/api/settings/update")) return jsonResponse(saved);
+      return jsonResponse({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderSettingsView({ initialSection: "agents", initialSettings: base, showSidebar: true });
+
+    // Its own pane, not squeezed into the timezone group where it first landed.
+    expect(await screen.findByText("Subagents")).toBeInTheDocument();
+    const field = screen.getByRole("spinbutton");
+    expect(field).toHaveValue(1);
+
+    fireEvent.change(field, { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes("max_concurrent_subagents=3"),
+      );
+      expect(call).toBeTruthy();
+    });
+  });
+
+  it("clamps the subagent limit to the range the schema enforces", async () => {
+    const base = settingsPayload();
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(base)));
+
+    renderSettingsView({ initialSection: "agents", initialSettings: base, showSidebar: true });
+
+    const field = await screen.findByRole("spinbutton");
+    // A typo here used to be a fork bomb against the provider account.
+    fireEvent.change(field, { target: { value: "99" } });
+    expect(field).toHaveValue(8);
+    fireEvent.change(field, { target: { value: "0" } });
+    expect(field).toHaveValue(1);
   });
 
   it("shows a visible uninstall button for installed CLI apps and calls uninstall", async () => {

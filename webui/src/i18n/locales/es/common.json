@@ -98,7 +98,8 @@
       "mcp": "MCP",
       "apps": "Aplicaciones",
       "automations": "Automatizaciones",
-      "skills": "Habilidades"
+      "skills": "Habilidades",
+      "agents": "Agentes"
     },
     "sections": {
       "interface": "Interfaz",
@@ -120,7 +121,8 @@
       "apps": "Aplicaciones",
       "nativeHost": "Host nativo",
       "hostSafety": "Seguridad de la app",
-      "voiceInput": "Entrada de voz"
+      "voiceInput": "Entrada de voz",
+      "subagents": "Subagentes"
     },
     "rows": {
       "theme": "Tema",
@@ -215,7 +217,7 @@
       "transcriptionModel": "Déjalo como el valor predeterminado resuelto, salvo que el proveedor necesite un identificador de modelo personalizado.",
       "transcriptionLanguage": "Pista ISO-639 opcional, como en, zh, ja o ko.",
       "threadWidth": "Qué tan ancha va una conversación. Las tablas y los bloques de código reciben primero el espacio extra.",
-      "maxConcurrentSubagents": "Cuántos subagentes pueden correr en paralelo. Cada uno es una conversación completa con el modelo, así que subirlo multiplica los tokens y la presión de rate limit en la misma proporción. Los subagentes comparten el workspace."
+      "maxConcurrentSubagents": "Cuántos subagentes pueden correr en paralelo. Cada uno es una conversación completa con el modelo, así que subirlo multiplica los tokens y la presión de rate limit en la misma proporción. Los subagentes comparten el workspace, y un subagente no puede spawnear otro."
     },
     "values": {
       "light": "Claro",

@@ -98,7 +98,8 @@
       "mcp": "MCP",
       "apps": "Applications",
       "automations": "Automatisations",
-      "skills": "Compétences"
+      "skills": "Compétences",
+      "agents": "Agents"
     },
     "sections": {
       "interface": "Interface utilisateur",
@@ -120,7 +121,8 @@
       "apps": "Applications",
       "nativeHost": "Hôte natif",
       "hostSafety": "Sécurité de l’app",
-      "voiceInput": "Saisie vocale"
+      "voiceInput": "Saisie vocale",
+      "subagents": "Sous-agents"
     },
     "rows": {
       "theme": "Thème",
@@ -215,7 +217,7 @@
       "transcriptionModel": "Laissez le modèle résolu par défaut, sauf si votre fournisseur exige un identifiant personnalisé.",
       "transcriptionLanguage": "Indice ISO-639 facultatif, comme en, zh, ja ou ko.",
       "threadWidth": "La largeur d'une conversation. Les tableaux et les blocs de code reçoivent l'espace supplémentaire en premier.",
-      "maxConcurrentSubagents": "Combien de sous-agents peuvent s'exécuter en parallèle. Chacun est une conversation complète avec le modèle : augmenter cette valeur multiplie d'autant les tokens et la pression sur les quotas. Les sous-agents partagent l'espace de travail."
+      "maxConcurrentSubagents": "Combien de sous-agents peuvent s'exécuter en parallèle. Chacun est une conversation complète avec le modèle : augmenter cette valeur multiplie d'autant les tokens et la pression sur les quotas. Les sous-agents partagent l'espace de travail, et un sous-agent ne peut pas en lancer un autre."
     },
     "values": {
       "light": "Clair",

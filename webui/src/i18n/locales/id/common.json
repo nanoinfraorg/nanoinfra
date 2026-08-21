@@ -98,7 +98,8 @@
       "mcp": "MCP",
       "apps": "Aplikasi",
       "automations": "Otomasi",
-      "skills": "Keterampilan"
+      "skills": "Keterampilan",
+      "agents": "Agen"
     },
     "sections": {
       "interface": "Antarmuka",
@@ -120,7 +121,8 @@
       "apps": "Aplikasi",
       "nativeHost": "Host asli",
       "hostSafety": "Keamanan aplikasi",
-      "voiceInput": "Input suara"
+      "voiceInput": "Input suara",
+      "subagents": "Subagen"
     },
     "rows": {
       "theme": "Tema",
@@ -215,7 +217,7 @@
       "transcriptionModel": "Biarkan memakai bawaan yang ter-resolve kecuali penyedia membutuhkan ID model khusus.",
       "transcriptionLanguage": "Petunjuk ISO-639 opsional, seperti en, zh, ja, atau ko.",
       "threadWidth": "Seberapa lebar sebuah percakapan. Tabel dan blok kode mendapat ruang tambahan lebih dulu.",
-      "maxConcurrentSubagents": "Berapa banyak subagen boleh berjalan paralel. Masing-masing adalah percakapan penuh dengan model, jadi menaikkannya melipatgandakan token dan tekanan rate limit sebesar itu juga. Subagen berbagi workspace."
+      "maxConcurrentSubagents": "Berapa banyak subagen boleh berjalan paralel. Masing-masing adalah percakapan penuh dengan model, jadi menaikkannya melipatgandakan token dan tekanan rate limit sebesar itu juga. Subagen berbagi workspace, dan subagen tidak bisa memunculkan subagen lain."
     },
     "values": {
       "light": "Terang",

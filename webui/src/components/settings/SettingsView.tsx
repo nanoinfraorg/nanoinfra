@@ -221,6 +221,7 @@ export type SettingsSectionKey =
   | "apps"
   | "automations"
   | "skills"
+  | "agents"
   | "runtime"
   | "advanced";
 
@@ -258,7 +259,7 @@ interface AgentSettingsDraft {
   maxConcurrentSubagents: number;
 }
 
-type PendingRestartSection = "runtime" | "browser" | "image";
+type PendingRestartSection = "runtime" | "agents" | "browser" | "image";
 type PendingRestartSections = Record<PendingRestartSection, boolean>;
 type RestartAwarePayload = {
   requires_restart?: boolean;
@@ -413,6 +414,7 @@ const IMAGE_ASPECT_RATIO_OPTIONS = ["1:1", "3:4", "9:16", "4:3", "16:9", "3:2", 
 const IMAGE_SIZE_OPTIONS = ["1K", "2K", "4K", "1024x1024", "1536x1024", "1024x1536"];
 const EMPTY_PENDING_RESTART_SECTIONS: PendingRestartSections = {
   runtime: false,
+  agents: false,
   browser: false,
   image: false,
 };
@@ -634,6 +636,7 @@ function pendingRestartSectionsFromPayload(payload: SettingsPayload): PendingRes
   const sections = payload.restart_required_sections ?? [];
   return {
     runtime: sections.includes("runtime"),
+    agents: sections.includes("runtime"),
     browser: sections.includes("browser"),
     image: sections.includes("image"),
   };
@@ -1106,8 +1109,12 @@ export function SettingsView({
     if (!settings) return false;
     return (
       form.timezone !== settings.agent.timezone
-      || form.maxConcurrentSubagents !== settings.agent.max_concurrent_subagents
     );
+  }, [form, settings]);
+
+  const agentsDirty = useMemo(() => {
+    if (!settings) return false;
+    return form.maxConcurrentSubagents !== settings.agent.max_concurrent_subagents;
   }, [form, settings]);
 
   const imageGenerationDirty = useMemo(() => {
@@ -1422,13 +1429,32 @@ export function SettingsView({
     }
   };
 
+  const saveAgentsSettings = async () => {
+    if (!settings || !agentsDirty || saving) return;
+    setSaving(true);
+    try {
+      const payload = await updateSettings(token, {
+        maxConcurrentSubagents: form.maxConcurrentSubagents,
+      });
+      applyPayload(payload);
+      if (payload.requires_restart) {
+        setPendingRestartSections((prev) => ({ ...prev, agents: true }));
+      }
+      await maybeRestartHostEngine(payload);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const saveRuntimeSettings = async () => {
     if (!settings || !runtimeDirty || saving) return;
     setSaving(true);
     try {
       const payload = await updateSettings(token, {
         timezone: form.timezone,
-        maxConcurrentSubagents: form.maxConcurrentSubagents,
       });
       applyPayload(payload);
       if (payload.requires_restart) {
@@ -2341,6 +2367,20 @@ export function SettingsView({
         );
       case "skills":
         return <SkillsCatalogSettings skills={skills} />;
+      case "agents":
+        return (
+          <AgentsSettings
+            form={form}
+            setForm={setForm}
+            dirty={agentsDirty}
+            saving={saving}
+            onSave={saveAgentsSettings}
+            onRestart={onRestart}
+            isRestarting={isRestarting}
+            requiresRestartPending={pendingRestartSections.agents}
+            isNativeHost={(settings.surface ?? settings.runtime_surface) === "native"}
+          />
+        );
       case "runtime":
         return (
           <RuntimeSettings
@@ -2545,6 +2585,7 @@ const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fal
   { key: "voice", icon: Mic, fallback: "Voice" },
   { key: "browser", icon: Globe2, fallback: "Web" },
   { key: "channels", icon: MessageCircle, fallback: "Channels" },
+  { key: "agents", icon: Bot, fallback: "Agents" },
   { key: "runtime", icon: Server, fallback: "System" },
   { key: "advanced", icon: ShieldCheck, fallback: "Security" },
 ];
@@ -9165,6 +9206,88 @@ function CliAppLogo({ app, showBrandLogos }: { app: CliAppInfo; showBrandLogos: 
   );
 }
 
+function AgentsSettings({
+  form,
+  setForm,
+  dirty,
+  saving,
+  onSave,
+  onRestart,
+  isRestarting,
+  requiresRestartPending,
+  isNativeHost,
+}: {
+  form: AgentSettingsDraft;
+  setForm: Dispatch<SetStateAction<AgentSettingsDraft>>;
+  dirty: boolean;
+  saving: boolean;
+  onSave: () => void;
+  onRestart?: () => void;
+  isRestarting?: boolean;
+  requiresRestartPending: boolean;
+  isNativeHost: boolean;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
+    t(key, { defaultValue: fallback, ...(values ?? {}) });
+
+  return (
+    <div className="space-y-7">
+      <section>
+        <SettingsSectionTitle>
+          {tx("settings.sections.subagents", "Subagents")}
+        </SettingsSectionTitle>
+        <SettingsGroup>
+          <SettingsRow
+            title={tx("settings.rows.maxConcurrentSubagents", "Subagents at once")}
+            description={tx(
+              "settings.help.maxConcurrentSubagents",
+              "How many subagents may run in parallel. Each one is a full conversation with the model, so raising this multiplies tokens and rate-limit pressure by the same amount. Subagents share the workspace, and a subagent cannot spawn another one.",
+            )}
+          >
+            <Input
+              type="number"
+              min={1}
+              max={8}
+              value={String(form.maxConcurrentSubagents)}
+              onChange={(event) => {
+                const parsed = Number(event.target.value);
+                setForm((prev) => ({
+                  ...prev,
+                  // Clamped to the range the schema enforces, so the field cannot submit a value
+                  // the gateway would reject.
+                  maxConcurrentSubagents: Number.isFinite(parsed)
+                    ? Math.min(8, Math.max(1, Math.trunc(parsed)))
+                    : prev.maxConcurrentSubagents,
+                }));
+              }}
+              className="h-10 w-24 rounded-[12px]"
+            />
+          </SettingsRow>
+          <RestartSettingsFooter
+            dirty={dirty}
+            saving={saving}
+            pendingRestart={requiresRestartPending}
+            dirtyMessage={
+              isNativeHost
+                ? tx("settings.status.hostRestartAfterSaving", "Save changes and nanoinfra will restart its engine.")
+                : tx("settings.status.restartAfterSaving", "Save changes, then restart when ready.")
+            }
+            pendingMessage={
+              isNativeHost
+                ? tx("settings.status.hostRestartPending", "Saved. Restarting engine when ready.")
+                : tx("settings.status.savedRestartApply", "Saved. Restart when ready.")
+            }
+            onSave={onSave}
+            onRestart={onRestart}
+            isRestarting={isRestarting}
+          />
+        </SettingsGroup>
+      </section>
+    </div>
+  );
+}
+
 function RuntimeSettings({
   form,
   setForm,
@@ -9300,32 +9423,6 @@ function RuntimeSettings({
             <TimezonePicker
               value={form.timezone}
               onChange={(timezone) => setForm((prev) => ({ ...prev, timezone }))}
-            />
-          </SettingsRow>
-          <SettingsRow
-            title={tx("settings.rows.maxConcurrentSubagents", "Subagents at once")}
-            description={tx(
-              "settings.help.maxConcurrentSubagents",
-              "How many subagents may run in parallel. Each one is a full conversation with the model, so raising this multiplies tokens and rate-limit pressure by the same amount. Subagents share the workspace.",
-            )}
-          >
-            <Input
-              type="number"
-              min={1}
-              max={8}
-              value={String(form.maxConcurrentSubagents)}
-              onChange={(event) => {
-                const parsed = Number(event.target.value);
-                setForm((prev) => ({
-                  ...prev,
-                  // Clamped to the range the schema enforces, so the field cannot submit a value
-                  // the gateway will reject.
-                  maxConcurrentSubagents: Number.isFinite(parsed)
-                    ? Math.min(8, Math.max(1, Math.trunc(parsed)))
-                    : prev.maxConcurrentSubagents,
-                }));
-              }}
-              className="h-10 w-24 rounded-[12px]"
             />
           </SettingsRow>
           <RestartSettingsFooter
