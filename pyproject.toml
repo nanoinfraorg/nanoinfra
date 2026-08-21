@@ -34,7 +34,6 @@ dependencies = [
     # so they do not constrain it. (The old note here cited Feishu's lark-oapi, which left in
     # v0.14.0 with the channel.)
     "websockets>=15.0,<17.0",
-    "websocket-client>=1.9.0,<2.0.0",
     "httpx>=0.28.0,<1.0.0",
     "ddgs>=9.5.5,<10.0.0",
     "oauth-cli-kit>=0.1.6,<1.0.0",
