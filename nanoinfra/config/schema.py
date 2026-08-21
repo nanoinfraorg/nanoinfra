@@ -130,7 +130,10 @@ class AgentDefaults(Base):
     temperature: float = 0.1
     fallback_models: list[FallbackCandidate] = Field(default_factory=list)
     max_tool_iterations: int = 200
-    max_concurrent_subagents: int = Field(default=1, ge=1)
+    #: Upper bound because each subagent is a full provider conversation: without one, a typo in
+    #: this field is a fork bomb against the provider account. Enforced in the schema rather than in
+    #: the UI, so the config file cannot express what the UI refuses.
+    max_concurrent_subagents: int = Field(default=1, ge=1, le=8)
     fail_on_tool_error: bool = True
     max_tool_result_chars: int = 16_000
     provider_retry_mode: Literal["standard", "persistent"] = "standard"

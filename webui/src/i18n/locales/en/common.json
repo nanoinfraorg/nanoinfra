@@ -221,7 +221,8 @@
       "transcriptionModel": "Model",
       "transcriptionLanguage": "Language",
       "voiceLimits": "Limits",
-      "threadWidth": "Thread width"
+      "threadWidth": "Thread width",
+      "maxConcurrentSubagents": "Subagents at once"
     },
     "help": {
       "theme": "Switch between light and dark appearance.",
@@ -265,7 +266,8 @@
       "transcriptionProviderStatus": "API keys stay under providers, not in transcription settings.",
       "transcriptionModel": "Leave as the resolved default unless your provider needs a custom model id.",
       "transcriptionLanguage": "Optional ISO-639 hint such as en, zh, ja, or ko.",
-      "threadWidth": "How wide a conversation runs. Tables and code blocks always get the extra room first."
+      "threadWidth": "How wide a conversation runs. Tables and code blocks always get the extra room first.",
+      "maxConcurrentSubagents": "How many subagents may run in parallel. Each one is a full conversation with the model, so raising this multiplies tokens and rate-limit pressure by the same amount. Subagents share the workspace."
     },
     "timezone": {
       "select": "Select timezone",

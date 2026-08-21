@@ -169,7 +169,8 @@
       "transcriptionModel": "Mô hình chuyển giọng nói",
       "transcriptionLanguage": "Ngôn ngữ",
       "voiceLimits": "Giới hạn",
-      "threadWidth": "Chiều rộng cuộc trò chuyện"
+      "threadWidth": "Chiều rộng cuộc trò chuyện",
+      "maxConcurrentSubagents": "Số subagent chạy cùng lúc"
     },
     "help": {
       "theme": "Chuyển giữa giao diện sáng và tối.",
@@ -213,7 +214,8 @@
       "transcriptionProviderStatus": "Khóa API nằm trong mục nhà cung cấp, không nằm trong cài đặt chuyển giọng nói.",
       "transcriptionModel": "Giữ mô hình mặc định đã phân giải, trừ khi nhà cung cấp yêu cầu ID mô hình tùy chỉnh.",
       "transcriptionLanguage": "Gợi ý ISO-639 tùy chọn, chẳng hạn en, zh, ja hoặc ko.",
-      "threadWidth": "Cuộc trò chuyện rộng bao nhiêu. Bảng và khối mã nhận phần không gian thêm trước."
+      "threadWidth": "Cuộc trò chuyện rộng bao nhiêu. Bảng và khối mã nhận phần không gian thêm trước.",
+      "maxConcurrentSubagents": "Bao nhiêu subagent được chạy song song. Mỗi subagent là một cuộc hội thoại đầy đủ với mô hình, nên tăng giá trị này sẽ nhân token và áp lực rate limit theo cùng tỉ lệ. Các subagent dùng chung workspace."
     },
     "values": {
       "light": "Sáng",

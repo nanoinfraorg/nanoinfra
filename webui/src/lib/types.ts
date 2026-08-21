@@ -749,6 +749,7 @@ export interface SettingsPayload {
     reasoning_effort: string | null;
     timezone: string;
     tool_hint_max_length: number;
+    max_concurrent_subagents: number;
   };
   model_presets: Array<{
     name: string;
@@ -1319,6 +1320,7 @@ export interface SettingsUpdate {
   contextWindowTokens?: number;
   timezone?: string;
   toolHintMaxLength?: number;
+  maxConcurrentSubagents?: number;
 }
 
 export interface ModelConfigurationCreate {

@@ -169,7 +169,8 @@
       "transcriptionModel": "모델",
       "transcriptionLanguage": "언어",
       "voiceLimits": "제한",
-      "threadWidth": "스레드 너비"
+      "threadWidth": "스레드 너비",
+      "maxConcurrentSubagents": "동시 실행 서브에이전트"
     },
     "help": {
       "theme": "밝은 모드와 어두운 모드를 전환합니다.",
@@ -213,7 +214,8 @@
       "transcriptionProviderStatus": "API 키는 음성 변환 설정이 아니라 제공자 설정에 유지됩니다.",
       "transcriptionModel": "제공자가 사용자 지정 모델 ID를 요구하지 않으면 해석된 기본값을 사용하세요.",
       "transcriptionLanguage": "en, zh, ja, ko 같은 선택적 ISO-639 힌트입니다.",
-      "threadWidth": "대화의 너비입니다. 추가 공간은 표와 코드 블록에 먼저 사용됩니다."
+      "threadWidth": "대화의 너비입니다. 추가 공간은 표와 코드 블록에 먼저 사용됩니다.",
+      "maxConcurrentSubagents": "병렬로 실행할 수 있는 서브에이전트 수입니다. 각각이 모델과의 완전한 대화이므로, 늘리면 토큰과 레이트 리밋 부담도 같은 배수로 늘어납니다. 서브에이전트는 워크스페이스를 공유합니다."
     },
     "values": {
       "light": "라이트",

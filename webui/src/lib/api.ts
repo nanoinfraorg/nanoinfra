@@ -960,6 +960,9 @@ export async function updateSettings(
     query.set("context_window_tokens", String(update.contextWindowTokens));
   }
   if (update.timezone !== undefined) query.set("timezone", update.timezone);
+  if (update.maxConcurrentSubagents !== undefined) {
+    query.set("max_concurrent_subagents", String(update.maxConcurrentSubagents));
+  }
   if (update.toolHintMaxLength !== undefined) {
     query.set("tool_hint_max_length", String(update.toolHintMaxLength));
   }

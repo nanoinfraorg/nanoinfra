@@ -60,6 +60,60 @@ async def test_subagent_build_tools_isolates_file_read_state(tmp_path):
     assert "File unchanged" not in second_result
 
 
+@pytest.mark.asyncio
+async def test_subagents_of_one_session_share_the_file_state(tmp_path):
+    """Siblings must see each other's reads, or read-before-edit is blind above concurrency 1.
+
+    Each subagent used to build its own FileStates while sharing one workspace, so two running at
+    once could not tell that the other had read or edited a file. At the old default of one
+    concurrent subagent that never came up. It is what had to be fixed before raising the number.
+    """
+    (tmp_path / "note.txt").write_text("hello\n", encoding="utf-8")
+    sm = SubagentManager(
+        workspace=tmp_path,
+        bus=MessageBus(),
+        max_tool_result_chars=16_000,
+    )
+
+    first = sm._build_tools(session_key="websocket:chat-1").get("read_file")
+    second = sm._build_tools(session_key="websocket:chat-1").get("read_file")
+
+    assert first is not second
+    assert (await first.execute(path="note.txt")).startswith("1| hello")
+    # The sibling's read is visible, which is the whole property.
+    assert "File unchanged" in await second.execute(path="note.txt")
+
+
+@pytest.mark.asyncio
+async def test_subagents_of_different_sessions_stay_isolated(tmp_path):
+    """FileStates is session-scoped by design; sharing must not become a cross-session leak."""
+    (tmp_path / "note.txt").write_text("hello\n", encoding="utf-8")
+    sm = SubagentManager(
+        workspace=tmp_path,
+        bus=MessageBus(),
+        max_tool_result_chars=16_000,
+    )
+
+    mine = sm._build_tools(session_key="websocket:chat-1").get("read_file")
+    theirs = sm._build_tools(session_key="websocket:chat-2").get("read_file")
+
+    assert (await mine.execute(path="note.txt")).startswith("1| hello")
+    assert "File unchanged" not in await theirs.execute(path="note.txt")
+
+
+def test_the_concurrency_limit_has_a_ceiling():
+    """ge=1 with no upper bound made a typo a fork bomb against the provider account."""
+    from pydantic import ValidationError
+
+    from nanoinfra.config.schema import AgentDefaults
+
+    assert AgentDefaults().max_concurrent_subagents == 1
+    assert AgentDefaults(max_concurrent_subagents=8).max_concurrent_subagents == 8
+    for bad in (0, 9, 500):
+        with pytest.raises(ValidationError):
+            AgentDefaults(max_concurrent_subagents=bad)
+
+
 def test_subagent_respects_file_tool_toggle(tmp_path):
     provider = MagicMock(spec=LLMProvider)
     provider.get_default_model.return_value = "test"

@@ -255,6 +255,7 @@ interface AgentSettingsDraft {
   reasoningEffort: string;
   timezone: string;
   toolHintMaxLength: number;
+  maxConcurrentSubagents: number;
 }
 
 type PendingRestartSection = "runtime" | "browser" | "image";
@@ -498,6 +499,7 @@ const DEFAULT_AGENT_SETTINGS_DRAFT: AgentSettingsDraft = {
   reasoningEffort: "",
   timezone: "UTC",
   toolHintMaxLength: 40,
+  maxConcurrentSubagents: 1,
 };
 
 const DEFAULT_WEB_SEARCH_FORM: WebSearchSettingsUpdate = {
@@ -565,6 +567,7 @@ function agentDraftFromPayload(
     reasoningEffort: activePreset?.reasoning_effort ?? "",
     timezone: payload.agent.timezone,
     toolHintMaxLength: payload.agent.tool_hint_max_length,
+    maxConcurrentSubagents: payload.agent.max_concurrent_subagents,
   };
 }
 
@@ -1101,7 +1104,10 @@ export function SettingsView({
 
   const runtimeDirty = useMemo(() => {
     if (!settings) return false;
-    return form.timezone !== settings.agent.timezone;
+    return (
+      form.timezone !== settings.agent.timezone
+      || form.maxConcurrentSubagents !== settings.agent.max_concurrent_subagents
+    );
   }, [form, settings]);
 
   const imageGenerationDirty = useMemo(() => {
@@ -1422,6 +1428,7 @@ export function SettingsView({
     try {
       const payload = await updateSettings(token, {
         timezone: form.timezone,
+        maxConcurrentSubagents: form.maxConcurrentSubagents,
       });
       applyPayload(payload);
       if (payload.requires_restart) {
@@ -9293,6 +9300,32 @@ function RuntimeSettings({
             <TimezonePicker
               value={form.timezone}
               onChange={(timezone) => setForm((prev) => ({ ...prev, timezone }))}
+            />
+          </SettingsRow>
+          <SettingsRow
+            title={tx("settings.rows.maxConcurrentSubagents", "Subagents at once")}
+            description={tx(
+              "settings.help.maxConcurrentSubagents",
+              "How many subagents may run in parallel. Each one is a full conversation with the model, so raising this multiplies tokens and rate-limit pressure by the same amount. Subagents share the workspace.",
+            )}
+          >
+            <Input
+              type="number"
+              min={1}
+              max={8}
+              value={String(form.maxConcurrentSubagents)}
+              onChange={(event) => {
+                const parsed = Number(event.target.value);
+                setForm((prev) => ({
+                  ...prev,
+                  // Clamped to the range the schema enforces, so the field cannot submit a value
+                  // the gateway will reject.
+                  maxConcurrentSubagents: Number.isFinite(parsed)
+                    ? Math.min(8, Math.max(1, Math.trunc(parsed)))
+                    : prev.maxConcurrentSubagents,
+                }));
+              }}
+              className="h-10 w-24 rounded-[12px]"
             />
           </SettingsRow>
           <RestartSettingsFooter

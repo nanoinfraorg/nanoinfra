@@ -221,7 +221,8 @@
       "transcriptionModel": "Modelo",
       "transcriptionLanguage": "Idioma",
       "voiceLimits": "Limites",
-      "threadWidth": "Largura da conversa"
+      "threadWidth": "Largura da conversa",
+      "maxConcurrentSubagents": "Subagentes ao mesmo tempo"
     },
     "help": {
       "theme": "Alterna entre aparência clara e escura.",
@@ -265,7 +266,8 @@
       "transcriptionProviderStatus": "As chaves de API ficam em provedores, não nas configurações de transcrição.",
       "transcriptionModel": "Deixe como o padrão resolvido, a menos que seu provedor precise de um id de modelo personalizado.",
       "transcriptionLanguage": "Dica ISO-639 opcional, como en, zh, ja ou ko.",
-      "threadWidth": "Quão larga uma conversa fica. Tabelas e blocos de código recebem o espaço extra primeiro."
+      "threadWidth": "Quão larga uma conversa fica. Tabelas e blocos de código recebem o espaço extra primeiro.",
+      "maxConcurrentSubagents": "Quantos subagentes podem rodar em paralelo. Cada um é uma conversa completa com o modelo, então aumentar isso multiplica tokens e pressão de rate limit na mesma proporção. Os subagentes compartilham o workspace."
     },
     "timezone": {
       "select": "Selecionar fuso horário",
