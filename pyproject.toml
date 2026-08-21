@@ -1,6 +1,6 @@
 [project]
 name = "nanoinfra"
-version = "0.14.0"
+version = "0.15.0"
 description = "A lightweight self-hosted AI agent for infrastructure"
 readme = { file = "README_PYPI.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -29,7 +29,10 @@ dependencies = [
     "anthropic>=0.100.0,<1.0.0",
     "pydantic>=2.12.0,<3.0.0",
     "pydantic-settings>=2.12.0,<3.0.0",
-    # Feishu's lark-oapi currently requires websockets<16; core supports 15 and 16.
+    # The upper bound keeps this on a tested major. The packages that ask for <16 --
+    # slack_sdk[optional] and openai[realtime] -- do so in extras this project does not install,
+    # so they do not constrain it. (The old note here cited Feishu's lark-oapi, which left in
+    # v0.14.0 with the channel.)
     "websockets>=15.0,<17.0",
     "websocket-client>=1.9.0,<2.0.0",
     "httpx>=0.28.0,<1.0.0",
