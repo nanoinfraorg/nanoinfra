@@ -1072,6 +1072,90 @@ describe("App layout", () => {
       // that `schedule` is absent -- a past one-shot must not resubmit a run time in the past.
       delivery: "always",
       skills: [],
+      references: [],
+    });
+  });
+
+  it("references a server from the automation editor and flags a broken one", async () => {
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/webui/servers": {
+        servers: [
+          { id: "srv_a1b2", name: "db-01", providerId: "ssh", tags: ["prod"], updatedAt: "2026-08-21" },
+        ],
+      },
+      "/api/webui/diagrams": { diagrams: [] },
+      "/api/webui/automations": {
+        jobs: [
+          {
+            id: "digest",
+            name: "Nightly check",
+            enabled: true,
+            protected: false,
+            delete_after_run: false,
+            delivery: "always",
+            skills: [],
+            // A reference to something that no longer exists: the operator must see this while
+            // editing rather than discover it from a failed run at 03:00.
+            references: [{ kind: "server", id: "srv_gone" }],
+            schedule: { kind: "cron", expr: "0 3 * * *", tz: "UTC" },
+            payload: {
+              message: "Check @server:srv_gone and report",
+              kind: "agent_turn",
+            },
+            state: { next_run_at_ms: Date.UTC(2026, 3, 20, 3, 0, 0), pending: false, run_history: [] },
+            origin: null,
+          },
+        ],
+      },
+      "/api/webui/automations/digest/state": { id: "digest", values: {} },
+      "/api/webui/automations/update?id=digest": { jobs: [] },
+    });
+
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Automations" }));
+
+    await screen.findByRole("heading", { name: "Nightly check" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    // Broken while editing, with an explanation of what will happen if it is left.
+    expect(
+      await screen.findByTestId("automation-reference-server-srv_gone"),
+    ).toHaveTextContent("server no longer exists");
+    expect(
+      screen.getByText(
+        "This automation will refuse to run until the missing reference is removed.",
+      ),
+    ).toBeInTheDocument();
+
+    // Replace it by picking from the menu, which is why the affordance is here at all.
+    const textarea = screen.getByDisplayValue("Check @server:srv_gone and report");
+    fireEvent.change(textarea, {
+      target: { value: "Check @server:", selectionStart: 14 },
+    });
+    // Scoped to the picker: a global role query races the surrounding dialog's re-renders, and
+    // this asserts the same thing without depending on that timing.
+    const picker = await screen.findByRole("listbox", { name: "Reference a resource" });
+    fireEvent.mouseDown(within(picker).getByText("db-01"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("automation-reference-server-srv_a1b2")).toHaveTextContent("db-01"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      const call = vi.mocked(fetch).mock.calls.find(
+        ([url]) => String(url) === "/api/webui/automations/update?id=digest",
+      );
+      expect(call).toBeTruthy();
+      const headers = call?.[1]?.headers as Record<string, string>;
+      const values = JSON.parse(decodeURIComponent(headers["X-Nanoinfra-Automation-Values"]));
+      // The id is what is stored, and the dead one is gone with its token.
+      expect(values.references).toEqual([{ kind: "server", id: "srv_a1b2" }]);
+      expect(values.message).toContain("@server:srv_a1b2");
     });
   });
 

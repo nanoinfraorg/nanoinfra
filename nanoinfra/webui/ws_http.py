@@ -134,6 +134,7 @@ from nanoinfra.webui.latch_api import (
     operator_actor,
 )
 from nanoinfra.webui.media_gateway import WebUIMediaGateway
+from nanoinfra.webui.resource_mentions import normalize_resource_mentions
 from nanoinfra.webui.secrets_api import (
     create_webui_secret,
     delete_webui_secret,
@@ -2111,6 +2112,20 @@ def _parse_automation_update(
             if name and name not in names:
                 names.append(name)
         update["skills"] = names
+    if "references" in values:
+        raw_references = values.get("references")
+        if not isinstance(raw_references, list):
+            return "references must be an array"
+        # Reuse the mention normaliser rather than re-validating here, so the editor and the chat
+        # composer cannot disagree about what a reference is. Existence is checked at run time,
+        # not here: a reference can outlive the resource, and the run is where that must stop.
+        parsed_references = normalize_resource_mentions(cast("list[object]", raw_references))
+        supplied = [item for item in cast("list[object]", raw_references) if item]
+        if len(parsed_references) != len(supplied):
+            return "references must be objects with a known kind and an id"
+        update["references"] = [
+            {"kind": kind, "id": ident} for kind, ident in parsed_references
+        ]
     if "schedule" in values:
         raw_schedule = values.get("schedule")
         if not isinstance(raw_schedule, dict):
@@ -2157,9 +2172,23 @@ def _parse_local_trigger_update(values: dict[str, Any]) -> dict[str, Any] | str:
             if name and name not in names:
                 names.append(name)
         update["skills"] = names
+    if "references" in values:
+        raw_references = values.get("references")
+        if not isinstance(raw_references, list):
+            return "references must be an array"
+        # Reuse the mention normaliser rather than re-validating here, so the editor and the chat
+        # composer cannot disagree about what a reference is. Existence is checked at run time,
+        # not here: a reference can outlive the resource, and the run is where that must stop.
+        parsed_references = normalize_resource_mentions(cast("list[object]", raw_references))
+        supplied = [item for item in cast("list[object]", raw_references) if item]
+        if len(parsed_references) != len(supplied):
+            return "references must be objects with a known kind and an id"
+        update["references"] = [
+            {"kind": kind, "id": ident} for kind, ident in parsed_references
+        ]
     forbidden = [key for key in ("message", "schedule") if key in values]
     if forbidden:
-        return "local trigger updates only support name, delivery and skills"
+        return "local trigger updates only support name, delivery, skills and references"
     return update
 
 

@@ -851,7 +851,10 @@
         "never": "失敗時も含め送信しません。実行履歴には記録されます。"
       },
       "skillsHelp": "何も選ばなければ従来どおり全スキルを要約します。選ぶとそれらを全文読み込み、他はこの自動化のプロンプトから除外されます。",
-      "skillsEmpty": "インストール済みのスキルはありません"
+      "skillsEmpty": "インストール済みのスキルはありません",
+      "referencePicker": "リソースを参照",
+      "referenceMissing": "{{kind}} は存在しません",
+      "referenceBrokenHint": "欠けている参照を削除するまで、この自動化は実行を拒否します。"
     },
     "oauth": {
       "authentication": "OAuth 認証",
@@ -1489,7 +1492,15 @@
         "cliTitle": "CLI アプリ: {{name}}",
         "mcpTitle": "MCP サーバー: {{name}}",
         "sessionBadge": "Nanoinfra の会話",
-        "sessionDescription": "@{{name}} を過去のチャットとして参照"
+        "sessionDescription": "@{{name}} を過去のチャットとして参照",
+        "referenceGroup": "参照",
+        "referenceBadge": "参照",
+        "serverPrefixHint": "{{count}} 台のサーバーから参照",
+        "diagramPrefixHint": "{{count}} 件の図から参照",
+        "serverGroup": "サーバー",
+        "diagramGroup": "図",
+        "serverBadge": "サーバー",
+        "diagramBadge": "図"
       },
       "workspace": {
         "accessAria": "ワークスペースのアクセスモード",

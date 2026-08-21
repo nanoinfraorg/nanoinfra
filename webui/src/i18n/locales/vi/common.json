@@ -851,7 +851,10 @@
         "never": "Không bao giờ gửi, kể cả khi thất bại. Lịch sử vẫn ghi lại."
       },
       "skillsHelp": "Không chọn gì thì mọi kỹ năng được tóm tắt như trước. Chọn một số sẽ tải đầy đủ chúng và loại phần còn lại khỏi prompt của tự động hóa này.",
-      "skillsEmpty": "Chưa cài kỹ năng nào"
+      "skillsEmpty": "Chưa cài kỹ năng nào",
+      "referencePicker": "Tham chiếu một tài nguyên",
+      "referenceMissing": "{{kind}} không còn tồn tại",
+      "referenceBrokenHint": "Tự động hóa này sẽ từ chối chạy cho đến khi tham chiếu bị thiếu được xóa."
     },
     "oauth": {
       "authentication": "Xác thực OAuth",
@@ -1489,7 +1492,15 @@
         "cliTitle": "Ứng dụng CLI: {{name}}",
         "mcpTitle": "Máy chủ MCP: {{name}}",
         "sessionBadge": "Cuộc trò chuyện Nanoinfra",
-        "sessionDescription": "Tham chiếu @{{name}} như cuộc trò chuyện trước"
+        "sessionDescription": "Tham chiếu @{{name}} như cuộc trò chuyện trước",
+        "referenceGroup": "Tham chiếu",
+        "referenceBadge": "Tham chiếu",
+        "serverPrefixHint": "Tham chiếu một trong {{count}} máy chủ",
+        "diagramPrefixHint": "Tham chiếu một trong {{count}} sơ đồ",
+        "serverGroup": "Máy chủ",
+        "diagramGroup": "Sơ đồ",
+        "serverBadge": "Máy chủ",
+        "diagramBadge": "Sơ đồ"
       },
       "workspace": {
         "accessAria": "Chế độ truy cập không gian làm việc",

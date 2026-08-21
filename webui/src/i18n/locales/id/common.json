@@ -851,7 +851,10 @@
         "never": "Jangan pernah kirim, bahkan saat gagal. Riwayat tetap mencatat kejadiannya."
       },
       "skillsHelp": "Tanpa memilih, semua skill diringkas seperti sebelumnya. Memilih beberapa akan memuatnya penuh dan mengeluarkan sisanya dari prompt otomasi ini.",
-      "skillsEmpty": "Belum ada skill terpasang"
+      "skillsEmpty": "Belum ada skill terpasang",
+      "referencePicker": "Rujuk sebuah sumber daya",
+      "referenceMissing": "{{kind}} sudah tidak ada",
+      "referenceBrokenHint": "Otomasi ini akan menolak berjalan sampai rujukan yang hilang dihapus."
     },
     "oauth": {
       "authentication": "Autentikasi OAuth",
@@ -1489,7 +1492,15 @@
         "cliTitle": "Aplikasi CLI: {{name}}",
         "mcpTitle": "Server MCP: {{name}}",
         "sessionBadge": "Percakapan Nanoinfra",
-        "sessionDescription": "Referensikan @{{name}} sebagai chat sebelumnya"
+        "sessionDescription": "Referensikan @{{name}} sebagai chat sebelumnya",
+        "referenceGroup": "Rujukan",
+        "referenceBadge": "Rujukan",
+        "serverPrefixHint": "Rujuk salah satu dari {{count}} server",
+        "diagramPrefixHint": "Rujuk salah satu dari {{count}} diagram",
+        "serverGroup": "Server",
+        "diagramGroup": "Diagram",
+        "serverBadge": "Server",
+        "diagramBadge": "Diagram"
       },
       "workspace": {
         "accessAria": "Mode akses ruang kerja",

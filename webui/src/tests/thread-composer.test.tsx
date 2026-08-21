@@ -1408,6 +1408,48 @@ describe("ThreadComposer", () => {
     { id: "dg_1", name: "prod-net", targets: ["aws"], nodeCount: 11, updatedAt: "2026-08-21", status: "ok" },
   ];
 
+  it("advertises the reference prefixes on a bare @ and types one on select", () => {
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        cliApps={CLI_APPS}
+        servers={MENTION_SERVERS}
+        diagrams={MENTION_DIAGRAMS}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    // Otherwise the only way to learn the syntax exists is to be told.
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
+    expect(screen.getByRole("option", { name: /server:/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /diagram:/ })).toBeInTheDocument();
+
+    // The palette chooses on mouseDown, not click.
+    fireEvent.mouseDown(screen.getByRole("option", { name: /server:/ }));
+
+    // No trailing space: a space would end the token and close the menu straight away.
+    expect(input).toHaveValue("@server:");
+    // And the menu stays open, now showing the servers themselves.
+    expect(screen.getByRole("option", { name: /db-01/i })).toBeInTheDocument();
+  });
+
+  it("drops the prefix hints once a prefix is typed", () => {
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        servers={MENTION_SERVERS}
+        diagrams={MENTION_DIAGRAMS}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: "@server:", selectionStart: 8 } });
+
+    expect(screen.queryByRole("option", { name: /diagram:/ })).not.toBeInTheDocument();
+  });
+
   it("lists every server on @server: and narrows as you type", () => {
     render(
       <ThreadComposer
@@ -1450,7 +1492,7 @@ describe("ThreadComposer", () => {
     expect(screen.queryByRole("option", { name: /web-01/i })).not.toBeInTheDocument();
   });
 
-  it("inserts the id and shows the name, and sends the reference", () => {
+  it("puts the name in the text and the id on the wire", () => {
     const onSend = vi.fn();
     render(
       <ThreadComposer
@@ -1464,18 +1506,153 @@ describe("ThreadComposer", () => {
     fireEvent.change(input, { target: { value: "@server:db", selectionStart: 10 } });
     fireEvent.keyDown(input, { key: "Enter" });
 
-    // The id is the token, so a rename cannot strand the reference.
-    expect(input).toHaveValue("@server:srv_a1b2 ");
-    // The operator sees the name.
+    // No uuid in the message. Names are unique per workspace and the store treats them as the
+    // de facto key, so the readable form is safe here.
+    expect(input).toHaveValue("@server:db-01 ");
+    // The chip renders the source text rather than a shortened label, because the overlay sits
+    // behind a transparent textarea and a narrower decoration drags the caret out of position.
     expect(screen.getByTestId("composer-resource-mention-server-srv_a1b2")).toHaveTextContent(
-      "@db-01",
+      "@server:db-01",
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(onSend).toHaveBeenCalledWith("@server:srv_a1b2", undefined, {
+    // The agent still receives the id, which is the whole point of the sidecar.
+    expect(onSend).toHaveBeenCalledWith("@server:db-01", undefined, {
       resourceMentions: [{ kind: "server", id: "srv_a1b2" }],
     });
+  });
+
+  it("falls back to the id when a name cannot be tokenised", () => {
+    const onSend = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={onSend}
+        placeholder="Type your message..."
+        servers={[
+          { id: "srv_x", name: "db 01 primary", providerId: "ssh", tags: [], updatedAt: "2026-08-21" },
+        ]}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: "@server:db", selectionStart: 10 } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    // A space in the name would produce a token the parser splits, so the id is used instead.
+    expect(input).toHaveValue("@server:srv_x ");
+    // And it must still decorate: an undecorated token is how the user found this bug.
+    expect(screen.getByTestId("composer-resource-mention-server-srv_x")).toHaveTextContent(
+      "@server:srv_x",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).toHaveBeenCalledWith("@server:srv_x", undefined, {
+      resourceMentions: [{ kind: "server", id: "srv_x" }],
+    });
+  });
+
+  it("decorates a server and a diagram in the same message", () => {
+    // The exact shape from the report: a server matched by name and a diagram by its id.
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        servers={[
+          { id: "srv_1", name: "barrahome", providerId: "ssh", tags: [], updatedAt: "2026-08-21" },
+        ]}
+        diagrams={[
+          {
+            id: "a37864d9ef434173aece6cb955b50283",
+            name: "prod net",
+            targets: [],
+            nodeCount: 4,
+            updatedAt: "2026-08-21",
+            status: "ok",
+          },
+        ]}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: "@server:barra", selectionStart: 13 } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const afterServer = (input as HTMLTextAreaElement).value;
+    fireEvent.change(input, {
+      target: { value: `${afterServer}@diagram:prod`, selectionStart: afterServer.length + 13 },
+    });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(screen.getByTestId("composer-resource-mention-server-srv_1")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("composer-resource-mention-diagram-a37864d9ef434173aece6cb955b50283"),
+    ).toBeInTheDocument();
+  });
+
+  it("decorates and sends a hand-typed token, with no click involved", () => {
+    // How the bug was found: a diagram id copied out of the Diagrams view got no chip and, worse,
+    // no reference on the wire, because both were keyed on click history rather than on the text.
+    const onSend = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={onSend}
+        placeholder="Type your message..."
+        servers={[
+          { id: "srv_1", name: "barrahome.org", providerId: "ssh", tags: [], updatedAt: "2026-08-21" },
+        ]}
+        diagrams={[
+          {
+            id: "a37864d9ef434173aece6cb955b50283",
+            name: "Example: blog on Azure",
+            targets: [],
+            nodeCount: 4,
+            updatedAt: "2026-08-21",
+            status: "ok",
+          },
+        ]}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, {
+      target: {
+        value: "@server:barrahome.org @diagram:a37864d9ef434173aece6cb955b50283 check both",
+        selectionStart: 0,
+      },
+    });
+
+    expect(screen.getByTestId("composer-resource-mention-server-srv_1")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("composer-resource-mention-diagram-a37864d9ef434173aece6cb955b50283"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    const [, , options] = onSend.mock.calls[0];
+    expect(options.resourceMentions).toEqual([
+      { kind: "server", id: "srv_1" },
+      { kind: "diagram", id: "a37864d9ef434173aece6cb955b50283" },
+    ]);
+  });
+
+  it("ignores a token naming something that does not exist", () => {
+    const onSend = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={onSend}
+        placeholder="Type your message..."
+        servers={[
+          { id: "srv_1", name: "db-01", providerId: "ssh", tags: [], updatedAt: "2026-08-21" },
+        ]}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: "@server:ghost check it", selectionStart: 0 } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(onSend).toHaveBeenCalledWith("@server:ghost check it", undefined, undefined);
   });
 
   it("does not send a reference whose token was deleted", () => {
@@ -1520,7 +1697,7 @@ describe("ThreadComposer", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(onSend).toHaveBeenCalledWith("@diagram:dg_1", undefined, {
+    expect(onSend).toHaveBeenCalledWith("@diagram:prod-net", undefined, {
       resourceMentions: [{ kind: "diagram", id: "dg_1" }],
     });
   });

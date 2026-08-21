@@ -851,7 +851,10 @@
         "never": "Ne jamais envoyer, même en cas d'échec. L'historique conserve ce qui s'est passé."
       },
       "skillsHelp": "Sans sélection, toutes sont résumées, comme avant. En sélectionner charge celles-ci intégralement et exclut les autres du prompt de cette automatisation.",
-      "skillsEmpty": "Aucune compétence installée"
+      "skillsEmpty": "Aucune compétence installée",
+      "referencePicker": "Référencer une ressource",
+      "referenceMissing": "ce {{kind}} n'existe plus",
+      "referenceBrokenHint": "Cette automatisation refusera de s'exécuter tant que la référence manquante n'est pas retirée."
     },
     "oauth": {
       "authentication": "Authentification OAuth",
@@ -1489,7 +1492,15 @@
         "cliTitle": "Application CLI : {{name}}",
         "mcpTitle": "Serveur MCP : {{name}}",
         "sessionBadge": "Conversation Nanoinfra",
-        "sessionDescription": "Référencer @{{name}} comme discussion précédente"
+        "sessionDescription": "Référencer @{{name}} comme discussion précédente",
+        "referenceGroup": "Référence",
+        "referenceBadge": "Référence",
+        "serverPrefixHint": "Référencer l'un des {{count}} serveurs",
+        "diagramPrefixHint": "Référencer l'un des {{count}} diagrammes",
+        "serverGroup": "Serveurs",
+        "diagramGroup": "Diagrammes",
+        "serverBadge": "Serveur",
+        "diagramBadge": "Diagramme"
       },
       "workspace": {
         "accessAria": "Mode d’accès à l’espace de travail",

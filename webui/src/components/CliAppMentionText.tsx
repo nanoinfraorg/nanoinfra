@@ -81,9 +81,12 @@ export function splitCapabilityMentionSegments(
   const sessionsByName = new Map(
     sessionMentions.map((mention) => [mention.name.toLowerCase(), mention]),
   );
-  const resourcesByToken = new Map(
-    resources.map((resource) => [`${resource.kind}:${resource.id}`.toLowerCase(), resource]),
-  );
+  // Both forms, because the text carries the name when it is tokenisable and the id otherwise.
+  const resourcesByToken = new Map<string, ResourceMentionTarget>();
+  for (const resource of resources) {
+    resourcesByToken.set(`${resource.kind}:${resource.id}`.toLowerCase(), resource);
+    resourcesByToken.set(`${resource.kind}:${resource.name}`.toLowerCase(), resource);
+  }
   if (
     cliAppsByName.size === 0
     && mcpPresetsByName.size === 0
@@ -97,14 +100,26 @@ export function splitCapabilityMentionSegments(
   // Two patterns rather than one, because a resource token carries `kind:id` and a name token
   // cannot contain a colon. An id this list does not know stays plain text, so a reference to
   // something deleted reads as text instead of rendering as a chip that resolves to nothing.
-  const mentionRe = /(^|[\s([{])@((?:server|diagram):[\p{L}\p{N}_-]+|[\p{L}\p{N}_-]+)(?=$|[^\p{L}\p{N}_:-])/giu;
+  // Two shapes. A resource token is `kind:` followed by a name or an id, and a real name holds
+  // dots and other punctuation -- "barrahome.org" -- so it runs to the next separator rather than
+  // to a narrow character class. A bare name token keeps the class it always had.
+  // Greedy, not lazy: a lazy match stopped at the first dot and resolved "server:barrahome",
+  // which is a different thing or nothing at all. Trailing sentence punctuation the greedy match
+  // swallows is trimmed back below until the token resolves.
+  const mentionRe = /(^|[\s([{])@((?:server|diagram):[^\s([{)\]}]+|[\p{L}\p{N}_-]+)(?=$|[^\p{L}\p{N}_:.-])/giu;
   let cursor = 0;
   let match: RegExpExecArray | null;
   while ((match = mentionRe.exec(value)) !== null) {
     const prefix = match[1] ?? "";
-    const name = match[2] ?? "";
+    let name = match[2] ?? "";
+    let resource = resourcesByToken.get(name.toLowerCase());
+    // "@server:barrahome.org." ending a sentence: trim what the greedy match took rather than
+    // failing to resolve a reference the operator plainly made.
+    while (!resource && /[.,;!?]$/.test(name)) {
+      name = name.slice(0, -1);
+      resource = resourcesByToken.get(name.toLowerCase());
+    }
     const key = name.toLowerCase();
-    const resource = resourcesByToken.get(key);
     const app = resource ? null : cliAppsByName.get(key);
     const preset = resource || app ? null : mcpPresetsByName.get(key);
     const session = resource || app || preset ? null : sessionsByName.get(key);
@@ -202,18 +217,30 @@ export function CapabilityMentionToken({
   }
   if (segment.kind === "resource") {
     return (
-      <ResourceMentionToken resource={segment.resource} variant={variant} />
+      <ResourceMentionToken
+        resource={segment.resource}
+        label={segment.text}
+        variant={variant}
+      />
     );
   }
   return <SessionMentionToken mention={segment.mention} label={segment.text} variant={variant} />;
 }
 
-/** The id is the token in the text; this shows the name, which is what the operator wrote it for. */
+/**
+ * Renders the source text, not a shortened label.
+ *
+ * The composer draws this as an overlay behind a transparent textarea, so a decoration narrower
+ * than the text it covers drags the caret out of position and opens a gap. Every other mention
+ * token does the same for the same reason.
+ */
 export function ResourceMentionToken({
   resource,
+  label,
   variant,
 }: {
   resource: ResourceMentionTarget;
+  label: string;
   variant: "composer" | "message";
 }) {
   const testIdPrefix = variant === "composer" ? "composer" : "message";
@@ -228,7 +255,7 @@ export function ResourceMentionToken({
       }
       color={INLINE_TOKEN_HIGHLIGHT_COLOR}
     >
-      {`@${resource.name}`}
+      {label}
     </InlineTokenHighlight>
   );
 }
@@ -373,4 +400,28 @@ export function McpPresetMentionToken({
       {mentionName}
     </InlineTokenHighlight>
   );
+}
+
+/**
+ * The resource references present in *value*, in order, resolved against *targets*.
+ *
+ * One implementation, used both for decorating the text and for deciding what goes on the wire.
+ * They were two regexes for a while and they disagreed: the decoration matched a dotted name and
+ * the wire did not, so a chip appeared for a reference that was never sent.
+ */
+export function resourceMentionsInText(
+  value: string,
+  targets: ResourceMentionTarget[],
+): ResourceMentionTarget[] {
+  const found: ResourceMentionTarget[] = [];
+  if (!value || targets.length === 0) return found;
+  const seen = new Set<string>();
+  for (const segment of splitCapabilityMentionSegments(value, [], [], [], targets)) {
+    if (segment.kind !== "resource") continue;
+    const key = `${segment.resource.kind}:${segment.resource.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    found.push(segment.resource);
+  }
+  return found;
 }
