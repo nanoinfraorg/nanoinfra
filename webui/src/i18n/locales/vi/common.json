@@ -819,6 +819,15 @@
         "cronRequired": "Biểu thức cron là bắt buộc.",
         "timeRequired": "Thời gian chạy là bắt buộc.",
         "futureRequired": "Thời gian chạy phải ở tương lai."
+      },
+      "runs": {
+        "title": "Lần chạy gần đây",
+        "empty": "Chưa có lần chạy nào được ghi lại",
+        "status": {
+          "ok": "Thành công",
+          "error": "Thất bại",
+          "skipped": "Đã bỏ qua"
+        }
       }
     },
     "oauth": {

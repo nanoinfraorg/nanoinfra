@@ -6068,6 +6068,7 @@ function AutomationDetailPanel({
                 </div>
               </div>
             </div>
+            <AutomationRunHistory job={job} locale={locale} tx={tx} />
           </div>
         </aside>
       </div>
@@ -6180,6 +6181,101 @@ function AutomationStatusBadge({
 
 function automationMessageNeedsExpansion(message: string): boolean {
   return message.length > 360 || message.split(/\r?\n/).length > 6;
+}
+
+function AutomationRunHistory({
+  job,
+  locale,
+  tx,
+}: {
+  job: SessionAutomationJob;
+  locale: string;
+  tx: (key: string, fallback: string, values?: Record<string, unknown>) => string;
+}) {
+  // Newest first: the question an operator opens this for is "what happened last time".
+  const runs = [...(job.state.run_history ?? [])].reverse();
+  if (runs.length === 0) {
+    // System jobs and freshly created automations have no runs yet, and an empty card is more
+    // honest than no card -- it says the history is empty rather than that it does not exist.
+    return (
+      <div className="rounded-[18px] bg-background/55 p-3">
+        <div className="text-[11px] font-medium leading-none text-muted-foreground/75">
+          {tx("settings.automations.runs.title", "Recent runs")}
+        </div>
+        <div className="mt-2 text-[12px] leading-5 text-muted-foreground/80">
+          {tx("settings.automations.runs.empty", "No runs recorded yet")}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-[18px] bg-background/55 p-3">
+      <div className="text-[11px] font-medium leading-none text-muted-foreground/75">
+        {tx("settings.automations.runs.title", "Recent runs")}
+      </div>
+      <ul className="mt-2 grid gap-2">
+        {runs.map((run, index) => {
+          const when = run.run_at_ms ? fmtDateTime(run.run_at_ms, locale) : null;
+          const status = tx(
+            `settings.automations.runs.status.${run.status}`,
+            AUTOMATION_RUN_STATUS_FALLBACK[run.status] ?? run.status,
+          );
+          return (
+            <li
+              // run_at_ms is not unique on its own: two runs of a fast job can share a
+              // millisecond, so the index keeps the keys distinct.
+              key={`${run.run_at_ms}-${index}`}
+              className="grid gap-0.5 border-t border-border/25 pt-2 first:border-t-0 first:pt-0"
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span
+                  className={
+                    run.status === "error"
+                      ? "text-[12px] font-medium leading-5 text-destructive-text"
+                      : "text-[12px] font-medium leading-5 text-foreground/80"
+                  }
+                >
+                  {status}
+                </span>
+                {typeof run.duration_ms === "number" ? (
+                  <span className="shrink-0 font-mono text-[11px] leading-5 text-muted-foreground/70">
+                    {formatRunDuration(run.duration_ms)}
+                  </span>
+                ) : null}
+              </div>
+              {when ? (
+                <div className="text-[11.5px] leading-4 text-muted-foreground/80">{when}</div>
+              ) : null}
+              {run.error ? (
+                <div
+                  className="line-clamp-2 text-[11.5px] leading-4 text-destructive-text/85"
+                  title={run.error}
+                >
+                  {run.error}
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+const AUTOMATION_RUN_STATUS_FALLBACK: Record<string, string> = {
+  ok: "Succeeded",
+  error: "Failed",
+  skipped: "Skipped",
+};
+
+/** Sub-second runs are the common case, so ms below a second rather than a rounded "0s". */
+function formatRunDuration(durationMs: number): string {
+  if (durationMs < 1000) return `${Math.max(0, Math.round(durationMs))}ms`;
+  const seconds = durationMs / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${Math.round(seconds - minutes * 60)}s`;
 }
 
 function AutomationDetail({
@@ -6579,8 +6675,28 @@ function automationDetailText(
   return automationSummary(job, tx);
 }
 
+/** How many recent runs "needs attention" looks at when the last one succeeded. */
+const AUTOMATION_FLAKY_WINDOW = 5;
+/**
+ * Failures inside that window needed before a currently-succeeding automation is surfaced.
+ * Two, not one: one failure that has since recovered is the "failed once" case, which is
+ * exactly what this must not confuse with failing every other run.
+ */
+const AUTOMATION_FLAKY_THRESHOLD = 2;
+
+/**
+ * An automation needs attention when its last run failed, and also when it keeps failing
+ * intermittently. Deriving this from `last_status` alone made an automation that fails every
+ * other run look exactly like one that failed once and recovered.
+ */
 function automationNeedsAttention(job: SessionAutomationJob): boolean {
-  return job.state.last_status === "error";
+  if (job.state.last_status === "error") return true;
+  const recent = (job.state.run_history ?? []).slice(-AUTOMATION_FLAKY_WINDOW);
+  const failures = recent.reduce(
+    (count, record) => (record.status === "error" ? count + 1 : count),
+    0,
+  );
+  return failures >= AUTOMATION_FLAKY_THRESHOLD;
 }
 
 function automationStatusKey(

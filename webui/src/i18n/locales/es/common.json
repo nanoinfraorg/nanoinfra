@@ -819,6 +819,15 @@
         "cronRequired": "La expresión cron es obligatoria.",
         "timeRequired": "La hora de ejecución es obligatoria.",
         "futureRequired": "La hora de ejecución debe estar en el futuro."
+      },
+      "runs": {
+        "title": "Ejecuciones recientes",
+        "empty": "Aún no hay ejecuciones registradas",
+        "status": {
+          "ok": "Correcta",
+          "error": "Falló",
+          "skipped": "Omitida"
+        }
       }
     },
     "oauth": {

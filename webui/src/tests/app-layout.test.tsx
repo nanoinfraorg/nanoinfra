@@ -1071,6 +1071,146 @@ describe("App layout", () => {
     });
   });
 
+  it("renders recent runs in the automation detail pane", async () => {
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/webui/automations": {
+        jobs: [
+          {
+            id: "with-runs",
+            name: "Nightly backup check",
+            enabled: true,
+            protected: false,
+            delete_after_run: false,
+            schedule: { kind: "cron", expr: "0 3 * * *", tz: "UTC" },
+            payload: { message: "Check the backup", kind: "agent_turn" },
+            state: {
+              next_run_at_ms: Date.UTC(2026, 3, 18, 3, 0, 0),
+              last_status: "ok",
+              pending: false,
+              run_history: [
+                { run_at_ms: Date.UTC(2026, 3, 16, 3, 0, 0), status: "error", duration_ms: 1500, error: "host unreachable" },
+                { run_at_ms: Date.UTC(2026, 3, 17, 3, 0, 0), status: "ok", duration_ms: 420 },
+              ],
+            },
+            origin: null,
+          },
+        ],
+      },
+    });
+
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Automations" }));
+
+    const heading = await screen.findByRole("heading", { name: "Nightly backup check" });
+    const panel = heading.closest("article") as HTMLElement;
+    expect(panel).not.toBeNull();
+
+    expect(within(panel).getByText("Recent runs")).toBeInTheDocument();
+    // Newest first: the question this pane answers is "what happened last time".
+    const statuses = within(panel)
+      .getAllByText(/^(Succeeded|Failed|Skipped)$/)
+      .map((node) => node.textContent);
+    expect(statuses).toEqual(["Succeeded", "Failed"]);
+    expect(within(panel).getByText("host unreachable")).toBeInTheDocument();
+    expect(within(panel).getByText("420ms")).toBeInTheDocument();
+    expect(within(panel).getByText("1.5s")).toBeInTheDocument();
+  });
+
+  it("says the history is empty rather than omitting it", async () => {
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/webui/automations": {
+        jobs: [
+          {
+            id: "never-ran",
+            name: "Fresh automation",
+            enabled: true,
+            protected: false,
+            delete_after_run: false,
+            schedule: { kind: "every", every_ms: 3_600_000 },
+            payload: { message: "Do the thing", kind: "agent_turn" },
+            state: { next_run_at_ms: Date.UTC(2026, 3, 18, 3, 0, 0), pending: false, run_history: [] },
+            origin: null,
+          },
+        ],
+      },
+    });
+
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Automations" }));
+
+    const heading = await screen.findByRole("heading", { name: "Fresh automation" });
+    const panel = heading.closest("article") as HTMLElement;
+    expect(within(panel).getByText("Recent runs")).toBeInTheDocument();
+    expect(within(panel).getByText("No runs recorded yet")).toBeInTheDocument();
+  });
+
+  it("counts an intermittently failing automation as needing attention", async () => {
+    const job = (
+      id: string,
+      name: string,
+      history: Array<{ run_at_ms: number; status: string; duration_ms?: number }>,
+    ) => ({
+      id,
+      name,
+      enabled: true,
+      protected: false,
+      delete_after_run: false,
+      schedule: { kind: "every", every_ms: 3_600_000 },
+      payload: { message: name, kind: "agent_turn" },
+      state: {
+        next_run_at_ms: Date.UTC(2026, 3, 18, 3, 0, 0),
+        last_status: "ok",
+        pending: false,
+        run_history: history,
+      },
+      origin: null,
+    });
+    const at = (day: number) => Date.UTC(2026, 3, day, 3, 0, 0);
+
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/webui/automations": {
+        jobs: [
+          // Alternating: currently succeeding, but failing every other run.
+          job("flaky", "Flaky automation", [
+            { run_at_ms: at(13), status: "error" },
+            { run_at_ms: at(14), status: "ok" },
+            { run_at_ms: at(15), status: "error" },
+            { run_at_ms: at(16), status: "ok" },
+            { run_at_ms: at(17), status: "ok" },
+          ]),
+          // One failure that recovered is the "failed once" case and must not be surfaced.
+          job("recovered", "Recovered automation", [
+            { run_at_ms: at(13), status: "error" },
+            { run_at_ms: at(14), status: "ok" },
+            { run_at_ms: at(15), status: "ok" },
+            { run_at_ms: at(16), status: "ok" },
+            { run_at_ms: at(17), status: "ok" },
+          ]),
+        ],
+      },
+    });
+
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Automations" }));
+
+    const needsAttention = await screen.findByRole("button", { name: /Needs attention/ });
+    expect(needsAttention).toHaveTextContent("1");
+
+    fireEvent.click(needsAttention);
+    // The name shows in both the queue row and the detail heading, so count rather than expect one.
+    await waitFor(() => expect(screen.getAllByText("Flaky automation").length).toBeGreaterThan(0));
+    expect(screen.queryByText("Recovered automation")).not.toBeInTheDocument();
+  });
+
   it("keeps long automation details expandable without nested scrolling", async () => {
     const longMessage = [
       "Review the release plan and prepare a concise status update for the channel.",
@@ -1140,10 +1280,15 @@ describe("App layout", () => {
     expect(within(detailPanel).getByRole("button", { name: "Show less" })).toBeInTheDocument();
     expect(message!).not.toHaveClass("line-clamp-6");
 
+    // 87aaf899 removed a run-history UI with a "Recent health" summary line, a collapsible
+    // expander and per-run dots. These three assertions keep that version out: #154 renders a
+    // flat list, so a summary, an expander button and a per-run "no error" filler would all be
+    // the complexity coming back.
     expect(within(detailPanel).queryByText("Recent health")).not.toBeInTheDocument();
     expect(within(detailPanel).queryByRole("button", { name: /Run history/ })).not.toBeInTheDocument();
-    expect(within(detailPanel).queryByText(/oldest failure/)).not.toBeInTheDocument();
     expect(within(detailPanel).queryByText("No error recorded")).not.toBeInTheDocument();
+    // The errors themselves are now shown, newest first, which is the point of #154.
+    expect(within(detailPanel).getByText("second oldest failure")).toBeInTheDocument();
   });
 
   it("localizes the Automations surface", async () => {
