@@ -819,6 +819,15 @@
         "cronRequired": "Cron 식은 필수입니다.",
         "timeRequired": "실행 시간은 필수입니다.",
         "futureRequired": "실행 시간은 현재보다 이후여야 합니다."
+      },
+      "runs": {
+        "title": "최근 실행",
+        "empty": "기록된 실행이 없습니다",
+        "status": {
+          "ok": "성공",
+          "error": "실패",
+          "skipped": "건너뜀"
+        }
       }
     },
     "oauth": {

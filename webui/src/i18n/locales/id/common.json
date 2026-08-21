@@ -819,6 +819,15 @@
         "cronRequired": "Ekspresi cron wajib diisi.",
         "timeRequired": "Waktu eksekusi wajib diisi.",
         "futureRequired": "Waktu eksekusi harus berada di masa depan."
+      },
+      "runs": {
+        "title": "Eksekusi terbaru",
+        "empty": "Belum ada eksekusi tercatat",
+        "status": {
+          "ok": "Berhasil",
+          "error": "Gagal",
+          "skipped": "Dilewati"
+        }
       }
     },
     "oauth": {

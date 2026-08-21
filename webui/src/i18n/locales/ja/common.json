@@ -819,6 +819,15 @@
         "cronRequired": "Cron 式は必須です。",
         "timeRequired": "実行日時は必須です。",
         "futureRequired": "実行日時は現在より後にしてください。"
+      },
+      "runs": {
+        "title": "最近の実行",
+        "empty": "実行記録はまだありません",
+        "status": {
+          "ok": "成功",
+          "error": "失敗",
+          "skipped": "スキップ"
+        }
       }
     },
     "oauth": {

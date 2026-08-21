@@ -819,6 +819,15 @@
         "cronRequired": "Cron expression is required.",
         "timeRequired": "Run time is required.",
         "futureRequired": "Run time must be in the future."
+      },
+      "runs": {
+        "title": "Recent runs",
+        "empty": "No runs recorded yet",
+        "status": {
+          "ok": "Succeeded",
+          "error": "Failed",
+          "skipped": "Skipped"
+        }
       }
     },
     "oauth": {
