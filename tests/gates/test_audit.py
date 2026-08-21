@@ -6,6 +6,7 @@ import ast
 import multiprocessing
 import stat
 import threading
+import warnings
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -503,14 +504,24 @@ def test_concurrent_processes_all_produce_intact_records(tmp_path: Path) -> None
     root = tmp_path / "gates" / "audit"
     writers, per_writer = 6, 40
     ctx = multiprocessing.get_context("fork")
+    # Python warns that fork() in a multi-threaded process may deadlock the child. Fork is
+    # required here and the skipif above says why: the children run a target defined in this
+    # module, which spawn cannot reach. Suppressed around the starts rather than for the file, so
+    # a fork added elsewhere still warns.
     barrier = ctx.Barrier(writers)
     processes = [
         ctx.Process(target=_write_many, args=(str(root), f"pid-{index}", per_writer, barrier))
         for index in range(writers)
     ]
 
-    for process in processes:
-        process.start()
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="This process .* is multi-threaded",
+            category=DeprecationWarning,
+        )
+        for process in processes:
+            process.start()
     for process in processes:
         process.join(timeout=60)
 

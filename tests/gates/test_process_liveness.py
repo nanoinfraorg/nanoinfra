@@ -14,6 +14,7 @@ from __future__ import annotations
 import contextlib
 import os
 import time
+import warnings
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -38,7 +39,17 @@ def _zombie() -> Iterator[int]:
 
     The parent reaps it at the end, so the test leaves no entry behind.
     """
-    pid = os.fork()
+    with warnings.catch_warnings():
+        # Python warns that fork() in a multi-threaded process may deadlock the child. It cannot
+        # here: the child's only statement is os._exit(0), which runs no Python and takes no lock.
+        # A zombie is the whole point of this helper, and there is no fork-free way to make one,
+        # so the warning is suppressed at the call rather than for the file.
+        warnings.filterwarnings(
+            "ignore",
+            message="This process .* is multi-threaded",
+            category=DeprecationWarning,
+        )
+        pid = os.fork()
     if pid == 0:
         os._exit(0)
     deadline = time.monotonic() + 10.0

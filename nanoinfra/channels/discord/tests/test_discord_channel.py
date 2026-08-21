@@ -1255,6 +1255,11 @@ async def test_start_passes_proxy_to_client(monkeypatch) -> None:
     assert _FakeDiscordClient.instances[0].proxy_auth is None
 
 
+# aiohttp says BasicAuth goes away in 4.0. discord.py types proxy_auth as Optional[BasicAuth] and
+# forwards the object to aiohttp, so there is nothing else to pass -- and discord.py pins
+# aiohttp<4 itself, so the version that removes the class cannot be resolved alongside it. Ignored
+# here rather than tolerated in the suite output, so the next new warning is visible.
+@pytest.mark.filterwarnings("ignore:BasicAuth is deprecated:DeprecationWarning")
 @pytest.mark.asyncio
 async def test_start_passes_proxy_auth_when_credentials_provided(monkeypatch) -> None:
     aiohttp = pytest.importorskip("aiohttp")
