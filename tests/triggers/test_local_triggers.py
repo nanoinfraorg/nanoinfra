@@ -558,8 +558,11 @@ async def test_local_trigger_queue_does_not_retry_completed_agent_failure(
 async def test_local_trigger_queue_recovers_processing_delivery_on_start(
     tmp_path: Path,
 ) -> None:
-    # Zero delay: the subject is that the queue picks recovered work up on start, not the wait.
-    store = LocalTriggerStore(tmp_path, backoff=BackoffPolicy(base_delay_ms=0, max_delay_ms=0))
+    # Zero delay on *both* stores: the subject is that the queue picks recovered work up on
+    # start, not the wait. The recovering store is the one that applies the backoff, so leaving
+    # it on the default made this test race the jitter window against the poll loop below.
+    no_wait = BackoffPolicy(base_delay_ms=0, max_delay_ms=0)
+    store = LocalTriggerStore(tmp_path, backoff=no_wait)
     trigger = store.create(
         name="PR review",
         channel="websocket",
@@ -574,7 +577,7 @@ async def test_local_trigger_queue_recovers_processing_delivery_on_start(
         submitted.append(msg)
         return None
 
-    restarted = LocalTriggerStore(tmp_path)
+    restarted = LocalTriggerStore(tmp_path, backoff=no_wait)
     task = asyncio.create_task(
         run_local_trigger_queue(
             store=restarted,
