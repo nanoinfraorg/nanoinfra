@@ -799,7 +799,8 @@
         "unit": "단위",
         "cronExpression": "Cron 식",
         "timezone": "시간대",
-        "runAt": "실행 시간"
+        "runAt": "실행 시간",
+        "delivery": "알림 시점"
       },
       "scheduleTypes": {
         "every": "간격",
@@ -834,6 +835,19 @@
         "reset": "초기화",
         "loading": "불러오는 중…",
         "empty": "이 자동화는 아직 아무것도 기억하지 않습니다"
+      },
+      "advanced": "고급",
+      "deliveryTypes": {
+        "always": "항상",
+        "on-change": "변경 시",
+        "on-error": "실패 시",
+        "never": "보내지 않음"
+      },
+      "deliveryHelp": {
+        "always": "모든 결과를 보냅니다.",
+        "on-change": "마지막으로 보낸 결과와 다를 때만 보냅니다.",
+        "on-error": "실행이 실패할 때만 보냅니다.",
+        "never": "실패해도 보내지 않습니다. 실행 기록에는 남습니다."
       }
     },
     "oauth": {

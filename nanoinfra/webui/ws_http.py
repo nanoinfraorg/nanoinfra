@@ -23,6 +23,7 @@ from loguru import logger
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
+from nanoinfra.automations.delivery import DELIVERY_POLICIES
 from nanoinfra.automations.state import AutomationStateError, AutomationStateStore
 from nanoinfra.command.builtin import builtin_command_palette
 from nanoinfra.cron.session_turns import is_bound_cron_job
@@ -1877,6 +1878,11 @@ def _parse_automation_update(
         if not message:
             return "message cannot be empty"
         update["message"] = message
+    if "delivery" in values:
+        raw_delivery = values.get("delivery")
+        if not isinstance(raw_delivery, str) or raw_delivery.strip().lower() not in DELIVERY_POLICIES:
+            return f"delivery must be one of: {', '.join(DELIVERY_POLICIES)}"
+        update["delivery"] = raw_delivery.strip().lower()
     if "schedule" in values:
         raw_schedule = values.get("schedule")
         if not isinstance(raw_schedule, dict):
@@ -1884,13 +1890,15 @@ def _parse_automation_update(
         parsed_schedule = _parse_automation_schedule(cast(dict[str, Any], raw_schedule))
         if isinstance(parsed_schedule, str):
             return parsed_schedule
-        if current_job is not None and _schedule_matches_job(parsed_schedule, current_job):
-            return update
-        schedule_error = _validate_automation_schedule(parsed_schedule)
-        if schedule_error:
-            return schedule_error
-        update["schedule"] = parsed_schedule
-        update["delete_after_run"] = parsed_schedule.kind == "at"
+        # An unchanged schedule is skipped rather than revalidated, because a job whose cron
+        # expression was valid when it was created must stay editable. This used to `return
+        # update`, which silently dropped every field parsed after this block.
+        if current_job is None or not _schedule_matches_job(parsed_schedule, current_job):
+            schedule_error = _validate_automation_schedule(parsed_schedule)
+            if schedule_error:
+                return schedule_error
+            update["schedule"] = parsed_schedule
+            update["delete_after_run"] = parsed_schedule.kind == "at"
     return update
 
 
@@ -1904,9 +1912,14 @@ def _parse_local_trigger_update(values: dict[str, Any]) -> dict[str, Any] | str:
         if not name:
             return "name cannot be empty"
         update["name"] = name
+    if "delivery" in values:
+        raw_delivery = values.get("delivery")
+        if not isinstance(raw_delivery, str) or raw_delivery.strip().lower() not in DELIVERY_POLICIES:
+            return f"delivery must be one of: {', '.join(DELIVERY_POLICIES)}"
+        update["delivery"] = raw_delivery.strip().lower()
     forbidden = [key for key in ("message", "schedule") if key in values]
     if forbidden:
-        return "local trigger updates only support name"
+        return "local trigger updates only support name and delivery"
     return update
 
 

@@ -799,7 +799,8 @@
         "unit": "単位",
         "cronExpression": "Cron 式",
         "timezone": "タイムゾーン",
-        "runAt": "実行日時"
+        "runAt": "実行日時",
+        "delivery": "通知するタイミング"
       },
       "scheduleTypes": {
         "every": "間隔",
@@ -834,6 +835,19 @@
         "reset": "リセット",
         "loading": "読み込み中…",
         "empty": "この自動化はまだ何も記憶していません"
+      },
+      "advanced": "詳細設定",
+      "deliveryTypes": {
+        "always": "常に",
+        "on-change": "変化時",
+        "on-error": "失敗時",
+        "never": "通知しない"
+      },
+      "deliveryHelp": {
+        "always": "毎回の結果を送信します。",
+        "on-change": "前回送信した結果と異なる場合のみ送信します。",
+        "on-error": "実行が失敗した場合のみ送信します。",
+        "never": "失敗時も含め送信しません。実行履歴には記録されます。"
       }
     },
     "oauth": {

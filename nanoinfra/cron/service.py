@@ -16,6 +16,7 @@ from typing import Any, Callable, Coroutine, Literal
 from filelock import FileLock
 from loguru import logger
 
+from nanoinfra.automations.delivery import normalize_policy
 from nanoinfra.cron.session_turns import is_bound_cron_job
 from nanoinfra.cron.types import (
     CronJob,
@@ -413,6 +414,7 @@ class CronService:
                         "baseDelayMs": j.retry.base_delay_ms,
                         "maxDelayMs": j.retry.max_delay_ms,
                     },
+                    "delivery": j.delivery,
                     "createdAtMs": j.created_at_ms,
                     "updatedAtMs": j.updated_at_ms,
                     "deleteAfterRun": j.delete_after_run,
@@ -728,6 +730,7 @@ class CronService:
         origin_chat_id: str | None = None,
         origin_metadata: dict[str, Any] | None = None,
         retry: CronRetryPolicy | None = None,
+        delivery: str | None = None,
     ) -> CronJob:
         """Add a new job."""
         _validate_schedule_for_add(schedule)
@@ -752,6 +755,7 @@ class CronService:
             ),
             state=CronJobState(next_run_at_ms=_compute_next_run(schedule, now)),
             retry=retry or CronRetryPolicy(),
+            delivery=normalize_policy(delivery),
             created_at_ms=now,
             updated_at_ms=now,
             delete_after_run=delete_after_run,
@@ -839,6 +843,8 @@ class CronService:
         channel: str | None | EllipsisType = ...,
         to: str | None | EllipsisType = ...,
         delete_after_run: bool | None = None,
+        retry: CronRetryPolicy | None = None,
+        delivery: str | None = None,
     ) -> CronJob | Literal["not_found", "protected"]:
         """Update mutable fields of an existing job. System jobs cannot be updated.
 
@@ -852,6 +858,10 @@ class CronService:
         if job.payload.kind == "system_event":
             return "protected"
 
+        if retry is not None:
+            job.retry = retry
+        if delivery is not None:
+            job.delivery = normalize_policy(delivery)
         if schedule is not None:
             _validate_schedule_for_add(schedule)
             job.schedule = schedule

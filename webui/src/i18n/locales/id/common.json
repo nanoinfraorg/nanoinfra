@@ -799,7 +799,8 @@
         "unit": "Unit",
         "cronExpression": "Ekspresi cron",
         "timezone": "Zona waktu",
-        "runAt": "Jalankan pada"
+        "runAt": "Jalankan pada",
+        "delivery": "Kapan memberi tahu saya"
       },
       "scheduleTypes": {
         "every": "Interval",
@@ -834,6 +835,19 @@
         "reset": "Setel ulang",
         "loading": "Memuat…",
         "empty": "Otomasi ini belum mengingat apa pun"
+      },
+      "advanced": "Lanjutan",
+      "deliveryTypes": {
+        "always": "Selalu",
+        "on-change": "Saat berubah",
+        "on-error": "Saat gagal",
+        "never": "Tidak pernah"
+      },
+      "deliveryHelp": {
+        "always": "Kirim setiap hasil.",
+        "on-change": "Kirim hanya jika hasilnya berbeda dari yang terakhir dikirim.",
+        "on-error": "Kirim hanya jika eksekusi gagal.",
+        "never": "Jangan pernah kirim, bahkan saat gagal. Riwayat tetap mencatat kejadiannya."
       }
     },
     "oauth": {

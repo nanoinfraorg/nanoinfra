@@ -34,6 +34,12 @@ class TurnRoute:
     publish_lifecycle: bool = False
 
 
+#: Set by an automation runner that will decide for itself whether the outcome is delivered.
+#: The turn still publishes its lifecycle events -- the WebUI has to see that a run happened even
+#: when the answer is withheld -- but the response does not go to the channel from here.
+AUTOMATION_WITHHOLD_DELIVERY_META = "_automation_withhold_delivery"
+
+
 TurnRoutePolicy = Callable[[InboundMessage, str, TurnRoute], TurnRoute]
 ProgressCallback = Callable[..., Awaitable[None]]
 StreamCallback = Callable[[str], Awaitable[None]]
@@ -221,6 +227,10 @@ class TurnDelivery:
             event=event,
         )
 
+    def _delivery_withheld(self) -> bool:
+        """True when the automation runner takes responsibility for delivering this response."""
+        return bool((self.input_message.metadata or {}).get(AUTOMATION_WITHHOLD_DELIVERY_META))
+
     async def complete(
         self,
         response: OutboundMessage | None,
@@ -230,10 +240,11 @@ class TurnDelivery:
         completed_channel = self.lifecycle_message.channel
         completed_chat_id = self.lifecycle_message.chat_id
         if response is not None:
-            await self.bus.publish_outbound(response)
+            if not self._delivery_withheld():
+                await self.bus.publish_outbound(response)
             completed_channel = response.channel
             completed_chat_id = response.chat_id
-        elif self.lifecycle_message.channel == "cli":
+        elif self.lifecycle_message.channel == "cli" and not self._delivery_withheld():
             await self.bus.publish_outbound(
                 OutboundMessage(
                     channel=self.lifecycle_message.channel,

@@ -1068,6 +1068,66 @@ describe("App layout", () => {
     expect(JSON.parse(decodeURIComponent(headers["X-Nanoinfra-Automation-Values"]))).toEqual({
       name: "Past one-shot",
       message: "Updated one-shot message",
+      // Sent on every save, carrying the job's current policy. The point of this test is that
+      // `schedule` is absent -- a past one-shot must not resubmit a run time in the past.
+      delivery: "always",
+    });
+  });
+
+  it("keeps the delivery policy behind a collapsed group and saves it", async () => {
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/webui/automations": {
+        jobs: [
+          {
+            id: "digest",
+            name: "Blockers digest",
+            enabled: true,
+            protected: false,
+            delete_after_run: false,
+            delivery: "always",
+            schedule: { kind: "cron", expr: "0 9 * * 1", tz: "UTC" },
+            payload: { message: "Report new blockers", kind: "agent_turn" },
+            state: { next_run_at_ms: Date.UTC(2026, 3, 20, 9, 0, 0), pending: false, run_history: [] },
+            origin: null,
+          },
+        ],
+      },
+      "/api/webui/automations/digest/state": { id: "digest", values: {} },
+      "/api/webui/automations/update?id=digest": { jobs: [] },
+    });
+
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Automations" }));
+
+    await screen.findByRole("heading", { name: "Blockers digest" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    // Closed by default: someone here to change a cron expression should not have to scroll past
+    // fields that already hold today's behaviour.
+    const group = screen.getByText("Advanced").closest("details") as HTMLDetailsElement;
+    expect(group).not.toBeNull();
+    expect(group.open).toBe(false);
+
+    group.open = true;
+    fireEvent.click(screen.getByRole("button", { name: "On change" }));
+    expect(
+      screen.getByText("Send only when the result differs from the last one delivered."),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      const call = vi.mocked(fetch).mock.calls.find(
+        ([url]) => String(url) === "/api/webui/automations/update?id=digest",
+      );
+      expect(call).toBeTruthy();
+      const headers = call?.[1]?.headers as Record<string, string>;
+      expect(
+        JSON.parse(decodeURIComponent(headers["X-Nanoinfra-Automation-Values"])).delivery,
+      ).toBe("on-change");
     });
   });
 

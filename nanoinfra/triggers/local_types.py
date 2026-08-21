@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from nanoinfra.automations.delivery import DEFAULT_DELIVERY_POLICY, normalize_policy
 from nanoinfra.utils.dict_keys import get_camel_snake as _get
 
 TriggerStatus = Literal["ok", "error"]
@@ -58,6 +59,8 @@ class LocalTrigger:
     chat_id: str
     session_key: str
     sender_id: str = "trigger"
+    #: Whether this trigger's outcome reaches the operator. Defaults to today's behaviour.
+    delivery: str = DEFAULT_DELIVERY_POLICY
     origin_metadata: dict[str, Any] = field(default_factory=dict)
     created_at_ms: int = 0
     updated_at_ms: int = 0
@@ -88,6 +91,7 @@ class LocalTrigger:
             chat_id=str(_get(data, "chatId", "chat_id", "")),
             session_key=str(_get(data, "sessionKey", "session_key", "")),
             sender_id=str(_get(data, "senderId", "sender_id", "trigger") or "trigger"),
+            delivery=normalize_policy(data.get("delivery")),
             origin_metadata=dict(_get(data, "originMetadata", "origin_metadata", {}) or {}),
             created_at_ms=_int_or_zero(_get(data, "createdAtMs", "created_at_ms", 0)),
             updated_at_ms=_int_or_zero(_get(data, "updatedAtMs", "updated_at_ms", 0)),
@@ -107,6 +111,7 @@ class LocalTrigger:
             "chatId": self.chat_id,
             "sessionKey": self.session_key,
             "senderId": self.sender_id,
+            "delivery": self.delivery,
             "originMetadata": self.origin_metadata,
             "createdAtMs": self.created_at_ms,
             "updatedAtMs": self.updated_at_ms,

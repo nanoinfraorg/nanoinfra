@@ -23,6 +23,7 @@ Two properties this module exists to hold:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -164,3 +165,66 @@ def _encode_value(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False)
     except (TypeError, ValueError) as exc:
         raise AutomationStateError(f"state value is not JSON-serialisable: {exc}") from exc
+
+
+# --- delivery bookkeeping ---------------------------------------------------
+#
+# The delivery policy has to remember the last outcome it delivered, and that memory must not be
+# reachable from the automation_state tool: an automation that can edit the record of what it last
+# said can talk itself past an on-change policy. So it lives in a separate document with a
+# separate suffix, and the tool has no method that reaches it.
+
+
+class AutomationDeliveryLog:
+    """What an automation last delivered. Written by the platform, invisible to the model."""
+
+    def __init__(self, workspace_path: Path):
+        self.workspace_path = Path(workspace_path)
+        self.root = self.workspace_path / "automations" / "delivery"
+        self._lock = FileLock(str(self.workspace_path / "automations" / ".delivery.lock"))
+
+    def last_fingerprint(self, automation_id: str) -> str | None:
+        path = self._path(automation_id)
+        if not path.exists():
+            return None
+        try:
+            raw = cast(object, json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            logger.exception("Automation delivery log: unreadable document for {}", automation_id)
+            return None
+        if not isinstance(raw, dict):
+            return None
+        value = cast(object, cast(dict[str, object], raw).get("fingerprint"))
+        return value if isinstance(value, str) and value else None
+
+    def record(self, automation_id: str, fingerprint: str) -> None:
+        with self._lock:
+            path = self._path(automation_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".json.tmp")
+            tmp.write_text(
+                json.dumps({"version": 1, "fingerprint": fingerprint}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            tmp.replace(path)
+
+    def forget(self, automation_id: str) -> bool:
+        with self._lock:
+            path = self._path(automation_id)
+            if not path.exists():
+                return False
+            path.unlink(missing_ok=True)
+            return True
+
+    def _path(self, automation_id: str) -> Path:
+        return self.root / f"{_safe_id(automation_id)}.json"
+
+
+def response_fingerprint(content: str) -> str:
+    """Fingerprint a response for on-change comparison.
+
+    Whitespace-normalised, because a model that reflows the same answer has not changed it, and an
+    on-change policy that fires on reflow is an on-change policy an operator switches off.
+    """
+    normalised = " ".join((content or "").split())
+    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
