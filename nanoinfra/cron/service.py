@@ -21,10 +21,12 @@ from nanoinfra.cron.types import (
     CronJob,
     CronJobState,
     CronPayload,
+    CronRetryPolicy,
     CronRunRecord,
     CronSchedule,
     CronStore,
 )
+from nanoinfra.utils.backoff import next_attempt_at_ms
 from nanoinfra.utils.run_records import (
     safe_run_record_name,
 )
@@ -403,6 +405,13 @@ class CronService:
                             }
                             for r in j.state.run_history
                         ],
+                        "retryAttempts": j.state.retry_attempts,
+                        "retryPending": j.state.retry_pending,
+                    },
+                    "retry": {
+                        "attempts": j.retry.attempts,
+                        "baseDelayMs": j.retry.base_delay_ms,
+                        "maxDelayMs": j.retry.max_delay_ms,
                     },
                     "createdAtMs": j.created_at_ms,
                     "updatedAtMs": j.updated_at_ms,
@@ -496,8 +505,12 @@ class CronService:
         for job in self._store.jobs:
             if self._enforce_agent_binding(job):
                 continue
-            if job.enabled:
-                job.state.next_run_at_ms = _compute_next_run(job.schedule, now)
+            if not job.enabled:
+                continue
+            if job.state.retry_pending and job.state.next_run_at_ms:
+                # A gateway restart must not turn a pending retry into a skipped failure.
+                continue
+            job.state.next_run_at_ms = _compute_next_run(job.schedule, now)
 
     def _get_next_wake_ms(self) -> int | None:
         """Get the earliest next run time across all jobs."""
@@ -613,6 +626,16 @@ class CronService:
         ))
         job.state.run_history = job.state.run_history[-self._MAX_RUN_HISTORY:]
 
+        if self._schedule_retry(job):
+            # A retry is pending, so the job keeps its slot: a one-shot must not be disabled or
+            # deleted while it still has attempts left, and a recurring job must not skip ahead
+            # to its next scheduled slot as though the failure had not happened.
+            return
+
+        # A run that did not need a retry ends the outage, whatever its outcome.
+        job.state.retry_attempts = 0
+        job.state.retry_pending = False
+
         # Handle one-shot jobs
         if job.schedule.kind == "at":
             if job.delete_after_run:
@@ -624,6 +647,38 @@ class CronService:
         else:
             # Compute next run
             job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms())
+
+    def _schedule_retry(self, job: CronJob) -> bool:
+        """Point ``next_run_at_ms`` at a retry, or report that there is none to schedule.
+
+        A skipped run is not a failure -- something declined to run it -- so it must not consume
+        an attempt or start an outage.
+        """
+        if job.state.last_status != "error" or not job.retry.enabled:
+            return False
+        if job.state.retry_attempts >= job.retry.attempts:
+            logger.warning(
+                "Cron: job '{}' exhausted its {} retr{} and will wait for its next slot",
+                job.name,
+                job.retry.attempts,
+                "y" if job.retry.attempts == 1 else "ies",
+            )
+            return False
+
+        job.state.retry_attempts += 1
+        job.state.retry_pending = True
+        job.state.next_run_at_ms = next_attempt_at_ms(
+            now_ms=_now_ms(),
+            attempts=job.state.retry_attempts,
+            policy=job.retry.backoff(),
+        )
+        logger.info(
+            "Cron: job '{}' failed; retry {}/{} scheduled",
+            job.name,
+            job.state.retry_attempts,
+            job.retry.attempts,
+        )
+        return True
 
     def _append_action(
         self,
@@ -672,6 +727,7 @@ class CronService:
         origin_channel: str | None = None,
         origin_chat_id: str | None = None,
         origin_metadata: dict[str, Any] | None = None,
+        retry: CronRetryPolicy | None = None,
     ) -> CronJob:
         """Add a new job."""
         _validate_schedule_for_add(schedule)
@@ -695,6 +751,7 @@ class CronService:
                 origin_metadata=origin_metadata or {},
             ),
             state=CronJobState(next_run_at_ms=_compute_next_run(schedule, now)),
+            retry=retry or CronRetryPolicy(),
             created_at_ms=now,
             updated_at_ms=now,
             delete_after_run=delete_after_run,

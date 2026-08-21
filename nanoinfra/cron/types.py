@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast, overload
 
+from nanoinfra.utils.backoff import (
+    DEFAULT_BASE_DELAY_MS,
+    DEFAULT_MAX_DELAY_MS,
+    BackoffPolicy,
+)
 from nanoinfra.utils.dict_keys import get_camel_snake
 
 
@@ -83,6 +88,39 @@ class CronPayload:
 
 
 @dataclass
+class CronRetryPolicy:
+    """How a failed run is retried. Off by default, so upgrading changes nothing."""
+
+    #: Retries after the first failure, not total attempts. Zero disables retrying.
+    attempts: int = 0
+    base_delay_ms: int = DEFAULT_BASE_DELAY_MS
+    max_delay_ms: int = DEFAULT_MAX_DELAY_MS
+
+    @property
+    def enabled(self) -> bool:
+        return self.attempts > 0
+
+    def backoff(self) -> BackoffPolicy:
+        return BackoffPolicy(base_delay_ms=self.base_delay_ms, max_delay_ms=self.max_delay_ms)
+
+    @classmethod
+    def from_store_dict(cls, data: dict[str, Any] | None) -> CronRetryPolicy:
+        if not data:
+            return cls()
+        return cls(
+            attempts=_store_int(data.get("attempts"), 0) or 0,
+            base_delay_ms=(
+                _store_int(get_camel_snake(data, "baseDelayMs", "base_delay_ms"), None)
+                or DEFAULT_BASE_DELAY_MS
+            ),
+            max_delay_ms=(
+                _store_int(get_camel_snake(data, "maxDelayMs", "max_delay_ms"), None)
+                or DEFAULT_MAX_DELAY_MS
+            ),
+        )
+
+
+@dataclass
 class CronRunRecord:
     """A single execution record for a cron job."""
     run_at_ms: int
@@ -108,6 +146,12 @@ class CronJobState:
     last_status: Literal["ok", "error", "skipped"] | None = None
     last_error: str | None = None
     run_history: list[CronRunRecord] = field(default_factory=list)
+    #: Retries already spent on the *current* failure. Reset the moment a run succeeds, is
+    #: skipped, or exhausts the policy, so it measures this outage rather than the job's life.
+    retry_attempts: int = 0
+    #: True while ``next_run_at_ms`` holds a retry rather than a scheduled slot. Without this,
+    #: recomputing next-run times on startup would silently drop a pending retry.
+    retry_pending: bool = False
 
     @classmethod
     def from_store_dict(cls, data: dict[str, Any]) -> CronJobState:
@@ -131,6 +175,10 @@ class CronJobState:
                 for record in history
                 if isinstance(record, (dict, CronRunRecord))
             ],
+            retry_attempts=_store_int(
+                get_camel_snake(data, "retryAttempts", "retry_attempts", 0)
+            ),
+            retry_pending=bool(get_camel_snake(data, "retryPending", "retry_pending", False)),
         )
 
 
@@ -143,6 +191,7 @@ class CronJob:
     schedule: CronSchedule = field(default_factory=lambda: CronSchedule(kind="every"))
     payload: CronPayload = field(default_factory=CronPayload)
     state: CronJobState = field(default_factory=CronJobState)
+    retry: CronRetryPolicy = field(default_factory=CronRetryPolicy)
     created_at_ms: int = 0
     updated_at_ms: int = 0
     delete_after_run: bool = False
@@ -161,6 +210,9 @@ class CronJob:
         )
         kwargs["payload"] = CronPayload(**cast(dict[str, Any], kwargs.get("payload", {})))
         kwargs["state"] = CronJobState(**state_kwargs)
+        retry = kwargs.get("retry")
+        if retry is not None and not isinstance(retry, CronRetryPolicy):
+            kwargs["retry"] = CronRetryPolicy(**cast(dict[str, Any], retry))
         return cls(**cast(Any, kwargs))
 
     @classmethod
@@ -173,6 +225,7 @@ class CronJob:
             schedule=CronSchedule.from_store_dict(data["schedule"]),
             payload=CronPayload.from_store_dict(data.get("payload") or {}),
             state=CronJobState.from_store_dict(data.get("state") or {}),
+            retry=CronRetryPolicy.from_store_dict(data.get("retry")),
             created_at_ms=_store_int(get_camel_snake(data, "createdAtMs", "created_at_ms", 0)),
             updated_at_ms=_store_int(get_camel_snake(data, "updatedAtMs", "updated_at_ms", 0)),
             delete_after_run=bool(
