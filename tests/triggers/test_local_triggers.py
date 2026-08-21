@@ -4,6 +4,7 @@ import asyncio
 import errno
 import json
 import os
+import time
 from contextlib import suppress
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from nanoinfra.bus.events import InboundMessage, OutboundMessage
 from nanoinfra.triggers.local_runner import run_local_trigger_queue
 from nanoinfra.triggers.local_store import LocalTriggerStore, TriggerDisabledError
 from nanoinfra.triggers.local_types import LocalTrigger, TriggerDelivery
+from nanoinfra.utils.backoff import BackoffPolicy
 from nanoinfra.webui.metadata import WEBUI_MESSAGE_SOURCE_METADATA_KEY, WEBUI_TURN_METADATA_KEY
 
 
@@ -250,7 +252,12 @@ def test_delete_removes_delivery_files_for_trigger(tmp_path: Path) -> None:
 
 
 def test_recover_processing_deliveries_requeues_claimed_delivery(tmp_path: Path) -> None:
-    store = LocalTriggerStore(tmp_path)
+    # Zero delay throughout: the subject here is that an interrupted claim comes back with its
+    # content and attempt intact. Recovery goes through the same retry path as a failure, so it
+    # does carry a backoff in production -- which is protective, because a gateway in a crash
+    # loop would otherwise burn the whole attempt budget across a handful of restarts.
+    no_wait = BackoffPolicy(base_delay_ms=0, max_delay_ms=0)
+    store = LocalTriggerStore(tmp_path, backoff=no_wait)
     trigger = store.create(
         name="PR review",
         channel="websocket",
@@ -263,9 +270,9 @@ def test_recover_processing_deliveries_requeues_claimed_delivery(tmp_path: Path)
     assert len(claimed) == 1
     assert claimed[0].path is not None
     assert claimed[0].path.parent.name == "processing"
-    assert LocalTriggerStore(tmp_path).claim_deliveries() == []
+    assert LocalTriggerStore(tmp_path, backoff=no_wait).claim_deliveries() == []
 
-    restarted = LocalTriggerStore(tmp_path)
+    restarted = LocalTriggerStore(tmp_path, backoff=no_wait)
     assert restarted.recover_processing_deliveries() == 1
 
     reclaimed = restarted.claim_deliveries()
@@ -453,7 +460,9 @@ async def test_local_trigger_queue_waits_for_submitted_turn_before_ack(
 async def test_local_trigger_queue_requeues_when_submitted_turn_is_interrupted(
     tmp_path: Path,
 ) -> None:
-    store = LocalTriggerStore(tmp_path)
+    # Zero delay: this test's subject is that an interrupted turn is requeued with its attempt
+    # counted, not how long the requeue waits. The backoff itself is asserted below.
+    store = LocalTriggerStore(tmp_path, backoff=BackoffPolicy(base_delay_ms=0, max_delay_ms=0))
     trigger = store.create(
         name="CI review",
         channel="websocket",
@@ -549,7 +558,8 @@ async def test_local_trigger_queue_does_not_retry_completed_agent_failure(
 async def test_local_trigger_queue_recovers_processing_delivery_on_start(
     tmp_path: Path,
 ) -> None:
-    store = LocalTriggerStore(tmp_path)
+    # Zero delay: the subject is that the queue picks recovered work up on start, not the wait.
+    store = LocalTriggerStore(tmp_path, backoff=BackoffPolicy(base_delay_ms=0, max_delay_ms=0))
     trigger = store.create(
         name="PR review",
         channel="websocket",
@@ -668,3 +678,65 @@ def test_local_trigger_from_dict_accepts_null_run_history() -> None:
         }
     )
     assert trigger.run_history == []
+
+
+@pytest.mark.asyncio
+async def test_a_requeued_delivery_waits_before_it_can_be_claimed_again(tmp_path: Path) -> None:
+    """Without this, a requeued delivery was reclaimed on the next 0.5s poll, so ten attempts
+    burned in about five seconds and the automation dead-lettered before a briefly unavailable
+    downstream could recover."""
+    store = LocalTriggerStore(
+        tmp_path,
+        backoff=BackoffPolicy(base_delay_ms=60_000, max_delay_ms=600_000, jitter=False),
+    )
+    trigger = store.create(
+        name="CI review",
+        channel="websocket",
+        chat_id="chat-1",
+        session_key="websocket:chat-1",
+    )
+    store.enqueue(trigger.id, "Review failed CI")
+
+    claimed = store.claim_deliveries()
+    assert len(claimed) == 1
+    assert store.retry_delivery(claimed[0], "downstream unavailable") is True
+
+    assert store.claim_deliveries() == []
+
+
+def test_the_retry_delay_grows_with_each_attempt(tmp_path: Path) -> None:
+    store = LocalTriggerStore(
+        tmp_path,
+        backoff=BackoffPolicy(base_delay_ms=1_000, max_delay_ms=600_000, jitter=False),
+    )
+    trigger = store.create(
+        name="CI review",
+        channel="websocket",
+        chat_id="chat-1",
+        session_key="websocket:chat-1",
+    )
+    store.enqueue(trigger.id, "Review failed CI")
+
+    delays: list[int] = []
+    for _ in range(4):
+        # Claim ignores not_before_ms only because we read the file directly below; force the
+        # delivery back into processing by hand so the schedule can be observed without waiting.
+        pending = _read_inbox_delivery(store)
+        pending.path = store.processing_dir / pending.path.name  # type: ignore[union-attr]
+        store.retry_delivery(pending, "still unavailable")
+        after = _read_inbox_delivery(store)
+        delays.append(after.not_before_ms - _now_ms_approx())
+
+    # 1s, 2s, 4s, 8s -- allowing a little slack for the clock between write and read.
+    assert [round(delay / 1000) for delay in delays] == [1, 2, 4, 8]
+
+
+def _read_inbox_delivery(store: LocalTriggerStore) -> TriggerDelivery:
+    paths = sorted(store.inbox_dir.glob("*.json"))
+    assert len(paths) == 1, paths
+    data = json.loads(paths[0].read_text(encoding="utf-8"))
+    return TriggerDelivery.from_dict(data.get("delivery", data), path=paths[0])
+
+
+def _now_ms_approx() -> int:
+    return int(time.time() * 1000)

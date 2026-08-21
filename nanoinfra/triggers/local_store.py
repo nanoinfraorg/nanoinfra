@@ -16,6 +16,7 @@ from filelock import FileLock
 from loguru import logger
 
 from nanoinfra.triggers.local_types import LocalTrigger, TriggerDelivery, TriggerRunRecord
+from nanoinfra.utils.backoff import BackoffPolicy, next_attempt_at_ms
 from nanoinfra.utils.helpers import truncate_text
 from nanoinfra.utils.run_records import write_run_record as write_automation_run_record
 
@@ -41,7 +42,7 @@ class TriggerDisabledError(TriggerStoreError):
 class LocalTriggerStore:
     """Persistent local triggers for one workspace."""
 
-    def __init__(self, workspace_path: Path):
+    def __init__(self, workspace_path: Path, *, backoff: BackoffPolicy | None = None):
         self.workspace_path = Path(workspace_path)
         self.root = self.workspace_path / "triggers"
         self.store_path = self.root / "triggers.json"
@@ -49,6 +50,9 @@ class LocalTriggerStore:
         self.processing_dir = self.root / "processing"
         self.failed_dir = self.root / "failed"
         self.runs_dir = self.root / "runs"
+        # Injectable so a test can assert an exact retry schedule. Production takes the default,
+        # which is jittered.
+        self.backoff = backoff or BackoffPolicy()
         self._lock = FileLock(str(self.root / ".lock"))
 
     def create(
@@ -200,11 +204,17 @@ class LocalTriggerStore:
             return delivery
 
     def claim_deliveries(self, *, limit: int = 20) -> list[TriggerDelivery]:
-        """Move pending deliveries into processing and return them."""
+        """Move eligible pending deliveries into processing and return them."""
         self._ensure_dirs()
         claimed: list[TriggerDelivery] = []
+        now_ms = _now_ms()
         with self._lock:
-            for path in sorted(self.inbox_dir.glob("*.json"))[: max(0, limit)]:
+            # Scan the whole inbox rather than the first ``limit`` files. A backed-off delivery
+            # keeps its original filename, so slicing the glob would let one waiting delivery
+            # block every fresh one behind it.
+            for path in sorted(self.inbox_dir.glob("*.json")):
+                if len(claimed) >= max(0, limit):
+                    break
                 try:
                     data = json.loads(path.read_text(encoding="utf-8"))
                     delivery = TriggerDelivery.from_dict(
@@ -214,6 +224,8 @@ class LocalTriggerStore:
                 except Exception:
                     logger.exception("Trigger: failed to parse delivery {}", path)
                     self._move_bad_delivery_unlocked(path)
+                    continue
+                if delivery.not_before_ms > now_ms:
                     continue
                 os.replace(path, cast(Path, delivery.path))
                 claimed.append(delivery)
@@ -371,6 +383,14 @@ class LocalTriggerStore:
             return False
         delivery.attempts += 1
         delivery.last_error = error
+        # Without this the requeued file is reclaimed on the next poll -- 0.5s -- so ten attempts
+        # burned in about five seconds and a downstream that was briefly unavailable got hammered
+        # and then dead-lettered long before it could recover.
+        delivery.not_before_ms = next_attempt_at_ms(
+            now_ms=_now_ms(),
+            attempts=delivery.attempts,
+            policy=self.backoff,
+        )
         target = self.inbox_dir / delivery.path.name
         self._atomic_write(target, json.dumps(_delivery_payload(delivery), ensure_ascii=False))
         delivery.path.unlink(missing_ok=True)

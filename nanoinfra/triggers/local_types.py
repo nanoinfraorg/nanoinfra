@@ -128,6 +128,9 @@ class TriggerDelivery:
     created_at_ms: int
     attempts: int = 0
     last_error: str | None = None
+    #: Earliest time this delivery may be claimed again. Zero means "now", which is what every
+    #: delivery written before backoff existed carries, so old files stay claimable.
+    not_before_ms: int = 0
     path: Path | None = field(default=None, compare=False, repr=False)
 
     @classmethod
@@ -144,6 +147,7 @@ class TriggerDelivery:
             created_at_ms=_int_or_zero(_get(data, "createdAtMs", "created_at_ms", 0)),
             attempts=_int_or_zero(data.get("attempts", 0)),
             last_error=data.get("lastError") or data.get("last_error"),
+            not_before_ms=_int_or_zero(_get(data, "notBeforeMs", "not_before_ms", 0)),
             path=path,
         )
 
@@ -155,4 +159,5 @@ class TriggerDelivery:
             "createdAtMs": self.created_at_ms,
             "attempts": self.attempts,
             "lastError": self.last_error,
+            "notBeforeMs": self.not_before_ms,
         }
