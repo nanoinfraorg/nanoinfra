@@ -25,6 +25,7 @@ import pytest
 
 from nanoinfra.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
 from nanoinfra.triggers.local_store import LocalTriggerStore
+from nanoinfra.utils.backoff import BackoffPolicy
 from nanoinfra.webui.gateway_services import GatewayServices, build_gateway_services
 
 from .ws_test_client import InProcessHttpChannel
@@ -91,6 +92,22 @@ def bus() -> MagicMock:
     b.publish_inbound = AsyncMock()
     return b
 
+
+
+def _dead_letter(tmp_path: Path, store: LocalTriggerStore, trigger_id: str, content: str) -> str:
+    """Burn a delivery's attempts until it dead-letters, and return its id.
+
+    Burns through a zero-delay view over the same workspace. The fixture's store carries the
+    production backoff, so a retried delivery is not claimable again for seconds and the loop
+    would exit with the delivery still sitting in the inbox.
+    """
+    delivery = store.enqueue(trigger_id, content)
+    fast = LocalTriggerStore(tmp_path, backoff=BackoffPolicy(base_delay_ms=0, max_delay_ms=0))
+    for _ in range(20):
+        claimed = fast.claim_deliveries()
+        if not claimed or not fast.retry_delivery(claimed[0], "downstream unavailable"):
+            break
+    return delivery.id
 
 def _queued(store: LocalTriggerStore) -> int:
     return len(list(store.inbox_dir.glob("*.json")))
@@ -444,6 +461,79 @@ async def test_key_routes_404_for_an_unknown_automation(bus: MagicMock, tmp_path
 
         assert issued.status_code == 404, issued.text
         assert revoked.status_code == 404, revoked.text
+    finally:
+        await fx.channel.stop()
+        await server_task
+
+
+@pytest.mark.asyncio
+async def test_a_dead_letter_can_be_listed_and_replayed(bus: MagicMock, tmp_path: Path) -> None:
+    """A delivery in failed/ is a JSON file describing exactly what to do, and until #163 the only
+    way to act on it was to read it and retype the command."""
+    fx = _Fixture(tmp_path, bus)
+    delivery_id = _dead_letter(tmp_path, fx.store, fx.trigger.id, "CI failed")
+
+    server_task = asyncio.create_task(fx.channel.start())
+    try:
+        token = fx.channel.gateway.tokens.issue_api_token(300)
+        auth = {"Authorization": f"Bearer {token}"}
+
+        deny = await _http_get(f"{fx.base_url}/api/webui/automations/failed")
+        assert deny.status_code == 401, deny.text
+
+        listed = await _http_get(f"{fx.base_url}/api/webui/automations/failed", headers=auth)
+        assert listed.status_code == 200, listed.text
+        entries = listed.json()["deliveries"]
+        assert [item["id"] for item in entries] == [delivery_id]
+        assert entries[0]["content"] == "CI failed"
+        assert entries[0]["last_error"] == "downstream unavailable"
+
+        replayed = await _http_get(
+            f"{fx.base_url}/api/webui/automations/failed/{delivery_id}/replay", headers=auth
+        )
+        assert replayed.status_code == 200, replayed.text
+        body = replayed.json()
+        assert body["queued"] is True
+        assert body["replay_of"] == delivery_id
+        assert body["delivery_id"] != delivery_id
+        assert _queued(fx.store) == 1
+    finally:
+        await fx.channel.stop()
+        await server_task
+
+
+@pytest.mark.asyncio
+async def test_replaying_an_unknown_delivery_is_a_404(bus: MagicMock, tmp_path: Path) -> None:
+    fx = _Fixture(tmp_path, bus)
+    server_task = asyncio.create_task(fx.channel.start())
+    try:
+        token = fx.channel.gateway.tokens.issue_api_token(300)
+        resp = await _http_get(
+            f"{fx.base_url}/api/webui/automations/failed/tdl_nope/replay",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+        assert resp.status_code == 404, resp.text
+    finally:
+        await fx.channel.stop()
+        await server_task
+
+
+@pytest.mark.asyncio
+async def test_a_trigger_key_cannot_replay(bus: MagicMock, tmp_path: Path) -> None:
+    """Firing is what a key authorises. Replaying is an operator decision about history."""
+    fx = _Fixture(tmp_path, bus)
+    delivery_id = _dead_letter(tmp_path, fx.store, fx.trigger.id, "CI failed")
+
+    server_task = asyncio.create_task(fx.channel.start())
+    try:
+        resp = await _http_get(
+            f"{fx.base_url}/api/webui/automations/failed/{delivery_id}/replay",
+            headers={"Authorization": f"Bearer {fx.key}"},
+        )
+
+        assert resp.status_code == 401, resp.text
+        assert _queued(fx.store) == 0
     finally:
         await fx.channel.stop()
         await server_task

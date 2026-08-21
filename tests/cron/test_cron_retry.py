@@ -262,3 +262,91 @@ def test_a_job_written_before_retries_existed_loads_with_the_policy_off(tmp_path
 @pytest.mark.parametrize("attempts", [0, -1])
 def test_a_non_positive_attempt_count_disables_retrying(attempts: int) -> None:
     assert CronRetryPolicy(attempts=attempts).enabled is False
+
+
+async def test_a_forced_run_is_distinguishable_from_a_scheduled_one(tmp_path: Path) -> None:
+    """"Why did this daily 09:00 job run at 14:07" had no answer before (#163)."""
+    service, job = _service(tmp_path)
+
+    async def _ok(_job: CronJob) -> None:
+        return None
+
+    service.on_job = _ok
+    await service.run_job(job.id, force=True)
+
+    stored = _stored(service, job.id)
+    assert [record.reason for record in stored.state.run_history] == ["manual"]
+
+
+async def test_a_retry_is_recorded_as_a_retry_not_a_manual_run(tmp_path: Path) -> None:
+    service, job = _service(
+        tmp_path,
+        retry=CronRetryPolicy(attempts=2, base_delay_ms=1_000, max_delay_ms=60_000),
+    )
+
+    async def _boom(_job: CronJob) -> None:
+        raise RuntimeError("host unreachable")
+
+    service.on_job = _boom
+    await service.run_job(job.id, force=True)
+    await service.run_job(job.id, force=True)
+
+    stored = _stored(service, job.id)
+    # The first run was the operator's; the second happened because a retry was pending.
+    assert [record.reason for record in stored.state.run_history] == ["manual", "retry"]
+
+
+async def test_the_reason_survives_a_reload(tmp_path: Path) -> None:
+    store_path = tmp_path / "cron" / "jobs.json"
+    service, job = _service(tmp_path)
+
+    async def _ok(_job: CronJob) -> None:
+        return None
+
+    service.on_job = _ok
+    await service.run_job(job.id, force=True)
+
+    reloaded = CronService(store_path)
+    reloaded._load_store()
+    stored = _stored(reloaded, job.id)
+
+    assert [record.reason for record in stored.state.run_history] == ["manual"]
+
+
+def test_a_record_written_before_reasons_existed_reads_as_scheduled(tmp_path: Path) -> None:
+    store_path = tmp_path / "cron" / "jobs.json"
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    store_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "jobs": [
+                    {
+                        "id": "legacy",
+                        "name": "legacy",
+                        "enabled": True,
+                        "schedule": {"kind": "cron", "expr": "0 9 * * *", "tz": "UTC"},
+                        "payload": {
+                            "kind": "agent_turn",
+                            "message": "hello",
+                            "sessionKey": "websocket:chat-1",
+                            "originChannel": "websocket",
+                            "originChatId": "chat-1",
+                        },
+                        "state": {
+                            "runHistory": [
+                                {"runAtMs": 1, "status": "ok", "durationMs": 5},
+                            ]
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    service = CronService(store_path)
+    service._load_store()
+    stored = _stored(service, "legacy")
+
+    assert [record.reason for record in stored.state.run_history] == ["scheduled"]
