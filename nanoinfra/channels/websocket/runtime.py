@@ -86,6 +86,11 @@ from nanoinfra.webui.metadata import (
     WEBUI_SYSTEM_COMMAND_TURN_PREFIX,
     WEBUI_TURN_METADATA_KEY,
 )
+from nanoinfra.webui.resource_mentions import (
+    ResolvedMention,
+    ResourceMentionResolver,
+    resource_mentions_runtime_context,
+)
 from nanoinfra.webui.session_access import (
     SessionAccessScope,
     SessionMention,
@@ -1219,6 +1224,22 @@ class WebSocketChannel(BaseChannel):
                 )
                 if session_mentions:
                     metadata["session_mentions"] = session_mentions
+            resource_mentions: list[ResolvedMention] = []
+            if trusted_webui:
+                # Resolved against the workspace the turn runs in, so a mention cannot reach a
+                # store outside the caller's scope. Chat keeps whatever resolved and ignores the
+                # rest, the way the session path does -- an automation is the caller that refuses.
+                resolution = await asyncio.to_thread(
+                    ResourceMentionResolver(
+                        scope.project_path or self._http_router.diagrams.workspace_path
+                    ).resolve,
+                    envelope.get("resource_mentions"),
+                )
+                resource_mentions = resolution.resolved
+                if resource_mentions:
+                    metadata["resource_mentions"] = [
+                        mention.to_payload() for mention in resource_mentions
+                    ]
             metadata[WORKSPACE_SCOPE_METADATA_KEY] = scope.metadata()
             self._workspaces.persist_scope(cid, scope)
             is_webui = metadata.get("webui") is True
@@ -1249,6 +1270,9 @@ class WebSocketChannel(BaseChannel):
                     session_context = session_mentions_runtime_context(session_mentions)
                     if session_context is not None:
                         context_blocks.append(session_context)
+                    resource_context = resource_mentions_runtime_context(resource_mentions)
+                    if resource_context is not None:
+                        context_blocks.append(resource_context)
                     if context_blocks:
                         metadata[RUNTIME_CONTEXT_INPUT_META] = context_blocks
                 await self._handle_message(

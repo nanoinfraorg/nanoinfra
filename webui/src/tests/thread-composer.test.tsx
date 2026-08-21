@@ -1400,6 +1400,166 @@ describe("ThreadComposer", () => {
     }
   });
 
+  const MENTION_SERVERS = [
+    { id: "srv_a1b2", name: "db-01", providerId: "ssh", tags: ["prod"], updatedAt: "2026-08-21" },
+    { id: "srv_c3d4", name: "web-01", providerId: "ssh", tags: ["edge"], updatedAt: "2026-08-21" },
+  ];
+  const MENTION_DIAGRAMS = [
+    { id: "dg_1", name: "prod-net", targets: ["aws"], nodeCount: 11, updatedAt: "2026-08-21", status: "ok" },
+  ];
+
+  it("lists every server on @server: and narrows as you type", () => {
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        servers={MENTION_SERVERS}
+        diagrams={MENTION_DIAGRAMS}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    // The colon used to close the menu, because it was not in the trigger's character class.
+    fireEvent.change(input, { target: { value: "@server:", selectionStart: 8 } });
+
+    expect(screen.getByRole("listbox", { name: "Mentions" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /db-01/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /web-01/i })).toBeInTheDocument();
+    // A prefix narrows to one kind, so a diagram must not appear here.
+    expect(screen.queryByRole("option", { name: /prod-net/i })).not.toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: "@server:web", selectionStart: 11 } });
+
+    expect(screen.getByRole("option", { name: /web-01/i })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /db-01/i })).not.toBeInTheDocument();
+  });
+
+  it("matches a server on its tags, not only its name", () => {
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        servers={MENTION_SERVERS}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: "@server:prod", selectionStart: 12 } });
+
+    expect(screen.getByRole("option", { name: /db-01/i })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /web-01/i })).not.toBeInTheDocument();
+  });
+
+  it("inserts the id and shows the name, and sends the reference", () => {
+    const onSend = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={onSend}
+        placeholder="Type your message..."
+        servers={MENTION_SERVERS}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: "@server:db", selectionStart: 10 } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    // The id is the token, so a rename cannot strand the reference.
+    expect(input).toHaveValue("@server:srv_a1b2 ");
+    // The operator sees the name.
+    expect(screen.getByTestId("composer-resource-mention-server-srv_a1b2")).toHaveTextContent(
+      "@db-01",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).toHaveBeenCalledWith("@server:srv_a1b2", undefined, {
+      resourceMentions: [{ kind: "server", id: "srv_a1b2" }],
+    });
+  });
+
+  it("does not send a reference whose token was deleted", () => {
+    const onSend = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={onSend}
+        placeholder="Type your message..."
+        servers={MENTION_SERVERS}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: "@server:db", selectionStart: 10 } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    // The operator changes their mind and clears the composer.
+    fireEvent.change(input, { target: { value: "never mind", selectionStart: 10 } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    // Otherwise the agent acts on a reference nobody can see in the message.
+    expect(onSend).toHaveBeenCalledWith("never mind", undefined, undefined);
+  });
+
+  it("offers diagrams under their own prefix", () => {
+    const onSend = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={onSend}
+        placeholder="Type your message..."
+        servers={MENTION_SERVERS}
+        diagrams={MENTION_DIAGRAMS}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: "@diagram:", selectionStart: 9 } });
+
+    expect(screen.getByRole("option", { name: /prod-net/i })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /db-01/i })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).toHaveBeenCalledWith("@diagram:dg_1", undefined, {
+      resourceMentions: [{ kind: "diagram", id: "dg_1" }],
+    });
+  });
+
+  it("leaves an unprefixed mention meaning what it meant before", () => {
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        cliApps={CLI_APPS}
+        servers={MENTION_SERVERS}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
+
+    // Nothing an operator already types changes meaning: a bare @ still lists apps, not servers.
+    expect(screen.getByRole("option", { name: /@gimp/i })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /db-01/i })).not.toBeInTheDocument();
+  });
+
+  it("ignores an unknown prefix rather than opening an empty menu", () => {
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        cliApps={CLI_APPS}
+        servers={MENTION_SERVERS}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: "@secret:", selectionStart: 8 } });
+
+    // Falls through to the name path, which finds nothing called "secret:".
+    expect(screen.queryByRole("listbox", { name: "Mentions" })).not.toBeInTheDocument();
+  });
+
   it("opens the CLI app mention palette and inserts the selected app", () => {
     const onSend = vi.fn();
     render(

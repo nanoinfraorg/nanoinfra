@@ -16,6 +16,7 @@ import {
   mcpPresetInitials,
   splitCapabilityMentionSegments,
   type CapabilityMentionSegment,
+  type ResourceMentionTarget,
 } from "@/components/CliAppMentionText";
 import { INLINE_TOKEN_HIGHLIGHT_COLOR } from "@/components/InlineTokenHighlight";
 import {
@@ -34,9 +35,11 @@ import {
   Loader2,
   MessageCircle,
   Mic,
+  Network,
   Plus,
   Quote,
   RotateCw,
+  Server,
   Shield,
   Sparkles,
   Square,
@@ -48,6 +51,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+
+import type { DiagramSummary } from "@/components/diagrams/diagramTypes";
+import type { ServerSummary } from "@/lib/api";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -80,15 +86,16 @@ import type { SendAttachment, SendOptions } from "@/hooks/useNanoinfraStream";
 import { usePageVisibility } from "@/hooks/usePageVisibility";
 import { useVoiceRecorder, type VoiceRecorderErrorKey } from "@/hooks/useVoiceRecorder";
 import type {
-  CliAppInfo,
   ChatSummary,
+  CliAppInfo,
   GoalStateWsPayload,
   McpPresetInfo,
   OutboundCliAppMention,
   OutboundMcpPresetMention,
+  ResourceMention,
   SessionMention,
-  SlashCommand,
   SkillSummary,
+  SlashCommand,
   WebUIIngressLimits,
   WorkspaceScopePayload,
   WorkspacesPayload,
@@ -193,6 +200,8 @@ interface ThreadComposerProps {
   cliApps?: CliAppInfo[];
   mcpPresets?: McpPresetInfo[];
   sessions?: ChatSummary[];
+  servers?: ServerSummary[];
+  diagrams?: DiagramSummary[];
   skills?: SkillSummary[];
   onStop?: () => void;
   onTranscribeAudio?: (dataUrl: string, options?: { durationMs?: number }) => Promise<string>;
@@ -311,9 +320,16 @@ interface QueuedPromptImage {
 
 interface CliAppMentionQuery {
   query: string;
+  /** Set when the token carried a known `kind:` prefix, which narrows the menu to that kind. */
+  kind: ResourceMentionKind | null;
   start: number;
   end: number;
 }
+
+export const RESOURCE_MENTION_KINDS = ["server", "diagram"] as const;
+/** Matches the server-side bound, so the composer cannot build a payload the gateway will trim. */
+const RESOURCE_MENTIONS_LIMIT = 16;
+export type ResourceMentionKind = (typeof RESOURCE_MENTION_KINDS)[number];
 
 type MentionCandidate = {
   name: string;
@@ -325,6 +341,12 @@ type MentionCandidate = {
       brandColor: string | null;
       logoUrl: string | null;
       initials: string;
+    }
+  | {
+      kind: ResourceMentionKind;
+      /** What the agent receives. The name is for the operator and is re-read server-side. */
+      reference: ResourceMention;
+      detail: string;
     }
 );
 
@@ -954,6 +976,8 @@ export function ThreadComposer({
   slashCommands = [],
   cliApps = [],
   mcpPresets = [],
+  servers = [],
+  diagrams = [],
   sessions = [],
   skills = [],
   onStop,
@@ -1286,12 +1310,23 @@ export function ThreadComposer({
     if (disabled || cliAppMenuDismissed) return null;
     const caret = Math.min(Math.max(cursorPosition, 0), value.length);
     const beforeCaret = value.slice(0, caret);
-    const match = /(?:^|\s)@([\p{L}\p{N}_-]*)$/iu.exec(beforeCaret);
+    // The colon is in the class so `@server:db-01` stays one token. Without it the menu closed
+    // the moment the colon was typed, which is what made a namespaced mention impossible.
+    const match = /(?:^|\s)@([\p{L}\p{N}_:-]*)$/iu.exec(beforeCaret);
     if (!match) return null;
-    const query = match[1].toLowerCase();
+    const token = match[1];
+    const colon = token.indexOf(":");
+    // An unprefixed token keeps meaning what it means today, so nothing an operator already
+    // types changes behaviour. Only a known prefix narrows the menu.
+    const rawKind = colon >= 0 ? token.slice(0, colon).toLowerCase() : "";
+    const kind = RESOURCE_MENTION_KINDS.includes(rawKind as ResourceMentionKind)
+      ? (rawKind as ResourceMentionKind)
+      : null;
+    const query = (colon >= 0 && kind ? token.slice(colon + 1) : token).toLowerCase();
     return {
       query,
-      start: caret - query.length - 1,
+      kind,
+      start: caret - token.length - 1,
       end: caret,
     };
   }, [cliAppMenuDismissed, cursorPosition, disabled, value]);
@@ -1308,9 +1343,34 @@ export function ThreadComposer({
     ),
     [cliApps, mcpPresets, sessions],
   );
+  const [selectedResourceMentions, setSelectedResourceMentions] = useState<
+    ResourceMentionTarget[]
+  >([]);
+  /**
+   * Only references whose token is still in the text are sent.
+   *
+   * Without this an operator who inserted a mention and then deleted it would still ship the
+   * reference -- a thing the agent acts on that nobody can see in the message.
+   */
+  const liveResourceMentions = useMemo<ResourceMention[]>(() => {
+    const present = new Set<string>();
+    const pattern = /(?:^|[\s([{])@((?:server|diagram):[\p{L}\p{N}_-]+)(?=$|[^\p{L}\p{N}_:-])/giu;
+    for (const match of value.matchAll(pattern)) {
+      present.add((match[1] ?? "").toLowerCase());
+    }
+    return selectedResourceMentions
+      .filter((item) => present.has(`${item.kind}:${item.id}`.toLowerCase()))
+      .map((item) => ({ kind: item.kind, id: item.id }));
+  }, [selectedResourceMentions, value]);
   const mentionSegments = useMemo(
-    () => splitCapabilityMentionSegments(value, cliApps, mcpPresets, selectedSessionMentions),
-    [cliApps, mcpPresets, selectedSessionMentions, value],
+    () => splitCapabilityMentionSegments(
+      value,
+      cliApps,
+      mcpPresets,
+      selectedSessionMentions,
+      selectedResourceMentions,
+    ),
+    [cliApps, mcpPresets, selectedResourceMentions, selectedSessionMentions, value],
   );
   const sessionDragInsertion = sessionDragPreview
     ? mentionInsertion(
@@ -1338,6 +1398,34 @@ export function ThreadComposer({
   }, [mentionSegments]);
   const filteredMentionCandidates = useMemo<MentionCandidate[]>(() => {
     if (!cliAppMention) return [];
+    // A prefixed token narrows to one kind. Matching on the name and on the summary fields is
+    // what makes "@server:prod" find a host tagged prod rather than only one named prod.
+    if (cliAppMention.kind === "server") {
+      return servers
+        .filter((server) => [server.name, server.providerId, ...server.tags]
+          .join(" ").toLowerCase().includes(cliAppMention.query))
+        .slice(0, 8)
+        .map((server) => ({
+          kind: "server" as const,
+          name: server.name,
+          displayName: server.name,
+          detail: [server.providerId, ...server.tags].filter(Boolean).join(" · "),
+          reference: { kind: "server" as const, id: server.id },
+        }));
+    }
+    if (cliAppMention.kind === "diagram") {
+      return diagrams
+        .filter((diagram) => [diagram.name, ...diagram.targets]
+          .join(" ").toLowerCase().includes(cliAppMention.query))
+        .slice(0, 8)
+        .map((diagram) => ({
+          kind: "diagram" as const,
+          name: diagram.name,
+          displayName: diagram.name,
+          detail: `${diagram.nodeCount} nodes`,
+          reference: { kind: "diagram" as const, id: diagram.id },
+        }));
+    }
     const sessionCandidates: MentionCandidate[] = availableSessionMentions
       .filter((mention) => (
         activeSessionMentions.length < SESSION_MENTIONS_LIMIT
@@ -1412,7 +1500,15 @@ export function ThreadComposer({
       remaining -= extra;
     }
     return groups.flatMap(({ candidates }, index) => candidates.slice(0, counts[index]));
-  }, [activeSessionMentions, availableSessionMentions, cliAppMention, cliApps, mcpPresets]);
+  }, [
+    activeSessionMentions,
+    availableSessionMentions,
+    cliAppMention,
+    cliApps,
+    diagrams,
+    mcpPresets,
+    servers,
+  ]);
 
   const showCliAppMenu = filteredMentionCandidates.length > 0;
   const showAnyPalette = showSlashMenu || showCliAppMenu;
@@ -1687,7 +1783,27 @@ export function ThreadComposer({
           candidate.mention,
         ]);
       }
-      const insertion = mentionInsertion(value, candidate.name, start, end);
+      // A resource keeps its id in state and only its `kind:name` in the text. The name is for
+      // the operator; the server re-reads it from the store, so a rename does not strand the
+      // reference.
+      let token = candidate.name;
+      if (candidate.kind === "server" || candidate.kind === "diagram") {
+        const reference = candidate.reference;
+        setSelectedResourceMentions((current) => [
+          ...current.filter(
+            (item) => !(item.kind === reference.kind && item.id === reference.id),
+          ),
+          {
+            kind: candidate.kind,
+            id: reference.id,
+            name: candidate.name,
+            detail: candidate.detail,
+          },
+        ].slice(-RESOURCE_MENTIONS_LIMIT));
+        // The id goes in the text and the chip shows the name, so a rename does not strand it.
+        token = `${candidate.kind}:${reference.id}`;
+      }
+      const insertion = mentionInsertion(value, token, start, end);
       setValue(insertion.value);
       setCursorPosition(insertion.cursor);
       setCliAppMenuDismissed(true);
@@ -1979,12 +2095,16 @@ export function ThreadComposer({
       attachedCliApps.length > 0
       || attachedMcpPresets.length > 0
       || activeSessionMentions.length > 0
+      || liveResourceMentions.length > 0
       || normalizedQuotedContext
         ? {
             ...(attachedCliApps.length > 0 ? { cliApps: attachedCliApps } : {}),
             ...(attachedMcpPresets.length > 0 ? { mcpPresets: attachedMcpPresets } : {}),
             ...(activeSessionMentions.length > 0
               ? { sessionMentions: activeSessionMentions }
+              : {}),
+            ...(liveResourceMentions.length > 0
+              ? { resourceMentions: liveResourceMentions }
               : {}),
             ...(normalizedQuotedContext ? { quotedContext: normalizedQuotedContext } : {}),
           }
@@ -2885,14 +3005,18 @@ function CliAppMentionPalette({
     layout.maxHeight - SLASH_PALETTE_CHROME_PX,
   );
   const listRef = useSelectedOptionScroll(selectedIndex);
-  const groupedCandidates = (["cli", "mcp", "session"] as const)
+  const groupedCandidates = (["cli", "mcp", "session", "server", "diagram"] as const)
     .map((kind) => ({
       kind,
       label: kind === "session"
         ? t("thread.composer.mentions.sessionGroup")
         : kind === "cli"
           ? t("thread.composer.mentions.cliGroup")
-          : t("thread.composer.mentions.mcpGroup"),
+          : kind === "server"
+            ? t("thread.composer.mentions.serverGroup", { defaultValue: "Servers" })
+            : kind === "diagram"
+              ? t("thread.composer.mentions.diagramGroup", { defaultValue: "Diagrams" })
+              : t("thread.composer.mentions.mcpGroup"),
       items: candidates
         .map((candidate, index) => ({ candidate, index }))
         .filter(({ candidate }) => candidate.kind === kind),
@@ -2920,16 +3044,25 @@ function CliAppMentionPalette({
             {group.items.map(({ candidate, index }) => {
               const selected = index === selectedIndex;
               const name = candidate.name;
+              const resource = candidate.kind === "server" || candidate.kind === "diagram";
               const typeLabel = candidate.kind === "cli"
                 ? t("thread.composer.mentions.cliBadge")
                 : candidate.kind === "mcp"
                   ? t("thread.composer.mentions.mcpBadge")
-                  : t("thread.composer.mentions.sessionBadge");
+                  : candidate.kind === "server"
+                    ? t("thread.composer.mentions.serverBadge", { defaultValue: "Server" })
+                    : candidate.kind === "diagram"
+                      ? t("thread.composer.mentions.diagramBadge", { defaultValue: "Diagram" })
+                      : t("thread.composer.mentions.sessionBadge");
+              // A resource reads out its summary -- provider and tags, or a node count -- because
+              // that is what tells an operator which "db-01" they are about to pick.
               const ariaDescription = candidate.kind === "cli"
                 ? t("thread.composer.mentions.cliDescription", { name })
                 : candidate.kind === "mcp"
                   ? t("thread.composer.mentions.mcpDescription", { name })
-                  : t("thread.composer.mentions.sessionDescription", { name });
+                  : resource
+                    ? candidate.detail
+                    : t("thread.composer.mentions.sessionDescription", { name });
               return (
                 <button
                   key={`${candidate.kind}-${name}`}
@@ -2988,17 +3121,25 @@ function MentionCandidateLogo({
   candidate: MentionCandidate;
   selected: boolean;
 }) {
-  const color = candidate.kind === "session"
-    ? INLINE_TOKEN_HIGHLIGHT_COLOR
-    : candidate.brandColor || INLINE_TOKEN_HIGHLIGHT_COLOR;
-  const rawLogoUrl = candidate.kind === "session" ? null : candidate.logoUrl;
+  // A resource and a session both carry an icon rather than a logo, so the branded path below is
+  // only reached by a CLI app or an MCP preset.
+  const branded = candidate.kind === "cli" || candidate.kind === "mcp";
+  const color = branded
+    ? candidate.brandColor || INLINE_TOKEN_HIGHLIGHT_COLOR
+    : INLINE_TOKEN_HIGHLIGHT_COLOR;
+  const rawLogoUrl = branded ? candidate.logoUrl : null;
   const logoUrls = useMemo(() => logoFallbackUrls(rawLogoUrl), [rawLogoUrl]);
   const { logoUrl, onLogoError, onLogoLoad } = useLogoFallback(logoUrls);
 
-  if (candidate.kind === "session") {
+  if (!branded) {
+    const Icon = candidate.kind === "session"
+      ? MessageCircle
+      : candidate.kind === "server"
+        ? Server
+        : Network;
     return (
       <span className="flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground">
-        <MessageCircle className="h-4 w-4" aria-hidden />
+        <Icon className="h-4 w-4" aria-hidden />
       </span>
     );
   }

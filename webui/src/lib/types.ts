@@ -66,6 +66,7 @@ export interface UIMessage {
   mcpPresets?: UIMcpPresetAttachment[];
   /** Persisted sessions explicitly referenced by this user turn. */
   sessionMentions?: SessionMention[];
+  resourceMentions?: ResourceMention[];
   /** Assistant turn: accumulated model reasoning / thinking text. Built up
    * incrementally from ``reasoning_delta`` frames; finalized when
    * ``reasoning_end`` arrives. */
@@ -107,6 +108,12 @@ export interface UIMcpPresetAttachment {
   configured?: boolean;
   logo_url?: string | null;
   brand_color?: string | null;
+}
+
+/** What the agent receives for an `@server:` or `@diagram:` mention: the id, never the name. */
+export interface ResourceMention {
+  kind: "server" | "diagram";
+  id: string;
 }
 
 export interface SessionMention {
