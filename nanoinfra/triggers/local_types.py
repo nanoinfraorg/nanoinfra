@@ -17,6 +17,14 @@ def _int_or_zero(value: Any) -> int:
     return 0 if value is None or value == "" else int(value)
 
 
+def _names(value: Any) -> list[str]:
+    """Read a stored list of names, tolerating a null or a stray scalar."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    entries = list(cast("list[object] | tuple[object, ...]", value))
+    return [str(name).strip() for name in entries if str(name).strip()]
+
+
 def _optional_int(value: Any) -> int | None:
     """Coerce a stored JSON numeric; null/blank stays None."""
     if value is None or value == "":
@@ -61,6 +69,8 @@ class LocalTrigger:
     sender_id: str = "trigger"
     #: Whether this trigger's outcome reaches the operator. Defaults to today's behaviour.
     delivery: str = DEFAULT_DELIVERY_POLICY
+    #: Skills this trigger's prompt carries in full. Empty means the whole catalogue.
+    skills: list[str] = field(default_factory=list[str])
     origin_metadata: dict[str, Any] = field(default_factory=dict)
     created_at_ms: int = 0
     updated_at_ms: int = 0
@@ -92,6 +102,7 @@ class LocalTrigger:
             session_key=str(_get(data, "sessionKey", "session_key", "")),
             sender_id=str(_get(data, "senderId", "sender_id", "trigger") or "trigger"),
             delivery=normalize_policy(data.get("delivery")),
+            skills=_names(data.get("skills")),
             origin_metadata=dict(_get(data, "originMetadata", "origin_metadata", {}) or {}),
             created_at_ms=_int_or_zero(_get(data, "createdAtMs", "created_at_ms", 0)),
             updated_at_ms=_int_or_zero(_get(data, "updatedAtMs", "updated_at_ms", 0)),
@@ -112,6 +123,7 @@ class LocalTrigger:
             "sessionKey": self.session_key,
             "senderId": self.sender_id,
             "delivery": self.delivery,
+            "skills": list(self.skills),
             "originMetadata": self.origin_metadata,
             "createdAtMs": self.created_at_ms,
             "updatedAtMs": self.updated_at_ms,

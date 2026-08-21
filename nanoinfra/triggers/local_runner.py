@@ -14,6 +14,7 @@ from nanoinfra.agent.turn_delivery import AUTOMATION_WITHHOLD_DELIVERY_META
 from nanoinfra.automations.delivery import normalize_policy, should_deliver
 from nanoinfra.automations.state import AutomationDeliveryLog, response_fingerprint
 from nanoinfra.bus.events import InboundMessage, OutboundMessage
+from nanoinfra.session.automation_turns import AUTOMATION_SKILLS_META
 from nanoinfra.triggers.local_session_turns import LOCAL_TRIGGER_META
 from nanoinfra.triggers.local_store import LocalTriggerStore
 from nanoinfra.triggers.local_types import LocalTrigger, TriggerDelivery
@@ -154,6 +155,8 @@ async def _deliver_delivery(
     store.write_delivery_run_record(delivery, trigger=trigger, status="processing")
     policy = normalize_policy(trigger.delivery)
     metadata = _delivery_metadata(trigger, delivery)
+    if trigger.skills:
+        metadata[AUTOMATION_SKILLS_META] = list(trigger.skills)
     withholding = policy != "always" and publish is not None
     if withholding:
         metadata[AUTOMATION_WITHHOLD_DELIVERY_META] = True

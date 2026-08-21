@@ -415,6 +415,7 @@ class CronService:
                         "maxDelayMs": j.retry.max_delay_ms,
                     },
                     "delivery": j.delivery,
+                    "skills": list(j.skills),
                     "createdAtMs": j.created_at_ms,
                     "updatedAtMs": j.updated_at_ms,
                     "deleteAfterRun": j.delete_after_run,
@@ -731,6 +732,7 @@ class CronService:
         origin_metadata: dict[str, Any] | None = None,
         retry: CronRetryPolicy | None = None,
         delivery: str | None = None,
+        skills: list[str] | None = None,
     ) -> CronJob:
         """Add a new job."""
         _validate_schedule_for_add(schedule)
@@ -756,6 +758,7 @@ class CronService:
             state=CronJobState(next_run_at_ms=_compute_next_run(schedule, now)),
             retry=retry or CronRetryPolicy(),
             delivery=normalize_policy(delivery),
+            skills=list(skills or []),
             created_at_ms=now,
             updated_at_ms=now,
             delete_after_run=delete_after_run,
@@ -845,6 +848,7 @@ class CronService:
         delete_after_run: bool | None = None,
         retry: CronRetryPolicy | None = None,
         delivery: str | None = None,
+        skills: list[str] | None = None,
     ) -> CronJob | Literal["not_found", "protected"]:
         """Update mutable fields of an existing job. System jobs cannot be updated.
 
@@ -862,6 +866,8 @@ class CronService:
             job.retry = retry
         if delivery is not None:
             job.delivery = normalize_policy(delivery)
+        if skills is not None:
+            job.skills = list(skills)
         if schedule is not None:
             _validate_schedule_for_add(schedule)
             job.schedule = schedule

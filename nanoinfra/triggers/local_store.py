@@ -143,6 +143,7 @@ class LocalTriggerStore:
         *,
         name: str | None = None,
         delivery: str | None = None,
+        skills: list[str] | None = None,
     ) -> LocalTrigger | None:
         """Update mutable trigger fields."""
         self._ensure_dirs()
@@ -155,6 +156,8 @@ class LocalTriggerStore:
                 trigger.name = _clean_name(name)
             if delivery is not None:
                 trigger.delivery = normalize_policy(delivery)
+            if skills is not None:
+                trigger.skills = list(skills)
             trigger.updated_at_ms = _now_ms()
             self._save_triggers_unlocked(triggers)
             return trigger

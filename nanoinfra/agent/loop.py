@@ -73,7 +73,10 @@ from nanoinfra.security.workspace_access import (
     reset_workspace_scope,
 )
 from nanoinfra.session import turn_continuation
-from nanoinfra.session.automation_turns import automation_history_overrides
+from nanoinfra.session.automation_turns import (
+    automation_declared_skills,
+    automation_history_overrides,
+)
 from nanoinfra.session.goal_state import (
     goal_state_runtime_lines,
     runner_wall_llm_timeout_s,
@@ -786,6 +789,7 @@ class AgentLoop:
             include_memory_recent_history=not ctx.ephemeral,
             session_key=ctx.session.key,
             unified_session=self._unified_session,
+            declared_skills=automation_declared_skills(ctx.msg.metadata),
         )
 
     def _request_context_for_turn(self, ctx: TurnContext) -> RequestContext:

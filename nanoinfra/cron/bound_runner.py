@@ -20,6 +20,7 @@ from nanoinfra.cron.session_delivery import origin_delivery_context
 from nanoinfra.cron.session_turns import CRON_DEFER_UNTIL_IDLE_META, CRON_TRIGGER_META
 from nanoinfra.cron.types import CronJob
 from nanoinfra.cron.webui_metadata import cron_proactive_delivery_metadata
+from nanoinfra.session.automation_turns import AUTOMATION_SKILLS_META
 from nanoinfra.utils.prompt_templates import render_template
 
 if TYPE_CHECKING:
@@ -103,6 +104,8 @@ async def run_bound_cron_job(
         ),
     }
     metadata[CRON_DEFER_UNTIL_IDLE_META] = True
+    if job.skills:
+        metadata[AUTOMATION_SKILLS_META] = list(job.skills)
     policy = normalize_policy(job.delivery)
     # Only withhold when there is a decision to make. Leaving the default path untouched means an
     # existing job's delivery keeps going through exactly the code it went through before.

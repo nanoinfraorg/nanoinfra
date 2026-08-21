@@ -2417,6 +2417,7 @@ export function SettingsView({
       <AutomationEditDialog
         job={automationPendingEdit}
         saving={automationAction === `update:${automationPendingEdit?.id ?? ""}`}
+        skills={skills}
         onOpenChange={(open) => {
           if (!open) setAutomationPendingEdit(null);
         }}
@@ -6456,6 +6457,7 @@ type AutomationEditDraft = {
   name: string;
   message: string;
   delivery: AutomationDeliveryPolicy;
+  skills: string[];
   scheduleKind: "at" | "every" | "cron";
   everyValue: string;
   everyUnit: AutomationEveryUnit;
@@ -6475,11 +6477,13 @@ const AUTOMATION_EVERY_UNITS: Array<{ value: AutomationEveryUnit; ms: number }> 
 function AutomationEditDialog({
   job,
   saving,
+  skills,
   onOpenChange,
   onSave,
 }: {
   job: SessionAutomationJob | null;
   saving: boolean;
+  skills: SkillSummary[];
   onOpenChange: (open: boolean) => void;
   onSave: (job: SessionAutomationJob, values: AutomationUpdatePayload) => void | Promise<void>;
 }) {
@@ -6689,6 +6693,52 @@ function AutomationEditDialog({
                       DELIVERY_HELP_FALLBACK[draft.delivery],
                     )}
                   </p>
+                </div>
+                <div className="mt-4 space-y-1.5">
+                  <span className="text-[12px] font-medium text-muted-foreground">
+                    {tx("settings.automations.fields.skills", "Skills to load")}
+                  </span>
+                  <p className="text-[11.5px] leading-4 text-muted-foreground/80">
+                    {tx(
+                      "settings.automations.skillsHelp",
+                      "Pick none to summarise every skill, as before. Picking some loads those in full and leaves the rest out of this automation's prompt.",
+                    )}
+                  </p>
+                  {skills.length === 0 ? (
+                    <p className="pt-1 text-[11.5px] leading-4 text-muted-foreground/70">
+                      {tx("settings.automations.skillsEmpty", "No skills installed")}
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {skills.map((skill) => {
+                        const picked = draft.skills.includes(skill.name);
+                        return (
+                          <button
+                            key={skill.name}
+                            type="button"
+                            aria-pressed={picked}
+                            title={skill.description}
+                            onClick={() =>
+                              setDraft((prev) => ({
+                                ...prev,
+                                skills: picked
+                                  ? prev.skills.filter((name) => name !== skill.name)
+                                  : [...prev.skills, skill.name],
+                              }))
+                            }
+                            className={cn(
+                              "rounded-full px-2.5 py-1 text-[11.5px] leading-4 transition-colors",
+                              picked
+                                ? "bg-primary/15 text-foreground"
+                                : "bg-background/70 text-muted-foreground hover:text-foreground",
+                            )}
+                          >
+                            {skill.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </details>
 
@@ -6946,6 +6996,7 @@ function automationDraftFromJob(job: SessionAutomationJob | null): AutomationEdi
     name: job?.name ?? "",
     message: job?.payload.message ?? "",
     delivery: normalizeDeliveryPolicy(job?.delivery),
+    skills: [...(job?.skills ?? [])],
     scheduleKind,
     everyValue: every.value,
     everyUnit: every.unit,
@@ -7009,11 +7060,16 @@ function automationUpdatePayloadFromDraft(
   const name = draft.name.trim();
   if (isLocalTriggerAutomation(job)) {
     if (!name) return "invalid";
-    return { name, delivery: draft.delivery };
+    return { name, delivery: draft.delivery, skills: draft.skills };
   }
   const message = draft.message.trim();
   if (!name || !message) return "invalid";
-  const payload: AutomationUpdatePayload = { name, message, delivery: draft.delivery };
+  const payload: AutomationUpdatePayload = {
+    name,
+    message,
+    delivery: draft.delivery,
+    skills: draft.skills,
+  };
   const schedule = automationSchedulePayloadFromDraft(draft);
   if (typeof schedule === "string") return schedule;
   if (automationScheduleChanged(draft, job, schedule)) {

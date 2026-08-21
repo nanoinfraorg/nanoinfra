@@ -800,7 +800,8 @@
         "cronExpression": "Cron expression",
         "timezone": "Timezone",
         "runAt": "Run at",
-        "delivery": "When to notify me"
+        "delivery": "When to notify me",
+        "skills": "Skills to load"
       },
       "scheduleTypes": {
         "every": "Interval",
@@ -848,7 +849,9 @@
         "on-change": "Send only when the result differs from the last one delivered.",
         "on-error": "Send only when the run fails.",
         "never": "Never send, not even on failure. The run history still records what happened."
-      }
+      },
+      "skillsHelp": "Pick none to summarise every skill, as before. Picking some loads those in full and leaves the rest out of this automation's prompt.",
+      "skillsEmpty": "No skills installed"
     },
     "oauth": {
       "authentication": "OAuth authentication",

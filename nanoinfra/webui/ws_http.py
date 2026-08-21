@@ -1883,6 +1883,18 @@ def _parse_automation_update(
         if not isinstance(raw_delivery, str) or raw_delivery.strip().lower() not in DELIVERY_POLICIES:
             return f"delivery must be one of: {', '.join(DELIVERY_POLICIES)}"
         update["delivery"] = raw_delivery.strip().lower()
+    if "skills" in values:
+        raw_skills = values.get("skills")
+        if not isinstance(raw_skills, list):
+            return "skills must be an array"
+        names: list[str] = []
+        for entry in cast("list[Any]", raw_skills):
+            if not isinstance(entry, str):
+                return "skills must be an array of strings"
+            name = entry.strip()
+            if name and name not in names:
+                names.append(name)
+        update["skills"] = names
     if "schedule" in values:
         raw_schedule = values.get("schedule")
         if not isinstance(raw_schedule, dict):
@@ -1917,9 +1929,21 @@ def _parse_local_trigger_update(values: dict[str, Any]) -> dict[str, Any] | str:
         if not isinstance(raw_delivery, str) or raw_delivery.strip().lower() not in DELIVERY_POLICIES:
             return f"delivery must be one of: {', '.join(DELIVERY_POLICIES)}"
         update["delivery"] = raw_delivery.strip().lower()
+    if "skills" in values:
+        raw_skills = values.get("skills")
+        if not isinstance(raw_skills, list):
+            return "skills must be an array"
+        names: list[str] = []
+        for entry in cast("list[Any]", raw_skills):
+            if not isinstance(entry, str):
+                return "skills must be an array of strings"
+            name = entry.strip()
+            if name and name not in names:
+                names.append(name)
+        update["skills"] = names
     forbidden = [key for key in ("message", "schedule") if key in values]
     if forbidden:
-        return "local trigger updates only support name and delivery"
+        return "local trigger updates only support name, delivery and skills"
     return update
 
 
