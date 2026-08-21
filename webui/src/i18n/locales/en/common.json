@@ -98,7 +98,8 @@
       "advanced": "Security",
       "apps": "Apps",
       "automations": "Automations",
-      "skills": "Skills"
+      "skills": "Skills",
+      "agents": "Agents"
     },
     "sections": {
       "interface": "Interface",
@@ -120,7 +121,8 @@
       "apps": "Apps",
       "nativeHost": "Native host",
       "hostSafety": "App safety",
-      "voiceInput": "Voice input"
+      "voiceInput": "Voice input",
+      "subagents": "Subagents"
     },
     "models": {
       "selectModel": "Select model",
@@ -267,7 +269,7 @@
       "transcriptionModel": "Leave as the resolved default unless your provider needs a custom model id.",
       "transcriptionLanguage": "Optional ISO-639 hint such as en, zh, ja, or ko.",
       "threadWidth": "How wide a conversation runs. Tables and code blocks always get the extra room first.",
-      "maxConcurrentSubagents": "How many subagents may run in parallel. Each one is a full conversation with the model, so raising this multiplies tokens and rate-limit pressure by the same amount. Subagents share the workspace."
+      "maxConcurrentSubagents": "How many subagents may run in parallel. Each one is a full conversation with the model, so raising this multiplies tokens and rate-limit pressure by the same amount. Subagents share the workspace, and a subagent cannot spawn another one."
     },
     "timezone": {
       "select": "Select timezone",

@@ -98,7 +98,8 @@
       "mcp": "MCP",
       "apps": "Ứng dụng",
       "automations": "Tự động hóa",
-      "skills": "Kỹ năng"
+      "skills": "Kỹ năng",
+      "agents": "Agent"
     },
     "sections": {
       "interface": "Giao diện",
@@ -120,7 +121,8 @@
       "apps": "Ứng dụng",
       "nativeHost": "Máy chủ gốc",
       "hostSafety": "An toàn ứng dụng",
-      "voiceInput": "Nhập bằng giọng nói"
+      "voiceInput": "Nhập bằng giọng nói",
+      "subagents": "Subagent"
     },
     "rows": {
       "theme": "Chủ đề",
@@ -215,7 +217,7 @@
       "transcriptionModel": "Giữ mô hình mặc định đã phân giải, trừ khi nhà cung cấp yêu cầu ID mô hình tùy chỉnh.",
       "transcriptionLanguage": "Gợi ý ISO-639 tùy chọn, chẳng hạn en, zh, ja hoặc ko.",
       "threadWidth": "Cuộc trò chuyện rộng bao nhiêu. Bảng và khối mã nhận phần không gian thêm trước.",
-      "maxConcurrentSubagents": "Bao nhiêu subagent được chạy song song. Mỗi subagent là một cuộc hội thoại đầy đủ với mô hình, nên tăng giá trị này sẽ nhân token và áp lực rate limit theo cùng tỉ lệ. Các subagent dùng chung workspace."
+      "maxConcurrentSubagents": "Bao nhiêu subagent được chạy song song. Mỗi subagent là một cuộc hội thoại đầy đủ với mô hình, nên tăng giá trị này sẽ nhân token và áp lực rate limit theo cùng tỉ lệ. Các subagent dùng chung workspace, và một subagent không thể tạo subagent khác."
     },
     "values": {
       "light": "Sáng",
