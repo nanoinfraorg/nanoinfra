@@ -337,5 +337,5 @@ async def issue_token_ok(
     assert status == 200, f"Token issue failed with status {status}"
     assert data is not None
     token = data["token"]
-    assert token.startswith("nbwt_"), f"Unexpected token format: {token}"
+    assert token.startswith("nwt_"), f"Unexpected token format: {token}"
     return token
