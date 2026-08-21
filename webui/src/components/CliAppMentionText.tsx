@@ -14,10 +14,19 @@ type CliAppMentionSegment =
   | { kind: "text"; text: string }
   | { kind: "cli"; text: string; app: CliAppInfo };
 
+/** A resource mention as it appears in text: the id is the token, the name is what is shown. */
+export interface ResourceMentionTarget {
+  kind: "server" | "diagram";
+  id: string;
+  name: string;
+  detail: string;
+}
+
 export type CapabilityMentionSegment =
   | CliAppMentionSegment
   | { kind: "mcp"; text: string; preset: McpPresetInfo }
-  | { kind: "session"; text: string; mention: SessionMention };
+  | { kind: "session"; text: string; mention: SessionMention }
+  | { kind: "resource"; text: string; resource: ResourceMentionTarget };
 
 export function cliAppInitials(app: CliAppInfo): string {
   const value = app.display_name || app.name;
@@ -46,8 +55,17 @@ export function splitCapabilityMentionSegments(
   cliApps: CliAppInfo[],
   mcpPresets: McpPresetInfo[] = [],
   sessionMentions: SessionMention[] = [],
+  resources: ResourceMentionTarget[] = [],
 ): CapabilityMentionSegment[] {
-  if (!value || (cliApps.length === 0 && mcpPresets.length === 0 && sessionMentions.length === 0)) {
+  if (
+    !value
+    || (
+      cliApps.length === 0
+      && mcpPresets.length === 0
+      && sessionMentions.length === 0
+      && resources.length === 0
+    )
+  ) {
     return value ? [{ kind: "text", text: value }] : [];
   }
   const cliAppsByName = new Map(
@@ -63,29 +81,47 @@ export function splitCapabilityMentionSegments(
   const sessionsByName = new Map(
     sessionMentions.map((mention) => [mention.name.toLowerCase(), mention]),
   );
-  if (cliAppsByName.size === 0 && mcpPresetsByName.size === 0 && sessionsByName.size === 0) {
+  const resourcesByToken = new Map(
+    resources.map((resource) => [`${resource.kind}:${resource.id}`.toLowerCase(), resource]),
+  );
+  if (
+    cliAppsByName.size === 0
+    && mcpPresetsByName.size === 0
+    && sessionsByName.size === 0
+    && resourcesByToken.size === 0
+  ) {
     return [{ kind: "text", text: value }];
   }
 
   const segments: CapabilityMentionSegment[] = [];
-  const mentionRe = /(^|[\s([{])@([\p{L}\p{N}_-]+)(?=$|[^\p{L}\p{N}_-])/giu;
+  // Two patterns rather than one, because a resource token carries `kind:id` and a name token
+  // cannot contain a colon. An id this list does not know stays plain text, so a reference to
+  // something deleted reads as text instead of rendering as a chip that resolves to nothing.
+  const mentionRe = /(^|[\s([{])@((?:server|diagram):[\p{L}\p{N}_-]+|[\p{L}\p{N}_-]+)(?=$|[^\p{L}\p{N}_:-])/giu;
   let cursor = 0;
   let match: RegExpExecArray | null;
   while ((match = mentionRe.exec(value)) !== null) {
     const prefix = match[1] ?? "";
     const name = match[2] ?? "";
     const key = name.toLowerCase();
-    const app = cliAppsByName.get(key);
-    const preset = app ? null : mcpPresetsByName.get(key);
-    const session = app || preset ? null : sessionsByName.get(key);
-    if (!app && !preset && !session) continue;
+    const resource = resourcesByToken.get(key);
+    const app = resource ? null : cliAppsByName.get(key);
+    const preset = resource || app ? null : mcpPresetsByName.get(key);
+    const session = resource || app || preset ? null : sessionsByName.get(key);
+    if (!resource && !app && !preset && !session) continue;
 
     const mentionStart = match.index + prefix.length;
     const mentionEnd = mentionStart + name.length + 1;
     if (mentionStart > cursor) {
       segments.push({ kind: "text", text: value.slice(cursor, mentionStart) });
     }
-    if (app) {
+    if (resource) {
+      segments.push({
+        kind: "resource",
+        text: value.slice(mentionStart, mentionEnd),
+        resource,
+      });
+    } else if (app) {
       segments.push({ kind: "cli", text: value.slice(mentionStart, mentionEnd), app });
     } else if (preset) {
       segments.push({ kind: "mcp", text: value.slice(mentionStart, mentionEnd), preset });
@@ -164,7 +200,37 @@ export function CapabilityMentionToken({
       />
     );
   }
+  if (segment.kind === "resource") {
+    return (
+      <ResourceMentionToken resource={segment.resource} variant={variant} />
+    );
+  }
   return <SessionMentionToken mention={segment.mention} label={segment.text} variant={variant} />;
+}
+
+/** The id is the token in the text; this shows the name, which is what the operator wrote it for. */
+export function ResourceMentionToken({
+  resource,
+  variant,
+}: {
+  resource: ResourceMentionTarget;
+  variant: "composer" | "message";
+}) {
+  const testIdPrefix = variant === "composer" ? "composer" : "message";
+  const kindLabel = resource.kind === "server" ? "Server" : "Diagram";
+  return (
+    <InlineTokenHighlight
+      testId={`${testIdPrefix}-resource-mention-${resource.kind}-${resource.id}`}
+      title={
+        resource.detail
+          ? `${kindLabel}: ${resource.name} · ${resource.detail}`
+          : `${kindLabel}: ${resource.name}`
+      }
+      color={INLINE_TOKEN_HIGHLIGHT_COLOR}
+    >
+      {`@${resource.name}`}
+    </InlineTokenHighlight>
+  );
 }
 
 export function SessionMentionToken({

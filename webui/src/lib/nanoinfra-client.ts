@@ -5,6 +5,7 @@ import type {
   OutboundCliAppMention,
   OutboundMcpPresetMention,
   OutboundMedia,
+  ResourceMention,
   SessionMention,
   SidebarStatePayload,
   GoalStateWsPayload,
@@ -845,6 +846,7 @@ export class NanoinfraClient {
       cliApps?: OutboundCliAppMention[];
       mcpPresets?: OutboundMcpPresetMention[];
       sessionMentions?: SessionMention[];
+      resourceMentions?: ResourceMention[];
       quotedContext?: string;
       workspaceScope?: WorkspaceScopePayload | null;
       turnId?: string;
@@ -862,6 +864,9 @@ export class NanoinfraClient {
       ...(options?.mcpPresets?.length ? { mcp_presets: options.mcpPresets } : {}),
       ...(options?.sessionMentions?.length
         ? { session_mentions: options.sessionMentions }
+        : {}),
+      ...(options?.resourceMentions?.length
+        ? { resource_mentions: options.resourceMentions }
         : {}),
       ...(options?.quotedContext?.trim() ? { quoted_context: options.quotedContext.trim() } : {}),
       ...(options?.workspaceScope ? { workspace_scope: options.workspaceScope } : {}),

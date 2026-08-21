@@ -2,6 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { DiagramSummary } from "@/components/diagrams/diagramTypes";
+import type { ServerSummary } from "@/lib/api";
+
 import { FilePreviewAvailabilityProvider } from "@/components/FilePreviewAvailabilityContext";
 import { FilePreviewPanel } from "@/components/FilePreviewPanel";
 import { LatchBanner } from "@/components/LatchBanner";
@@ -16,9 +19,11 @@ import { useNanoinfraStream, type SendAttachment, type SendOptions } from "@/hoo
 import { useSessionHistory } from "@/hooks/useSessions";
 import {
   ApiError,
+  fetchDiagrams,
   fetchFilePreviewAvailability,
   fetchInstalledCliApps,
   fetchMcpPresets,
+  fetchServers,
   fetchSettings,
   listSlashCommands,
 } from "@/lib/api";
@@ -654,6 +659,31 @@ export function ThreadShell({
     isPayload: isMcpPresetsPayload,
     selectItems: installedMcpPresetsFromPayload,
   });
+  // Mention candidates for @server: and @diagram:. Neither store publishes a change event, so
+  // this loads once per shell rather than claiming to be live -- a mention resolves server-side
+  // against the store at send time, so a stale menu entry is refused rather than acted on.
+  const [mentionServers, setMentionServers] = useState<ServerSummary[]>([]);
+  const [mentionDiagrams, setMentionDiagrams] = useState<DiagramSummary[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchServers(getToken())
+      .then((payload) => {
+        if (!cancelled) setMentionServers(payload.servers);
+      })
+      .catch(() => {
+        if (!cancelled) setMentionServers([]);
+      });
+    void fetchDiagrams(getToken())
+      .then((payload) => {
+        if (!cancelled) setMentionDiagrams(payload.diagrams);
+      })
+      .catch(() => {
+        if (!cancelled) setMentionDiagrams([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
   const [settings, setSettings] = useState<SettingsPayload | null>(settingsSnapshot);
   const [heroGreetingKey, setHeroGreetingKey] = useState(randomHeroGreetingKey);
   const [submittedViewportTurnId, setSubmittedViewportTurnId] = useState<string | null>(null);
@@ -1395,6 +1425,8 @@ export function ThreadShell({
           variant={showHeroComposer ? "hero" : "thread"}
           slashCommands={slashCommands}
           cliApps={cliApps}
+          servers={mentionServers}
+          diagrams={mentionDiagrams}
           mcpPresets={mcpPresets}
           sessions={mentionSessions}
           skills={skills}
@@ -1440,6 +1472,8 @@ export function ThreadShell({
           variant="hero"
           slashCommands={slashCommands}
           cliApps={cliApps}
+          servers={mentionServers}
+          diagrams={mentionDiagrams}
           mcpPresets={mcpPresets}
           sessions={mentionSessions}
           skills={skills}
