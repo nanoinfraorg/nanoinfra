@@ -30,6 +30,7 @@ def _local_trigger_history_text(trigger: Mapping[str, Any]) -> str:
 LOCAL_TRIGGER_AUTOMATION_SPEC = AutomationTurnSpec(
     kind="local_trigger",
     trigger_meta_key=LOCAL_TRIGGER_META,
+    id_field="trigger_id",
     history_fields={
         "trigger_id": "trigger_id",
         "trigger_name": "trigger_name",

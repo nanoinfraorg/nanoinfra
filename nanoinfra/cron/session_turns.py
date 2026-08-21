@@ -28,6 +28,7 @@ def _cron_history_text(trigger: Mapping[str, Any]) -> str | None:
 CRON_AUTOMATION_SPEC = AutomationTurnSpec(
     kind="cron",
     trigger_meta_key=CRON_TRIGGER_META,
+    id_field="job_id",
     legacy_history_meta_key=CRON_HISTORY_META,
     history_fields={
         "cron_job_id": "job_id",

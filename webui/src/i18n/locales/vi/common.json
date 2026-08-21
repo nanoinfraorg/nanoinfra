@@ -828,6 +828,12 @@
           "error": "Thất bại",
           "skipped": "Đã bỏ qua"
         }
+      },
+      "state": {
+        "title": "Trạng thái đã ghi nhớ",
+        "reset": "Đặt lại",
+        "loading": "Đang tải…",
+        "empty": "Tự động hóa này chưa ghi nhớ gì"
       }
     },
     "oauth": {

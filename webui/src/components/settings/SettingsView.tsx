@@ -117,6 +117,7 @@ import {
   disableNanoinfraFeature,
   enableNanoinfraFeature,
   fetchApiService,
+  fetchAutomationState,
   fetchAutomations,
   fetchSettings,
   fetchSettingsUsage,
@@ -128,6 +129,7 @@ import {
   loginProviderOAuth,
   logoutProviderOAuth,
   migrateModelConfigurations,
+  resetAutomationState,
   runAutomationAction,
   runCliAppAction,
   runMcpPresetAction,
@@ -1920,6 +1922,13 @@ export function SettingsView({
     }
   };
 
+  const handleAutomationStateFetch = async (id: string) =>
+    (await fetchAutomationState(token, id)).values;
+
+  const handleAutomationStateReset = async (id: string) => {
+    await resetAutomationState(token, id);
+  };
+
   const handleAutomationEdit = async (
     job: SessionAutomationJob,
     values: AutomationUpdatePayload,
@@ -2283,6 +2292,8 @@ export function SettingsView({
             onAction={handleAutomationAction}
             onRequestEdit={setAutomationPendingEdit}
             onRequestDelete={setAutomationPendingDelete}
+            onFetchState={handleAutomationStateFetch}
+            onResetState={handleAutomationStateReset}
           />
         );
       case "skills":
@@ -5610,6 +5621,8 @@ function AutomationsSettings({
   onAction,
   onRequestEdit,
   onRequestDelete,
+  onFetchState,
+  onResetState,
 }: {
   payload: AutomationsPayload | null;
   loading: boolean;
@@ -5624,6 +5637,8 @@ function AutomationsSettings({
   onAction: (action: AutomationAction, job: SessionAutomationJob) => void | Promise<void>;
   onRequestEdit: (job: SessionAutomationJob) => void;
   onRequestDelete: (job: SessionAutomationJob) => void;
+  onFetchState: (id: string) => Promise<Record<string, unknown>>;
+  onResetState: (id: string) => Promise<void>;
 }) {
   const { t, i18n } = useTranslation();
   const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
@@ -5786,6 +5801,8 @@ function AutomationsSettings({
             onAction={onAction}
             onRequestEdit={onRequestEdit}
             onRequestDelete={onRequestDelete}
+            onFetchState={onFetchState}
+            onResetState={onResetState}
           />
         </section>
       ) : (
@@ -5891,6 +5908,8 @@ function AutomationDetailPanel({
   onAction,
   onRequestEdit,
   onRequestDelete,
+  onFetchState,
+  onResetState,
 }: {
   job: SessionAutomationJob;
   locale: string;
@@ -5898,6 +5917,8 @@ function AutomationDetailPanel({
   onAction: (action: AutomationAction, job: SessionAutomationJob) => void | Promise<void>;
   onRequestEdit: (job: SessionAutomationJob) => void;
   onRequestDelete: (job: SessionAutomationJob) => void;
+  onFetchState: (id: string) => Promise<Record<string, unknown>>;
+  onResetState: (id: string) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
@@ -6069,6 +6090,12 @@ function AutomationDetailPanel({
               </div>
             </div>
             <AutomationRunHistory job={job} locale={locale} tx={tx} />
+            <AutomationStatePanel
+              job={job}
+              tx={tx}
+              onFetchState={onFetchState}
+              onResetState={onResetState}
+            />
           </div>
         </aside>
       </div>
@@ -6181,6 +6208,120 @@ function AutomationStatusBadge({
 
 function automationMessageNeedsExpansion(message: string): boolean {
   return message.length > 360 || message.split(/\r?\n/).length > 6;
+}
+
+function AutomationStatePanel({
+  job,
+  tx,
+  onFetchState,
+  onResetState,
+}: {
+  job: SessionAutomationJob;
+  tx: (key: string, fallback: string, values?: Record<string, unknown>) => string;
+  onFetchState: (id: string) => Promise<Record<string, unknown>>;
+  onResetState: (id: string) => Promise<void>;
+}) {
+  const [values, setValues] = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // System automations do not carry state and asking for it would 404 on every selection.
+    if (job.protected) {
+      setValues(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    void onFetchState(job.id)
+      .then((next) => {
+        if (!cancelled) setValues(next);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError((err as Error).message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      // The panel is remounted per selection, so a slow response for the previously selected
+      // automation must not land in the newly selected one.
+      cancelled = true;
+    };
+  }, [job.id, job.protected, onFetchState]);
+
+  const reset = async () => {
+    setResetting(true);
+    setError(null);
+    try {
+      await onResetState(job.id);
+      setValues({});
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  if (job.protected) return null;
+
+  const entries = Object.entries(values ?? {});
+
+  return (
+    <div className="rounded-[18px] bg-background/55 p-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-[11px] font-medium leading-none text-muted-foreground/75">
+          {tx("settings.automations.state.title", "Remembered state")}
+        </div>
+        {entries.length > 0 ? (
+          <button
+            type="button"
+            className="text-[11px] leading-none text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+            disabled={resetting}
+            onClick={() => void reset()}
+          >
+            {tx("settings.automations.state.reset", "Reset")}
+          </button>
+        ) : null}
+      </div>
+      {error ? (
+        <div className="mt-2 text-[11.5px] leading-4 text-destructive-text">{error}</div>
+      ) : loading && values === null ? (
+        <div className="mt-2 text-[12px] leading-5 text-muted-foreground/80">
+          {tx("settings.automations.state.loading", "Loading…")}
+        </div>
+      ) : entries.length === 0 ? (
+        <div className="mt-2 text-[12px] leading-5 text-muted-foreground/80">
+          {tx("settings.automations.state.empty", "This automation remembers nothing yet")}
+        </div>
+      ) : (
+        <ul className="mt-2 grid gap-2">
+          {entries.map(([key, value]) => (
+            <li key={key} className="grid gap-0.5">
+              <div className="truncate font-mono text-[11px] leading-4 text-muted-foreground/80">
+                {key}
+              </div>
+              <div className="line-clamp-3 break-all font-mono text-[11.5px] leading-4 text-foreground/80">
+                {formatStateValue(value)}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Values come back as parsed JSON, so a string renders bare and everything else compactly. */
+function formatStateValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function AutomationRunHistory({

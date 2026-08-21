@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from loguru import logger as default_logger
 
+from nanoinfra.automations.state import AutomationStateStore
 from nanoinfra.webui.gateway_tokens import GatewayTokenStore
 from nanoinfra.webui.ingress_policy import DEFAULT_WEBUI_INGRESS_POLICY, WebUIIngressPolicy
 from nanoinfra.webui.media_gateway import WebUIMediaGateway
@@ -104,6 +105,7 @@ def build_gateway_services(
         nanoinfra_skills_base_url=nanoinfra_skills_base_url,
         cron_service=cron_service,
         local_trigger_store=local_trigger_store,
+        automation_state_store=AutomationStateStore(workspace_path),
         cron_pending_job_ids=cron_pending_job_ids,
         local_trigger_pending_ids=local_trigger_pending_ids,
         channel_feature_action=channel_feature_action,

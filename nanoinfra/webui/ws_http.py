@@ -23,6 +23,7 @@ from loguru import logger
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
+from nanoinfra.automations.state import AutomationStateError, AutomationStateStore
 from nanoinfra.command.builtin import builtin_command_palette
 from nanoinfra.cron.session_turns import is_bound_cron_job
 from nanoinfra.cron.types import CronJob, CronSchedule
@@ -307,6 +308,7 @@ class GatewayHTTPHandler:
         nanoinfra_skills_base_url: str = "https://skills.nanoinfra.org",
         cron_service: CronService | None = None,
         local_trigger_store: LocalTriggerStore | None = None,
+        automation_state_store: AutomationStateStore | None = None,
         cron_pending_job_ids: Callable[[str], set[str]] | None = None,
         local_trigger_pending_ids: Callable[[str], set[str]] | None = None,
         channel_feature_action: Callable[..., Any] | None = None,
@@ -366,6 +368,7 @@ class GatewayHTTPHandler:
         self._title_retry_in_flight: set[str] = set()
         self.cron_service = cron_service
         self.local_trigger_store = local_trigger_store
+        self.automation_state_store = automation_state_store
         self.cron_pending_job_ids = cron_pending_job_ids
         self.local_trigger_pending_ids = local_trigger_pending_ids
         self._log = log
@@ -951,7 +954,48 @@ class GatewayHTTPHandler:
         m = re.match(r"^/api/webui/automations/(enable|disable|delete|run|update)$", got)
         if m:
             return await self._handle_webui_automation_action(request, m.group(1))
+        m = re.match(r"^/api/webui/automations/([^/]+)/state$", got)
+        if m:
+            return self._handle_automation_state_get(request, m.group(1))
+        m = re.match(r"^/api/webui/automations/([^/]+)/state/reset$", got)
+        if m:
+            return self._handle_automation_state_reset(request, m.group(1))
         return None
+
+    def _handle_automation_state_get(self, request: WsRequest, automation_id: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if self.automation_state_store is None:
+            return _http_error(503, "automation state unavailable")
+        if not self._automation_exists(automation_id):
+            # A state document outlives the automation that wrote it if a delete ever misses, so
+            # existence is checked against the automation rather than against the file.
+            return _http_error(404, "automation not found")
+        try:
+            values = self.automation_state_store.snapshot(automation_id)
+        except AutomationStateError as exc:
+            return _http_error(400, str(exc))
+        return _http_json_response({"id": automation_id, "values": values})
+
+    def _handle_automation_state_reset(self, request: WsRequest, automation_id: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if self.automation_state_store is None:
+            return _http_error(503, "automation state unavailable")
+        if not self._automation_exists(automation_id):
+            return _http_error(404, "automation not found")
+        try:
+            cleared = self.automation_state_store.clear(automation_id)
+        except AutomationStateError as exc:
+            return _http_error(400, str(exc))
+        return _http_json_response({"id": automation_id, "cleared": bool(cleared)})
+
+    def _automation_exists(self, automation_id: str) -> bool:
+        if self.cron_service is not None and self.cron_service.get_job(automation_id) is not None:
+            return True
+        if self.local_trigger_store is None:
+            return False
+        return self.local_trigger_store.get(automation_id) is not None
 
     def _pending_cron_job_ids_for_all(self) -> set[str]:
         if self.cron_service is None or self.cron_pending_job_ids is None:

@@ -828,6 +828,12 @@
           "error": "Falló",
           "skipped": "Omitida"
         }
+      },
+      "state": {
+        "title": "Estado recordado",
+        "reset": "Reiniciar",
+        "loading": "Cargando…",
+        "empty": "Esta automatización todavía no recuerda nada"
       }
     },
     "oauth": {
