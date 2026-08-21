@@ -349,18 +349,16 @@ async def test_the_widest_pattern_also_gets_every_host_checked(tmp_path: Path) -
     assert JobStore(tmp_path).list_jobs() == []
 
 
-@pytest.mark.skip(
-    reason=(
-        "No home after #18. The old tool built its own preview text and listed the resolved "
-        "hosts, so an operator read the blast radius before an approval. The executor's "
-        "_preview_line names the server, the provider, and the command only, and the agent "
-        "renders what it gets. Somebody must decide whether the preview carries the resolved "
-        "hosts again. That needs a change in nanoinfra/gates/executor/server.py, which this "
-        "lane must not touch."
-    )
-)
 async def test_a_preview_of_a_group_names_the_hosts_the_guard_validated(tmp_path: Path) -> None:
-    """A pattern alone hides the blast radius, so the preview shows the resolved hosts."""
+    """A pattern alone hides the blast radius, so the preview shows the resolved hosts.
+
+    This was skipped as an open question -- whether the executor's preview should carry the
+    resolved hosts again after #18 moved preview construction out of the agent-side tool. It has
+    since been answered in the product: ``_preview_line`` renders
+    ``target={_targets_label(server)}`` and ``_targets_label`` resolves the scope. The skip
+    outlived its reason and hid the fact that the behaviour it asked for exists, which is the
+    thing a skip does worst.
+    """
     _group_server(tmp_path, project_path=_project(tmp_path))
 
     with patch(_BACKEND, new=AsyncMock()) as run:

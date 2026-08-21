@@ -5,6 +5,7 @@ import signal
 from contextlib import suppress
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -1933,6 +1934,7 @@ def _patch_cli_command_runtime(
     monkeypatch,
     config: Config,
     *,
+    config_file: Path | None = None,
     set_config_path=None,
     sync_templates=None,
     make_provider=None,
@@ -1943,12 +1945,46 @@ def _patch_cli_command_runtime(
 ) -> None:
     provider_factory = make_provider or (lambda _config: _fake_provider())
 
+    # Point the real loader at a real file rather than replacing loader functions -- #80, and the
+    # same pattern `mock_paths` in tests/cli/conftest.py already uses.
+    #
+    # This used to `monkeypatch.setattr` three names on `nanoinfra.config.loader`:
+    # `set_config_path`, `load_config` and `resolve_config_env_vars`. `monkeypatch` restores the
+    # loader module and reaches no other module, so any module reaching its **first** import inside
+    # that window kept the stand-in for the life of the worker. Five did --
+    # `nanoinfra.webui.cli_apps_api`, `.skills_api`, `.mcp_presets_api` (twice) and
+    # `.transcription_ws` -- because the gateway imports the webui lazily. The session guard in the
+    # root conftest caught it, but only on a narrow selection: a full run imports those modules
+    # long before it reaches this file, so the suite passed for the wrong reason.
+    #
+    # `_current_config_path` is the seam the product itself uses. Every reader calls the live
+    # `load_config`, which reads that global, so one assignment reaches an imported module and a
+    # not-yet-imported one alike, and there is no stand-in for a later import to keep.
+    from nanoinfra.config import loader as _loader
+
+    # Write to the path the command will actually read. A caller that passes ``--config`` makes
+    # the CLI call the live ``set_config_path`` with that path, so writing anywhere else would be
+    # overwritten by the command itself.
+    runtime_config_path = config_file or (
+        config.workspace_path.parent / "_cli_runtime_config.json"
+    )
+    runtime_config_path.parent.mkdir(parents=True, exist_ok=True)
+    runtime_config_path.write_text(
+        json.dumps(config.model_dump(mode="json", by_alias=True), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(_loader, "_current_config_path", runtime_config_path)
+
+    # `set_config_path` is the one loader function this may still replace. Nothing in the tree
+    # binds it at module level -- every use is a function-local import (`grep -rn "from
+    # nanoinfra.config.loader import" nanoinfra/`), so no module can capture a stand-in at its
+    # first import and #80 cannot happen through this name. `load_config` and
+    # `resolve_config_env_vars` are bound at module level in several places, which is why those
+    # two are redirected above instead of replaced.
     monkeypatch.setattr(
         "nanoinfra.config.loader.set_config_path",
         set_config_path or (lambda _path: None),
     )
-    monkeypatch.setattr("nanoinfra.config.loader.load_config", lambda _path=None: config)
-    monkeypatch.setattr("nanoinfra.config.loader.resolve_config_env_vars", lambda c: c)
     monkeypatch.setattr(
         "nanoinfra.cli.commands.sync_workspace_templates",
         sync_templates or (lambda _path: None),
@@ -2071,6 +2107,7 @@ def test_heartbeat_empty_response_still_retains_recent_messages(
     _patch_cli_command_runtime(
         monkeypatch,
         config,
+        config_file=config_file,
         make_provider=lambda _config: provider,
         message_bus=lambda: bus,
         session_manager=_FakeSessionManager,
@@ -2533,7 +2570,13 @@ def test_webui_foreground_refuses_occupied_webui_port(monkeypatch, tmp_path: Pat
     assert "--gateway-port" in result.stdout
 
 
-def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -> None:
+def _patch_serve_runtime(
+    monkeypatch,
+    config: Config,
+    seen: dict[str, object],
+    *,
+    config_file: Path | None = None,
+) -> None:
     pytest.importorskip("aiohttp")
 
     class _FakeApiApp:
@@ -2574,6 +2617,7 @@ def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -
     _patch_cli_command_runtime(
         monkeypatch,
         config,
+        config_file=config_file,
         message_bus=lambda: object(),
         session_manager=lambda _workspace: object(),
     )
@@ -2591,6 +2635,7 @@ def test_gateway_uses_workspace_from_config_by_default(monkeypatch, tmp_path: Pa
     _patch_cli_command_runtime(
         monkeypatch,
         config,
+        config_file=config_file,
         set_config_path=lambda path: seen.__setitem__("config_path", path),
         sync_templates=lambda path: seen.__setitem__("workspace", path),
         make_provider=_stop_gateway_provider,
@@ -2608,13 +2653,18 @@ def test_gateway_workspace_option_overrides_config(monkeypatch, tmp_path: Path) 
     config = Config()
     config.agents.defaults.workspace = str(tmp_path / "config-workspace")
     override = tmp_path / "override-workspace"
-    seen: dict[str, Path] = {}
+    seen: dict[str, Any] = {}
+
+    def _capture_then_stop(provider_config: Config) -> object:
+        seen["provider_config"] = provider_config
+        raise _StopGatewayError("stop")
 
     _patch_cli_command_runtime(
         monkeypatch,
         config,
+        config_file=config_file,
         sync_templates=lambda path: seen.__setitem__("workspace", path),
-        make_provider=_stop_gateway_provider,
+        make_provider=_capture_then_stop,
     )
 
     result = runner.invoke(
@@ -2624,7 +2674,10 @@ def test_gateway_workspace_option_overrides_config(monkeypatch, tmp_path: Path) 
 
     assert isinstance(result.exception, _StopGatewayError)
     assert seen["workspace"] == override
-    assert config.workspace_path == override
+    # The gateway loads its own Config from the file, so this asserts on the object it built
+    # rather than on the one this test holds. The old assertion only passed because `load_config`
+    # was replaced with a stand-in returning this exact instance -- the #80 hazard.
+    assert seen["provider_config"].workspace_path == override
 
 
 def test_gateway_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: Path) -> None:
@@ -2641,6 +2694,7 @@ def test_gateway_uses_workspace_directory_for_cron_store(monkeypatch, tmp_path: 
     _patch_cli_command_runtime(
         monkeypatch,
         config,
+        config_file=config_file,
         message_bus=lambda: object(),
         session_manager=lambda _workspace: object(),
         cron_service=_StopCron,
@@ -3141,6 +3195,7 @@ def test_gateway_workspace_override_does_not_migrate_legacy_cron(
     _patch_cli_command_runtime(
         monkeypatch,
         config,
+        config_file=config_file,
         message_bus=lambda: object(),
         session_manager=lambda _workspace: object(),
         cron_service=_StopCron,
@@ -3180,6 +3235,7 @@ def test_gateway_custom_config_workspace_does_not_migrate_legacy_cron(
     _patch_cli_command_runtime(
         monkeypatch,
         config,
+        config_file=config_file,
         message_bus=lambda: object(),
         session_manager=lambda _workspace: object(),
         cron_service=_StopCron,
@@ -3243,6 +3299,7 @@ def test_gateway_uses_configured_port_when_cli_flag_is_missing(monkeypatch, tmp_
     _patch_cli_command_runtime(
         monkeypatch,
         config,
+        config_file=config_file,
         make_provider=_stop_gateway_provider,
     )
 
@@ -3260,6 +3317,7 @@ def test_gateway_cli_port_overrides_configured_port(monkeypatch, tmp_path: Path)
     _patch_cli_command_runtime(
         monkeypatch,
         config,
+        config_file=config_file,
         make_provider=_stop_gateway_provider,
     )
 
@@ -3381,6 +3439,7 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
     _patch_cli_command_runtime(
         monkeypatch,
         config,
+        config_file=config_file,
         message_bus=lambda: object(),
         session_manager=lambda _workspace: object(),
     )
@@ -3559,6 +3618,7 @@ def test_gateway_shutdown_lets_agent_task_own_mcp_cleanup(
     _patch_cli_command_runtime(
         monkeypatch,
         config,
+        config_file=config_file,
         message_bus=lambda: object(),
         session_manager=lambda _workspace: object(),
     )
@@ -3675,6 +3735,7 @@ def test_gateway_shutdown_event_exits_forever_runtime_tasks(
     _patch_cli_command_runtime(
         monkeypatch,
         config,
+        config_file=config_file,
         message_bus=lambda: object(),
         session_manager=lambda _workspace: object(),
     )
@@ -3714,7 +3775,7 @@ def test_serve_uses_api_config_defaults_and_workspace_override(
     override_workspace = tmp_path / "override-workspace"
     seen: dict[str, object] = {}
 
-    _patch_serve_runtime(monkeypatch, config, seen)
+    _patch_serve_runtime(monkeypatch, config, seen, config_file=config_file)
 
     result = runner.invoke(
         app,
@@ -3738,7 +3799,7 @@ def test_trigger_cli_queues_message_in_workspace(
     config_file = _write_instance_config(tmp_path)
     config = Config()
     config.agents.defaults.workspace = str(tmp_path / "workspace")
-    _patch_cli_command_runtime(monkeypatch, config)
+    _patch_cli_command_runtime(monkeypatch, config, config_file=config_file)
 
     store = LocalTriggerStore(config.workspace_path)
     trigger = store.create(
@@ -3770,7 +3831,7 @@ def test_serve_cli_options_override_api_config(monkeypatch, tmp_path: Path) -> N
     config.api.api_key = "secret"
     seen: dict[str, object] = {}
 
-    _patch_serve_runtime(monkeypatch, config, seen)
+    _patch_serve_runtime(monkeypatch, config, seen, config_file=config_file)
 
     result = runner.invoke(
         app,
@@ -3799,7 +3860,7 @@ def test_serve_allows_loopback_without_api_key(monkeypatch, tmp_path: Path) -> N
     config = Config()
     seen: dict[str, object] = {}
 
-    _patch_serve_runtime(monkeypatch, config, seen)
+    _patch_serve_runtime(monkeypatch, config, seen, config_file=config_file)
 
     result = runner.invoke(app, ["serve", "--config", str(config_file)])
 
@@ -3814,7 +3875,7 @@ def test_serve_passes_configured_api_key(monkeypatch, tmp_path: Path) -> None:
     config.api.api_key = " secret "
     seen: dict[str, object] = {}
 
-    _patch_serve_runtime(monkeypatch, config, seen)
+    _patch_serve_runtime(monkeypatch, config, seen, config_file=config_file)
 
     result = runner.invoke(app, ["serve", "--config", str(config_file)])
 
@@ -3827,7 +3888,7 @@ def test_serve_rejects_wildcard_host_without_api_key(monkeypatch, tmp_path: Path
     config = Config()
     seen: dict[str, object] = {}
 
-    _patch_serve_runtime(monkeypatch, config, seen)
+    _patch_serve_runtime(monkeypatch, config, seen, config_file=config_file)
 
     result = runner.invoke(app, ["serve", "--config", str(config_file), "--host", "0.0.0.0"])
 
@@ -3845,7 +3906,7 @@ def test_serve_rejects_specific_network_interface_without_api_key(
     config = Config()
     seen: dict[str, object] = {}
 
-    _patch_serve_runtime(monkeypatch, config, seen)
+    _patch_serve_runtime(monkeypatch, config, seen, config_file=config_file)
 
     result = runner.invoke(
         app,

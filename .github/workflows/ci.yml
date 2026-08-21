@@ -91,6 +91,26 @@ jobs:
             coverage: true
             pytest_args: ""
 
+    # The Postgres-backed secrets tests skip themselves when NANOINFRA_TEST_POSTGRES_DSN is
+    # unset, and it was set nowhere -- so five tests over an encrypted secret store ran in no
+    # environment at all. A throwaway container is all they need. Declared for both lanes rather
+    # than behind a matrix expression, because an empty `image:` is not a valid service; only the
+    # coverage lane sets the DSN, so only it runs them.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: nanoinfra
+          POSTGRES_PASSWORD: nanoinfra
+          POSTGRES_DB: nanoinfra_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nanoinfra"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -127,10 +147,28 @@ jobs:
 
       - name: Run tests with coverage
         if: matrix.coverage
+        env:
+          NANOINFRA_TEST_POSTGRES_DSN: postgresql://nanoinfra:nanoinfra@localhost:5432/nanoinfra_test
         run: >-
           uv run --no-sync python -m pytest
           --cov=nanoinfra --cov-report=term-missing:skip-covered
           --durations=25 --durations-min=1.0
+
+      # These tests skip themselves when Postgres is unset *or unreachable*, so a service
+      # container that fails to come up would put the run straight back where it was: green, with
+      # five tests over an encrypted secret store executed nowhere. Fail on a skip instead.
+      - name: Confirm the Postgres secrets tests ran rather than skipped
+        if: matrix.coverage
+        env:
+          NANOINFRA_TEST_POSTGRES_DSN: postgresql://nanoinfra:nanoinfra@localhost:5432/nanoinfra_test
+        run: |
+          set -o pipefail
+          uv run --no-sync python -m pytest tests/secrets/test_postgres_backend.py \
+            -q -p no:randomly | tee /tmp/pg-secrets.log
+          if grep -qE '[0-9]+ skipped' /tmp/pg-secrets.log; then
+            echo "::error::Postgres secrets tests skipped; the service container is not reachable"
+            exit 1
+          fi
 
       - name: Run compatibility tests
         if: ${{ !matrix.coverage }}

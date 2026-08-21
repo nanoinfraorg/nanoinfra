@@ -424,6 +424,12 @@ class DiscordChannel(BaseChannel):
             if has_user and has_pass:
                 import aiohttp
 
+                # aiohttp warns that BasicAuth goes away in 4.0 and points at
+                # encode_basic_auth(). Do not take that advice here: discord.py types
+                # `proxy_auth: Optional[aiohttp.BasicAuth]` and forwards the object straight to
+                # aiohttp, so a header dict would be rejected. discord.py pins aiohttp<4 itself,
+                # so the version that removes this class cannot be resolved alongside it -- the
+                # warning is a transitive deprecation our direct dependency already bounds.
                 proxy_auth = aiohttp.BasicAuth(
                     login=cast(str, self.config.proxy_username),
                     password=cast(str, self.config.proxy_password),
