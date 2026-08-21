@@ -1071,6 +1071,95 @@ describe("App layout", () => {
     });
   });
 
+  it("shows what an automation remembers and lets an operator reset it", async () => {
+    const resetCalls: string[] = [];
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/webui/automations": {
+        jobs: [
+          {
+            id: "with-state",
+            name: "Blockers digest",
+            enabled: true,
+            protected: false,
+            delete_after_run: false,
+            schedule: { kind: "cron", expr: "0 9 * * 1", tz: "UTC" },
+            payload: { message: "Report new blockers", kind: "agent_turn" },
+            state: { next_run_at_ms: Date.UTC(2026, 3, 20, 9, 0, 0), pending: false, run_history: [] },
+            origin: null,
+          },
+        ],
+      },
+      "/api/webui/automations/with-state/state": {
+        id: "with-state",
+        values: { reported_issues: [47, 51], phase: "idle" },
+      },
+      "/api/webui/automations/with-state/state/reset": () => {
+        resetCalls.push("with-state");
+        return { id: "with-state", cleared: true };
+      },
+    });
+
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Automations" }));
+
+    const heading = await screen.findByRole("heading", { name: "Blockers digest" });
+    const panel = heading.closest("article") as HTMLElement;
+
+    expect(await within(panel).findByText("Remembered state")).toBeInTheDocument();
+    expect(await within(panel).findByText("reported_issues")).toBeInTheDocument();
+    expect(within(panel).getByText("[47,51]")).toBeInTheDocument();
+    // A stored string renders bare rather than quoted.
+    expect(within(panel).getByText("idle")).toBeInTheDocument();
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Reset" }));
+
+    await waitFor(() => expect(resetCalls).toEqual(["with-state"]));
+    expect(
+      await within(panel).findByText("This automation remembers nothing yet"),
+    ).toBeInTheDocument();
+  });
+
+  it("does not ask a system automation for state it cannot have", async () => {
+    const stateCalls: string[] = [];
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/webui/automations": {
+        jobs: [
+          {
+            id: "heartbeat",
+            name: "heartbeat",
+            enabled: true,
+            protected: true,
+            delete_after_run: false,
+            schedule: { kind: "every", every_ms: 60_000 },
+            payload: { message: "", kind: "system_event" },
+            state: { next_run_at_ms: Date.UTC(2026, 3, 18, 3, 0, 0), pending: false, run_history: [] },
+            origin: null,
+          },
+        ],
+      },
+      "/api/webui/automations/heartbeat/state": () => {
+        stateCalls.push("heartbeat");
+        return { id: "heartbeat", values: {} };
+      },
+    });
+
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Automations" }));
+
+    const heading = await screen.findByRole("heading", { name: "heartbeat" });
+    const panel = heading.closest("article") as HTMLElement;
+
+    expect(await within(panel).findByText("Recent runs")).toBeInTheDocument();
+    expect(within(panel).queryByText("Remembered state")).not.toBeInTheDocument();
+    expect(stateCalls).toEqual([]);
+  });
+
   it("renders recent runs in the automation detail pane", async () => {
     mockFetchRoutes({
       "/api/settings": baseSettingsPayload(),

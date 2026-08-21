@@ -330,6 +330,37 @@ export async function runAutomationAction(
   );
 }
 
+export interface AutomationStatePayload {
+  id: string;
+  values: Record<string, unknown>;
+}
+
+export async function fetchAutomationState(
+  token: string,
+  id: string,
+  base: string = "",
+): Promise<AutomationStatePayload> {
+  return request<AutomationStatePayload>(
+    `${base}/api/webui/automations/${encodeURIComponent(id)}/state`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function resetAutomationState(
+  token: string,
+  id: string,
+  base: string = "",
+): Promise<{ id: string; cleared: boolean }> {
+  return request<{ id: string; cleared: boolean }>(
+    `${base}/api/webui/automations/${encodeURIComponent(id)}/state/reset`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
 export async function updateAutomation(
   token: string,
   id: string,

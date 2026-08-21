@@ -828,6 +828,12 @@
           "error": "Gagal",
           "skipped": "Dilewati"
         }
+      },
+      "state": {
+        "title": "Status yang diingat",
+        "reset": "Setel ulang",
+        "loading": "Memuat…",
+        "empty": "Otomasi ini belum mengingat apa pun"
       }
     },
     "oauth": {

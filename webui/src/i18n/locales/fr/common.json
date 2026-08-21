@@ -828,6 +828,12 @@
           "error": "Échec",
           "skipped": "Ignorée"
         }
+      },
+      "state": {
+        "title": "État mémorisé",
+        "reset": "Réinitialiser",
+        "loading": "Chargement…",
+        "empty": "Cette automatisation ne mémorise encore rien"
       }
     },
     "oauth": {

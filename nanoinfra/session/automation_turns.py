@@ -16,6 +16,9 @@ class AutomationTurnSpec:
 
     kind: str
     trigger_meta_key: str
+    #: Key inside the trigger metadata holding this automation's own id. It is what scopes
+    #: per-automation state, so a spec that omits it gets no state rather than a shared bucket.
+    id_field: str = ""
     legacy_history_meta_key: str | None = None
     history_fields: Mapping[str, str] = field(default_factory=dict[str, str])
     text_builder: Callable[[Mapping[str, Any]], str | None] | None = None
@@ -60,6 +63,26 @@ def _automation_specs() -> tuple[AutomationTurnSpec, ...]:
 
     return (CRON_AUTOMATION_SPEC, LOCAL_TRIGGER_AUTOMATION_SPEC)
 
+
+
+def automation_identity(
+    metadata: Mapping[str, Any] | None,
+) -> tuple[str, str] | None:
+    """Return ``(kind, automation_id)`` for an automation-driven turn, or ``None``.
+
+    ``None`` for an interactive turn is the useful answer, not a missing one: it is how a caller
+    scoped to one automation refuses to act when there is no automation to be scoped to.
+    """
+    for spec in _automation_specs():
+        if not spec.id_field:
+            continue
+        trigger = automation_trigger(metadata, spec)
+        if not trigger:
+            continue
+        value = trigger.get(spec.id_field)
+        if isinstance(value, str) and value.strip():
+            return spec.kind, value.strip()
+    return None
 
 def automation_history_overrides(
     metadata: Mapping[str, Any] | None,

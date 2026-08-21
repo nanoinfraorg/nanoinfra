@@ -828,6 +828,12 @@
           "error": "Failed",
           "skipped": "Skipped"
         }
+      },
+      "state": {
+        "title": "Remembered state",
+        "reset": "Reset",
+        "loading": "Loading…",
+        "empty": "This automation remembers nothing yet"
       }
     },
     "oauth": {
