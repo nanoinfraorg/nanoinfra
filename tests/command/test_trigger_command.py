@@ -47,6 +47,51 @@ async def test_trigger_command_creates_session_bound_local_trigger(tmp_path: Pat
 
 
 @pytest.mark.asyncio
+async def test_trigger_command_stores_mentions_as_references_not_as_context_blocks(
+    tmp_path: Path,
+) -> None:
+    """`/trigger` writes to a store, so the same rule as cron applies to its origin metadata."""
+    from nanoinfra.runtime_context import RUNTIME_CONTEXT_INPUT_META, RuntimeContextBlock
+
+    router = CommandRouter()
+    register_builtin_commands(router)
+    store = LocalTriggerStore(tmp_path)
+    loop = SimpleNamespace(workspace=tmp_path, local_trigger_store=store)
+    msg = InboundMessage(
+        channel="websocket",
+        sender_id="user",
+        chat_id="chat-1",
+        content="/trigger uptime watch",
+        metadata={
+            "webui": True,
+            RUNTIME_CONTEXT_INPUT_META: [
+                RuntimeContextBlock(source="resource_mentions", content="[Runtime Context]")
+            ],
+            "resource_mentions": [{"kind": "server", "id": "srv-1", "name": "barrahome"}],
+        },
+    )
+    ctx = CommandContext(
+        msg=msg,
+        session=None,
+        key="websocket:chat-1",
+        raw="/trigger uptime watch",
+        loop=loop,
+    )
+
+    response = await router.dispatch(ctx)
+
+    assert response is not None
+    trigger = store.list_for_session("websocket:chat-1")[0]
+    assert trigger.references == [{"kind": "server", "id": "srv-1"}]
+    assert RUNTIME_CONTEXT_INPUT_META not in trigger.origin_metadata
+    assert "resource_mentions" not in trigger.origin_metadata
+    # Reload from disk: the store had to be able to write it.
+    assert LocalTriggerStore(tmp_path).list_for_session("websocket:chat-1")[0].references == [
+        {"kind": "server", "id": "srv-1"}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_trigger_command_binds_inbound_session_when_unified_session_is_active(
     tmp_path: Path,
 ) -> None:

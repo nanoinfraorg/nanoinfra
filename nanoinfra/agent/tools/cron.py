@@ -16,7 +16,9 @@ from nanoinfra.agent.tools.schema import (
 )
 from nanoinfra.cron.service import CronService
 from nanoinfra.cron.types import CronJob, CronJobState, CronSchedule
+from nanoinfra.runtime_context import persistable_metadata
 from nanoinfra.session.keys import UNIFIED_SESSION_KEY
+from nanoinfra.webui.resource_mentions import normalize_resource_mentions
 
 _CRON_PARAMETERS = tool_parameters_schema(
     action=StringSchema("Action to perform", enum=["add", "list", "remove"]),
@@ -75,7 +77,12 @@ class CronTool(Tool):
 
     @staticmethod
     def _request_route() -> tuple[str, str, str, dict[str, Any]]:
-        """Return routing from the authoritative request snapshot."""
+        """Return routing from the authoritative request snapshot.
+
+        The metadata is the copy that gets written to ``jobs.json``, so it goes through
+        ``persistable_metadata``: the live turn's runtime context blocks are objects, and a job the
+        store cannot serialize is a job that cannot be created.
+        """
         ctx = current_request_context()
         if ctx is None:
             return "", "", "", {}
@@ -83,7 +90,25 @@ class CronTool(Tool):
         session_key = (
             raw_key if ctx.session_key == UNIFIED_SESSION_KEY else (ctx.session_key or "")
         )
-        return session_key, ctx.channel or "", ctx.chat_id or "", dict(ctx.metadata or {})
+        return (
+            session_key,
+            ctx.channel or "",
+            ctx.chat_id or "",
+            persistable_metadata(ctx.metadata),
+        )
+
+    @staticmethod
+    def _request_references() -> list[dict[str, str]]:
+        """Return the resources the creating message referenced by mention.
+
+        Carrying them onto the job is the point of a reference: the run resolves the id again when
+        it fires, so it reads the current record instead of matching on a name at 03:00.
+        """
+        ctx = current_request_context()
+        if ctx is None:
+            return []
+        pairs = normalize_resource_mentions(dict(ctx.metadata or {}).get("resource_mentions"))
+        return [{"kind": kind, "id": ident} for kind, ident in pairs]
 
     def set_cron_context(self, active: bool) -> Token[bool]:
         """Mark whether the tool is executing inside a cron job callback."""
@@ -216,6 +241,7 @@ class CronTool(Tool):
             origin_channel=origin_channel,
             origin_chat_id=origin_chat_id,
             origin_metadata=origin_metadata,
+            references=self._request_references(),
         )
         return f"Created job '{job.name}' (id: {job.id})"
 

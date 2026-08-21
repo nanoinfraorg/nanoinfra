@@ -43,6 +43,13 @@ cron(action="list")
 cron(action="remove", job_id="abc123")
 ```
 
+## Referenced Resources
+
+When the message that asks for the job mentions a saved resource (`@server:`, `@diagram:`), the job
+keeps that reference and resolves the id again on every run, so the run reads the current record
+instead of matching on a name. Write the id into the job message as well when the run needs it as a
+tool argument; if the resource is deleted, the run stops with a clear error rather than guessing.
+
 ## Time Expressions
 
 | User says | Parameters |
