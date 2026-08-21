@@ -67,6 +67,7 @@ class LocalTriggerStore:
         session_key: str,
         sender_id: str = "trigger",
         origin_metadata: dict[str, Any] | None = None,
+        references: list[dict[str, str]] | None = None,
     ) -> LocalTrigger:
         """Create a new session-bound local trigger."""
         clean_name = _clean_name(name)
@@ -91,6 +92,7 @@ class LocalTriggerStore:
                 session_key=session_key,
                 sender_id=sender_id.strip() or "trigger",
                 origin_metadata=dict(origin_metadata or {}),
+                references=[dict(item) for item in (references or [])],
                 created_at_ms=now,
                 updated_at_ms=now,
             )

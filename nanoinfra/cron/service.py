@@ -791,7 +791,17 @@ class CronService:
         if self._should_persist_store():
             store = self._require_store()
             store.jobs.append(job)
-            self._save_store()
+            try:
+                self._save_store()
+            except Exception:
+                # A job the store could not write is not a job. Leaving it in the list would show
+                # it in the UI, arm it on the next tick, and -- because every save serializes the
+                # whole store -- make each following tick fail on it, so a single unwritable job
+                # would stop `dream`, `heartbeat` and every other job from persisting state.
+                # `_store_dirty` stays set: the next successful save writes the rolled-back list.
+                with suppress(ValueError):
+                    store.jobs.remove(job)
+                raise
             self._arm_timer()
         else:
             self._append_action("add", asdict(job))

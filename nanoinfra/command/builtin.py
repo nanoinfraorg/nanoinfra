@@ -1031,13 +1031,23 @@ async def cmd_trigger(ctx: CommandContext) -> OutboundMessage:
         if ctx.key == UNIFIED_SESSION_KEY
         else ctx.key
     )
+    from nanoinfra.runtime_context import persistable_metadata
+    from nanoinfra.webui.resource_mentions import normalize_resource_mentions
+
+    # Same rule as the cron tool: this metadata is written to the trigger store, and a resource the
+    # message mentioned belongs on the trigger as a reference it re-resolves when it fires.
+    metadata = dict(ctx.msg.metadata or {})
     trigger = store.create(
         name=name,
         channel=ctx.msg.channel,
         chat_id=ctx.msg.chat_id,
         session_key=session_key,
         sender_id="trigger",
-        origin_metadata=dict(ctx.msg.metadata or {}),
+        origin_metadata=persistable_metadata(metadata),
+        references=[
+            {"kind": kind, "id": ident}
+            for kind, ident in normalize_resource_mentions(metadata.get("resource_mentions"))
+        ],
     )
     command = f'nanoinfra trigger {trigger.id} "message"'
     return OutboundMessage(

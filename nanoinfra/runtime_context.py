@@ -52,6 +52,29 @@ RuntimeContextProvider: TypeAlias = Callable[
 ]
 
 
+#: Metadata keys that describe the turn being handled right now and must never reach a store.
+#: An automation keeps its own ``references`` and re-resolves them when it fires, so persisting a
+#: turn's rendered view of them would freeze a stale copy -- and the blocks are dataclasses, which
+#: makes the store simply unwritable.
+_LIVE_TURN_ONLY_META: frozenset[str] = frozenset({
+    RUNTIME_CONTEXT_INPUT_META,
+    "resource_mentions",
+})
+
+
+def persistable_metadata(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Copy inbound metadata for a store, dropping what only describes the current turn.
+
+    Callers that persist an automation's origin (cron jobs, local triggers) route later deliveries
+    through this metadata, so it outlives the message it came from and has to survive ``json.dumps``.
+    """
+    return {
+        key: value
+        for key, value in dict(metadata or {}).items()
+        if key not in _LIVE_TURN_ONLY_META
+    }
+
+
 def wrap_runtime_context_lines(lines: Iterable[str]) -> str:
     """Wrap non-empty runtime metadata lines in the established prompt markers."""
     content = "\n".join(line for line in lines if line)
