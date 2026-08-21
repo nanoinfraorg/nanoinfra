@@ -233,9 +233,9 @@ async def test_bootstrap_returns_token_for_localhost(
         resp = await _http_get("http://127.0.0.1:29901/webui/bootstrap")
         assert resp.status_code == 200
         body = resp.json()
-        assert body["token"].startswith("nbwt_")
+        assert body["token"].startswith("nwt_")
         assert channel.gateway.tokens.issued_token_audiences[body["token"]] == "webui"
-        assert body["api_token"].startswith("nbwt_")
+        assert body["api_token"].startswith("nwt_")
         assert body["api_token"] != body["token"]
         assert body["ws_path"] == "/"
         assert body["ws_url"] == "ws://127.0.0.1:29901/"
@@ -3496,8 +3496,8 @@ def test_bootstrap_accepts_static_token_as_secret(bus: MagicMock) -> None:
     )
     assert resp.status_code == 200
     body = json.loads(resp.body)
-    assert body["token"].startswith("nbwt_")
-    assert body["api_token"].startswith("nbwt_")
+    assert body["token"].startswith("nwt_")
+    assert body["api_token"].startswith("nwt_")
     assert body["api_token"] != body["token"]
 
 
@@ -3572,8 +3572,8 @@ def test_localhost_without_auth_is_valid(bus: MagicMock) -> None:
     resp = channel.gateway.http._handle_bootstrap(_LOCAL, _LOCAL_BROWSER_REQ)
     assert resp.status_code == 200
     body = json.loads(resp.body)
-    assert body["token"].startswith("nbwt_")
-    assert body["api_token"].startswith("nbwt_")
+    assert body["token"].startswith("nwt_")
+    assert body["api_token"].startswith("nwt_")
     assert body["api_token"] != body["token"]
     assert not channel.gateway.tokens.check_api_token(
         _FakeReq({"Authorization": f"Bearer {body['token']}"})
@@ -3590,8 +3590,8 @@ def test_authenticated_bootstrap_returns_distinct_api_token(bus: MagicMock) -> N
     )
     assert resp.status_code == 200
     body = json.loads(resp.body)
-    assert body["token"].startswith("nbwt_")
-    assert body["api_token"].startswith("nbwt_")
+    assert body["token"].startswith("nwt_")
+    assert body["api_token"].startswith("nwt_")
     assert body["api_token"] != body["token"]
     assert not channel.gateway.tokens.check_api_token(
         _FakeReq({"Authorization": f"Bearer {body['token']}"})
@@ -3656,7 +3656,7 @@ def test_bootstrap_accepts_remote_with_valid_secret(bus: MagicMock) -> None:
     )
     assert resp.status_code == 200
     body = json.loads(resp.body)
-    assert body["token"].startswith("nbwt_")
+    assert body["token"].startswith("nwt_")
 
 
 def test_bootstrap_accepts_x_nanoinfra_auth_header(bus: MagicMock) -> None:

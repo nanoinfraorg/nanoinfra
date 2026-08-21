@@ -71,7 +71,12 @@ from nanoinfra.webui.file_preview import (
     file_preview_availability_payload,
     file_preview_payload,
 )
-from nanoinfra.webui.gateway_tokens import GatewayTokenStore, token_response_payload
+from nanoinfra.webui.gateway_tokens import (
+    OPERATE_SCOPE,
+    GatewayTokenStore,
+    TokenScope,
+    token_response_payload,
+)
 from nanoinfra.webui.http_utils import (
     TRUSTED_PROXY_AUTHENTICATED_ATTR,
     TRUSTED_PROXY_IDENTITY_ATTR,
@@ -450,10 +455,18 @@ class GatewayHTTPHandler:
             self._trusted_proxy_block = proxy
         return self._trusted_proxy
 
-    def check_api_token(self, request: WsRequest) -> bool:
+    def check_api_token(
+        self,
+        request: WsRequest,
+        *,
+        scope: TokenScope = OPERATE_SCOPE,
+    ) -> bool:
         if getattr(request, TRUSTED_PROXY_AUTHENTICATED_ATTR, False):
+            # A trusted proxy asserted a named identity, which this gateway does not scope: the
+            # proxy is the authority there, and narrowing it here would be a second, disagreeing
+            # opinion about the same request.
             return True
-        return self.tokens.check_api_token(request)
+        return self.tokens.check_api_token(request, scope=scope)
 
     # -- Main dispatch ------------------------------------------------------
 
@@ -1429,6 +1442,11 @@ class GatewayHTTPHandler:
     # -- Secret routes ---------------------------------------------------------
 
     def _dispatch_secret_routes(self, request: WsRequest, got: str) -> Response | None:
+        # Scoped as a group rather than per handler, so a secret route added later cannot forget.
+        if got.startswith("/api/webui/secrets") and not self.check_api_token(
+            request, scope="secrets"
+        ):
+            return _http_error(401, "Unauthorized")
         if got == "/api/webui/secrets":
             return self._handle_webui_secrets(request)
         if got == "/api/webui/secrets/create":
@@ -1614,7 +1632,9 @@ class GatewayHTTPHandler:
         """
         if got not in (APPROVALS_READ_PATH, APPROVALS_ANSWER_PATH):
             return None
-        if not self.check_api_token(request):
+        # Scoped: answering authorises a remote command, so a narrow token must not reach it even
+        # when that token can read everything else. This is where the TUI's exclusion lives.
+        if not self.check_api_token(request, scope="approve"):
             return _http_error(401, "Unauthorized")
         # The websockets Request carries no method, so a method guard is defence for a transport
         # that one day does. It must never be the only control that keeps a write out of a read

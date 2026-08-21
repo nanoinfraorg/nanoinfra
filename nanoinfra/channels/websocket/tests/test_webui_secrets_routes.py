@@ -434,3 +434,42 @@ async def test_unknown_secret_route_returns_404(bus: MagicMock, tmp_path: Path) 
     finally:
         await channel.stop()
         await server_task
+
+
+@pytest.mark.asyncio
+async def test_a_token_without_the_secrets_scope_is_refused(
+    bus: MagicMock, tmp_path: Path
+) -> None:
+    """Where the TUI's exclusion lives (nanoinfraorg/nanoinfra#164).
+
+    Scoped on the dispatcher rather than per handler, so a secret route added later cannot forget
+    to check. The assertion is the every-route sweep below, not the docstring.
+    """
+    port = _free_port()
+    base_url = f"http://127.0.0.1:{port}"
+    monkeypatch_key = generate_key_for_setup()
+    channel = _ch(bus, tmp_path, port)
+    server_task = asyncio.create_task(channel.start())
+    try:
+        narrow = channel.gateway.tokens.issue_api_token(300, scopes={"read", "chat"})
+        wide = channel.gateway.tokens.issue_api_token(300)
+        assert monkeypatch_key
+
+        for path in (
+            "/api/webui/secrets",
+            "/api/webui/secrets/create",
+            "/api/webui/secrets/abc",
+            "/api/webui/secrets/abc/update",
+            "/api/webui/secrets/abc/delete",
+        ):
+            refused = await _http_get(
+                f"{base_url}{path}", headers={"Authorization": f"Bearer {narrow}"}
+            )
+            assert refused.status_code == 401, f"{path}: {refused.text}"
+            allowed = await _http_get(
+                f"{base_url}{path}", headers={"Authorization": f"Bearer {wide}"}
+            )
+            assert allowed.status_code != 401, f"{path}: {allowed.text}"
+    finally:
+        await channel.stop()
+        await server_task

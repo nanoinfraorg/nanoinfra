@@ -390,7 +390,7 @@ async def test_token_issue_route_requires_secret_when_static_token_configured(bu
             headers={"Authorization": "Bearer static-token"},
         )
         assert allowed.status_code == 200
-        assert allowed.json()["token"].startswith("nbwt_")
+        assert allowed.json()["token"].startswith("nwt_")
     finally:
         await channel.stop()
         await server_task
@@ -2660,7 +2660,7 @@ async def test_http_route_issues_token_then_websocket_requires_it(bus: MagicMock
         )
         assert issue.status_code == 200
         token = issue.json()["token"]
-        assert token.startswith("nbwt_")
+        assert token.startswith("nwt_")
 
         with pytest.raises(websockets.exceptions.InvalidStatus) as missing_token:
             async with websockets.connect(f"ws://127.0.0.1:{port}/ws?client_id=x"):
@@ -3217,8 +3217,8 @@ async def test_bootstrap_exposes_native_surface(bus: MagicMock) -> None:
         assert body["runtime_surface"] == "native"
         assert body["runtime_capabilities"]["can_pick_folder"] is True
         assert body["runtime_capabilities"]["can_restart_engine"] is True
-        assert body["token"].startswith("nbwt_")
-        assert body["api_token"].startswith("nbwt_")
+        assert body["token"].startswith("nwt_")
+        assert body["api_token"].startswith("nwt_")
         assert body["api_token"] != body["token"]
     finally:
         await channel.stop()
@@ -3374,7 +3374,7 @@ async def test_token_issue_rejects_when_at_capacity(bus: MagicMock) -> None:
     try:
         # Fill issued tokens to capacity
         channel.gateway.tokens.issued_tokens = {
-            f"nbwt_fill_{i}": time.monotonic() + 300
+            f"nwt_fill_{i}": time.monotonic() + 300
             for i in range(channel.gateway.tokens.max_tokens)
         }
 
