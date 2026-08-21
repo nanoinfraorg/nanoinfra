@@ -93,6 +93,7 @@ from nanoinfra.gates.policy import (
 )
 from nanoinfra.gates.prompt import PromptRenderError, render_approval_prompt
 from nanoinfra.gates.tokens import ApprovalTokenStore
+from nanoinfra.secrets.crypto import SecretsNotConfiguredError
 from nanoinfra.secrets.store import SecretStore
 from nanoinfra.servers.execution.base import (
     ABSOLUTE_CEILING_S,
@@ -731,7 +732,20 @@ class Executor:
             if refusal is not None:
                 return refusal
             # The one place a plaintext exists, and it exists only in this process (#18).
-            secret_value = SecretStore(self.workspace).resolve_plaintext(server.secret_ref)
+            try:
+                secret_value = SecretStore(self.workspace).resolve_plaintext(server.secret_ref)
+            except SecretsNotConfiguredError as exc:
+                # A missing or malformed NANOINFRA_SECRETS_KEY is a different fact from a deleted
+                # secret and has a different fix. Reporting it as "no longer exists" sends the
+                # operator looking through the secret store for something that is still there,
+                # which is what happened. The exception carries the reason; say it.
+                detail = str(exc).strip()
+                return _error(
+                    f"Server {server.name!r} needs a stored credential, and this process cannot "
+                    f"decrypt one: {detail or 'NANOINFRA_SECRETS_KEY is not set'}. The secret "
+                    "itself is untouched -- set the key in the environment that runs the gateway "
+                    "and try again."
+                )
             if secret_value is None:
                 return _error(
                     f"Server {server.name!r} references secret {server.secret_ref!r}, "
