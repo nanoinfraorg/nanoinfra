@@ -169,7 +169,8 @@
       "transcriptionModel": "Model",
       "transcriptionLanguage": "Bahasa",
       "voiceLimits": "Batas",
-      "threadWidth": "Lebar percakapan"
+      "threadWidth": "Lebar percakapan",
+      "maxConcurrentSubagents": "Subagen sekaligus"
     },
     "help": {
       "theme": "Beralih antara tampilan terang dan gelap.",
@@ -213,7 +214,8 @@
       "transcriptionProviderStatus": "Kunci API tetap berada di bagian penyedia, bukan di pengaturan transkripsi.",
       "transcriptionModel": "Biarkan memakai bawaan yang ter-resolve kecuali penyedia membutuhkan ID model khusus.",
       "transcriptionLanguage": "Petunjuk ISO-639 opsional, seperti en, zh, ja, atau ko.",
-      "threadWidth": "Seberapa lebar sebuah percakapan. Tabel dan blok kode mendapat ruang tambahan lebih dulu."
+      "threadWidth": "Seberapa lebar sebuah percakapan. Tabel dan blok kode mendapat ruang tambahan lebih dulu.",
+      "maxConcurrentSubagents": "Berapa banyak subagen boleh berjalan paralel. Masing-masing adalah percakapan penuh dengan model, jadi menaikkannya melipatgandakan token dan tekanan rate limit sebesar itu juga. Subagen berbagi workspace."
     },
     "values": {
       "light": "Terang",

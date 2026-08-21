@@ -169,7 +169,8 @@
       "transcriptionModel": "Modèle",
       "transcriptionLanguage": "Langue",
       "voiceLimits": "Limites",
-      "threadWidth": "Largeur de la conversation"
+      "threadWidth": "Largeur de la conversation",
+      "maxConcurrentSubagents": "Sous-agents simultanés"
     },
     "help": {
       "theme": "Basculer entre l’apparence claire et sombre.",
@@ -213,7 +214,8 @@
       "transcriptionProviderStatus": "Les clés API restent dans les fournisseurs, pas dans les réglages de transcription.",
       "transcriptionModel": "Laissez le modèle résolu par défaut, sauf si votre fournisseur exige un identifiant personnalisé.",
       "transcriptionLanguage": "Indice ISO-639 facultatif, comme en, zh, ja ou ko.",
-      "threadWidth": "La largeur d'une conversation. Les tableaux et les blocs de code reçoivent l'espace supplémentaire en premier."
+      "threadWidth": "La largeur d'une conversation. Les tableaux et les blocs de code reçoivent l'espace supplémentaire en premier.",
+      "maxConcurrentSubagents": "Combien de sous-agents peuvent s'exécuter en parallèle. Chacun est une conversation complète avec le modèle : augmenter cette valeur multiplie d'autant les tokens et la pression sur les quotas. Les sous-agents partagent l'espace de travail."
     },
     "values": {
       "light": "Clair",

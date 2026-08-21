@@ -1311,6 +1311,7 @@ def settings_payload(
             "reasoning_effort": effective_preset.reasoning_effort,
             "timezone": defaults.timezone,
             "tool_hint_max_length": defaults.tool_hint_max_length,
+            "max_concurrent_subagents": defaults.max_concurrent_subagents,
         },
         "model_presets": model_presets,
         "model_call_order": model_call_order,
@@ -1496,6 +1497,28 @@ def update_agent_settings(query: QueryParams) -> dict[str, Any]:
         if defaults.tool_hint_max_length != parsed:
             defaults.tool_hint_max_length = parsed
             changed = True
+            restart_required = True
+
+    max_concurrent_subagents = _query_first_alias(
+        query,
+        "max_concurrent_subagents",
+        "maxConcurrentSubagents",
+    )
+    if max_concurrent_subagents is not None:
+        try:
+            parsed = int(max_concurrent_subagents)
+        except ValueError:
+            raise WebUISettingsError(
+                "max_concurrent_subagents must be an integer"
+            ) from None
+        # The same bounds the schema enforces, so the two cannot disagree about what is valid.
+        if parsed < 1 or parsed > 8:
+            raise WebUISettingsError("max_concurrent_subagents must be between 1 and 8")
+        if defaults.max_concurrent_subagents != parsed:
+            defaults.max_concurrent_subagents = parsed
+            changed = True
+            # SubagentManager reads the value when it is constructed, so a running gateway keeps
+            # the old limit until it restarts.
             restart_required = True
 
     if changed:

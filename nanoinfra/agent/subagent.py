@@ -170,6 +170,16 @@ class SubagentManager:
         self._running_tasks: dict[str, asyncio.Task[str]] = {}
         self._task_statuses: dict[str, SubagentStatus] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
+        # One read/write tracker per parent session, shared by that session's subagents.
+        #
+        # It used to be a fresh FileStates per registry, so two subagents running at once could not
+        # see each other's reads or edits -- and they share a workspace. At a concurrency of 1 that
+        # never mattered; above 1 it makes read-before-edit blind to exactly the case it exists for.
+        #
+        # Per session and not global, because FileStates is deliberately session-scoped: its own
+        # docstring says read-dedup and read-before-edit must not leak across sessions sharing the
+        # process. Sharing one instance everywhere would trade a concurrency hole for that leak.
+        self._file_states_by_session: dict[str, FileStates] = {}
 
     def set_provider(self, provider: LLMProvider, model: str) -> None:
         """Update the deprecated runtime source used by legacy ``spawn`` calls."""
@@ -215,10 +225,25 @@ class SubagentManager:
             restrict_to_workspace=self.restrict_to_workspace,
         )
 
+    def _file_states_for(self, session_key: str | None) -> FileStates:
+        """The tracker this subagent shares with its siblings under the same parent session.
+
+        A spawn with no session key gets its own, because there is nothing to share it with and
+        pooling those under one bucket would be the cross-session leak this avoids.
+        """
+        if not session_key:
+            return FileStates()
+        existing = self._file_states_by_session.get(session_key)
+        if existing is None:
+            existing = FileStates()
+            self._file_states_by_session[session_key] = existing
+        return existing
+
     def _build_tools(
         self,
         workspace: Path | None = None,
         tools_config: ToolsConfig | None = None,
+        session_key: str | None = None,
     ) -> ToolRegistry:
         """Build an isolated subagent tool registry via ToolLoader."""
         root = self.workspace if workspace is None else workspace
@@ -228,7 +253,7 @@ class SubagentManager:
             config=cfg,
             workspace=str(root.resolve()),
             exec_session_manager=self._exec_session_manager,
-            file_state_store=FileStates(),
+            file_state_store=self._file_states_for(session_key),
             workspace_sandbox=workspace_sandbox_status(
                 restrict_to_workspace=cfg.restrict_to_workspace,
                 workspace=root,
@@ -404,7 +429,8 @@ class SubagentManager:
                 cfg = self._subagent_tools_config()
                 cfg.restrict_to_workspace = workspace_scope.restrict_to_workspace
             # Construct from the agent workspace; the bound scope below supplies the project cwd.
-            tools = self._build_tools(tools_config=cfg)
+            # The origin carries the parent session, which is what siblings share a tracker by.
+            tools = self._build_tools(tools_config=cfg, session_key=origin.get("session_key"))
             system_prompt = self._build_subagent_prompt(workspace=root)
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},

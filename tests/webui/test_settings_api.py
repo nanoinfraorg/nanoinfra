@@ -782,6 +782,39 @@ def test_update_agent_settings_accepts_context_window_options(
     assert saved.agents.defaults.context_window_tokens == 200000
 
 
+def test_update_agent_settings_accepts_subagent_concurrency(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "config.json"
+    save_config(Config(), config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
+
+    payload = update_agent_settings({"maxConcurrentSubagents": ["3"]})
+
+    assert payload["agent"]["max_concurrent_subagents"] == 3
+    assert load_config(config_path).agents.defaults.max_concurrent_subagents == 3
+    # SubagentManager reads the value at construction, so a running gateway keeps the old limit.
+    assert payload["requires_restart"] is True
+
+
+def test_update_agent_settings_refuses_a_concurrency_outside_the_schema_range(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The route and the schema must agree, or the config file can hold what the UI refuses."""
+    config_path = tmp_path / "config.json"
+    save_config(Config(), config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
+
+    for bad in ("0", "9", "not-a-number"):
+        with pytest.raises(WebUISettingsError):
+            update_agent_settings({"maxConcurrentSubagents": [bad]})
+
+    # Nothing was written on the way to refusing.
+    assert load_config(config_path).agents.defaults.max_concurrent_subagents == 1
+
+
 def test_update_model_configuration_preserves_custom_context_windows(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

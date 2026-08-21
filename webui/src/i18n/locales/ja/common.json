@@ -169,7 +169,8 @@
       "transcriptionModel": "モデル",
       "transcriptionLanguage": "言語",
       "voiceLimits": "制限",
-      "threadWidth": "スレッドの幅"
+      "threadWidth": "スレッドの幅",
+      "maxConcurrentSubagents": "同時実行するサブエージェント数"
     },
     "help": {
       "theme": "ライト表示とダーク表示を切り替えます。",
@@ -213,7 +214,8 @@
       "transcriptionProviderStatus": "APIキーは文字起こし設定ではなくプロバイダー側に保存されます。",
       "transcriptionModel": "プロバイダーがカスタムモデルIDを必要としない限り、解決済みのデフォルトのままにします。",
       "transcriptionLanguage": "en、zh、ja、ko などの任意の ISO-639 ヒント。",
-      "threadWidth": "会話の幅です。追加の余白は、まず表とコードブロックに使われます。"
+      "threadWidth": "会話の幅です。追加の余白は、まず表とコードブロックに使われます。",
+      "maxConcurrentSubagents": "並列実行できるサブエージェントの数です。各サブエージェントはモデルとの完全な会話なので、増やすとトークンとレート制限の負荷が同じ倍率で増えます。サブエージェントはワークスペースを共有します。"
     },
     "values": {
       "light": "ライト",
