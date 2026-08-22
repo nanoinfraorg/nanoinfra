@@ -675,11 +675,18 @@ def _fetcher_ports() -> tuple[int, ...]:
     A deployment behind a proxy reaches that proxy instead of the site, so the proxy port joins
     the list. Two sources name a proxy: the standard environment variables, and ``tools.web.proxy``
     in the config. Both go in, because a fetcher that cannot reach its proxy fetches nothing.
+
+    The configured search backend joins it for the same reason, and it was missing. A self-hosted
+    provider answers where its operator put it -- a SearXNG on ``http://searxng:8080/`` is the case
+    that found this -- and 8080 is in no default list, so search failed with "All connection
+    attempts failed" while the socket, the account and the policy all looked correct. A fetcher
+    that cannot reach its search backend searches nothing.
     """
     ports = set(_FETCHER_PORTS)
     for name in _PROXY_ENV_VARS:
         ports |= _proxy_port(os.environ.get(name))
     ports |= _proxy_port(_configured_proxy())
+    ports |= _proxy_port(_configured_search_base_url())
     return tuple(sorted(ports))
 
 
@@ -708,6 +715,23 @@ def _configured_proxy() -> str | None:
         return load_config().tools.web.proxy or None
     except Exception:  # noqa: BLE001 - any config fault leaves the port list as it is
         logger.debug("gates: no config proxy joins the fetcher policy")
+        return None
+
+
+def _configured_search_base_url() -> str | None:
+    """The base URL of the configured search provider, or None.
+
+    Optional in the same way ``_configured_proxy`` is: a config this module cannot read leaves the
+    port list as it is, and the fetcher reports the real fault itself. Only the port is taken from
+    it -- the host stays a decision for the fetcher's own SSRF guard, and a port allowlist that
+    named a host would be a second, disagreeing opinion about the destination.
+    """
+    try:
+        from nanoinfra.config.loader import load_config
+
+        return load_config().tools.web.search.base_url or None
+    except Exception:  # noqa: BLE001 - any config fault leaves the port list as it is
+        logger.debug("gates: no configured search backend joins the fetcher policy")
         return None
 
 
