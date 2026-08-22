@@ -14,6 +14,9 @@ ipc_group="nanoinfra-ipc"
 # agent account cannot write it.
 socket_dir="/run/nanoinfra-exec"
 socket_path="$socket_dir/executor.sock"
+# nanoinfra/gates/executor/scrub_protocol.py derives this name from the execute socket's stem.
+# It is the socket the agent uses to scrub a transcript before persisting it (#41).
+scrub_socket_path="$socket_dir/executor.scrub.sock"
 
 # The operator socket (#38). The executor suspends an action that needs an approval, and the
 # operator answers here. It is a second socket on purpose: the agent holds the execute socket, so
@@ -569,6 +572,17 @@ if [ "$(id -u)" = "0" ]; then
                     echo "[entrypoint] warning: chmod $socket_dir failed"
                 chmod 660 "$socket_path" 2>/dev/null || \
                     echo "[entrypoint] warning: chmod $socket_path failed"
+                # And the scrub socket, which the agent connects to as well (#41). It was left
+                # out of this block, so it kept the executor's own group and the agent was
+                # refused: every persisted transcript came back as "nanoinfra withheld this
+                # text", in every container, since that socket existed. `bind_scrub_socket` says
+                # the two sockets "get their mode from the same umask" -- true of the mode, and
+                # not of the group, because this block is what supplies the group and it named
+                # only one of them.
+                chown "$exec_user:$ipc_group" "$scrub_socket_path" 2>/dev/null || \
+                    echo "[entrypoint] warning: chown $scrub_socket_path failed"
+                chmod 660 "$scrub_socket_path" 2>/dev/null || \
+                    echo "[entrypoint] warning: chmod $scrub_socket_path failed"
                 # The same treatment for the operator socket. The executor creates it, and a
                 # rebind can narrow the mode. connect() needs the group write bit.
                 chown "$exec_user:$op_group" "$op_socket_dir" "$op_socket_path" 2>/dev/null || \
