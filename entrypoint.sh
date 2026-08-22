@@ -5,6 +5,7 @@ dir="$HOME/.nanoinfra"
 # one entry point for this image, so it is also the supervisor: it starts the executor on its
 # own account, then it execs the agent. Only a root start can place two processes on two
 # accounts, so the split happens here and not in Python.
+agent_user="nanoinfra"
 exec_user="nanoinfra-exec"
 ipc_group="nanoinfra-ipc"
 # The socket directory lives outside the agent's home on purpose. Write rights on a parent
@@ -164,6 +165,21 @@ prepare_executor_paths() {
     mkdir -p "$workspace" || return 1
     chown nanoinfra:nanoinfra "$workspace" 2>/dev/null || \
         echo "[entrypoint] warning: chown $workspace failed"
+    # The server job store is the one directory BOTH accounts write. The executor creates a job
+    # and updates its output (nanoinfra/gates/executor/server.py), and the agent reconciles jobs
+    # that a restart interrupted (nanoinfra/webui/ws_http.py). It was prepared for neither, so it
+    # stayed the agent's alone and the executor was refused with EACCES on its temp file -- which
+    # meant every remote action in a container failed *after* the gate permitted it.
+    #
+    # Group write on both sides is not a widening: the job record holds the command and its
+    # output, and the agent renders both. The credential stays in the store below, which the
+    # agent cannot read.
+    mkdir -p "$workspace/servers/jobs" || return 1
+    chown -R "$agent_user:$ipc_group" "$workspace/servers/jobs" || return 1
+    # setgid, so a file either account creates here inherits the shared group rather than its own.
+    chmod 2770 "$workspace/servers/jobs" || return 1
+    find "$workspace/servers/jobs" -type f -exec chmod 660 {} + 2>/dev/null || true
+
     mkdir -p "$workspace/secrets" "$dir/gates" || return 1
     # The credential store is WRITTEN by the executor and its metadata is READ by the agent, so
     # it takes the same shape as the audit log below: executor owns it, the shared group reads,
@@ -708,6 +724,11 @@ if [ "$(id -u)" = "0" ]; then
         # plaintext credential -- and setpriv passes the environment through, so the key reached
         # the agent whether anything used it or not.
         echo "[entrypoint] agent runs without NANOINFRA_SECRETS_KEY: the executor holds it"
+        # umask 0007 for the same reason the executor sets it: a file the agent creates in the
+        # setgid job directory must stay writable by the other account, or the next update from
+        # the executor fails on a file the agent made two seconds earlier. The default 022 would
+        # produce 644 there and the failure would depend on which side wrote first.
+        umask 0007
         exec env -u NANOINFRA_SECRETS_KEY \
             setpriv --reuid="$run_user" --regid="$run_user" --init-groups nanoinfra "$@"
     fi

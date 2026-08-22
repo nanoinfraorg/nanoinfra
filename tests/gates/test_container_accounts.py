@@ -85,6 +85,31 @@ def test_the_entrypoint_gives_the_fetcher_socket_its_own_group() -> None:
     assert 'chown "$fetch_run_user:$fetch_run_group" "$fetch_socket_dir"' in text
 
 
+def test_the_entrypoint_prepares_the_job_store_for_both_accounts() -> None:
+    """The one directory both accounts write, and it was prepared for neither.
+
+    The executor creates a server job and updates its output; the agent reconciles jobs a restart
+    interrupted. It stayed the agent's alone, so the executor was refused on its own temp file and
+    every remote action in a container failed *after* the gate permitted it.
+    """
+    text = _entrypoint()
+    assert 'mkdir -p "$workspace/servers/jobs"' in text
+    assert re.search(
+        r'chown -R "\$agent_user:\$ipc_group" "\$workspace/servers/jobs"', text
+    ), "the job store never gets a group both accounts belong to"
+    # setgid plus group write: a file either side creates has to stay writable by the other.
+    assert 'chmod 2770 "$workspace/servers/jobs"' in text
+    assert re.search(r'find "\$workspace/servers/jobs" -type f -exec chmod 660', text)
+
+
+def test_the_agent_runs_with_the_group_writable_umask() -> None:
+    """The default 022 would make a 644 file in that setgid directory, and the other account's
+    next write would fail depending on which side wrote first. The executor already sets this."""
+    text = _entrypoint()
+    agent_exec = text.index("exec env -u NANOINFRA_SECRETS_KEY")
+    assert "umask 0007" in text[max(0, agent_exec - 600):agent_exec]
+
+
 def test_the_entrypoint_gives_every_agent_facing_socket_the_shared_group() -> None:
     """The agent connects to two executor sockets, and both need the group that admits it.
 
