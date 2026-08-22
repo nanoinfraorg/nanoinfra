@@ -221,11 +221,18 @@ class SecretStore:
         if path is None:
             raise ValueError(f"Refusing to write secret with invalid id: {secret.id!r}")
         try:
+            existed = self.root.is_dir()
             ensure_dir(self.root)
-            # ensure_dir only mkdir()s -- it doesn't restrict permissions, so a
-            # freshly-created secrets/ directory would otherwise inherit the
-            # process umask (commonly world-readable/-executable).
-            os.chmod(self.root, 0o700)
+            if not existed:
+                # ensure_dir only mkdir()s -- it doesn't restrict permissions, so a
+                # freshly-created secrets/ directory would otherwise inherit the
+                # process umask (commonly world-readable/-executable).
+                #
+                # Only on creation. A deployment that already set the mode owns it: the container
+                # gives this directory to the executor with a group read for the agent's metadata
+                # listing, and re-applying 0700 on every write would take that away on the next
+                # secret written -- silently, and only for deployments that write one.
+                os.chmod(self.root, 0o700)
         except PermissionError as exc:
             # The container hands this directory to the executor account, so the agent process
             # cannot write here either. Without this the route answered a bare 500.
