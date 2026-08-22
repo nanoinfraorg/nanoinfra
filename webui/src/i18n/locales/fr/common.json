@@ -858,7 +858,18 @@
       "skillsEmpty": "Aucune compétence installée",
       "referencePicker": "Référencer une ressource",
       "referenceMissing": "ce {{kind}} n'existe plus",
-      "referenceBrokenHint": "Cette automatisation refusera de s'exécuter tant que la référence manquante n'est pas retirée."
+      "referenceBrokenHint": "Cette automatisation refusera de s'exécuter tant que la référence manquante n'est pas retirée.",
+      "commissioning": {
+        "label": "Mise en service",
+        "refused": "Serait refusée à son horaire",
+        "ok": "Répétition sans problème",
+        "error": "La répétition n'a pas abouti",
+        "unchecked": "Pas encore répétée",
+        "verify": "Répéter",
+        "grant": "Accorder",
+        "scopeNote": "Une autorisation couvre cette commande sur ces hôtes dans tout tour non surveillé, et pas seulement cette automatisation. La passerelle lit la politique au démarrage, un redémarrage est donc requis.",
+        "restart": "Redémarrez la passerelle pour l'appliquer."
+      }
     },
     "oauth": {
       "authentication": "Authentification OAuth",

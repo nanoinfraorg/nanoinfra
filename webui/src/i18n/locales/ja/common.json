@@ -858,7 +858,18 @@
       "skillsEmpty": "インストール済みのスキルはありません",
       "referencePicker": "リソースを参照",
       "referenceMissing": "{{kind}} は存在しません",
-      "referenceBrokenHint": "欠けている参照を削除するまで、この自動化は実行を拒否します。"
+      "referenceBrokenHint": "欠けている参照を削除するまで、この自動化は実行を拒否します。",
+      "commissioning": {
+        "label": "コミッショニング",
+        "refused": "スケジュール実行時は拒否されます",
+        "ok": "リハーサルは問題なし",
+        "error": "リハーサルが完了しませんでした",
+        "unchecked": "まだリハーサルしていません",
+        "verify": "リハーサル",
+        "grant": "許可する",
+        "scopeNote": "許可はこのオートメーションだけでなく、無人実行のすべてのターンでそのホストのそのコマンドを対象にします。ゲートウェイは起動時にポリシーを読むため、再起動が必要です。",
+        "restart": "適用するにはゲートウェイを再起動してください。"
+      }
     },
     "oauth": {
       "authentication": "OAuth 認証",

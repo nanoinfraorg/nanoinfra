@@ -858,7 +858,18 @@
       "skillsEmpty": "Chưa cài kỹ năng nào",
       "referencePicker": "Tham chiếu một tài nguyên",
       "referenceMissing": "{{kind}} không còn tồn tại",
-      "referenceBrokenHint": "Tự động hóa này sẽ từ chối chạy cho đến khi tham chiếu bị thiếu được xóa."
+      "referenceBrokenHint": "Tự động hóa này sẽ từ chối chạy cho đến khi tham chiếu bị thiếu được xóa.",
+      "commissioning": {
+        "label": "Vận hành thử",
+        "refused": "Sẽ bị từ chối theo lịch của nó",
+        "ok": "Chạy thử không có vấn đề",
+        "error": "Lần chạy thử không hoàn tất",
+        "unchecked": "Chưa chạy thử",
+        "verify": "Chạy thử",
+        "grant": "Cấp quyền",
+        "scopeNote": "Một quyền cấp sẵn bao trùm câu lệnh đó trên các host đó trong mọi lượt không có người theo dõi, không chỉ riêng tự động hoá này. Gateway đọc chính sách khi khởi động nên cần khởi động lại.",
+        "restart": "Khởi động lại gateway để áp dụng."
+      }
     },
     "oauth": {
       "authentication": "Xác thực OAuth",

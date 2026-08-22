@@ -3,6 +3,8 @@ import type {
   ApiServicePayload,
   AutomationsPayload,
   AutomationUpdatePayload,
+  CommissioningResult,
+  GrantPromotionResult,
   ChannelConfigurePayload,
   ChannelConnectPayload,
   ChannelValidationPayload,
@@ -358,6 +360,42 @@ export async function resetAutomationState(
     token,
     undefined,
     API_READ_TIMEOUT_MS,
+  );
+}
+
+/**
+ * Rehearse one automation now. It previews every gated action and takes none, so this writes
+ * nothing except the verdict it comes back with.
+ *
+ * A model turn, so it takes as long as one: the timeout is the write timeout and not the read one.
+ */
+export async function commissionAutomation(
+  token: string,
+  id: string,
+  base: string = "",
+): Promise<CommissioningResult> {
+  return request<CommissioningResult>(
+    `${base}/api/webui/automations/${encodeURIComponent(id)}/commission`,
+    token,
+    { method: "POST" },
+  );
+}
+
+/**
+ * Write the standing grant this automation's finding proposed.
+ *
+ * Deliberately sends no body. The grant comes off the automation's own record on the server: a
+ * grant this client could name would be a grant this client chose.
+ */
+export async function grantAutomationCommissioning(
+  token: string,
+  id: string,
+  base: string = "",
+): Promise<GrantPromotionResult> {
+  return request<GrantPromotionResult>(
+    `${base}/api/webui/automations/${encodeURIComponent(id)}/grant`,
+    token,
+    { method: "POST" },
   );
 }
 

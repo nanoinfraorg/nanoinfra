@@ -858,7 +858,18 @@
       "skillsEmpty": "No skills installed",
       "referencePicker": "Reference a resource",
       "referenceMissing": "{{kind}} no longer exists",
-      "referenceBrokenHint": "This automation will refuse to run until the missing reference is removed."
+      "referenceBrokenHint": "This automation will refuse to run until the missing reference is removed.",
+      "commissioning": {
+        "label": "Commissioning",
+        "refused": "Would be refused on its schedule",
+        "ok": "Rehearsed clean",
+        "error": "The rehearsal did not finish",
+        "unchecked": "Not rehearsed yet",
+        "verify": "Rehearse",
+        "grant": "Grant it",
+        "scopeNote": "A grant covers that command on those hosts in any unattended turn, not this automation alone. The gateway reads the policy at startup, so it asks for a restart.",
+        "restart": "Restart the gateway to apply it."
+      }
     },
     "oauth": {
       "authentication": "OAuth authentication",
