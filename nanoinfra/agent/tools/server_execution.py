@@ -32,6 +32,7 @@ below and both latch the class (#15).
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -60,6 +61,40 @@ PREVIEW_WITHHELD_NOTE = (
     "call gets the same answer, and no argument on the call changes it. Only operator "
     "policy does."
 )
+
+
+def _preview_verdict(response: Any) -> str:
+    """What a real run of this previewed action would meet, as the operator reads it (#181).
+
+    The executor answers the gate on a preview now (#179), so the answer arrives here without a
+    refusal having to happen first. When a grant is missing this names the grant that would
+    permit the action -- resolved hosts and the exact command, in the form config takes -- and
+    when a matrix cell shadows an existing grant, the executor's own sentence already names the
+    key, so it is passed through rather than reworded.
+    """
+    outcome = getattr(response, "preview_outcome", None)
+    if not outcome:
+        return ""
+    lines = [f"\nA real run of this action would be: {outcome}. {response.preview_reason}"]
+    credential = getattr(response, "preview_credential_outcome", None)
+    if credential and credential != "allow":
+        # A permitted command still dies at the secret, and an operator who fixes only the
+        # command cell meets the same failure one layer down.
+        lines.append(
+            f"The credential it needs would be: {credential}. {response.preview_credential_reason}"
+        )
+    hosts = list(getattr(response, "preview_hosts", ()) or ())
+    if outcome != "allow" and hosts and response.preview_command:
+        grant = {
+            "contexts": ["unattended"],
+            "hosts": hosts,
+            "commands": [response.preview_command],
+        }
+        lines.append(
+            "The standing grant that would permit it, for gates.standingGrants: "
+            f"{json.dumps(grant, ensure_ascii=False)}"
+        )
+    return "\n" + "\n".join(lines)
 
 # Where a deployment names the executor's socket. entrypoint.sh exports this variable, because
 # the container binds the socket outside the agent's home: write rights on a parent directory
@@ -116,6 +151,8 @@ def default_socket_path() -> Path:
         required=["server_id_or_name", "command"],
     )
 )
+
+
 class ExecuteOnServerTool(Tool):
     """Ask the executor to run a command on an inventoried server."""
 
@@ -186,7 +223,7 @@ class ExecuteOnServerTool(Tool):
             return ToolResult.error(response.error)
 
         if dry_run:
-            return f"{response.output}\n{PREVIEW_ON_REQUEST_NOTE}"
+            return f"{response.output}\n{PREVIEW_ON_REQUEST_NOTE}{_preview_verdict(response)}"
 
         if not response.ok:
             text = (

@@ -86,7 +86,7 @@ def test_a_request_carries_no_free_form_field() -> None:
     }
 
 
-def test_the_version_is_three_and_a_version_one_frame_is_refused() -> None:
+def test_the_version_is_four_and_a_version_one_frame_is_refused() -> None:
     """#38 needs the origin path, so the older frame cannot describe a request any more.
 
     A version 1 peer states no path. #13 cannot prove path independence for it, so the frame
@@ -97,7 +97,7 @@ def test_the_version_is_three_and_a_version_one_frame_is_refused() -> None:
     del payload["origin_path"]
     del payload["origin_actor"]
 
-    assert PROTOCOL_VERSION == 3
+    assert PROTOCOL_VERSION == 4
     with pytest.raises(ProtocolError):
         decode_request(json.dumps(payload).encode())
 
@@ -267,5 +267,23 @@ def test_a_response_carries_no_secret_field() -> None:
     assert "secret" not in fields
     assert "secret_value" not in fields
     # `terminal` joined the shape in #42: the tool latches a terminal refusal alone, so a
-    # configuration gap no longer blocks a session that could never have passed.
-    assert fields == {"ok", "output", "exit_code", "error", "reason", "terminal"}
+    # configuration gap no longer blocks a session that could never have passed. The `preview_*`
+    # fields joined in #179 and carry the gate's answer for an action that did not run: a
+    # decision, a reason, and the two halves of the grant that would permit it. None of them is
+    # a credential, and `preview_command` is the command the caller already sent.
+    assert fields == {
+        "ok",
+        "output",
+        "exit_code",
+        "error",
+        "reason",
+        "terminal",
+        "preview_outcome",
+        "preview_reason",
+        "preview_grant_id",
+        "preview_scope",
+        "preview_hosts",
+        "preview_command",
+        "preview_credential_outcome",
+        "preview_credential_reason",
+    }
