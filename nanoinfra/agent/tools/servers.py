@@ -91,6 +91,39 @@ def _inventory_gate_refusal(tool: str, dry_run: bool, gate: Any = None) -> Any:
         return ToolResult.error(f"{text}\nThe audit record also failed to write: {exc}")
 
 
+def _commissioning_preview(tool: str, dry_run: bool) -> bool:
+    """Coerce an inventory write to a preview during a commissioning run (#182).
+
+    Returns the effective ``dry_run``. The previewed action is recorded with the decision a real
+    run would meet, and it is recorded as ungrantable on purpose: a standing grant carries no
+    capability class and can never permit an inventory write (#23), so the report names the
+    matrix cell instead of offering a grant that could not exist.
+    """
+    from nanoinfra.automations.commissioning import PreviewedAction, current_commissioning
+
+    collector = current_commissioning()
+    if collector is None:
+        return dry_run
+    decision = evaluate(
+        load_policy(),
+        capability_class=MUTATE_INVENTORY,
+        scope=HOST,
+        execution_context=current_request_execution_context(),
+        hosts=(),
+        command=tool,
+    )
+    collector.record(
+        PreviewedAction(
+            tool=tool,
+            capability_class=MUTATE_INVENTORY,
+            outcome=decision.outcome.value,
+            reason=decision.reason,
+            command=tool,
+        )
+    )
+    return True
+
+
 def _session_id() -> str | None:
     from nanoinfra.agent.tools.context import current_request_context
 
@@ -269,6 +302,7 @@ class CreateServerTool(Tool):
             normalize_server_input(raw, server_id="0" * 32)
         except ServerValidationError as exc:
             return ToolResult.error(f"Invalid server payload: {exc}")
+        dry_run = _commissioning_preview(self.name, dry_run)
         _record_inventory_observation(self.name, dry_run, server_name=name, provider_id=providerId)
         refusal = _inventory_gate_refusal(self.name, dry_run, self.gate)
         if refusal is not None:
@@ -344,6 +378,7 @@ class UpdateServerTool(Tool):
             normalize_server_input(raw, server_id=server_id)
         except ServerValidationError as exc:
             return ToolResult.error(f"Invalid server payload: {exc}")
+        dry_run = _commissioning_preview(self.name, dry_run)
         _record_inventory_observation(
             self.name, dry_run, server_id=server_id, server_name=name, provider_id=providerId
         )
@@ -405,6 +440,7 @@ class DeleteServerTool(Tool):
         server = self.store.get(server_id)
         if server is None:
             return ToolResult.error(f"No server with id {server_id!r}.")
+        dry_run = _commissioning_preview(self.name, dry_run)
         _record_inventory_observation(
             self.name,
             dry_run,

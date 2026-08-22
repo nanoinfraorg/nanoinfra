@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import inspect
+import json
 import os
 import time
 import weakref
@@ -50,6 +51,7 @@ from nanoinfra.agent.turn_delivery import (
 )
 from nanoinfra.agent.turn_delivery import TurnRoute as TurnRoute
 from nanoinfra.agent.turn_hooks import AgentTurnHookSpec, build_agent_turn_hook
+from nanoinfra.automations.commissioning import bind_commissioning
 from nanoinfra.bus.events import InboundMessage, OutboundMessage
 from nanoinfra.bus.outbound_events import StreamedResponseEvent
 from nanoinfra.bus.queue import MessageBus
@@ -675,6 +677,7 @@ class AgentLoop:
             bus=self.bus,
             subagent_manager=self.subagents,
             cron_service=self.cron_service,
+            commission_automation=self.commission_automation_later,
             exec_session_manager=self._exec_session_manager,
             sessions=self.sessions,
             provider_snapshot_loader=provider_snapshot_loader,
@@ -1104,6 +1107,10 @@ class AgentLoop:
         request_token = bind_request_context(request_ctx)
         workspace_token = bind_workspace_scope(effective_scope)
         turn_scope_stack = ExitStack()
+        # A commissioning turn previews every gated action instead of taking it (#182). The
+        # binding happens here because this is the task the tools run in: the turn crossed the
+        # bus, so a context variable set by whoever submitted it never reached them.
+        turn_scope_stack.enter_context(bind_commissioning(request_ctx.metadata))
         # Compute lazily because create_goal may create goal metadata during this run.
         def _goal_continue() -> str | None:
             _goal_lines = goal_state_runtime_lines(session.metadata if session is not None else None)
@@ -1475,6 +1482,67 @@ class AgentLoop:
             raise errors[0]
         if errors:
             raise BaseExceptionGroup("failed to close agent resources", errors)
+
+    def commission_automation_later(self, job_id: str) -> None:
+        """Rehearse a newly created cron job once the creating turn is done (#183).
+
+        Fire and forget on purpose. The rehearsal is itself a turn, and awaiting it from inside
+        the turn that created the automation would wait on a turn that cannot start until this
+        one ends -- the message carries defer-until-idle, exactly as a scheduled run does.
+        """
+        if self.cron_service is None:
+            return
+        self.schedule_background(self._commission_automation(job_id))
+
+    async def _commission_automation(self, job_id: str) -> None:
+        from nanoinfra.automations.commissioning_runner import commission_cron_job
+
+        service = self.cron_service
+        if service is None:
+            return
+        job = service.get_job(job_id)
+        if job is None:
+            return
+        report = await commission_cron_job(
+            job,
+            agent=self,
+            workspace_path=Path(self.workspace),
+            latches=self.gate,
+        )
+        service.set_commissioning(job_id, report.state, disable=report.refused)
+        await self._deliver_commissioning_finding(job, report)
+
+    async def _deliver_commissioning_finding(self, job: Any, report: Any) -> None:
+        """Tell the operator what the rehearsal found, in the chat that created it."""
+        channel = job.payload.origin_channel or job.payload.channel
+        chat_id = job.payload.origin_chat_id or job.payload.to
+        if not channel or not chat_id:
+            return
+        if report.refused:
+            header = (
+                f"Automation '{job.name}' is saved but disabled: a rehearsal found it would be "
+                "refused on its schedule."
+            )
+        else:
+            header = f"Automation '{job.name}' rehearsed clean and is ready to run."
+        lines = [header, "", report.state.finding]
+        if report.state.proposed_grants:
+            lines += [
+                "",
+                "Grant it in Settings, or add to gates.standingGrants:",
+                json.dumps(list(report.state.proposed_grants), ensure_ascii=False, indent=2),
+                "",
+                "A grant covers that command on that host in any unattended turn, not this "
+                "automation alone.",
+            ]
+        await self.bus.publish_outbound(
+            OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content="\n".join(lines),
+                metadata={"render_as": "text"},
+            )
+        )
 
     def schedule_background(self, coro: Coroutine[Any, Any, Any]) -> None:
         """Schedule a coroutine as a tracked background task (drained on shutdown)."""

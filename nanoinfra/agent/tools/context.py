@@ -153,3 +153,6 @@ class ToolContext:
     # that module imports the agent tree, so a real annotation here would close a cycle.
     # It carries the gate half only, so nothing reached through a tool can clear a latch.
     gate: Any = None
+    #: Rehearse a newly created automation once this turn is idle (#183). None in an embedded or
+    #: a test construction, and creating an automation then simply skips the rehearsal.
+    commission_automation: Callable[[str], None] | None = None

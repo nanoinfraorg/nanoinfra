@@ -16,6 +16,7 @@ from typing import Any, Callable, Coroutine, Literal
 from filelock import FileLock
 from loguru import logger
 
+from nanoinfra.automations.commissioning_state import CommissioningState
 from nanoinfra.automations.delivery import normalize_policy
 from nanoinfra.cron.session_turns import is_bound_cron_job
 from nanoinfra.cron.types import (
@@ -426,6 +427,7 @@ class CronService:
                     "delivery": j.delivery,
                     "skills": list(j.skills),
                     "references": [dict(item) for item in j.references],
+                    "commissioning": j.commissioning.to_dict(),
                     "createdAtMs": j.created_at_ms,
                     "updatedAtMs": j.updated_at_ms,
                     "deleteAfterRun": j.delete_after_run,
@@ -866,6 +868,36 @@ class CronService:
                 else:
                     self._append_action("update", asdict(job))
                 return job
+        return None
+
+    def set_commissioning(
+        self,
+        job_id: str,
+        state: CommissioningState,
+        *,
+        disable: bool = False,
+    ) -> CronJob | None:
+        """Record what a commissioning run found, and disable the job when it was refused (#189).
+
+        One method for both halves on purpose. A verdict written without the disable would leave a
+        job enabled and certain to refuse on its schedule, and a disable without the verdict would
+        leave an operator a switched-off automation and no reason.
+        """
+        store = self._require_store()
+        for job in store.jobs:
+            if job.id != job_id:
+                continue
+            job.commissioning = state
+            job.updated_at_ms = _now_ms()
+            if disable:
+                job.enabled = False
+                job.state.next_run_at_ms = None
+            if self._should_persist_store():
+                self._save_store()
+                self._arm_timer()
+            else:
+                self._append_action("update", asdict(job))
+            return job
         return None
 
     def update_job(

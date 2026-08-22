@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextvars import ContextVar, Token
 from datetime import datetime
 from typing import Any
@@ -59,9 +60,16 @@ class CronTool(Tool):
 
     capability_class = "mutate.local"
 
-    def __init__(self, cron_service: CronService, default_timezone: str = "UTC"):
+    def __init__(
+        self,
+        cron_service: CronService,
+        default_timezone: str = "UTC",
+        commission: Callable[[str], None] | None = None,
+    ):
         self._cron = cron_service
         self._default_timezone = default_timezone
+        # Rehearses a new job once this turn is idle (#183). Absent in an embedded construction.
+        self._commission = commission
         self._in_cron_context: ContextVar[bool] = ContextVar("cron_in_context", default=False)
 
     @classmethod
@@ -73,7 +81,11 @@ class CronTool(Tool):
         cron_service = ctx.cron_service
         if cron_service is None:
             raise RuntimeError("CronTool requires an initialized cron service")
-        return cls(cron_service=cron_service, default_timezone=ctx.timezone)
+        return cls(
+            cron_service=cron_service,
+            default_timezone=ctx.timezone,
+            commission=ctx.commission_automation,
+        )
 
     @staticmethod
     def _request_route() -> tuple[str, str, str, dict[str, Any]]:
@@ -243,6 +255,16 @@ class CronTool(Tool):
             origin_metadata=origin_metadata,
             references=self._request_references(),
         )
+        if self._commission is not None and not self._in_cron_context.get():
+            # Not from inside a cron turn: an automation that creates an automation would
+            # otherwise rehearse it in a chain nobody asked for.
+            self._commission(job.id)
+            return (
+                f"Created job '{job.name}' (id: {job.id}). A commissioning run will rehearse it "
+                "once this turn is idle -- it previews every gated action and runs none -- and "
+                "will report whether the schedule would be permitted, with the standing grant it "
+                "would need. Tell the user that is coming rather than guessing the answer."
+            )
         return f"Created job '{job.name}' (id: {job.id})"
 
     def _format_timing(self, schedule: CronSchedule) -> str:

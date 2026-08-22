@@ -43,6 +43,11 @@ from nanoinfra.agent.tools.context import (
     current_request_execution_context,
 )
 from nanoinfra.agent.tools.schema import BooleanSchema, StringSchema, tool_parameters_schema
+from nanoinfra.automations.commissioning import (
+    COMMISSIONING_PREVIEW_NOTE,
+    PreviewedAction,
+    current_commissioning,
+)
 from nanoinfra.gates.executor.client import ExecutorClient, ExecutorUnavailableError
 
 if TYPE_CHECKING:
@@ -191,6 +196,13 @@ class ExecuteOnServerTool(Tool):
         dry_run: bool = True,
         **kwargs: Any,
     ) -> Any:
+        # A commissioning run previews whatever it is asked to do (#182). The coercion is here
+        # rather than in the schema so the model's own arguments are preserved in the record: the
+        # rehearsal is about what this automation would run, not about what it was told to.
+        commissioning = current_commissioning()
+        if commissioning is not None:
+            dry_run = True
+
         # The latch answers before the request leaves (#15). Asking the executor could produce
         # a prompt, and a fresh prompt is the brute-force oracle.
         if not dry_run:
@@ -223,6 +235,25 @@ class ExecuteOnServerTool(Tool):
             return ToolResult.error(response.error)
 
         if dry_run:
+            if commissioning is not None:
+                commissioning.record(
+                    PreviewedAction(
+                        tool=self.name,
+                        capability_class=MUTATE_REMOTE,
+                        outcome=response.preview_outcome,
+                        reason=response.preview_reason,
+                        grant_id=response.preview_grant_id,
+                        scope=response.preview_scope,
+                        hosts=tuple(response.preview_hosts),
+                        command=response.preview_command or command,
+                        credential_outcome=response.preview_credential_outcome,
+                        credential_reason=response.preview_credential_reason,
+                    )
+                )
+                return (
+                    f"{response.output}\n{COMMISSIONING_PREVIEW_NOTE}"
+                    f"{_preview_verdict(response)}"
+                )
             return f"{response.output}\n{PREVIEW_ON_REQUEST_NOTE}{_preview_verdict(response)}"
 
         if not response.ok:

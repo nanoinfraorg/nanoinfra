@@ -59,6 +59,10 @@ RuntimeContextProvider: TypeAlias = Callable[
 _LIVE_TURN_ONLY_META: frozenset[str] = frozenset({
     RUNTIME_CONTEXT_INPUT_META,
     "resource_mentions",
+    # Names an in-process collector for one commissioning turn. A stored id would name nothing
+    # after a restart, and a stored one that happened to match would make a scheduled run
+    # rehearse instead of act.
+    "_commissioning_turn",
 })
 
 
