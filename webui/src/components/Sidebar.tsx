@@ -460,13 +460,16 @@ function SidebarVersion({ version }: { version?: string }) {
   const value = (version ?? "").trim();
   if (!value) return null;
   const label = `nanoinfra ${value}`;
+  // `px-3` is the action row's own horizontal padding, so this line starts on the same vertical
+  // edge as the gear icon above it and as every nav icon in the rail. `px-2` read as misaligned by
+  // exactly the 4px difference, which is enough to see and not enough to explain.
   if (!RELEASE_VERSION.test(value)) {
     return (
-      <div className="mt-2 px-2 text-[11px] leading-4 text-sidebar-foreground/45">{label}</div>
+      <div className="mt-2 px-3 text-[11px] leading-4 text-sidebar-foreground/45">{label}</div>
     );
   }
   return (
-    <div className="mt-2 px-2 text-[11px] leading-4">
+    <div className="mt-2 px-3 text-[11px] leading-4">
       <a
         href={`${RELEASES_URL}${value}`}
         target="_blank"
