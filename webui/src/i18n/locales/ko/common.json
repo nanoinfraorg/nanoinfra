@@ -858,7 +858,18 @@
       "skillsEmpty": "설치된 스킬이 없습니다",
       "referencePicker": "리소스 참조",
       "referenceMissing": "{{kind}}가 더 이상 존재하지 않습니다",
-      "referenceBrokenHint": "누락된 참조를 제거할 때까지 이 자동화는 실행을 거부합니다."
+      "referenceBrokenHint": "누락된 참조를 제거할 때까지 이 자동화는 실행을 거부합니다.",
+      "commissioning": {
+        "label": "커미셔닝",
+        "refused": "예정된 실행에서 거부됩니다",
+        "ok": "리허설 문제 없음",
+        "error": "리허설이 끝나지 않았습니다",
+        "unchecked": "아직 리허설하지 않음",
+        "verify": "리허설",
+        "grant": "허용",
+        "scopeNote": "부여된 권한은 이 자동화만이 아니라 모든 무인 턴에서 해당 호스트의 해당 명령을 포함합니다. 게이트웨이는 시작할 때 정책을 읽으므로 재시작이 필요합니다.",
+        "restart": "적용하려면 게이트웨이를 재시작하세요."
+      }
     },
     "oauth": {
       "authentication": "OAuth 인증",

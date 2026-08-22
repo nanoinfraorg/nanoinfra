@@ -858,7 +858,18 @@
       "skillsEmpty": "No hay skills instaladas",
       "referencePicker": "Referenciar un recurso",
       "referenceMissing": "el {{kind}} ya no existe",
-      "referenceBrokenHint": "Esta automatización se negará a ejecutarse hasta que quites la referencia faltante."
+      "referenceBrokenHint": "Esta automatización se negará a ejecutarse hasta que quites la referencia faltante.",
+      "commissioning": {
+        "label": "Puesta en marcha",
+        "refused": "Se rechazaría en su horario",
+        "ok": "Ensayo sin problemas",
+        "error": "El ensayo no terminó",
+        "unchecked": "Todavía sin ensayar",
+        "verify": "Ensayar",
+        "grant": "Otorgar",
+        "scopeNote": "Un permiso cubre ese comando en esos hosts en cualquier turno desatendido, no solo esta automatización. El gateway lee la política al arrancar, así que pide reinicio.",
+        "restart": "Reinicia el gateway para aplicarlo."
+      }
     },
     "oauth": {
       "authentication": "Autenticación OAuth",

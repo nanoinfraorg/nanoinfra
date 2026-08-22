@@ -858,7 +858,18 @@
       "skillsEmpty": "Nenhuma skill instalada",
       "referencePicker": "Referenciar um recurso",
       "referenceMissing": "o {{kind}} não existe mais",
-      "referenceBrokenHint": "Esta automação recusará executar até que a referência ausente seja removida."
+      "referenceBrokenHint": "Esta automação recusará executar até que a referência ausente seja removida.",
+      "commissioning": {
+        "label": "Comissionamento",
+        "refused": "Seria recusada no horário dela",
+        "ok": "Ensaio sem problemas",
+        "error": "O ensaio não terminou",
+        "unchecked": "Ainda não ensaiada",
+        "verify": "Ensaiar",
+        "grant": "Conceder",
+        "scopeNote": "Uma concessão cobre esse comando nesses hosts em qualquer turno não assistido, não apenas esta automação. O gateway lê a política ao iniciar, então pede reinício.",
+        "restart": "Reinicie o gateway para aplicar."
+      }
     },
     "oauth": {
       "authentication": "Autenticação OAuth",

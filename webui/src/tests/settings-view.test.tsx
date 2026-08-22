@@ -502,6 +502,107 @@ describe("SettingsView Apps catalog", () => {
     expect(screen.queryByText("Settings")).not.toBeInTheDocument();
   });
 
+  it("shows a refused commissioning finding and grants it from the card", async () => {
+    const refusedJob = {
+      id: "job-1",
+      name: "uptime watch",
+      enabled: false,
+      schedule: { kind: "every", every_ms: 300_000 },
+      payload: { message: "Report the uptime", kind: "agent_turn" },
+      state: { next_run_at_ms: null, last_status: null },
+      commissioning: {
+        status: "refused",
+        finding: "execute_on_server: would be refused. no standing grant covers it.",
+        proposedGrants: [
+          {
+            id: "uptime-watch",
+            contexts: ["unattended"],
+            hosts: ["10.0.0.9"],
+            commands: ["uptime"],
+          },
+        ],
+      },
+    };
+    const grantCalls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/settings") return jsonResponse(settingsPayload());
+      if (url === "/api/webui/automations") return jsonResponse({ jobs: [refusedJob] });
+      if (url.endsWith("/grant")) {
+        grantCalls.push(`${init?.method ?? "GET"} ${url}`);
+        return jsonResponse({
+          granted: [refusedJob.commissioning.proposedGrants[0]],
+          note: "A standing grant covers that command on those hosts in any unattended turn, not this automation alone.",
+          requires_restart: true,
+        });
+      }
+      return jsonResponse({});
+    }));
+
+    renderSettingsView({
+      initialSection: "automations",
+      initialSettings: settingsPayload(),
+      showSidebar: false,
+    });
+
+    // The row and the detail heading share the name once selected; the list row is the button.
+    fireEvent.click((await screen.findAllByText("uptime watch"))[0]);
+    expect(await screen.findByText("Would be refused on its schedule")).toBeInTheDocument();
+    // The grant it would need, verbatim, so an operator can also write it by hand.
+    expect(screen.getByText(/"commands": \[/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Grant it" }));
+
+    await waitFor(() => {
+      expect(grantCalls).toEqual(["POST /api/webui/automations/job-1/grant"]);
+    });
+    // The server's own sentence about what a grant covers, plus the restart it needs.
+    expect(
+      await screen.findByText(/not this automation alone\..*Restart the gateway/s),
+    ).toBeInTheDocument();
+  });
+
+  it("offers a rehearsal for an automation that was never commissioned", async () => {
+    const job = {
+      id: "job-2",
+      name: "disk watch",
+      enabled: true,
+      schedule: { kind: "every", every_ms: 600_000 },
+      payload: { message: "Report the disk usage", kind: "agent_turn" },
+      state: { next_run_at_ms: null, last_status: null },
+      commissioning: { status: "unchecked" },
+    };
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/settings") return jsonResponse(settingsPayload());
+      if (url === "/api/webui/automations") return jsonResponse({ jobs: [job] });
+      if (url.endsWith("/commission")) {
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        return jsonResponse({ id: job.id, name: job.name, refused: false, commissioning: { status: "ok" } });
+      }
+      return jsonResponse({});
+    }));
+
+    renderSettingsView({
+      initialSection: "automations",
+      initialSettings: settingsPayload(),
+      showSidebar: false,
+    });
+
+    fireEvent.click((await screen.findAllByText("disk watch"))[0]);
+    // Never rehearsed is an action to take, not a fault to report: every automation created
+    // before commissioning existed reads as this.
+    expect(await screen.findByText("Not rehearsed yet")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Grant it" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Rehearse" }));
+
+    await waitFor(() => {
+      expect(calls).toEqual(["POST /api/webui/automations/job-2/commission"]);
+    });
+  });
+
   it("coalesces focus refreshes while automations are already loading", async () => {
     let resolveAutomations!: (response: Response) => void;
     const pendingAutomations = new Promise<Response>((resolve) => {

@@ -60,12 +60,22 @@ class CommissioningState:
         return bool(self.fingerprint) and self.fingerprint == fingerprint
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize for the store, and never raise on a value that does not belong here.
+
+        This runs inside the automation store's write, and a store write that raises takes every
+        other automation's state down with it -- the failure mode #179 was. So an entry that is
+        not a mapping is dropped rather than allowed to fail the save.
+        """
         return {
             "status": self.status,
             "checkedAtMs": self.checked_at_ms,
             "finding": self.finding,
             "fingerprint": self.fingerprint,
-            "proposedGrants": [dict(grant) for grant in self.proposed_grants],
+            "proposedGrants": [
+                dict(cast("Mapping[str, Any]", grant))
+                for grant in cast("tuple[object, ...]", self.proposed_grants)
+                if isinstance(grant, Mapping)
+            ],
         }
 
     @classmethod

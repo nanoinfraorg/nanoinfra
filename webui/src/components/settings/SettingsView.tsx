@@ -118,7 +118,9 @@ import {
   enableNanoinfraFeature,
   fetchApiService,
   fetchAutomationState,
+  grantAutomationCommissioning,
   fetchDiagrams,
+  commissionAutomation,
   fetchAutomations,
   fetchCliApps,
   fetchMcpPresets,
@@ -1998,6 +2000,42 @@ export function SettingsView({
     await resetAutomationState(token, id);
   };
 
+  const [commissionBusy, setCommissionBusy] = useState<"commission" | "grant" | null>(null);
+  const [commissionNotice, setCommissionNotice] = useState<string | null>(null);
+
+  const handleAutomationCommission = async (job: SessionAutomationJob) => {
+    setCommissionBusy("commission");
+    setAutomationsError(null);
+    setCommissionNotice(null);
+    try {
+      await commissionAutomation(token, job.id);
+      // Re-read the list rather than patching the row: the rehearsal may have disabled the
+      // automation, and a locally patched verdict beside a stale `enabled` reads as a
+      // contradiction.
+      setAutomations(await fetchAutomations(token));
+    } catch (err) {
+      setAutomationsError((err as Error).message);
+    } finally {
+      setCommissionBusy(null);
+    }
+  };
+
+  const handleAutomationGrant = async (job: SessionAutomationJob) => {
+    setCommissionBusy("grant");
+    setAutomationsError(null);
+    try {
+      const result = await grantAutomationCommissioning(token, job.id);
+      // The server's own sentence, not a paraphrase: it states what the grant covers, and a
+      // reworded version here would be a second source of truth about a permission.
+      setCommissionNotice(result.note);
+      setAutomations(await fetchAutomations(token));
+    } catch (err) {
+      setAutomationsError((err as Error).message);
+    } finally {
+      setCommissionBusy(null);
+    }
+  };
+
   const handleAutomationEdit = async (
     job: SessionAutomationJob,
     values: AutomationUpdatePayload,
@@ -2363,6 +2401,10 @@ export function SettingsView({
             onRequestDelete={setAutomationPendingDelete}
             onFetchState={handleAutomationStateFetch}
             onResetState={handleAutomationStateReset}
+            commissionBusy={commissionBusy}
+            commissionNotice={commissionNotice}
+            onCommission={handleAutomationCommission}
+            onGrant={handleAutomationGrant}
           />
         );
       case "skills":
@@ -5710,6 +5752,10 @@ function AutomationsSettings({
   onRequestDelete,
   onFetchState,
   onResetState,
+  commissionBusy,
+  commissionNotice,
+  onCommission,
+  onGrant,
 }: {
   payload: AutomationsPayload | null;
   loading: boolean;
@@ -5726,6 +5772,10 @@ function AutomationsSettings({
   onRequestDelete: (job: SessionAutomationJob) => void;
   onFetchState: (id: string) => Promise<Record<string, unknown>>;
   onResetState: (id: string) => Promise<void>;
+  commissionBusy: "commission" | "grant" | null;
+  commissionNotice: string | null;
+  onCommission: (job: SessionAutomationJob) => void | Promise<void>;
+  onGrant: (job: SessionAutomationJob) => void | Promise<void>;
 }) {
   const { t, i18n } = useTranslation();
   const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
@@ -5890,6 +5940,10 @@ function AutomationsSettings({
             onRequestDelete={onRequestDelete}
             onFetchState={onFetchState}
             onResetState={onResetState}
+            commissionBusy={commissionBusy}
+            commissionNotice={commissionNotice}
+            onCommission={onCommission}
+            onGrant={onGrant}
           />
         </section>
       ) : (
@@ -5988,6 +6042,126 @@ function AutomationListItem({
   );
 }
 
+/**
+ * What a rehearsal found about this automation, and the two answers to it.
+ *
+ * Deliberately not the approval card. That one means *an action is suspended and waiting on you*,
+ * and answering it releases one action. This one means *nothing is running, and this is the shape
+ * of action this automation takes on every run* -- answering it writes a standing permission. An
+ * operator who reads the second as the first has been told a forever-grant was a one-off.
+ *
+ * So there is no "allow once" here: no action is suspended, and there is nothing to allow once.
+ */
+function AutomationCommissioningCard({
+  job,
+  busy,
+  notice,
+  onCommission,
+  onGrant,
+  tx,
+}: {
+  job: SessionAutomationJob;
+  busy: "commission" | "grant" | null;
+  notice: string | null;
+  onCommission: (job: SessionAutomationJob) => void | Promise<void>;
+  onGrant: (job: SessionAutomationJob) => void | Promise<void>;
+  tx: (key: string, fallback: string, values?: Record<string, unknown>) => string;
+}) {
+  const state = job.commissioning;
+  const status = state?.status ?? "unchecked";
+  const finding = (state?.finding ?? "").trim();
+  const grants = state?.proposedGrants ?? [];
+  const refused = status === "refused";
+  // `unchecked` covers every automation created before commissioning existed, so it is offered as
+  // an action and never rendered as a fault.
+  const heading = refused
+    ? tx("settings.automations.commissioning.refused", "Would be refused on its schedule")
+    : status === "ok"
+      ? tx("settings.automations.commissioning.ok", "Rehearsed clean")
+      : status === "error"
+        ? tx("settings.automations.commissioning.error", "The rehearsal did not finish")
+        : tx("settings.automations.commissioning.unchecked", "Not rehearsed yet");
+
+  return (
+    <section
+      className={cn(
+        "rounded-[20px] px-4 py-3.5",
+        refused
+          ? "border border-amber-500/25 bg-amber-500/8"
+          : "bg-background/55",
+      )}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-[11px] font-medium leading-none text-muted-foreground/75">
+            {tx("settings.automations.commissioning.label", "Commissioning")}
+          </div>
+          <div className="mt-1.5 text-[13px] leading-5 text-foreground/85">{heading}</div>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 rounded-full px-2.5 text-[11.5px]"
+            disabled={busy !== null}
+            onClick={() => void onCommission(job)}
+          >
+            {busy === "commission" ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : (
+              <ShieldCheck className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+            )}
+            {tx("settings.automations.commissioning.verify", "Rehearse")}
+          </Button>
+          {refused && grants.length > 0 ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 rounded-full px-2.5 text-[11.5px]"
+              disabled={busy !== null}
+              onClick={() => void onGrant(job)}
+            >
+              {busy === "grant" ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : null}
+              {tx("settings.automations.commissioning.grant", "Grant it")}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      {notice ? (
+        <div className="mt-3 rounded-[14px] bg-background/70 px-3 py-2 text-[12px] leading-5 text-foreground/80">
+          {notice}{" "}
+          {tx(
+            "settings.automations.commissioning.restart",
+            "Restart the gateway to apply it.",
+          )}
+        </div>
+      ) : null}
+      {finding ? (
+        <div className="mt-3 whitespace-pre-wrap break-words text-[12.5px] leading-5 text-muted-foreground">
+          {finding}
+        </div>
+      ) : null}
+      {refused && grants.length > 0 ? (
+        <>
+          <pre className="mt-3 overflow-x-auto rounded-[14px] bg-background/70 px-3 py-2 font-mono text-[11.5px] leading-5 text-foreground/80">
+            {JSON.stringify(grants, null, 2)}
+          </pre>
+          <p className="mt-2 text-[11.5px] leading-4 text-muted-foreground">
+            {tx(
+              "settings.automations.commissioning.scopeNote",
+              "A grant covers that command on those hosts in any unattended turn, not this automation alone. The gateway reads the policy at startup, so it asks for a restart.",
+            )}
+          </p>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 function AutomationDetailPanel({
   job,
   locale,
@@ -5997,6 +6171,10 @@ function AutomationDetailPanel({
   onRequestDelete,
   onFetchState,
   onResetState,
+  commissionBusy,
+  commissionNotice,
+  onCommission,
+  onGrant,
 }: {
   job: SessionAutomationJob;
   locale: string;
@@ -6006,6 +6184,10 @@ function AutomationDetailPanel({
   onRequestDelete: (job: SessionAutomationJob) => void;
   onFetchState: (id: string) => Promise<Record<string, unknown>>;
   onResetState: (id: string) => Promise<void>;
+  commissionBusy: "commission" | "grant" | null;
+  commissionNotice: string | null;
+  onCommission: (job: SessionAutomationJob) => void | Promise<void>;
+  onGrant: (job: SessionAutomationJob) => void | Promise<void>;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
@@ -6134,6 +6316,17 @@ function AutomationDetailPanel({
               )}
             </AutomationDetail>
           </div>
+
+          {localTrigger ? null : (
+            <AutomationCommissioningCard
+              job={job}
+              busy={commissionBusy}
+              notice={commissionNotice}
+              onCommission={onCommission}
+              onGrant={onGrant}
+              tx={tx}
+            />
+          )}
 
           {job.state.last_error ? (
             <div className="rounded-[16px] border border-destructive/20 bg-destructive/8 px-3 py-2 text-[12px] leading-5 text-destructive-text">

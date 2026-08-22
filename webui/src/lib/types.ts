@@ -161,6 +161,7 @@ export interface SessionAutomationJob {
   delivery?: AutomationDeliveryPolicy | string;
   skills?: string[];
   references?: ResourceMention[];
+  commissioning?: AutomationCommissioning;
   origin?: {
     session_key?: string;
     channel: string;
@@ -172,6 +173,42 @@ export interface SessionAutomationJob {
     id: string;
     command: string;
   };
+}
+
+/** A standing grant, in the shape `gates.standingGrants` takes. */
+export interface ProposedGrant {
+  id?: string | null;
+  contexts: string[];
+  hosts: string[];
+  commands: string[];
+}
+
+/**
+ * What a commissioning run found about one automation.
+ *
+ * `unchecked` also covers every automation created before commissioning existed, so it must never
+ * be rendered as a problem. `error` means the rehearsal itself did not finish, which is not the
+ * same as the automation being refused.
+ */
+export interface AutomationCommissioning {
+  status: "unchecked" | "ok" | "refused" | "error" | string;
+  checkedAtMs?: number | null;
+  finding?: string;
+  fingerprint?: string;
+  proposedGrants?: ProposedGrant[];
+}
+
+export interface CommissioningResult {
+  id: string;
+  name: string;
+  refused: boolean;
+  commissioning: AutomationCommissioning;
+}
+
+export interface GrantPromotionResult {
+  granted: ProposedGrant[];
+  note: string;
+  requires_restart: boolean;
 }
 
 export interface SessionAutomationsPayload { jobs: SessionAutomationJob[]; }

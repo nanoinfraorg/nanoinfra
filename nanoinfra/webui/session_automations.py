@@ -192,6 +192,7 @@ def _serialize_job(
             ],
         }
     )
+    payload["commissioning"] = job.commissioning.to_dict()
     payload["origin"] = _origin_payload(job, session_manager)
     return payload
 
@@ -256,6 +257,7 @@ def _serialize_trigger(
             ],
         }
     )
+    payload["commissioning"] = trigger.commissioning.to_dict()
     payload["origin"] = _trigger_origin_payload(trigger, session_manager)
     payload["trigger"] = {
         "id": trigger.id,

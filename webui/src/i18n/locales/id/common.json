@@ -858,7 +858,18 @@
       "skillsEmpty": "Belum ada skill terpasang",
       "referencePicker": "Rujuk sebuah sumber daya",
       "referenceMissing": "{{kind}} sudah tidak ada",
-      "referenceBrokenHint": "Otomasi ini akan menolak berjalan sampai rujukan yang hilang dihapus."
+      "referenceBrokenHint": "Otomasi ini akan menolak berjalan sampai rujukan yang hilang dihapus.",
+      "commissioning": {
+        "label": "Commissioning",
+        "refused": "Akan ditolak pada jadwalnya",
+        "ok": "Gladi bersih tanpa masalah",
+        "error": "Gladi tidak selesai",
+        "unchecked": "Belum digladi",
+        "verify": "Gladi",
+        "grant": "Beri izin",
+        "scopeNote": "Satu izin mencakup perintah itu pada host itu di setiap giliran tanpa pengawasan, bukan hanya otomasi ini. Gateway membaca kebijakan saat mulai, jadi perlu dinyalakan ulang.",
+        "restart": "Mulai ulang gateway untuk menerapkannya."
+      }
     },
     "oauth": {
       "authentication": "Autentikasi OAuth",

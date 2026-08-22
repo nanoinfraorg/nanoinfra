@@ -58,6 +58,10 @@ from nanoinfra.webui.audit_api import (
     AUDIT_READ_PATH,
     AuditReadSurface,
 )
+from nanoinfra.webui.commissioning_api import (
+    CommissioningOperatorSurface,
+    PromotionRefusedError,
+)
 from nanoinfra.webui.diagrams_api import (
     create_webui_diagram,
     delete_webui_diagram,
@@ -392,6 +396,10 @@ class GatewayHTTPHandler:
         # The inbox that answers a suspended action (#27). Attached after boot for the same
         # reason: a route with no surface answers 503, and never an empty queue.
         self.approvals: ApprovalsOperatorSurface | None = None
+        # Rehearse an automation, and promote what the rehearsal found (#186). Attached after
+        # boot: it needs both the cron service and a way to run a turn, and a deployment without
+        # either answers 503 rather than pretending a rehearsal happened.
+        self.commissioning: CommissioningOperatorSurface | None = None
         self.skill_state_action = skill_state_action
         self._skill_install_lock = asyncio.Lock()
         self._title_retry_in_flight: set[str] = set()
@@ -438,6 +446,10 @@ class GatewayHTTPHandler:
     def attach_approvals_surface(self, surface: ApprovalsOperatorSurface) -> None:
         """Take the inbox that answers a suspended action (#27). Only the gateway calls this."""
         self.approvals = surface
+
+    def attach_commissioning_surface(self, surface: CommissioningOperatorSurface) -> None:
+        """Take the rehearse-and-promote surface (#186). Only the gateway calls this."""
+        self.commissioning = surface
 
     def workspace_controls_available(self, connection: Any) -> bool:
         return self._runtime_surface == "native" or _is_localhost(connection)
@@ -1004,6 +1016,12 @@ class GatewayHTTPHandler:
         m = re.match(r"^/api/triggers/([^/]+)/fire$", got)
         if m:
             return self._handle_trigger_fire(request, m.group(1))
+        m = re.match(r"^/api/webui/automations/([^/]+)/commission$", got)
+        if m:
+            return await self._handle_automation_commission(request, m.group(1))
+        m = re.match(r"^/api/webui/automations/([^/]+)/grant$", got)
+        if m:
+            return self._handle_automation_grant(request, m.group(1))
         m = re.match(r"^/api/webui/automations/([^/]+)/key$", got)
         if m:
             return self._handle_trigger_key_issue(request, m.group(1))
@@ -1064,6 +1082,43 @@ class GatewayHTTPHandler:
         return _http_json_response(
             {"queued": True, "delivery_id": replay.id, "replay_of": replay.replay_of}
         )
+
+    async def _handle_automation_commission(
+        self, request: WsRequest, automation_id: str
+    ) -> Response:
+        """Rehearse one automation now. It previews every gated action and takes none (#183)."""
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if self.commissioning is None or not self.commissioning.can_commission:
+            return _http_error(503, "commissioning is unavailable in this deployment")
+        try:
+            result = await self.commissioning.commission(automation_id)
+        except PromotionRefusedError as exc:
+            return _http_error(409, str(exc))
+        return _http_json_response(result)
+
+    def _handle_automation_grant(self, request: WsRequest, automation_id: str) -> Response:
+        """Write the grant a rehearsal proposed, and record who asked for it (#186, #188).
+
+        The request body names nothing. The grant comes off the automation's own commissioning
+        finding, because a grant supplied by the caller would let whatever composed the request
+        choose its own authority.
+        """
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if self.commissioning is None:
+            return _http_error(503, "commissioning is unavailable in this deployment")
+        try:
+            result = self.commissioning.promote(
+                automation_id,
+                actor=operator_actor(request),
+                origin_path="webui",
+            )
+        except PromotionRefusedError as exc:
+            return _http_error(409, str(exc))
+        except OSError as exc:
+            return _http_error(500, f"the grant could not be written: {exc}")
+        return _http_json_response(result)
 
     def _handle_trigger_key_issue(self, request: WsRequest, trigger_id: str) -> Response:
         """Mint a key and return it once. Operator-authenticated, unlike the fire route."""

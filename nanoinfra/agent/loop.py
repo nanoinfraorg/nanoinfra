@@ -1494,6 +1494,36 @@ class AgentLoop:
             return
         self.schedule_background(self._commission_automation(job_id))
 
+    async def commission_automation_now(self, job_id: str) -> dict[str, Any]:
+        """Rehearse an automation on request, and answer what was found (#183, Verify).
+
+        Awaited, unlike the creation path: the caller is an operator route with nobody's turn to
+        finish first. The verdict is written and the finding is delivered exactly as it is after
+        a creation, so the two entry points cannot drift into telling different stories.
+        """
+        from nanoinfra.automations.commissioning_runner import commission_cron_job
+
+        service = self.cron_service
+        if service is None:
+            raise RuntimeError("this deployment has no automation service")
+        job = service.get_job(job_id)
+        if job is None:
+            raise RuntimeError("automation not found")
+        report = await commission_cron_job(
+            job,
+            agent=self,
+            workspace_path=Path(self.workspace),
+            latches=self.gate,
+        )
+        service.set_commissioning(job_id, report.state, disable=report.refused)
+        await self._deliver_commissioning_finding(job, report)
+        return {
+            "id": job.id,
+            "name": job.name,
+            "refused": report.refused,
+            "commissioning": report.state.to_dict(),
+        }
+
     async def _commission_automation(self, job_id: str) -> None:
         from nanoinfra.automations.commissioning_runner import commission_cron_job
 

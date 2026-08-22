@@ -194,6 +194,45 @@ def _attach_latch_operator_surface(channels: Any, controller: Any, audit: Any) -
         )
 
 
+def _attach_commissioning_surface(
+    channels: Any,
+    *,
+    cron_service: Any,
+    local_trigger_store: Any,
+    commission: Any,
+    audit: Any,
+) -> None:
+    """Hand the rehearse-and-promote surface to the WebUI routes (#186).
+
+    Promoting writes a permission, so it lives where a latch clear lives: an authenticated
+    operator route, outside the transcript. Nothing on the agent side reaches this object, which
+    is what keeps a model from proposing its own grant.
+    """
+    from nanoinfra.webui.commissioning_api import CommissioningOperatorSurface
+
+    surface = CommissioningOperatorSurface(
+        cron_service=cron_service,
+        local_trigger_store=local_trigger_store,
+        commission=commission,
+        audit=audit,
+    )
+    registry = getattr(channels, "channels", None)
+    channel_map = cast("dict[str, Any]", registry) if isinstance(registry, dict) else {}
+    attached = 0
+    for channel in channel_map.values():
+        http = getattr(getattr(channel, "gateway", None), "http", None)
+        attach = getattr(http, "attach_commissioning_surface", None)
+        if attach is None:
+            continue
+        attach(surface)
+        attached += 1
+    if not attached:
+        logger.warning(
+            "gates: no WebUI channel is enabled, so an automation cannot be rehearsed or "
+            "granted from a console. Both stay available at creation time and in config."
+        )
+
+
 def _attach_audit_read_surface(channels: Any, audit: Any) -> None:
     """Hand the read of the gate audit log to the WebUI routes (#29).
 
@@ -1219,6 +1258,16 @@ def _run_gateway(
 
     # The operator surfaces of the gate (#27, #28, #29). The latch control and the audit read
     # go to the WebUI HTTP routes only.
+    _attach_commissioning_surface(
+        channels,
+        cron_service=cron,
+        local_trigger_store=trigger_store,
+        # Read defensively. A partial agent -- an embedded construction, or the startup tests'
+        # stand-in -- has no commissioning entry point, and boot must not fail over a console
+        # feature. The surface then answers 503 rather than pretending a rehearsal happened.
+        commission=getattr(agent, "commission_automation_now", None),
+        audit=gate_runtime.audit,
+    )
     _attach_latch_operator_surface(channels, latch_controller, gate_runtime.audit)
     _attach_audit_read_surface(channels, gate_runtime.audit)
     _attach_approvals_operator_surface(channels, _operator_client_for_gateway())
