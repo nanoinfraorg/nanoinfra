@@ -82,6 +82,7 @@ from nanoinfra.gates.executor.protocol import (
 )
 from nanoinfra.gates.executor.scrub import bind_scrub_socket, serve_scrub_socket
 from nanoinfra.gates.executor.scrub_protocol import default_scrub_socket_path
+from nanoinfra.gates.executor.socket_group import apply_socket_group
 from nanoinfra.gates.pending import ApprovalState, PendingApprovalStore
 from nanoinfra.gates.policy import (
     ActionAuthorization,
@@ -1122,6 +1123,10 @@ def serve_forever(
     served = 0
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
         server.bind(str(path))
+        # The group the agent connects with, set by the process that created the socket. See
+        # socket_group.py: the supervisor's chown can land on the previous run's socket file,
+        # because a container restart leaves that file in place and its wait returns on it.
+        apply_socket_group(path)
         server.listen(8)
         logger.info("gates: executor listening on {}", path)
         try:

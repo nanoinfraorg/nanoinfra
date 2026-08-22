@@ -60,6 +60,7 @@ from nanoinfra.gates.executor.scrub_protocol import (
     encode_scrub_batch_response,
     encode_scrub_response,
 )
+from nanoinfra.gates.executor.socket_group import apply_socket_group
 
 # The directory mode for a directory this module creates. Private first is the fail-closed
 # order. A deployment that runs two accounts prepares the run directory itself, and the
@@ -182,6 +183,11 @@ def bind_scrub_socket(socket_path: Path | str) -> socket.socket:
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         listener.bind(str(path))
+        # Between bind and listen, so no peer connects through a mode that admits nobody. The
+        # group belongs here rather than in the supervisor: a restart leaves the previous run's
+        # socket file in place, the supervisor's wait returns on that stale file, and the fresh
+        # socket bound a moment later never gets the group at all.
+        apply_socket_group(path)
         listener.listen(8)
     except OSError:
         listener.close()
