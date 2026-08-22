@@ -35,7 +35,7 @@ from nanoinfra.runtime_context import public_history_messages
 from nanoinfra.secrets.crypto import SecretsNotConfiguredError
 from nanoinfra.secrets.normalize import SecretValidationError
 from nanoinfra.secrets.postgres_backend import PostgresSecretsNotConfiguredError
-from nanoinfra.secrets.store import SecretStore
+from nanoinfra.secrets.store import SecretsStoreUnreadableError, SecretStore
 from nanoinfra.security.workspace_access import WorkspaceScope
 from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.normalize import ServerValidationError
@@ -1521,12 +1521,21 @@ class GatewayHTTPHandler:
     def _handle_webui_secrets(self, request: WsRequest) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
-        return _http_json_response(webui_secrets_payload(self.secrets))
+        try:
+            return _http_json_response(webui_secrets_payload(self.secrets))
+        except SecretsStoreUnreadableError as exc:
+            # 409 and not 500: the deployment is coherent, this process simply is not the one
+            # that may read the store. An empty list here was the old answer, and it read as
+            # "no secrets yet" about a store holding a credential.
+            return _http_error(409, str(exc))
 
     def _handle_webui_secret_detail(self, request: WsRequest, secret_id: str) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
-        payload = webui_secret_detail_payload(self.secrets, secret_id)
+        try:
+            payload = webui_secret_detail_payload(self.secrets, secret_id)
+        except SecretsStoreUnreadableError as exc:
+            return _http_error(409, str(exc))
         if payload is None:
             return _http_error(404, "secret not found")
         return _http_json_response(payload)
@@ -1541,7 +1550,11 @@ class GatewayHTTPHandler:
             payload = create_webui_secret(self.secrets, values)
         except SecretValidationError as exc:
             return _http_error(400, str(exc))
-        except (SecretsNotConfiguredError, PostgresSecretsNotConfiguredError) as exc:
+        except (
+            SecretsNotConfiguredError,
+            PostgresSecretsNotConfiguredError,
+            SecretsStoreUnreadableError,
+        ) as exc:
             return _http_error(409, str(exc))
         return _http_json_response(payload)
 
@@ -1555,7 +1568,11 @@ class GatewayHTTPHandler:
             payload = update_webui_secret(self.secrets, secret_id, values)
         except SecretValidationError as exc:
             return _http_error(400, str(exc))
-        except (SecretsNotConfiguredError, PostgresSecretsNotConfiguredError) as exc:
+        except (
+            SecretsNotConfiguredError,
+            PostgresSecretsNotConfiguredError,
+            SecretsStoreUnreadableError,
+        ) as exc:
             return _http_error(409, str(exc))
         if payload is None:
             return _http_error(404, "secret not found")

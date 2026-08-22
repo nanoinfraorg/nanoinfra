@@ -61,7 +61,20 @@ export function SecretsView() {
           {`Failed to load secrets: ${error}`}
         </div>
       ) : null}
-      <SecretList secrets={secrets} onOpen={handleOpen} onNew={handleNew} onDelete={handleDelete} />
+      {/*
+        The list is hidden while the load failed. An empty list beside an error banner reads as
+        "the store is empty and something also went wrong", and those are two different facts:
+        a split deployment hands the store to the executor account, so the process serving this
+        page is refused by the kernel and knows nothing about what is in there.
+      */}
+      {error ? null : (
+        <SecretList
+          secrets={secrets}
+          onOpen={handleOpen}
+          onNew={handleNew}
+          onDelete={handleDelete}
+        />
+      )}
     </div>
   );
 }

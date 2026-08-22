@@ -41,6 +41,21 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+class SecretsStoreUnreadableError(RuntimeError):
+    """The store exists and this process may not read it.
+
+    Distinct from an empty store, and the distinction is the whole point. The container splits
+    the credential store onto the executor account at mode 700 (see entrypoint.sh), so the agent
+    process is refused by the kernel -- and `Path.glob` swallows that refusal, which turned a
+    store the operator cannot read into a store the WebUI reported as empty. `entrypoint.sh`
+    already records the same fault for the audit log: "Path.glob swallowed the PermissionError,
+    and every latch cleared on every boot".
+
+    A page that says "no secrets yet" about a store holding a credential is worse than an error.
+    So the refusal travels.
+    """
+
+
 class SecretStore:
     """Persistent secrets for one workspace, dispatching by provider."""
 
@@ -55,11 +70,21 @@ class SecretStore:
 
     def _read_local(self, secret_id: str) -> Secret | None:
         path = self._path(secret_id)
-        if path is None or not path.is_file():
+        if path is None:
             return None
+        # The open decides whether the file exists, rather than `is_file()`. `is_file()` answers
+        # False for a refusal as well as for an absence, so a store this process may not read
+        # reported every record as missing -- the same swallowed refusal as the listing above.
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
+        except FileNotFoundError:
+            return None
+        except PermissionError as exc:
+            # Not "no such secret". A 404 here would tell an operator the record is gone.
+            raise SecretsStoreUnreadableError(
+                f"the secret store at {self.root} exists and this process may not read it: {exc}"
+            ) from exc
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Skipping unreadable secret file {}: {}", path, exc)
             return None
@@ -86,9 +111,18 @@ class SecretStore:
     def _list_local(self) -> list[Secret]:
         if not self.root.is_dir():
             return []
+        # os.scandir rather than Path.glob: glob answers a refusal with an empty iterator, and an
+        # empty answer here reads as "there are no secrets".
+        try:
+            with os.scandir(self.root) as entries:
+                names = [entry.name for entry in entries if entry.name.endswith(".json")]
+        except PermissionError as exc:
+            raise SecretsStoreUnreadableError(
+                f"the secret store at {self.root} exists and this process may not read it: {exc}"
+            ) from exc
         result: list[Secret] = []
-        for path in self.root.glob("*.json"):
-            secret = self._read_local(path.stem)
+        for name in names:
+            secret = self._read_local(name[: -len(".json")])
             if secret is not None:
                 result.append(secret)
         return result
@@ -186,11 +220,19 @@ class SecretStore:
         path = self._path(secret.id)
         if path is None:
             raise ValueError(f"Refusing to write secret with invalid id: {secret.id!r}")
-        ensure_dir(self.root)
-        # ensure_dir only mkdir()s -- it doesn't restrict permissions, so a
-        # freshly-created secrets/ directory would otherwise inherit the
-        # process umask (commonly world-readable/-executable).
-        os.chmod(self.root, 0o700)
+        try:
+            ensure_dir(self.root)
+            # ensure_dir only mkdir()s -- it doesn't restrict permissions, so a
+            # freshly-created secrets/ directory would otherwise inherit the
+            # process umask (commonly world-readable/-executable).
+            os.chmod(self.root, 0o700)
+        except PermissionError as exc:
+            # The container hands this directory to the executor account, so the agent process
+            # cannot write here either. Without this the route answered a bare 500.
+            raise SecretsStoreUnreadableError(
+                f"the secret store at {self.root} belongs to another account, so this process "
+                f"cannot write to it: {exc}"
+            ) from exc
         _write_text_atomic(path, json.dumps(secret.to_storage_dict(), ensure_ascii=False, indent=2))
         # _write_text_atomic only preserves an *existing* file's permissions
         # -- a brand-new secret file would otherwise inherit the process
