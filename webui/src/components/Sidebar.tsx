@@ -60,6 +60,8 @@ interface SidebarProps {
   onOpenApprovals: () => void;
   /** How many actions wait for a human answer (nanoinfraorg/nanoinfra#27). */
   approvalsCount?: number;
+  /** The running build, from the settings payload. Absent until it loads, or on an older gateway. */
+  version?: string;
   onSettingsIntent?: () => void;
   onOpenSearch: () => void;
   activeUtility?:
@@ -419,21 +421,62 @@ export function Sidebar(props: SidebarProps) {
       </div>
       <div
         className={cn(
-          "flex items-center gap-1 bg-sidebar/55 px-2.5 py-3 text-xs",
-          collapsed && "w-14 flex-col px-0",
+          "bg-sidebar/55 px-2.5 py-3 text-xs",
+          collapsed && "w-14 px-0",
         )}
       >
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.settings")}
-          onClick={props.onOpenSettings}
-          onIntent={props.onSettingsIntent}
-          className={collapsed ? undefined : "flex-1"}
-          icon={<Settings className="h-4 w-4" />}
-        />
-        <ConnectionBadge />
+        <div className={cn("flex items-center gap-1", collapsed && "flex-col")}>
+          <SidebarActionButton
+            collapsed={collapsed}
+            label={t("sidebar.settings")}
+            onClick={props.onOpenSettings}
+            onIntent={props.onSettingsIntent}
+            className={collapsed ? undefined : "flex-1"}
+            icon={<Settings className="h-4 w-4" />}
+          />
+          <ConnectionBadge />
+        </div>
+        {collapsed ? null : <SidebarVersion version={props.version} />}
       </div>
     </nav>
+  );
+}
+
+/** A released version, and nothing else, gets a link to its notes. */
+const RELEASE_VERSION = /^\d+\.\d+\.\d+$/;
+
+const RELEASES_URL = "https://github.com/nanoinfraorg/nanoinfra/releases/tag/v";
+
+/**
+ * The build that is running, under Settings.
+ *
+ * A local build carries a version this project never published -- `0.16.0.dev3+g1a2b3c4` from a
+ * source checkout -- and linking that to a release page would send a reader to a 404. So only an
+ * exact `x.y.z` becomes a link, and anything else stays text that still answers "which build is
+ * this?".
+ */
+function SidebarVersion({ version }: { version?: string }) {
+  const { t } = useTranslation();
+  const value = (version ?? "").trim();
+  if (!value) return null;
+  const label = `nanoinfra ${value}`;
+  if (!RELEASE_VERSION.test(value)) {
+    return (
+      <div className="mt-2 px-2 text-[11px] leading-4 text-sidebar-foreground/45">{label}</div>
+    );
+  }
+  return (
+    <div className="mt-2 px-2 text-[11px] leading-4">
+      <a
+        href={`${RELEASES_URL}${value}`}
+        target="_blank"
+        rel="noreferrer"
+        title={t("sidebar.releaseNotes", { defaultValue: "Release notes for v{{version}}", version: value })}
+        className="text-sidebar-foreground/45 underline-offset-2 transition-colors hover:text-sidebar-foreground/75 hover:underline"
+      >
+        {label}
+      </a>
+    </div>
   );
 }
 

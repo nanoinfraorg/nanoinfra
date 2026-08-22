@@ -73,7 +73,8 @@
     "servers": "Servidores",
     "approvals": "Aprobaciones",
     "approvalsBadge": "Aprobaciones que esperan respuesta: {{count}}",
-    "secrets": "Secretos"
+    "secrets": "Secretos",
+    "releaseNotes": "Notas de la versión v{{version}}"
   },
   "settings": {
     "backToChat": "Volver al chat",
