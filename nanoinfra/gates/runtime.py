@@ -72,6 +72,15 @@ class GateRuntime:
             turn_id=turn_id,
         )
 
+    def latched_classes(self, session_id: str) -> frozenset[str]:
+        """Which capability classes this session is already blocked for.
+
+        A read, so it stays on this half: commissioning (#184) has to tell an operator that a
+        correct grant changes nothing while the session is blocked, and asking `refuse` instead
+        would count a refusal that never happened.
+        """
+        return self._latch.latched_classes(session_id)
+
     def refuse_action(
         self,
         *,

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from nanoinfra.automations.commissioning_state import CommissioningState
 from nanoinfra.automations.delivery import DEFAULT_DELIVERY_POLICY, normalize_policy
 from nanoinfra.utils.dict_keys import get_camel_snake as _get
 
@@ -93,6 +94,8 @@ class LocalTrigger:
     #: issue time and never stored, so a stolen triggers.json yields no working key. A plain
     #: digest rather than a KDF is deliberate: the key is 32 random bytes, not a password, so
     #: there is no dictionary to stretch against.
+    #: What a commissioning run found about this trigger (#189). See CronJob.commissioning.
+    commissioning: CommissioningState = field(default_factory=CommissioningState)
     key_hash: str = ""
     key_created_at_ms: int = 0
     origin_metadata: dict[str, Any] = field(default_factory=dict)
@@ -128,6 +131,7 @@ class LocalTrigger:
             delivery=normalize_policy(data.get("delivery")),
             skills=_names(data.get("skills")),
             references=_references(data.get("references")),
+            commissioning=CommissioningState.from_dict(data.get("commissioning")),
             key_hash=str(_get(data, "keyHash", "key_hash", "") or ""),
             key_created_at_ms=_int_or_zero(_get(data, "keyCreatedAtMs", "key_created_at_ms", 0)),
             origin_metadata=dict(_get(data, "originMetadata", "origin_metadata", {}) or {}),
@@ -152,6 +156,7 @@ class LocalTrigger:
             "delivery": self.delivery,
             "skills": list(self.skills),
             "references": [dict(item) for item in self.references],
+            "commissioning": self.commissioning.to_dict(),
             "keyHash": self.key_hash,
             "keyCreatedAtMs": self.key_created_at_ms,
             "originMetadata": self.origin_metadata,

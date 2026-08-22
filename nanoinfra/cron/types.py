@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast, overload
 
+from nanoinfra.automations.commissioning_state import CommissioningState
 from nanoinfra.automations.delivery import DEFAULT_DELIVERY_POLICY, normalize_policy
 from nanoinfra.utils.backoff import (
     DEFAULT_BASE_DELAY_MS,
@@ -231,6 +232,9 @@ class CronJob:
     #: built, and an id that no longer resolves stops the run rather than letting the model fall
     #: back to matching on a name.
     references: list[dict[str, str]] = field(default_factory=list[dict[str, str]])
+    #: What a commissioning run found about this job (#189). Unchecked by default, which is also
+    #: what every job written before commissioning existed reads as.
+    commissioning: CommissioningState = field(default_factory=CommissioningState)
     created_at_ms: int = 0
     updated_at_ms: int = 0
     delete_after_run: bool = False
@@ -252,6 +256,12 @@ class CronJob:
         retry = kwargs.get("retry")
         if retry is not None and not isinstance(retry, CronRetryPolicy):
             kwargs["retry"] = CronRetryPolicy(**cast(dict[str, Any], retry))
+        # This path reads `asdict(job)` from the pending-action file, so every nested dataclass
+        # arrives as a plain dict. A dict left here reaches `_save_store`, which then asks it for
+        # `to_dict` and fails the whole store write -- the same class of fault as #179's.
+        commissioning = kwargs.get("commissioning")
+        if commissioning is not None and not isinstance(commissioning, CommissioningState):
+            kwargs["commissioning"] = CommissioningState.from_dict(commissioning)
         return cls(**cast(Any, kwargs))
 
     @classmethod
@@ -268,6 +278,7 @@ class CronJob:
             delivery=normalize_policy(data.get("delivery")),
             skills=_store_names(data.get("skills")),
             references=_store_references(data.get("references")),
+            commissioning=CommissioningState.from_dict(data.get("commissioning")),
             created_at_ms=_store_int(get_camel_snake(data, "createdAtMs", "created_at_ms", 0)),
             updated_at_ms=_store_int(get_camel_snake(data, "updatedAtMs", "updated_at_ms", 0)),
             delete_after_run=bool(

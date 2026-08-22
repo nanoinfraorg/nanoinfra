@@ -1031,6 +1031,7 @@ async def cmd_trigger(ctx: CommandContext) -> OutboundMessage:
         if ctx.key == UNIFIED_SESSION_KEY
         else ctx.key
     )
+    from nanoinfra.automations.commissioning_runner import trigger_commissioning_state
     from nanoinfra.runtime_context import persistable_metadata
     from nanoinfra.webui.resource_mentions import normalize_resource_mentions
 
@@ -1049,6 +1050,9 @@ async def cmd_trigger(ctx: CommandContext) -> OutboundMessage:
             for kind, ident in normalize_resource_mentions(metadata.get("resource_mentions"))
         ],
     )
+    from nanoinfra.automations.commissioning_runner import TRIGGER_COMMISSIONING_NOTE
+
+    store.update(trigger.id, commissioning=trigger_commissioning_state())
     command = f'nanoinfra trigger {trigger.id} "message"'
     return OutboundMessage(
         channel=ctx.msg.channel,
@@ -1056,7 +1060,8 @@ async def cmd_trigger(ctx: CommandContext) -> OutboundMessage:
         content=(
             f"Trigger created: {trigger.name}\n"
             f"ID: {trigger.id}\n\n"
-            f"Command:\n{command}"
+            f"Command:\n{command}\n\n"
+            f"{TRIGGER_COMMISSIONING_NOTE}"
         ),
         metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
     )

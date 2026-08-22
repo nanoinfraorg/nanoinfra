@@ -17,6 +17,7 @@ from typing import Any, cast
 from filelock import FileLock
 from loguru import logger
 
+from nanoinfra.automations.commissioning_state import CommissioningState
 from nanoinfra.automations.delivery import normalize_policy
 from nanoinfra.triggers.local_types import LocalTrigger, TriggerDelivery, TriggerRunRecord
 from nanoinfra.utils.backoff import BackoffPolicy, next_attempt_at_ms
@@ -149,6 +150,8 @@ class LocalTriggerStore:
         delivery: str | None = None,
         skills: list[str] | None = None,
         references: list[dict[str, str]] | None = None,
+        commissioning: CommissioningState | None = None,
+        enabled: bool | None = None,
     ) -> LocalTrigger | None:
         """Update mutable trigger fields."""
         self._ensure_dirs()
@@ -165,6 +168,10 @@ class LocalTriggerStore:
                 trigger.skills = list(skills)
             if references is not None:
                 trigger.references = [dict(item) for item in references]
+            if commissioning is not None:
+                trigger.commissioning = commissioning
+            if enabled is not None:
+                trigger.enabled = enabled
             trigger.updated_at_ms = _now_ms()
             self._save_triggers_unlocked(triggers)
             return trigger

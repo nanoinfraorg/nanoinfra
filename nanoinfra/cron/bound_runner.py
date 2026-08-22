@@ -7,6 +7,7 @@ import hashlib
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -14,6 +15,7 @@ from loguru import logger
 
 from nanoinfra.agent.tools.cron import CronTool
 from nanoinfra.agent.turn_delivery import AUTOMATION_WITHHOLD_DELIVERY_META
+from nanoinfra.automations.commissioning import COMMISSIONING_TURN_META
 from nanoinfra.automations.delivery import normalize_policy, should_deliver
 from nanoinfra.automations.state import AutomationDeliveryLog, response_fingerprint
 from nanoinfra.bus.events import InboundMessage, OutboundMessage
@@ -77,23 +79,44 @@ def _bound_session_delivery_context(
     return channel, chat_id, metadata
 
 
-async def run_bound_cron_job(
+@dataclass(frozen=True, slots=True)
+class BoundTurn:
+    """One cron job rendered as the turn that will run it."""
+
+    channel: str
+    chat_id: str
+    prompt: str
+    prompt_ref: dict[str, Any]
+    run_id: str
+    metadata: dict[str, Any]
+
+    def message(self, *, session_key: str) -> InboundMessage:
+        return InboundMessage(
+            channel=self.channel,
+            sender_id="cron",
+            chat_id=self.chat_id,
+            content=self.prompt,
+            metadata=self.metadata,
+            session_key_override=session_key,
+        )
+
+
+def build_bound_turn(
     job: CronJob,
     *,
-    agent: BoundCronAgent,
-    cron: CronRunRecorder,
-    delivery_log: AutomationDeliveryLog | None = None,
-    publish: Callable[[OutboundMessage], Awaitable[None]] | None = None,
     workspace_path: Path | None = None,
-) -> str | None:
-    """Execute a session-bound cron job as a normal agent session turn."""
-    session_key = job.payload.session_key
-    if not session_key:
-        raise ValueError(f"cron job {job.id} is missing payload.session_key")
+    commissioning_id: str | None = None,
+) -> BoundTurn:
+    """Render one bound cron job into the turn that runs it.
 
-    # Before anything else. A reference that no longer resolves stops the run rather than letting
-    # the model fall back to matching on a name -- the fallback reintroduces exactly the ambiguity
-    # the reference removed, and there is nobody watching at 03:00.
+    Shared with commissioning (#183) on purpose. A rehearsal that built its own message would
+    rehearse a different automation than the one that runs: the references, the declared skills
+    and the delivery routing are all decided here.
+
+    A reference that no longer resolves stops the run rather than letting the model fall back to
+    matching on a name -- the fallback reintroduces exactly the ambiguity the reference removed,
+    and there is nobody watching at 03:00.
+    """
     reference_context: RuntimeContextBlock | None = None
     if job.references and workspace_path is not None:
         resolution = ResourceMentionResolver(workspace_path).resolve(job.references)
@@ -129,6 +152,37 @@ async def run_bound_cron_job(
         metadata[RUNTIME_CONTEXT_INPUT_META] = [reference_context]
     if job.skills:
         metadata[AUTOMATION_SKILLS_META] = list(job.skills)
+    if commissioning_id is not None:
+        metadata[COMMISSIONING_TURN_META] = commissioning_id
+    return BoundTurn(
+        channel=channel,
+        chat_id=chat_id,
+        prompt=prompt,
+        prompt_ref=prompt_ref,
+        run_id=run_id,
+        metadata=metadata,
+    )
+
+
+async def run_bound_cron_job(
+    job: CronJob,
+    *,
+    agent: BoundCronAgent,
+    cron: CronRunRecorder,
+    delivery_log: AutomationDeliveryLog | None = None,
+    publish: Callable[[OutboundMessage], Awaitable[None]] | None = None,
+    workspace_path: Path | None = None,
+) -> str | None:
+    """Execute a session-bound cron job as a normal agent session turn."""
+    session_key = job.payload.session_key
+    if not session_key:
+        raise ValueError(f"cron job {job.id} is missing payload.session_key")
+
+    turn = build_bound_turn(job, workspace_path=workspace_path)
+    prompt = turn.prompt
+    prompt_ref = turn.prompt_ref
+    run_id = turn.run_id
+    metadata = turn.metadata
     policy = normalize_policy(job.delivery)
     # Only withhold when there is a decision to make. Leaving the default path untouched means an
     # existing job's delivery keeps going through exactly the code it went through before.
@@ -157,16 +211,7 @@ async def run_bound_cron_job(
     if isinstance(cron_tool, CronTool):
         cron_token = cron_tool.set_cron_context(True)
     try:
-        resp = await agent.submit_cron_turn(
-            InboundMessage(
-                channel=channel,
-                sender_id="cron",
-                chat_id=chat_id,
-                content=prompt,
-                metadata=metadata,
-                session_key_override=session_key,
-            )
-        )
+        resp = await agent.submit_cron_turn(turn.message(session_key=session_key))
     except (Exception, asyncio.CancelledError) as exc:
         error_text = str(exc) or exc.__class__.__name__
         cron.write_run_record(
