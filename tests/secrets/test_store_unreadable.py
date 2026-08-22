@@ -90,3 +90,53 @@ def test_writing_into_a_store_this_process_does_not_own_names_the_reason(
 def test_a_store_that_was_never_created_is_still_empty_and_not_an_error(tmp_path: Path) -> None:
     """The distinction has to hold in both directions, or a fresh install reads as broken."""
     assert SecretStore(tmp_path / "fresh").list_secrets() == []
+
+
+def test_metadata_lists_without_a_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The container's agent account runs without the key, and still has to list what exists.
+
+    Nothing in `to_public_dict` is encrypted -- name, kind, provider and timestamps -- so a
+    process holding only the ciphertext can answer the Secrets page and the Servers page. It
+    cannot answer `resolve_plaintext`, and that refusal is the point.
+    """
+    store = SecretStore(tmp_path)
+    # The normalizer checks the shape of an ssh_key, so the value has to look like one.
+    store.create({
+        "name": "web-key",
+        "kind": "ssh_key",
+        "providerId": "local",
+        "value": "-----BEGIN OPENSSH PRIVATE KEY-----\nnot-a-real-key\n-----END OPENSSH PRIVATE KEY-----",
+    })
+
+    monkeypatch.delenv("NANOINFRA_SECRETS_KEY", raising=False)
+    keyless = SecretStore(tmp_path)
+
+    [listed] = keyless.list_secrets()
+    assert (listed.name, listed.kind) == ("web-key", "ssh_key")
+    assert "ciphertext" not in listed.to_public_dict()
+
+    from nanoinfra.secrets.crypto import SecretsNotConfiguredError
+
+    with pytest.raises(SecretsNotConfiguredError):
+        keyless.resolve_plaintext(listed.id)
+
+
+def test_writing_keeps_a_mode_the_deployment_already_set(
+    tmp_path: Path,
+) -> None:
+    """The container sets a group read so the agent can list. A write must not take it away."""
+    store = SecretStore(tmp_path)
+    store.create({"name": "first", "kind": "password", "providerId": "local", "value": "x"})
+    os.chmod(store.root, 0o2750)
+
+    store.create({"name": "second", "kind": "password", "providerId": "local", "value": "y"})
+
+    assert stat.S_IMODE(store.root.stat().st_mode) == 0o2750
+    assert len(store.list_secrets()) == 2
+
+
+def test_a_fresh_store_is_created_private(tmp_path: Path) -> None:
+    store = SecretStore(tmp_path)
+    store.create({"name": "first", "kind": "password", "providerId": "local", "value": "x"})
+
+    assert stat.S_IMODE(store.root.stat().st_mode) == 0o700

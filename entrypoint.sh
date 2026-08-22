@@ -162,8 +162,24 @@ prepare_executor_paths() {
     chown nanoinfra:nanoinfra "$workspace" 2>/dev/null || \
         echo "[entrypoint] warning: chown $workspace failed"
     mkdir -p "$workspace/secrets" "$dir/gates" || return 1
-    chown -R "$exec_user:$exec_user" "$workspace/secrets" || return 1
-    chmod 700 "$workspace/secrets" || return 1
+    # The credential store is WRITTEN by the executor and its metadata is READ by the agent, so
+    # it takes the same shape as the audit log below: executor owns it, the shared group reads,
+    # and nobody else sees it.
+    #
+    # At mode 700 the agent could not open a record, `Path.glob` swallowed the PermissionError,
+    # and the WebUI reported "no secrets yet" about a store holding an SSH key -- the same fault
+    # this file already records for the audit log, one directory over. The Servers page then
+    # showed a server whose credential read as absent.
+    #
+    # A group read yields the ciphertext and the metadata, and that is only safe because the
+    # agent holds no key: the export below removes NANOINFRA_SECRETS_KEY from the agent's
+    # environment. Encryption is what separates the two accounts here; the file mode alone never
+    # did, because setpriv passed the key through to both. So the order matters and both halves
+    # are required. The executor keeps the key, keeps the write, and stays the only side that can
+    # turn a record into a credential.
+    chown -R "$exec_user:$ipc_group" "$workspace/secrets" || return 1
+    chmod 2750 "$workspace/secrets" || return 1
+    find "$workspace/secrets" -type f -exec chmod 640 {} + 2>/dev/null || true
     # The audit log is written by the executor and READ by the agent. #32 rebuilds denial
     # latches from it and #29 serves it in the WebUI, and both run in the agent process. At
     # mode 700 the agent could not open a segment, Path.glob swallowed the PermissionError,
@@ -667,7 +683,19 @@ if [ "$(id -u)" = "0" ]; then
 
     if setpriv --reuid="$run_user" --regid="$run_user" --init-groups true 2>/dev/null; then
         echo "[entrypoint] dropping privileges to $run_user via setpriv"
-        exec setpriv --reuid="$run_user" --regid="$run_user" --init-groups nanoinfra "$@"
+        # The agent runs without the secrets key. The executor already started with it, and
+        # nothing on the agent side decrypts: #41 moved the transcript scrub to the executor, and
+        # the executor resolves the credential for a remote action. What the agent loses is the
+        # ability to mint a secret, which now refuses with the message the routes already carry
+        # for a missing key rather than writing one the executor cannot own.
+        #
+        # This is what lets the credential store carry a group read above. Without it, a group
+        # read would hand the agent account the key and the ciphertext together, which is every
+        # plaintext credential -- and setpriv passes the environment through, so the key reached
+        # the agent whether anything used it or not.
+        echo "[entrypoint] agent runs without NANOINFRA_SECRETS_KEY: the executor holds it"
+        exec env -u NANOINFRA_SECRETS_KEY \
+            setpriv --reuid="$run_user" --regid="$run_user" --init-groups nanoinfra "$@"
     fi
     echo "[entrypoint] error: started as root but setpriv privilege drop failed — refusing to run as root" >&2
     exit 1
