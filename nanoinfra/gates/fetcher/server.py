@@ -98,6 +98,23 @@ def load_web_settings() -> WebSettings:
     )
 
 
+def _is_unreadable_config(exc: BaseException) -> bool:
+    """True when a config load failed because this process may not read the file.
+
+    Walks the cause chain, because the loader wraps the OS error in a ConfigLoadError to name the
+    path. A permission error there is structural for a confined process; every other config fault
+    -- malformed JSON, a missing environment reference -- can be fixed while this process runs.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, PermissionError):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 @dataclass(slots=True)
 class Fetcher:
     """Answers one fetch or one search at a time."""
@@ -109,6 +126,9 @@ class Fetcher:
     # served defaults would silently drop an operator's proxy or provider choice. No caller sets
     # this: a caller that could inject "the last settings" could choose the provider.
     _last: WebSettings = field(default_factory=WebSettings, init=False)
+    # Set once the config file becomes unreadable to this process, which is permanent for its
+    # lifetime. See ``_settings``.
+    _settings_frozen: bool = field(default=False, init=False)
 
     async def handle(self, request: FetchRequest | SearchRequest) -> FetchResponse:
         """Answer one request. Never raises for a failed fetch: a failure is a response."""
@@ -134,13 +154,38 @@ class Fetcher:
         """Reload the settings, or keep the last ones that loaded.
 
         An operator changes the provider or the proxy while this process runs, and the next
-        request must use the new value. A broken config file must not stop the fetcher, because
-        the last known settings still describe what the operator asked for.
+        request uses the new value -- **on a host where this process can still read the config
+        file**. A broken config file must not stop the fetcher either, because the last known
+        settings still describe what the operator asked for.
+
+        There is one failure that never recovers, and it took a production trace to find. A
+        confined helper's Landlock rule on the config file binds to that file's **inode**, and
+        ``save_config`` replaces the file atomically, so the moment an operator saves a setting the
+        new file is a new inode and this rule no longer covers it. Every later reload then fails
+        with EACCES while the file itself is perfectly readable to the account.
+
+        So that case is reported once, in a sentence an operator can act on, and this process stops
+        retrying. Retrying wrote a traceback per request -- three subagents searching in parallel
+        produced three of them per turn -- and none of the retries could have succeeded. The
+        settings that were loaded before the replace stay in force, which is the operator's own
+        last saved intent, and a restart picks up the new one.
         """
+        if self._settings_frozen:
+            return self._last
         loader = self.settings_loader or load_web_settings
         try:
             self._last = loader()
-        except Exception:
+        except Exception as exc:
+            if _is_unreadable_config(exc):
+                self._settings_frozen = True
+                logger.warning(
+                    "gates: the fetcher can no longer read the config file, so its settings are "
+                    "fixed for the life of this process. A confined helper's rule binds to the "
+                    "file's inode and a saved setting replaces the file, so this is expected "
+                    "after a settings change. Restart the gateway to apply one. Reason: {}",
+                    exc,
+                )
+                return self._last
             logger.exception("gates: the fetcher kept its last settings, because a reload failed")
         return self._last
 
