@@ -74,7 +74,10 @@
     "approvals": "Persetujuan",
     "approvalsBadge": "Persetujuan yang menunggu jawaban: {{count}}",
     "secrets": "Rahasia",
-    "releaseNotes": "Catatan rilis v{{version}}"
+    "releaseNotes": "Catatan rilis v{{version}}",
+    "website": "Situs nanoinfra",
+    "documentation": "Dokumentasi",
+    "docs": "dokumen"
   },
   "settings": {
     "backToChat": "Kembali ke chat",

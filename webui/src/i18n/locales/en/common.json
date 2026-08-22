@@ -74,7 +74,10 @@
     "skills": {
       "title": "Skills"
     },
-    "releaseNotes": "Release notes for v{{version}}"
+    "releaseNotes": "Release notes for v{{version}}",
+    "website": "nanoinfra website",
+    "documentation": "Documentation",
+    "docs": "docs"
   },
   "settings": {
     "backToChat": "Back to chat",

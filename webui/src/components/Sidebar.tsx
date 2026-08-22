@@ -62,6 +62,8 @@ interface SidebarProps {
   approvalsCount?: number;
   /** The running build, from the settings payload. Absent until it loads, or on an older gateway. */
   version?: string;
+  /** Where the docs live, from the same payload, so one place decides the host. */
+  docsUrl?: string;
   onSettingsIntent?: () => void;
   onOpenSearch: () => void;
   activeUtility?:
@@ -436,7 +438,9 @@ export function Sidebar(props: SidebarProps) {
           />
           <ConnectionBadge />
         </div>
-        {collapsed ? null : <SidebarVersion version={props.version} />}
+        {collapsed ? null : (
+          <SidebarVersion version={props.version} docsUrl={props.docsUrl} />
+        )}
       </div>
     </nav>
   );
@@ -446,39 +450,72 @@ export function Sidebar(props: SidebarProps) {
 const RELEASE_VERSION = /^\d+\.\d+\.\d+$/;
 
 const RELEASES_URL = "https://github.com/nanoinfraorg/nanoinfra/releases/tag/v";
+const WEBSITE_URL = "https://nanoinfra.org/";
+const DOCS_URL = "https://docs.nanoinfra.org";
+
+const FOOTER_LINK_CLASS =
+  "underline-offset-2 transition-colors hover:text-sidebar-foreground/75 hover:underline";
 
 /**
- * The build that is running, under Settings.
+ * What is running, and where to read about it.
  *
- * A local build carries a version this project never published -- `0.16.0.dev3+g1a2b3c4` from a
- * source checkout -- and linking that to a release page would send a reader to a 404. So only an
- * exact `x.y.z` becomes a link, and anything else stays text that still answers "which build is
- * this?".
+ * Three destinations on one line, in the order a reader wants them: the project, its docs, and
+ * the notes for this exact build.
+ *
+ * The version is a link only when it is an exact `x.y.z`. A source checkout reports something
+ * like `0.16.0.dev3+g1a2b3c4`, and a release URL built from that sends the reader to a page that
+ * does not exist, so an unreleased build stays text -- which still answers "which build is this?".
+ * The name and the docs link do not depend on that, so they are always there.
  */
-function SidebarVersion({ version }: { version?: string }) {
+function SidebarVersion({ version, docsUrl }: { version?: string; docsUrl?: string }) {
   const { t } = useTranslation();
   const value = (version ?? "").trim();
+  const docs = (docsUrl ?? "").trim() || DOCS_URL;
   if (!value) return null;
-  const label = `nanoinfra ${value}`;
-  // `px-3` is the action row's own horizontal padding, so this line starts on the same vertical
-  // edge as the gear icon above it and as every nav icon in the rail. `px-2` read as misaligned by
-  // exactly the 4px difference, which is enough to see and not enough to explain.
-  if (!RELEASE_VERSION.test(value)) {
-    return (
-      <div className="mt-2 px-3 text-[11px] leading-4 text-sidebar-foreground/45">{label}</div>
-    );
-  }
+  const released = RELEASE_VERSION.test(value);
   return (
-    <div className="mt-2 px-3 text-[11px] leading-4">
+    // `px-3` is the action row's own horizontal padding, so this line starts on the same vertical
+    // edge as the gear icon above it and as every nav icon in the rail. `px-2` read as misaligned
+    // by exactly the 4px difference, which is enough to see and not enough to explain.
+    <div className="mt-2 flex flex-wrap items-center gap-x-1 px-3 text-[11px] leading-4 text-sidebar-foreground/45">
       <a
-        href={`${RELEASES_URL}${value}`}
+        href={WEBSITE_URL}
         target="_blank"
         rel="noreferrer"
-        title={t("sidebar.releaseNotes", { defaultValue: "Release notes for v{{version}}", version: value })}
-        className="text-sidebar-foreground/45 underline-offset-2 transition-colors hover:text-sidebar-foreground/75 hover:underline"
+        title={t("sidebar.website", { defaultValue: "nanoinfra website" })}
+        className={FOOTER_LINK_CLASS}
       >
-        {label}
+        nanoinfra
       </a>
+      <span>
+        (
+        <a
+          href={docs}
+          target="_blank"
+          rel="noreferrer"
+          title={t("sidebar.documentation", { defaultValue: "Documentation" })}
+          className={FOOTER_LINK_CLASS}
+        >
+          {t("sidebar.docs", { defaultValue: "docs" })}
+        </a>
+        )
+      </span>
+      {released ? (
+        <a
+          href={`${RELEASES_URL}${value}`}
+          target="_blank"
+          rel="noreferrer"
+          title={t("sidebar.releaseNotes", {
+            defaultValue: "Release notes for v{{version}}",
+            version: value,
+          })}
+          className={FOOTER_LINK_CLASS}
+        >
+          v{value}
+        </a>
+      ) : (
+        <span>v{value}</span>
+      )}
     </div>
   );
 }

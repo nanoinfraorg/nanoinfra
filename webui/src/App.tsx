@@ -2074,6 +2074,7 @@ function Shell({
     archivedCount: sidebarState.archived_keys.length,
     defaultWorkspacePath: workspaces?.default_scope.project_path ?? null,
     version: settingsSnapshot?.version?.current,
+    docsUrl: settingsSnapshot?.docs?.base_url,
   };
   const hostSidebarCollapsed = showHostChrome && !hostSidebarOpen;
   const showHostSidebarPreview =

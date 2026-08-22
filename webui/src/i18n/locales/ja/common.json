@@ -74,7 +74,10 @@
     "approvals": "承認",
     "approvalsBadge": "回答を待つ承認: {{count}}",
     "secrets": "シークレット",
-    "releaseNotes": "v{{version}} のリリースノート"
+    "releaseNotes": "v{{version}} のリリースノート",
+    "website": "nanoinfra のサイト",
+    "documentation": "ドキュメント",
+    "docs": "ドキュメント"
   },
   "settings": {
     "backToChat": "チャットに戻る",

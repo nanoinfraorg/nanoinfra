@@ -74,7 +74,10 @@
     "approvals": "Aprovações",
     "approvalsBadge": "Aprovações à espera de resposta: {{count}}",
     "secrets": "Segredos",
-    "releaseNotes": "Notas da versão v{{version}}"
+    "releaseNotes": "Notas da versão v{{version}}",
+    "website": "Site do nanoinfra",
+    "documentation": "Documentação",
+    "docs": "docs"
   },
   "settings": {
     "backToChat": "Voltar para a conversa",

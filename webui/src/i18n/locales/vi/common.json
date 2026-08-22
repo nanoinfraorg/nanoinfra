@@ -74,7 +74,10 @@
     "approvals": "Phê duyệt",
     "approvalsBadge": "Phê duyệt đang chờ trả lời: {{count}}",
     "secrets": "Bí mật",
-    "releaseNotes": "Ghi chú phát hành v{{version}}"
+    "releaseNotes": "Ghi chú phát hành v{{version}}",
+    "website": "Trang web nanoinfra",
+    "documentation": "Tài liệu",
+    "docs": "tài liệu"
   },
   "settings": {
     "backToChat": "Quay lại chat",
