@@ -1,5 +1,10 @@
 """The group a helper's socket carries, applied by the process that creates it.
 
+Lives beside the three helper packages rather than inside one of them. It first landed in
+``gates/executor/`` and the isolation tests refused it: the fetcher and the MCP host may import
+nothing from the executor's package, because that package reaches the credential store and the
+inventory. A shared concern belongs one level up.
+
 The agent connects to three sockets the executor binds, and a connect() needs write permission on
 the socket file. So each one has to carry a group the agent belongs to. That was the supervisor's
 job: `entrypoint.sh` waited for the socket and then chowned it while it still held root.
@@ -38,6 +43,13 @@ SOCKET_GROUP_ENV = "NANOINFRA_SOCKET_GROUP"
 #: read the operator socket could answer the approvals it asks for.
 OPERATOR_SOCKET_GROUP_ENV = "NANOINFRA_OPERATOR_SOCKET_GROUP"
 
+#: The fetcher's and the MCP host's own groups. One variable per helper, and never one shared
+#: name: a member of the executor's group can reach the executor's socket and run a command on
+#: every inventory host, which is the one thing the split exists to prevent. So the fetcher and
+#: the MCP host each get a group the agent belongs to and the other helpers do not.
+FETCHER_SOCKET_GROUP_ENV = "NANOINFRA_FETCHER_SOCKET_GROUP"
+MCP_HOST_SOCKET_GROUP_ENV = "NANOINFRA_MCP_HOST_SOCKET_GROUP"
+
 #: Owner read/write plus group read/write. A connect() needs the write bit, and nothing outside
 #: the two accounts gets any bit at all.
 SOCKET_MODE = 0o660
@@ -71,6 +83,8 @@ def apply_socket_group(path: Path | str, *, env_var: str = SOCKET_GROUP_ENV) -> 
 
 
 __all__ = [
+    "FETCHER_SOCKET_GROUP_ENV",
+    "MCP_HOST_SOCKET_GROUP_ENV",
     "OPERATOR_SOCKET_GROUP_ENV",
     "SOCKET_GROUP_ENV",
     "SOCKET_MODE",

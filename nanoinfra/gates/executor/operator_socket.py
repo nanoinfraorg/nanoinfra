@@ -53,12 +53,12 @@ from nanoinfra.gates.executor.protocol import (
     read_frame,
     write_frame,
 )
-from nanoinfra.gates.executor.socket_group import (
+from nanoinfra.gates.pending import AnswerRefusal, PendingApproval, PendingApprovalStore
+from nanoinfra.gates.policy import load_policy
+from nanoinfra.gates.socket_group import (
     OPERATOR_SOCKET_GROUP_ENV,
     apply_socket_group,
 )
-from nanoinfra.gates.pending import AnswerRefusal, PendingApproval, PendingApprovalStore
-from nanoinfra.gates.policy import load_policy
 from nanoinfra.gates.tokens import ApprovalTokenStore
 
 if TYPE_CHECKING:

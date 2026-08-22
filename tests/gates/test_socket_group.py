@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from nanoinfra.gates.executor.socket_group import (
+from nanoinfra.gates.socket_group import (
     SOCKET_GROUP_ENV,
     SOCKET_MODE,
     apply_socket_group,
@@ -86,19 +86,48 @@ def test_the_socket_takes_the_named_group_and_the_mode_a_connect_needs(
         assert stat.S_IMODE(path.stat().st_mode) & stat.S_IWGRP
 
 
-def test_every_executor_socket_applies_it() -> None:
-    """Three sockets the agent connects to, and one of them being missed is the whole bug."""
+def test_every_module_that_binds_a_socket_applies_the_group() -> None:
+    """Discovered rather than listed, because a list is what missed two of them.
+
+    The first version of this test named the three executor modules and passed while the fetcher
+    and the MCP host still lost their group on every restart -- which took web_search and
+    web_fetch down with an EACCES the agent reported as "the fetcher is not reachable". So the
+    subjects come from the source tree: any module under gates/ that binds a Unix socket has to
+    set the group on it.
+    """
     from pathlib import Path as _Path
 
-    root = _Path(__file__).resolve().parents[2] / "nanoinfra" / "gates" / "executor"
-    for module in ("server.py", "scrub.py", "operator_socket.py"):
-        text = (root / module).read_text(encoding="utf-8")
-        assert "apply_socket_group(" in text, f"{module} binds a socket and never sets its group"
+    root = _Path(__file__).resolve().parents[2] / "nanoinfra" / "gates"
+    binders: list[_Path] = []
+    for path in sorted(root.rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if ".bind(str(" in text or "start_unix_server(" in text:
+            binders.append(path)
+
+    assert binders, "no module binds a socket, which cannot be right"
+    missing = [
+        path.relative_to(root).as_posix()
+        for path in binders
+        if "apply_socket_group(" not in path.read_text(encoding="utf-8")
+    ]
+    assert not missing, f"these bind a socket and never set its group: {missing}"
 
 
-def test_the_entrypoint_hands_the_group_names_to_the_child() -> None:
+def test_the_entrypoint_hands_a_group_name_to_every_helper() -> None:
+    """One variable per helper, and never one shared name.
+
+    A member of the executor's group reaches the executor's socket, and from there a command on
+    every inventory host. So the fetcher and the MCP host get groups of their own, which the
+    agent belongs to and the other helpers do not.
+    """
     text = (Path(__file__).resolve().parents[2] / "entrypoint.sh").read_text(encoding="utf-8")
     assert 'export NANOINFRA_SOCKET_GROUP="$ipc_group"' in text
     assert 'export NANOINFRA_OPERATOR_SOCKET_GROUP="$op_group"' in text
-    # And it clears the previous run's sockets, so its own wait cannot return on a stale file.
+    # The resolved group, not the raw name: an image built before a helper's group existed runs
+    # that helper as the agent, and the resolver already answers that case.
+    assert 'export NANOINFRA_FETCHER_SOCKET_GROUP="$fetch_run_group"' in text
+    assert 'export NANOINFRA_MCP_HOST_SOCKET_GROUP="$mcp_host_run_group"' in text
+    # And it clears each previous run's socket, so its own waits cannot return on a stale file.
     assert 'rm -f "$socket_path" "$scrub_socket_path" "$op_socket_path"' in text
+    assert 'rm -f "$fetch_socket_path"' in text
+    assert 'rm -f "$mcp_host_socket_path"' in text

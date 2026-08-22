@@ -82,7 +82,6 @@ from nanoinfra.gates.executor.protocol import (
 )
 from nanoinfra.gates.executor.scrub import bind_scrub_socket, serve_scrub_socket
 from nanoinfra.gates.executor.scrub_protocol import default_scrub_socket_path
-from nanoinfra.gates.executor.socket_group import apply_socket_group
 from nanoinfra.gates.pending import ApprovalState, PendingApprovalStore
 from nanoinfra.gates.policy import (
     ActionAuthorization,
@@ -93,6 +92,7 @@ from nanoinfra.gates.policy import (
     load_policy,
 )
 from nanoinfra.gates.prompt import PromptRenderError, render_approval_prompt
+from nanoinfra.gates.socket_group import apply_socket_group
 from nanoinfra.gates.tokens import ApprovalTokenStore
 from nanoinfra.secrets.crypto import SecretsNotConfiguredError
 from nanoinfra.secrets.store import SecretStore
