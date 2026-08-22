@@ -2360,6 +2360,15 @@ def update_web_search_settings(query: QueryParams) -> dict[str, Any]:
 
     if changed:
         save_config(config)
+        # A web settings change needs a restart to reach the process that acts on it, and this
+        # answer used to say otherwise. The fetcher re-reads the config per request, so it looked
+        # free -- and in a confined deployment it is not: a helper's Landlock rule binds to the
+        # config file's inode, `save_config` replaces the file atomically, and the rule stops
+        # covering the new one. The fetcher then serves the settings it loaded before the save
+        # until it restarts. Reporting no restart is how an operator changes the search provider
+        # and watches the old one keep answering.
+        # See nanoinfra/gates/fetcher/server.py::Fetcher._settings.
+        restart_required = True
     return settings_payload(requires_restart=restart_required)
 
 

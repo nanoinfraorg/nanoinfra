@@ -49,7 +49,16 @@ kernel, and no manual page states all four.
    at all. So the sockets the privilege split needs stay reachable, and a confined child still
    answers the agent.
 
-A fifth, smaller one: name resolution reads more of ``/etc`` than an author expects. The curated
+A fifth, and it is not small: **a rule on a file binds to that file's inode.** ``save_config``
+replaces the config atomically, so a saved setting gives the file a new inode and a helper's rule
+stops covering it. Every later read fails with EACCES while the file is perfectly readable to the
+account. A confined helper therefore serves the config it loaded before the save until it
+restarts, and the routes that write config say so (#20's own policy is read once at start, so this
+matches the gate policy rather than departing from it). Widening the rule to the parent directory
+would fix the read and hand the fetcher every world-readable file in the data dir, transcripts
+included, so the rule stays on the file.
+
+A sixth, smaller one: name resolution reads more of ``/etc`` than an author expects. The curated
 list below covers ``nsswitch.conf``, ``gai.conf``, ``services``, and ``protocols``, and DNS fails
 without them.
 """
