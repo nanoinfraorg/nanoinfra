@@ -46,6 +46,10 @@ from nanoinfra.gates.fetcher.protocol import (
     write_frame,
 )
 from nanoinfra.gates.fetcher.search import WebSearch
+from nanoinfra.gates.socket_group import (
+    FETCHER_SOCKET_GROUP_ENV,
+    apply_socket_group,
+)
 
 # The socket's own mode is not honoured on every platform, so the directory carries the control.
 # 0o700 keeps another local account out of the fetcher's door.
@@ -212,6 +216,11 @@ def serve_forever(
     served = 0
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
         server.bind(str(path))
+        # Between bind and listen, and here rather than in the supervisor: a restart leaves the
+        # previous run's socket file in place, so the supervisor's wait returns on that stale file
+        # and its chown never reaches the socket bound a moment later. See
+        # nanoinfra/gates/socket_group.py.
+        apply_socket_group(path, env_var=FETCHER_SOCKET_GROUP_ENV)
         server.listen(8)
         logger.info("gates: fetcher listening on {} (workspace {})", path, workspace)
         try:

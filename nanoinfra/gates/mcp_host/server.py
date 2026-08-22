@@ -66,6 +66,10 @@ from nanoinfra.gates.mcp_host.protocol import (
     read_frame,
     write_frame,
 )
+from nanoinfra.gates.socket_group import (
+    MCP_HOST_SOCKET_GROUP_ENV,
+    apply_socket_group,
+)
 
 if TYPE_CHECKING:
     from nanoinfra.config.schema import MCPServerConfig
@@ -924,6 +928,11 @@ async def _serve(path: Path, *, workspace: Path) -> None:
 
     host = MCPHost()
     server = await asyncio.start_unix_server(host.serve_connection, path=str(path), backlog=8)
+    # asyncio binds and listens in one call, so the group goes on right after. The window is this
+    # process's own event loop rather than a network round trip, and the alternative -- leaving it
+    # to the supervisor -- is what left this socket unreachable after a restart. See
+    # nanoinfra/gates/socket_group.py.
+    apply_socket_group(path, env_var=MCP_HOST_SOCKET_GROUP_ENV)
     logger.info("gates: mcp host listening on {} (workspace {})", path, workspace)
     try:
         async with server:

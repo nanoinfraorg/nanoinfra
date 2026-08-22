@@ -60,7 +60,7 @@ from nanoinfra.gates.executor.scrub_protocol import (
     encode_scrub_batch_response,
     encode_scrub_response,
 )
-from nanoinfra.gates.executor.socket_group import apply_socket_group
+from nanoinfra.gates.socket_group import apply_socket_group
 
 # The directory mode for a directory this module creates. Private first is the fail-closed
 # order. A deployment that runs two accounts prepares the run directory itself, and the

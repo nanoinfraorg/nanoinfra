@@ -653,6 +653,12 @@ if [ "$(id -u)" = "0" ]; then
             echo "[entrypoint] warning: the fetcher paths could not be prepared" >&2
             echo "[entrypoint] warning: the gateway starts its own fetcher instead" >&2
         else
+            # The fetcher sets the group on the socket it binds, for the reason
+            # nanoinfra/gates/executor/socket_group.py states: on a restart the wait below returns
+            # on the previous run's socket file, so a chown here lands on a file that is about to
+            # be unlinked.
+            export NANOINFRA_FETCHER_SOCKET_GROUP="$fetch_run_group"
+            rm -f "$fetch_socket_path" 2>/dev/null || true
             start_fetcher "$fetch_workspace"
             if wait_for_fetcher_socket; then
                 # The fetcher creates its own socket, and a rebind can widen or narrow the mode.
@@ -700,6 +706,8 @@ if [ "$(id -u)" = "0" ]; then
             echo "[entrypoint] warning: the MCP host paths could not be prepared" >&2
             echo "[entrypoint] warning: the gateway starts its own MCP host instead" >&2
         else
+            export NANOINFRA_MCP_HOST_SOCKET_GROUP="$mcp_host_run_group"
+            rm -f "$mcp_host_socket_path" 2>/dev/null || true
             start_mcp_host "$mcp_host_workspace"
             if wait_for_mcp_host_socket; then
                 # The host creates its own socket, and a rebind can widen or narrow the mode. So
