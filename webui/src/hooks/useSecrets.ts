@@ -40,7 +40,14 @@ export function useSecrets(): {
       setSecrets(payload.secrets);
       setError(null);
     } catch (e) {
-      setError(e instanceof ApiError ? `HTTP ${e.status}` : (e as Error).message);
+      // The server's own sentence, when it wrote one. A store this process may not read answers
+      // 409 and says why, and `HTTP 409` would throw that away -- which is how the page came to
+      // report "No secrets yet" about a store holding a credential.
+      setError(
+        e instanceof ApiError
+          ? e.message || `HTTP ${e.status}`
+          : (e as Error).message,
+      );
     } finally {
       setLoading(false);
     }
