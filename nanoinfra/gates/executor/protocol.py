@@ -42,10 +42,10 @@ from __future__ import annotations
 import json
 import socket
 import struct
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any, cast
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 
 # A peer controls the length prefix, so the reader caps it. 8 MiB is far above a command and
 # far below a memory problem. Output is bounded separately by truncate_output.
@@ -108,6 +108,18 @@ class ExecuteResponse:
     # latch alone: a configuration gap gives the agent nothing to change, and an operator who
     # clears a latch as routine stops reading it (#42).
     terminal: bool = True
+    # What the gate would answer for this action, filled on a preview only (#179). A preview
+    # asks nobody and opens no secret store, so every field below is a hypothetical: it says
+    # what a real run would meet, and authorizes nothing. `preview_hosts` and `preview_command`
+    # are the two halves of the standing grant that would permit it, in the form config takes.
+    preview_outcome: str | None = None
+    preview_reason: str = ""
+    preview_grant_id: str | None = None
+    preview_scope: str | None = None
+    preview_hosts: list[str] = field(default_factory=list[str])
+    preview_command: str = ""
+    preview_credential_outcome: str | None = None
+    preview_credential_reason: str = ""
 
 
 def encode_request(request: ExecuteRequest) -> bytes:

@@ -222,8 +222,15 @@ async def test_a_preview_is_never_refused_by_the_gate(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_preview_asks_no_policy_question(tmp_path: Path) -> None:
-    """#10: a preview reaches no host and resolves no credential, so it needs no permission."""
+async def test_a_preview_asks_the_policy_and_still_needs_no_permission(tmp_path: Path) -> None:
+    """#10 held that a preview asked no policy question at all. #179 changed that deliberately.
+
+    A preview now reads the policy, because reading it is how the answer an operator needs -- the
+    grant this action would require -- arrives without a refusal having to happen first. Both
+    evaluations are pure. What #10 was protecting is asserted here as what it always meant: the
+    preview reaches no host and resolves no credential, so it needs no permission of its own,
+    and an empty policy that refuses every real action still returns a preview.
+    """
     _server(tmp_path)
     asked: list[int] = []
 
@@ -232,10 +239,14 @@ async def test_a_preview_asks_no_policy_question(tmp_path: Path) -> None:
         return GatesConfig()
 
     executor = Executor(workspace=tmp_path, gates_loader=loader)
-    with patch(_BACKEND, new=AsyncMock()):
-        await executor.handle(_request(preview_requested=True))
+    with patch(_BACKEND, new=AsyncMock()) as run:
+        response = await executor.handle(_request(preview_requested=True))
 
-    assert asked == []
+    assert asked, "the preview has to read the policy to report what a real run would meet"
+    run.assert_not_called()
+    assert response.ok
+    assert "Preview" in response.output
+    assert response.preview_outcome == "deny"
 
 
 @pytest.mark.asyncio

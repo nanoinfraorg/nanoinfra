@@ -223,13 +223,16 @@ class Executor:
         )
 
         if request.preview_requested:
-            return ExecuteResponse(
-                ok=True,
-                output=_preview_line(server, request.command),
-                exit_code=None,
-                error=None,
-                reason="the caller asked for a preview",
-            )
+            # #179: a preview used to return here, so it said what would run and stayed silent
+            # on what the gate would answer -- which left an operator to learn the policy from a
+            # refusal at 03:00 and to reverse-engineer the grant from it. Both evaluations below
+            # are pure and documented safe before a credential resolves, so a preview can carry
+            # the real decision without a connection, a secret, or an approval.
+            #
+            # The decision is recorded nowhere but this response and the observation record
+            # above. Writing it as a gate denial would latch the session (#180), so asking what
+            # the gate would say would block the automation being commissioned.
+            return await asyncio.to_thread(self._preview, server, request, servers)
 
         # The gate resolves each grant host, so it runs in a worker thread as well. Its own
         # reads hit the cache when the grant names this project, and a grant that names
@@ -270,6 +273,42 @@ class Executor:
                 policy_decision=decision.outcome.value,
                 scope=getattr(resolution, "scope", None),
             ),
+        )
+
+    def _preview(
+        self, server: Any, request: ExecuteRequest, servers: Any
+    ) -> ExecuteResponse:
+        """Answer what a real run of this action would meet, and run nothing (#179).
+
+        Off the event loop, because the gate resolves each grant host through the inventory the
+        action would use, exactly as the real path does.
+        """
+        decision, resolution = self._gate(server, request, servers)
+        credential = evaluate_credential_access(
+            self.gates_loader(),
+            execution_context=request.execution_context,
+            authorization=ActionAuthorization(
+                grant_id=decision.grant_id,
+                policy_decision=decision.outcome.value,
+                scope=getattr(resolution, "scope", None),
+            ),
+        )
+        return ExecuteResponse(
+            ok=True,
+            output=_preview_line(server, request.command),
+            exit_code=None,
+            error=None,
+            reason="the caller asked for a preview",
+            preview_outcome=decision.outcome.value,
+            preview_reason=decision.reason,
+            preview_grant_id=decision.grant_id,
+            preview_scope=getattr(resolution, "scope", None),
+            # The grant that would permit it, in the two halves config takes: the resolved
+            # hosts, never the label, and the exact command string.
+            preview_hosts=list(getattr(resolution, "hosts", ()) or ()),
+            preview_command=request.command,
+            preview_credential_outcome=credential.outcome.value,
+            preview_credential_reason=credential.reason,
         )
 
     async def _suspend(
