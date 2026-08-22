@@ -73,7 +73,8 @@
     "servers": "Server",
     "approvals": "Persetujuan",
     "approvalsBadge": "Persetujuan yang menunggu jawaban: {{count}}",
-    "secrets": "Rahasia"
+    "secrets": "Rahasia",
+    "releaseNotes": "Catatan rilis v{{version}}"
   },
   "settings": {
     "backToChat": "Kembali ke chat",

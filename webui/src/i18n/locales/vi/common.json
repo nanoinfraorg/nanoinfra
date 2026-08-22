@@ -73,7 +73,8 @@
     "servers": "Máy chủ",
     "approvals": "Phê duyệt",
     "approvalsBadge": "Phê duyệt đang chờ trả lời: {{count}}",
-    "secrets": "Bí mật"
+    "secrets": "Bí mật",
+    "releaseNotes": "Ghi chú phát hành v{{version}}"
   },
   "settings": {
     "backToChat": "Quay lại chat",

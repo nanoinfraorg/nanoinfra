@@ -73,7 +73,8 @@
     "secrets": "Secrets",
     "skills": {
       "title": "Skills"
-    }
+    },
+    "releaseNotes": "Release notes for v{{version}}"
   },
   "settings": {
     "backToChat": "Back to chat",

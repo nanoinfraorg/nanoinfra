@@ -73,7 +73,8 @@
     "servers": "サーバー",
     "approvals": "承認",
     "approvalsBadge": "回答を待つ承認: {{count}}",
-    "secrets": "シークレット"
+    "secrets": "シークレット",
+    "releaseNotes": "v{{version}} のリリースノート"
   },
   "settings": {
     "backToChat": "チャットに戻る",

@@ -73,7 +73,8 @@
     "servers": "서버",
     "approvals": "승인",
     "approvalsBadge": "답변을 기다리는 승인: {{count}}",
-    "secrets": "비밀"
+    "secrets": "비밀",
+    "releaseNotes": "v{{version}} 릴리스 노트"
   },
   "settings": {
     "backToChat": "채팅으로 돌아가기",
