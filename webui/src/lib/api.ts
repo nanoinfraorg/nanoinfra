@@ -374,10 +374,13 @@ export async function commissionAutomation(
   id: string,
   base: string = "",
 ): Promise<CommissioningResult> {
+  // No method. This gateway serves its HTTP surface from the WebSocket handshake hook, which
+  // reads a request line and never a verb, so every mutating route here is a plain GET with its
+  // values in the query or a header. A POST closes the connection, and the proxy in front reports
+  // a 502 -- which is how this was found, against the real gateway rather than a stubbed fetch.
   return request<CommissioningResult>(
     `${base}/api/webui/automations/${encodeURIComponent(id)}/commission`,
     token,
-    { method: "POST" },
   );
 }
 
@@ -395,7 +398,6 @@ export async function grantAutomationCommissioning(
   return request<GrantPromotionResult>(
     `${base}/api/webui/automations/${encodeURIComponent(id)}/grant`,
     token,
-    { method: "POST" },
   );
 }
 

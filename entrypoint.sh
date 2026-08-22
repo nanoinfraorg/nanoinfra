@@ -576,6 +576,14 @@ if [ "$(id -u)" = "0" ]; then
             # The child binds this socket at start, and the agent reads the same variable for
             # the #27 inbox. So it goes out before the start and not after it.
             export NANOINFRA_OPERATOR_SOCKET="$op_socket_path"
+            # The executor sets the group on each socket it binds, because this script cannot do
+            # it reliably: on a restart the previous run's socket file is still there, so the wait
+            # below returns on the stale file and the chown lands on something the executor is
+            # about to unlink. See nanoinfra/gates/executor/socket_group.py.
+            export NANOINFRA_SOCKET_GROUP="$ipc_group"
+            export NANOINFRA_OPERATOR_SOCKET_GROUP="$op_group"
+            # And remove the stale files anyway, so the wait below can only see this run's socket.
+            rm -f "$socket_path" "$scrub_socket_path" "$op_socket_path" 2>/dev/null || true
             start_executor "$workspace"
             if wait_for_socket; then
                 # The executor prepares its own socket directory, and a single-uid host wants

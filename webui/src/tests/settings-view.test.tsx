@@ -529,6 +529,8 @@ describe("SettingsView Apps catalog", () => {
       if (url === "/api/settings") return jsonResponse(settingsPayload());
       if (url === "/api/webui/automations") return jsonResponse({ jobs: [refusedJob] });
       if (url.endsWith("/grant")) {
+        // The method is recorded on purpose: this gateway's HTTP surface comes from the
+        // WebSocket handshake hook and reads no verb, so a POST here closes the connection.
         grantCalls.push(`${init?.method ?? "GET"} ${url}`);
         return jsonResponse({
           granted: [refusedJob.commissioning.proposedGrants[0]],
@@ -554,7 +556,7 @@ describe("SettingsView Apps catalog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Grant it" }));
 
     await waitFor(() => {
-      expect(grantCalls).toEqual(["POST /api/webui/automations/job-1/grant"]);
+      expect(grantCalls).toEqual(["GET /api/webui/automations/job-1/grant"]);
     });
     // The server's own sentence about what a grant covers, plus the restart it needs.
     expect(
@@ -599,7 +601,7 @@ describe("SettingsView Apps catalog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Rehearse" }));
 
     await waitFor(() => {
-      expect(calls).toEqual(["POST /api/webui/automations/job-2/commission"]);
+      expect(calls).toEqual(["GET /api/webui/automations/job-2/commission"]);
     });
   });
 

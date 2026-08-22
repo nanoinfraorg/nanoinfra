@@ -53,6 +53,10 @@ from nanoinfra.gates.executor.protocol import (
     read_frame,
     write_frame,
 )
+from nanoinfra.gates.executor.socket_group import (
+    OPERATOR_SOCKET_GROUP_ENV,
+    apply_socket_group,
+)
 from nanoinfra.gates.pending import AnswerRefusal, PendingApproval, PendingApprovalStore
 from nanoinfra.gates.policy import load_policy
 from nanoinfra.gates.tokens import ApprovalTokenStore
@@ -538,6 +542,9 @@ def bind_operator_socket(socket_path: Path | str) -> socket.socket:
         listener.bind(str(path))
         # The mode goes on before the listen, so no peer connects through a wider mode.
         os.chmod(path, _SOCKET_MODE)
+        # And the group, for the reason `socket_group.py` states: the supervisor's chown can land
+        # on the previous run's socket file, and this one is bound after it.
+        apply_socket_group(path, env_var=OPERATOR_SOCKET_GROUP_ENV)
         listener.listen(8)
     except OSError:
         listener.close()
