@@ -85,6 +85,35 @@ def test_the_entrypoint_gives_the_fetcher_socket_its_own_group() -> None:
     assert 'chown "$fetch_run_user:$fetch_run_group" "$fetch_socket_dir"' in text
 
 
+def test_the_entrypoint_gives_every_agent_facing_socket_the_shared_group() -> None:
+    """The agent connects to two executor sockets, and both need the group that admits it.
+
+    The scrub socket was left out of that block, so it kept the executor's own group and the
+    agent was refused with EACCES. Nothing failed loudly: every persisted transcript came back as
+    "nanoinfra withheld this text", in every container, for as long as that socket has existed.
+    `bind_scrub_socket` says the two sockets "get their mode from the same umask", which is true
+    of the mode and not of the group -- the entrypoint supplies the group, and it named one.
+    """
+    text = _entrypoint()
+    for variable in ("$socket_path", "$scrub_socket_path"):
+        assert re.search(
+            rf'chown "\$exec_user:\$ipc_group"[^\n]*{re.escape(variable)}', text
+        ), f"{variable} never gets the group the agent belongs to"
+        assert re.search(rf'chmod 660 "{re.escape(variable)}"', text), (
+            f"{variable} never gets the group write bit that connect() needs"
+        )
+
+
+def test_the_scrub_socket_path_matches_the_name_the_code_derives() -> None:
+    """A hand-written path in the entrypoint and a derived one in the code must not drift."""
+    from pathlib import Path as _Path
+
+    from nanoinfra.gates.executor.scrub_protocol import default_scrub_socket_path
+
+    derived = default_scrub_socket_path(_Path("/run/nanoinfra-exec/executor.sock")).name
+    assert f'scrub_socket_path="$socket_dir/{derived}"' in _entrypoint()
+
+
 def test_the_entrypoint_never_falls_back_to_the_executor_group() -> None:
     """A missing group must degrade to the agent's own group, never to the executor's.
 
