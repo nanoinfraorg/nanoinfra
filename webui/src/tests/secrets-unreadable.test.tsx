@@ -5,7 +5,7 @@
  * page is refused by the kernel. It answers 409 and says so. The page used to show "No secrets
  * yet" about a store holding an SSH key, which is the one thing it must not say.
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { SecretsView } from "@/components/secrets/SecretsView";

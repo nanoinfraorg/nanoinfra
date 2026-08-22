@@ -711,7 +711,7 @@ def _redacted_transcript_record(
         return record
     from nanoinfra.agent.redaction import TranscriptRedactor
 
-    return TranscriptRedactor.for_workspace(workspace).mapping(record)
+    return TranscriptRedactor.for_workspace(workspace).transcript_event(record)
 
 
 def normalize_webui_turn_id(value: Any) -> str:
@@ -1379,6 +1379,23 @@ def _with_backfilled_user(
         if rec.get("event") in _TURN_DISPLAY_EVENTS:
             return [*records[:index], dict(user_event), *records[index:]]
     return records
+
+
+def _session_backfill_lines(
+    session_key: str,
+    session_messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Render the canonical history as transcript lines the replay can read.
+
+    Reuses the turn splitter the backfill paths already use, so a recovered thread is assembled
+    the same way a partially-recovered one is, rather than by a second interpretation of the
+    same records.
+    """
+    lines: list[dict[str, Any]] = []
+    for turn in _session_backfill_turns(session_key, session_messages):
+        lines.append(dict(turn.user_event))
+        lines.extend(dict(record) for record in turn.assistant_records)
+    return _ensure_replay_identities(lines)
 
 
 def _needs_user_event_backfill(lines: list[dict[str, Any]]) -> bool:
@@ -2544,6 +2561,33 @@ def build_webui_thread_response(
         augment_assistant_media=augment_assistant_media,
         augment_assistant_text=augment_assistant_text,
     )
+    # A transcript can hold records this build cannot read. It happened: while no executor
+    # answered the scrub, each record was withheld down to its own `event` name, so a file with
+    # thousands of records replayed to nothing and the pane showed an empty chat over it. The
+    # session history is the canonical record of the same turns, so it answers instead of a
+    # blank pane.
+    #
+    # The condition is the outcome rather than the cause -- "the replay found nothing in a file
+    # that holds records" -- so it also covers whatever else makes a transcript unreadable, and
+    # it costs a second replay only in the case that is already broken.
+    if not msgs and lines:
+        if session_messages is None and session_messages_loader is not None:
+            session_messages = session_messages_loader()
+        if session_messages:
+            logger.warning(
+                "webui: the transcript for {} replayed to nothing, so {} session messages "
+                "answer instead",
+                session_key,
+                len(session_messages),
+            )
+            lines = _session_backfill_lines(session_key, session_messages)
+            fork_boundary = fork_boundary_message_count(lines)
+            msgs = replay_transcript_to_ui_messages(
+                lines,
+                augment_user_media=augment_user_media,
+                augment_assistant_media=augment_assistant_media,
+                augment_assistant_text=augment_assistant_text,
+            )
     payload: dict[str, Any] = {
         "schemaVersion": WEBUI_TRANSCRIPT_SCHEMA_VERSION,
         "sessionKey": session_key,

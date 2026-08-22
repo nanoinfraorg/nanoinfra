@@ -741,6 +741,63 @@ def withheld_mapping(values: Mapping[str, Any], reason: str) -> dict[str, Any]:
     return {key: _withheld_any(value, marker) for key, value in values.items()}
 
 
+#: The keys a WebUI transcript record needs to stay readable. Same rule as
+#: ``withheld_checkpoint`` below: a reader needs every one of them, and none of
+#: them can hold a credential value.
+#:
+#: ``withheld_mapping`` replaces every string, and the name of an event is a
+#: string. So a transcript written while no executor answered held the marker in
+#: place of ``event`` itself, the replay found no event it knew, and the pane
+#: rendered an empty chat over a file with thousands of records in it. The text
+#: was withheld correctly and the record stopped being a record.
+_TRANSCRIPT_STRUCTURE_KEYS = frozenset({
+    # The event's own name, and the ids that order and group events.
+    "event",
+    "chat_id",
+    "turn_id",
+    "stream_id",
+    "turn_phase",
+    "kind",
+    # A tool event: its shape version, its lifecycle phase, the call it belongs
+    # to, and the name of the tool. Tool names are this project's own.
+    "version",
+    "phase",
+    "call_id",
+    "name",
+})
+
+
+def withheld_transcript_event(record: Mapping[str, Any], reason: str) -> dict[str, Any]:
+    """Withhold the text of one WebUI transcript event, and keep its shape.
+
+    Everything a reader needs to know *what* the event was survives; everything a
+    turn produced does not. An automation's ``label`` is deliberately not in the
+    structural set: it is operator-authored text, and this function does not have
+    to decide what an operator typed into a name.
+    """
+    marker = withheld_text(reason)
+    return {
+        key: (value if key in _TRANSCRIPT_STRUCTURE_KEYS else _withheld_transcript_value(value, marker))
+        for key, value in record.items()
+    }
+
+
+def _withheld_transcript_value(value: Any, marker: str) -> Any:
+    """Withhold one value, and keep the structure of a nested event."""
+    if isinstance(value, Mapping):
+        return {
+            key: (
+                nested
+                if key in _TRANSCRIPT_STRUCTURE_KEYS
+                else _withheld_transcript_value(nested, marker)
+            )
+            for key, nested in cast(Mapping[str, Any], value).items()
+        }
+    if isinstance(value, list):
+        return [_withheld_transcript_value(item, marker) for item in cast(list[Any], value)]
+    return _withheld_any(value, marker)
+
+
 def withheld_checkpoint(checkpoint: Mapping[str, Any], reason: str) -> dict[str, Any]:
     """Return a copy of one runtime checkpoint with its text withheld (#51).
 
@@ -1024,6 +1081,18 @@ class TranscriptRedactor:
             return redact_mapping(values, self._scrub)
         except Exception as exc:  # noqa: BLE001 -- no scrub means no raw text persists
             return withheld_mapping(values, self._reason(exc))
+
+    def transcript_event(self, record: Mapping[str, Any]) -> dict[str, Any]:
+        """Scrub one WebUI transcript event, or withhold its text and keep its shape.
+
+        Not ``mapping``: this record carries the event name and the ids a reader needs to
+        replay a turn, and withholding those turns a transcript into a file the pane cannot
+        read at all.
+        """
+        try:
+            return redact_mapping(record, self._scrub)
+        except Exception as exc:  # noqa: BLE001 -- no scrub means no raw text persists
+            return withheld_transcript_event(record, self._reason(exc))
 
     def message(
         self,
