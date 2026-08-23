@@ -767,6 +767,30 @@
     }
   }
 
+  /* A display unit is as wide as the widest thing it may hold, and its content is brought back
+   * to the reading measure inside it.
+   *
+   * The reason is ``content-visibility``: it implies paint containment, which clips a descendant
+   * to this box. A ``.thread-bleed`` table reaches past the measure with a negative inline-start
+   * margin, so a unit that was only as wide as the measure cut the table's left edge off -- the
+   * first column simply vanished, header and all. It only showed on messages replayed from
+   * history, because those are the units that are deferred: a message that arrived while the
+   * thread was open renders eagerly, never carries the class, and never clipped.
+   *
+   * So the geometry does not depend on whether a unit was deferred. Both branches are laid out
+   * the same, which is also what keeps the browser's scroll anchor still when a unit paints for
+   * the first time. */
+  .thread-unit {
+    width: var(--thread-bleed, 100%);
+    max-width: var(--thread-bleed, 100%);
+    margin-inline-start: calc((100% - var(--thread-bleed, 100%)) / 2);
+  }
+
+  .thread-unit-measure {
+    max-width: var(--thread-measure, 100%);
+    margin-inline: auto;
+  }
+
   .thread-prompt-rail {
     display: none;
     left: 1.75rem;

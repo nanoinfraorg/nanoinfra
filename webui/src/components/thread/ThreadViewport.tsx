@@ -675,6 +675,9 @@ export const ThreadViewport = forwardRef<ThreadViewportHandle, ThreadViewportPro
                 style={{
                   maxWidth: threadWidth.measure,
                   ["--thread-bleed" as string]: threadWidth.bleed,
+                  // Each display unit is bleed-wide and puts prose back at the measure, so the
+                  // measure has to be readable from inside a unit as well.
+                  ["--thread-measure" as string]: threadWidth.measure,
                 }}
               >
                 <ThreadMessages

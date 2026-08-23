@@ -4,6 +4,7 @@ import { MessageBubble } from "@/components/MessageBubble";
 import { AgentActivityCluster } from "@/components/thread/AgentActivityCluster";
 import { AssistantSelectionAction } from "@/components/thread/AssistantSelectionAction";
 import { normalizeActivityTimeline, type TurnUnit } from "@/lib/activity-timeline";
+import { cn } from "@/lib/utils";
 import type { CliAppInfo, McpPresetInfo, SlashCommand, UIMessage } from "@/lib/types";
 
 interface ThreadMessagesProps {
@@ -183,30 +184,40 @@ const ThreadDisplayUnit = memo(function ThreadDisplayUnit({
   return (
     <>
       <div
-        className={`${marginTop}${stableDeferOffscreenRender ? " thread-render-unit" : ""}`}
+        // ``thread-unit`` is on both branches on purpose. ``content-visibility`` brings paint
+        // containment with it, so a unit narrower than ``--thread-bleed`` clips the table that
+        // bleeds past the measure -- which is why a replayed message lost its first column while
+        // the same table, arriving live, was whole.
+        className={cn(
+          marginTop,
+          "thread-unit",
+          stableDeferOffscreenRender ? "thread-render-unit" : undefined,
+        )}
         data-user-prompt-id={userPromptId}
       >
-        {unit.type === "activity" ? (
-          <AgentActivityCluster
-            messages={unit.messages}
-            isTurnStreaming={isTurnStreaming}
-            hasBodyBelow={hasBodyBelow}
-            turnLatencyMs={unit.turnLatencyMs}
-            startedAtMs={unit.startedAtMs}
-            cliApps={cliApps}
-            mcpPresets={mcpPresets}
-            onOpenFilePreview={onOpenFilePreview}
-          />
-        ) : (
-          <MessageBubble
-            message={unit.message}
-            cliApps={cliApps}
-            mcpPresets={mcpPresets}
-            slashCommands={slashCommands}
-            onOpenFilePreview={onOpenFilePreview}
-            onForkFromHere={forkIndex !== undefined ? onForkFromHere : undefined}
-          />
-        )}
+        <div className="thread-unit-measure">
+          {unit.type === "activity" ? (
+            <AgentActivityCluster
+              messages={unit.messages}
+              isTurnStreaming={isTurnStreaming}
+              hasBodyBelow={hasBodyBelow}
+              turnLatencyMs={unit.turnLatencyMs}
+              startedAtMs={unit.startedAtMs}
+              cliApps={cliApps}
+              mcpPresets={mcpPresets}
+              onOpenFilePreview={onOpenFilePreview}
+            />
+          ) : (
+            <MessageBubble
+              message={unit.message}
+              cliApps={cliApps}
+              mcpPresets={mcpPresets}
+              slashCommands={slashCommands}
+              onOpenFilePreview={onOpenFilePreview}
+              onForkFromHere={forkIndex !== undefined ? onForkFromHere : undefined}
+            />
+          )}
+        </div>
       </div>
       {showForkBoundary ? <ForkBoundaryDivider label={forkBoundaryLabel} /> : null}
     </>
