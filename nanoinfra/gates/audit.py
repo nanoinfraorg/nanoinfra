@@ -483,6 +483,7 @@ class AuditStore:
                 # os.open masks the mode with the umask, so set the mode exactly.
                 with suppress(OSError):
                     os.fchmod(fd, _FILE_MODE)
+                self._share_segment_with_the_directory_group(fd)
             self._write_all(fd, line, segment)
             # An audit record that a crash can drop is not evidence. Records arrive once
             # per gate decision, so one fsync per record costs little.
@@ -497,6 +498,36 @@ class AuditStore:
                 self.prune(now=moment)
             except OSError:
                 logger.exception("Audit retention pass failed in {}", self.root)
+
+    def _share_segment_with_the_directory_group(self, fd: int) -> None:
+        """Give a newly created segment the group its directory carries, so the reader can read it.
+
+        This log is written by one account and read by another: the executor appends, and the
+        agent process restores latches from it (#32) while the WebUI serves it (#29). A fresh file
+        inherits the *creator's* primary group, `nanoinfra-exec`, and the mode is 640, so the agent
+        is refused -- and a refused read fails closed, which latches every session in the
+        deployment. The rotation at midnight UTC is what creates that file, so a container that
+        boots healthy breaks hours later with nothing having changed.
+
+        `_DIR_MODE` asks for setgid, which would make the kernel do this. It is not enough, and the
+        same reason the job store gives applies here: a directory that arrives on a container volume
+        or an image layer loses `S_ISGID` on a chmod copy-up. Measured on the demo host, `chmod 2750`
+        reads back as 750 even as root, so nothing in the running deployment carries that bit.
+
+        So the group is set on the file, which the owner may do for any group it belongs to, and the
+        executor belongs to this directory's group. The directory's own group is the source of truth
+        rather than a name from the environment: an operator who opened this log to an audit group
+        gets that group, and a single-uid host has its own primary group there and changes nothing.
+        Failures are ignored at debug level -- a group this process cannot set is not a reason to
+        lose a gate decision, and the record has already been written.
+        """
+        try:
+            directory = os.stat(self.root)
+            current = os.fstat(fd)
+            if current.st_gid != directory.st_gid:
+                os.fchown(fd, -1, directory.st_gid)
+        except OSError as exc:
+            logger.debug("Could not share audit segment in {} with its directory group: {}", self.root, exc)
 
     @staticmethod
     def _write_all(fd: int, line: bytes, segment: Path) -> None:

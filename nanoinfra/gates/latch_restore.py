@@ -81,6 +81,36 @@ class RestoredLatches:
         return f"gates: restored {len(self.latched)} latched session(s) from the audit log: {pairs}"
 
 
+# The last unreadable-log failure this process reported, so a permanent fault is one line and
+# not one line per gate decision. The demo host produced a warning every fifteen seconds for an
+# hour, all of them naming the same file, which buries whatever else the log was saying. A change
+# of message is reported again, because a second cause is news.
+_last_unreadable_report: str | None = None
+
+
+def _report_unreadable(exc: OSError) -> None:
+    global _last_unreadable_report
+    message = f"{type(exc).__name__}: {exc}"
+    if message == _last_unreadable_report:
+        logger.debug("gates: audit log still unreadable, latches stay closed: {}", exc)
+        return
+    _last_unreadable_report = message
+    logger.warning("gates: audit log unreadable, latches stay closed: {}", exc)
+
+
+def _report_readable() -> None:
+    """Say so once when a log that had failed can be read again.
+
+    The recovery is the half an operator needs and never got: the warning stopped, which reads
+    the same as a gateway that simply stopped trying.
+    """
+    global _last_unreadable_report
+    if _last_unreadable_report is None:
+        return
+    _last_unreadable_report = None
+    logger.info("gates: the audit log can be read again, so latches come from the log once more")
+
+
 def restore_latches(store: AuditStore) -> RestoredLatches:
     """Read the audit segments and return the latch state they describe.
 
@@ -98,8 +128,9 @@ def restore_latches(store: AuditStore) -> RestoredLatches:
     try:
         records, healthy = _read_records(store)
     except OSError as exc:
-        logger.warning("gates: audit log unreadable, latches stay closed: {}", exc)
+        _report_unreadable(exc)
         return RestoredLatches(degraded=True)
+    _report_readable()
 
     if not healthy:
         return RestoredLatches(degraded=True)
