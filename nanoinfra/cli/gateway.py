@@ -25,6 +25,7 @@ from nanoinfra.gateway.service import (
     GatewayServiceResult,
     ServiceManagerKind,
 )
+from nanoinfra.utils.process_name import GATEWAY_NAME, set_process_name
 from nanoinfra.webui.build import BuildMode
 
 RuntimeConfigLoader = Callable[[str | None, str | None], Config]
@@ -181,6 +182,9 @@ def create_gateway_app(
             raise typer.Exit(1)
 
         configure_logging(verbose)
+        # This process is the gateway from here on, and the short listings should say so. The CLI
+        # itself already reads as `nanoinfra`, which the console script's shebang supplies.
+        set_process_name(GATEWAY_NAME)
         cfg = load_runtime_config(config, workspace)
         unconfigured_provider_error = None
         if validate_startup_config is not None:

@@ -25,6 +25,8 @@ from pathlib import Path
 
 from loguru import logger
 
+from nanoinfra.utils.process_name import EXECUTOR_NAME, set_process_name
+
 
 def main(argv: list[str] | None = None) -> int:
     """Parse the two paths and serve until a signal stops the process."""
@@ -55,5 +57,8 @@ def configure_child_logging() -> None:
 
 
 if __name__ == "__main__":
+    # `confinement.main` execs this module, and an exec resets `comm` to the
+    # interpreter. So the name belongs here, after the last exec.
+    set_process_name(EXECUTOR_NAME)
     configure_child_logging()
     raise SystemExit(main())

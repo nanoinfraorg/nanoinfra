@@ -14,6 +14,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from nanoinfra.utils.process_name import FETCHER_NAME, set_process_name
+
 
 def main(argv: list[str] | None = None) -> int:
     """Parse the two paths and serve until a signal stops the process."""
@@ -34,4 +36,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # `confinement.main` execs this module, and an exec resets `comm` to the
+    # interpreter. So the name belongs here, after the last exec.
+    set_process_name(FETCHER_NAME)
     raise SystemExit(main())
