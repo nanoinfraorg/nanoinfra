@@ -57,8 +57,13 @@ def configure_child_logging() -> None:
 
 
 if __name__ == "__main__":
-    # `confinement.main` execs this module, and an exec resets `comm` to the
-    # interpreter. So the name belongs here, after the last exec.
-    set_process_name(EXECUTOR_NAME)
     configure_child_logging()
+    # The sink is the first statement above, and a test asserts that it is: until it is installed,
+    # an unexpected exception prints frame locals, and this process holds a resolved command, a
+    # decrypted credential and the text under scrub. Naming the process waits one statement, and
+    # its own debug line then lands in the sink that was just configured.
+    #
+    # The name belongs here at all because `confinement.main` execs this module, and an exec
+    # resets `comm` to the interpreter, so anything set before that exec is lost.
+    set_process_name(EXECUTOR_NAME)
     raise SystemExit(main())

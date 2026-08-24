@@ -100,14 +100,28 @@ def test_the_child_writes_no_frame_locals_to_its_log() -> None:
     loguru exposes no handler options to a reader, so the check reads the entry point. That is
     the one place the child configures its own sink.
     """
+    import ast
     import inspect
 
     from nanoinfra.gates.executor import __main__ as entry_point
 
     source = inspect.getsource(entry_point)
-
     assert "diagnose=False" in source
-    assert 'if __name__ == "__main__":\n    configure_child_logging()' in source
+
+    # The invariant is that the sink is installed before anything else in the guard runs, not that
+    # the two lines are adjacent in the file. This used to be a source-literal check, and a comment
+    # added inside the guard failed it while the guarantee was intact.
+    guards = [
+        node for node in ast.parse(source).body
+        if isinstance(node, ast.If) and "__main__" in ast.unparse(node.test)
+    ]
+    assert len(guards) == 1, "the entry point has one __main__ guard"
+    first = guards[0].body[0]
+    assert isinstance(first, ast.Expr), "the guard opens with a call"
+    assert ast.unparse(first) == "configure_child_logging()", (
+        f"the guard opens with {ast.unparse(first)!r}; until the sink is installed an unexpected "
+        "exception prints frame locals, and this process holds a credential"
+    )
 
 
 def test_a_history_entry_persists_scrubbed(deployment: _Deployment) -> None:
