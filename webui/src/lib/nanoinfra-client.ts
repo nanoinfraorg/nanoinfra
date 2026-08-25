@@ -805,6 +805,8 @@ export class NanoinfraClient {
       timeoutMs?: number;
       includeHidden?: boolean;
       relativePath?: string;
+      /** Which workspace the parent path belongs to; omitted is the configured one. */
+      workspace?: string | null;
       /** Set on all three together to send one file as several frames. */
       uploadId?: string;
       chunkIndex?: number;
@@ -829,6 +831,7 @@ export class NanoinfraClient {
         // Present for a folder upload: the path the file had inside what was dropped,
         // which the server creates the directories for.
         ...(options?.relativePath ? { relative_path: options.relativePath } : {}),
+        ...(options?.workspace ? { workspace: options.workspace } : {}),
         ...(options?.uploadId !== undefined
           ? {
             upload_id: options.uploadId,

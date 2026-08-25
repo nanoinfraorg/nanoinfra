@@ -416,6 +416,16 @@ class ToolsConfig(Base):
         default_factory=lambda: _lazy_default("nanoinfra.agent.tools.image_generation", "ImageGenerationToolConfig"),
     )
     restrict_to_workspace: bool = True  # keep tool access inside the workspace; see loader._migrate_config for the upgrade pin (#135)
+    #: Where workspaces live, and the boundary a *client* may name one inside.
+    #:
+    #: Declared rather than derived: the parent of ``agents.defaults.workspace`` is
+    #: ``~/.nanoinfra``, which holds ``config.json`` with the provider keys and the
+    #: secrets store, so deriving it would hand the WebUI a reader for both.
+    #:
+    #: The configured workspace is allowed even when it sits outside this root,
+    #: because config is git-reviewed and widens deliberately while a client-supplied
+    #: path does not -- the same split ``webui/file_preview.py`` records.
+    workspaces_root: str = "~/.nanoinfra/workspaces"
     webui_allow_local_service_access: bool = Field(
         default=True,
         validation_alias=AliasChoices(

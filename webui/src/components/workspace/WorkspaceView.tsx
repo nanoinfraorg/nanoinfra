@@ -30,6 +30,7 @@ import {
   type ContextMenuItem,
 } from "@/components/workspace/WorkspaceContextMenu";
 import { WorkspaceDeleteConfirm } from "@/components/workspace/WorkspaceDeleteConfirm";
+import { WorkspacePicker } from "@/components/workspace/WorkspacePicker";
 import {
   WorkspaceUploadReview,
   type UploadPlan,
@@ -75,6 +76,9 @@ interface WorkspaceViewProps {
   /** Absolute path the tree is rooted at, or `null` for the workspace root. */
   path?: string | null;
   onPathChange?: (path: string | null, options?: { replace?: boolean }) => void;
+  /** Which workspace is open, or `null` for the configured one. */
+  workspace?: string | null;
+  onWorkspaceChange?: (workspace: string | null) => void;
 }
 
 function formatSize(bytes: number | null): string {
@@ -176,13 +180,18 @@ function NameInput({
  * does not read `restrict_to_workspace`, which governs the agent's file tools and
  * not what a browser may reach.
  */
-export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps) {
+export function WorkspaceView({
+  path = null,
+  onPathChange,
+  workspace = null,
+  onWorkspaceChange,
+}: WorkspaceViewProps) {
   const { client, token } = useClient();
   // Dot entries are off by default: a workspace under version control has a `.git`
   // whose objects are not what an operator opened this to look at. The server does
   // the filtering, so this is a refetch rather than a client-side unfilter.
   const [showHidden, setShowHidden] = useState(false);
-  const tree = useWorkspaceTree(path, showHidden);
+  const tree = useWorkspaceTree(path, showHidden, workspace);
   const { root, rows, separator } = tree;
 
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -244,11 +253,11 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
     const name = newFolder.value.trim();
     if (!name) return;
     const parent = newFolder.parent;
-    if (await runMutation(() => createWorkspaceFolder(token, parent, name, showHidden))) {
+    if (await runMutation(() => createWorkspaceFolder(token, parent, name, showHidden, workspace))) {
       setNewFolder(null);
       tree.expand(parent);
     }
-  }, [newFolder, runMutation, showHidden, token, tree]);
+  }, [newFolder, runMutation, showHidden, token, tree, workspace]);
 
   const submitRename = useCallback(async () => {
     if (!renaming) return;
@@ -258,16 +267,16 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
       return;
     }
     const done = await runMutation(() =>
-      renameWorkspaceEntry(token, renaming.parent, renaming.name, next, showHidden),
+      renameWorkspaceEntry(token, renaming.parent, renaming.name, next, showHidden, workspace),
     );
     if (done) setRenaming(null);
-  }, [renaming, runMutation, showHidden, token]);
+  }, [renaming, runMutation, showHidden, token, workspace]);
 
   const confirmDelete = useCallback(async () => {
     if (!pendingDelete) return;
     const { parent, name, recursive } = pendingDelete;
     const done = await runMutation(
-      () => deleteWorkspaceEntry(token, parent, name, recursive, showHidden),
+      () => deleteWorkspaceEntry(token, parent, name, recursive, showHidden, workspace),
       (error) => {
         // The server decides that a tree is involved, and the second dialog says so.
         // `recursive` is never sent speculatively.
@@ -282,13 +291,13 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
       setPendingDelete(null);
       setSelectedFile(null);
     }
-  }, [pendingDelete, runMutation, showHidden, token]);
+  }, [pendingDelete, runMutation, showHidden, token, workspace]);
 
   const download = useCallback(
     async (row: WorkspaceTreeRow) => {
       setActionError(null);
       try {
-        const blob = await downloadWorkspaceFile(token, row.path);
+        const blob = await downloadWorkspaceFile(token, row.path, workspace);
         // Handed to the browser here rather than linked to, because the route needs
         // the bearer token. Revoked on the next tick: the click is already dispatched,
         // and holding the object URL holds the bytes.
@@ -367,6 +376,7 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
               answered = await client.uploadWorkspaceFile(directory, item.file.name, dataUrl, {
                 includeHidden: showHidden,
                 relativePath: item.relativePath,
+                workspace,
                 ...(uploadId !== undefined
                   ? { uploadId, chunkIndex: part, chunkCount: parts }
                   : {}),
@@ -401,13 +411,13 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
       }
       if (notes.length > 0) setActionError(notes.join(". "));
     },
-    [client, showHidden, tree],
+    [client, showHidden, tree, workspace],
   );
 
   const move = useCallback(
     async (drag: DragPayload, destination: string) => {
       const done = await runMutation(() =>
-        moveWorkspaceEntry(token, drag.parent, drag.name, destination, showHidden),
+        moveWorkspaceEntry(token, drag.parent, drag.name, destination, showHidden, workspace),
       );
       if (done) {
         // The source parent came back in the answer; the destination is elsewhere in
@@ -416,7 +426,7 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
         tree.expand(destination);
       }
     },
-    [runMutation, showHidden, token, tree],
+    [runMutation, showHidden, token, tree, workspace],
   );
 
   /** Whether *destination* is a place this drag could land. */
@@ -587,8 +597,8 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
   // is enough -- but a fresh closure per render is the kind of thing that quietly
   // starts refetching again the next time someone touches that effect.
   const loadPreview = useCallback(
-    (target: string) => fetchWorkspaceFilePreview(token, target),
-    [token],
+    (target: string) => fetchWorkspaceFilePreview(token, target, workspace),
+    [token, workspace],
   );
 
   const rootDropActive = dropTarget !== null && root !== null && dropTarget === root.path;
@@ -612,6 +622,17 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
             </span>
           </div>
           <div className="flex items-center gap-2">
+            {onWorkspaceChange ? (
+              <WorkspacePicker
+                workspace={workspace}
+                onChange={(next) => {
+                  // The open sub-path belongs to the workspace being left.
+                  onPathChange?.(null);
+                  setSelectedFile(null);
+                  onWorkspaceChange(next);
+                }}
+              />
+            ) : null}
             <input
               ref={fileInputRef}
               type="file"

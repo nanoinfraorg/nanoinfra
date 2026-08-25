@@ -64,6 +64,7 @@ from nanoinfra.session.webui_turns import (
 )
 from nanoinfra.webui.assertion_identity import describe_trusted_proxy_posture
 from nanoinfra.webui.cli_apps_api import normalize_cli_app_mentions
+from nanoinfra.webui.file_browser import WebUIFileBrowserError
 from nanoinfra.webui.forking import handle_webui_fork_chat
 from nanoinfra.webui.gateway_services import GatewayServices
 from nanoinfra.webui.http_utils import (
@@ -1105,10 +1106,28 @@ class WebSocketChannel(BaseChannel):
             if connection not in self._webui_connections:
                 await self._send_event(connection, "error", detail="access_denied")
                 return
+            # The same gate the HTTP routes use, so an upload cannot reach a
+            # workspace the listing routes would refuse to show.
+            try:
+                upload_scope = self._http_router.workspace_scope_for(
+                    envelope.get("workspace") if isinstance(envelope.get("workspace"), str) else None
+                )
+            except WebUIFileBrowserError as exc:
+                await self._send_event(
+                    connection,
+                    "workspace_upload_error",
+                    detail=exc.message,
+                    **(
+                        {"request_id": envelope["request_id"]}
+                        if isinstance(envelope.get("request_id"), str)
+                        else {}
+                    ),
+                )
+                return
             event, payload = await asyncio.to_thread(
                 webui_workspace_upload_event,
                 envelope,
-                scope=self._workspaces.default_scope(),
+                scope=upload_scope,
                 sessions=self._upload_sessions.setdefault(connection, {}),
             )
             await self._send_event(connection, event, **payload)

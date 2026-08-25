@@ -26,6 +26,7 @@ from websockets.http11 import Response
 from nanoinfra.automations.delivery import DELIVERY_POLICIES
 from nanoinfra.automations.state import AutomationStateError, AutomationStateStore
 from nanoinfra.command.builtin import builtin_command_palette
+from nanoinfra.config.loader import load_config
 from nanoinfra.cron.session_turns import is_bound_cron_job
 from nanoinfra.cron.types import CronJob, CronSchedule
 from nanoinfra.diagrams.normalize import DiagramValidationError
@@ -36,7 +37,7 @@ from nanoinfra.secrets.crypto import SecretsNotConfiguredError
 from nanoinfra.secrets.normalize import SecretValidationError
 from nanoinfra.secrets.postgres_backend import PostgresSecretsNotConfiguredError
 from nanoinfra.secrets.store import SecretsStoreUnreadableError, SecretStore
-from nanoinfra.security.workspace_access import WorkspaceScope
+from nanoinfra.security.workspace_access import WorkspaceScope, build_workspace_scope
 from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.normalize import ServerValidationError
 from nanoinfra.servers.store import ServerStore
@@ -194,6 +195,11 @@ from nanoinfra.webui.skills_marketplace import (
 )
 from nanoinfra.webui.thread_disk import delete_webui_thread
 from nanoinfra.webui.transcript import build_webui_thread_response
+from nanoinfra.webui.workspace_roots import (
+    create_workspace,
+    resolve_client_workspace,
+    workspaces_payload_for_root,
+)
 from nanoinfra.webui.workspaces import WebUIWorkspaceController
 
 _SLOW_WEBUI_HTTP_LOG_MS = 1_000
@@ -1523,6 +1529,10 @@ class GatewayHTTPHandler:
         if got.startswith("/api/webui/workspace/") and not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
         bare = got.split("?", 1)[0]
+        if bare == "/api/webui/workspace/projects":
+            return self._handle_workspace_projects(request)
+        if bare == "/api/webui/workspace/projects/create":
+            return self._handle_workspace_project_create(request)
         if bare == "/api/webui/workspace/list":
             return self._handle_workspace_list(request)
         if bare == "/api/webui/workspace/preview":
@@ -1539,6 +1549,46 @@ class GatewayHTTPHandler:
             return self._handle_workspace_delete(request)
         return None
 
+    def workspace_scope_for(self, raw: str | None) -> Any:
+        """The scope for a workspace a client named, or the configured one.
+
+        The single gate for that choice (`workspace_roots.resolve_client_workspace`):
+        the workspaces root, something under it, or the configured workspace. The
+        access mode is the operator's, never the client's -- picking which workspace
+        to look at is not a way to widen what may be done inside it.
+        """
+        default = self.workspaces.default_scope()
+        root = Path(load_config().tools.workspaces_root).expanduser()
+        resolved = resolve_client_workspace(
+            raw, root=root, default_workspace=Path(default.project_path)
+        )
+        if resolved == Path(default.project_path):
+            return default
+        return build_workspace_scope(
+            resolved,
+            default.access_mode,
+            source_channel=default.source_channel,
+        )
+
+    def _handle_workspace_projects(self, request: WsRequest) -> Response:
+        """The workspaces a client may choose between."""
+        default = self.workspaces.default_scope()
+        root = Path(load_config().tools.workspaces_root).expanduser()
+        return _http_json_response(
+            workspaces_payload_for_root(root, Path(default.project_path))
+        )
+
+    def _handle_workspace_project_create(self, request: WsRequest) -> Response:
+        values = _workspace_values_from_request(request)
+        if values is None:
+            return _http_error(400, "invalid workspace payload")
+        root = Path(load_config().tools.workspaces_root).expanduser()
+        try:
+            payload = create_workspace(root, str(values.get("name") or ""))
+        except WebUIFileBrowserError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
+
     def _handle_workspace_list(self, request: WsRequest) -> Response:
         """One directory of the active workspace, for the Workspaces explorer."""
         query = _parse_query(request.path)
@@ -1546,7 +1596,7 @@ class GatewayHTTPHandler:
         try:
             payload = directory_listing_payload(
                 path,
-                scope=self.workspaces.default_scope(),
+                scope=self.workspace_scope_for(_query_first(query, "workspace")),
                 include_hidden=_query_first(query, "hidden") == "1",
             )
         except WebUIFileBrowserError as e:
@@ -1563,7 +1613,10 @@ class GatewayHTTPHandler:
         """
         query = _parse_query(request.path)
         path = _query_first(query, "path")
-        scope = self.workspaces.default_scope()
+        try:
+            scope = self.workspace_scope_for(_query_first(query, "workspace"))
+        except WebUIFileBrowserError as e:
+            return _http_error(e.status, e.message)
         try:
             # Resolved by the browser module first, so a path the explorer may not
             # enumerate cannot be read through the preview route either. Its
@@ -1584,7 +1637,7 @@ class GatewayHTTPHandler:
         try:
             resolved, body = read_file_for_download(
                 _query_first(query, "path"),
-                scope=self.workspaces.default_scope(),
+                scope=self.workspace_scope_for(_query_first(query, "workspace")),
             )
         except WebUIFileBrowserError as e:
             return _http_error(e.status, e.message)
@@ -1615,7 +1668,7 @@ class GatewayHTTPHandler:
             payload = create_directory(
                 _optional_str(values.get("parent")),
                 str(values.get("name") or ""),
-                scope=self.workspaces.default_scope(),
+                scope=self.workspace_scope_for(_optional_str(values.get("workspace"))),
                 include_hidden=values.get("includeHidden") is True,
             )
         except WebUIFileBrowserError as e:
@@ -1631,7 +1684,7 @@ class GatewayHTTPHandler:
                 _optional_str(values.get("parent")),
                 str(values.get("name") or ""),
                 str(values.get("newName") or ""),
-                scope=self.workspaces.default_scope(),
+                scope=self.workspace_scope_for(_optional_str(values.get("workspace"))),
                 include_hidden=values.get("includeHidden") is True,
             )
         except WebUIFileBrowserError as e:
@@ -1647,7 +1700,7 @@ class GatewayHTTPHandler:
                 _optional_str(values.get("parent")),
                 str(values.get("name") or ""),
                 _optional_str(values.get("destination")),
-                scope=self.workspaces.default_scope(),
+                scope=self.workspace_scope_for(_optional_str(values.get("workspace"))),
                 include_hidden=values.get("includeHidden") is True,
             )
         except WebUIFileBrowserError as e:
@@ -1665,7 +1718,7 @@ class GatewayHTTPHandler:
                 # Absent reads as false: a client that has not said it means to remove a
                 # tree does not get to remove one because the field was missing.
                 recursive=values.get("recursive") is True,
-                scope=self.workspaces.default_scope(),
+                scope=self.workspace_scope_for(_optional_str(values.get("workspace"))),
                 include_hidden=values.get("includeHidden") is True,
             )
         except WebUIFileBrowserError as e:

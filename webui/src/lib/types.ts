@@ -1685,6 +1685,23 @@ export interface WorkspaceEntry {
   escapesWorkspace: boolean;
 }
 
+/** One workspace a client may choose (`nanoinfra/webui/workspace_roots.py`). */
+export interface WorkspaceProject {
+  name: string;
+  path: string;
+  modified: string | null;
+  /** `agents.defaults.workspace`, which is allowed wherever it sits. */
+  isDefault: boolean;
+  /** Only the configured one can be true: config widens, a client does not. */
+  outsideRoot: boolean;
+}
+
+export interface WorkspaceProjectsPayload {
+  root: string;
+  defaultWorkspace: string;
+  workspaces: WorkspaceProject[];
+}
+
 export interface WorkspaceListingPayload {
   /** Absolute path of the listed directory. */
   path: string;
@@ -1732,6 +1749,8 @@ export type Outbound =
       include_hidden?: boolean;
       /** `docs/img/logo.png` — the path inside a dropped folder, whose directories the server creates. */
       relative_path?: string;
+      /** Which workspace `parent` belongs to; absent is the configured one. */
+      workspace?: string;
       /** Absolute directory path, or null for the workspace root. */
       parent: string | null;
       name: string;

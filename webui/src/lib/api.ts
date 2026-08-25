@@ -52,6 +52,7 @@ import type {
   WorkspacesPayload,
   WebuiThreadPersistedPayload,
   WorkspaceListingPayload,
+  WorkspaceProjectsPayload,
   WorkspaceScopePayload,
 } from "./types";
 // Diagram payload shapes live with the feature (componentCatalog.ts,
@@ -275,16 +276,43 @@ export async function fetchFilePreview(
   );
 }
 
-/** One directory of the active workspace, for the Workspaces explorer. */
+/** The workspaces under `tools.workspacesRoot`, plus the configured one. */
+export async function fetchWorkspaceProjects(
+  token: string,
+  base: string = "",
+): Promise<WorkspaceProjectsPayload> {
+  return request<WorkspaceProjectsPayload>(
+    `${base}/api/webui/workspace/projects`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function createWorkspaceProject(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<{ workspace: string }> {
+  return request<{ workspace: string }>(
+    `${base}/api/webui/workspace/projects/create`,
+    token,
+    { headers: { [WORKSPACE_VALUES_HEADER]: encodeURIComponent(JSON.stringify({ name })) } },
+  );
+}
+
+/** One directory of a workspace, for the Workspaces explorer. */
 export async function fetchWorkspaceListing(
   token: string,
   path: string | null,
   includeHidden: boolean = false,
+  workspace: string | null = null,
   base: string = "",
 ): Promise<WorkspaceListingPayload> {
   const query = new URLSearchParams();
   if (path) query.set("path", path);
   if (includeHidden) query.set("hidden", "1");
+  if (workspace) query.set("workspace", workspace);
   return request<WorkspaceListingPayload>(
     `${base}/api/webui/workspace/list?${query}`,
     token,
@@ -297,10 +325,12 @@ export async function fetchWorkspaceListing(
 export async function fetchWorkspaceFilePreview(
   token: string,
   path: string,
+  workspace: string | null = null,
   base: string = "",
 ): Promise<FilePreviewPayload> {
   const query = new URLSearchParams();
   query.set("path", path);
+  if (workspace) query.set("workspace", workspace);
   return request<FilePreviewPayload>(
     `${base}/api/webui/workspace/preview?${query}`,
     token,
@@ -311,6 +341,8 @@ export async function fetchWorkspaceFilePreview(
 
 /** Arguments for one workspace mutation. `parent` null means the workspace root. */
 interface WorkspaceMutation {
+  /** Which workspace the parent path belongs to; null is the configured one. */
+  workspace?: string | null;
   parent: string | null;
   name: string;
   newName?: string;
@@ -342,12 +374,13 @@ export async function createWorkspaceFolder(
   parent: string | null,
   name: string,
   includeHidden: boolean = false,
+  workspace: string | null = null,
   base: string = "",
 ): Promise<WorkspaceListingPayload> {
   return workspaceMutation(
     "/api/webui/workspace/mkdir",
     token,
-    { parent, name, includeHidden },
+    { parent, name, includeHidden, workspace },
     base,
   );
 }
@@ -358,12 +391,13 @@ export async function renameWorkspaceEntry(
   name: string,
   newName: string,
   includeHidden: boolean = false,
+  workspace: string | null = null,
   base: string = "",
 ): Promise<WorkspaceListingPayload> {
   return workspaceMutation(
     "/api/webui/workspace/rename",
     token,
-    { parent, name, newName, includeHidden },
+    { parent, name, newName, includeHidden, workspace },
     base,
   );
 }
@@ -374,12 +408,13 @@ export async function moveWorkspaceEntry(
   name: string,
   destination: string | null,
   includeHidden: boolean = false,
+  workspace: string | null = null,
   base: string = "",
 ): Promise<WorkspaceListingPayload> {
   return workspaceMutation(
     "/api/webui/workspace/move",
     token,
-    { parent, name, destination, includeHidden },
+    { parent, name, destination, includeHidden, workspace },
     base,
   );
 }
@@ -390,12 +425,13 @@ export async function deleteWorkspaceEntry(
   name: string,
   recursive: boolean,
   includeHidden: boolean = false,
+  workspace: string | null = null,
   base: string = "",
 ): Promise<WorkspaceListingPayload> {
   return workspaceMutation(
     "/api/webui/workspace/delete",
     token,
-    { parent, name, recursive, includeHidden },
+    { parent, name, recursive, includeHidden, workspace },
     base,
   );
 }
@@ -410,10 +446,12 @@ export async function deleteWorkspaceEntry(
 export async function downloadWorkspaceFile(
   token: string,
   path: string,
+  workspace: string | null = null,
   base: string = "",
 ): Promise<Blob> {
   const query = new URLSearchParams();
   query.set("path", path);
+  if (workspace) query.set("workspace", workspace);
   const res = await fetchWithTimeout(
     `${base}/api/webui/workspace/download?${query}`,
     {

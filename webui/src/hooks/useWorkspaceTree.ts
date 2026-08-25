@@ -42,6 +42,7 @@ function readError(e: unknown): string {
 export function useWorkspaceTree(
   rootPath: string | null,
   includeHidden: boolean,
+  workspace: string | null = null,
 ): {
   root: WorkspaceListingPayload | null;
   rows: WorkspaceTreeRow[];
@@ -75,7 +76,12 @@ export function useWorkspaceTree(
       if (inFlight.current.has(key)) return;
       inFlight.current.add(key);
       try {
-        const payload = await fetchWorkspaceListing(tokenRef.current(), target, includeHidden);
+        const payload = await fetchWorkspaceListing(
+          tokenRef.current(),
+          target,
+          includeHidden,
+          workspace,
+        );
         setListings((previous) => new Map(previous).set(payload.path, payload));
         if (options?.isRoot) setRootKey(payload.path);
         setError(null);
@@ -85,7 +91,7 @@ export function useWorkspaceTree(
         inFlight.current.delete(key);
       }
     },
-    [includeHidden],
+    [includeHidden, workspace],
   );
 
   // The root, and a full reset whenever the root or the dot-entry view changes:

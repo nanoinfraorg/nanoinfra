@@ -114,6 +114,10 @@ type ShellRoute = {
   // showing, so a reload or a shared link lands in the same folder. Absolute,
   // because that is what the server's listing answers with (and re-contains).
   workspacePath?: string | null;
+  // Only meaningful for view "workspace" — which workspace the explorer has open,
+  // absent for the configured one. Separate from `workspacePath`, which is a
+  // directory inside it.
+  workspaceRoot?: string | null;
 };
 
 const loadSettingsView = () => import("@/components/settings/SettingsView");
@@ -271,7 +275,14 @@ function readShellRoute(): ShellRoute {
   }
   if (path === "/workspace") {
     const workspacePath = params.get("p")?.trim() || null;
-    return { view: "workspace", activeKey, settingsSection: "overview", workspacePath };
+    const workspaceRoot = params.get("w")?.trim() || null;
+    return {
+      view: "workspace",
+      activeKey,
+      settingsSection: "overview",
+      workspacePath,
+      workspaceRoot,
+    };
   }
   if (path === "/servers") {
     return { view: "servers", activeKey, settingsSection: "overview" };
@@ -312,6 +323,9 @@ function shellRouteHash(route: ShellRoute): string {
   }
   if (route.view === "workspace" && route.workspacePath) {
     params.set("p", route.workspacePath);
+  }
+  if (route.view === "workspace" && route.workspaceRoot) {
+    params.set("w", route.workspaceRoot);
   }
   const query = params.toString();
   return `#/${route.view}${query ? `?${query}` : ""}`;
@@ -1030,6 +1044,9 @@ function Shell({
   const [workspacePath, setWorkspacePath] = useState<string | null>(
     initialRouteRef.current.workspacePath ?? null,
   );
+  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(
+    initialRouteRef.current.workspaceRoot ?? null,
+  );
   const [hostSidebarOpen, setHostSidebarOpen] =
     useState<boolean>(readSidebarOpen);
   const [hostSidebarPreviewOpen, setHostSidebarPreviewOpen] = useState(false);
@@ -1087,7 +1104,9 @@ function Shell({
       setSettingsInitialSection(route.settingsSection);
       setDiagramId(route.diagramId ?? null);
       setWorkspacePath(route.workspacePath ?? null);
+      setWorkspaceRoot(route.workspaceRoot ?? null);
       setWorkspacePath(route.workspacePath ?? null);
+      setWorkspaceRoot(route.workspaceRoot ?? null);
       writeShellRoute(route, options?.replace);
     },
     [],
@@ -1103,9 +1122,28 @@ function Shell({
   const onWorkspacePathChange = useCallback(
     (next: string | null, options?: { replace?: boolean }) => {
       navigate(
-        { view: "workspace", activeKey, settingsSection: "overview", workspacePath: next },
+        {
+          view: "workspace",
+          activeKey,
+          settingsSection: "overview",
+          workspacePath: next,
+          workspaceRoot,
+        },
         options,
       );
+    },
+    [activeKey, navigate, workspaceRoot],
+  );
+
+  const onWorkspaceRootChange = useCallback(
+    (next: string | null) => {
+      navigate({
+        view: "workspace",
+        activeKey,
+        settingsSection: "overview",
+        workspacePath: null,
+        workspaceRoot: next,
+      });
     },
     [activeKey, navigate],
   );
@@ -1118,6 +1156,7 @@ function Shell({
       setSettingsInitialSection(route.settingsSection);
       setDiagramId(route.diagramId ?? null);
       setWorkspacePath(route.workspacePath ?? null);
+      setWorkspaceRoot(route.workspaceRoot ?? null);
       setWorkspaceError(null);
       if (route.view === "chat" && !route.activeKey) {
         setDraftWorkspaceScope(null);
@@ -2312,7 +2351,12 @@ function Shell({
             {view === "workspace" && (
               <div className="absolute inset-0 flex flex-col">
                 <Suspense fallback={<SurfaceLoadingFallback />}>
-                  <WorkspaceView path={workspacePath} onPathChange={onWorkspacePathChange} />
+                  <WorkspaceView
+                    path={workspacePath}
+                    onPathChange={onWorkspacePathChange}
+                    workspace={workspaceRoot}
+                    onWorkspaceChange={onWorkspaceRootChange}
+                  />
                 </Suspense>
               </div>
             )}

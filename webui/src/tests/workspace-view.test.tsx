@@ -175,7 +175,7 @@ describe("WorkspaceView tree", () => {
     expect(screen.getByText("src")).toBeInTheDocument();
     expect(screen.getByText("README.md")).toBeInTheDocument();
     expect(onPathChange).not.toHaveBeenCalled();
-    expect(listSpy).toHaveBeenLastCalledWith("tok", `${ROOT}/src`, false);
+    expect(listSpy).toHaveBeenLastCalledWith("tok", `${ROOT}/src`, false, null);
   });
 
   it("collapses without refetching what it already has", async () => {
@@ -267,7 +267,14 @@ describe("WorkspaceView context menu", () => {
     await userEvent.type(input, "GUIDE.md");
     await userEvent.click(screen.getByRole("button", { name: "Confirm name" }));
 
-    expect(api.renameWorkspaceEntry).toHaveBeenCalledWith("tok", ROOT, "README.md", "GUIDE.md", false);
+    expect(api.renameWorkspaceEntry).toHaveBeenCalledWith(
+      "tok",
+      ROOT,
+      "README.md",
+      "GUIDE.md",
+      false,
+      null,
+    );
   });
 
   it("creates a folder inside the folder it was asked on", async () => {
@@ -283,7 +290,7 @@ describe("WorkspaceView context menu", () => {
     await userEvent.click(screen.getByRole("button", { name: "Confirm name" }));
 
     // The parent is the folder the menu was opened on, not the root.
-    expect(api.createWorkspaceFolder).toHaveBeenCalledWith("tok", `${ROOT}/src`, "docs", false);
+    expect(api.createWorkspaceFolder).toHaveBeenCalledWith("tok", `${ROOT}/src`, "docs", false, null);
   });
 
   it("closes on a click outside", async () => {
@@ -342,6 +349,7 @@ describe("WorkspaceView drag and drop", () => {
         "README.md",
         `${ROOT}/src`,
         false,
+        null,
       ),
     );
   });
@@ -404,7 +412,7 @@ describe("WorkspaceView drag and drop", () => {
         `${ROOT}/src`,
         "dropped.txt",
         expect.stringContaining("data:"),
-        { includeHidden: false, relativePath: "dropped.txt" },
+        { includeHidden: false, relativePath: "dropped.txt", workspace: null },
       ),
     );
   });
@@ -653,7 +661,7 @@ describe("WorkspaceView listing behaviour", () => {
     await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
     expect(screen.getByText("w")).toBeInTheDocument();
     expect(screen.getByText("2 items")).toBeInTheDocument();
-    expect(listSpy).toHaveBeenCalledWith("tok", null, false);
+    expect(listSpy).toHaveBeenCalledWith("tok", null, false, null);
   });
 
   it("hides dot entries, says how many, and refetches when asked", async () => {
@@ -673,7 +681,7 @@ describe("WorkspaceView listing behaviour", () => {
 
     // The server does the filtering, so revealing them is a refetch: a `.git` never
     // has to cross the wire to be hidden.
-    await waitFor(() => expect(listSpy).toHaveBeenLastCalledWith("tok", null, true));
+    await waitFor(() => expect(listSpy).toHaveBeenLastCalledWith("tok", null, true, null));
     expect(await screen.findByText(".git")).toBeInTheDocument();
   });
 
@@ -726,11 +734,11 @@ describe("WorkspaceView listing behaviour", () => {
     await waitFor(() =>
       expect(screen.getByText("Delete “src” and everything in it?")).toBeInTheDocument(),
     );
-    expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", ROOT, "src", false, false);
+    expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", ROOT, "src", false, false, null);
 
     await userEvent.click(screen.getByRole("button", { name: "Delete everything" }));
 
-    expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", ROOT, "src", true, false);
+    expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", ROOT, "src", true, false, null);
   });
 
   it("offers the same drag-to-resize handle the thread's preview has", async () => {
@@ -798,7 +806,7 @@ describe("WorkspaceView listing behaviour", () => {
     await userEvent.click(screen.getByText("README.md"));
 
     await waitFor(() =>
-      expect(api.fetchWorkspaceFilePreview).toHaveBeenCalledWith("tok", `${ROOT}/README.md`),
+      expect(api.fetchWorkspaceFilePreview).toHaveBeenCalledWith("tok", `${ROOT}/README.md`, null),
     );
   });
 });
