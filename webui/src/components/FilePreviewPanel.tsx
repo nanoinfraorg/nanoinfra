@@ -67,6 +67,13 @@ export function FilePreviewPanel({
   const [entered, setEntered] = useState(false);
   const tokenRef = useRef(token);
   tokenRef.current = token;
+  // Held in a ref for the same reason the token is: the fetch below must re-run when
+  // the *path* changes and at no other time. A caller that builds this inline —
+  // `loadPreview={(p) => fetch(p)}` — hands us a new function on every one of its
+  // renders, and with that in the effect's dependencies an unrelated poll elsewhere
+  // in the app (the approvals refresh, every 5s) reloaded the open file each time.
+  const loadPreviewRef = useRef(loadPreview);
+  loadPreviewRef.current = loadPreview;
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => setEntered(true));
@@ -76,8 +83,9 @@ export function FilePreviewPanel({
   useEffect(() => {
     let cancelled = false;
     setState({ status: "loading" });
-    const pending = loadPreview
-      ? loadPreview(path)
+    const loader = loadPreviewRef.current;
+    const pending = loader
+      ? loader(path)
       : fetchFilePreview(tokenRef.current, sessionKey ?? "", path);
     pending
       .then((payload) => {
@@ -89,7 +97,7 @@ export function FilePreviewPanel({
     return () => {
       cancelled = true;
     };
-  }, [loadPreview, path, sessionKey]);
+  }, [path, sessionKey]);
 
   const displayPath = state.status === "ready" ? state.payload.display_path : path;
   const previewPath = state.status === "ready" ? state.payload.path : displayPath;

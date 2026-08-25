@@ -465,6 +465,55 @@ describe("WorkspaceView listing behaviour", () => {
     expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", ROOT, "src", true, false);
   });
 
+  it("offers the same drag-to-resize handle the thread's preview has", async () => {
+    vi.mocked(api.fetchWorkspaceFilePreview).mockResolvedValue({
+      path: `${ROOT}/README.md`,
+      display_path: "README.md",
+      project_path: ROOT,
+      language: "markdown",
+      content: "# hello",
+      size: 7,
+      truncated: false,
+    });
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByText("README.md"));
+
+    // The panel renders its handle only when a surface passes `onResizeStart`.
+    expect(await screen.findByRole("button", { name: "Resize file preview" })).toBeInTheDocument();
+  });
+
+  it("does not reload the open preview when something else re-renders the tree", async () => {
+    // The approvals poll re-renders this view every 5 seconds. With the panel's
+    // loader in its effect dependencies, each of those re-fetched the open file --
+    // visible in the network log as one preview request per poll.
+    vi.mocked(api.fetchWorkspaceFilePreview).mockResolvedValue({
+      path: `${ROOT}/README.md`,
+      display_path: "README.md",
+      project_path: ROOT,
+      language: "markdown",
+      content: "# hello",
+      size: 7,
+      truncated: false,
+    });
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("README.md"));
+    await waitFor(() => expect(api.fetchWorkspaceFilePreview).toHaveBeenCalledTimes(1));
+
+    // Any parent state change stands in for the poll: a drag-over sets `dropTarget`
+    // and re-renders every row.
+    const folder = screen.getByText("src").closest("div[draggable]") as HTMLElement;
+    fireEvent.dragOver(folder, {
+      dataTransfer: dataTransfer({ types: ["application/x-nanoinfra-workspace-entry"] }),
+    });
+    fireEvent.dragLeave(folder);
+    await userEvent.click(screen.getByRole("button", { name: "Show dot files" }));
+
+    expect(api.fetchWorkspaceFilePreview).toHaveBeenCalledTimes(1);
+  });
+
   it("opens a file in the preview pane through the workspace-scoped route", async () => {
     vi.mocked(api.fetchWorkspaceFilePreview).mockResolvedValue({
       path: `${ROOT}/README.md`,

@@ -29,6 +29,7 @@ import {
   type ContextMenuItem,
 } from "@/components/workspace/WorkspaceContextMenu";
 import { WorkspaceDeleteConfirm } from "@/components/workspace/WorkspaceDeleteConfirm";
+import { useFilePreviewResize } from "@/hooks/useFilePreviewResize";
 import { useWorkspaceTree, type WorkspaceTreeRow } from "@/hooks/useWorkspaceTree";
 import {
   ApiError,
@@ -186,6 +187,11 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadTargetRef = useRef<string | null>(null);
   const dragRef = useRef<DragPayload | null>(null);
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
+  const { width: previewWidth, onResizeStart } = useFilePreviewResize(
+    surfaceRef,
+    selectedFile !== null,
+  );
 
   const rootName = useMemo(() => {
     if (!root) return "Workspace";
@@ -478,10 +484,18 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
     return items;
   }, [download, menu, openFolderAsRoot, root, tree]);
 
+  // Stable across renders. The panel holds its loader in a ref too, so either alone
+  // is enough -- but a fresh closure per render is the kind of thing that quietly
+  // starts refetching again the next time someone touches that effect.
+  const loadPreview = useCallback(
+    (target: string) => fetchWorkspaceFilePreview(token, target),
+    [token],
+  );
+
   const rootDropActive = dropTarget !== null && root !== null && dropTarget === root.path;
 
   return (
-    <div className="flex h-full min-h-0 w-full">
+    <div ref={surfaceRef} className="relative flex h-full min-h-0 w-full">
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="flex min-w-0 flex-col">
@@ -778,7 +792,9 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
           key={selectedFile}
           path={selectedFile}
           token={token}
-          loadPreview={(target) => fetchWorkspaceFilePreview(token, target)}
+          loadPreview={loadPreview}
+          desktopWidth={previewWidth}
+          onResizeStart={onResizeStart}
           onClose={() => setSelectedFile(null)}
         />
       ) : null}
