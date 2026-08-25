@@ -304,3 +304,26 @@ def test_an_upload_into_a_subdirectory_keeps_its_relative_tree(tmp_path: Path) -
     assert event == "workspace_upload_result"
     assert (workspace / "existing" / "assets" / "logo.png").is_file()
     assert payload["listing"]["displayPath"] == "existing"
+
+
+def test_the_browser_and_the_server_agree_on_the_upload_limit() -> None:
+    """A comment naming the other side is not enough; the two must be checked.
+
+    The browser has to refuse an oversized file *before* sending it: base64 inflates
+    by 4/3, so a file past the gateway's frame limit closes the socket (1009) instead
+    of answering, taking the rest of a folder upload with it. That check is only as
+    good as its number matching this one.
+    """
+    import re
+
+    from nanoinfra.webui.workspace_upload_ws import MAX_UPLOAD_BYTES
+
+    source = Path(__file__).parents[2] / "webui" / "src" / "lib" / "dropped-files.ts"
+    text = source.read_text(encoding="utf-8")
+    found = re.search(r"MAX_UPLOAD_BYTES = (\d+) \* 1024 \* 1024", text)
+    assert found is not None, "the browser no longer declares MAX_UPLOAD_BYTES in MB"
+
+    browser_bytes = int(found.group(1)) * 1024 * 1024
+    assert browser_bytes == MAX_UPLOAD_BYTES, (
+        f"the browser refuses past {browser_bytes} bytes and the server past {MAX_UPLOAD_BYTES}"
+    )

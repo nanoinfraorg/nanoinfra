@@ -22,6 +22,18 @@ export interface CollectResult {
 /** Files one drop may carry. A bound on the work, not a judgement about real trees. */
 export const MAX_DROPPED_FILES = 500;
 
+/**
+ * Bytes one file may carry, checked here before anything is sent.
+ *
+ * Must match ``MAX_UPLOAD_BYTES`` in `nanoinfra/webui/workspace_upload_ws.py`, and a
+ * Python test asserts the two agree rather than trusting this comment.
+ *
+ * Checked client-side because the failure otherwise is not an error message: base64
+ * inflates by 4/3, so a file past the gateway's frame limit closes the socket
+ * (code 1009) instead of answering, taking the rest of the upload with it.
+ */
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
 // The DOM lib does not type the webkit entry API, and these are the three members
 // this module touches. Declared narrowly rather than reaching for `any`.
 interface FileSystemEntryLike {

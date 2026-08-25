@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   buildPlanTree,
+  defaultExclusions,
   isExcluded,
   remainingFiles,
   toggleExclusion,
@@ -137,8 +138,9 @@ export function WorkspaceUploadReview({
   onCancel: () => void;
   onConfirm: (files: DroppedFile[]) => void;
 }) {
-  const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const tree = useMemo(() => buildPlanTree(plan?.files ?? []), [plan]);
+  // Mounted per plan by the caller, so this initialiser runs once per proposal.
+  const [excluded, setExcluded] = useState<Set<string>>(() => defaultExclusions(tree));
   const keeping = useMemo(
     () => remainingFiles(plan?.files ?? [], excluded),
     [excluded, plan],

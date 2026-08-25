@@ -47,6 +47,7 @@ import {
 } from "@/lib/api";
 import {
   MAX_DROPPED_FILES,
+  MAX_UPLOAD_BYTES,
   collectDroppedFiles,
   filesFromList,
   type DroppedFile,
@@ -331,6 +332,16 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
         // listings would race each other — and a tree's intermediate directories
         // would be created by several requests at once.
         for (const [index, item] of dropped.entries()) {
+          if (item.file.size > MAX_UPLOAD_BYTES) {
+            // Refused here rather than sent: base64 inflates by 4/3, so a file past
+            // the gateway's frame limit closes the socket instead of answering, and
+            // takes every file after it down with it.
+            failures.push(
+              `${item.relativePath}: larger than the ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB limit`,
+            );
+            setProgress({ done: index + 1, total: dropped.length });
+            continue;
+          }
           const dataUrl = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onerror = () => reject(new Error(`could not read ${item.file.name}`));
@@ -880,6 +891,7 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
       />
 
       <WorkspaceUploadReview
+        key={plan ? `${plan.destination}:${plan.files.length}` : "none"}
         plan={plan}
         busy={busy}
         progress={progress}

@@ -121,13 +121,16 @@ function dataTransfer(
 }
 
 /** A dropped file, as `webkitGetAsEntry` reports one. */
-function fileEntry(name: string) {
+function fileEntry(name: string, size?: number) {
   return {
     isFile: true,
     isDirectory: false,
     name,
-    file: (onSuccess: (f: File) => void) =>
-      onSuccess(new File(["body"], name, { type: "text/plain" })),
+    file: (onSuccess: (f: File) => void) => {
+      const made = new File(["body"], name, { type: "text/plain" });
+      if (size !== undefined) Object.defineProperty(made, "size", { value: size });
+      onSuccess(made);
+    },
   };
 }
 
@@ -499,6 +502,57 @@ describe("WorkspaceView drag and drop", () => {
 
     await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(1));
     expect(uploadSpy.mock.calls[0][3].relativePath).toBe("docs/index.md");
+  });
+
+  it("refuses a file past the limit without sending it", async () => {
+    // Base64 inflates by 4/3, so a 34 MB file is a 45 MB frame: past the gateway's
+    // limit the socket closes instead of answering, and every file after it dies with
+    // it. That is what left a real upload stuck at 0/134.
+    uploadSpy.mockResolvedValue(listing(ROOT, [entry({ name: "small.txt" })]));
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+    fireEvent.drop(screen.getByTestId("workspace-tree"), {
+      dataTransfer: dataTransfer({
+        types: ["Files"],
+        items: droppedItems([
+          directoryEntry("data", [
+            fileEntry("huge.bin", 34 * 1024 * 1024),
+            fileEntry("small.txt", 12),
+          ]),
+        ]),
+      }),
+    });
+    await screen.findByRole("dialog");
+    await userEvent.click(screen.getByRole("button", { name: /Upload 2/ }));
+
+    // The small one still goes: one refusal does not abandon the rest.
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(1));
+    expect(uploadSpy.mock.calls[0][3].relativePath).toBe("data/small.txt");
+    expect(await screen.findByText(/larger than the 20 MB limit/)).toBeInTheDocument();
+  });
+
+  it("leaves a dropped .git out of the plan, visibly", async () => {
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+
+    fireEvent.drop(screen.getByTestId("workspace-tree"), {
+      dataTransfer: dataTransfer({
+        types: ["Files"],
+        items: droppedItems([
+          directoryEntry("project", [
+            directoryEntry(".git", [fileEntry("HEAD"), fileEntry("config")]),
+            fileEntry("main.py"),
+          ]),
+        ]),
+      }),
+    });
+
+    const dialog = await screen.findByRole("dialog");
+    // Shown and counted, not dropped from the plan: one click puts it back.
+    expect(within(dialog).getByText(".git")).toBeInTheDocument();
+    expect(within(dialog).getByText(/2 left out/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Upload 1$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Include .git" })).toBeInTheDocument();
   });
 
   it("puts a removed folder back", async () => {

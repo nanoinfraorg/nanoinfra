@@ -69,6 +69,33 @@ export function buildPlanTree(files: DroppedFile[]): PlanNode[] {
   return sort(roots.map(total));
 }
 
+/**
+ * What the review leaves out before the operator touches it: dot entries.
+ *
+ * Dropping a project folder brings its `.git` — 116 files of object database in the
+ * screenshot that prompted this — and that is not what anyone means by "upload this
+ * project". Left out rather than dropped from the plan, so it is visible, counted
+ * and one click from coming back; the tree already hides dot entries for the same
+ * reason.
+ *
+ * Minimal by construction: a dot folder's children are covered by the folder, so
+ * this does not descend into one it has already excluded.
+ */
+export function defaultExclusions(nodes: PlanNode[]): Set<string> {
+  const excluded = new Set<string>();
+  const walk = (list: PlanNode[]) => {
+    for (const node of list) {
+      if (node.name.startsWith(".")) {
+        excluded.add(node.path);
+        continue;
+      }
+      walk(node.children);
+    }
+  };
+  walk(nodes);
+  return excluded;
+}
+
 /** Whether *path* is excluded, itself or by a folder above it. */
 export function isExcluded(path: string, excluded: Set<string>): boolean {
   if (excluded.has(path)) return true;

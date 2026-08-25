@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildPlanTree,
+  defaultExclusions,
   isExcluded,
   remainingFiles,
   toggleExclusion,
@@ -84,5 +85,42 @@ describe("exclusions", () => {
     expect(isExcluded("docs/index.md", excluded)).toBe(true);
     expect(isExcluded("docs/img/logo.png", excluded)).toBe(true);
     expect(isExcluded("README.md", excluded)).toBe(false);
+  });
+
+  it("leaves dot entries out before the operator touches anything", () => {
+    // Dropping a project folder brings its `.git`, and that is not what anyone means
+    // by "upload this project".
+    const files = [
+      dropped(".git/objects/ab/cdef"),
+      dropped(".git/HEAD"),
+      dropped(".gitignore"),
+      dropped("src/main.py"),
+      dropped("README.md"),
+    ];
+    const excluded = defaultExclusions(buildPlanTree(files));
+
+    // Minimal: the folder covers its children rather than listing each one.
+    expect([...excluded].sort()).toEqual([".git", ".gitignore"]);
+    expect(remainingFiles(files, excluded).map((f) => f.relativePath)).toEqual([
+      "src/main.py",
+      "README.md",
+    ]);
+  });
+
+  it("leaves out a dot folder nested inside a kept one", () => {
+    const files = [dropped("src/.cache/blob"), dropped("src/main.py")];
+
+    expect([...defaultExclusions(buildPlanTree(files))]).toEqual(["src/.cache"]);
+  });
+
+  it("lets a dot entry be put back", () => {
+    const files = [dropped(".env.example"), dropped("README.md")];
+    const tree = buildPlanTree(files);
+    const excluded = defaultExclusions(tree);
+    expect(remainingFiles(files, excluded)).toHaveLength(1);
+
+    const restored = toggleExclusion(".env.example", excluded, tree);
+
+    expect(remainingFiles(files, restored)).toHaveLength(2);
   });
 });

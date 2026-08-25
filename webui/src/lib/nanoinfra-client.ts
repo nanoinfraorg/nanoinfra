@@ -1236,6 +1236,16 @@ export class NanoinfraClient {
       this.pendingNewChat = null;
     }
     this.rejectAllTranscriptions("socket closed");
+    // 1009 is the server's frame guard: the file we sent was larger than the socket
+    // carries. Without this the upload waited on a socket that no longer exists,
+    // while the client transparently reconnected and the progress bar sat at 0 --
+    // which is what a 34 MB file did.
+    this.failUpload(
+      undefined,
+      event?.code === 1009
+        ? "the file was too large for this gateway's message limit"
+        : "the connection dropped before the upload finished",
+    );
     for (const pending of this.pendingSystemCommands.values()) {
       clearTimeout(pending.timer);
       pending.reject(new Error("socket closed"));
