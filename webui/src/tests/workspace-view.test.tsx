@@ -811,6 +811,33 @@ describe("WorkspaceView listing behaviour", () => {
     expect(screen.getByTestId("workspace-tree").closest("div.hidden")).toBeNull();
   });
 
+  it("roots the tree where the preview's breadcrumb was clicked", async () => {
+    serve({
+      ...ROOT_WITH_SRC,
+      [`${ROOT}/src`]: listing(`${ROOT}/src`, [entry({ name: "main.py" })]),
+    });
+    vi.mocked(api.fetchWorkspaceFilePreview).mockResolvedValue({
+      path: `${ROOT}/src/main.py`,
+      display_path: "src/main.py",
+      project_path: ROOT,
+      language: "python",
+      content: "print()",
+      size: 7,
+      truncated: false,
+    });
+    const onPathChange = vi.fn();
+    render(wrap(<WorkspaceView onPathChange={onPathChange} />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("src"));
+    await userEvent.click(await screen.findByText("main.py"));
+    await screen.findByTestId("file-preview-panel");
+
+    await userEvent.click(screen.getByRole("button", { name: "src" }));
+
+    // The same move as "Open as root", asked for from the other pane.
+    expect(onPathChange).toHaveBeenCalledWith(`${ROOT}/src`);
+  });
+
   it("does not reload the open preview when something else re-renders the tree", async () => {
     // The approvals poll re-renders this view every 5 seconds. With the panel's
     // loader in its effect dependencies, each of those re-fetched the open file --

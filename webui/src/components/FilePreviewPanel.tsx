@@ -27,6 +27,14 @@ interface FilePreviewPanelProps {
    * than growing a second viewer beside it.
    */
   loadPreview?: (path: string) => Promise<FilePreviewPayload>;
+  /**
+   * Open a directory the breadcrumb names. Given it, the crumbs become buttons.
+   *
+   * Only the ones inside the file's own workspace do: the panel knows the workspace
+   * root from the payload, and the segments above it are paths the server refuses to
+   * list. Offering them would be offering a click that answers 403.
+   */
+  onNavigateToDirectory?: (path: string) => void;
   token: string;
   desktopWidth?: number;
   /**
@@ -65,6 +73,7 @@ export function FilePreviewPanel({
   sessionKey,
   path,
   loadPreview,
+  onNavigateToDirectory,
   token,
   desktopWidth = 544,
   fill = false,
@@ -132,6 +141,23 @@ export function FilePreviewPanel({
     [breadcrumbParts],
   );
   const hasCompactPrefix = breadcrumbParts.length > compactBreadcrumbParts.length;
+  // The absolute directory each crumb stands for, in the same order as the compact
+  // list. `null` where it is not a directory this may open: the file itself, or a
+  // segment above the workspace root the listing routes would refuse.
+  const crumbTargets = useMemo(() => {
+    const projectPath = state.status === "ready"
+      ? state.payload.project_path.replace(/\\/g, "/").replace(/\/$/, "")
+      : null;
+    const skipped = breadcrumbParts.length - compactBreadcrumbParts.length;
+    return compactBreadcrumbParts.map((_part, index) => {
+      const absoluteIndex = skipped + index;
+      if (absoluteIndex >= breadcrumbParts.length - 1) return null; // the file itself
+      const prefix = breadcrumbParts.slice(0, absoluteIndex + 1).join("/");
+      const absolute = hasRootPrefix ? `/${prefix}` : prefix;
+      if (projectPath === null) return null;
+      return absolute === projectPath || absolute.startsWith(`${projectPath}/`) ? absolute : null;
+    });
+  }, [breadcrumbParts, compactBreadcrumbParts, hasRootPrefix, state]);
   const breadcrumbTitle = `${hasRootPrefix ? "/" : ""}${[
     ...directoryParts,
     fileName,
@@ -244,17 +270,32 @@ export function FilePreviewPanel({
                         aria-hidden
                       />
                     ) : null}
-                    <span
-                      className={cn(
-                        "min-w-0 truncate rounded-[4px] px-1 py-0.5",
-                        isLast
-                          ? "font-medium text-foreground"
-                          : "max-w-[26vw] shrink text-muted-foreground/78",
-                      )}
-                      data-testid={isLast ? "file-preview-title" : undefined}
-                    >
-                      {part}
-                    </span>
+                    {crumbTargets[index] !== null && onNavigateToDirectory ? (
+                      <button
+                        type="button"
+                        onClick={() => onNavigateToDirectory(crumbTargets[index] as string)}
+                        title={crumbTargets[index] as string}
+                        className={cn(
+                          "min-w-0 max-w-[26vw] shrink truncate rounded-[4px] px-1 py-0.5 text-left",
+                          "text-muted-foreground/78 transition-colors hover:bg-muted hover:text-foreground",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        )}
+                      >
+                        {part}
+                      </button>
+                    ) : (
+                      <span
+                        className={cn(
+                          "min-w-0 truncate rounded-[4px] px-1 py-0.5",
+                          isLast
+                            ? "font-medium text-foreground"
+                            : "max-w-[26vw] shrink text-muted-foreground/78",
+                        )}
+                        data-testid={isLast ? "file-preview-title" : undefined}
+                      >
+                        {part}
+                      </span>
+                    )}
                   </span>
                 );
               })}

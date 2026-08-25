@@ -993,6 +993,14 @@ export function WorkspaceView({
             path={selectedFile}
             token={token}
             loadPreview={loadPreview}
+            // A crumb is a directory in this workspace, so clicking one roots the
+            // tree there — the same move as "Open as root", from the other pane. The
+            // preview stays open: the operator asked to look somewhere, not to stop
+            // reading this.
+            onNavigateToDirectory={(target) => {
+              setTreeCollapsed(false);
+              onPathChange?.(target);
+            }}
             // With nothing beside it, a width and a drag edge describe a pane that
             // is not there.
             fill={treeCollapsed}
