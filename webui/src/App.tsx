@@ -2347,6 +2347,7 @@ function Shell({
             )}
             {view !== "chat"
               && view !== "diagrams"
+              && view !== "workspace"
               && view !== "servers"
               && view !== "secrets"
               && view !== "approvals" && (

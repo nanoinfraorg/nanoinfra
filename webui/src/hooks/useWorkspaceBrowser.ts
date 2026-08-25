@@ -35,12 +35,17 @@ export function useWorkspaceBrowser(path: string | null): {
       setListing(payload);
       setError(null);
     } catch (e) {
-      // The message matters here in a way it does not in the gallery views: a 403
-      // is the containment boundary answering, and "HTTP 403" alone reads like a
-      // bug rather than the deliberate refusal it is.
+      // The server's own sentence, not a status code. A 403 is the containment
+      // boundary answering deliberately, and everything else already arrives as a
+      // written reason -- including "restart nanoinfra gateway", which is what a
+      // gateway too old to have these routes produces when the static handler
+      // answers the API path with WebUI HTML. Collapsing that to `HTTP 200` is how
+      // a stale gateway looks like a broken feature.
       setError(
         e instanceof ApiError
-          ? `${e.status === 403 ? "Outside the workspace" : `HTTP ${e.status}`}`
+          ? e.status === 403
+            ? "Outside the workspace"
+            : e.message
           : (e as Error).message,
       );
     } finally {

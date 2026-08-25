@@ -885,6 +885,48 @@ describe("App layout", () => {
     expect(screen.getByText("react-testing")).toBeInTheDocument();
   });
 
+  it("opens Workspaces from the main sidebar, and not Settings over it", async () => {
+    // The bug this pins: SettingsView is the catch-all for every view that is not
+    // explicitly excluded, so a new surface renders *under* Settings until its name
+    // is added to that list -- the sidebar highlights the right item and the URL is
+    // right, and the operator still sees Settings.
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/webui/workspace/list?": {
+        path: "/home/dev/.nanoinfra/workspace",
+        displayPath: "",
+        projectPath: "/home/dev/.nanoinfra/workspace",
+        parent: null,
+        entries: [
+          {
+            name: "HEARTBEAT.md",
+            kind: "file",
+            size: 702,
+            modified: "2026-08-19T10:00:00+00:00",
+            escapesWorkspace: false,
+          },
+        ],
+        truncated: false,
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Workspaces" }));
+
+    expect(await screen.findByText("HEARTBEAT.md")).toBeInTheDocument();
+    const explorerMain = screen.getByText("HEARTBEAT.md").closest("main");
+    expect(explorerMain).not.toBeNull();
+    expect(within(explorerMain as HTMLElement).queryByText("Overview")).not.toBeInTheDocument();
+    expect(within(sidebar).getByRole("button", { name: "Workspaces" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(document.title).toBe("Workspaces · nanoinfra");
+  });
+
   it("opens Automations from the main sidebar", async () => {
     mockFetchRoutes({
       "/api/settings": baseSettingsPayload(),

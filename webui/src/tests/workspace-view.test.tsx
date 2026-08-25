@@ -154,6 +154,20 @@ describe("WorkspaceView", () => {
     await waitFor(() => expect(screen.getByText("Outside the workspace")).toBeInTheDocument());
   });
 
+  it("relays what the gateway said instead of a bare status code", async () => {
+    // A gateway too old to have these routes answers the API path with WebUI HTML,
+    // and `request` turns that into this message with status 200. Collapsing it to
+    // "HTTP 200" is how a stale gateway looks like a broken feature.
+    listSpy.mockRejectedValue(
+      new ApiError(200, "Gateway returned WebUI HTML instead of JSON. Restart nanoinfra gateway and try again."),
+    );
+    render(wrap(<WorkspaceView />));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Restart nanoinfra gateway and try again/)).toBeInTheDocument(),
+    );
+  });
+
   it("says when a directory held more than one listing carries", async () => {
     listSpy.mockResolvedValue(listing({ truncated: true }));
     render(wrap(<WorkspaceView />));
