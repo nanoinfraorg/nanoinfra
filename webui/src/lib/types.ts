@@ -1718,6 +1718,8 @@ export type Outbound =
       request_id: string;
       /** Answer in the view the client is showing. */
       include_hidden?: boolean;
+      /** `docs/img/logo.png` — the path inside a dropped folder, whose directories the server creates. */
+      relative_path?: string;
       /** Absolute directory path, or null for the workspace root. */
       parent: string | null;
       name: string;

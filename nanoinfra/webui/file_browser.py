@@ -227,6 +227,46 @@ def validate_component(name: str) -> str:
     return text
 
 
+def ensure_relative_directory(
+    parent_path: str | None,
+    components: list[str],
+    *,
+    scope: WorkspaceScope,
+) -> Path:
+    """Create the directory chain *components* under *parent_path*, and return it.
+
+    What a recursive folder upload needs, and deliberately not what
+    ``create_directory`` does: that one refuses to create a parent the operator did
+    not name, because there they named exactly one folder. Here the client is
+    replaying a tree it read off the operator's own disk, and every level of it was
+    named by that choice.
+
+    Each component is validated as one ordinary path component before it is joined,
+    so ``docs/../../etc`` cannot walk out through a value the browser supplied
+    (``webkitRelativePath`` is untrusted input like any other). The result is
+    contained again by ``resolve_directory`` on every level.
+    """
+    current = resolve_directory(parent_path, scope=scope)
+    for raw in components:
+        candidate = current / validate_component(raw)
+        if candidate.is_symlink():
+            # A link here would be resolved by the next `resolve_directory`, and its
+            # target may sit anywhere. Refusing is clearer than following one the
+            # upload did not create.
+            raise WebUIFileBrowserError(409, f"{raw!r} is a link, not a folder")
+        if candidate.exists() and not candidate.is_dir():
+            raise WebUIFileBrowserError(409, f"a file named {raw!r} is in the way")
+        if not candidate.exists():
+            try:
+                candidate.mkdir()
+            except PermissionError as exc:
+                raise WebUIFileBrowserError(403, "not permitted to write here") from exc
+            except OSError as exc:
+                raise WebUIFileBrowserError(500, f"failed to create {raw!r}") from exc
+        current = resolve_directory(str(candidate), scope=scope)
+    return current
+
+
 def create_directory(
     parent_path: str | None,
     name: str,
@@ -463,6 +503,7 @@ __all__ = [
     "create_directory",
     "delete_entry",
     "directory_listing_payload",
+    "ensure_relative_directory",
     "move_entry",
     "read_file_for_download",
     "rename_entry",

@@ -105,16 +105,52 @@ const ROOT_WITH_SRC = {
   [`${ROOT}/src`]: listing(`${ROOT}/src`, [entry({ name: "main.py" })]),
 };
 
-function dataTransfer(overrides: Partial<DataTransfer> & { types: string[] }) {
+function dataTransfer(
+  overrides: Partial<DataTransfer> & { types: string[]; items?: unknown[] },
+) {
   const store = new Map<string, string>();
   return {
     setData: (type: string, value: string) => store.set(type, value),
     getData: (type: string) => store.get(type) ?? "",
     files: [] as unknown as FileList,
+    items: [] as unknown[],
     dropEffect: "none",
     effectAllowed: "none",
     ...overrides,
   } as unknown as DataTransfer;
+}
+
+/** A dropped file, as `webkitGetAsEntry` reports one. */
+function fileEntry(name: string) {
+  return {
+    isFile: true,
+    isDirectory: false,
+    name,
+    file: (onSuccess: (f: File) => void) =>
+      onSuccess(new File(["body"], name, { type: "text/plain" })),
+  };
+}
+
+/** A dropped directory, as `webkitGetAsEntry` reports one. */
+function directoryEntry(name: string, children: unknown[]) {
+  return {
+    isFile: false,
+    isDirectory: true,
+    name,
+    createReader: () => {
+      let sent = false;
+      return {
+        readEntries: (onSuccess: (entries: unknown[]) => void) => {
+          onSuccess(sent ? [] : children);
+          sent = true;
+        },
+      };
+    },
+  };
+}
+
+function droppedItems(entries: unknown[]) {
+  return entries.map((entry) => ({ webkitGetAsEntry: () => entry }));
 }
 
 describe("WorkspaceView tree", () => {
@@ -206,7 +242,10 @@ describe("WorkspaceView context menu", () => {
     const folderMenu = screen.getByRole("menu");
     expect(within(folderMenu).getByRole("menuitem", { name: "Expand" })).toBeInTheDocument();
     expect(within(folderMenu).getByRole("menuitem", { name: "Open as root" })).toBeInTheDocument();
-    expect(within(folderMenu).getByRole("menuitem", { name: "Upload here" })).toBeInTheDocument();
+    expect(within(folderMenu).getByRole("menuitem", { name: "Upload files here" })).toBeInTheDocument();
+    expect(
+      within(folderMenu).getByRole("menuitem", { name: "Upload folder here" }),
+    ).toBeInTheDocument();
     expect(within(folderMenu).queryByRole("menuitem", { name: "Download" })).not.toBeInTheDocument();
   });
 
@@ -343,10 +382,12 @@ describe("WorkspaceView drag and drop", () => {
     render(wrap(<WorkspaceView />));
     await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
 
-    const file = new File(["body"], "dropped.txt", { type: "text/plain" });
     const target = screen.getByText("src").closest("div[draggable]") as HTMLElement;
     fireEvent.drop(target, {
-      dataTransfer: dataTransfer({ types: ["Files"], files: [file] as unknown as FileList }),
+      dataTransfer: dataTransfer({
+        types: ["Files"],
+        items: droppedItems([fileEntry("dropped.txt")]),
+      }),
     });
 
     await waitFor(() =>
@@ -354,9 +395,61 @@ describe("WorkspaceView drag and drop", () => {
         `${ROOT}/src`,
         "dropped.txt",
         expect.stringContaining("data:"),
-        { includeHidden: false },
+        { includeHidden: false, relativePath: "dropped.txt" },
       ),
     );
+  });
+
+  it("uploads a dropped folder recursively, each file keeping its path", async () => {
+    uploadSpy.mockResolvedValue(listing(ROOT, [entry({ name: "docs", kind: "directory", size: null })]));
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+
+    // A dropped folder is not in `DataTransfer.files` at all: only the entry API
+    // reaches inside it.
+    fireEvent.drop(screen.getByTestId("workspace-tree"), {
+      dataTransfer: dataTransfer({
+        types: ["Files"],
+        items: droppedItems([
+          directoryEntry("docs", [
+            fileEntry("index.md"),
+            directoryEntry("img", [fileEntry("logo.png")]),
+          ]),
+        ]),
+      }),
+    });
+
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(2));
+    // The server creates the intermediate directories from these paths, so the client
+    // sends no mkdir of its own.
+    expect(uploadSpy.mock.calls.map((call) => call[3].relativePath)).toEqual([
+      "docs/index.md",
+      "docs/img/logo.png",
+    ]);
+    expect(uploadSpy.mock.calls.every((call) => call[0] === ROOT)).toBe(true);
+  });
+
+  it("reports the files a folder upload could not place, and keeps going", async () => {
+    // A folder often holds something that already exists. Stopping at the first
+    // refusal would leave the upload half done with no account of what landed.
+    uploadSpy
+      .mockRejectedValueOnce(new ApiError(409, "a file or folder with that name already exists"))
+      .mockResolvedValueOnce(listing(ROOT, [entry({ name: "docs", kind: "directory", size: null })]));
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+
+    fireEvent.drop(screen.getByTestId("workspace-tree"), {
+      dataTransfer: dataTransfer({
+        types: ["Files"],
+        items: droppedItems([
+          directoryEntry("docs", [fileEntry("index.md"), fileEntry("new.md")]),
+        ]),
+      }),
+    });
+
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/1 of 2 not uploaded/)).toBeInTheDocument();
+    expect(screen.getByText(/docs\/index.md/)).toBeInTheDocument();
   });
 
   it("ignores a drag that is neither ours nor files", async () => {

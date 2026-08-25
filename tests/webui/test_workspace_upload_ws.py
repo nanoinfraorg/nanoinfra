@@ -170,3 +170,137 @@ def test_a_binary_payload_round_trips_byte_for_byte(tmp_path: Path) -> None:
     )
 
     assert (workspace / "blob.bin").read_bytes() == body
+
+
+# -- Recursive folder upload -------------------------------------------------
+
+
+def test_a_relative_path_creates_the_directories_it_needs(tmp_path: Path) -> None:
+    """What a dropped folder sends: the path the file had inside it."""
+    workspace = _workspace(tmp_path)
+
+    event, payload = webui_workspace_upload_event(
+        _envelope(name="logo.png", relative_path="docs/img/logo.png"),
+        scope=default_workspace_scope(workspace, True),
+    )
+
+    assert event == "workspace_upload_result"
+    assert (workspace / "docs" / "img" / "logo.png").read_bytes() == b"hello"
+    # The answer is still the listing of the directory the upload was aimed at.
+    assert [e["name"] for e in payload["listing"]["entries"]] == ["docs"]
+
+
+def test_existing_directories_are_reused_rather_than_refused(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "docs").mkdir()
+    (workspace / "docs" / "keep.md").write_text("keep", encoding="utf-8")
+
+    event, _ = webui_workspace_upload_event(
+        _envelope(name="new.md", relative_path="docs/new.md"),
+        scope=default_workspace_scope(workspace, True),
+    )
+
+    assert event == "workspace_upload_result"
+    assert (workspace / "docs" / "keep.md").exists()
+    assert (workspace / "docs" / "new.md").exists()
+
+
+def test_a_relative_path_cannot_walk_out_of_the_workspace(tmp_path: Path) -> None:
+    """`webkitRelativePath` comes off the browser and is untrusted like anything else."""
+    workspace = _workspace(tmp_path)
+
+    event, payload = webui_workspace_upload_event(
+        _envelope(name="escaped.md", relative_path="../../escaped.md"),
+        scope=default_workspace_scope(workspace, True),
+    )
+
+    assert event == "workspace_upload_error"
+    assert "invalid name" in str(payload["detail"])
+    assert not (tmp_path / "escaped.md").exists()
+    assert not (tmp_path.parent / "escaped.md").exists()
+
+
+def test_a_relative_path_cannot_use_a_backslash_to_hide_a_component(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+
+    event, payload = webui_workspace_upload_event(
+        _envelope(name="x.md", relative_path="docs\\..\\..\\x.md"),
+        scope=default_workspace_scope(workspace, True),
+    )
+
+    assert event == "workspace_upload_error"
+    assert "separator" in str(payload["detail"])
+
+
+def test_a_file_in_the_way_of_a_directory_is_reported(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "docs").write_text("i am a file", encoding="utf-8")
+
+    event, payload = webui_workspace_upload_event(
+        _envelope(name="new.md", relative_path="docs/new.md"),
+        scope=default_workspace_scope(workspace, True),
+    )
+
+    assert event == "workspace_upload_error"
+    assert "in the way" in str(payload["detail"])
+    assert (workspace / "docs").read_text(encoding="utf-8") == "i am a file"
+
+
+def test_a_link_is_not_followed_to_place_an_upload(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (workspace / "docs").symlink_to(outside, target_is_directory=True)
+
+    event, payload = webui_workspace_upload_event(
+        _envelope(name="new.md", relative_path="docs/new.md"),
+        scope=default_workspace_scope(workspace, True),
+    )
+
+    assert event == "workspace_upload_error"
+    assert "is a link" in str(payload["detail"])
+    assert list(outside.iterdir()) == []
+
+
+def test_an_absurdly_deep_path_is_refused(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    deep = "/".join(f"level{index}" for index in range(40)) + "/file.md"
+
+    event, payload = webui_workspace_upload_event(
+        _envelope(name="file.md", relative_path=deep),
+        scope=default_workspace_scope(workspace, True),
+    )
+
+    assert event == "workspace_upload_error"
+    assert "upload limit" in str(payload["detail"])
+    assert list(workspace.iterdir()) == []
+
+
+def test_a_relative_path_of_one_component_behaves_like_a_plain_name(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+
+    event, _ = webui_workspace_upload_event(
+        _envelope(name="notes.md", relative_path="notes.md"),
+        scope=default_workspace_scope(workspace, True),
+    )
+
+    assert event == "workspace_upload_result"
+    assert (workspace / "notes.md").read_bytes() == b"hello"
+
+
+def test_an_upload_into_a_subdirectory_keeps_its_relative_tree(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "existing").mkdir()
+
+    event, payload = webui_workspace_upload_event(
+        _envelope(
+            parent=str(workspace / "existing"),
+            name="logo.png",
+            relative_path="assets/logo.png",
+        ),
+        scope=default_workspace_scope(workspace, True),
+    )
+
+    assert event == "workspace_upload_result"
+    assert (workspace / "existing" / "assets" / "logo.png").is_file()
+    assert payload["listing"]["displayPath"] == "existing"

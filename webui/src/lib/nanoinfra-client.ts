@@ -799,7 +799,7 @@ export class NanoinfraClient {
     parent: string | null,
     name: string,
     dataUrl: string,
-    options?: { timeoutMs?: number; includeHidden?: boolean },
+    options?: { timeoutMs?: number; includeHidden?: boolean; relativePath?: string },
   ): Promise<WorkspaceListingPayload> {
     const requestId = crypto.randomUUID();
     const timeoutMs = options?.timeoutMs ?? 120_000;
@@ -816,6 +816,9 @@ export class NanoinfraClient {
         name,
         data_url: dataUrl,
         ...(options?.includeHidden ? { include_hidden: true } : {}),
+        // Present for a folder upload: the path the file had inside what was dropped,
+        // which the server creates the directories for.
+        ...(options?.relativePath ? { relative_path: options.relativePath } : {}),
       });
     });
   }

@@ -21,6 +21,7 @@ from nanoinfra.security.workspace_access import WorkspaceScope
 from nanoinfra.webui.file_browser import (
     WebUIFileBrowserError,
     directory_listing_payload,
+    ensure_relative_directory,
     resolve_child,
 )
 
@@ -37,6 +38,11 @@ _MAX_REQUEST_ID_LENGTH = 80
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 _DATA_URL_RE = re.compile(r"^data:[^;,]*(?:;[^;,]*)*;base64,(.*)$", re.DOTALL)
+
+#: Directory levels one upload may create beneath its parent. A bound on what a single
+#: browser-supplied path can make the server do, not a judgement about how deep a real
+#: tree goes -- `webkitRelativePath` comes off an untrusted client like anything else.
+MAX_RELATIVE_DEPTH = 32
 
 
 def _decode_data_url(raw: Any) -> bytes | None:
@@ -84,8 +90,21 @@ def webui_workspace_upload_event(
     if len(data) > max_bytes:
         return error(f"file is larger than the {max_bytes // (1024 * 1024)} MB upload limit")
 
+    # A folder upload sends the path the file had inside the dropped folder
+    # (``docs/img/logo.png``); a single-file upload sends only its name. The
+    # intermediate directories are created here rather than in a round trip per level
+    # from the client, which for a real tree is hundreds of requests to say something
+    # the client already knows.
+    raw_relative = envelope.get("relative_path")
+    relative = [part for part in str(raw_relative).split("/") if part] if isinstance(raw_relative, str) else []
+    if len(relative) > MAX_RELATIVE_DEPTH:
+        return error(f"path is deeper than the {MAX_RELATIVE_DEPTH} level upload limit")
     try:
-        target = resolve_child(parent, str(envelope.get("name") or ""), scope=scope)
+        if relative:
+            directory = ensure_relative_directory(parent, relative[:-1], scope=scope)
+            target = resolve_child(str(directory), relative[-1], scope=scope)
+        else:
+            target = resolve_child(parent, str(envelope.get("name") or ""), scope=scope)
     except WebUIFileBrowserError as exc:
         return error(exc.message)
 

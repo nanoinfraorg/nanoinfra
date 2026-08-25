@@ -12,6 +12,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  FolderUp,
   Link2,
   Loader2,
   Pencil,
@@ -40,6 +41,12 @@ import {
   moveWorkspaceEntry,
   renameWorkspaceEntry,
 } from "@/lib/api";
+import {
+  MAX_DROPPED_FILES,
+  collectDroppedFiles,
+  filesFromList,
+  type DroppedFile,
+} from "@/lib/dropped-files";
 import type { WorkspaceEntry, WorkspaceListingPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
@@ -185,7 +192,9 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
   const uploadTargetRef = useRef<string | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const dragRef = useRef<DragPayload | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const { width: previewWidth, onResizeStart } = useFilePreviewResize(
@@ -288,34 +297,56 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
   );
 
   const uploadInto = useCallback(
-    async (directory: string, files: FileList | File[]) => {
-      const list = Array.from(files);
-      if (list.length === 0) return;
+    async (directory: string, dropped: DroppedFile[], truncated = false) => {
+      if (dropped.length === 0) return;
       setBusy(true);
       setActionError(null);
+      setProgress({ done: 0, total: dropped.length });
+      const failures: string[] = [];
       try {
         // Sequential on purpose: each answer carries the listing of the directory, so
         // the last one is the state after every file landed. In parallel those
-        // listings would race each other.
-        for (const file of list) {
+        // listings would race each other — and a tree's intermediate directories
+        // would be created by several requests at once.
+        for (const [index, item] of dropped.entries()) {
           const dataUrl = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
-            reader.onerror = () => reject(new Error(`could not read ${file.name}`));
+            reader.onerror = () => reject(new Error(`could not read ${item.file.name}`));
             reader.onload = () => resolve(String(reader.result));
-            reader.readAsDataURL(file);
+            reader.readAsDataURL(item.file);
           });
-          tree.replace(
-            await client.uploadWorkspaceFile(directory, file.name, dataUrl, {
-              includeHidden: showHidden,
-            }),
-          );
+          try {
+            tree.replace(
+              await client.uploadWorkspaceFile(directory, item.file.name, dataUrl, {
+                includeHidden: showHidden,
+                relativePath: item.relativePath,
+              }),
+            );
+          } catch (e) {
+            // One refused file does not abandon the rest of the tree: a folder often
+            // holds something that already exists, and stopping there would leave the
+            // upload half done with no account of what landed.
+            failures.push(`${item.relativePath}: ${(e as Error).message}`);
+          }
+          setProgress({ done: index + 1, total: dropped.length });
         }
         tree.expand(directory);
-      } catch (e) {
-        setActionError((e as Error).message);
       } finally {
         setBusy(false);
+        setProgress(null);
       }
+      const notes: string[] = [];
+      if (truncated) {
+        notes.push(`only the first ${MAX_DROPPED_FILES} files were uploaded`);
+      }
+      if (failures.length > 0) {
+        notes.push(
+          `${failures.length} of ${dropped.length} not uploaded — ${failures.slice(0, 3).join("; ")}${
+            failures.length > 3 ? "; …" : ""
+          }`,
+        );
+      }
+      if (notes.length > 0) setActionError(notes.join(". "));
     },
     [client, showHidden, tree],
   );
@@ -390,7 +421,14 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
         }
         return;
       }
-      if (event.dataTransfer.files.length > 0) void uploadInto(destination, event.dataTransfer.files);
+      // Read before any await: the DataTransfer is emptied once the event handler
+      // returns, so collecting it later finds nothing.
+      const transfer = event.dataTransfer;
+      if (transfer.items.length > 0 || transfer.files.length > 0) {
+        void collectDroppedFiles(transfer).then(({ files, truncated }) =>
+          uploadInto(destination, files, truncated),
+        );
+      }
     },
     [canDropInto, move, uploadInto],
   );
@@ -451,11 +489,19 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
         },
       });
       items.push({
-        label: "Upload here",
+        label: "Upload files here",
         icon: <Upload className="h-3.5 w-3.5" />,
         onSelect: () => {
           uploadTargetRef.current = directory;
           fileInputRef.current?.click();
+        },
+      });
+      items.push({
+        label: "Upload folder here",
+        icon: <FolderUp className="h-3.5 w-3.5" />,
+        onSelect: () => {
+          uploadTargetRef.current = directory;
+          folderInputRef.current?.click();
         },
       });
     }
@@ -503,13 +549,15 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
               {rootName}
             </span>
             <span className="text-[11px] text-muted-foreground">
-              {root
+              {progress
+                ? `Uploading ${progress.done}/${progress.total}…`
+                : root
                 ? `${root.entries.length} item${root.entries.length === 1 ? "" : "s"}${
                   root.hiddenCount > 0 ? ` · ${root.hiddenCount} hidden` : ""
                 }${root.truncated ? " · list cut, directory holds more" : ""}`
-                : tree.loading
-                  ? "Loading…"
-                  : ""}
+                  : tree.loading
+                    ? "Loading…"
+                    : ""}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -521,11 +569,31 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
               aria-label="Upload files"
               onChange={(event) => {
                 const destination = uploadTargetRef.current ?? root?.path ?? null;
-                if (destination !== null && event.target.files) {
-                  void uploadInto(destination, event.target.files);
+                const picked = filesFromList(event.target.files);
+                if (destination !== null) {
+                  void uploadInto(destination, picked.files, picked.truncated);
                 }
                 uploadTargetRef.current = null;
                 // Cleared so choosing the same file twice fires change again.
+                event.target.value = "";
+              }}
+            />
+            <input
+              ref={folderInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              aria-label="Upload folder"
+              // Non-standard, and the only way a file picker offers a directory.
+              // Every file then carries `webkitRelativePath`, which is the tree.
+              {...{ webkitdirectory: "", directory: "" }}
+              onChange={(event) => {
+                const destination = uploadTargetRef.current ?? root?.path ?? null;
+                const picked = filesFromList(event.target.files);
+                if (destination !== null) {
+                  void uploadInto(destination, picked.files, picked.truncated);
+                }
+                uploadTargetRef.current = null;
                 event.target.value = "";
               }}
             />
@@ -539,6 +607,17 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
               className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Upload className="h-3.5 w-3.5" /> Upload
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                uploadTargetRef.current = root?.path ?? null;
+                folderInputRef.current?.click();
+              }}
+              disabled={!root || busy}
+              className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <FolderUp className="h-3.5 w-3.5" /> Upload folder
             </button>
             <button
               type="button"
