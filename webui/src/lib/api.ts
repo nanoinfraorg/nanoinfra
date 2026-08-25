@@ -51,6 +51,7 @@ import type {
   WebSearchSettingsUpdate,
   WorkspacesPayload,
   WebuiThreadPersistedPayload,
+  WorkspaceListingPayload,
   WorkspaceScopePayload,
 } from "./types";
 // Diagram payload shapes live with the feature (componentCatalog.ts,
@@ -267,6 +268,38 @@ export async function fetchFilePreview(
   query.set("path", path);
   return request<FilePreviewPayload>(
     `${base}/api/sessions/${encodeURIComponent(key)}/file-preview?${query}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+/** One directory of the active workspace, for the Workspaces explorer. */
+export async function fetchWorkspaceListing(
+  token: string,
+  path: string | null,
+  base: string = "",
+): Promise<WorkspaceListingPayload> {
+  const query = new URLSearchParams();
+  if (path) query.set("path", path);
+  return request<WorkspaceListingPayload>(
+    `${base}/api/webui/workspace/list?${query}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+/** One file's text, scoped to the workspace rather than to a chat session. */
+export async function fetchWorkspaceFilePreview(
+  token: string,
+  path: string,
+  base: string = "",
+): Promise<FilePreviewPayload> {
+  const query = new URLSearchParams();
+  query.set("path", path);
+  return request<FilePreviewPayload>(
+    `${base}/api/webui/workspace/preview?${query}`,
     token,
     undefined,
     API_READ_TIMEOUT_MS,

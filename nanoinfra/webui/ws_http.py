@@ -70,6 +70,11 @@ from nanoinfra.webui.diagrams_api import (
     webui_diagram_detail_payload,
     webui_diagrams_payload,
 )
+from nanoinfra.webui.file_browser import (
+    WebUIFileBrowserError,
+    directory_listing_payload,
+    resolve_within_workspace,
+)
 from nanoinfra.webui.file_preview import (
     WebUIFilePreviewError,
     file_preview_availability_payload,
@@ -546,6 +551,11 @@ class GatewayHTTPHandler:
 
         # Diagram routes
         response = self._dispatch_diagram_routes(request, got)
+        if response is not None:
+            return response
+
+        # Workspace explorer routes
+        response = self._dispatch_workspace_routes(request, got)
         if response is not None:
             return response
 
@@ -1494,6 +1504,54 @@ class GatewayHTTPHandler:
         if not delete_webui_diagram(self.diagrams, diagram_id):
             return _http_error(404, "diagram not found")
         return _http_json_response({"deleted": True})
+
+    # -- Workspace explorer routes ---------------------------------------------
+
+    def _dispatch_workspace_routes(self, request: WsRequest, got: str) -> Response | None:
+        # Scoped as a group, the way the secret routes are: a workspace route added
+        # later cannot forget its own auth check.
+        if got.startswith("/api/webui/workspace/") and not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        bare = got.split("?", 1)[0]
+        if bare == "/api/webui/workspace/list":
+            return self._handle_workspace_list(request)
+        if bare == "/api/webui/workspace/preview":
+            return self._handle_workspace_preview(request)
+        return None
+
+    def _handle_workspace_list(self, request: WsRequest) -> Response:
+        """One directory of the active workspace, for the Workspaces explorer."""
+        query = _parse_query(request.path)
+        path = _query_first(query, "path")
+        try:
+            payload = directory_listing_payload(path, scope=self.workspaces.default_scope())
+        except WebUIFileBrowserError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
+
+    def _handle_workspace_preview(self, request: WsRequest) -> Response:
+        """One file's text, for the explorer's preview pane.
+
+        Reuses ``file_preview_payload`` rather than reading the file again: the
+        binary refusal, the byte cap and the language mapping are decisions that
+        belong to one module, and the session-keyed preview route already answers
+        them. Only the scope differs -- the explorer is not attached to a chat.
+        """
+        query = _parse_query(request.path)
+        path = _query_first(query, "path")
+        scope = self.workspaces.default_scope()
+        try:
+            # Resolved by the browser module first, so a path the explorer may not
+            # enumerate cannot be read through the preview route either. Its
+            # containment is the narrower of the two (no media root).
+            resolved = resolve_within_workspace(path, scope=scope, must_exist=True)
+        except WebUIFileBrowserError as e:
+            return _http_error(e.status, e.message)
+        try:
+            payload = file_preview_payload(str(resolved), scope=scope)
+        except WebUIFilePreviewError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
 
     # -- Secret routes ---------------------------------------------------------
 

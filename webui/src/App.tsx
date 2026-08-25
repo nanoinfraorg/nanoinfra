@@ -98,6 +98,7 @@ type ShellView =
   | "automations"
   | "skills"
   | "diagrams"
+  | "workspace"
   | "servers"
   | "secrets"
   | "approvals";
@@ -109,6 +110,10 @@ type ShellRoute = {
   // open in the editor, so a reload or a back/forward navigation lands back
   // on it instead of dropping to the diagrams list.
   diagramId?: string | null;
+  // Only meaningful for view "workspace" — which directory the explorer is
+  // showing, so a reload or a shared link lands in the same folder. Absolute,
+  // because that is what the server's listing answers with (and re-contains).
+  workspacePath?: string | null;
 };
 
 const loadSettingsView = () => import("@/components/settings/SettingsView");
@@ -119,6 +124,10 @@ const SettingsView = lazy(async () => {
 const DiagramsView = lazy(async () => {
   const module = await import("@/components/diagrams/DiagramsView");
   return { default: module.DiagramsView };
+});
+const WorkspaceView = lazy(async () => {
+  const module = await import("@/components/workspace/WorkspaceView");
+  return { default: module.WorkspaceView };
 });
 const ServersView = lazy(async () => {
   const module = await import("@/components/servers/ServersView");
@@ -260,6 +269,10 @@ function readShellRoute(): ShellRoute {
     const diagramId = params.get("d")?.trim() || null;
     return { view: "diagrams", activeKey, settingsSection: "overview", diagramId };
   }
+  if (path === "/workspace") {
+    const workspacePath = params.get("p")?.trim() || null;
+    return { view: "workspace", activeKey, settingsSection: "overview", workspacePath };
+  }
   if (path === "/servers") {
     return { view: "servers", activeKey, settingsSection: "overview" };
   }
@@ -296,6 +309,9 @@ function shellRouteHash(route: ShellRoute): string {
   }
   if (route.view === "diagrams" && route.diagramId) {
     params.set("d", route.diagramId);
+  }
+  if (route.view === "workspace" && route.workspacePath) {
+    params.set("p", route.workspacePath);
   }
   const query = params.toString();
   return `#/${route.view}${query ? `?${query}` : ""}`;
@@ -1011,6 +1027,9 @@ function Shell({
   const [diagramId, setDiagramId] = useState<string | null>(
     initialRouteRef.current.diagramId ?? null,
   );
+  const [workspacePath, setWorkspacePath] = useState<string | null>(
+    initialRouteRef.current.workspacePath ?? null,
+  );
   const [hostSidebarOpen, setHostSidebarOpen] =
     useState<boolean>(readSidebarOpen);
   const [hostSidebarPreviewOpen, setHostSidebarPreviewOpen] = useState(false);
@@ -1067,6 +1086,8 @@ function Shell({
       setView(route.view);
       setSettingsInitialSection(route.settingsSection);
       setDiagramId(route.diagramId ?? null);
+      setWorkspacePath(route.workspacePath ?? null);
+      setWorkspacePath(route.workspacePath ?? null);
       writeShellRoute(route, options?.replace);
     },
     [],
@@ -1079,6 +1100,16 @@ function Shell({
     [activeKey, navigate],
   );
 
+  const onWorkspacePathChange = useCallback(
+    (next: string | null, options?: { replace?: boolean }) => {
+      navigate(
+        { view: "workspace", activeKey, settingsSection: "overview", workspacePath: next },
+        options,
+      );
+    },
+    [activeKey, navigate],
+  );
+
   useEffect(() => {
     const applyRoute = () => {
       const route = readShellRoute();
@@ -1086,6 +1117,7 @@ function Shell({
       setView(route.view);
       setSettingsInitialSection(route.settingsSection);
       setDiagramId(route.diagramId ?? null);
+      setWorkspacePath(route.workspacePath ?? null);
       setWorkspaceError(null);
       if (route.view === "chat" && !route.activeKey) {
         setDraftWorkspaceScope(null);
@@ -1750,6 +1782,12 @@ function Shell({
     setMobileSidebarOpen(false);
   }, [activeKey, navigate]);
 
+  const onOpenWorkspace = useCallback(() => {
+    setSessionSearchOpen(false);
+    navigate({ view: "workspace", activeKey, settingsSection: "overview" });
+    setMobileSidebarOpen(false);
+  }, [activeKey, navigate]);
+
   const onOpenServers = useCallback(() => {
     setSessionSearchOpen(false);
     navigate({ view: "servers", activeKey, settingsSection: "overview" });
@@ -2001,6 +2039,12 @@ function Shell({
       });
       return;
     }
+    if (view === "workspace") {
+      document.title = t("app.documentTitle.chat", {
+        title: t("sidebar.workspaces", { defaultValue: "Workspaces" }),
+      });
+      return;
+    }
     if (view === "servers") {
       document.title = t("app.documentTitle.chat", {
         title: t("sidebar.servers", { defaultValue: "Servers" }),
@@ -2044,6 +2088,7 @@ function Shell({
     onOpenAutomations,
     onOpenSkills,
     onOpenDiagrams,
+    onOpenWorkspace,
     onOpenServers,
     onOpenSecrets,
     onOpenApprovals,
@@ -2055,6 +2100,7 @@ function Shell({
       || view === "automations"
       || view === "skills"
       || view === "diagrams"
+      || view === "workspace"
       || view === "servers"
       || view === "secrets"
       || view === "approvals"
@@ -2260,6 +2306,13 @@ function Shell({
               <div className="absolute inset-0 flex flex-col">
                 <Suspense fallback={<SurfaceLoadingFallback />}>
                   <DiagramsView diagramId={diagramId} onDiagramIdChange={onDiagramIdChange} />
+                </Suspense>
+              </div>
+            )}
+            {view === "workspace" && (
+              <div className="absolute inset-0 flex flex-col">
+                <Suspense fallback={<SurfaceLoadingFallback />}>
+                  <WorkspaceView path={workspacePath} onPathChange={onWorkspacePathChange} />
                 </Suspense>
               </div>
             )}

@@ -10,6 +10,7 @@ import {
   Brain,
   CalendarClock,
   ChevronDown,
+  FolderTree,
   KeyRound,
   Menu,
   Network,
@@ -55,6 +56,7 @@ interface SidebarProps {
   onOpenSkills: () => void;
   onOpenAutomations: () => void;
   onOpenDiagrams: () => void;
+  onOpenWorkspace: () => void;
   onOpenServers: () => void;
   onOpenSecrets: () => void;
   onOpenApprovals: () => void;
@@ -71,6 +73,7 @@ interface SidebarProps {
     | "skills"
     | "automations"
     | "diagrams"
+    | "workspace"
     | "servers"
     | "secrets"
     | "approvals"
@@ -295,6 +298,15 @@ export function Sidebar(props: SidebarProps) {
           <>
             <SidebarActionButton
               collapsed={collapsed}
+              label={t("sidebar.workspaces", { defaultValue: "Workspaces" })}
+              onClick={props.onOpenWorkspace}
+              onIntent={props.onSettingsIntent}
+              active={props.activeUtility === "workspace"}
+              selectionRef={activeActionRef}
+              icon={<FolderTree className="h-4 w-4" />}
+            />
+            <SidebarActionButton
+              collapsed={collapsed}
               label={t("sidebar.diagrams", { defaultValue: "Diagrams" })}
               onClick={props.onOpenDiagrams}
               onIntent={props.onSettingsIntent}
@@ -323,6 +335,15 @@ export function Sidebar(props: SidebarProps) {
           </>
         ) : (
           <div>
+            <SidebarActionButton
+              collapsed={false}
+              label={t("sidebar.workspaces", { defaultValue: "Workspaces" })}
+              onClick={props.onOpenWorkspace}
+              onIntent={props.onSettingsIntent}
+              active={props.activeUtility === "workspace"}
+              selectionRef={activeActionRef}
+              icon={<FolderTree className="h-4 w-4" />}
+            />
             <SidebarActionButton
               collapsed={false}
               label={t("sidebar.infrastructure", { defaultValue: "Infrastructure" })}

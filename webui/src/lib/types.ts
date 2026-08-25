@@ -1659,6 +1659,30 @@ export interface WebuiThreadPersistedPayload {
   workspace_scope?: WorkspaceScopePayload;
 }
 
+/** One child of a listed directory (`nanoinfra/webui/file_browser.py`). */
+export interface WorkspaceEntry {
+  name: string;
+  kind: "file" | "directory" | "symlink" | "other";
+  /** `null` for a directory, and for a child that could not be stat'ed. */
+  size: number | null;
+  modified: string | null;
+  /** A symlink whose target leaves the workspace: listed, but not followable. */
+  escapesWorkspace: boolean;
+}
+
+export interface WorkspaceListingPayload {
+  /** Absolute path of the listed directory. */
+  path: string;
+  /** Workspace-relative path; empty at the root. */
+  displayPath: string;
+  projectPath: string;
+  /** `null` at the workspace root, where there is no step up to offer. */
+  parent: string | null;
+  entries: WorkspaceEntry[];
+  /** The directory held more children than one response carries. */
+  truncated: boolean;
+}
+
 export interface FilePreviewPayload {
   path: string;
   display_path: string;

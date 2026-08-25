@@ -15,8 +15,17 @@ import type { FilePreviewPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface FilePreviewPanelProps {
-  sessionKey: string;
+  /** Ignored when `loadPreview` is given: the workspace explorer has no session. */
+  sessionKey?: string;
   path: string;
+  /**
+   * How to fetch the preview. Defaults to the session-scoped route
+   * (`/api/sessions/<key>/file-preview`); the Workspaces explorer passes the
+   * workspace-scoped one instead. Parameterising the one fetch call is what lets
+   * both surfaces share this panel's renderers (markdown, mermaid, SVG) rather
+   * than growing a second viewer beside it.
+   */
+  loadPreview?: (path: string) => Promise<FilePreviewPayload>;
   token: string;
   desktopWidth?: number;
   isClosing?: boolean;
@@ -46,6 +55,7 @@ type PreviewState =
 export function FilePreviewPanel({
   sessionKey,
   path,
+  loadPreview,
   token,
   desktopWidth = 544,
   isClosing = false,
@@ -66,7 +76,10 @@ export function FilePreviewPanel({
   useEffect(() => {
     let cancelled = false;
     setState({ status: "loading" });
-    fetchFilePreview(tokenRef.current, sessionKey, path)
+    const pending = loadPreview
+      ? loadPreview(path)
+      : fetchFilePreview(tokenRef.current, sessionKey ?? "", path);
+    pending
       .then((payload) => {
         if (!cancelled) setState({ status: "ready", payload });
       })
@@ -76,7 +89,7 @@ export function FilePreviewPanel({
     return () => {
       cancelled = true;
     };
-  }, [path, sessionKey]);
+  }, [loadPreview, path, sessionKey]);
 
   const displayPath = state.status === "ready" ? state.payload.display_path : path;
   const previewPath = state.status === "ready" ? state.payload.path : displayPath;
