@@ -48,6 +48,7 @@ import {
 import {
   MAX_DROPPED_FILES,
   MAX_UPLOAD_BYTES,
+  UPLOAD_CHUNK_BYTES,
   collectDroppedFiles,
   filesFromList,
   type DroppedFile,
@@ -199,7 +200,9 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const uploadTargetRef = useRef<string | null>(null);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<
+    { done: number; total: number; part?: { index: number; count: number } } | null
+  >(null);
   const [plan, setPlan] = useState<UploadPlan | null>(null);
   const dragRef = useRef<DragPayload | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
@@ -333,28 +336,44 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
         // would be created by several requests at once.
         for (const [index, item] of dropped.entries()) {
           if (item.file.size > MAX_UPLOAD_BYTES) {
-            // Refused here rather than sent: base64 inflates by 4/3, so a file past
-            // the gateway's frame limit closes the socket instead of answering, and
-            // takes every file after it down with it.
             failures.push(
               `${item.relativePath}: larger than the ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB limit`,
             );
             setProgress({ done: index + 1, total: dropped.length });
             continue;
           }
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onerror = () => reject(new Error(`could not read ${item.file.name}`));
-            reader.onload = () => resolve(String(reader.result));
-            reader.readAsDataURL(item.file);
-          });
           try {
-            tree.replace(
-              await client.uploadWorkspaceFile(directory, item.file.name, dataUrl, {
+            // Sent in frame-sized parts, so the size a person sees is not the size a
+            // WebSocket frame happens to allow. A single-part file omits the chunk
+            // fields entirely, which is the shape the server answers in one go.
+            const parts = Math.max(1, Math.ceil(item.file.size / UPLOAD_CHUNK_BYTES));
+            const uploadId = parts > 1 ? crypto.randomUUID() : undefined;
+            let answered: WorkspaceListingPayload | null = null;
+            for (let part = 0; part < parts; part += 1) {
+              setProgress({
+                done: index,
+                total: dropped.length,
+                ...(parts > 1 ? { part: { index: part + 1, count: parts } } : {}),
+              });
+              const slice = parts > 1
+                ? item.file.slice(part * UPLOAD_CHUNK_BYTES, (part + 1) * UPLOAD_CHUNK_BYTES)
+                : item.file;
+              const dataUrl = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onerror = () => reject(new Error(`could not read ${item.file.name}`));
+                reader.onload = () => resolve(String(reader.result));
+                reader.readAsDataURL(slice);
+              });
+              answered = await client.uploadWorkspaceFile(directory, item.file.name, dataUrl, {
                 includeHidden: showHidden,
                 relativePath: item.relativePath,
-              }),
-            );
+                ...(uploadId !== undefined
+                  ? { uploadId, chunkIndex: part, chunkCount: parts }
+                  : {}),
+              });
+            }
+            // Only the part that finished the file carries one.
+            if (answered) tree.replace(answered);
           } catch (e) {
             // One refused file does not abandon the rest of the tree: a folder often
             // holds something that already exists, and stopping there would leave the

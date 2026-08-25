@@ -134,7 +134,7 @@ export function WorkspaceUploadReview({
 }: {
   plan: UploadPlan | null;
   busy: boolean;
-  progress: { done: number; total: number } | null;
+  progress: { done: number; total: number; part?: { index: number; count: number } } | null;
   onCancel: () => void;
   onConfirm: (files: DroppedFile[]) => void;
 }) {
@@ -175,7 +175,9 @@ export function WorkspaceUploadReview({
 
         {progress ? (
           <div className="mb-3 text-[12px] text-muted-foreground">
-            {`Uploading ${progress.done}/${progress.total}…`}
+            {progress.part
+              ? `Uploading ${progress.done + 1}/${progress.total} · part ${progress.part.index}/${progress.part.count}…`
+              : `Uploading ${progress.done}/${progress.total}…`}
             <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted">
               <div
                 className="h-full bg-foreground/60 transition-[width]"

@@ -209,7 +209,9 @@ export class NanoinfraClient {
   private goalStateByChatId = new Map<string, GoalStateWsPayload>();
   private pendingNewChat: PendingRequest<string> | null = null;
   private pendingTranscriptions = new Map<string, PendingRequest<string>>();
-  private pendingUploads = new Map<string, PendingRequest<WorkspaceListingPayload>>();
+  // Resolves with the listing on the chunk that finishes a file, and with `null` on
+  // each chunk before it — a partial file has no listing to answer with.
+  private pendingUploads = new Map<string, PendingRequest<WorkspaceListingPayload | null>>();
   private pendingSystemCommands = new Map<string, PendingRequest<void>>();
   // Frames queued while the socket is not yet OPEN
   private sendQueue: Outbound[] = [];
@@ -799,11 +801,19 @@ export class NanoinfraClient {
     parent: string | null,
     name: string,
     dataUrl: string,
-    options?: { timeoutMs?: number; includeHidden?: boolean; relativePath?: string },
-  ): Promise<WorkspaceListingPayload> {
+    options?: {
+      timeoutMs?: number;
+      includeHidden?: boolean;
+      relativePath?: string;
+      /** Set on all three together to send one file as several frames. */
+      uploadId?: string;
+      chunkIndex?: number;
+      chunkCount?: number;
+    },
+  ): Promise<WorkspaceListingPayload | null> {
     const requestId = crypto.randomUUID();
     const timeoutMs = options?.timeoutMs ?? 120_000;
-    return new Promise<WorkspaceListingPayload>((resolve, reject) => {
+    return new Promise<WorkspaceListingPayload | null>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingUploads.delete(requestId);
         reject(new Error("upload timed out"));
@@ -819,6 +829,13 @@ export class NanoinfraClient {
         // Present for a folder upload: the path the file had inside what was dropped,
         // which the server creates the directories for.
         ...(options?.relativePath ? { relative_path: options.relativePath } : {}),
+        ...(options?.uploadId !== undefined
+          ? {
+            upload_id: options.uploadId,
+            chunk_index: options.chunkIndex,
+            chunk_count: options.chunkCount,
+          }
+          : {}),
       });
     });
   }
@@ -1101,6 +1118,12 @@ export class NanoinfraClient {
       return;
     }
 
+    if (parsed.event === "workspace_upload_chunk") {
+      // One chunk landed and the file is not complete, so there is no listing yet.
+      this.settleUpload(parsed.request_id, null);
+      return;
+    }
+
     if (parsed.event === "workspace_upload_error") {
       this.failUpload(parsed.request_id, parsed.detail || "upload failed");
       return;
@@ -1314,7 +1337,7 @@ export class NanoinfraClient {
     }
   }
 
-  private settleUpload(requestId: string, listing: WorkspaceListingPayload): void {
+  private settleUpload(requestId: string, listing: WorkspaceListingPayload | null): void {
     const pending = this.pendingUploads.get(requestId);
     if (!pending) return;
     clearTimeout(pending.timer);

@@ -25,14 +25,22 @@ export const MAX_DROPPED_FILES = 500;
 /**
  * Bytes one file may carry, checked here before anything is sent.
  *
- * Must match ``MAX_UPLOAD_BYTES`` in `nanoinfra/webui/workspace_upload_ws.py`, and a
- * Python test asserts the two agree rather than trusting this comment.
- *
- * Checked client-side because the failure otherwise is not an error message: base64
- * inflates by 4/3, so a file past the gateway's frame limit closes the socket
- * (code 1009) instead of answering, taking the rest of the upload with it.
+ * Must match ``MAX_UPLOAD_TOTAL_BYTES`` in
+ * `nanoinfra/webui/workspace_upload_ws.py`, and a Python test asserts the two agree
+ * rather than trusting this comment. Checked client-side as well so an oversized
+ * file is a sentence on screen instead of a refusal after the bytes were read.
  */
-export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Bytes per frame. A file larger than this is sent in several.
+ *
+ * Sized against the transport, not against the file: `max_message_bytes` defaults to
+ * 36 MB and base64 inflates by 4/3, so 8 MB of file is a ~11 MB frame — inside that
+ * with room for an operator who lowered it. Chunking is what took the frame size out
+ * of the limit a person sees.
+ */
+export const UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
 
 // The DOM lib does not type the webkit entry API, and these are the three members
 // this module touches. Declared narrowly rather than reaching for `any`.

@@ -1593,6 +1593,14 @@ export type InboundEvent =
       /** The listing of the directory the file landed in. */
       listing: WorkspaceListingPayload;
     }
+  | {
+      /** One chunk landed; the file is not complete, so no listing is sent. */
+      event: "workspace_upload_chunk";
+      request_id: string;
+      upload_id?: string;
+      received: number;
+      chunk_count: number;
+    }
   | { event: "workspace_upload_error"; request_id?: string; detail: string }
   | { event: "transcription_result"; request_id: string; text: string }
   | {
@@ -1716,6 +1724,10 @@ export type Outbound =
        */
       type: "workspace_upload";
       request_id: string;
+      /** Set together to send one file as several frames. */
+      upload_id?: string;
+      chunk_index?: number;
+      chunk_count?: number;
       /** Answer in the view the client is showing. */
       include_hidden?: boolean;
       /** `docs/img/logo.png` — the path inside a dropped folder, whose directories the server creates. */

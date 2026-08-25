@@ -648,6 +648,104 @@ async def test_a_workspace_upload_from_the_webui_answers_a_result(
 
 
 @pytest.mark.asyncio
+async def test_a_chunked_upload_is_assembled_across_frames(bus: MagicMock, tmp_path) -> None:
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus, workspace_path=tmp_path),
+    )
+    conn = AsyncMock()
+    channel._webui_connections.add(conn)
+
+    for index, payload in enumerate(("aGVsbG8=", "IHdvcmxk")):  # "hello", " world"
+        await channel._dispatch_envelope(
+            conn,
+            "webui-client",
+            {
+                "type": "workspace_upload",
+                "request_id": f"req-{index}",
+                "upload_id": "up-1",
+                "chunk_index": index,
+                "chunk_count": 2,
+                "parent": None,
+                "name": "notes.md",
+                "data_url": f"data:text/plain;base64,{payload}",
+            },
+        )
+
+    events = [json.loads(call.args[0])["event"] for call in conn.send.call_args_list]
+    assert events == ["workspace_upload_chunk", "workspace_upload_result"]
+    assert (tmp_path / "notes.md").read_bytes() == b"hello world"
+
+
+@pytest.mark.asyncio
+async def test_a_disconnect_takes_a_half_sent_upload_with_it(bus: MagicMock, tmp_path) -> None:
+    """The connection that was sending it is gone, so nothing can finish it."""
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus, workspace_path=tmp_path),
+    )
+    conn = AsyncMock()
+    channel._webui_connections.add(conn)
+    await channel._dispatch_envelope(
+        conn,
+        "webui-client",
+        {
+            "type": "workspace_upload",
+            "request_id": "req-0",
+            "upload_id": "up-1",
+            "chunk_index": 0,
+            "chunk_count": 2,
+            "parent": None,
+            "name": "notes.md",
+            "data_url": "data:text/plain;base64,aGVsbG8=",
+        },
+    )
+    assert (tmp_path / ".notes.md.nanoinfra-upload").exists()
+
+    channel._cleanup_connection(conn)
+
+    assert not (tmp_path / ".notes.md.nanoinfra-upload").exists()
+    assert conn not in channel._upload_sessions
+
+
+@pytest.mark.asyncio
+async def test_one_connection_cannot_append_to_another_upload(bus: MagicMock, tmp_path) -> None:
+    """Sessions are per connection, so an upload id is not a shared handle."""
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus, workspace_path=tmp_path),
+    )
+    owner = AsyncMock()
+    other = AsyncMock()
+    channel._webui_connections.update({owner, other})
+    first = {
+        "type": "workspace_upload",
+        "request_id": "req-0",
+        "upload_id": "up-1",
+        "chunk_index": 0,
+        "chunk_count": 2,
+        "parent": None,
+        "name": "notes.md",
+        "data_url": "data:text/plain;base64,aGVsbG8=",
+    }
+    await channel._dispatch_envelope(owner, "webui-client", first)
+
+    await channel._dispatch_envelope(
+        other,
+        "other-client",
+        {**first, "request_id": "req-1", "chunk_index": 1, "data_url": "data:text/plain;base64,IHdvcmxk"},
+    )
+
+    payload = json.loads(other.send.call_args.args[0])
+    assert payload["event"] == "workspace_upload_error"
+    assert "session not found" in payload["detail"]
+    assert not (tmp_path / "notes.md").exists()
+
+
+@pytest.mark.asyncio
 async def test_client_cannot_self_assert_webui_quote_context(bus: MagicMock) -> None:
     channel = _ch(bus)
     conn = MagicMock()

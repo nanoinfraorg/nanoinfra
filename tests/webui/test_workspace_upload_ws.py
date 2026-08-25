@@ -79,7 +79,12 @@ def test_a_malformed_payload_is_refused(tmp_path: Path) -> None:
     assert list(workspace.iterdir()) == []
 
 
-def test_an_oversized_upload_is_refused_with_the_limit(tmp_path: Path) -> None:
+def test_a_single_frame_past_the_limit_is_refused_as_a_frame(tmp_path: Path) -> None:
+    """The per-chunk cap is about the transport, and says so.
+
+    A file this size is not refused any more -- it arrives in several chunks. What
+    cannot happen is one frame carrying more than the socket allows.
+    """
     workspace = _workspace(tmp_path)
 
     event, payload = webui_workspace_upload_event(
@@ -89,7 +94,7 @@ def test_an_oversized_upload_is_refused_with_the_limit(tmp_path: Path) -> None:
     )
 
     assert event == "workspace_upload_error"
-    assert "upload limit" in str(payload["detail"])
+    assert "frame limit" in str(payload["detail"])
     assert list(workspace.iterdir()) == []
 
 
@@ -306,24 +311,236 @@ def test_an_upload_into_a_subdirectory_keeps_its_relative_tree(tmp_path: Path) -
     assert payload["listing"]["displayPath"] == "existing"
 
 
-def test_the_browser_and_the_server_agree_on_the_upload_limit() -> None:
+def test_the_browser_and_the_server_agree_on_the_upload_limits() -> None:
     """A comment naming the other side is not enough; the two must be checked.
 
-    The browser has to refuse an oversized file *before* sending it: base64 inflates
-    by 4/3, so a file past the gateway's frame limit closes the socket (1009) instead
-    of answering, taking the rest of a folder upload with it. That check is only as
-    good as its number matching this one.
+    Two numbers cross the wire here. The file cap has to match, or the browser
+    promises something the server refuses after reading the bytes. And the browser's
+    chunk size has to stay within the server's per-frame cap, or every chunk of every
+    large upload is rejected -- and past the transport's own limit the socket closes
+    instead of answering, which is not an error message at all.
     """
     import re
 
-    from nanoinfra.webui.workspace_upload_ws import MAX_UPLOAD_BYTES
+    from nanoinfra.webui.workspace_upload_ws import MAX_UPLOAD_BYTES, MAX_UPLOAD_TOTAL_BYTES
 
     source = Path(__file__).parents[2] / "webui" / "src" / "lib" / "dropped-files.ts"
     text = source.read_text(encoding="utf-8")
-    found = re.search(r"MAX_UPLOAD_BYTES = (\d+) \* 1024 \* 1024", text)
-    assert found is not None, "the browser no longer declares MAX_UPLOAD_BYTES in MB"
 
-    browser_bytes = int(found.group(1)) * 1024 * 1024
-    assert browser_bytes == MAX_UPLOAD_BYTES, (
-        f"the browser refuses past {browser_bytes} bytes and the server past {MAX_UPLOAD_BYTES}"
+    file_cap = re.search(r"MAX_UPLOAD_BYTES = (\d+) \* 1024 \* 1024", text)
+    chunk = re.search(r"UPLOAD_CHUNK_BYTES = (\d+) \* 1024 \* 1024", text)
+    assert file_cap is not None, "the browser no longer declares MAX_UPLOAD_BYTES in MB"
+    assert chunk is not None, "the browser no longer declares UPLOAD_CHUNK_BYTES in MB"
+
+    browser_file_cap = int(file_cap.group(1)) * 1024 * 1024
+    browser_chunk = int(chunk.group(1)) * 1024 * 1024
+    assert browser_file_cap == MAX_UPLOAD_TOTAL_BYTES, (
+        f"the browser refuses a file past {browser_file_cap} bytes and the server past "
+        f"{MAX_UPLOAD_TOTAL_BYTES}"
     )
+    assert browser_chunk <= MAX_UPLOAD_BYTES, (
+        f"the browser sends {browser_chunk}-byte chunks and the server accepts "
+        f"{MAX_UPLOAD_BYTES}"
+    )
+
+
+# -- Chunked uploads ---------------------------------------------------------
+
+
+def _chunk(index: int, count: int, payload: bytes, **overrides: object) -> dict[str, object]:
+    return _envelope(
+        request_id=f"req-{index}",
+        upload_id="up-1",
+        chunk_index=index,
+        chunk_count=count,
+        data_url=_data_url(payload),
+        **overrides,
+    )
+
+
+def test_a_file_arrives_in_several_chunks_and_is_assembled_in_order(tmp_path: Path) -> None:
+    """What removes the frame size from the limit a person sees."""
+    workspace = _workspace(tmp_path)
+    scope = default_workspace_scope(workspace, True)
+    sessions: dict[str, object] = {}
+
+    first = webui_workspace_upload_event(_chunk(0, 3, b"aaa"), scope=scope, sessions=sessions)
+    second = webui_workspace_upload_event(_chunk(1, 3, b"bbb"), scope=scope, sessions=sessions)
+    third = webui_workspace_upload_event(_chunk(2, 3, b"ccc"), scope=scope, sessions=sessions)
+
+    # No listing until the file exists: answering one earlier would describe a
+    # directory that does not hold what the caller is about to be told about.
+    assert first[0] == "workspace_upload_chunk"
+    assert first[1]["received"] == 1
+    assert second[0] == "workspace_upload_chunk"
+    assert third[0] == "workspace_upload_result"
+    assert (workspace / "notes.md").read_bytes() == b"aaabbbccc"
+    assert sessions == {}
+
+
+def test_a_partial_upload_never_holds_the_final_name(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    scope = default_workspace_scope(workspace, True)
+    sessions: dict[str, object] = {}
+
+    webui_workspace_upload_event(_chunk(0, 2, b"aaa"), scope=scope, sessions=sessions)
+
+    # The bytes are on disk, under a dotted sibling the explorer hides by default,
+    # and the name the operator chose does not exist yet.
+    assert not (workspace / "notes.md").exists()
+    assert (workspace / ".notes.md.nanoinfra-upload").read_bytes() == b"aaa"
+
+
+def test_a_repeated_chunk_is_refused_rather_than_appended_twice(tmp_path: Path) -> None:
+    """Appending a chunk already written would corrupt the file silently."""
+    workspace = _workspace(tmp_path)
+    scope = default_workspace_scope(workspace, True)
+    sessions: dict[str, object] = {}
+    webui_workspace_upload_event(_chunk(0, 2, b"aaa"), scope=scope, sessions=sessions)
+
+    event, payload = webui_workspace_upload_event(_chunk(0, 2, b"aaa"), scope=scope, sessions=sessions)
+
+    assert event == "workspace_upload_error"
+    assert "already received" in str(payload["detail"])
+    # The session is abandoned with its temp file, so a retry starts clean.
+    assert sessions == {}
+    assert not (workspace / ".notes.md.nanoinfra-upload").exists()
+
+
+def test_a_chunk_without_a_session_is_refused(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+
+    event, payload = webui_workspace_upload_event(
+        _chunk(1, 2, b"bbb"), scope=default_workspace_scope(workspace, True), sessions={}
+    )
+
+    assert event == "workspace_upload_error"
+    assert "session not found" in str(payload["detail"])
+
+
+def test_a_later_chunk_cannot_redirect_the_upload(tmp_path: Path) -> None:
+    """Containment is decided on the first chunk, once.
+
+    Otherwise a client could open a session at a legitimate path and point the last
+    chunk somewhere else, with the bytes already written following it there.
+    """
+    workspace = _workspace(tmp_path)
+    (workspace / "docs").mkdir()
+    scope = default_workspace_scope(workspace, True)
+    sessions: dict[str, object] = {}
+    webui_workspace_upload_event(_chunk(0, 2, b"aaa"), scope=scope, sessions=sessions)
+
+    event, _ = webui_workspace_upload_event(
+        _chunk(1, 2, b"bbb", name="elsewhere.md", parent=str(workspace / "docs")),
+        scope=scope,
+        sessions=sessions,
+    )
+
+    assert event == "workspace_upload_result"
+    # The name and the directory from the first chunk are what got written.
+    assert (workspace / "notes.md").read_bytes() == b"aaabbbb"[:6]
+    assert not (workspace / "docs" / "elsewhere.md").exists()
+
+
+def test_a_changed_chunk_count_abandons_the_upload(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    scope = default_workspace_scope(workspace, True)
+    sessions: dict[str, object] = {}
+    webui_workspace_upload_event(_chunk(0, 3, b"aaa"), scope=scope, sessions=sessions)
+
+    event, payload = webui_workspace_upload_event(_chunk(1, 5, b"bbb"), scope=scope, sessions=sessions)
+
+    assert event == "workspace_upload_error"
+    assert "changed mid-upload" in str(payload["detail"])
+    assert sessions == {}
+
+
+def test_a_chunk_past_the_frame_limit_is_refused(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+
+    event, payload = webui_workspace_upload_event(
+        _chunk(0, 2, b"x" * 64),
+        scope=default_workspace_scope(workspace, True),
+        sessions={},
+        max_bytes=32,
+    )
+
+    assert event == "workspace_upload_error"
+    assert "frame limit" in str(payload["detail"])
+
+
+def test_the_total_is_enforced_across_chunks(tmp_path: Path) -> None:
+    """A file cannot get past the cap by arriving in pieces."""
+    workspace = _workspace(tmp_path)
+    scope = default_workspace_scope(workspace, True)
+    sessions: dict[str, object] = {}
+    webui_workspace_upload_event(
+        _chunk(0, 3, b"x" * 20), scope=scope, sessions=sessions, max_total_bytes=32
+    )
+
+    event, payload = webui_workspace_upload_event(
+        _chunk(1, 3, b"x" * 20), scope=scope, sessions=sessions, max_total_bytes=32
+    )
+
+    assert event == "workspace_upload_error"
+    assert "larger than" in str(payload["detail"])
+    assert sessions == {}
+    assert not (workspace / "notes.md").exists()
+    assert not (workspace / ".notes.md.nanoinfra-upload").exists()
+
+
+def test_a_name_taken_while_chunks_were_in_flight_is_not_overwritten(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    scope = default_workspace_scope(workspace, True)
+    sessions: dict[str, object] = {}
+    webui_workspace_upload_event(_chunk(0, 2, b"aaa"), scope=scope, sessions=sessions)
+    (workspace / "notes.md").write_text("someone else", encoding="utf-8")
+
+    event, _ = webui_workspace_upload_event(_chunk(1, 2, b"bbb"), scope=scope, sessions=sessions)
+
+    assert event == "workspace_upload_error"
+    assert (workspace / "notes.md").read_text(encoding="utf-8") == "someone else"
+    assert sessions == {}
+
+
+def test_discarding_sessions_removes_their_temp_files(tmp_path: Path) -> None:
+    """What a disconnect owes the disk."""
+    from nanoinfra.webui.workspace_upload_ws import discard_upload_sessions
+
+    workspace = _workspace(tmp_path)
+    sessions: dict[str, object] = {}
+    webui_workspace_upload_event(
+        _chunk(0, 2, b"aaa"), scope=default_workspace_scope(workspace, True), sessions=sessions
+    )
+    assert (workspace / ".notes.md.nanoinfra-upload").exists()
+
+    discard_upload_sessions(sessions)  # type: ignore[arg-type]
+
+    assert not (workspace / ".notes.md.nanoinfra-upload").exists()
+    assert sessions == {}
+
+
+def test_a_multi_chunk_upload_needs_an_upload_id(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+
+    event, payload = webui_workspace_upload_event(
+        _envelope(chunk_index=0, chunk_count=2, upload_id=None),
+        scope=default_workspace_scope(workspace, True),
+        sessions={},
+    )
+
+    assert (event, payload["detail"]) == ("workspace_upload_error", "invalid_request")
+
+
+def test_a_nonsense_chunk_index_is_refused(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+
+    for bad in ({"chunk_index": 5, "chunk_count": 2}, {"chunk_index": -1, "chunk_count": 2},
+                {"chunk_index": "0", "chunk_count": 2}, {"chunk_index": 0, "chunk_count": 0}):
+        event, payload = webui_workspace_upload_event(
+            _envelope(upload_id="up-1", **bad),
+            scope=default_workspace_scope(workspace, True),
+            sessions={},
+        )
+        assert event == "workspace_upload_error", bad
+        assert payload["detail"] in {"invalid_chunk", "invalid_request"}, bad

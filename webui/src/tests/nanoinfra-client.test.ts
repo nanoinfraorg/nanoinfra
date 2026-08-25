@@ -1380,6 +1380,52 @@ describe("NanoinfraClient", () => {
     await expect(second).rejects.toThrow("invalid_request");
   });
 
+  it("resolves an intermediate chunk with no listing", async () => {
+    // A partial file has no listing to answer with, and the client must not treat
+    // the acknowledgement as the upload being finished.
+    const client = new NanoinfraClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    lastSocket().fakeOpen();
+
+    const pending = client.uploadWorkspaceFile(null, "big.bin", "data:application/octet-stream;base64,YQ==", {
+      uploadId: "up-1",
+      chunkIndex: 0,
+      chunkCount: 3,
+    });
+    const sent = JSON.parse(lastSocket().sent[lastSocket().sent.length - 1]);
+    expect(sent).toMatchObject({ upload_id: "up-1", chunk_index: 0, chunk_count: 3 });
+
+    lastSocket().fakeMessage({
+      event: "workspace_upload_chunk",
+      request_id: sent.request_id,
+      upload_id: "up-1",
+      received: 1,
+      chunk_count: 3,
+    });
+
+    await expect(pending).resolves.toBeNull();
+  });
+
+  it("sends no chunk fields for a single-frame upload", async () => {
+    const client = new NanoinfraClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    lastSocket().fakeOpen();
+
+    void client.uploadWorkspaceFile(null, "notes.md", "data:text/plain;base64,aGk=");
+
+    const sent = JSON.parse(lastSocket().sent[lastSocket().sent.length - 1]);
+    expect(sent.upload_id).toBeUndefined();
+    expect(sent.chunk_count).toBeUndefined();
+  });
+
   it("fails a waiting upload when the gateway does not know the envelope", async () => {
     // What a gateway older than this build answers. Ignoring it left the upload
     // waiting for its timeout with nothing on screen.

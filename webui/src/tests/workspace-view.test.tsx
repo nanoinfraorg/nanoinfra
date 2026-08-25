@@ -504,10 +504,35 @@ describe("WorkspaceView drag and drop", () => {
     expect(uploadSpy.mock.calls[0][3].relativePath).toBe("docs/index.md");
   });
 
+  it("sends a large file in frame-sized parts", async () => {
+    // 20 MB in 8 MB parts: three frames, one upload id, and only the last one
+    // answering with a listing.
+    uploadSpy.mockImplementation(async (_parent, _name, _dataUrl, options) =>
+      options.chunkIndex === options.chunkCount - 1
+        ? listing(ROOT, [entry({ name: "big.bin" })])
+        : null,
+    );
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+    fireEvent.drop(screen.getByTestId("workspace-tree"), {
+      dataTransfer: dataTransfer({
+        types: ["Files"],
+        items: droppedItems([fileEntry("big.bin", 20 * 1024 * 1024)]),
+      }),
+    });
+    await screen.findByRole("dialog");
+    await userEvent.click(screen.getByRole("button", { name: /Upload 1/ }));
+
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(3));
+    const ids = new Set(uploadSpy.mock.calls.map((call) => call[3].uploadId));
+    expect(ids.size).toBe(1);
+    expect(uploadSpy.mock.calls.map((call) => call[3].chunkIndex)).toEqual([0, 1, 2]);
+    expect(uploadSpy.mock.calls.every((call) => call[3].chunkCount === 3)).toBe(true);
+  });
+
   it("refuses a file past the limit without sending it", async () => {
-    // Base64 inflates by 4/3, so a 34 MB file is a 45 MB frame: past the gateway's
-    // limit the socket closes instead of answering, and every file after it dies with
-    // it. That is what left a real upload stuck at 0/134.
+    // Chunking removed the frame size from what a person sees, so this is the real
+    // cap now — and it is still checked before any bytes are read.
     uploadSpy.mockResolvedValue(listing(ROOT, [entry({ name: "small.txt" })]));
     render(wrap(<WorkspaceView />));
     await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
@@ -516,7 +541,7 @@ describe("WorkspaceView drag and drop", () => {
         types: ["Files"],
         items: droppedItems([
           directoryEntry("data", [
-            fileEntry("huge.bin", 34 * 1024 * 1024),
+            fileEntry("huge.bin", 120 * 1024 * 1024),
             fileEntry("small.txt", 12),
           ]),
         ]),
@@ -528,7 +553,7 @@ describe("WorkspaceView drag and drop", () => {
     // The small one still goes: one refusal does not abandon the rest.
     await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(1));
     expect(uploadSpy.mock.calls[0][3].relativePath).toBe("data/small.txt");
-    expect(await screen.findByText(/larger than the 20 MB limit/)).toBeInTheDocument();
+    expect(await screen.findByText(/larger than the 100 MB limit/)).toBeInTheDocument();
   });
 
   it("leaves a dropped .git out of the plan, visibly", async () => {

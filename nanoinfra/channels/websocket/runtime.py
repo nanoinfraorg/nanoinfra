@@ -101,7 +101,11 @@ from nanoinfra.webui.sidebar_state import write_webui_sidebar_state
 from nanoinfra.webui.transcript import WEBUI_TRANSCRIPT_INCOMPLETE_KEY
 from nanoinfra.webui.transcription_ws import webui_transcription_event
 from nanoinfra.webui.websocket_logging import websockets_server_logger
-from nanoinfra.webui.workspace_upload_ws import webui_workspace_upload_event
+from nanoinfra.webui.workspace_upload_ws import (
+    UploadSession,
+    discard_upload_sessions,
+    webui_workspace_upload_event,
+)
 
 # Plain HTTP WebUI routes also run through websockets.process_request.
 _WEBUI_HTTP_OPEN_TIMEOUT_S = 360.0
@@ -589,6 +593,10 @@ class WebSocketChannel(BaseChannel):
         self._conn_default: dict[ServerConnection, str] = {}
         # Connections authenticated with a one-time token from /webui/bootstrap.
         self._webui_connections: set[ServerConnection] = set()
+        # connection -> its in-progress chunked uploads. Per connection so a second
+        # client cannot append to an upload it did not start, and so a disconnect has
+        # exactly one place to drop the partial files.
+        self._upload_sessions: dict[ServerConnection, dict[str, UploadSession]] = {}
         self._stop_event: asyncio.Event | None = None
         self._server_task: asyncio.Task[None] | None = None
         # Set while started: drops the diagram-change listener again on stop, so a
@@ -674,6 +682,11 @@ class WebSocketChannel(BaseChannel):
                 self._subs.pop(cid, None)
         self._conn_default.pop(connection, None)
         self._webui_connections.discard(connection)
+        # A half-sent upload leaves a temp file. The connection that was sending it is
+        # gone, so nothing can finish it and nobody is left to be told.
+        sessions = self._upload_sessions.pop(connection, None)
+        if sessions:
+            discard_upload_sessions(sessions)
 
     async def _maybe_push_active_goal_state(self, chat_id: str) -> None:
         """Replay an active sustained goal from session metadata after *chat_id* is subscribed.
@@ -1096,6 +1109,7 @@ class WebSocketChannel(BaseChannel):
                 webui_workspace_upload_event,
                 envelope,
                 scope=self._workspaces.default_scope(),
+                sessions=self._upload_sessions.setdefault(connection, {}),
             )
             await self._send_event(connection, event, **payload)
             return
@@ -1362,6 +1376,9 @@ class WebSocketChannel(BaseChannel):
         self._subs.clear()
         self._conn_chats.clear()
         self._conn_default.clear()
+        for sessions in self._upload_sessions.values():
+            discard_upload_sessions(sessions)
+        self._upload_sessions.clear()
         self._webui_connections.clear()
         self._tokens.clear()
 
