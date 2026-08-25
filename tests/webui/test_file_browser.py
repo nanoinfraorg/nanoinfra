@@ -8,6 +8,7 @@ from nanoinfra.webui.file_browser import (
     create_directory,
     delete_entry,
     directory_listing_payload,
+    move_entry,
     read_file_for_download,
     rename_entry,
     resolve_within_workspace,
@@ -540,3 +541,116 @@ def test_download_refuses_a_directory(tmp_path: Path) -> None:
         read_file_for_download("src", scope=default_workspace_scope(workspace, True))
 
     assert exc.value.status == 400
+
+
+# -- Move --------------------------------------------------------------------
+
+
+def test_move_puts_a_file_in_another_directory(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "notes.md").write_text("body", encoding="utf-8")
+    (workspace / "docs").mkdir()
+
+    payload = move_entry(
+        None, "notes.md", str(workspace / "docs"), scope=default_workspace_scope(workspace, True)
+    )
+
+    assert (workspace / "docs" / "notes.md").read_text(encoding="utf-8") == "body"
+    assert not (workspace / "notes.md").exists()
+    # The view the operator dragged from.
+    assert [e["name"] for e in payload["entries"]] == ["docs"]
+
+
+def test_move_into_the_directory_it_is_already_in_is_a_no_op(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "notes.md").write_text("body", encoding="utf-8")
+
+    payload = move_entry(None, "notes.md", None, scope=default_workspace_scope(workspace, True))
+
+    assert (workspace / "notes.md").exists()
+    assert [e["name"] for e in payload["entries"]] == ["notes.md"]
+
+
+def test_a_folder_cannot_be_moved_into_its_own_subtree(tmp_path: Path) -> None:
+    """`rename` would happily detach the whole branch, with no way back to it."""
+    workspace = _workspace(tmp_path)
+    (workspace / "outer" / "inner").mkdir(parents=True)
+    (workspace / "outer" / "inner" / "keep.txt").write_text("x", encoding="utf-8")
+
+    with pytest.raises(WebUIFileBrowserError, match="into itself") as exc:
+        move_entry(
+            None,
+            "outer",
+            str(workspace / "outer" / "inner"),
+            scope=default_workspace_scope(workspace, True),
+        )
+
+    assert exc.value.status == 400
+    assert (workspace / "outer" / "inner" / "keep.txt").exists()
+
+
+def test_a_folder_cannot_be_moved_into_itself(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "outer").mkdir()
+
+    with pytest.raises(WebUIFileBrowserError, match="into itself") as exc:
+        move_entry(None, "outer", str(workspace / "outer"), scope=default_workspace_scope(workspace, True))
+
+    assert exc.value.status == 400
+    assert (workspace / "outer").is_dir()
+
+
+def test_move_refuses_to_clobber_at_the_destination(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "notes.md").write_text("source", encoding="utf-8")
+    (workspace / "docs").mkdir()
+    (workspace / "docs" / "notes.md").write_text("destination", encoding="utf-8")
+
+    with pytest.raises(WebUIFileBrowserError, match="already exists there") as exc:
+        move_entry(
+            None, "notes.md", str(workspace / "docs"), scope=default_workspace_scope(workspace, True)
+        )
+
+    assert exc.value.status == 409
+    assert (workspace / "docs" / "notes.md").read_text(encoding="utf-8") == "destination"
+    assert (workspace / "notes.md").exists()
+
+
+def test_move_cannot_leave_the_workspace(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "notes.md").write_text("body", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    with pytest.raises(WebUIFileBrowserError) as exc:
+        move_entry(None, "notes.md", str(outside), scope=default_workspace_scope(workspace, True))
+
+    assert exc.value.status == 403
+    assert (workspace / "notes.md").exists()
+    assert list(outside.iterdir()) == []
+
+
+def test_move_takes_a_symlink_as_the_link(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    target = workspace / "real.txt"
+    target.write_text("body", encoding="utf-8")
+    (workspace / "link.txt").symlink_to(target)
+    (workspace / "docs").mkdir()
+
+    move_entry(None, "link.txt", str(workspace / "docs"), scope=default_workspace_scope(workspace, True))
+
+    assert (workspace / "docs" / "link.txt").is_symlink()
+    assert target.read_text(encoding="utf-8") == "body"
+
+
+def test_move_will_not_take_a_source_from_outside_the_workspace(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("secret", encoding="utf-8")
+
+    with pytest.raises(WebUIFileBrowserError) as exc:
+        move_entry(str(outside), "secret.txt", None, scope=default_workspace_scope(workspace, True))
+
+    assert exc.value.status == 403
+    assert (outside / "secret.txt").exists()

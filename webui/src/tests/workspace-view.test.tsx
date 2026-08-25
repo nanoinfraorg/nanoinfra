@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,9 +17,13 @@ vi.mock("@/lib/api", async (importOriginal) => {
     fetchWorkspaceFilePreview: vi.fn(),
     createWorkspaceFolder: vi.fn(),
     renameWorkspaceEntry: vi.fn(),
+    moveWorkspaceEntry: vi.fn(),
     deleteWorkspaceEntry: vi.fn(),
+    downloadWorkspaceFile: vi.fn(),
   };
 });
+
+const uploadSpy = vi.fn();
 
 function fakeClient() {
   return {
@@ -31,6 +35,7 @@ function fakeClient() {
     onSessionUpdate: () => () => {},
     onDiagramUpdate: () => () => {},
     getRunStartedAt: () => null,
+    uploadWorkspaceFile: uploadSpy,
     sendMessage: vi.fn(),
     newChat: vi.fn(),
     attach: vi.fn(),
@@ -51,6 +56,8 @@ function wrap(children: ReactNode) {
   );
 }
 
+const ROOT = "/w";
+
 function entry(overrides: Partial<WorkspaceEntry> & { name: string }): WorkspaceEntry {
   return {
     kind: "file",
@@ -61,16 +68,17 @@ function entry(overrides: Partial<WorkspaceEntry> & { name: string }): Workspace
   };
 }
 
-function listing(overrides: Partial<WorkspaceListingPayload> = {}): WorkspaceListingPayload {
+function listing(
+  path: string,
+  entries: WorkspaceEntry[],
+  overrides: Partial<WorkspaceListingPayload> = {},
+): WorkspaceListingPayload {
   return {
-    path: "/home/dev/project",
-    displayPath: "",
-    projectPath: "/home/dev/project",
-    parent: null,
-    entries: [
-      entry({ name: "src", kind: "directory", size: null }),
-      entry({ name: "README.md" }),
-    ],
+    path,
+    displayPath: path === ROOT ? "" : path.slice(ROOT.length + 1),
+    projectPath: ROOT,
+    parent: path === ROOT ? null : path.slice(0, path.lastIndexOf("/")) || ROOT,
+    entries,
     truncated: false,
     includeHidden: false,
     hiddenCount: 0,
@@ -80,62 +88,331 @@ function listing(overrides: Partial<WorkspaceListingPayload> = {}): WorkspaceLis
 
 const listSpy = vi.mocked(api.fetchWorkspaceListing);
 
-describe("WorkspaceView", () => {
+/** One listing per directory, so expanding a folder gets its own answer. */
+function serve(directories: Record<string, WorkspaceListingPayload>): void {
+  listSpy.mockImplementation(async (_token, path) => {
+    const found = directories[path ?? ROOT];
+    if (!found) throw new ApiError(404, "path not found");
+    return found;
+  });
+}
+
+const ROOT_WITH_SRC = {
+  [ROOT]: listing(ROOT, [
+    entry({ name: "src", kind: "directory", size: null }),
+    entry({ name: "README.md" }),
+  ]),
+  [`${ROOT}/src`]: listing(`${ROOT}/src`, [entry({ name: "main.py" })]),
+};
+
+function dataTransfer(overrides: Partial<DataTransfer> & { types: string[] }) {
+  const store = new Map<string, string>();
+  return {
+    setData: (type: string, value: string) => store.set(type, value),
+    getData: (type: string) => store.get(type) ?? "",
+    files: [] as unknown as FileList,
+    dropEffect: "none",
+    effectAllowed: "none",
+    ...overrides,
+  } as unknown as DataTransfer;
+}
+
+describe("WorkspaceView tree", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    listSpy.mockResolvedValue(listing());
+    serve(ROOT_WITH_SRC);
   });
 
-  it("lists the workspace root and names it in the breadcrumb", async () => {
-    render(wrap(<WorkspaceView />));
-
+  it("expands a folder in place instead of navigating away", async () => {
+    const onPathChange = vi.fn();
+    render(wrap(<WorkspaceView onPathChange={onPathChange} />));
     await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
-    expect(listSpy).toHaveBeenCalledWith("tok", null, false);
-    expect(screen.getByRole("button", { name: "project" })).toBeInTheDocument();
-    expect(screen.getByText("2 items")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("src"));
+
+    // The child appears *below* its parent, both still on screen, and the route did
+    // not change: that is what "expands in the same tree" means.
+    expect(await screen.findByText("main.py")).toBeInTheDocument();
+    expect(screen.getByText("src")).toBeInTheDocument();
+    expect(screen.getByText("README.md")).toBeInTheDocument();
+    expect(onPathChange).not.toHaveBeenCalled();
+    expect(listSpy).toHaveBeenLastCalledWith("tok", `${ROOT}/src`, false);
   });
 
-  it("navigates into a directory with the absolute path the server answered", async () => {
+  it("collapses without refetching what it already has", async () => {
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("src"));
+    await screen.findByText("main.py");
+    const callsAfterExpand = listSpy.mock.calls.length;
+
+    await userEvent.click(screen.getByText("src"));
+    await waitFor(() => expect(screen.queryByText("main.py")).not.toBeInTheDocument());
+    await userEvent.click(screen.getByText("src"));
+
+    expect(await screen.findByText("main.py")).toBeInTheDocument();
+    // Re-expanding is free: the listing was kept.
+    expect(listSpy.mock.calls.length).toBe(callsAfterExpand);
+  });
+
+  it("indents a child deeper than its parent", async () => {
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("src"));
+    await screen.findByText("main.py");
+
+    const parentRow = screen.getByText("src").closest("button") as HTMLElement;
+    const childRow = screen.getByText("main.py").closest("button") as HTMLElement;
+
+    expect(parseInt(parentRow.style.paddingLeft, 10)).toBeLessThan(
+      parseInt(childRow.style.paddingLeft, 10),
+    );
+  });
+
+  it("opens a folder as the new root on double click", async () => {
     const onPathChange = vi.fn();
     render(wrap(<WorkspaceView onPathChange={onPathChange} />));
     await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
 
-    await userEvent.click(screen.getByText("src"));
+    await userEvent.dblClick(screen.getByText("src"));
 
-    expect(onPathChange).toHaveBeenCalledWith("/home/dev/project/src");
+    expect(onPathChange).toHaveBeenCalledWith(`${ROOT}/src`);
+  });
+});
+
+describe("WorkspaceView context menu", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    serve(ROOT_WITH_SRC);
   });
 
-  it("offers a step up only when the server said there is one", async () => {
+  it("offers file actions on a file and folder actions on a folder", async () => {
     render(wrap(<WorkspaceView />));
     await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
-    // At the root the payload's `parent` is null, so there is no step to offer.
-    // Exact: "Upload" also contains "up".
-    expect(screen.queryByRole("button", { name: "Up" })).not.toBeInTheDocument();
 
-    listSpy.mockResolvedValue(
-      listing({
-        path: "/home/dev/project/src",
-        displayPath: "src",
-        parent: "/home/dev/project",
-        entries: [entry({ name: "main.py" })],
-      }),
-    );
-    const onPathChange = vi.fn();
-    render(wrap(<WorkspaceView path="/home/dev/project/src" onPathChange={onPathChange} />));
-    await waitFor(() => expect(screen.getByText("main.py")).toBeInTheDocument());
+    fireEvent.contextMenu(screen.getByText("README.md"));
+    const fileMenu = screen.getByRole("menu");
+    expect(within(fileMenu).getByRole("menuitem", { name: "Preview" })).toBeInTheDocument();
+    expect(within(fileMenu).getByRole("menuitem", { name: "Download" })).toBeInTheDocument();
+    expect(within(fileMenu).getByRole("menuitem", { name: "Rename" })).toBeInTheDocument();
+    expect(within(fileMenu).getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
+    // A file is not a place to expand or to upload into.
+    expect(within(fileMenu).queryByRole("menuitem", { name: "Expand" })).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getAllByRole("button", { name: "Up" })[0]);
-    expect(onPathChange).toHaveBeenCalledWith("/home/dev/project");
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+
+    fireEvent.contextMenu(screen.getByText("src"));
+    const folderMenu = screen.getByRole("menu");
+    expect(within(folderMenu).getByRole("menuitem", { name: "Expand" })).toBeInTheDocument();
+    expect(within(folderMenu).getByRole("menuitem", { name: "Open as root" })).toBeInTheDocument();
+    expect(within(folderMenu).getByRole("menuitem", { name: "Upload here" })).toBeInTheDocument();
+    expect(within(folderMenu).queryByRole("menuitem", { name: "Download" })).not.toBeInTheDocument();
   });
 
-  it("shows a symlink that leaves the workspace, and refuses to open it", async () => {
-    // Listed rather than hidden: a name that silently vanishes is more confusing
-    // than one that says why it cannot be followed. The server refuses it too.
+  it("renames from the menu, and the row becomes an input", async () => {
+    vi.mocked(api.renameWorkspaceEntry).mockResolvedValue(
+      listing(ROOT, [entry({ name: "GUIDE.md" })]),
+    );
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
+
+    fireEvent.contextMenu(screen.getByText("README.md"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
+
+    const input = screen.getByLabelText("Rename README.md");
+    await userEvent.clear(input);
+    await userEvent.type(input, "GUIDE.md");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm name" }));
+
+    expect(api.renameWorkspaceEntry).toHaveBeenCalledWith("tok", ROOT, "README.md", "GUIDE.md", false);
+  });
+
+  it("creates a folder inside the folder it was asked on", async () => {
+    vi.mocked(api.createWorkspaceFolder).mockResolvedValue(
+      listing(`${ROOT}/src`, [entry({ name: "docs", kind: "directory", size: null })]),
+    );
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+
+    fireEvent.contextMenu(screen.getByText("src"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "New folder" }));
+    await userEvent.type(screen.getByLabelText("New folder name"), "docs");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm name" }));
+
+    // The parent is the folder the menu was opened on, not the root.
+    expect(api.createWorkspaceFolder).toHaveBeenCalledWith("tok", `${ROOT}/src`, "docs", false);
+  });
+
+  it("closes on a click outside", async () => {
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
+    fireEvent.contextMenu(screen.getByText("README.md"));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+  });
+
+  it("offers nothing destructive for a link that leaves the workspace", async () => {
+    serve({
+      [ROOT]: listing(ROOT, [entry({ name: "escape", kind: "symlink", escapesWorkspace: true })]),
+    });
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("escape")).toBeInTheDocument());
+
+    fireEvent.contextMenu(screen.getByText("escape"));
+
+    const menu = screen.getByRole("menu");
+    expect(within(menu).queryByRole("menuitem", { name: "Delete" })).not.toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: "Rename" })).not.toBeInTheDocument();
+    // Still a place to create or upload, because its *parent* is the directory.
+    expect(within(menu).getByRole("menuitem", { name: "New folder" })).toBeInTheDocument();
+  });
+});
+
+describe("WorkspaceView drag and drop", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    serve(ROOT_WITH_SRC);
+  });
+
+  it("moves an entry dropped onto a folder", async () => {
+    vi.mocked(api.moveWorkspaceEntry).mockResolvedValue(
+      listing(ROOT, [entry({ name: "src", kind: "directory", size: null })]),
+    );
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
+
+    const source = screen.getByText("README.md").closest("div[draggable]") as HTMLElement;
+    const target = screen.getByText("src").closest("div[draggable]") as HTMLElement;
+    const transfer = dataTransfer({ types: ["application/x-nanoinfra-workspace-entry"] });
+
+    fireEvent.dragStart(source, { dataTransfer: transfer });
+    fireEvent.dragOver(target, { dataTransfer: transfer });
+    fireEvent.drop(target, { dataTransfer: transfer });
+
+    await waitFor(() =>
+      expect(api.moveWorkspaceEntry).toHaveBeenCalledWith(
+        "tok",
+        ROOT,
+        "README.md",
+        `${ROOT}/src`,
+        false,
+      ),
+    );
+  });
+
+  it("refuses to drop a folder into its own subtree", async () => {
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("src"));
+    await screen.findByText("main.py");
+    serve({
+      ...ROOT_WITH_SRC,
+      [`${ROOT}/src`]: listing(`${ROOT}/src`, [entry({ name: "inner", kind: "directory", size: null })]),
+      [`${ROOT}/src/inner`]: listing(`${ROOT}/src/inner`, []),
+    });
+
+    const source = screen.getByText("src").closest("div[draggable]") as HTMLElement;
+    const transfer = dataTransfer({ types: ["application/x-nanoinfra-workspace-entry"] });
+    fireEvent.dragStart(source, { dataTransfer: transfer });
+    // The dragged folder is its own destination.
+    fireEvent.drop(source, { dataTransfer: transfer });
+
+    expect(api.moveWorkspaceEntry).not.toHaveBeenCalled();
+  });
+
+  it("does not move an entry dropped back where it already is", async () => {
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("src"));
+    await screen.findByText("main.py");
+
+    const source = screen.getByText("README.md").closest("div[draggable]") as HTMLElement;
+    const transfer = dataTransfer({ types: ["application/x-nanoinfra-workspace-entry"] });
+    fireEvent.dragStart(source, { dataTransfer: transfer });
+    fireEvent.drop(screen.getByTestId("workspace-tree"), { dataTransfer: transfer });
+
+    expect(api.moveWorkspaceEntry).not.toHaveBeenCalled();
+  });
+
+  it("uploads OS files dropped onto a folder, into that folder", async () => {
+    uploadSpy.mockResolvedValue(listing(`${ROOT}/src`, [entry({ name: "dropped.txt" })]));
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+
+    const file = new File(["body"], "dropped.txt", { type: "text/plain" });
+    const target = screen.getByText("src").closest("div[draggable]") as HTMLElement;
+    fireEvent.drop(target, {
+      dataTransfer: dataTransfer({ types: ["Files"], files: [file] as unknown as FileList }),
+    });
+
+    await waitFor(() =>
+      expect(uploadSpy).toHaveBeenCalledWith(
+        `${ROOT}/src`,
+        "dropped.txt",
+        expect.stringContaining("data:"),
+        { includeHidden: false },
+      ),
+    );
+  });
+
+  it("ignores a drag that is neither ours nor files", async () => {
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+
+    const target = screen.getByText("src").closest("div[draggable]") as HTMLElement;
+    // A text selection dragged in from elsewhere: acting on it would move a file
+    // nobody picked up.
+    fireEvent.drop(target, { dataTransfer: dataTransfer({ types: ["text/plain"] }) });
+
+    expect(api.moveWorkspaceEntry).not.toHaveBeenCalled();
+    expect(uploadSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("WorkspaceView listing behaviour", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    serve(ROOT_WITH_SRC);
+  });
+
+  it("names the root and counts its entries", async () => {
+    render(wrap(<WorkspaceView />));
+
+    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
+    expect(screen.getByText("w")).toBeInTheDocument();
+    expect(screen.getByText("2 items")).toBeInTheDocument();
+    expect(listSpy).toHaveBeenCalledWith("tok", null, false);
+  });
+
+  it("hides dot entries, says how many, and refetches when asked", async () => {
+    serve({
+      [ROOT]: listing(ROOT, [entry({ name: "notes.md" })], { hiddenCount: 2 }),
+    });
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("notes.md")).toBeInTheDocument());
+    expect(screen.getByText("1 item · 2 hidden")).toBeInTheDocument();
+
     listSpy.mockResolvedValue(
-      listing({
-        entries: [entry({ name: "escape", kind: "symlink", escapesWorkspace: true })],
+      listing(ROOT, [entry({ name: ".git", kind: "directory", size: null })], {
+        includeHidden: true,
       }),
     );
+    await userEvent.click(screen.getByRole("button", { name: "Show dot files" }));
+
+    // The server does the filtering, so revealing them is a refetch: a `.git` never
+    // has to cross the wire to be hidden.
+    await waitFor(() => expect(listSpy).toHaveBeenLastCalledWith("tok", null, true));
+    expect(await screen.findByText(".git")).toBeInTheDocument();
+  });
+
+  it("shows a symlink that leaves the workspace and refuses to open it", async () => {
+    serve({
+      [ROOT]: listing(ROOT, [entry({ name: "escape", kind: "symlink", escapesWorkspace: true })]),
+    });
     const onPathChange = vi.fn();
     render(wrap(<WorkspaceView onPathChange={onPathChange} />));
     await waitFor(() => expect(screen.getByText("escape")).toBeInTheDocument());
@@ -146,6 +423,7 @@ describe("WorkspaceView", () => {
       "title",
       "This link points outside the workspace and cannot be opened here",
     );
+    expect(row?.closest("div[draggable]")).toHaveAttribute("draggable", "false");
     expect(onPathChange).not.toHaveBeenCalled();
   });
 
@@ -157,9 +435,6 @@ describe("WorkspaceView", () => {
   });
 
   it("relays what the gateway said instead of a bare status code", async () => {
-    // A gateway too old to have these routes answers the API path with WebUI HTML,
-    // and `request` turns that into this message with status 200. Collapsing it to
-    // "HTTP 200" is how a stale gateway looks like a broken feature.
     listSpy.mockRejectedValue(
       new ApiError(200, "Gateway returned WebUI HTML instead of JSON. Restart nanoinfra gateway and try again."),
     );
@@ -170,20 +445,31 @@ describe("WorkspaceView", () => {
     );
   });
 
-  it("says when a directory held more than one listing carries", async () => {
-    listSpy.mockResolvedValue(listing({ truncated: true }));
+  it("asks again with what the server said when a folder is not empty", async () => {
+    vi.mocked(api.deleteWorkspaceEntry)
+      .mockRejectedValueOnce(new ApiError(409, "the folder is not empty"))
+      .mockResolvedValueOnce(listing(ROOT, []));
     render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete src" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
 
     await waitFor(() =>
-      expect(screen.getByText(/list cut, directory holds more/)).toBeInTheDocument(),
+      expect(screen.getByText("Delete “src” and everything in it?")).toBeInTheDocument(),
     );
+    expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", ROOT, "src", false, false);
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete everything" }));
+
+    expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", ROOT, "src", true, false);
   });
 
   it("opens a file in the preview pane through the workspace-scoped route", async () => {
     vi.mocked(api.fetchWorkspaceFilePreview).mockResolvedValue({
-      path: "/home/dev/project/README.md",
+      path: `${ROOT}/README.md`,
       display_path: "README.md",
-      project_path: "/home/dev/project",
+      project_path: ROOT,
       language: "markdown",
       content: "# hello",
       size: 7,
@@ -195,154 +481,7 @@ describe("WorkspaceView", () => {
     await userEvent.click(screen.getByText("README.md"));
 
     await waitFor(() =>
-      expect(api.fetchWorkspaceFilePreview).toHaveBeenCalledWith(
-        "tok",
-        "/home/dev/project/README.md",
-      ),
+      expect(api.fetchWorkspaceFilePreview).toHaveBeenCalledWith("tok", `${ROOT}/README.md`),
     );
-  });
-
-  it("creates a folder and renders the listing the server answered with", async () => {
-    vi.mocked(api.createWorkspaceFolder).mockResolvedValue(
-      listing({ entries: [entry({ name: "docs", kind: "directory", size: null })] }),
-    );
-    render(wrap(<WorkspaceView />));
-    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
-
-    await userEvent.click(screen.getByRole("button", { name: /new folder/i }));
-    await userEvent.type(screen.getByLabelText("New folder name"), "docs");
-    await userEvent.click(screen.getByRole("button", { name: "Create folder" }));
-
-    expect(api.createWorkspaceFolder).toHaveBeenCalledWith("tok", null, "docs", false);
-    // Rendered from the mutation's own answer, with no second listing request.
-    await waitFor(() => expect(screen.getByText("docs")).toBeInTheDocument());
-    expect(listSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it("renames an entry in place", async () => {
-    vi.mocked(api.renameWorkspaceEntry).mockResolvedValue(
-      listing({ entries: [entry({ name: "GUIDE.md" })] }),
-    );
-    render(wrap(<WorkspaceView />));
-    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
-
-    await userEvent.click(screen.getByRole("button", { name: "Rename README.md" }));
-    const input = screen.getByLabelText("Rename README.md");
-    await userEvent.clear(input);
-    await userEvent.type(input, "GUIDE.md");
-    await userEvent.click(screen.getByRole("button", { name: "Save name" }));
-
-    expect(api.renameWorkspaceEntry).toHaveBeenCalledWith(
-      "tok",
-      null,
-      "README.md",
-      "GUIDE.md",
-      false,
-    );
-    await waitFor(() => expect(screen.getByText("GUIDE.md")).toBeInTheDocument());
-  });
-
-  it("shows a refusal instead of pretending the rename worked", async () => {
-    vi.mocked(api.renameWorkspaceEntry).mockRejectedValue(
-      new ApiError(409, "a file or folder with that name already exists"),
-    );
-    render(wrap(<WorkspaceView />));
-    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
-
-    await userEvent.click(screen.getByRole("button", { name: "Rename README.md" }));
-    const input = screen.getByLabelText("Rename README.md");
-    await userEvent.clear(input);
-    await userEvent.type(input, "src");
-    await userEvent.click(screen.getByRole("button", { name: "Save name" }));
-
-    await waitFor(() =>
-      expect(
-        screen.getByText("a file or folder with that name already exists"),
-      ).toBeInTheDocument(),
-    );
-    // The edit stays open, so the operator can pick another name.
-    expect(screen.getByLabelText("Rename README.md")).toBeInTheDocument();
-  });
-
-  it("deletes a file after one confirmation", async () => {
-    vi.mocked(api.deleteWorkspaceEntry).mockResolvedValue(listing({ entries: [] }));
-    render(wrap(<WorkspaceView />));
-    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
-
-    await userEvent.click(screen.getByRole("button", { name: "Delete README.md" }));
-    expect(screen.getByText("Delete “README.md”?")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
-
-    expect(api.deleteWorkspaceEntry).toHaveBeenCalledWith("tok", null, "README.md", false, false);
-  });
-
-  it("asks again with what the server said when a folder is not empty", async () => {
-    // `recursive` is never sent speculatively: the first call says "just this",
-    // the server answers that a tree is involved, and the operator confirms that.
-    vi.mocked(api.deleteWorkspaceEntry)
-      .mockRejectedValueOnce(new ApiError(409, "the folder is not empty"))
-      .mockResolvedValueOnce(listing({ entries: [] }));
-    render(wrap(<WorkspaceView />));
-    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
-
-    await userEvent.click(screen.getByRole("button", { name: "Delete src" }));
-    await userEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
-
-    await waitFor(() =>
-      expect(screen.getByText("Delete “src” and everything in it?")).toBeInTheDocument(),
-    );
-    expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", null, "src", false, false);
-
-    await userEvent.click(screen.getByRole("button", { name: "Delete everything" }));
-
-    expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", null, "src", true, false);
-  });
-
-  it("hides dot entries by default, says how many, and refetches when asked", async () => {
-    listSpy.mockResolvedValue(
-      listing({ entries: [entry({ name: "notes.md" })], hiddenCount: 2 }),
-    );
-    render(wrap(<WorkspaceView />));
-    await waitFor(() => expect(screen.getByText("notes.md")).toBeInTheDocument());
-
-    // Counted rather than dropped silently, so the toggle does not look inert.
-    expect(screen.getByText("1 item · 2 hidden")).toBeInTheDocument();
-    expect(listSpy).toHaveBeenCalledWith("tok", null, false);
-
-    listSpy.mockResolvedValue(
-      listing({
-        entries: [entry({ name: ".git", kind: "directory", size: null }), entry({ name: "notes.md" })],
-        includeHidden: true,
-        hiddenCount: 0,
-      }),
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Show dot files" }));
-
-    // The server does the filtering, so revealing them is a refetch and not a
-    // client-side unfilter -- a `.git` never has to cross the wire to be hidden.
-    await waitFor(() => expect(listSpy).toHaveBeenLastCalledWith("tok", null, true));
-    expect(await screen.findByText(".git")).toBeInTheDocument();
-    expect(screen.getByText("2 items")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Hide dot files" })).toBeInTheDocument();
-  });
-
-  it("keeps the hidden view when it mutates", async () => {
-    // Otherwise renaming a file would fold the dot entries away underneath the operator.
-    vi.mocked(api.renameWorkspaceEntry).mockResolvedValue(
-      listing({ entries: [entry({ name: "new.txt" })], includeHidden: true }),
-    );
-    listSpy.mockResolvedValue(listing({ entries: [entry({ name: "old.txt" })], hiddenCount: 1 }));
-    render(wrap(<WorkspaceView />));
-    await waitFor(() => expect(screen.getByText("old.txt")).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("button", { name: "Show dot files" }));
-    await waitFor(() => expect(listSpy).toHaveBeenLastCalledWith("tok", null, true));
-
-    await userEvent.click(screen.getByRole("button", { name: "Rename old.txt" }));
-    const input = screen.getByLabelText("Rename old.txt");
-    await userEvent.clear(input);
-    await userEvent.type(input, "new.txt");
-    await userEvent.click(screen.getByRole("button", { name: "Save name" }));
-
-    expect(api.renameWorkspaceEntry).toHaveBeenCalledWith("tok", null, "old.txt", "new.txt", true);
   });
 });

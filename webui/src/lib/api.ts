@@ -314,6 +314,8 @@ interface WorkspaceMutation {
   parent: string | null;
   name: string;
   newName?: string;
+  /** Absolute destination directory for a move; null is the workspace root. */
+  destination?: string | null;
   recursive?: boolean;
   /** Answer with the listing in the view the caller is showing. */
   includeHidden?: boolean;
@@ -362,6 +364,22 @@ export async function renameWorkspaceEntry(
     "/api/webui/workspace/rename",
     token,
     { parent, name, newName, includeHidden },
+    base,
+  );
+}
+
+export async function moveWorkspaceEntry(
+  token: string,
+  parent: string | null,
+  name: string,
+  destination: string | null,
+  includeHidden: boolean = false,
+  base: string = "",
+): Promise<WorkspaceListingPayload> {
+  return workspaceMutation(
+    "/api/webui/workspace/move",
+    token,
+    { parent, name, destination, includeHidden },
     base,
   );
 }

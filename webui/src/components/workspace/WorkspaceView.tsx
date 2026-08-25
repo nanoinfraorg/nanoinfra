@@ -1,40 +1,64 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import type { DragEvent as ReactDragEvent } from "react";
 import {
   Check,
+  ChevronDown,
   ChevronRight,
   CornerLeftUp,
-  FileText,
-  Folder,
-  FolderPlus,
-  Link2,
   Download,
   Eye,
   EyeOff,
+  FileText,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  Link2,
+  Loader2,
   Pencil,
   RefreshCw,
   ShieldAlert,
-  Upload,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 
 import { FilePreviewPanel } from "@/components/FilePreviewPanel";
+import {
+  WorkspaceContextMenu,
+  type ContextMenuAnchor,
+  type ContextMenuItem,
+} from "@/components/workspace/WorkspaceContextMenu";
 import { WorkspaceDeleteConfirm } from "@/components/workspace/WorkspaceDeleteConfirm";
-import { useWorkspaceBrowser } from "@/hooks/useWorkspaceBrowser";
+import { useWorkspaceTree, type WorkspaceTreeRow } from "@/hooks/useWorkspaceTree";
 import {
   ApiError,
   createWorkspaceFolder,
   deleteWorkspaceEntry,
   downloadWorkspaceFile,
   fetchWorkspaceFilePreview,
+  moveWorkspaceEntry,
   renameWorkspaceEntry,
 } from "@/lib/api";
 import type { WorkspaceEntry, WorkspaceListingPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 
+/**
+ * Our own drag type, so a drag from this tree is told apart from any other drag
+ * crossing it. `text/plain` would be indistinguishable from a text selection
+ * dragged in from elsewhere, and acting on that would move a file nobody picked up.
+ */
+const DRAG_MIME = "application/x-nanoinfra-workspace-entry";
+
+interface DragPayload {
+  parent: string;
+  name: string;
+  path: string;
+  kind: WorkspaceEntry["kind"];
+}
+
 interface WorkspaceViewProps {
-  /** Absolute directory path from the URL, or `null` for the workspace root. */
+  /** Absolute path the tree is rooted at, or `null` for the workspace root. */
   path?: string | null;
   onPathChange?: (path: string | null, options?: { replace?: boolean }) => void;
 }
@@ -65,91 +89,122 @@ function formatModified(iso: string | null): string {
   });
 }
 
-function EntryIcon({ entry }: { entry: WorkspaceEntry }) {
+function EntryIcon({ entry, expanded }: { entry: WorkspaceEntry; expanded: boolean }) {
   if (entry.escapesWorkspace) return <ShieldAlert className="h-4 w-4 text-muted-foreground" />;
   if (entry.kind === "symlink") return <Link2 className="h-4 w-4 text-muted-foreground" />;
-  if (entry.kind === "directory") return <Folder className="h-4 w-4 text-muted-foreground" />;
+  if (entry.kind === "directory") {
+    return expanded
+      ? <FolderOpen className="h-4 w-4 text-muted-foreground" />
+      : <Folder className="h-4 w-4 text-muted-foreground" />;
+  }
   return <FileText className="h-4 w-4 text-muted-foreground" />;
 }
 
+/** An inline name field, used for both "new folder" and "rename". */
+function NameInput({
+  value,
+  label,
+  depth,
+  busy,
+  onChange,
+  onSubmit,
+  onCancel,
+}: {
+  value: string;
+  label: string;
+  depth: number;
+  busy: boolean;
+  onChange: (next: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 py-1 pr-2" style={{ paddingLeft: `${12 + depth * 14}px` }}>
+      <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <input
+        autoFocus
+        value={value}
+        aria-label={label}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") onSubmit();
+          if (event.key === "Escape") onCancel();
+        }}
+        className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-[13px] text-foreground outline-none focus:border-foreground/30"
+      />
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={busy || !value.trim()}
+        aria-label="Confirm name"
+        className="rounded-full p-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground disabled:opacity-50"
+      >
+        <Check className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        aria-label="Cancel"
+        className="rounded-full p-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 /**
- * The Workspaces explorer: one directory of the active workspace at a time.
+ * The Workspaces explorer: one tree over the active workspace.
  *
- * Every path here came from the server's own listing (`path`, `parent`, or a
- * prefix of `path`), and the server contains it again on the next request --
- * `nanoinfra/webui/file_browser.py` resolves symlinks before checking, and does
- * so unconditionally rather than reading `restrict_to_workspace`, which governs
- * the agent's tools and not what a browser may enumerate.
+ * Every path acted on came from a listing the server produced — a row's own path,
+ * its parent, or the root — and the server contains each one again on the way back
+ * in (`nanoinfra/webui/file_browser.py`). Containment there is unconditional and
+ * does not read `restrict_to_workspace`, which governs the agent's file tools and
+ * not what a browser may reach.
  */
 export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps) {
   const { client, token } = useClient();
-  // Dot-entries are off by default: a workspace under version control has a `.git`
-  // whose contents are not what an operator opened this to look at. The server does
-  // the filtering (see `file_browser.py`), so turning this on refetches.
+  // Dot entries are off by default: a workspace under version control has a `.git`
+  // whose objects are not what an operator opened this to look at. The server does
+  // the filtering, so this is a refetch rather than a client-side unfilter.
   const [showHidden, setShowHidden] = useState(false);
-  const { listing, loading, error, refresh, replace } = useWorkspaceBrowser(path, showHidden);
+  const tree = useWorkspaceTree(path, showHidden);
+  const { root, rows, separator } = tree;
+
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [newFolderName, setNewFolderName] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState<{ name: string; value: string } | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<{ name: string; recursive: boolean } | null>(
-    null,
-  );
+  const [menu, setMenu] = useState<{ anchor: ContextMenuAnchor; row: WorkspaceTreeRow | null } | null>(null);
+  const [newFolder, setNewFolder] = useState<{ parent: string; depth: number; value: string } | null>(null);
+  const [renaming, setRenaming] = useState<
+    { parent: string; name: string; depth: number; value: string } | null
+  >(null);
+  const [pendingDelete, setPendingDelete] = useState<
+    { parent: string; name: string; recursive: boolean } | null
+  >(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadTargetRef = useRef<string | null>(null);
+  const dragRef = useRef<DragPayload | null>(null);
 
-  const separator = useMemo(
-    () => (listing && listing.projectPath.includes("\\") ? "\\" : "/"),
-    [listing],
-  );
-
-  const crumbs = useMemo(() => {
-    if (!listing) return [];
-    const relative = listing.displayPath ? listing.displayPath.split("/").filter(Boolean) : [];
-    // Absolute paths built by slicing the path the server just resolved, not by
-    // joining operator input -- and re-checked server-side on the way back in.
-    return relative.map((name, index) => ({
-      name,
-      path: [listing.projectPath, ...relative.slice(0, index + 1)].join(separator),
-    }));
-  }, [listing, separator]);
-
-  const navigate = useCallback(
-    (target: string | null) => {
-      setSelectedFile(null);
-      onPathChange?.(target);
-    },
-    [onPathChange],
-  );
-
-  const openEntry = useCallback(
-    (entry: WorkspaceEntry) => {
-      if (!listing || entry.escapesWorkspace) return;
-      const absolute = [listing.path, entry.name].join(separator);
-      if (entry.kind === "directory") {
-        navigate(absolute);
-        return;
-      }
-      setSelectedFile(absolute);
-    },
-    [listing, navigate, separator],
-  );
+  const rootName = useMemo(() => {
+    if (!root) return "Workspace";
+    const parts = root.path.split(/[\\/]/).filter(Boolean);
+    return parts[parts.length - 1] ?? root.path;
+  }, [root]);
 
   /** Run one mutation, adopt the listing it answered with, and surface its refusal. */
   const runMutation = useCallback(
-    async (
-      call: () => Promise<WorkspaceListingPayload>,
-      onRefused?: (error: ApiError) => boolean,
-    ) => {
+    async (call: () => Promise<WorkspaceListingPayload>, onRefused?: (error: ApiError) => boolean) => {
       setBusy(true);
       setActionError(null);
       try {
-        replace(await call());
+        tree.replace(await call());
         return true;
       } catch (e) {
-        // A refusal here is the server's answer and not a transport failure: 409 is
-        // "that name is taken" or "the folder is not empty", 403 is the containment
-        // boundary. Showing its own message beats translating a status code badly.
+        // A refusal is the server's answer, not a transport failure: 409 is a taken
+        // name or a non-empty folder, 403 is the containment boundary, 400 is a move
+        // into a folder's own subtree. Its sentence beats a status code.
         if (e instanceof ApiError && onRefused?.(e)) return false;
         setActionError(e instanceof ApiError ? e.message : (e as Error).message);
         return false;
@@ -157,16 +212,19 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
         setBusy(false);
       }
     },
-    [replace],
+    [tree],
   );
 
   const submitNewFolder = useCallback(async () => {
-    const name = (newFolderName ?? "").trim();
+    if (!newFolder) return;
+    const name = newFolder.value.trim();
     if (!name) return;
-    if (await runMutation(() => createWorkspaceFolder(token, path, name, showHidden))) {
-      setNewFolderName(null);
+    const parent = newFolder.parent;
+    if (await runMutation(() => createWorkspaceFolder(token, parent, name, showHidden))) {
+      setNewFolder(null);
+      tree.expand(parent);
     }
-  }, [newFolderName, path, runMutation, showHidden, token]);
+  }, [newFolder, runMutation, showHidden, token, tree]);
 
   const submitRename = useCallback(async () => {
     if (!renaming) return;
@@ -175,23 +233,22 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
       setRenaming(null);
       return;
     }
-    if (
-      await runMutation(() => renameWorkspaceEntry(token, path, renaming.name, next, showHidden))
-    ) {
-      setRenaming(null);
-    }
-  }, [path, renaming, runMutation, showHidden, token]);
+    const done = await runMutation(() =>
+      renameWorkspaceEntry(token, renaming.parent, renaming.name, next, showHidden),
+    );
+    if (done) setRenaming(null);
+  }, [renaming, runMutation, showHidden, token]);
 
   const confirmDelete = useCallback(async () => {
     if (!pendingDelete) return;
-    const { name, recursive } = pendingDelete;
+    const { parent, name, recursive } = pendingDelete;
     const done = await runMutation(
-      () => deleteWorkspaceEntry(token, path, name, recursive, showHidden),
+      () => deleteWorkspaceEntry(token, parent, name, recursive, showHidden),
       (error) => {
-        // The server, not the client, decides that a tree is involved. Asking again
-        // with what it just said beats sending `recursive` speculatively.
+        // The server decides that a tree is involved, and the second dialog says so.
+        // `recursive` is never sent speculatively.
         if (error.status === 409 && /not empty/i.test(error.message) && !recursive) {
-          setPendingDelete({ name, recursive: true });
+          setPendingDelete({ parent, name, recursive: true });
           return true;
         }
         return false;
@@ -201,102 +258,242 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
       setPendingDelete(null);
       setSelectedFile(null);
     }
-  }, [path, pendingDelete, runMutation, showHidden, token]);
-
-  const upload = useCallback(
-    async (files: FileList | null) => {
-      if (!files || files.length === 0) return;
-      setBusy(true);
-      setActionError(null);
-      try {
-        // One at a time and sequentially: each answer carries the fresh listing, and
-        // the last one is then the state after every file landed. Sending them in
-        // parallel would race those listings against each other.
-        for (const file of Array.from(files)) {
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onerror = () => reject(new Error(`could not read ${file.name}`));
-            reader.onload = () => resolve(String(reader.result));
-            reader.readAsDataURL(file);
-          });
-          replace(
-            await client.uploadWorkspaceFile(path, file.name, dataUrl, {
-              includeHidden: showHidden,
-            }),
-          );
-        }
-      } catch (e) {
-        setActionError((e as Error).message);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [client, path, replace, showHidden],
-  );
+  }, [pendingDelete, runMutation, showHidden, token]);
 
   const download = useCallback(
-    async (entry: WorkspaceEntry) => {
-      if (!listing) return;
+    async (row: WorkspaceTreeRow) => {
       setActionError(null);
       try {
-        const blob = await downloadWorkspaceFile(token, [listing.path, entry.name].join(separator));
-        // The blob is handed to the browser here rather than linked to, because the
-        // route needs the bearer token. Revoked on the next tick: the click has
-        // already been dispatched, and holding the object URL holds the bytes.
+        const blob = await downloadWorkspaceFile(token, row.path);
+        // Handed to the browser here rather than linked to, because the route needs
+        // the bearer token. Revoked on the next tick: the click is already dispatched,
+        // and holding the object URL holds the bytes.
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url;
-        anchor.download = entry.name;
+        anchor.download = row.entry.name;
         anchor.click();
         setTimeout(() => URL.revokeObjectURL(url), 0);
       } catch (e) {
         setActionError(e instanceof ApiError ? e.message : (e as Error).message);
       }
     },
-    [listing, separator, token],
+    [token],
   );
 
-  const loadPreview = useCallback((target: string) => fetchWorkspaceFilePreview(token, target), [token]);
+  const uploadInto = useCallback(
+    async (directory: string, files: FileList | File[]) => {
+      const list = Array.from(files);
+      if (list.length === 0) return;
+      setBusy(true);
+      setActionError(null);
+      try {
+        // Sequential on purpose: each answer carries the listing of the directory, so
+        // the last one is the state after every file landed. In parallel those
+        // listings would race each other.
+        for (const file of list) {
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error(`could not read ${file.name}`));
+            reader.onload = () => resolve(String(reader.result));
+            reader.readAsDataURL(file);
+          });
+          tree.replace(
+            await client.uploadWorkspaceFile(directory, file.name, dataUrl, {
+              includeHidden: showHidden,
+            }),
+          );
+        }
+        tree.expand(directory);
+      } catch (e) {
+        setActionError((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [client, showHidden, tree],
+  );
 
-  const rootName = useMemo(() => {
-    if (!listing) return "Workspace";
-    const parts = listing.projectPath.split(/[\\/]/).filter(Boolean);
-    return parts[parts.length - 1] ?? listing.projectPath;
-  }, [listing]);
+  const move = useCallback(
+    async (drag: DragPayload, destination: string) => {
+      const done = await runMutation(() =>
+        moveWorkspaceEntry(token, drag.parent, drag.name, destination, showHidden),
+      );
+      if (done) {
+        // The source parent came back in the answer; the destination is elsewhere in
+        // the tree, and is refetched only if it is open.
+        await tree.invalidate([destination]);
+        tree.expand(destination);
+      }
+    },
+    [runMutation, showHidden, token, tree],
+  );
+
+  /** Whether *destination* is a place this drag could land. */
+  const canDropInto = useCallback(
+    (destination: string, drag: DragPayload | null) => {
+      if (!drag) return true; // external files
+      if (drag.parent === destination) return false; // already there
+      if (drag.path === destination) return false; // onto itself
+      // Into its own subtree: refused by the server too, but offering the target
+      // would be inviting a drop that cannot work.
+      return !destination.startsWith(`${drag.path}${separator}`);
+    },
+    [separator],
+  );
+
+  const onRowDragStart = useCallback((event: ReactDragEvent, row: WorkspaceTreeRow) => {
+    const payload: DragPayload = {
+      parent: row.parent,
+      name: row.entry.name,
+      path: row.path,
+      kind: row.entry.kind,
+    };
+    dragRef.current = payload;
+    event.dataTransfer.setData(DRAG_MIME, JSON.stringify(payload));
+    event.dataTransfer.effectAllowed = "move";
+  }, []);
+
+  const onDirectoryDragOver = useCallback(
+    (event: ReactDragEvent, destination: string) => {
+      const external = event.dataTransfer.types.includes("Files");
+      const internal = event.dataTransfer.types.includes(DRAG_MIME);
+      if (!external && !internal) return;
+      if (internal && !canDropInto(destination, dragRef.current)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = external ? "copy" : "move";
+      setDropTarget(destination);
+    },
+    [canDropInto],
+  );
+
+  const onDirectoryDrop = useCallback(
+    (event: ReactDragEvent, destination: string) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setDropTarget(null);
+      const raw = event.dataTransfer.getData(DRAG_MIME);
+      dragRef.current = null;
+      if (raw) {
+        try {
+          const drag = JSON.parse(raw) as DragPayload;
+          if (canDropInto(destination, drag)) void move(drag, destination);
+        } catch {
+          setActionError("could not read what was dropped");
+        }
+        return;
+      }
+      if (event.dataTransfer.files.length > 0) void uploadInto(destination, event.dataTransfer.files);
+    },
+    [canDropInto, move, uploadInto],
+  );
+
+  const openFolderAsRoot = useCallback(
+    (target: string | null) => {
+      setSelectedFile(null);
+      onPathChange?.(target);
+    },
+    [onPathChange],
+  );
+
+  const menuItems = useMemo((): ContextMenuItem[] => {
+    const row = menu?.row ?? null;
+    const directory = row
+      ? row.entry.kind === "directory" ? row.path : row.parent
+      : root?.path ?? null;
+    const depth = row ? (row.entry.kind === "directory" ? row.depth + 1 : row.depth) : 0;
+    const items: ContextMenuItem[] = [];
+    const actionable = row !== null && !row.entry.escapesWorkspace;
+
+    if (actionable && row) {
+      if (row.entry.kind === "directory") {
+        items.push({
+          label: row.expanded ? "Collapse" : "Expand",
+          icon: row.expanded
+            ? <ChevronDown className="h-3.5 w-3.5" />
+            : <ChevronRight className="h-3.5 w-3.5" />,
+          onSelect: () => tree.toggle(row.path),
+        });
+        items.push({
+          label: "Open as root",
+          icon: <FolderOpen className="h-3.5 w-3.5" />,
+          onSelect: () => openFolderAsRoot(row.path),
+        });
+      } else {
+        items.push({
+          label: "Preview",
+          icon: <FileText className="h-3.5 w-3.5" />,
+          onSelect: () => setSelectedFile(row.path),
+        });
+        items.push({
+          label: "Download",
+          icon: <Download className="h-3.5 w-3.5" />,
+          onSelect: () => void download(row),
+        });
+      }
+    }
+
+    if (directory !== null) {
+      items.push({
+        label: "New folder",
+        icon: <FolderPlus className="h-3.5 w-3.5" />,
+        startsGroup: items.length > 0,
+        onSelect: () => {
+          if (row?.entry.kind === "directory") tree.expand(directory);
+          setNewFolder({ parent: directory, depth, value: "" });
+        },
+      });
+      items.push({
+        label: "Upload here",
+        icon: <Upload className="h-3.5 w-3.5" />,
+        onSelect: () => {
+          uploadTargetRef.current = directory;
+          fileInputRef.current?.click();
+        },
+      });
+    }
+
+    if (actionable && row) {
+      items.push({
+        label: "Rename",
+        icon: <Pencil className="h-3.5 w-3.5" />,
+        startsGroup: true,
+        onSelect: () =>
+          setRenaming({
+            parent: row.parent,
+            name: row.entry.name,
+            depth: row.depth,
+            value: row.entry.name,
+          }),
+      });
+      items.push({
+        label: "Delete",
+        icon: <Trash2 className="h-3.5 w-3.5" />,
+        danger: true,
+        onSelect: () =>
+          setPendingDelete({ parent: row.parent, name: row.entry.name, recursive: false }),
+      });
+    }
+    return items;
+  }, [download, menu, openFolderAsRoot, root, tree]);
+
+  const rootDropActive = dropTarget !== null && root !== null && dropTarget === root.path;
 
   return (
     <div className="flex h-full min-h-0 w-full">
       <div className="flex h-full min-h-0 flex-1 flex-col">
         <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="flex min-w-0 flex-col">
-            <div className="flex min-w-0 items-center gap-1 text-[14px] font-semibold text-foreground">
-              <button
-                type="button"
-                onClick={() => navigate(null)}
-                className="max-w-[220px] truncate rounded-md px-1.5 py-0.5 hover:bg-muted/70"
-                title={listing?.projectPath}
-              >
-                {rootName}
-              </button>
-              {crumbs.map((crumb) => (
-                <span key={crumb.path} className="flex min-w-0 items-center gap-1">
-                  <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <button
-                    type="button"
-                    onClick={() => navigate(crumb.path)}
-                    className="max-w-[180px] truncate rounded-md px-1.5 py-0.5 hover:bg-muted/70"
-                  >
-                    {crumb.name}
-                  </button>
-                </span>
-              ))}
-            </div>
+            <span className="truncate text-[14px] font-semibold text-foreground" title={root?.path}>
+              {rootName}
+            </span>
             <span className="text-[11px] text-muted-foreground">
-              {listing
-                ? `${listing.entries.length} item${listing.entries.length === 1 ? "" : "s"}${
-                  listing.hiddenCount > 0 ? ` · ${listing.hiddenCount} hidden` : ""
-                }${listing.truncated ? " · list cut, directory holds more" : ""}`
-                : loading
+              {root
+                ? `${root.entries.length} item${root.entries.length === 1 ? "" : "s"}${
+                  root.hiddenCount > 0 ? ` · ${root.hiddenCount} hidden` : ""
+                }${root.truncated ? " · list cut, directory holds more" : ""}`
+                : tree.loading
                   ? "Loading…"
                   : ""}
             </span>
@@ -309,31 +506,38 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
               className="hidden"
               aria-label="Upload files"
               onChange={(event) => {
-                void upload(event.target.files);
+                const destination = uploadTargetRef.current ?? root?.path ?? null;
+                if (destination !== null && event.target.files) {
+                  void uploadInto(destination, event.target.files);
+                }
+                uploadTargetRef.current = null;
                 // Cleared so choosing the same file twice fires change again.
                 event.target.value = "";
               }}
             />
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={!listing || busy}
+              onClick={() => {
+                uploadTargetRef.current = root?.path ?? null;
+                fileInputRef.current?.click();
+              }}
+              disabled={!root || busy}
               className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Upload className="h-3.5 w-3.5" /> Upload
             </button>
             <button
               type="button"
-              onClick={() => setNewFolderName("")}
-              disabled={!listing || busy}
+              onClick={() => root && setNewFolder({ parent: root.path, depth: 0, value: "" })}
+              disabled={!root || busy}
               className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <FolderPlus className="h-3.5 w-3.5" /> New folder
             </button>
-            {listing?.parent ? (
+            {root?.parent ? (
               <button
                 type="button"
-                onClick={() => navigate(listing.parent)}
+                onClick={() => openFolderAsRoot(root.parent)}
                 className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70"
               >
                 <CornerLeftUp className="h-3.5 w-3.5" /> Up
@@ -354,18 +558,18 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
             </button>
             <button
               type="button"
-              onClick={() => void refresh()}
+              onClick={() => void tree.refresh()}
               aria-label="Refresh listing"
               className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/70 hover:text-foreground"
             >
-              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+              <RefreshCw className={cn("h-4 w-4", tree.loading && "animate-spin")} />
             </button>
           </div>
         </div>
 
-        {error ? (
+        {tree.error ? (
           <div className="border-b border-border bg-destructive/10 px-4 py-2 text-[12px] text-destructive-text">
-            {error}
+            {tree.error}
           </div>
         ) : null}
 
@@ -383,119 +587,122 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
           </div>
         ) : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {listing && listing.entries.length === 0 && !loading ? (
-            <div className="px-4 py-6 text-[13px] text-muted-foreground">This folder is empty.</div>
+        <div
+          data-testid="workspace-tree"
+          className={cn(
+            "min-h-0 flex-1 overflow-y-auto",
+            rootDropActive && "bg-muted/40 ring-2 ring-inset ring-foreground/20",
+          )}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setMenu({ anchor: { x: event.clientX, y: event.clientY }, row: null });
+          }}
+          onDragOver={(event) => (root ? onDirectoryDragOver(event, root.path) : undefined)}
+          onDragLeave={() => setDropTarget(null)}
+          onDrop={(event) => (root ? onDirectoryDrop(event, root.path) : undefined)}
+        >
+          {newFolder && root && newFolder.parent === root.path ? (
+            <NameInput
+              value={newFolder.value}
+              label="New folder name"
+              depth={0}
+              busy={busy}
+              onChange={(value) => setNewFolder({ ...newFolder, value })}
+              onSubmit={() => void submitNewFolder()}
+              onCancel={() => setNewFolder(null)}
+            />
           ) : null}
+
+          {root && root.entries.length === 0 && !tree.loading ? (
+            <div className="px-4 py-6 text-[13px] text-muted-foreground">
+              This folder is empty. Drop files here to upload them.
+            </div>
+          ) : null}
+
           <ul>
-            {newFolderName !== null ? (
-              <li className="flex items-center gap-3 border-b border-border/45 px-4 py-2">
-                <Folder className="h-4 w-4 text-muted-foreground" />
-                <input
-                  autoFocus
-                  value={newFolderName}
-                  onChange={(event) => setNewFolderName(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void submitNewFolder();
-                    if (event.key === "Escape") setNewFolderName(null);
-                  }}
-                  placeholder="New folder name"
-                  aria-label="New folder name"
-                  className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-[13px] text-foreground outline-none focus:border-foreground/30"
-                />
-                <button
-                  type="button"
-                  onClick={() => void submitNewFolder()}
-                  disabled={busy || !newFolderName.trim()}
-                  aria-label="Create folder"
-                  className="rounded-full p-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground disabled:opacity-50"
-                >
-                  <Check className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNewFolderName(null)}
-                  aria-label="Cancel new folder"
-                  className="rounded-full p-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </li>
-            ) : null}
-            {(listing?.entries ?? []).map((entry) => {
-              const absolute = listing ? [listing.path, entry.name].join(separator) : entry.name;
-              const selected = selectedFile === absolute;
+            {rows.map((row) => {
+              const isDirectory = row.entry.kind === "directory";
+              const selected = selectedFile === row.path;
+              const isRenaming = renaming?.parent === row.parent && renaming.name === row.entry.name;
+              const dropActive = dropTarget === row.path;
               return (
-                <li key={entry.name} className="group relative">
-                  {renaming?.name === entry.name ? (
-                    <div className="flex items-center gap-3 px-4 py-2">
-                      <EntryIcon entry={entry} />
-                      <input
-                        autoFocus
-                        value={renaming.value}
-                        onChange={(event) => setRenaming({ name: entry.name, value: event.target.value })}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") void submitRename();
-                          if (event.key === "Escape") setRenaming(null);
-                        }}
-                        aria-label={`Rename ${entry.name}`}
-                        className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-[13px] text-foreground outline-none focus:border-foreground/30"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void submitRename()}
-                        disabled={busy}
-                        aria-label="Save name"
-                        className="rounded-full p-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground disabled:opacity-50"
-                      >
-                        <Check className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setRenaming(null)}
-                        aria-label="Cancel rename"
-                        className="rounded-full p-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
+                <li key={row.path}>
+                  {isRenaming && renaming ? (
+                    <NameInput
+                      value={renaming.value}
+                      label={`Rename ${row.entry.name}`}
+                      depth={row.depth}
+                      busy={busy}
+                      onChange={(value) => setRenaming({ ...renaming, value })}
+                      onSubmit={() => void submitRename()}
+                      onCancel={() => setRenaming(null)}
+                    />
                   ) : (
                     <div
+                      draggable={!row.entry.escapesWorkspace}
+                      onDragStart={(event) => onRowDragStart(event, row)}
+                      onDragEnd={() => {
+                        dragRef.current = null;
+                        setDropTarget(null);
+                      }}
+                      onDragOver={(event) => (isDirectory ? onDirectoryDragOver(event, row.path) : undefined)}
+                      onDragLeave={() => (isDirectory ? setDropTarget(null) : undefined)}
+                      onDrop={(event) => (isDirectory ? onDirectoryDrop(event, row.path) : undefined)}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setMenu({ anchor: { x: event.clientX, y: event.clientY }, row });
+                      }}
                       className={cn(
-                        "flex items-center gap-3 pr-2 transition-colors",
-                        selected ? "bg-muted/70" : "hover:bg-muted/50",
+                        "group flex items-center gap-1 pr-2 transition-colors",
+                        selected && "bg-muted/70",
+                        dropActive
+                          ? "bg-muted/60 ring-2 ring-inset ring-foreground/25"
+                          : !selected && "hover:bg-muted/50",
                       )}
                     >
                       <button
                         type="button"
-                        onClick={() => openEntry(entry)}
-                        disabled={entry.escapesWorkspace}
+                        onClick={() => {
+                          if (row.entry.escapesWorkspace) return;
+                          if (isDirectory) tree.toggle(row.path);
+                          else setSelectedFile(row.path);
+                        }}
+                        onDoubleClick={() => (isDirectory ? openFolderAsRoot(row.path) : undefined)}
+                        disabled={row.entry.escapesWorkspace}
                         title={
-                          entry.escapesWorkspace
+                          row.entry.escapesWorkspace
                             ? "This link points outside the workspace and cannot be opened here"
-                            : absolute
+                            : row.path
                         }
-                        className={cn(
-                          "flex min-w-0 flex-1 items-center gap-3 px-4 py-2 text-left text-[13px]",
-                          "disabled:cursor-not-allowed disabled:opacity-60",
-                        )}
+                        style={{ paddingLeft: `${12 + row.depth * 14}px` }}
+                        className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2 text-left text-[13px] disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        <EntryIcon entry={entry} />
-                        <span className="min-w-0 flex-1 truncate text-foreground">{entry.name}</span>
+                        <span className="grid h-4 w-4 shrink-0 place-items-center text-muted-foreground">
+                          {isDirectory
+                            ? row.loading
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : row.expanded
+                                ? <ChevronDown className="h-3.5 w-3.5" />
+                                : <ChevronRight className="h-3.5 w-3.5" />
+                            : null}
+                        </span>
+                        <EntryIcon entry={row.entry} expanded={row.expanded} />
+                        <span className="min-w-0 flex-1 truncate text-foreground">{row.entry.name}</span>
                         <span className="w-20 shrink-0 text-right text-[11px] text-muted-foreground">
-                          {formatSize(entry.size)}
+                          {formatSize(row.entry.size)}
                         </span>
                         <span className="hidden w-40 shrink-0 text-right text-[11px] text-muted-foreground sm:block">
-                          {formatModified(entry.modified)}
+                          {formatModified(row.entry.modified)}
                         </span>
                       </button>
                       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                        {entry.kind === "file" ? (
+                        {row.entry.kind === "file" ? (
                           <button
                             type="button"
-                            onClick={() => void download(entry)}
+                            onClick={() => void download(row)}
                             disabled={busy}
-                            aria-label={`Download ${entry.name}`}
+                            aria-label={`Download ${row.entry.name}`}
                             className="rounded-full p-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground disabled:opacity-50"
                           >
                             <Download className="h-3.5 w-3.5" />
@@ -503,18 +710,29 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
                         ) : null}
                         <button
                           type="button"
-                          onClick={() => setRenaming({ name: entry.name, value: entry.name })}
+                          onClick={() =>
+                            setRenaming({
+                              parent: row.parent,
+                              name: row.entry.name,
+                              depth: row.depth,
+                              value: row.entry.name,
+                            })}
                           disabled={busy}
-                          aria-label={`Rename ${entry.name}`}
+                          aria-label={`Rename ${row.entry.name}`}
                           className="rounded-full p-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground disabled:opacity-50"
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
                         <button
                           type="button"
-                          onClick={() => setPendingDelete({ name: entry.name, recursive: false })}
+                          onClick={() =>
+                            setPendingDelete({
+                              parent: row.parent,
+                              name: row.entry.name,
+                              recursive: false,
+                            })}
                           disabled={busy}
-                          aria-label={`Delete ${entry.name}`}
+                          aria-label={`Delete ${row.entry.name}`}
                           className="rounded-full p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive-text disabled:opacity-50"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -522,12 +740,30 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
                       </div>
                     </div>
                   )}
+
+                  {newFolder && isDirectory && newFolder.parent === row.path ? (
+                    <NameInput
+                      value={newFolder.value}
+                      label="New folder name"
+                      depth={row.depth + 1}
+                      busy={busy}
+                      onChange={(value) => setNewFolder({ ...newFolder, value })}
+                      onSubmit={() => void submitNewFolder()}
+                      onCancel={() => setNewFolder(null)}
+                    />
+                  ) : null}
                 </li>
               );
             })}
           </ul>
         </div>
       </div>
+
+      <WorkspaceContextMenu
+        anchor={menu?.anchor ?? null}
+        items={menuItems}
+        onClose={() => setMenu(null)}
+      />
 
       <WorkspaceDeleteConfirm
         open={pendingDelete !== null}
@@ -542,7 +778,7 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
           key={selectedFile}
           path={selectedFile}
           token={token}
-          loadPreview={loadPreview}
+          loadPreview={(target) => fetchWorkspaceFilePreview(token, target)}
           onClose={() => setSelectedFile(null)}
         />
       ) : null}

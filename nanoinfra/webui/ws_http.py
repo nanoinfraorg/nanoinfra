@@ -75,6 +75,7 @@ from nanoinfra.webui.file_browser import (
     create_directory,
     delete_entry,
     directory_listing_payload,
+    move_entry,
     read_file_for_download,
     rename_entry,
     resolve_within_workspace,
@@ -1532,6 +1533,8 @@ class GatewayHTTPHandler:
             return self._handle_workspace_mkdir(request)
         if bare == "/api/webui/workspace/rename":
             return self._handle_workspace_rename(request)
+        if bare == "/api/webui/workspace/move":
+            return self._handle_workspace_move(request)
         if bare == "/api/webui/workspace/delete":
             return self._handle_workspace_delete(request)
         return None
@@ -1628,6 +1631,22 @@ class GatewayHTTPHandler:
                 _optional_str(values.get("parent")),
                 str(values.get("name") or ""),
                 str(values.get("newName") or ""),
+                scope=self.workspaces.default_scope(),
+                include_hidden=values.get("includeHidden") is True,
+            )
+        except WebUIFileBrowserError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
+
+    def _handle_workspace_move(self, request: WsRequest) -> Response:
+        values = _workspace_values_from_request(request)
+        if values is None:
+            return _http_error(400, "invalid workspace payload")
+        try:
+            payload = move_entry(
+                _optional_str(values.get("parent")),
+                str(values.get("name") or ""),
+                _optional_str(values.get("destination")),
                 scope=self.workspaces.default_scope(),
                 include_hidden=values.get("includeHidden") is True,
             )

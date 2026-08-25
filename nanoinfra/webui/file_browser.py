@@ -16,6 +16,7 @@ which is the capability-specific mechanism `.agent/security.md` requires.
 
 from __future__ import annotations
 
+import errno
 import os
 import shutil
 from dataclasses import dataclass
@@ -279,6 +280,59 @@ def rename_entry(
     return directory_listing_payload(parent_path, scope=scope, include_hidden=include_hidden)
 
 
+def move_entry(
+    parent_path: str | None,
+    name: str,
+    destination_path: str | None,
+    *,
+    scope: WorkspaceScope,
+    include_hidden: bool = False,
+) -> dict[str, Any]:
+    """``POST /api/webui/workspace/move`` -- one entry into another directory.
+
+    Separate from ``rename_entry`` rather than folded into it: a rename changes a
+    name inside one directory and a move changes which directory holds it, and the
+    failure modes are not the same -- a move can land inside its own subtree, and it
+    can cross a filesystem.
+
+    Answers with the listing of the *source* parent, which is the view the operator
+    dragged from. A caller showing the destination refetches that path itself.
+    """
+    source = resolve_child(parent_path, name, scope=scope)
+    destination = resolve_directory(destination_path, scope=scope)
+    if not source.exists() and not source.is_symlink():
+        raise WebUIFileBrowserError(404, "path not found")
+    if destination == source.parent:
+        # Already there. Answering the current listing beats a rename onto itself.
+        return directory_listing_payload(parent_path, scope=scope, include_hidden=include_hidden)
+    # Checked on the resolved paths, and before the move: `rename` would otherwise
+    # happily put a directory inside its own subtree and detach the whole branch
+    # from the tree, with no way back to it.
+    if source.is_dir() and not source.is_symlink():
+        resolved_source = source.resolve()
+        if destination == resolved_source or resolved_source in destination.parents:
+            raise WebUIFileBrowserError(400, "a folder cannot be moved into itself")
+
+    target = destination / source.name
+    if target.exists() or target.is_symlink():
+        raise WebUIFileBrowserError(409, "a file or folder with that name already exists there")
+
+    try:
+        source.rename(target)
+    except OSError as exc:
+        if getattr(exc, "errno", None) != errno.EXDEV:
+            if isinstance(exc, PermissionError):
+                raise WebUIFileBrowserError(403, "not permitted to move here") from exc
+            raise WebUIFileBrowserError(500, "failed to move") from exc
+        # Different filesystem under the same workspace (a mount, a bind). `rename`
+        # cannot cross one; a copy-then-delete can, and `shutil.move` is that.
+        try:
+            shutil.move(str(source), str(target))
+        except (OSError, shutil.Error) as move_exc:
+            raise WebUIFileBrowserError(500, "failed to move") from move_exc
+    return directory_listing_payload(parent_path, scope=scope, include_hidden=include_hidden)
+
+
 def delete_entry(
     parent_path: str | None,
     name: str,
@@ -409,6 +463,7 @@ __all__ = [
     "create_directory",
     "delete_entry",
     "directory_listing_payload",
+    "move_entry",
     "read_file_for_download",
     "rename_entry",
     "resolve_child",
