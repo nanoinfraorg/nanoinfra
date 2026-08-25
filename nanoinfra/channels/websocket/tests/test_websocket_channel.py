@@ -595,6 +595,59 @@ async def test_webui_persists_sidebar_state_larger_than_http_request_line(
 
 
 @pytest.mark.asyncio
+async def test_a_workspace_upload_needs_a_webui_connection(bus: MagicMock) -> None:
+    """Writing a file is at least as privileged as writing the sidebar's own state."""
+    channel = _ch(bus)
+    conn = AsyncMock()
+
+    await channel._dispatch_envelope(
+        conn,
+        "plain-client",
+        {
+            "type": "workspace_upload",
+            "request_id": "req-1",
+            "parent": None,
+            "name": "notes.md",
+            "data_url": "data:text/plain;base64,aGk=",
+        },
+    )
+
+    payload = json.loads(conn.send.call_args.args[0])
+    assert payload == {"event": "error", "detail": "access_denied"}
+
+
+@pytest.mark.asyncio
+async def test_a_workspace_upload_from_the_webui_answers_a_result(
+    bus: MagicMock,
+    tmp_path: Path,
+) -> None:
+    channel = WebSocketChannel(
+        {"enabled": True, "allowFrom": ["*"]},
+        bus,
+        gateway=_basic_handler(bus, workspace_path=tmp_path),
+    )
+    conn = AsyncMock()
+    channel._webui_connections.add(conn)
+
+    await channel._dispatch_envelope(
+        conn,
+        "webui-client",
+        {
+            "type": "workspace_upload",
+            "request_id": "req-1",
+            "parent": None,
+            "name": "notes.md",
+            "data_url": "data:text/plain;base64,aGk=",
+        },
+    )
+
+    payload = json.loads(conn.send.call_args.args[0])
+    assert payload["event"] == "workspace_upload_result"
+    assert payload["request_id"] == "req-1"
+    assert (tmp_path / "notes.md").read_bytes() == b"hi"
+
+
+@pytest.mark.asyncio
 async def test_client_cannot_self_assert_webui_quote_context(bus: MagicMock) -> None:
     channel = _ch(bus)
     conn = MagicMock()

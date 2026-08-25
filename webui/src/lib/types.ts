@@ -1587,6 +1587,13 @@ export type InboundEvent =
       scope?: "metadata" | "thread" | string;
       workspace_scope?: WorkspaceScopePayload;
     }
+  | {
+      event: "workspace_upload_result";
+      request_id: string;
+      /** The listing of the directory the file landed in. */
+      listing: WorkspaceListingPayload;
+    }
+  | { event: "workspace_upload_error"; request_id?: string; detail: string }
   | { event: "transcription_result"; request_id: string; text: string }
   | {
       event: "transcription_error";
@@ -1697,6 +1704,19 @@ export type Outbound =
   | { type: "new_chat"; workspace_scope?: WorkspaceScopePayload }
   | { type: "fork_chat"; source_chat_id: string; before_user_index: number; title?: string }
   | { type: "attach"; chat_id: string }
+  | {
+      /**
+       * One file into the workspace. Over the socket rather than HTTP because this
+       * transport exposes no request body (see the chunked diagram headers in
+       * `ws_http.py`), and bulk bytes do not belong in header lines.
+       */
+      type: "workspace_upload";
+      request_id: string;
+      /** Absolute directory path, or null for the workspace root. */
+      parent: string | null;
+      name: string;
+      data_url: string;
+    }
   | { type: "set_sidebar_state"; state: SidebarStatePayload }
   | { type: "set_workspace_scope"; chat_id: string; workspace_scope: WorkspaceScopePayload }
   | { type: "transcribe_audio"; request_id: string; data_url: string; duration_ms?: number }

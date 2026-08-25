@@ -107,7 +107,8 @@ describe("WorkspaceView", () => {
     render(wrap(<WorkspaceView />));
     await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
     // At the root the payload's `parent` is null, so there is no step to offer.
-    expect(screen.queryByRole("button", { name: /up/i })).not.toBeInTheDocument();
+    // Exact: "Upload" also contains "up".
+    expect(screen.queryByRole("button", { name: "Up" })).not.toBeInTheDocument();
 
     listSpy.mockResolvedValue(
       listing({
@@ -121,7 +122,7 @@ describe("WorkspaceView", () => {
     render(wrap(<WorkspaceView path="/home/dev/project/src" onPathChange={onPathChange} />));
     await waitFor(() => expect(screen.getByText("main.py")).toBeInTheDocument());
 
-    await userEvent.click(screen.getAllByRole("button", { name: /up/i })[0]);
+    await userEvent.click(screen.getAllByRole("button", { name: "Up" })[0]);
     expect(onPathChange).toHaveBeenCalledWith("/home/dev/project");
   });
 

@@ -101,6 +101,7 @@ from nanoinfra.webui.sidebar_state import write_webui_sidebar_state
 from nanoinfra.webui.transcript import WEBUI_TRANSCRIPT_INCOMPLETE_KEY
 from nanoinfra.webui.transcription_ws import webui_transcription_event
 from nanoinfra.webui.websocket_logging import websockets_server_logger
+from nanoinfra.webui.workspace_upload_ws import webui_workspace_upload_event
 
 # Plain HTTP WebUI routes also run through websockets.process_request.
 _WEBUI_HTTP_OPEN_TIMEOUT_S = 360.0
@@ -1083,6 +1084,20 @@ class WebSocketChannel(BaseChannel):
                 scope="metadata",
                 workspace_scope=scope.payload(),
             )
+            return
+        if t == "workspace_upload":
+            # Same gate as ``set_sidebar_state``: writing a file is at least as
+            # privileged as writing the sidebar's own state, so a connection that did
+            # not come through the WebUI bootstrap does not get to do it.
+            if connection not in self._webui_connections:
+                await self._send_event(connection, "error", detail="access_denied")
+                return
+            event, payload = await asyncio.to_thread(
+                webui_workspace_upload_event,
+                envelope,
+                scope=self._workspaces.default_scope(),
+            )
+            await self._send_event(connection, event, **payload)
             return
         if t == "transcribe_audio":
             event, payload = await webui_transcription_event(envelope)

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
@@ -11,6 +11,7 @@ import {
   Pencil,
   RefreshCw,
   ShieldAlert,
+  Upload,
   Trash2,
   X,
 } from "lucide-react";
@@ -79,7 +80,7 @@ function EntryIcon({ entry }: { entry: WorkspaceEntry }) {
  * the agent's tools and not what a browser may enumerate.
  */
 export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps) {
-  const { token } = useClient();
+  const { client, token } = useClient();
   const { listing, loading, error, refresh, replace } = useWorkspaceBrowser(path);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState<string | null>(null);
@@ -89,6 +90,7 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
   );
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const separator = useMemo(
     () => (listing && listing.projectPath.includes("\\") ? "\\" : "/"),
@@ -193,6 +195,33 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
     }
   }, [path, pendingDelete, runMutation, token]);
 
+  const upload = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0) return;
+      setBusy(true);
+      setActionError(null);
+      try {
+        // One at a time and sequentially: each answer carries the fresh listing, and
+        // the last one is then the state after every file landed. Sending them in
+        // parallel would race those listings against each other.
+        for (const file of Array.from(files)) {
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error(`could not read ${file.name}`));
+            reader.onload = () => resolve(String(reader.result));
+            reader.readAsDataURL(file);
+          });
+          replace(await client.uploadWorkspaceFile(path, file.name, dataUrl));
+        }
+      } catch (e) {
+        setActionError((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [client, path, replace],
+  );
+
   const download = useCallback(
     async (entry: WorkspaceEntry) => {
       if (!listing) return;
@@ -261,6 +290,26 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              aria-label="Upload files"
+              onChange={(event) => {
+                void upload(event.target.files);
+                // Cleared so choosing the same file twice fires change again.
+                event.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!listing || busy}
+              className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Upload className="h-3.5 w-3.5" /> Upload
+            </button>
             <button
               type="button"
               onClick={() => setNewFolderName("")}

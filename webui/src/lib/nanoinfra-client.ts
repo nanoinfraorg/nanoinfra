@@ -9,6 +9,7 @@ import type {
   SessionMention,
   SidebarStatePayload,
   GoalStateWsPayload,
+  WorkspaceListingPayload,
   WorkspaceScopePayload,
 } from "./types";
 import { createHostWebSocket } from "./runtime";
@@ -208,6 +209,7 @@ export class NanoinfraClient {
   private goalStateByChatId = new Map<string, GoalStateWsPayload>();
   private pendingNewChat: PendingRequest<string> | null = null;
   private pendingTranscriptions = new Map<string, PendingRequest<string>>();
+  private pendingUploads = new Map<string, PendingRequest<WorkspaceListingPayload>>();
   private pendingSystemCommands = new Map<string, PendingRequest<void>>();
   // Frames queued while the socket is not yet OPEN
   private sendQueue: Outbound[] = [];
@@ -785,6 +787,38 @@ export class NanoinfraClient {
     });
   }
 
+  /**
+   * Upload one file into the workspace, resolving with the fresh listing of the
+   * directory it landed in.
+   *
+   * Request/response over the socket, the same shape `transcribeAudio` uses: the
+   * server answers `workspace_upload_result` or `workspace_upload_error` carrying
+   * this request id.
+   */
+  uploadWorkspaceFile(
+    parent: string | null,
+    name: string,
+    dataUrl: string,
+    options?: { timeoutMs?: number },
+  ): Promise<WorkspaceListingPayload> {
+    const requestId = crypto.randomUUID();
+    const timeoutMs = options?.timeoutMs ?? 120_000;
+    return new Promise<WorkspaceListingPayload>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingUploads.delete(requestId);
+        reject(new Error("upload timed out"));
+      }, timeoutMs);
+      this.pendingUploads.set(requestId, { resolve, reject, timer });
+      this.queueSend({
+        type: "workspace_upload",
+        request_id: requestId,
+        parent,
+        name,
+        data_url: dataUrl,
+      });
+    });
+  }
+
   transcribeAudio(
     dataUrl: string,
     options?: { durationMs?: number; timeoutMs?: number },
@@ -1058,6 +1092,16 @@ export class NanoinfraClient {
       return;
     }
 
+    if (parsed.event === "workspace_upload_result") {
+      this.settleUpload(parsed.request_id, parsed.listing);
+      return;
+    }
+
+    if (parsed.event === "workspace_upload_error") {
+      this.failUpload(parsed.request_id, parsed.detail || "upload failed");
+      return;
+    }
+
     if (parsed.event === "transcription_result") {
       this.resolveTranscription(parsed.request_id, parsed.text);
       return;
@@ -1236,6 +1280,27 @@ export class NanoinfraClient {
       } catch {
         // best-effort: subscriber fault must not stall transport bookkeeping
       }
+    }
+  }
+
+  private settleUpload(requestId: string, listing: WorkspaceListingPayload): void {
+    const pending = this.pendingUploads.get(requestId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pendingUploads.delete(requestId);
+    pending.resolve(listing);
+  }
+
+  private failUpload(requestId: string | undefined, detail: string): void {
+    // No request id means the server could not read one back, so nothing can be
+    // matched: every waiter hears it rather than one hanging until its timeout.
+    const ids = requestId ? [requestId] : [...this.pendingUploads.keys()];
+    for (const id of ids) {
+      const pending = this.pendingUploads.get(id);
+      if (!pending) continue;
+      clearTimeout(pending.timer);
+      this.pendingUploads.delete(id);
+      pending.reject(new Error(detail));
     }
   }
 

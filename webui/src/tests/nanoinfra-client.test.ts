@@ -1306,6 +1306,80 @@ describe("NanoinfraClient", () => {
     expect(handler).toHaveBeenCalledWith("openai/gpt-4.1", "fast");
   });
 
+  it("resolves a workspace upload with the listing the server answered", async () => {
+    const client = new NanoinfraClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    lastSocket().fakeOpen();
+
+    const pending = client.uploadWorkspaceFile(null, "notes.md", "data:text/plain;base64,aGk=");
+    const sent = JSON.parse(lastSocket().sent[lastSocket().sent.length - 1]);
+    expect(sent).toMatchObject({
+      type: "workspace_upload",
+      parent: null,
+      name: "notes.md",
+      data_url: "data:text/plain;base64,aGk=",
+    });
+
+    lastSocket().fakeMessage({
+      event: "workspace_upload_result",
+      request_id: sent.request_id,
+      listing: {
+        path: "/w",
+        displayPath: "",
+        projectPath: "/w",
+        parent: null,
+        entries: [],
+        truncated: false,
+      },
+    });
+
+    await expect(pending).resolves.toMatchObject({ path: "/w" });
+  });
+
+  it("rejects a workspace upload with the server's own refusal", async () => {
+    const client = new NanoinfraClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    lastSocket().fakeOpen();
+
+    const pending = client.uploadWorkspaceFile(null, "notes.md", "data:text/plain;base64,aGk=");
+    const sent = JSON.parse(lastSocket().sent[lastSocket().sent.length - 1]);
+
+    lastSocket().fakeMessage({
+      event: "workspace_upload_error",
+      request_id: sent.request_id,
+      detail: "a file or folder with that name already exists",
+    });
+
+    await expect(pending).rejects.toThrow("a file or folder with that name already exists");
+  });
+
+  it("fails every waiting upload when the error carries no request id", async () => {
+    // Nothing can be matched, so a waiter would otherwise hang until its timeout.
+    const client = new NanoinfraClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    lastSocket().fakeOpen();
+
+    const first = client.uploadWorkspaceFile(null, "a.txt", "data:text/plain;base64,YQ==");
+    const second = client.uploadWorkspaceFile(null, "b.txt", "data:text/plain;base64,Yg==");
+
+    lastSocket().fakeMessage({ event: "workspace_upload_error", detail: "invalid_request" });
+
+    await expect(first).rejects.toThrow("invalid_request");
+    await expect(second).rejects.toThrow("invalid_request");
+  });
+
   it("dispatches diagram updates globally", () => {
     const client = new NanoinfraClient({
       url: "ws://test",
