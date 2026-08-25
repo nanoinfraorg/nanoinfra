@@ -103,6 +103,17 @@ const LazyHighlightedCode = lazy(async () => {
           PreTag="pre"
           showLineNumbers={showLineNumbers}
           wrapLongLines={wrapLongLines}
+          // The highlighter renders each line number as an inline span at the start
+          // of its line, so a wrapped line continues *under* the number. The hanging
+          // indent -- first line pulled left into the gutter, the rest pushed right --
+          // is what keeps the text in one column. `wrapLines` is what makes these
+          // props reach the line at all.
+          wrapLines={wrapLongLines && showLineNumbers}
+          lineProps={
+            wrapLongLines && showLineNumbers
+              ? { style: { display: "block", paddingLeft: "3.75em", textIndent: "-3.75em" } }
+              : undefined
+          }
         >
           {code}
         </SyntaxHighlighter>
@@ -127,6 +138,7 @@ function CodeTextBlock({
   code,
   chrome,
   showLineNumbers,
+  wrapLongLines = false,
   testId,
   className,
   renderText = renderPlainText,
@@ -134,6 +146,7 @@ function CodeTextBlock({
   code: string;
   chrome: "default" | "none";
   showLineNumbers: boolean;
+  wrapLongLines?: boolean;
   testId: string;
   className?: string;
   renderText?: (value: string) => ReactNode;
@@ -142,8 +155,9 @@ function CodeTextBlock({
   return (
     <pre
       className={cn(
-        "m-0 overflow-x-auto bg-transparent font-mono text-[13px] text-foreground/90",
-        showLineNumbers ? "whitespace-pre" : "whitespace-pre-wrap",
+        "m-0 bg-transparent font-mono text-[13px] text-foreground/90",
+        wrapLongLines ? "overflow-x-hidden" : "overflow-x-auto",
+        showLineNumbers && !wrapLongLines ? "whitespace-pre" : "whitespace-pre-wrap",
         chrome === "default"
           ? "py-4 pl-5 pr-14 leading-[1.6]"
           : "p-3 leading-[1.55]",
@@ -154,11 +168,19 @@ function CodeTextBlock({
       <code className="text-inherit">
         {showLineNumbers ? (
           lines.map((line, index) => (
-            <span key={index} className="flex min-w-max">
+            // `min-w-max` is what forces the row wider than the pane; without it the
+            // content column can wrap instead.
+            <span key={index} className={cn("flex", !wrapLongLines && "min-w-max")}>
               <span className="w-10 shrink-0 select-none pr-4 text-right text-muted-foreground/60">
                 {index + 1}
               </span>
-              <span className="whitespace-pre">{renderText(line || " ")}</span>
+              <span
+                className={wrapLongLines
+                  ? "min-w-0 flex-1 whitespace-pre-wrap break-words"
+                  : "whitespace-pre"}
+              >
+                {renderText(line || " ")}
+              </span>
               {index < lines.length - 1 ? "\n" : null}
             </span>
           ))
@@ -212,6 +234,7 @@ export function CodeBlock({
           code={code}
           chrome={chrome}
           showLineNumbers={showLineNumbers}
+          wrapLongLines={wrapLongLines}
           testId="ansi-code"
           renderText={renderAnsiText}
         />
@@ -222,6 +245,7 @@ export function CodeBlock({
               code={code}
               chrome={chrome}
               showLineNumbers={showLineNumbers}
+              wrapLongLines={wrapLongLines}
               testId="plain-code-fallback"
             />
           }
@@ -240,6 +264,7 @@ export function CodeBlock({
           code={code}
           chrome={chrome}
           showLineNumbers={showLineNumbers}
+          wrapLongLines={wrapLongLines}
           testId="plain-code-fallback"
         />
       )}

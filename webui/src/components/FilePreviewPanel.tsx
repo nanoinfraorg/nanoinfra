@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
-import { AlertCircle, ChevronRight, Loader2, X } from "lucide-react";
+import { AlertCircle, ChevronRight, Loader2, WrapText, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { CodeBlock } from "@/components/CodeBlock";
@@ -9,6 +9,7 @@ import { MarkdownText } from "@/components/MarkdownText";
 import { InertSvg } from "@/components/preview/InertSvg";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useFilePreviewMode } from "@/hooks/useFilePreviewMode";
+import { useFilePreviewWrap } from "@/hooks/useFilePreviewWrap";
 import { ApiError, fetchFilePreview } from "@/lib/api";
 import { rendererForPath } from "@/lib/file-preview-render";
 import type { FilePreviewPayload } from "@/lib/types";
@@ -137,6 +138,7 @@ export function FilePreviewPanel({
   ].join("/")}`;
   const renderer = rendererForPath(displayPath);
   const [mode, setMode] = useFilePreviewMode(displayPath, renderer);
+  const [wrap, setWrap] = useFilePreviewWrap();
   const showSource = useCallback(() => setMode("raw"), [setMode]);
   // A truncated payload is not a smaller document: half an `<svg>` is not a smaller picture, and
   // half a flowchart is a parse error. Rendering either would report a large file as a broken one.
@@ -276,6 +278,29 @@ export function FilePreviewPanel({
                 onChange={(next) => setMode(next === "preview" ? "preview" : "raw")}
               />
             ) : null}
+            {effectiveMode === "raw" ? (
+              <button
+                type="button"
+                onClick={() => setWrap(!wrap)}
+                aria-pressed={wrap}
+                className={cn(
+                  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  wrap
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+                title={wrap
+                  ? t("filePreview.wrapOff", { defaultValue: "Stop wrapping long lines" })
+                  : t("filePreview.wrapOn", { defaultValue: "Wrap long lines" })}
+                aria-label={wrap
+                  ? t("filePreview.wrapOff", { defaultValue: "Stop wrapping long lines" })
+                  : t("filePreview.wrapOn", { defaultValue: "Wrap long lines" })}
+                data-testid="file-preview-wrap"
+              >
+                <WrapText className="h-4 w-4" aria-hidden />
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={onClose}
@@ -339,7 +364,7 @@ export function FilePreviewPanel({
                     chrome="none"
                     highlight
                     showLineNumbers
-                    wrapLongLines={false}
+                    wrapLongLines={wrap}
                     className="min-h-full"
                   />
                 )}

@@ -260,3 +260,37 @@ describe("CodeBlock", () => {
     }
   });
 });
+
+const LONG = "a".repeat(400);
+
+describe("CodeBlock wrapping", () => {
+  it("stops forcing the row wider than the pane when wrapping", () => {
+    // `min-w-max` on the row is what makes a long line scroll sideways; the content
+    // column can only wrap once it is gone.
+    const { rerender } = render(
+      <CodeBlock code={LONG} highlight={false} showLineNumbers chrome="none" wrapLongLines={false} />,
+    );
+    const unwrapped = screen.getByTestId("plain-code-fallback");
+    expect(unwrapped).toHaveClass("overflow-x-auto", "whitespace-pre");
+    expect(unwrapped.querySelector("span.flex")).toHaveClass("min-w-max");
+
+    rerender(
+      <CodeBlock code={LONG} highlight={false} showLineNumbers chrome="none" wrapLongLines />,
+    );
+    const wrapped = screen.getByTestId("plain-code-fallback");
+    expect(wrapped).toHaveClass("overflow-x-hidden", "whitespace-pre-wrap");
+    expect(wrapped.querySelector("span.flex")).not.toHaveClass("min-w-max");
+    expect(wrapped.querySelector("span.break-words")).not.toBeNull();
+  });
+
+  it("keeps the line number gutter beside the wrapped text", () => {
+    render(<CodeBlock code={`${LONG}\nsecond`} highlight={false} showLineNumbers chrome="none" wrapLongLines />);
+
+    const rows = screen.getByTestId("plain-code-fallback").querySelectorAll("span.flex");
+    expect(rows).toHaveLength(2);
+    // The number keeps its own fixed column, so it cannot be pushed around by the
+    // text wrapping beside it.
+    expect(rows[0].firstElementChild).toHaveClass("w-10", "shrink-0");
+    expect(rows[0].firstElementChild).toHaveTextContent("1");
+  });
+});

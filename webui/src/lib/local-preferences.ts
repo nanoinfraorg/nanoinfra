@@ -74,6 +74,31 @@ export type FilePreviewMode = "raw" | "preview";
 export const FILE_PREVIEW_MODES_STORAGE_KEY = "nanoinfra-webui.file-preview-modes";
 export const FILE_PREVIEW_MODES_CHANGED_EVENT = "nanoinfra-webui.file-preview-modes-changed";
 
+export const FILE_PREVIEW_WRAP_STORAGE_KEY = "nanoinfra-webui.file-preview-wrap";
+export const FILE_PREVIEW_WRAP_CHANGED_EVENT = "nanoinfra-webui.file-preview-wrap-changed";
+
+/** Whether long lines soft-wrap in the raw view.
+ *
+ * One flag rather than one per extension, unlike the raw/preview mode: wrapping is a
+ * reading habit, and an operator who wants it does not want it only for `.md`.
+ */
+export function readFilePreviewWrap(): boolean {
+  try {
+    return window.localStorage.getItem(FILE_PREVIEW_WRAP_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeFilePreviewWrap(wrap: boolean): void {
+  try {
+    window.localStorage.setItem(FILE_PREVIEW_WRAP_STORAGE_KEY, wrap ? "1" : "0");
+  } catch {
+    // Browser-only preferences should never block the panel.
+  }
+  window.dispatchEvent(new CustomEvent<boolean>(FILE_PREVIEW_WRAP_CHANGED_EVENT, { detail: wrap }));
+}
+
 export function normalizeFilePreviewMode(value: unknown): FilePreviewMode | null {
   return value === "raw" || value === "preview" ? value : null;
 }
