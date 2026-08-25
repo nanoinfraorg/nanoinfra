@@ -15,6 +15,7 @@ __all__ = [
     "_load_inspection_config",
     "_load_runtime_config",
     "_migrate_cron_store",
+    "_migrate_default_workspace",
     "_model_display",
     "_print_agent_start_error",
     "_print_config_error",
@@ -95,6 +96,24 @@ def _print_agent_start_error(error: ValueError) -> None:
     _print_model_setup_steps(get_config_path())
 
 
+def _migrate_default_workspace(config_path: Path | None = None) -> None:
+    """Move a pre-root default workspace under the workspaces root, once.
+
+    Before the config is read, because it rewrites the key the config names and moves
+    the directory that key points at. Silent when there is nothing to do, which is
+    every run after the first and every install that chose its own workspace.
+    """
+    from nanoinfra.config.loader import get_config_path
+    from nanoinfra.config.workspace_migration import migrate_default_workspace
+
+    result = migrate_default_workspace(config_path or get_config_path())
+    if result.moved and result.target is not None:
+        console.print(
+            f"[dim]Moved the default workspace to {result.target} "
+            "(secrets, diagrams, servers, skills, triggers and memory came with it).[/dim]"
+        )
+
+
 def _load_config_for_cli(
     config_path: Path | None = None,
     *,
@@ -104,6 +123,7 @@ def _load_config_for_cli(
     from nanoinfra.config.errors import ConfigLoadError
     from nanoinfra.config.loader import load_config, resolve_config_env_vars
 
+    _migrate_default_workspace(config_path)
     try:
         loaded = load_config(config_path)
         if resolve_env:

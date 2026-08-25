@@ -118,7 +118,10 @@ class ModelPresetConfig(Base):
 class AgentDefaults(Base):
     """Default agent configuration."""
 
-    workspace: str = "~/.nanoinfra/workspace"
+    #: A fresh install gets ``default`` inside ``tools.workspacesRoot``. An install
+    #: that predates the root keeps what its own config.json says; see
+    #: ``config.paths.default_workspace_path`` for why that is not migrated for them.
+    workspace: str = "~/.nanoinfra/workspaces/default"
     model_preset: str | None = None  # Active preset name — takes precedence over fields below
     model: str = "anthropic/claude-opus-4-5"
     provider: str = (

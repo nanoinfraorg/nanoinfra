@@ -48,17 +48,50 @@ def get_webui_dir() -> Path:
     return get_runtime_subdir("webui")
 
 
+def default_workspaces_root() -> Path:
+    """Where workspaces live when config does not say otherwise.
+
+    Mirrors ``tools.workspacesRoot``'s own default, and a test pins the two together:
+    a default workspace that did not sit under the default root would leave a fresh
+    install with a workspace its own picker calls "outside the root".
+    """
+    return Path.home() / ".nanoinfra" / "workspaces"
+
+
+def default_workspace_path() -> Path:
+    """The workspace a fresh install gets: ``default``, inside the workspaces root.
+
+    An install that predates the root keeps whatever its ``config.json`` says --
+    ``~/.nanoinfra/workspace``, typically -- and goes on working, because that
+    directory is not only project files: ``secrets/``, ``diagrams/``, ``servers/``,
+    ``skills/``, ``triggers/`` and ``memory/`` live in it. Moving it is an operator's
+    decision (one ``mv`` and one config edit), not something a version bump does
+    underneath them.
+    """
+    return default_workspaces_root() / "default"
+
+
 def get_workspace_path(workspace: str | Path | None = None) -> Path:
     """Resolve and ensure the agent workspace path."""
-    path = Path(workspace).expanduser() if workspace else Path.home() / ".nanoinfra" / "workspace"
+    path = Path(workspace).expanduser() if workspace else default_workspace_path()
     return ensure_dir(path)
 
 
 def is_default_workspace(workspace: str | Path | None) -> bool:
-    """Return whether a workspace resolves to nanoinfra's default workspace path."""
-    current = Path(workspace).expanduser() if workspace is not None else Path.home() / ".nanoinfra" / "workspace"
-    default = Path.home() / ".nanoinfra" / "workspace"
-    return current.resolve(strict=False) == default.resolve(strict=False)
+    """Return whether a workspace resolves to nanoinfra's default workspace path.
+
+    Both spellings count: the current default under the workspaces root, and the
+    pre-root ``~/.nanoinfra/workspace`` that existing installs still name. Callers
+    use this to decide whether an operator has chosen a workspace deliberately, and
+    an install that never chose one has not become deliberate by being older.
+    """
+    current = (
+        Path(workspace).expanduser() if workspace is not None else default_workspace_path()
+    ).resolve(strict=False)
+    return current in {
+        default_workspace_path().resolve(strict=False),
+        (Path.home() / ".nanoinfra" / "workspace").resolve(strict=False),
+    }
 
 
 def get_cli_history_path() -> Path:

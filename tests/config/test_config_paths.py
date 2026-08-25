@@ -37,7 +37,9 @@ def test_shared_and_legacy_paths_remain_global() -> None:
 
 
 def test_workspace_path_is_explicitly_resolved() -> None:
-    assert get_workspace_path() == Path.home() / ".nanoinfra" / "workspace"
+    # A fresh install lands inside the workspaces root, so its own workspace is not
+    # the one thing the picker calls "outside the root".
+    assert get_workspace_path() == Path.home() / ".nanoinfra" / "workspaces" / "default"
     assert get_workspace_path("~/custom-workspace") == Path.home() / "custom-workspace"
 
 

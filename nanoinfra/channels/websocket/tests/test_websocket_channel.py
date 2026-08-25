@@ -2946,7 +2946,8 @@ async def test_settings_api_returns_safe_subset_and_updates_whitelist(
         assert image_providers["gemini"]["label"] == "Gemini"
         assert body["runtime"]["config_path"] == str(config_path)
         workspace_path = body["runtime"]["workspace_path"].replace("\\", "/")
-        assert workspace_path.endswith("/.nanoinfra/workspace")
+        # A fresh install's workspace lives under the workspaces root.
+        assert workspace_path.endswith("/.nanoinfra/workspaces/default")
         assert body["runtime"]["gateway_port"] == 18790
         assert body["advanced"]["exec_enabled"] is True
         assert body["advanced"]["webui_allow_local_service_access"] is True

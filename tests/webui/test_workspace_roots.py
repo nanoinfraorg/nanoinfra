@@ -159,3 +159,30 @@ def test_a_workspace_name_is_one_component(tmp_path: Path, name: str) -> None:
         create_workspace(root, name)
 
     assert exc.value.status == 400
+
+
+def test_the_default_workspace_sits_under_the_default_root() -> None:
+    """Otherwise a fresh install starts with a workspace its own picker disowns.
+
+    Two defaults have to agree: `tools.workspacesRoot` and
+    `agents.defaults.workspace`. A comment saying so is not enough -- the picker
+    marks anything outside the root as "outside the root", and on a new install that
+    label would be the first thing an operator saw.
+    """
+    from nanoinfra.config.paths import default_workspace_path, default_workspaces_root
+    from nanoinfra.config.schema import Config
+
+    config = Config()
+    root = Path(config.tools.workspaces_root).expanduser()
+    workspace = Path(config.agents.defaults.workspace).expanduser()
+
+    assert root == default_workspaces_root()
+    assert workspace == default_workspace_path()
+    assert root in workspace.parents, f"{workspace} is not under {root}"
+
+
+def test_the_pre_root_workspace_still_counts_as_a_default() -> None:
+    """An install that never chose a workspace has not become deliberate by being older."""
+    from nanoinfra.config.paths import is_default_workspace
+
+    assert is_default_workspace(Path.home() / ".nanoinfra" / "workspace")
