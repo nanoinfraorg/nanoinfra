@@ -1380,6 +1380,38 @@ describe("NanoinfraClient", () => {
     await expect(second).rejects.toThrow("invalid_request");
   });
 
+  it("fails a waiting upload when the gateway does not know the envelope", async () => {
+    // What a gateway older than this build answers. Ignoring it left the upload
+    // waiting for its timeout with nothing on screen.
+    const client = new NanoinfraClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    lastSocket().fakeOpen();
+
+    const pending = client.uploadWorkspaceFile(null, "notes.md", "data:text/plain;base64,aGk=");
+    lastSocket().fakeMessage({ event: "error", detail: "unknown type: 'workspace_upload'" });
+
+    await expect(pending).rejects.toThrow(/restart nanoinfra gateway/);
+  });
+
+  it("fails a waiting upload on a refusal the server did not tag", async () => {
+    const client = new NanoinfraClient({
+      url: "ws://test",
+      reconnect: false,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    client.connect();
+    lastSocket().fakeOpen();
+
+    const pending = client.uploadWorkspaceFile(null, "notes.md", "data:text/plain;base64,aGk=");
+    lastSocket().fakeMessage({ event: "error", detail: "access_denied" });
+
+    await expect(pending).rejects.toThrow("access_denied");
+  });
+
   it("dispatches diagram updates globally", () => {
     const client = new NanoinfraClient({
       url: "ws://test",

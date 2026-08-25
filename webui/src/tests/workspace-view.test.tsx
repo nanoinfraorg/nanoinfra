@@ -377,7 +377,7 @@ describe("WorkspaceView drag and drop", () => {
     expect(api.moveWorkspaceEntry).not.toHaveBeenCalled();
   });
 
-  it("uploads OS files dropped onto a folder, into that folder", async () => {
+  it("reviews OS files dropped onto a folder before writing them", async () => {
     uploadSpy.mockResolvedValue(listing(`${ROOT}/src`, [entry({ name: "dropped.txt" })]));
     render(wrap(<WorkspaceView />));
     await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
@@ -390,6 +390,12 @@ describe("WorkspaceView drag and drop", () => {
       }),
     });
 
+    // Nothing is written until the operator says so, and the dialog names where.
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Upload to src");
+    expect(uploadSpy).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: /Upload 1/ }));
+
     await waitFor(() =>
       expect(uploadSpy).toHaveBeenCalledWith(
         `${ROOT}/src`,
@@ -398,6 +404,40 @@ describe("WorkspaceView drag and drop", () => {
         { includeHidden: false, relativePath: "dropped.txt" },
       ),
     );
+  });
+
+  it("cancelling the review writes nothing", async () => {
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+    fireEvent.drop(screen.getByTestId("workspace-tree"), {
+      dataTransfer: dataTransfer({
+        types: ["Files"],
+        items: droppedItems([fileEntry("dropped.txt")]),
+      }),
+    });
+    await screen.findByRole("dialog");
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(uploadSpy).not.toHaveBeenCalled();
+  });
+
+  it("says so when a drop turns out to hold no files", async () => {
+    // An empty folder reported by the browser looks identical to a drop that never
+    // fired, so it is said out loud instead of silently doing nothing.
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+
+    fireEvent.drop(screen.getByTestId("workspace-tree"), {
+      dataTransfer: dataTransfer({
+        types: ["Files"],
+        items: droppedItems([directoryEntry("empty", [])]),
+      }),
+    });
+
+    expect(await screen.findByText(/nothing to upload/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("uploads a dropped folder recursively, each file keeping its path", async () => {
@@ -419,6 +459,13 @@ describe("WorkspaceView drag and drop", () => {
       }),
     });
 
+    const dialog = await screen.findByRole("dialog");
+    // The tree is shown, not just a count.
+    expect(within(dialog).getByText("docs")).toBeInTheDocument();
+    expect(within(dialog).getByText("img")).toBeInTheDocument();
+    expect(within(dialog).getByText("logo.png")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Upload 2/ }));
+
     await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(2));
     // The server creates the intermediate directories from these paths, so the client
     // sends no mkdir of its own.
@@ -427,6 +474,53 @@ describe("WorkspaceView drag and drop", () => {
       "docs/img/logo.png",
     ]);
     expect(uploadSpy.mock.calls.every((call) => call[0] === ROOT)).toBe(true);
+  });
+
+  it("leaves out what the operator removed from the review", async () => {
+    uploadSpy.mockResolvedValue(listing(ROOT, [entry({ name: "docs", kind: "directory", size: null })]));
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+    fireEvent.drop(screen.getByTestId("workspace-tree"), {
+      dataTransfer: dataTransfer({
+        types: ["Files"],
+        items: droppedItems([
+          directoryEntry("docs", [
+            fileEntry("index.md"),
+            directoryEntry("img", [fileEntry("logo.png"), fileEntry("icon.png")]),
+          ]),
+        ]),
+      }),
+    });
+    await screen.findByRole("dialog");
+
+    // Removing a folder removes everything under it.
+    await userEvent.click(screen.getByRole("button", { name: "Remove img" }));
+    await userEvent.click(screen.getByRole("button", { name: /Upload 1/ }));
+
+    await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(1));
+    expect(uploadSpy.mock.calls[0][3].relativePath).toBe("docs/index.md");
+  });
+
+  it("puts a removed folder back", async () => {
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+    fireEvent.drop(screen.getByTestId("workspace-tree"), {
+      dataTransfer: dataTransfer({
+        types: ["Files"],
+        items: droppedItems([
+          directoryEntry("docs", [fileEntry("index.md"), directoryEntry("img", [fileEntry("logo.png")])]),
+        ]),
+      }),
+    });
+    await screen.findByRole("dialog");
+
+    await userEvent.click(screen.getByRole("button", { name: "Remove img" }));
+    expect(screen.getByRole("button", { name: /Upload 1/ })).toBeInTheDocument();
+
+    // A mis-click on a folder holding half the upload must not mean dropping again.
+    await userEvent.click(screen.getByRole("button", { name: "Include img" }));
+
+    expect(screen.getByRole("button", { name: /Upload 2/ })).toBeInTheDocument();
   });
 
   it("reports the files a folder upload could not place, and keeps going", async () => {
@@ -446,6 +540,8 @@ describe("WorkspaceView drag and drop", () => {
         ]),
       }),
     });
+    await screen.findByRole("dialog");
+    await userEvent.click(screen.getByRole("button", { name: /Upload 2/ }));
 
     await waitFor(() => expect(uploadSpy).toHaveBeenCalledTimes(2));
     expect(await screen.findByText(/1 of 2 not uploaded/)).toBeInTheDocument();

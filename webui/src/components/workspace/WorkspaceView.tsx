@@ -30,6 +30,10 @@ import {
   type ContextMenuItem,
 } from "@/components/workspace/WorkspaceContextMenu";
 import { WorkspaceDeleteConfirm } from "@/components/workspace/WorkspaceDeleteConfirm";
+import {
+  WorkspaceUploadReview,
+  type UploadPlan,
+} from "@/components/workspace/WorkspaceUploadReview";
 import { useFilePreviewResize } from "@/hooks/useFilePreviewResize";
 import { useWorkspaceTree, type WorkspaceTreeRow } from "@/hooks/useWorkspaceTree";
 import {
@@ -195,6 +199,7 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const uploadTargetRef = useRef<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [plan, setPlan] = useState<UploadPlan | null>(null);
   const dragRef = useRef<DragPayload | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const { width: previewWidth, onResizeStart } = useFilePreviewResize(
@@ -296,6 +301,23 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
     [token],
   );
 
+  /** Show what would be uploaded, and where, before anything is written. */
+  const proposeUpload = useCallback(
+    (directory: string, files: DroppedFile[], truncated: boolean) => {
+      if (files.length === 0) {
+        // Said out loud rather than silently doing nothing: a folder drop that the
+        // browser reported as empty looks identical to one that never fired.
+        setActionError("nothing to upload — no files were found in what was dropped");
+        return;
+      }
+      const label = directory === root?.path
+        ? rootName
+        : directory.slice(directory.lastIndexOf(separator) + 1);
+      setPlan({ destination: directory, destinationLabel: label, files, truncated });
+    },
+    [root, rootName, separator],
+  );
+
   const uploadInto = useCallback(
     async (directory: string, dropped: DroppedFile[], truncated = false) => {
       if (dropped.length === 0) return;
@@ -334,6 +356,7 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
       } finally {
         setBusy(false);
         setProgress(null);
+        setPlan(null);
       }
       const notes: string[] = [];
       if (truncated) {
@@ -426,7 +449,7 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
       const transfer = event.dataTransfer;
       if (transfer.items.length > 0 || transfer.files.length > 0) {
         void collectDroppedFiles(transfer).then(({ files, truncated }) =>
-          uploadInto(destination, files, truncated),
+          proposeUpload(destination, files, truncated),
         );
       }
     },
@@ -549,15 +572,13 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
               {rootName}
             </span>
             <span className="text-[11px] text-muted-foreground">
-              {progress
-                ? `Uploading ${progress.done}/${progress.total}…`
-                : root
+              {root
                 ? `${root.entries.length} item${root.entries.length === 1 ? "" : "s"}${
                   root.hiddenCount > 0 ? ` · ${root.hiddenCount} hidden` : ""
                 }${root.truncated ? " · list cut, directory holds more" : ""}`
-                  : tree.loading
-                    ? "Loading…"
-                    : ""}
+                : tree.loading
+                  ? "Loading…"
+                  : ""}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -571,7 +592,7 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
                 const destination = uploadTargetRef.current ?? root?.path ?? null;
                 const picked = filesFromList(event.target.files);
                 if (destination !== null) {
-                  void uploadInto(destination, picked.files, picked.truncated);
+                  proposeUpload(destination, picked.files, picked.truncated);
                 }
                 uploadTargetRef.current = null;
                 // Cleared so choosing the same file twice fires change again.
@@ -591,7 +612,7 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
                 const destination = uploadTargetRef.current ?? root?.path ?? null;
                 const picked = filesFromList(event.target.files);
                 if (destination !== null) {
-                  void uploadInto(destination, picked.files, picked.truncated);
+                  proposeUpload(destination, picked.files, picked.truncated);
                 }
                 uploadTargetRef.current = null;
                 event.target.value = "";
@@ -856,6 +877,16 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
         anchor={menu?.anchor ?? null}
         items={menuItems}
         onClose={() => setMenu(null)}
+      />
+
+      <WorkspaceUploadReview
+        plan={plan}
+        busy={busy}
+        progress={progress}
+        onCancel={() => setPlan(null)}
+        onConfirm={(files) => {
+          if (plan) void uploadInto(plan.destination, files, plan.truncated);
+        }}
       />
 
       <WorkspaceDeleteConfirm

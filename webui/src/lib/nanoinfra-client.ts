@@ -1126,6 +1126,23 @@ export class NanoinfraClient {
       return;
     }
 
+    if (parsed.event === "error" && this.pendingUploads.size > 0) {
+      // A generic error while an upload waits is that upload's answer. The server
+      // rejects an envelope it does not know with `unknown type: '...'` — which is
+      // exactly what a gateway older than this build says about `workspace_upload` —
+      // and it is not tagged with our request id, so every waiter hears it. Without
+      // this the upload sat until its timeout with nothing on screen, which is how a
+      // gateway that needs restarting looked like a feature that does not work.
+      const detail = parsed.detail || "the gateway rejected the upload";
+      this.failUpload(
+        undefined,
+        /^unknown type/.test(detail)
+          ? "this gateway does not know how to receive an upload — restart nanoinfra gateway"
+          : detail,
+      );
+      return;
+    }
+
     if (parsed.event === "error" && parsed.detail === "workspace_scope_rejected") {
       this.emitError({
         kind: "workspace_scope_rejected",
