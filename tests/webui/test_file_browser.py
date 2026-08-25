@@ -8,6 +8,7 @@ from nanoinfra.webui.file_browser import (
     create_directory,
     delete_entry,
     directory_listing_payload,
+    read_file_for_download,
     rename_entry,
     resolve_within_workspace,
 )
@@ -408,3 +409,64 @@ def test_a_mutation_ignores_restrict_to_workspace_too(tmp_path: Path) -> None:
 
     assert exc.value.status == 403
     assert (outside / "keep.txt").exists()
+
+
+# -- Download ----------------------------------------------------------------
+
+
+def test_download_returns_the_bytes_of_a_file(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "archive.bin").write_bytes(b"\x00\x01binary")
+
+    resolved, body = read_file_for_download(
+        "archive.bin", scope=default_workspace_scope(workspace, True)
+    )
+
+    assert resolved == (workspace / "archive.bin").resolve()
+    assert body == b"\x00\x01binary"
+
+
+def test_download_refuses_a_file_past_the_limit(tmp_path: Path) -> None:
+    """Refused with a reason rather than truncated: half a tarball is not a smaller one."""
+    workspace = _workspace(tmp_path)
+    (workspace / "big.bin").write_bytes(b"x" * 64)
+
+    with pytest.raises(WebUIFileBrowserError, match="download limit") as exc:
+        read_file_for_download(
+            "big.bin", scope=default_workspace_scope(workspace, True), max_bytes=32
+        )
+
+    assert exc.value.status == 413
+
+
+def test_download_follows_a_link_that_stays_inside_the_workspace(tmp_path: Path) -> None:
+    """Unlike a mutation, reading through a link is the useful behaviour."""
+    workspace = _workspace(tmp_path)
+    (workspace / "real.txt").write_text("body", encoding="utf-8")
+    (workspace / "link.txt").symlink_to(workspace / "real.txt")
+
+    _, body = read_file_for_download("link.txt", scope=default_workspace_scope(workspace, True))
+
+    assert body == b"body"
+
+
+def test_download_refuses_a_link_that_leaves_the_workspace(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    (workspace / "escape.txt").symlink_to(outside)
+
+    with pytest.raises(WebUIFileBrowserError) as exc:
+        read_file_for_download("escape.txt", scope=default_workspace_scope(workspace, True))
+
+    assert exc.value.status == 403
+
+
+def test_download_refuses_a_directory(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "src").mkdir()
+
+    with pytest.raises(WebUIFileBrowserError, match="not a file") as exc:
+        read_file_for_download("src", scope=default_workspace_scope(workspace, True))
+
+    assert exc.value.status == 400

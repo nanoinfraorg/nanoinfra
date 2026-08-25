@@ -75,6 +75,7 @@ from nanoinfra.webui.file_browser import (
     create_directory,
     delete_entry,
     directory_listing_payload,
+    read_file_for_download,
     rename_entry,
     resolve_within_workspace,
 )
@@ -1525,6 +1526,8 @@ class GatewayHTTPHandler:
             return self._handle_workspace_list(request)
         if bare == "/api/webui/workspace/preview":
             return self._handle_workspace_preview(request)
+        if bare == "/api/webui/workspace/download":
+            return self._handle_workspace_download(request)
         if bare == "/api/webui/workspace/mkdir":
             return self._handle_workspace_mkdir(request)
         if bare == "/api/webui/workspace/rename":
@@ -1566,6 +1569,36 @@ class GatewayHTTPHandler:
         except WebUIFilePreviewError as e:
             return _http_error(e.status, e.message)
         return _http_json_response(payload)
+
+    def _handle_workspace_download(self, request: WsRequest) -> Response:
+        """One file's bytes. Fetched as a blob by the client, because this route needs
+        the bearer token and a plain link cannot carry one."""
+        query = _parse_query(request.path)
+        try:
+            resolved, body = read_file_for_download(
+                _query_first(query, "path"),
+                scope=self.workspaces.default_scope(),
+            )
+        except WebUIFileBrowserError as e:
+            return _http_error(e.status, e.message)
+        ctype, _ = mimetypes.guess_type(resolved.name)
+        return _http_response(
+            body,
+            status=200,
+            # Deliberately not the guessed text/html or image/svg+xml: this body is
+            # workspace content served from the gateway's own origin, so letting a
+            # browser render it would put operator-authored (or agent-authored) markup
+            # inside the WebUI's origin. A download is what was asked for anyway.
+            content_type="application/octet-stream",
+            extra_headers=[
+                ("Content-Disposition", _content_disposition(resolved.name)),
+                ("X-Content-Type-Options", "nosniff"),
+                ("Cache-Control", "no-store"),
+                # Kept for a client that wants to label the file, without being the
+                # type the browser is told to interpret it as.
+                ("X-Nanoinfra-Content-Type", ctype or "application/octet-stream"),
+            ],
+        )
 
     def _handle_workspace_mkdir(self, request: WsRequest) -> Response:
         values = _workspace_values_from_request(request)
@@ -2227,6 +2260,17 @@ def _diagram_values_from_request(request: WsRequest) -> dict[str, Any] | None:
         except Exception:
             return None
     return cast(dict[str, Any], values) if isinstance(values, dict) else None
+
+
+def _content_disposition(name: str) -> str:
+    """``attachment`` with an RFC 5987 filename, so a non-ASCII name survives.
+
+    The plain ``filename`` fallback is stripped to ASCII rather than dropped: a
+    client that ignores ``filename*`` should still get a usable name, and a raw
+    quote or newline in a header value is how a header becomes two.
+    """
+    ascii_name = "".join(c for c in name if 32 <= ord(c) < 127 and c not in '"\\') or "download"
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name, safe='')}"
 
 
 def _optional_str(raw: Any) -> str | None:

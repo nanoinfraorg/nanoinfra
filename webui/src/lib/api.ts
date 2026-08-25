@@ -365,6 +365,35 @@ export async function deleteWorkspaceEntry(
   );
 }
 
+/**
+ * One file's bytes, as a blob.
+ *
+ * Not `request`, which requires JSON: this body is deliberately
+ * `application/octet-stream`. And not a plain `<a href>` either -- the route needs
+ * the bearer token, which a link cannot carry.
+ */
+export async function downloadWorkspaceFile(
+  token: string,
+  path: string,
+  base: string = "",
+): Promise<Blob> {
+  const query = new URLSearchParams();
+  query.set("path", path);
+  const res = await fetchWithTimeout(
+    `${base}/api/webui/workspace/download?${query}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: "same-origin",
+    },
+    API_READ_TIMEOUT_MS,
+  );
+  if (!res.ok) {
+    const text = typeof res.text === "function" ? (await res.text()).trim() : "";
+    throw new ApiError(res.status, text || `HTTP ${res.status}`);
+  }
+  return res.blob();
+}
+
 export async function fetchFilePreviewAvailability(
   token: string,
   key: string,

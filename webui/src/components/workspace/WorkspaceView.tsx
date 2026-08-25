@@ -7,6 +7,7 @@ import {
   Folder,
   FolderPlus,
   Link2,
+  Download,
   Pencil,
   RefreshCw,
   ShieldAlert,
@@ -21,6 +22,7 @@ import {
   ApiError,
   createWorkspaceFolder,
   deleteWorkspaceEntry,
+  downloadWorkspaceFile,
   fetchWorkspaceFilePreview,
   renameWorkspaceEntry,
 } from "@/lib/api";
@@ -190,6 +192,28 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
       setSelectedFile(null);
     }
   }, [path, pendingDelete, runMutation, token]);
+
+  const download = useCallback(
+    async (entry: WorkspaceEntry) => {
+      if (!listing) return;
+      setActionError(null);
+      try {
+        const blob = await downloadWorkspaceFile(token, [listing.path, entry.name].join(separator));
+        // The blob is handed to the browser here rather than linked to, because the
+        // route needs the bearer token. Revoked on the next tick: the click has
+        // already been dispatched, and holding the object URL holds the bytes.
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = entry.name;
+        anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      } catch (e) {
+        setActionError(e instanceof ApiError ? e.message : (e as Error).message);
+      }
+    },
+    [listing, separator, token],
+  );
 
   const loadPreview = useCallback((target: string) => fetchWorkspaceFilePreview(token, target), [token]);
 
@@ -392,6 +416,17 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
                         </span>
                       </button>
                       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                        {entry.kind === "file" ? (
+                          <button
+                            type="button"
+                            onClick={() => void download(entry)}
+                            disabled={busy}
+                            aria-label={`Download ${entry.name}`}
+                            className="rounded-full p-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground disabled:opacity-50"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => setRenaming({ name: entry.name, value: entry.name })}

@@ -35,6 +35,13 @@ MAX_DIRECTORY_ENTRIES = 1000
 #: value came off the wire.
 MAX_PATH_CHARS = 4096
 
+#: A download is read into memory and answered as one response, because this transport
+#: builds a response body rather than streaming one. So the cap is not a policy about
+#: what an operator may take off the host -- it is the largest file this path can carry
+#: without the gateway holding a copy of something unbounded. A file past it is refused
+#: with that reason rather than truncated, since half a tarball is not a smaller tarball.
+MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
+
 EntryKind = Literal["file", "directory", "symlink", "other"]
 
 #: Names a single path component may not be or contain. A name is not a path: the
@@ -293,6 +300,37 @@ def delete_entry(
     return directory_listing_payload(parent_path, scope=scope)
 
 
+def read_file_for_download(
+    raw_path: str | None,
+    *,
+    scope: WorkspaceScope,
+    max_bytes: int = MAX_DOWNLOAD_BYTES,
+) -> tuple[Path, bytes]:
+    """``GET /api/webui/workspace/download`` -- one file's bytes, contained as ever.
+
+    Unlike the mutations, this follows a symlink on purpose: reading through a link
+    that stays inside the workspace is the useful behaviour, and one that leaves it
+    is refused by the same resolver.
+    """
+    resolved = resolve_within_workspace(raw_path, scope=scope, must_exist=True)
+    if not resolved.is_file():
+        raise WebUIFileBrowserError(400, "path is not a file")
+    try:
+        size = resolved.stat().st_size
+        if size > max_bytes:
+            raise WebUIFileBrowserError(
+                413,
+                f"file is larger than the {max_bytes // (1024 * 1024)} MB download limit",
+            )
+        return resolved, resolved.read_bytes()
+    except WebUIFileBrowserError:
+        raise
+    except PermissionError as exc:
+        raise WebUIFileBrowserError(403, "file is not readable") from exc
+    except OSError as exc:
+        raise WebUIFileBrowserError(500, "failed to read file") from exc
+
+
 def _entry_for(item: os.DirEntry[str], *, root: Path) -> DirectoryEntry:
     is_symlink = item.is_symlink()
     escapes = False
@@ -344,11 +382,13 @@ def _display_path(path: Path, root: Path) -> str:
 
 __all__ = [
     "MAX_DIRECTORY_ENTRIES",
+    "MAX_DOWNLOAD_BYTES",
     "DirectoryEntry",
     "WebUIFileBrowserError",
     "create_directory",
     "delete_entry",
     "directory_listing_payload",
+    "read_file_for_download",
     "rename_entry",
     "resolve_child",
     "resolve_directory",
