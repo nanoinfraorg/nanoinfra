@@ -1688,6 +1688,10 @@ export interface WorkspaceListingPayload {
   entries: WorkspaceEntry[];
   /** The directory held more children than one response carries. */
   truncated: boolean;
+  /** Whether dot-entries are included in `entries`. */
+  includeHidden: boolean;
+  /** Dot-entries left out; `0` when they are already listed. */
+  hiddenCount: number;
 }
 
 export interface FilePreviewPayload {
@@ -1712,6 +1716,8 @@ export type Outbound =
        */
       type: "workspace_upload";
       request_id: string;
+      /** Answer in the view the client is showing. */
+      include_hidden?: boolean;
       /** Absolute directory path, or null for the workspace root. */
       parent: string | null;
       name: string;

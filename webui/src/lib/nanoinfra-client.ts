@@ -799,7 +799,7 @@ export class NanoinfraClient {
     parent: string | null,
     name: string,
     dataUrl: string,
-    options?: { timeoutMs?: number },
+    options?: { timeoutMs?: number; includeHidden?: boolean },
   ): Promise<WorkspaceListingPayload> {
     const requestId = crypto.randomUUID();
     const timeoutMs = options?.timeoutMs ?? 120_000;
@@ -815,6 +815,7 @@ export class NanoinfraClient {
         parent,
         name,
         data_url: dataUrl,
+        ...(options?.includeHidden ? { include_hidden: true } : {}),
       });
     });
   }

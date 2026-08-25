@@ -92,21 +92,35 @@ def directory_listing_payload(
     raw_path: str | None,
     *,
     scope: WorkspaceScope,
+    include_hidden: bool = False,
     max_entries: int = MAX_DIRECTORY_ENTRIES,
 ) -> dict[str, Any]:
     """``GET /api/webui/workspace/list`` -- one directory inside the session's workspace.
 
     An empty or missing *raw_path* means the workspace root, so the explorer has a
     starting point it does not have to know the absolute path of.
+
+    Dot-entries are filtered here rather than in the browser, and that is not only a
+    presentation choice: a workspace under version control has a ``.git`` holding
+    thousands of objects, and forwarding them would spend the whole ``max_entries``
+    budget on names nobody asked to see -- reporting the directory as truncated
+    while the files the operator came for sat outside the cut. Their number is
+    still counted and reported, so the toggle that asks for them says how many
+    there are instead of appearing to do nothing.
     """
     root = Path(scope.project_path)
     resolved = resolve_directory(raw_path, scope=scope)
 
     entries: list[DirectoryEntry] = []
+    hidden_count = 0
     truncated = False
     try:
         with os.scandir(resolved) as scan:
             for item in scan:
+                if item.name.startswith(".") and not include_hidden:
+                    # Counted, not listed -- and deliberately not against max_entries.
+                    hidden_count += 1
+                    continue
                 if len(entries) >= max_entries:
                     truncated = True
                     break
@@ -126,6 +140,10 @@ def directory_listing_payload(
         "parent": None if resolved == root else str(resolved.parent),
         "entries": [entry.to_dict() for entry in entries],
         "truncated": truncated,
+        "includeHidden": include_hidden,
+        # Zero when they are already in ``entries``, so the UI never offers to reveal
+        # what it is showing.
+        "hiddenCount": hidden_count,
     }
 
 
@@ -213,6 +231,7 @@ def create_directory(
     name: str,
     *,
     scope: WorkspaceScope,
+    include_hidden: bool = False,
 ) -> dict[str, Any]:
     """``POST /api/webui/workspace/mkdir`` -- one new directory, no parents."""
     target = resolve_child(parent_path, name, scope=scope)
@@ -226,7 +245,7 @@ def create_directory(
         raise WebUIFileBrowserError(403, "not permitted to write here") from exc
     except OSError as exc:
         raise WebUIFileBrowserError(500, "failed to create the folder") from exc
-    return directory_listing_payload(parent_path, scope=scope)
+    return directory_listing_payload(parent_path, scope=scope, include_hidden=include_hidden)
 
 
 def rename_entry(
@@ -235,6 +254,7 @@ def rename_entry(
     new_name: str,
     *,
     scope: WorkspaceScope,
+    include_hidden: bool = False,
 ) -> dict[str, Any]:
     """``POST /api/webui/workspace/rename`` -- rename inside one directory.
 
@@ -247,7 +267,7 @@ def rename_entry(
     if not source.exists() and not source.is_symlink():
         raise WebUIFileBrowserError(404, "path not found")
     if target == source:
-        return directory_listing_payload(parent_path, scope=scope)
+        return directory_listing_payload(parent_path, scope=scope, include_hidden=include_hidden)
     if target.exists() or target.is_symlink():
         raise WebUIFileBrowserError(409, "a file or folder with that name already exists")
     try:
@@ -256,7 +276,7 @@ def rename_entry(
         raise WebUIFileBrowserError(403, "not permitted to rename here") from exc
     except OSError as exc:
         raise WebUIFileBrowserError(500, "failed to rename") from exc
-    return directory_listing_payload(parent_path, scope=scope)
+    return directory_listing_payload(parent_path, scope=scope, include_hidden=include_hidden)
 
 
 def delete_entry(
@@ -265,6 +285,7 @@ def delete_entry(
     *,
     recursive: bool,
     scope: WorkspaceScope,
+    include_hidden: bool = False,
 ) -> dict[str, Any]:
     """``POST /api/webui/workspace/delete`` -- one entry of one directory.
 
@@ -297,7 +318,7 @@ def delete_entry(
         raise WebUIFileBrowserError(403, "not permitted to delete here") from exc
     except OSError as exc:
         raise WebUIFileBrowserError(500, "failed to delete") from exc
-    return directory_listing_payload(parent_path, scope=scope)
+    return directory_listing_payload(parent_path, scope=scope, include_hidden=include_hidden)
 
 
 def read_file_for_download(

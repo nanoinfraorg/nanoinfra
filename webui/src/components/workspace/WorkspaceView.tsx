@@ -8,6 +8,8 @@ import {
   FolderPlus,
   Link2,
   Download,
+  Eye,
+  EyeOff,
   Pencil,
   RefreshCw,
   ShieldAlert,
@@ -81,7 +83,11 @@ function EntryIcon({ entry }: { entry: WorkspaceEntry }) {
  */
 export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps) {
   const { client, token } = useClient();
-  const { listing, loading, error, refresh, replace } = useWorkspaceBrowser(path);
+  // Dot-entries are off by default: a workspace under version control has a `.git`
+  // whose contents are not what an operator opened this to look at. The server does
+  // the filtering (see `file_browser.py`), so turning this on refetches.
+  const [showHidden, setShowHidden] = useState(false);
+  const { listing, loading, error, refresh, replace } = useWorkspaceBrowser(path, showHidden);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<{ name: string; value: string } | null>(null);
@@ -157,10 +163,10 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
   const submitNewFolder = useCallback(async () => {
     const name = (newFolderName ?? "").trim();
     if (!name) return;
-    if (await runMutation(() => createWorkspaceFolder(token, path, name))) {
+    if (await runMutation(() => createWorkspaceFolder(token, path, name, showHidden))) {
       setNewFolderName(null);
     }
-  }, [newFolderName, path, runMutation, token]);
+  }, [newFolderName, path, runMutation, showHidden, token]);
 
   const submitRename = useCallback(async () => {
     if (!renaming) return;
@@ -169,16 +175,18 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
       setRenaming(null);
       return;
     }
-    if (await runMutation(() => renameWorkspaceEntry(token, path, renaming.name, next))) {
+    if (
+      await runMutation(() => renameWorkspaceEntry(token, path, renaming.name, next, showHidden))
+    ) {
       setRenaming(null);
     }
-  }, [path, renaming, runMutation, token]);
+  }, [path, renaming, runMutation, showHidden, token]);
 
   const confirmDelete = useCallback(async () => {
     if (!pendingDelete) return;
     const { name, recursive } = pendingDelete;
     const done = await runMutation(
-      () => deleteWorkspaceEntry(token, path, name, recursive),
+      () => deleteWorkspaceEntry(token, path, name, recursive, showHidden),
       (error) => {
         // The server, not the client, decides that a tree is involved. Asking again
         // with what it just said beats sending `recursive` speculatively.
@@ -193,7 +201,7 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
       setPendingDelete(null);
       setSelectedFile(null);
     }
-  }, [path, pendingDelete, runMutation, token]);
+  }, [path, pendingDelete, runMutation, showHidden, token]);
 
   const upload = useCallback(
     async (files: FileList | null) => {
@@ -211,7 +219,11 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
             reader.onload = () => resolve(String(reader.result));
             reader.readAsDataURL(file);
           });
-          replace(await client.uploadWorkspaceFile(path, file.name, dataUrl));
+          replace(
+            await client.uploadWorkspaceFile(path, file.name, dataUrl, {
+              includeHidden: showHidden,
+            }),
+          );
         }
       } catch (e) {
         setActionError((e as Error).message);
@@ -219,7 +231,7 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
         setBusy(false);
       }
     },
-    [client, path, replace],
+    [client, path, replace, showHidden],
   );
 
   const download = useCallback(
@@ -282,8 +294,8 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
             <span className="text-[11px] text-muted-foreground">
               {listing
                 ? `${listing.entries.length} item${listing.entries.length === 1 ? "" : "s"}${
-                  listing.truncated ? " · list cut, directory holds more" : ""
-                }`
+                  listing.hiddenCount > 0 ? ` · ${listing.hiddenCount} hidden` : ""
+                }${listing.truncated ? " · list cut, directory holds more" : ""}`
                 : loading
                   ? "Loading…"
                   : ""}
@@ -327,6 +339,19 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
                 <CornerLeftUp className="h-3.5 w-3.5" /> Up
               </button>
             ) : null}
+            <button
+              type="button"
+              onClick={() => setShowHidden((previous) => !previous)}
+              aria-label={showHidden ? "Hide dot files" : "Show dot files"}
+              title={showHidden ? "Hide dot files" : "Show dot files"}
+              aria-pressed={showHidden}
+              className={cn(
+                "flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted/70",
+                showHidden ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {showHidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+            </button>
             <button
               type="button"
               onClick={() => void refresh()}

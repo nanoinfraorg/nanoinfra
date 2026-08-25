@@ -13,7 +13,7 @@ import { useClient } from "@/providers/ClientProvider";
  * its children's names, so navigation only ever replays a path the server has
  * already resolved and contained.
  */
-export function useWorkspaceBrowser(path: string | null): {
+export function useWorkspaceBrowser(path: string | null, includeHidden: boolean): {
   listing: WorkspaceListingPayload | null;
   loading: boolean;
   error: string | null;
@@ -28,10 +28,10 @@ export function useWorkspaceBrowser(path: string | null): {
   const tokenRef = useRef(getToken);
   tokenRef.current = getToken;
 
-  const load = useCallback(async (target: string | null) => {
+  const load = useCallback(async (target: string | null, hidden: boolean) => {
     setLoading(true);
     try {
-      const payload = await fetchWorkspaceListing(tokenRef.current(), target);
+      const payload = await fetchWorkspaceListing(tokenRef.current(), target, hidden);
       setListing(payload);
       setError(null);
     } catch (e) {
@@ -54,10 +54,10 @@ export function useWorkspaceBrowser(path: string | null): {
   }, []);
 
   useEffect(() => {
-    void load(path);
-  }, [load, path]);
+    void load(path, includeHidden);
+  }, [includeHidden, load, path]);
 
-  const refresh = useCallback(() => load(path), [load, path]);
+  const refresh = useCallback(() => load(path, includeHidden), [includeHidden, load, path]);
 
   return { listing, loading, error, refresh, replace: setListing };
 }

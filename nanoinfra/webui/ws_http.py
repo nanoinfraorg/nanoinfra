@@ -1541,7 +1541,11 @@ class GatewayHTTPHandler:
         query = _parse_query(request.path)
         path = _query_first(query, "path")
         try:
-            payload = directory_listing_payload(path, scope=self.workspaces.default_scope())
+            payload = directory_listing_payload(
+                path,
+                scope=self.workspaces.default_scope(),
+                include_hidden=_query_first(query, "hidden") == "1",
+            )
         except WebUIFileBrowserError as e:
             return _http_error(e.status, e.message)
         return _http_json_response(payload)
@@ -1609,6 +1613,7 @@ class GatewayHTTPHandler:
                 _optional_str(values.get("parent")),
                 str(values.get("name") or ""),
                 scope=self.workspaces.default_scope(),
+                include_hidden=values.get("includeHidden") is True,
             )
         except WebUIFileBrowserError as e:
             return _http_error(e.status, e.message)
@@ -1624,6 +1629,7 @@ class GatewayHTTPHandler:
                 str(values.get("name") or ""),
                 str(values.get("newName") or ""),
                 scope=self.workspaces.default_scope(),
+                include_hidden=values.get("includeHidden") is True,
             )
         except WebUIFileBrowserError as e:
             return _http_error(e.status, e.message)
@@ -1641,6 +1647,7 @@ class GatewayHTTPHandler:
                 # tree does not get to remove one because the field was missing.
                 recursive=values.get("recursive") is True,
                 scope=self.workspaces.default_scope(),
+                include_hidden=values.get("includeHidden") is True,
             )
         except WebUIFileBrowserError as e:
             return _http_error(e.status, e.message)

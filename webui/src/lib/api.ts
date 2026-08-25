@@ -279,10 +279,12 @@ export async function fetchFilePreview(
 export async function fetchWorkspaceListing(
   token: string,
   path: string | null,
+  includeHidden: boolean = false,
   base: string = "",
 ): Promise<WorkspaceListingPayload> {
   const query = new URLSearchParams();
   if (path) query.set("path", path);
+  if (includeHidden) query.set("hidden", "1");
   return request<WorkspaceListingPayload>(
     `${base}/api/webui/workspace/list?${query}`,
     token,
@@ -313,6 +315,8 @@ interface WorkspaceMutation {
   name: string;
   newName?: string;
   recursive?: boolean;
+  /** Answer with the listing in the view the caller is showing. */
+  includeHidden?: boolean;
 }
 
 function workspaceMutation(
@@ -335,9 +339,15 @@ export async function createWorkspaceFolder(
   token: string,
   parent: string | null,
   name: string,
+  includeHidden: boolean = false,
   base: string = "",
 ): Promise<WorkspaceListingPayload> {
-  return workspaceMutation("/api/webui/workspace/mkdir", token, { parent, name }, base);
+  return workspaceMutation(
+    "/api/webui/workspace/mkdir",
+    token,
+    { parent, name, includeHidden },
+    base,
+  );
 }
 
 export async function renameWorkspaceEntry(
@@ -345,9 +355,15 @@ export async function renameWorkspaceEntry(
   parent: string | null,
   name: string,
   newName: string,
+  includeHidden: boolean = false,
   base: string = "",
 ): Promise<WorkspaceListingPayload> {
-  return workspaceMutation("/api/webui/workspace/rename", token, { parent, name, newName }, base);
+  return workspaceMutation(
+    "/api/webui/workspace/rename",
+    token,
+    { parent, name, newName, includeHidden },
+    base,
+  );
 }
 
 export async function deleteWorkspaceEntry(
@@ -355,12 +371,13 @@ export async function deleteWorkspaceEntry(
   parent: string | null,
   name: string,
   recursive: boolean,
+  includeHidden: boolean = false,
   base: string = "",
 ): Promise<WorkspaceListingPayload> {
   return workspaceMutation(
     "/api/webui/workspace/delete",
     token,
-    { parent, name, recursive },
+    { parent, name, recursive, includeHidden },
     base,
   );
 }

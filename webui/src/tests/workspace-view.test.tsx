@@ -72,6 +72,8 @@ function listing(overrides: Partial<WorkspaceListingPayload> = {}): WorkspaceLis
       entry({ name: "README.md" }),
     ],
     truncated: false,
+    includeHidden: false,
+    hiddenCount: 0,
     ...overrides,
   };
 }
@@ -88,7 +90,7 @@ describe("WorkspaceView", () => {
     render(wrap(<WorkspaceView />));
 
     await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
-    expect(listSpy).toHaveBeenCalledWith("tok", null);
+    expect(listSpy).toHaveBeenCalledWith("tok", null, false);
     expect(screen.getByRole("button", { name: "project" })).toBeInTheDocument();
     expect(screen.getByText("2 items")).toBeInTheDocument();
   });
@@ -211,7 +213,7 @@ describe("WorkspaceView", () => {
     await userEvent.type(screen.getByLabelText("New folder name"), "docs");
     await userEvent.click(screen.getByRole("button", { name: "Create folder" }));
 
-    expect(api.createWorkspaceFolder).toHaveBeenCalledWith("tok", null, "docs");
+    expect(api.createWorkspaceFolder).toHaveBeenCalledWith("tok", null, "docs", false);
     // Rendered from the mutation's own answer, with no second listing request.
     await waitFor(() => expect(screen.getByText("docs")).toBeInTheDocument());
     expect(listSpy).toHaveBeenCalledTimes(1);
@@ -230,7 +232,13 @@ describe("WorkspaceView", () => {
     await userEvent.type(input, "GUIDE.md");
     await userEvent.click(screen.getByRole("button", { name: "Save name" }));
 
-    expect(api.renameWorkspaceEntry).toHaveBeenCalledWith("tok", null, "README.md", "GUIDE.md");
+    expect(api.renameWorkspaceEntry).toHaveBeenCalledWith(
+      "tok",
+      null,
+      "README.md",
+      "GUIDE.md",
+      false,
+    );
     await waitFor(() => expect(screen.getByText("GUIDE.md")).toBeInTheDocument());
   });
 
@@ -265,7 +273,7 @@ describe("WorkspaceView", () => {
     expect(screen.getByText("Delete “README.md”?")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
 
-    expect(api.deleteWorkspaceEntry).toHaveBeenCalledWith("tok", null, "README.md", false);
+    expect(api.deleteWorkspaceEntry).toHaveBeenCalledWith("tok", null, "README.md", false, false);
   });
 
   it("asks again with what the server said when a folder is not empty", async () => {
@@ -283,10 +291,58 @@ describe("WorkspaceView", () => {
     await waitFor(() =>
       expect(screen.getByText("Delete “src” and everything in it?")).toBeInTheDocument(),
     );
-    expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", null, "src", false);
+    expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", null, "src", false, false);
 
     await userEvent.click(screen.getByRole("button", { name: "Delete everything" }));
 
-    expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", null, "src", true);
+    expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", null, "src", true, false);
+  });
+
+  it("hides dot entries by default, says how many, and refetches when asked", async () => {
+    listSpy.mockResolvedValue(
+      listing({ entries: [entry({ name: "notes.md" })], hiddenCount: 2 }),
+    );
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("notes.md")).toBeInTheDocument());
+
+    // Counted rather than dropped silently, so the toggle does not look inert.
+    expect(screen.getByText("1 item · 2 hidden")).toBeInTheDocument();
+    expect(listSpy).toHaveBeenCalledWith("tok", null, false);
+
+    listSpy.mockResolvedValue(
+      listing({
+        entries: [entry({ name: ".git", kind: "directory", size: null }), entry({ name: "notes.md" })],
+        includeHidden: true,
+        hiddenCount: 0,
+      }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Show dot files" }));
+
+    // The server does the filtering, so revealing them is a refetch and not a
+    // client-side unfilter -- a `.git` never has to cross the wire to be hidden.
+    await waitFor(() => expect(listSpy).toHaveBeenLastCalledWith("tok", null, true));
+    expect(await screen.findByText(".git")).toBeInTheDocument();
+    expect(screen.getByText("2 items")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide dot files" })).toBeInTheDocument();
+  });
+
+  it("keeps the hidden view when it mutates", async () => {
+    // Otherwise renaming a file would fold the dot entries away underneath the operator.
+    vi.mocked(api.renameWorkspaceEntry).mockResolvedValue(
+      listing({ entries: [entry({ name: "new.txt" })], includeHidden: true }),
+    );
+    listSpy.mockResolvedValue(listing({ entries: [entry({ name: "old.txt" })], hiddenCount: 1 }));
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("old.txt")).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "Show dot files" }));
+    await waitFor(() => expect(listSpy).toHaveBeenLastCalledWith("tok", null, true));
+
+    await userEvent.click(screen.getByRole("button", { name: "Rename old.txt" }));
+    const input = screen.getByLabelText("Rename old.txt");
+    await userEvent.clear(input);
+    await userEvent.type(input, "new.txt");
+    await userEvent.click(screen.getByRole("button", { name: "Save name" }));
+
+    expect(api.renameWorkspaceEntry).toHaveBeenCalledWith("tok", null, "old.txt", "new.txt", true);
   });
 });

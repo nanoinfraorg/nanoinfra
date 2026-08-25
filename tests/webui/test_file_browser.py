@@ -188,17 +188,87 @@ def test_a_large_directory_is_cut_and_says_so(tmp_path: Path) -> None:
     assert payload["truncated"] is True
 
 
-def test_hidden_files_are_listed(tmp_path: Path) -> None:
-    """A workspace's dotfiles are the point of browsing it, not noise to filter."""
+def test_dot_entries_are_hidden_by_default_and_counted(tmp_path: Path) -> None:
     workspace = _workspace(tmp_path)
     (workspace / ".env.example").write_text("KEY=", encoding="utf-8")
+    (workspace / ".git").mkdir()
+    (workspace / "notes.md").write_text("hi", encoding="utf-8")
 
-    names = [
-        e["name"]
-        for e in directory_listing_payload(None, scope=default_workspace_scope(workspace, True))["entries"]
-    ]
+    payload = directory_listing_payload(None, scope=default_workspace_scope(workspace, True))
 
-    assert ".env.example" in names
+    assert [e["name"] for e in payload["entries"]] == ["notes.md"]
+    # Counted rather than dropped silently, so the toggle that asks for them can say
+    # how many there are instead of looking like it does nothing.
+    assert payload["hiddenCount"] == 2
+    assert payload["includeHidden"] is False
+
+
+def test_hidden_entries_are_listed_when_asked_for(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / ".env.example").write_text("KEY=", encoding="utf-8")
+    (workspace / ".git").mkdir()
+
+    payload = directory_listing_payload(
+        None, scope=default_workspace_scope(workspace, True), include_hidden=True
+    )
+
+    assert [e["name"] for e in payload["entries"]] == [".git", ".env.example"]
+    assert payload["includeHidden"] is True
+    # Nothing left to reveal, so the UI never offers to reveal what it is showing.
+    assert payload["hiddenCount"] == 0
+
+
+def test_hidden_entries_do_not_spend_the_entry_budget(tmp_path: Path) -> None:
+    """Why the filter is server-side rather than in the browser.
+
+    A workspace under version control has a ``.git`` holding thousands of objects.
+    Forwarding them would spend ``max_entries`` on names nobody asked to see, and
+    report the directory as truncated while the files the operator came for sat
+    outside the cut.
+    """
+    workspace = _workspace(tmp_path)
+    for index in range(8):
+        (workspace / f".object-{index}").write_text("x", encoding="utf-8")
+    (workspace / "notes.md").write_text("hi", encoding="utf-8")
+    (workspace / "README.md").write_text("hi", encoding="utf-8")
+
+    payload = directory_listing_payload(
+        None, scope=default_workspace_scope(workspace, True), max_entries=2
+    )
+
+    assert sorted(e["name"] for e in payload["entries"]) == ["README.md", "notes.md"]
+    assert payload["truncated"] is False
+    assert payload["hiddenCount"] == 8
+
+
+def test_a_hidden_directory_can_still_be_opened_directly(tmp_path: Path) -> None:
+    """Hidden is a listing default, not a boundary -- the resolver decides those."""
+    workspace = _workspace(tmp_path)
+    (workspace / ".git").mkdir()
+    (workspace / ".git" / "HEAD").write_text("ref: refs/heads/main", encoding="utf-8")
+
+    payload = directory_listing_payload(".git", scope=default_workspace_scope(workspace, True))
+
+    assert payload["displayPath"] == ".git"
+    assert [e["name"] for e in payload["entries"]] == ["HEAD"]
+
+
+def test_a_mutation_answers_in_the_view_the_caller_had(tmp_path: Path) -> None:
+    """Otherwise renaming a file would fold the hidden entries away underneath the operator."""
+    workspace = _workspace(tmp_path)
+    (workspace / ".gitignore").write_text("x", encoding="utf-8")
+    (workspace / "old.txt").write_text("x", encoding="utf-8")
+
+    payload = rename_entry(
+        None,
+        "old.txt",
+        "new.txt",
+        scope=default_workspace_scope(workspace, True),
+        include_hidden=True,
+    )
+
+    assert sorted(e["name"] for e in payload["entries"]) == [".gitignore", "new.txt"]
+    assert payload["includeHidden"] is True
 
 
 def test_the_resolver_accepts_a_path_that_does_not_exist_yet(tmp_path: Path) -> None:

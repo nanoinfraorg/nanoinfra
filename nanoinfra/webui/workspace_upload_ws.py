@@ -103,7 +103,11 @@ def webui_workspace_upload_event(
         return error("failed to write the file")
 
     try:
-        listing = directory_listing_payload(parent, scope=scope)
+        # Answering in the view the client is showing, so an upload made with hidden
+        # entries revealed does not silently fold them away again.
+        listing = directory_listing_payload(
+            parent, scope=scope, include_hidden=envelope.get("include_hidden") is True
+        )
     except WebUIFileBrowserError as exc:
         return error(exc.message)
     return "workspace_upload_result", {"request_id": request_id, "listing": listing}
