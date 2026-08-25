@@ -116,6 +116,7 @@ function diagramValuesHeaders(diagram: Diagram): Record<string, string> {
   return headers;
 }
 const SECRET_VALUES_HEADER = "X-Nanoinfra-Secret-Values";
+const WORKSPACE_VALUES_HEADER = "X-Nanoinfra-Workspace-Values";
 const SERVER_VALUES_HEADER = "X-Nanoinfra-Server-Values";
 const GATES_VALUES_HEADER = "X-Nanoinfra-Gates-Values";
 const LATCH_VALUES_HEADER = "X-Nanoinfra-Latch-Values";
@@ -303,6 +304,64 @@ export async function fetchWorkspaceFilePreview(
     token,
     undefined,
     API_READ_TIMEOUT_MS,
+  );
+}
+
+/** Arguments for one workspace mutation. `parent` null means the workspace root. */
+interface WorkspaceMutation {
+  parent: string | null;
+  name: string;
+  newName?: string;
+  recursive?: boolean;
+}
+
+function workspaceMutation(
+  path: string,
+  token: string,
+  values: WorkspaceMutation,
+  base: string,
+): Promise<WorkspaceListingPayload> {
+  // Every mutation answers with the fresh listing of the directory it touched, so
+  // the explorer re-renders from what the server now holds rather than from a
+  // guess about what the call did.
+  return request<WorkspaceListingPayload>(
+    `${base}${path}`,
+    token,
+    { headers: { [WORKSPACE_VALUES_HEADER]: encodeURIComponent(JSON.stringify(values)) } },
+  );
+}
+
+export async function createWorkspaceFolder(
+  token: string,
+  parent: string | null,
+  name: string,
+  base: string = "",
+): Promise<WorkspaceListingPayload> {
+  return workspaceMutation("/api/webui/workspace/mkdir", token, { parent, name }, base);
+}
+
+export async function renameWorkspaceEntry(
+  token: string,
+  parent: string | null,
+  name: string,
+  newName: string,
+  base: string = "",
+): Promise<WorkspaceListingPayload> {
+  return workspaceMutation("/api/webui/workspace/rename", token, { parent, name, newName }, base);
+}
+
+export async function deleteWorkspaceEntry(
+  token: string,
+  parent: string | null,
+  name: string,
+  recursive: boolean,
+  base: string = "",
+): Promise<WorkspaceListingPayload> {
+  return workspaceMutation(
+    "/api/webui/workspace/delete",
+    token,
+    { parent, name, recursive },
+    base,
   );
 }
 

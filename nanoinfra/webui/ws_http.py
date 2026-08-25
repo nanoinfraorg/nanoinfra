@@ -72,7 +72,10 @@ from nanoinfra.webui.diagrams_api import (
 )
 from nanoinfra.webui.file_browser import (
     WebUIFileBrowserError,
+    create_directory,
+    delete_entry,
     directory_listing_payload,
+    rename_entry,
     resolve_within_workspace,
 )
 from nanoinfra.webui.file_preview import (
@@ -226,6 +229,11 @@ def diagram_values_headers(payload: dict[str, Any]) -> dict[str, str]:
     for index, chunk in enumerate(chunks):
         headers[f"{_DIAGRAM_VALUES_HEADER}-{index}"] = chunk
     return headers
+#: One workspace mutation's arguments (a parent path, a name, a new name). A header
+#: rather than a body because this transport never exposes one (see the note above),
+#: and no chunking because these three fields are far short of one header line --
+#: unlike a diagram body, which is why that one is split.
+_WORKSPACE_VALUES_HEADER = "X-Nanoinfra-Workspace-Values"
 _SECRET_VALUES_HEADER = "X-Nanoinfra-Secret-Values"
 _SERVER_VALUES_HEADER = "X-Nanoinfra-Server-Values"
 #: One trigger's message, sent by whatever fired it. A header rather than a body because this
@@ -1517,6 +1525,12 @@ class GatewayHTTPHandler:
             return self._handle_workspace_list(request)
         if bare == "/api/webui/workspace/preview":
             return self._handle_workspace_preview(request)
+        if bare == "/api/webui/workspace/mkdir":
+            return self._handle_workspace_mkdir(request)
+        if bare == "/api/webui/workspace/rename":
+            return self._handle_workspace_rename(request)
+        if bare == "/api/webui/workspace/delete":
+            return self._handle_workspace_delete(request)
         return None
 
     def _handle_workspace_list(self, request: WsRequest) -> Response:
@@ -1550,6 +1564,52 @@ class GatewayHTTPHandler:
         try:
             payload = file_preview_payload(str(resolved), scope=scope)
         except WebUIFilePreviewError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
+
+    def _handle_workspace_mkdir(self, request: WsRequest) -> Response:
+        values = _workspace_values_from_request(request)
+        if values is None:
+            return _http_error(400, "invalid workspace payload")
+        try:
+            payload = create_directory(
+                _optional_str(values.get("parent")),
+                str(values.get("name") or ""),
+                scope=self.workspaces.default_scope(),
+            )
+        except WebUIFileBrowserError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
+
+    def _handle_workspace_rename(self, request: WsRequest) -> Response:
+        values = _workspace_values_from_request(request)
+        if values is None:
+            return _http_error(400, "invalid workspace payload")
+        try:
+            payload = rename_entry(
+                _optional_str(values.get("parent")),
+                str(values.get("name") or ""),
+                str(values.get("newName") or ""),
+                scope=self.workspaces.default_scope(),
+            )
+        except WebUIFileBrowserError as e:
+            return _http_error(e.status, e.message)
+        return _http_json_response(payload)
+
+    def _handle_workspace_delete(self, request: WsRequest) -> Response:
+        values = _workspace_values_from_request(request)
+        if values is None:
+            return _http_error(400, "invalid workspace payload")
+        try:
+            payload = delete_entry(
+                _optional_str(values.get("parent")),
+                str(values.get("name") or ""),
+                # Absent reads as false: a client that has not said it means to remove a
+                # tree does not get to remove one because the field was missing.
+                recursive=values.get("recursive") is True,
+                scope=self.workspaces.default_scope(),
+            )
+        except WebUIFileBrowserError as e:
             return _http_error(e.status, e.message)
         return _http_json_response(payload)
 
@@ -2157,6 +2217,26 @@ def _diagram_values_from_request(request: WsRequest) -> dict[str, Any] | None:
     so a missing or malformed header is treated the same: an invalid payload.
     """
     raw = _diagram_values_raw(request)
+    if not raw:
+        return None
+    try:
+        values = json.loads(raw)
+    except Exception:
+        try:
+            values = json.loads(unquote(raw))
+        except Exception:
+            return None
+    return cast(dict[str, Any], values) if isinstance(values, dict) else None
+
+
+def _optional_str(raw: Any) -> str | None:
+    """A present, non-empty string, or ``None`` -- which the browser reads as the root."""
+    return raw.strip() or None if isinstance(raw, str) else None
+
+
+def _workspace_values_from_request(request: WsRequest) -> dict[str, Any] | None:
+    """Read one workspace mutation's arguments from ``X-Nanoinfra-Workspace-Values``."""
+    raw = _case_insensitive_header(request.headers, _WORKSPACE_VALUES_HEADER)
     if not raw:
         return None
     try:

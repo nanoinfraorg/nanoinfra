@@ -15,6 +15,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
     ...actual,
     fetchWorkspaceListing: vi.fn(),
     fetchWorkspaceFilePreview: vi.fn(),
+    createWorkspaceFolder: vi.fn(),
+    renameWorkspaceEntry: vi.fn(),
+    deleteWorkspaceEntry: vi.fn(),
   };
 });
 
@@ -180,5 +183,95 @@ describe("WorkspaceView", () => {
         "/home/dev/project/README.md",
       ),
     );
+  });
+
+  it("creates a folder and renders the listing the server answered with", async () => {
+    vi.mocked(api.createWorkspaceFolder).mockResolvedValue(
+      listing({ entries: [entry({ name: "docs", kind: "directory", size: null })] }),
+    );
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: /new folder/i }));
+    await userEvent.type(screen.getByLabelText("New folder name"), "docs");
+    await userEvent.click(screen.getByRole("button", { name: "Create folder" }));
+
+    expect(api.createWorkspaceFolder).toHaveBeenCalledWith("tok", null, "docs");
+    // Rendered from the mutation's own answer, with no second listing request.
+    await waitFor(() => expect(screen.getByText("docs")).toBeInTheDocument());
+    expect(listSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("renames an entry in place", async () => {
+    vi.mocked(api.renameWorkspaceEntry).mockResolvedValue(
+      listing({ entries: [entry({ name: "GUIDE.md" })] }),
+    );
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Rename README.md" }));
+    const input = screen.getByLabelText("Rename README.md");
+    await userEvent.clear(input);
+    await userEvent.type(input, "GUIDE.md");
+    await userEvent.click(screen.getByRole("button", { name: "Save name" }));
+
+    expect(api.renameWorkspaceEntry).toHaveBeenCalledWith("tok", null, "README.md", "GUIDE.md");
+    await waitFor(() => expect(screen.getByText("GUIDE.md")).toBeInTheDocument());
+  });
+
+  it("shows a refusal instead of pretending the rename worked", async () => {
+    vi.mocked(api.renameWorkspaceEntry).mockRejectedValue(
+      new ApiError(409, "a file or folder with that name already exists"),
+    );
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Rename README.md" }));
+    const input = screen.getByLabelText("Rename README.md");
+    await userEvent.clear(input);
+    await userEvent.type(input, "src");
+    await userEvent.click(screen.getByRole("button", { name: "Save name" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("a file or folder with that name already exists"),
+      ).toBeInTheDocument(),
+    );
+    // The edit stays open, so the operator can pick another name.
+    expect(screen.getByLabelText("Rename README.md")).toBeInTheDocument();
+  });
+
+  it("deletes a file after one confirmation", async () => {
+    vi.mocked(api.deleteWorkspaceEntry).mockResolvedValue(listing({ entries: [] }));
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete README.md" }));
+    expect(screen.getByText("Delete “README.md”?")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
+
+    expect(api.deleteWorkspaceEntry).toHaveBeenCalledWith("tok", null, "README.md", false);
+  });
+
+  it("asks again with what the server said when a folder is not empty", async () => {
+    // `recursive` is never sent speculatively: the first call says "just this",
+    // the server answers that a tree is involved, and the operator confirms that.
+    vi.mocked(api.deleteWorkspaceEntry)
+      .mockRejectedValueOnce(new ApiError(409, "the folder is not empty"))
+      .mockResolvedValueOnce(listing({ entries: [] }));
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("src")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete src" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete", exact: true }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Delete “src” and everything in it?")).toBeInTheDocument(),
+    );
+    expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", null, "src", false);
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete everything" }));
+
+    expect(api.deleteWorkspaceEntry).toHaveBeenLastCalledWith("tok", null, "src", true);
   });
 });

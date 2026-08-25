@@ -17,6 +17,7 @@ which is the capability-specific mechanism `.agent/security.md` requires.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -35,6 +36,12 @@ MAX_DIRECTORY_ENTRIES = 1000
 MAX_PATH_CHARS = 4096
 
 EntryKind = Literal["file", "directory", "symlink", "other"]
+
+#: Names a single path component may not be or contain. A name is not a path: the
+#: resolver below would contain ``../x`` anyway, but accepting a separator in a field
+#: the UI fills from one directory entry means the caller and the server disagree
+#: about what was asked for, and that gap is where a bypass lives.
+_REFUSED_NAMES = {"", ".", ".."}
 
 
 class WebUIFileBrowserError(ValueError):
@@ -162,6 +169,130 @@ def resolve_within_workspace(
     return resolved
 
 
+def resolve_child(
+    parent_path: str | None,
+    name: str,
+    *,
+    scope: WorkspaceScope,
+) -> Path:
+    """``(parent, name)`` -> a path whose parent is contained and whose last component is *not* followed.
+
+    Every mutation takes this shape rather than a single path, and that is the whole
+    defence for a symlinked entry. ``resolve_within_workspace`` resolves symlinks
+    (it must, or a link would be a way out of the workspace), so resolving
+    ``<dir>/link`` hands back the *target*: a delete would then remove whatever the
+    link pointed at instead of the link. Resolving only the parent and joining a
+    validated component leaves the final name untouched, and ``unlink``/``rename``
+    then act on the link itself.
+    """
+    parent = resolve_directory(parent_path, scope=scope)
+    return parent / validate_component(name)
+
+
+def validate_component(name: str) -> str:
+    """Return *name* if it is one ordinary path component, else raise."""
+    text = (name or "").strip()
+    if text in _REFUSED_NAMES:
+        raise WebUIFileBrowserError(400, "invalid name")
+    if "/" in text or "\\" in text or "\0" in text:
+        raise WebUIFileBrowserError(400, "a name may not contain a path separator")
+    if len(text) > 255:
+        raise WebUIFileBrowserError(400, "name is too long")
+    return text
+
+
+def create_directory(
+    parent_path: str | None,
+    name: str,
+    *,
+    scope: WorkspaceScope,
+) -> dict[str, Any]:
+    """``POST /api/webui/workspace/mkdir`` -- one new directory, no parents."""
+    target = resolve_child(parent_path, name, scope=scope)
+    if target.exists() or target.is_symlink():
+        raise WebUIFileBrowserError(409, "a file or folder with that name already exists")
+    try:
+        # parents=False: creating an intermediate directory the operator did not name
+        # is a different request from the one they made.
+        target.mkdir()
+    except PermissionError as exc:
+        raise WebUIFileBrowserError(403, "not permitted to write here") from exc
+    except OSError as exc:
+        raise WebUIFileBrowserError(500, "failed to create the folder") from exc
+    return directory_listing_payload(parent_path, scope=scope)
+
+
+def rename_entry(
+    parent_path: str | None,
+    name: str,
+    new_name: str,
+    *,
+    scope: WorkspaceScope,
+) -> dict[str, Any]:
+    """``POST /api/webui/workspace/rename`` -- rename inside one directory.
+
+    Deliberately not a move: a rename that may also change directory is a second
+    capability with its own failure modes (across filesystems, into itself), and
+    nothing here needs it yet.
+    """
+    source = resolve_child(parent_path, name, scope=scope)
+    target = source.parent / validate_component(new_name)
+    if not source.exists() and not source.is_symlink():
+        raise WebUIFileBrowserError(404, "path not found")
+    if target == source:
+        return directory_listing_payload(parent_path, scope=scope)
+    if target.exists() or target.is_symlink():
+        raise WebUIFileBrowserError(409, "a file or folder with that name already exists")
+    try:
+        source.rename(target)
+    except PermissionError as exc:
+        raise WebUIFileBrowserError(403, "not permitted to rename here") from exc
+    except OSError as exc:
+        raise WebUIFileBrowserError(500, "failed to rename") from exc
+    return directory_listing_payload(parent_path, scope=scope)
+
+
+def delete_entry(
+    parent_path: str | None,
+    name: str,
+    *,
+    recursive: bool,
+    scope: WorkspaceScope,
+) -> dict[str, Any]:
+    """``POST /api/webui/workspace/delete`` -- one entry of one directory.
+
+    A non-empty directory needs *recursive* set explicitly. The flag is not a
+    formality: it is the difference between what the operator saw when they clicked
+    (one folder) and what the call actually removes (everything under it), and the
+    route makes the client say which one it meant.
+    """
+    target = resolve_child(parent_path, name, scope=scope)
+    root = Path(scope.project_path)
+    if target == root:
+        raise WebUIFileBrowserError(400, "the workspace root cannot be deleted")
+    if not target.exists() and not target.is_symlink():
+        raise WebUIFileBrowserError(404, "path not found")
+
+    try:
+        # Checked before is_dir(), because a symlink to a directory answers True there
+        # and must be unlinked rather than walked.
+        if target.is_symlink():
+            target.unlink()
+        elif target.is_dir():
+            if any(target.iterdir()) and not recursive:
+                raise WebUIFileBrowserError(409, "the folder is not empty")
+            shutil.rmtree(target) if recursive else target.rmdir()
+        else:
+            target.unlink()
+    except WebUIFileBrowserError:
+        raise
+    except PermissionError as exc:
+        raise WebUIFileBrowserError(403, "not permitted to delete here") from exc
+    except OSError as exc:
+        raise WebUIFileBrowserError(500, "failed to delete") from exc
+    return directory_listing_payload(parent_path, scope=scope)
+
+
 def _entry_for(item: os.DirEntry[str], *, root: Path) -> DirectoryEntry:
     is_symlink = item.is_symlink()
     escapes = False
@@ -215,7 +346,12 @@ __all__ = [
     "MAX_DIRECTORY_ENTRIES",
     "DirectoryEntry",
     "WebUIFileBrowserError",
+    "create_directory",
+    "delete_entry",
     "directory_listing_payload",
+    "rename_entry",
+    "resolve_child",
     "resolve_directory",
     "resolve_within_workspace",
+    "validate_component",
 ]

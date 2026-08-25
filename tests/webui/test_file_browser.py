@@ -5,7 +5,10 @@ import pytest
 from nanoinfra.security.workspace_access import default_workspace_scope
 from nanoinfra.webui.file_browser import (
     WebUIFileBrowserError,
+    create_directory,
+    delete_entry,
     directory_listing_payload,
+    rename_entry,
     resolve_within_workspace,
 )
 
@@ -217,3 +220,191 @@ def test_the_resolver_refuses_a_nonexistent_path_outside_the_workspace(tmp_path:
         )
 
     assert exc.value.status == 403
+
+
+# -- Mutations ---------------------------------------------------------------
+
+
+def test_mkdir_creates_one_folder_and_answers_the_fresh_listing(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+
+    payload = create_directory(None, "src", scope=default_workspace_scope(workspace, True))
+
+    assert (workspace / "src").is_dir()
+    # The caller renders this without a second round trip.
+    assert [e["name"] for e in payload["entries"]] == ["src"]
+
+
+def test_mkdir_does_not_create_parents(tmp_path: Path) -> None:
+    """Creating a directory the operator did not name is a different request."""
+    workspace = _workspace(tmp_path)
+
+    with pytest.raises(WebUIFileBrowserError) as exc:
+        create_directory("missing", "child", scope=default_workspace_scope(workspace, True))
+
+    assert exc.value.status == 404
+
+
+def test_mkdir_refuses_an_existing_name(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "src").mkdir()
+
+    with pytest.raises(WebUIFileBrowserError) as exc:
+        create_directory(None, "src", scope=default_workspace_scope(workspace, True))
+
+    assert exc.value.status == 409
+
+
+@pytest.mark.parametrize("name", ["", ".", "..", "a/b", "a\\b", "x\0y"])
+def test_a_name_is_one_component_and_never_a_path(tmp_path: Path, name: str) -> None:
+    """A name is not a path. The resolver would contain `../x` anyway, but accepting a
+    separator in a field the UI fills from one directory entry means caller and server
+    disagree about what was asked -- and that gap is where a bypass lives."""
+    workspace = _workspace(tmp_path)
+
+    with pytest.raises(WebUIFileBrowserError) as exc:
+        create_directory(None, name, scope=default_workspace_scope(workspace, True))
+
+    assert exc.value.status == 400
+
+
+def test_rename_moves_a_file_within_its_directory(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "old.txt").write_text("body", encoding="utf-8")
+
+    rename_entry(None, "old.txt", "new.txt", scope=default_workspace_scope(workspace, True))
+
+    assert not (workspace / "old.txt").exists()
+    assert (workspace / "new.txt").read_text(encoding="utf-8") == "body"
+
+
+def test_rename_refuses_to_clobber(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "a.txt").write_text("a", encoding="utf-8")
+    (workspace / "b.txt").write_text("b", encoding="utf-8")
+
+    with pytest.raises(WebUIFileBrowserError) as exc:
+        rename_entry(None, "a.txt", "b.txt", scope=default_workspace_scope(workspace, True))
+
+    assert exc.value.status == 409
+    assert (workspace / "b.txt").read_text(encoding="utf-8") == "b"
+
+
+def test_rename_cannot_leave_its_directory(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "sub").mkdir()
+    (workspace / "sub" / "f.txt").write_text("x", encoding="utf-8")
+
+    with pytest.raises(WebUIFileBrowserError) as exc:
+        rename_entry("sub", "f.txt", "../f.txt", scope=default_workspace_scope(workspace, True))
+
+    assert exc.value.status == 400
+    assert (workspace / "sub" / "f.txt").exists()
+
+
+def test_delete_removes_a_file(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "gone.txt").write_text("x", encoding="utf-8")
+
+    payload = delete_entry(None, "gone.txt", recursive=False, scope=default_workspace_scope(workspace, True))
+
+    assert not (workspace / "gone.txt").exists()
+    assert payload["entries"] == []
+
+
+def test_a_non_empty_folder_needs_recursive_said_out_loud(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "tree").mkdir()
+    (workspace / "tree" / "child.txt").write_text("x", encoding="utf-8")
+    scope = default_workspace_scope(workspace, True)
+
+    with pytest.raises(WebUIFileBrowserError, match="not empty") as exc:
+        delete_entry(None, "tree", recursive=False, scope=scope)
+    assert exc.value.status == 409
+    assert (workspace / "tree" / "child.txt").exists()
+
+    delete_entry(None, "tree", recursive=True, scope=scope)
+    assert not (workspace / "tree").exists()
+
+
+def test_deleting_a_symlink_removes_the_link_and_not_its_target(tmp_path: Path) -> None:
+    """The reason every mutation takes ``(parent, name)`` instead of one path.
+
+    The path resolver must follow symlinks, or a link would be a way out of the
+    workspace -- so resolving ``<dir>/link`` hands back the *target*, and a delete
+    built on that would remove whatever the link pointed at.
+    """
+    workspace = _workspace(tmp_path)
+    target = workspace / "real.txt"
+    target.write_text("keep me", encoding="utf-8")
+    (workspace / "link.txt").symlink_to(target)
+
+    delete_entry(None, "link.txt", recursive=False, scope=default_workspace_scope(workspace, True))
+
+    assert not (workspace / "link.txt").exists()
+    assert target.read_text(encoding="utf-8") == "keep me"
+
+
+def test_deleting_a_symlinked_directory_does_not_walk_into_it(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("secret", encoding="utf-8")
+    (workspace / "escape").symlink_to(outside, target_is_directory=True)
+
+    delete_entry(None, "escape", recursive=True, scope=default_workspace_scope(workspace, True))
+
+    assert not (workspace / "escape").exists()
+    assert (outside / "secret.txt").exists()
+
+
+def test_renaming_a_symlink_renames_the_link(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    target = workspace / "real.txt"
+    target.write_text("body", encoding="utf-8")
+    (workspace / "link.txt").symlink_to(target)
+
+    rename_entry(None, "link.txt", "moved.txt", scope=default_workspace_scope(workspace, True))
+
+    assert (workspace / "moved.txt").is_symlink()
+    assert target.exists()
+
+
+def test_the_workspace_root_cannot_be_deleted(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    (workspace / "sub").mkdir()
+
+    # Reached the only way the root can be named as a child: from its own parent,
+    # which the resolver refuses because it sits outside the workspace.
+    with pytest.raises(WebUIFileBrowserError) as exc:
+        delete_entry(str(tmp_path), workspace.name, recursive=True, scope=default_workspace_scope(workspace, True))
+
+    assert exc.value.status == 403
+    assert workspace.is_dir()
+
+
+def test_a_mutation_outside_the_workspace_is_refused(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("keep", encoding="utf-8")
+
+    with pytest.raises(WebUIFileBrowserError) as exc:
+        delete_entry(str(outside), "keep.txt", recursive=False, scope=default_workspace_scope(workspace, True))
+
+    assert exc.value.status == 403
+    assert (outside / "keep.txt").exists()
+
+
+def test_a_mutation_ignores_restrict_to_workspace_too(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("keep", encoding="utf-8")
+    unrestricted = default_workspace_scope(workspace, restrict_to_workspace=False)
+
+    with pytest.raises(WebUIFileBrowserError) as exc:
+        delete_entry(str(outside), "keep.txt", recursive=False, scope=unrestricted)
+
+    assert exc.value.status == 403
+    assert (outside / "keep.txt").exists()

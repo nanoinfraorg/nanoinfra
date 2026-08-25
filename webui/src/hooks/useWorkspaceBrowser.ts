@@ -18,6 +18,8 @@ export function useWorkspaceBrowser(path: string | null): {
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
+  /** Adopt the listing a mutation answered with, instead of refetching it. */
+  replace: (payload: WorkspaceListingPayload) => void;
 } {
   const { getToken } = useClient();
   const [listing, setListing] = useState<WorkspaceListingPayload | null>(null);
@@ -52,5 +54,5 @@ export function useWorkspaceBrowser(path: string | null): {
 
   const refresh = useCallback(() => load(path), [load, path]);
 
-  return { listing, loading, error, refresh };
+  return { listing, loading, error, refresh, replace: setListing };
 }

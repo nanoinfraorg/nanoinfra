@@ -1,18 +1,30 @@
 import { useCallback, useMemo, useState } from "react";
 import {
+  Check,
   ChevronRight,
   CornerLeftUp,
   FileText,
   Folder,
+  FolderPlus,
   Link2,
+  Pencil,
   RefreshCw,
   ShieldAlert,
+  Trash2,
+  X,
 } from "lucide-react";
 
 import { FilePreviewPanel } from "@/components/FilePreviewPanel";
+import { WorkspaceDeleteConfirm } from "@/components/workspace/WorkspaceDeleteConfirm";
 import { useWorkspaceBrowser } from "@/hooks/useWorkspaceBrowser";
-import { fetchWorkspaceFilePreview } from "@/lib/api";
-import type { WorkspaceEntry } from "@/lib/types";
+import {
+  ApiError,
+  createWorkspaceFolder,
+  deleteWorkspaceEntry,
+  fetchWorkspaceFilePreview,
+  renameWorkspaceEntry,
+} from "@/lib/api";
+import type { WorkspaceEntry, WorkspaceListingPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 
@@ -66,8 +78,15 @@ function EntryIcon({ entry }: { entry: WorkspaceEntry }) {
  */
 export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps) {
   const { token } = useClient();
-  const { listing, loading, error, refresh } = useWorkspaceBrowser(path);
+  const { listing, loading, error, refresh, replace } = useWorkspaceBrowser(path);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [newFolderName, setNewFolderName] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<{ name: string; value: string } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ name: string; recursive: boolean } | null>(
+    null,
+  );
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const separator = useMemo(
     () => (listing && listing.projectPath.includes("\\") ? "\\" : "/"),
@@ -105,6 +124,72 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
     },
     [listing, navigate, separator],
   );
+
+  /** Run one mutation, adopt the listing it answered with, and surface its refusal. */
+  const runMutation = useCallback(
+    async (
+      call: () => Promise<WorkspaceListingPayload>,
+      onRefused?: (error: ApiError) => boolean,
+    ) => {
+      setBusy(true);
+      setActionError(null);
+      try {
+        replace(await call());
+        return true;
+      } catch (e) {
+        // A refusal here is the server's answer and not a transport failure: 409 is
+        // "that name is taken" or "the folder is not empty", 403 is the containment
+        // boundary. Showing its own message beats translating a status code badly.
+        if (e instanceof ApiError && onRefused?.(e)) return false;
+        setActionError(e instanceof ApiError ? e.message : (e as Error).message);
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [replace],
+  );
+
+  const submitNewFolder = useCallback(async () => {
+    const name = (newFolderName ?? "").trim();
+    if (!name) return;
+    if (await runMutation(() => createWorkspaceFolder(token, path, name))) {
+      setNewFolderName(null);
+    }
+  }, [newFolderName, path, runMutation, token]);
+
+  const submitRename = useCallback(async () => {
+    if (!renaming) return;
+    const next = renaming.value.trim();
+    if (!next || next === renaming.name) {
+      setRenaming(null);
+      return;
+    }
+    if (await runMutation(() => renameWorkspaceEntry(token, path, renaming.name, next))) {
+      setRenaming(null);
+    }
+  }, [path, renaming, runMutation, token]);
+
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+    const { name, recursive } = pendingDelete;
+    const done = await runMutation(
+      () => deleteWorkspaceEntry(token, path, name, recursive),
+      (error) => {
+        // The server, not the client, decides that a tree is involved. Asking again
+        // with what it just said beats sending `recursive` speculatively.
+        if (error.status === 409 && /not empty/i.test(error.message) && !recursive) {
+          setPendingDelete({ name, recursive: true });
+          return true;
+        }
+        return false;
+      },
+    );
+    if (done) {
+      setPendingDelete(null);
+      setSelectedFile(null);
+    }
+  }, [path, pendingDelete, runMutation, token]);
 
   const loadPreview = useCallback((target: string) => fetchWorkspaceFilePreview(token, target), [token]);
 
@@ -152,6 +237,14 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setNewFolderName("")}
+              disabled={!listing || busy}
+              className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <FolderPlus className="h-3.5 w-3.5" /> New folder
+            </button>
             {listing?.parent ? (
               <button
                 type="button"
@@ -178,46 +271,162 @@ export function WorkspaceView({ path = null, onPathChange }: WorkspaceViewProps)
           </div>
         ) : null}
 
+        {actionError ? (
+          <div className="flex items-center justify-between gap-3 border-b border-border bg-destructive/10 px-4 py-2 text-[12px] text-destructive-text">
+            <span>{actionError}</span>
+            <button
+              type="button"
+              onClick={() => setActionError(null)}
+              aria-label="Dismiss error"
+              className="rounded-full p-1 hover:bg-muted/70"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : null}
+
         <div className="min-h-0 flex-1 overflow-y-auto">
           {listing && listing.entries.length === 0 && !loading ? (
             <div className="px-4 py-6 text-[13px] text-muted-foreground">This folder is empty.</div>
           ) : null}
           <ul>
+            {newFolderName !== null ? (
+              <li className="flex items-center gap-3 border-b border-border/45 px-4 py-2">
+                <Folder className="h-4 w-4 text-muted-foreground" />
+                <input
+                  autoFocus
+                  value={newFolderName}
+                  onChange={(event) => setNewFolderName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void submitNewFolder();
+                    if (event.key === "Escape") setNewFolderName(null);
+                  }}
+                  placeholder="New folder name"
+                  aria-label="New folder name"
+                  className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-[13px] text-foreground outline-none focus:border-foreground/30"
+                />
+                <button
+                  type="button"
+                  onClick={() => void submitNewFolder()}
+                  disabled={busy || !newFolderName.trim()}
+                  aria-label="Create folder"
+                  className="rounded-full p-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground disabled:opacity-50"
+                >
+                  <Check className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewFolderName(null)}
+                  aria-label="Cancel new folder"
+                  className="rounded-full p-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </li>
+            ) : null}
             {(listing?.entries ?? []).map((entry) => {
               const absolute = listing ? [listing.path, entry.name].join(separator) : entry.name;
               const selected = selectedFile === absolute;
               return (
-                <li key={entry.name}>
-                  <button
-                    type="button"
-                    onClick={() => openEntry(entry)}
-                    disabled={entry.escapesWorkspace}
-                    title={
-                      entry.escapesWorkspace
-                        ? "This link points outside the workspace and cannot be opened here"
-                        : absolute
-                    }
-                    className={cn(
-                      "flex w-full items-center gap-3 px-4 py-2 text-left text-[13px] transition-colors",
-                      "disabled:cursor-not-allowed disabled:opacity-60",
-                      selected ? "bg-muted/70" : "hover:bg-muted/50",
-                    )}
-                  >
-                    <EntryIcon entry={entry} />
-                    <span className="min-w-0 flex-1 truncate text-foreground">{entry.name}</span>
-                    <span className="w-20 shrink-0 text-right text-[11px] text-muted-foreground">
-                      {formatSize(entry.size)}
-                    </span>
-                    <span className="hidden w-40 shrink-0 text-right text-[11px] text-muted-foreground sm:block">
-                      {formatModified(entry.modified)}
-                    </span>
-                  </button>
+                <li key={entry.name} className="group relative">
+                  {renaming?.name === entry.name ? (
+                    <div className="flex items-center gap-3 px-4 py-2">
+                      <EntryIcon entry={entry} />
+                      <input
+                        autoFocus
+                        value={renaming.value}
+                        onChange={(event) => setRenaming({ name: entry.name, value: event.target.value })}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") void submitRename();
+                          if (event.key === "Escape") setRenaming(null);
+                        }}
+                        aria-label={`Rename ${entry.name}`}
+                        className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-[13px] text-foreground outline-none focus:border-foreground/30"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void submitRename()}
+                        disabled={busy}
+                        aria-label="Save name"
+                        className="rounded-full p-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground disabled:opacity-50"
+                      >
+                        <Check className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRenaming(null)}
+                        aria-label="Cancel rename"
+                        className="rounded-full p-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      className={cn(
+                        "flex items-center gap-3 pr-2 transition-colors",
+                        selected ? "bg-muted/70" : "hover:bg-muted/50",
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => openEntry(entry)}
+                        disabled={entry.escapesWorkspace}
+                        title={
+                          entry.escapesWorkspace
+                            ? "This link points outside the workspace and cannot be opened here"
+                            : absolute
+                        }
+                        className={cn(
+                          "flex min-w-0 flex-1 items-center gap-3 px-4 py-2 text-left text-[13px]",
+                          "disabled:cursor-not-allowed disabled:opacity-60",
+                        )}
+                      >
+                        <EntryIcon entry={entry} />
+                        <span className="min-w-0 flex-1 truncate text-foreground">{entry.name}</span>
+                        <span className="w-20 shrink-0 text-right text-[11px] text-muted-foreground">
+                          {formatSize(entry.size)}
+                        </span>
+                        <span className="hidden w-40 shrink-0 text-right text-[11px] text-muted-foreground sm:block">
+                          {formatModified(entry.modified)}
+                        </span>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                        <button
+                          type="button"
+                          onClick={() => setRenaming({ name: entry.name, value: entry.name })}
+                          disabled={busy}
+                          aria-label={`Rename ${entry.name}`}
+                          className="rounded-full p-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground disabled:opacity-50"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPendingDelete({ name: entry.name, recursive: false })}
+                          disabled={busy}
+                          aria-label={`Delete ${entry.name}`}
+                          className="rounded-full p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive-text disabled:opacity-50"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </li>
               );
             })}
           </ul>
         </div>
       </div>
+
+      <WorkspaceDeleteConfirm
+        open={pendingDelete !== null}
+        name={pendingDelete?.name ?? ""}
+        recursive={pendingDelete?.recursive ?? false}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => void confirmDelete()}
+      />
 
       {selectedFile ? (
         <FilePreviewPanel
