@@ -760,6 +760,57 @@ describe("WorkspaceView listing behaviour", () => {
     expect(await screen.findByRole("button", { name: "Resize file preview" })).toBeInTheDocument();
   });
 
+  it("collapses the tree in favour of the preview, and brings it back", async () => {
+    vi.mocked(api.fetchWorkspaceFilePreview).mockResolvedValue({
+      path: `${ROOT}/README.md`,
+      display_path: "README.md",
+      project_path: ROOT,
+      language: "markdown",
+      content: "# hello",
+      size: 7,
+      truncated: false,
+    });
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
+    // Nothing to collapse in favour of until a file is open.
+    expect(screen.queryByRole("button", { name: "Collapse the tree" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("README.md"));
+    await screen.findByTestId("file-preview-panel");
+    await userEvent.click(screen.getByRole("button", { name: "Collapse the tree" }));
+
+    // The tree is hidden, not unmounted: its expansions and cached listings survive.
+    expect(screen.getByTestId("workspace-tree").closest("div.hidden")).not.toBeNull();
+    // With nothing beside it, the panel is not describing a shared row any more.
+    expect(screen.queryByRole("button", { name: "Resize file preview" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getAllByRole("button", { name: "Show the tree" })[0]);
+
+    expect(screen.getByTestId("workspace-tree").closest("div.hidden")).toBeNull();
+  });
+
+  it("brings the tree back when the preview closes", async () => {
+    // Otherwise closing into a collapsed tree leaves the surface empty.
+    vi.mocked(api.fetchWorkspaceFilePreview).mockResolvedValue({
+      path: `${ROOT}/README.md`,
+      display_path: "README.md",
+      project_path: ROOT,
+      language: "markdown",
+      content: "# hello",
+      size: 7,
+      truncated: false,
+    });
+    render(wrap(<WorkspaceView />));
+    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
+    await userEvent.click(screen.getByText("README.md"));
+    await screen.findByTestId("file-preview-panel");
+    await userEvent.click(screen.getByRole("button", { name: "Collapse the tree" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Close file preview" }));
+
+    expect(screen.getByTestId("workspace-tree").closest("div.hidden")).toBeNull();
+  });
+
   it("does not reload the open preview when something else re-renders the tree", async () => {
     // The approvals poll re-renders this view every 5 seconds. With the panel's
     // loader in its effect dependencies, each of those re-fetched the open file --

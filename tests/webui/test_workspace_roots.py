@@ -186,3 +186,31 @@ def test_the_pre_root_workspace_still_counts_as_a_default() -> None:
     from nanoinfra.config.paths import is_default_workspace
 
     assert is_default_workspace(Path.home() / ".nanoinfra" / "workspace")
+
+
+def test_a_new_workspace_is_seeded_like_one_the_cli_makes(tmp_path: Path) -> None:
+    """A bare directory would be a workspace the agent reads no instructions from.
+
+    The word has to mean the same thing whichever surface created it.
+    """
+    root = tmp_path / "workspaces"
+
+    payload = create_workspace(root, "fresh")
+
+    target = root / "fresh"
+    assert (target / "AGENTS.md").is_file()
+    assert (target / "HEARTBEAT.md").is_file()
+    assert (target / "memory" / "MEMORY.md").is_file()
+    assert (target / "prompts" / "README.md").is_file()
+    assert (target / "skills").is_dir()
+    assert "AGENTS.md" in payload["seeded"]
+
+
+def test_a_new_workspace_claims_no_feature_it_is_not_using(tmp_path: Path) -> None:
+    """Each store makes its own directory on first write; an empty one would read as in use."""
+    root = tmp_path / "workspaces"
+
+    create_workspace(root, "fresh")
+
+    for store in ("secrets", "diagrams", "servers", "triggers", "cron"):
+        assert not (root / "fresh" / store).exists(), store

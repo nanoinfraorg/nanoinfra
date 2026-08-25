@@ -15,6 +15,8 @@ import {
   FolderUp,
   Link2,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   RefreshCw,
   ShieldAlert,
@@ -204,6 +206,9 @@ export function WorkspaceView({
     { parent: string; name: string; recursive: boolean } | null
   >(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  // Collapsed in favour of the preview. Not persisted: it belongs to reading one
+  // file, and coming back to the explorer with no tree would read as a broken view.
+  const [treeCollapsed, setTreeCollapsed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -605,7 +610,14 @@ export function WorkspaceView({
 
   return (
     <div ref={surfaceRef} className="relative flex h-full min-h-0 w-full">
-      <div className="flex h-full min-h-0 flex-1 flex-col">
+      <div
+        className={cn(
+          "flex h-full min-h-0 flex-1 flex-col",
+          // Hidden rather than unmounted: the tree keeps its expansions and its
+          // cached listings, so coming back is not a reload.
+          treeCollapsed && selectedFile !== null && "hidden",
+        )}
+      >
         <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="flex min-w-0 flex-col">
             <span className="truncate text-[14px] font-semibold text-foreground" title={root?.path}>
@@ -706,6 +718,20 @@ export function WorkspaceView({
                 className="flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-settings-surface px-3 text-[12px] font-medium text-foreground hover:bg-muted/70"
               >
                 <CornerLeftUp className="h-3.5 w-3.5" /> Up
+              </button>
+            ) : null}
+            {selectedFile !== null ? (
+              <button
+                type="button"
+                onClick={() => setTreeCollapsed((previous) => !previous)}
+                aria-label={treeCollapsed ? "Show the tree" : "Collapse the tree"}
+                title={treeCollapsed ? "Show the tree" : "Collapse the tree"}
+                aria-pressed={treeCollapsed}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+              >
+                {treeCollapsed
+                  ? <PanelLeftOpen className="h-4 w-4" />
+                  : <PanelLeftClose className="h-4 w-4" />}
               </button>
             ) : null}
             <button
@@ -950,15 +976,36 @@ export function WorkspaceView({
       />
 
       {selectedFile ? (
-        <FilePreviewPanel
-          key={selectedFile}
-          path={selectedFile}
-          token={token}
-          loadPreview={loadPreview}
-          desktopWidth={previewWidth}
-          onResizeStart={onResizeStart}
-          onClose={() => setSelectedFile(null)}
-        />
+        <>
+          {treeCollapsed ? (
+            <button
+              type="button"
+              onClick={() => setTreeCollapsed(false)}
+              aria-label="Show the tree"
+              title="Show the tree"
+              className="absolute left-2 top-2 z-40 flex h-8 w-8 items-center justify-center rounded-full border border-border/45 bg-card/90 text-muted-foreground shadow-sm backdrop-blur hover:text-foreground"
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </button>
+          ) : null}
+          <FilePreviewPanel
+            key={selectedFile}
+            path={selectedFile}
+            token={token}
+            loadPreview={loadPreview}
+            // With nothing beside it, a width and a drag edge describe a pane that
+            // is not there.
+            fill={treeCollapsed}
+            desktopWidth={previewWidth}
+            onResizeStart={treeCollapsed ? undefined : onResizeStart}
+            onClose={() => {
+              // The tree comes back with it: closing into a collapsed tree would
+              // leave the surface empty.
+              setTreeCollapsed(false);
+              setSelectedFile(null);
+            }}
+          />
+        </>
       ) : null}
     </div>
   );

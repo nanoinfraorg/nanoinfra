@@ -156,7 +156,18 @@ def create_workspace(root: Path, name: str) -> dict[str, Any]:
     A single component under the root, validated the same way a new folder in the
     explorer is: a name is not a path, and this one becomes a directory a client
     then gets to browse.
+
+    Then seeded with the same templates the CLI writes into a workspace
+    (``sync_workspace_templates``): ``AGENTS.md``, ``HEARTBEAT.md``, ``SOUL.md``,
+    ``USER.md``, ``memory/`` and ``prompts/``. A bare directory would be a workspace
+    the agent reads no instructions from and no memory in -- the word would mean two
+    different things depending on which surface made it. The store directories
+    (``secrets/``, ``diagrams/``, ``servers/``, ``triggers/``) are deliberately not
+    created: each store makes its own on first write, and an empty one would claim
+    the feature is in use.
     """
+    from nanoinfra.utils.helpers import sync_workspace_templates
+
     resolved_root = root.expanduser()
     target = resolved_root / validate_component(name)
     if target.exists() or target.is_symlink():
@@ -168,7 +179,10 @@ def create_workspace(root: Path, name: str) -> dict[str, Any]:
         raise WebUIFileBrowserError(403, "not permitted to create a workspace there") from exc
     except OSError as exc:
         raise WebUIFileBrowserError(500, "failed to create the workspace") from exc
-    return {"workspace": str(target)}
+
+    # silent: this runs in a gateway route, and the CLI's console is not here.
+    created = sync_workspace_templates(target, silent=True)
+    return {"workspace": str(target), "seeded": created}
 
 
 __all__ = [

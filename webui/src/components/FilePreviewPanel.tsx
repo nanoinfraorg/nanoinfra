@@ -28,6 +28,14 @@ interface FilePreviewPanelProps {
   loadPreview?: (path: string) => Promise<FilePreviewPayload>;
   token: string;
   desktopWidth?: number;
+  /**
+   * Take the whole surface instead of a fixed width.
+   *
+   * For a caller that hid what sat beside the panel: the width props describe a
+   * pane sharing the row, and there is nothing to share it with. Set together with
+   * omitting `onResizeStart`, since a drag has no edge to move.
+   */
+  fill?: boolean;
   isClosing?: boolean;
   onResizeStart?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onClose: () => void;
@@ -58,6 +66,7 @@ export function FilePreviewPanel({
   loadPreview,
   token,
   desktopWidth = 544,
+  fill = false,
   isClosing = false,
   onResizeStart,
   onClose,
@@ -155,7 +164,9 @@ export function FilePreviewPanel({
       className={cn(
         "absolute inset-y-0 right-0 z-30 w-[min(100vw,var(--file-preview-slot-width))] overflow-hidden",
         "transition-[width] duration-300 ease-out will-change-[width]",
-        "md:relative md:z-auto md:w-[var(--file-preview-slot-width)] md:min-w-0 md:shrink-0",
+        fill
+          ? "md:relative md:z-auto md:w-full md:min-w-0 md:flex-1"
+          : "md:relative md:z-auto md:w-[var(--file-preview-slot-width)] md:min-w-0 md:shrink-0",
         isClosing && "pointer-events-none",
       )}
       data-testid="file-preview-panel"
@@ -163,7 +174,8 @@ export function FilePreviewPanel({
     >
       <div
         className={cn(
-          "absolute inset-y-0 right-0 flex w-[min(100vw,var(--file-preview-width))] flex-col overflow-hidden pb-[env(safe-area-inset-bottom)] md:w-[var(--file-preview-width)] md:pb-0",
+          "absolute inset-y-0 right-0 flex w-[min(100vw,var(--file-preview-width))] flex-col overflow-hidden pb-[env(safe-area-inset-bottom)] md:pb-0",
+          fill ? "md:w-full" : "md:w-[var(--file-preview-width)]",
           "border-l border-border/70 bg-background shadow-2xl md:shadow-none",
           "transition-[opacity,transform] duration-300 ease-out will-change-transform",
           !entered || isClosing ? "translate-x-full opacity-0" : "translate-x-0 opacity-100",
