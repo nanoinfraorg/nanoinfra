@@ -292,6 +292,74 @@ describe("ThreadComposer — attachments", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
+  it("turns a large paste into an attachment instead of a wall of text", async () => {
+    // A pasted script in the message body buries the conversation, and past the
+    // gateway's text limit it cannot be sent at all.
+    const script = Array.from({ length: 120 }, (_, index) => `echo "line ${index}"`).join("\n");
+    const onSend = vi.fn();
+
+    render(<ThreadComposer onSend={onSend} />);
+    const textarea = screen.getByLabelText(/message input/i) as HTMLTextAreaElement;
+
+    await act(async () => {
+      fireEvent.paste(textarea, {
+        clipboardData: {
+          files: [],
+          items: [],
+          types: ["text/plain"],
+          getData: (type: string) => (type === "text/plain" ? script : ""),
+        },
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText("pasted-1.txt")).toBeInTheDocument());
+    // The textarea is left alone, and the operator is told what happened.
+    expect(textarea.value).toBe("");
+    expect(screen.getByRole("status")).toHaveTextContent("Pasted 120 lines as pasted-1.txt");
+  });
+
+  it("numbers a second large paste rather than repeating the name", async () => {
+    const script = "x".repeat(5000);
+    render(<ThreadComposer onSend={vi.fn()} />);
+    const textarea = screen.getByLabelText(/message input/i);
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await act(async () => {
+        fireEvent.paste(textarea, {
+          clipboardData: {
+            files: [],
+            items: [],
+            types: ["text/plain"],
+            getData: (type: string) => (type === "text/plain" ? script : ""),
+          },
+        });
+      });
+    }
+
+    await waitFor(() => expect(screen.getByText("pasted-2.txt")).toBeInTheDocument());
+    expect(screen.getByText("pasted-1.txt")).toBeInTheDocument();
+  });
+
+  it("still pastes an ordinary snippet as text", async () => {
+    render(<ThreadComposer onSend={vi.fn()} />);
+    const textarea = screen.getByLabelText(/message input/i) as HTMLTextAreaElement;
+
+    await act(async () => {
+      fireEvent.paste(textarea, {
+        clipboardData: {
+          files: [],
+          items: [],
+          types: ["text/plain"],
+          getData: (type: string) => (type === "text/plain" ? "one line" : ""),
+        },
+      });
+    });
+
+    // Not consumed: the browser's own paste puts it in the textarea.
+    expect(screen.queryByTestId("composer-chip")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("accepts supported documents from paste and drop", async () => {
     const pasted = pdfFile("pasted.pdf");
     const dropped = pdfFile("dropped.pdf");

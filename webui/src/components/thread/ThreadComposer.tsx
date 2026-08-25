@@ -1015,6 +1015,9 @@ export function ThreadComposer({
     end: number;
   } | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
+  // Not an error: something happened that the operator should see, and the paste
+  // that triggers it is the only case where the composer changes what was asked for.
+  const [inlineNote, setInlineNote] = useState<string | null>(null);
   const [voiceErrorFading, setVoiceErrorFading] = useState(false);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
@@ -1116,6 +1119,33 @@ export function ThreadComposer({
     [enqueue, formatRejection],
   );
 
+  /** A paste too large to be a message becomes a text file instead. */
+  const onPastedLargeText = useCallback(
+    (text: string) => {
+      const lines = text.split("\n").length;
+      // Numbered within the message, so pasting twice does not produce two chips
+      // with the same name and no way to tell them apart.
+      const taken = images.filter((image) => /^pasted-\d+\.txt$/.test(image.file.name)).length;
+      const name = `pasted-${taken + 1}.txt`;
+      addFiles([new File([text], name, { type: "text/plain" })]);
+      setInlineNote(
+        t("thread.composer.pastedAsFile", {
+          name,
+          lines,
+          defaultValue: `Pasted ${lines} lines as ${name} — remove the attachment to discard it`,
+        }),
+      );
+    },
+    [addFiles, images, t],
+  );
+
+  // The note describes an attachment, so it goes when that attachment does --
+  // removed by hand, or cleared by sending the message.
+  useEffect(() => {
+    if (!inlineNote) return;
+    if (!images.some((image) => /^pasted-\d+\.txt$/.test(image.file.name))) setInlineNote(null);
+  }, [images, inlineNote]);
+
   const {
     isDragging,
     onPaste,
@@ -1123,7 +1153,7 @@ export function ThreadComposer({
     onDragOver,
     onDragLeave,
     onDrop,
-  } = useClipboardAndDrop(addFiles);
+  } = useClipboardAndDrop(addFiles, onPastedLargeText);
 
   useEffect(() => {
     if (disabled || hasTouchPrimaryPointer) return;
@@ -2602,6 +2632,17 @@ export function ThreadComposer({
             )}
           />
         </div>
+        {inlineNote && !inlineError ? (
+          <div
+            role="status"
+            className={cn(
+              "mx-3 mb-1 max-h-10 overflow-hidden rounded-md border border-border/50 bg-muted/50 px-2.5 py-1",
+              "text-[11.5px] text-muted-foreground",
+            )}
+          >
+            {inlineNote}
+          </div>
+        ) : null}
         {inlineError ? (
           <div
             role="alert"

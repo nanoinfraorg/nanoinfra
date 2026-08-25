@@ -26,6 +26,44 @@ export function extractImageFilesFromPaste(
   return files;
 }
 
+/** Bytes of pasted text past which it becomes an attachment instead of message text. */
+export const PASTE_AS_FILE_BYTES = 4 * 1024;
+
+/** Lines of pasted text past which it becomes an attachment. */
+export const PASTE_AS_FILE_LINES = 60;
+
+/**
+ * The pasted text that should become a file rather than message text, or ``null``.
+ *
+ * A paste this large is a file someone is handing over, not a sentence they are
+ * writing: it buries the composer, and past the gateway's own text limit it cannot
+ * be sent at all. Either threshold is enough — a wide single line is as unusable as
+ * a thousand narrow ones.
+ *
+ * *budgetBytes* is the message-text limit the gateway advertises. A paste over it
+ * has to become an attachment for the message to be sendable at all, whatever the
+ * thresholds say.
+ */
+export function largeTextFromPaste(
+  event: ClipboardEvent | React.ClipboardEvent,
+  options?: { maxBytes?: number; maxLines?: number; budgetBytes?: number },
+): string | null {
+  const clipboard = (event as ClipboardEvent).clipboardData
+    ?? (event as React.ClipboardEvent).clipboardData;
+  if (!clipboard) return null;
+  const text = clipboard.getData("text/plain");
+  if (!text) return null;
+  const bytes = new TextEncoder().encode(text).length;
+  const lines = text.split("\n").length;
+  const maxBytes = options?.maxBytes ?? PASTE_AS_FILE_BYTES;
+  const maxLines = options?.maxLines ?? PASTE_AS_FILE_LINES;
+  const budget = options?.budgetBytes;
+  if (bytes > maxBytes || lines > maxLines || (budget !== undefined && bytes > budget)) {
+    return text;
+  }
+  return null;
+}
+
 /** Extract dropped attachment files, mirroring ``extractImageFilesFromPaste``. */
 export function extractImageFilesFromDrop(
   event: DragEvent | React.DragEvent,
@@ -60,6 +98,8 @@ export interface UseClipboardAndDropApi {
  * highlight off otherwise). */
 export function useClipboardAndDrop(
   onImageFiles: (files: File[]) => void,
+  /** Called instead of pasting, when the text is large enough to be a file. */
+  onLargeText?: (text: string) => void,
 ): UseClipboardAndDropApi {
   const [isDragging, setIsDragging] = useState(false);
   const dragDepth = useRef(0);
@@ -67,13 +107,22 @@ export function useClipboardAndDrop(
   const onPaste = useCallback(
     (event: React.ClipboardEvent) => {
       const files = extractImageFilesFromPaste(event);
-      if (files.length === 0) return;
-      // Consume only when an attachment is actually present; plain-text paste
-      // still reaches the textarea unmolested.
-      event.preventDefault();
-      onImageFiles(files);
+      if (files.length > 0) {
+        // Consume only when an attachment is actually present; an ordinary
+        // plain-text paste still reaches the textarea unmolested.
+        event.preventDefault();
+        onImageFiles(files);
+        return;
+      }
+      if (onLargeText) {
+        const text = largeTextFromPaste(event);
+        if (text !== null) {
+          event.preventDefault();
+          onLargeText(text);
+        }
+      }
     },
-    [onImageFiles],
+    [onImageFiles, onLargeText],
   );
 
   const onDragEnter = useCallback((event: React.DragEvent) => {
