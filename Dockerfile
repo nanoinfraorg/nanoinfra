@@ -10,7 +10,7 @@ RUN mkdir -p /app/nanoinfra/web && npm run build
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates git bubblewrap openssh-client libmagic1 && \
+    apt-get install -y --no-install-recommends ca-certificates curl git bubblewrap openssh-client libmagic1 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -47,6 +47,41 @@ ARG NANOINFRA_CHANNELS=whatsapp
 RUN for channel in $(printf '%s' "$NANOINFRA_CHANNELS" | tr ',' ' '); do \
         python -m scripts.install_channel_dependencies "$channel"; \
     done
+
+# GitHub's MCP server as a binary, not as `docker run`.
+#
+# Its published configuration starts a container, which cannot work here: this image holds no
+# docker client, and mounting the host's socket to give it one would hand this container root on
+# the host. The server is a single static Go binary, so the image carries it and the config runs
+# `github-mcp-server stdio` directly.
+#
+# /usr/local/bin is deliberate: the MCP host is Landlock-confined and that directory is already in
+# its exec policy (`gates/confinement.py::_SYSTEM_BIN_PATHS`), so the child starts under the same
+# rules as any other stdio server rather than needing a rule of its own.
+#
+# Pinned with its published checksum. A release that moves under us is a supply-chain change, and
+# it should fail the build rather than ship quietly. Build with
+# `--build-arg GITHUB_MCP_SERVER_VERSION=` to leave it out.
+ARG GITHUB_MCP_SERVER_VERSION=1.11.0
+ARG GITHUB_MCP_SERVER_SHA256=3b73bb7be0c8b043f861e90410df8ebdfc71b83128c54ced75fb32c4ff697fc5
+RUN set -eu; \
+    if [ -n "$GITHUB_MCP_SERVER_VERSION" ]; then \
+        arch="$(uname -m)"; \
+        case "$arch" in \
+            x86_64) asset="Linux_x86_64"; sha="$GITHUB_MCP_SERVER_SHA256" ;; \
+            aarch64|arm64) asset="Linux_arm64"; sha="3f7615254f6b619469c471c5d275029299ff7431c93d6075496ea4b2eec020cb" ;; \
+            *) echo "no github-mcp-server build for $arch; skipping" >&2; asset="" ;; \
+        esac; \
+        if [ -n "$asset" ]; then \
+            url="https://github.com/github/github-mcp-server/releases/download/v${GITHUB_MCP_SERVER_VERSION}/github-mcp-server_${asset}.tar.gz"; \
+            curl -fsSL "$url" -o /tmp/gh-mcp.tar.gz; \
+            echo "$sha  /tmp/gh-mcp.tar.gz" | sha256sum -c -; \
+            tar -xzf /tmp/gh-mcp.tar.gz -C /tmp github-mcp-server; \
+            install -m 0755 /tmp/github-mcp-server /usr/local/bin/github-mcp-server; \
+            rm -f /tmp/gh-mcp.tar.gz /tmp/github-mcp-server; \
+            /usr/local/bin/github-mcp-server --version; \
+        fi; \
+    fi
 
 # Two accounts, because item 15 (nanoinfraorg/nanoinfra#18) splits the agent from
 # the executor. Two processes on one uid give no kernel-enforced separation: either
