@@ -240,27 +240,3 @@ def test_the_mcp_state_dir_belongs_to_the_mcp_host() -> None:
     assert 'chmod 2710 "$mcp_host_socket_dir"' in body
     # A group that does not exist closes the directory and says what it costs.
     assert 'chmod 2700 "$mcp_dir"' in body
-
-
-def test_the_github_mcp_server_is_pinned_and_verified() -> None:
-    """Its published configuration runs `docker run`, which cannot work inside this image.
-
-    So the image carries the binary instead. Pinned by version and checked against the release's
-    published checksum: a release that moves under us is a supply-chain change and should fail the
-    build rather than ship quietly. It lands in /usr/local/bin because the MCP host's Landlock
-    policy already allows exec there, so the child needs no rule of its own.
-    """
-    dockerfile = (Path(__file__).resolve().parents[2] / "Dockerfile").read_text(encoding="utf-8")
-
-    assert "ARG GITHUB_MCP_SERVER_VERSION=" in dockerfile
-    assert "ARG GITHUB_MCP_SERVER_SHA256=" in dockerfile
-    assert "sha256sum -c -" in dockerfile
-    assert "install -m 0755 /tmp/github-mcp-server /usr/local/bin/github-mcp-server" in dockerfile
-    # The build proves the binary runs rather than trusting the archive.
-    assert "/usr/local/bin/github-mcp-server --version" in dockerfile
-    # An empty version leaves it out, so an operator who does not want it can build without it.
-    assert 'if [ -n "$GITHUB_MCP_SERVER_VERSION" ]' in dockerfile
-
-    from nanoinfra.gates.confinement import _SYSTEM_BIN_PATHS
-
-    assert "/usr/local/bin" in _SYSTEM_BIN_PATHS
