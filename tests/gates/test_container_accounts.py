@@ -215,3 +215,28 @@ def test_a_refused_confinement_stops_the_container_retries() -> None:
     assert 'confinement_refused_status=78' in text
     assert text.count('"$status" = "$confinement_refused_status"') == 3
     assert "refuses to start unconfined" in text
+
+
+def test_the_mcp_state_dir_belongs_to_the_mcp_host() -> None:
+    """Each MCP server's socket, state and log live under `~/.nanoinfra/mcp`, and the host spawns
+    those children -- so the host must be able to create a directory per server there.
+
+    It was prepared for nobody, so it kept whatever created it first. On a volume that predates the
+    MCP split that was the agent, and starting a server failed with `PermissionError` on
+    `~/.nanoinfra/mcp/<server>`. A fix inside the container does not survive, because the gateway
+    branch chowns the whole data dir to the agent on every boot.
+    """
+    script = (Path(__file__).resolve().parents[2] / "entrypoint.sh").read_text(encoding="utf-8")
+    body = script[script.index("prepare_mcp_host_paths() {"):]
+    body = body[: body.index("\n}\n")]
+
+    assert 'mkdir -p "$mcp_dir"' in body
+    # Recursive, because the directories that already exist are the ones that are wrong.
+    assert 'chown -R "$mcp_host_run_user:$mcp_ipc_group" "$mcp_dir"' in body
+    # setgid, so a directory the host creates later keeps the group the agent reads through.
+    assert 'chmod 2770 "$mcp_dir"' in body
+    assert '-type d -exec chmod 2770' in body
+    # The host's own socket directory is not widened by any of this.
+    assert 'chmod 2710 "$mcp_host_socket_dir"' in body
+    # A group that does not exist closes the directory and says what it costs.
+    assert 'chmod 2700 "$mcp_dir"' in body

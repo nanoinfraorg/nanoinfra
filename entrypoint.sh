@@ -71,6 +71,10 @@ mcp_host_user="nanoinfra-mcp"
 # traverses the executor's socket directory and connects to its socket.
 mcp_host_ipc_group="nanoinfra-mcp-ipc"
 mcp_host_socket_dir="/run/nanoinfra-mcp"
+# Per-server state, sockets and logs for stdio MCP servers, under the data dir rather than /run
+# because an operator reads a server's log after it dies.
+mcp_dir="$dir/mcp"
+mcp_ipc_group="nanoinfra-mcp-ipc"
 mcp_host_socket_path="$mcp_host_socket_dir/mcp_host.sock"
 mcp_host_module="nanoinfra.gates.mcp_host"
 
@@ -497,6 +501,32 @@ resolve_mcp_host_group() {
 
 # Hand the host's socket directory to the host's account, and keep every other account out.
 prepare_mcp_host_paths() {
+    # Where each MCP server keeps its socket, its state file and its log
+    # (`gates/mcp_host/supervisor.py::_prepare_run_dir`). The host spawns those children, so the
+    # host is the account that has to be able to create a directory per server here.
+    #
+    # It was prepared for nobody, so it stayed whatever created it first. On this deployment that
+    # was the agent, from an image that predates the MCP split, and the volume kept the ownership:
+    # starting a server then failed with `PermissionError: /home/nanoinfra/.nanoinfra/mcp/github`
+    # -- the host refused write on a directory the agent owned at 0755. The recursive chown at the
+    # top of the gateway branch hands the whole data dir to the agent on every boot, so a manual
+    # fix inside the container survives exactly until the next restart. It belongs here.
+    #
+    # Group `nanoinfra-mcp-ipc` with mode 2770, matching the job store's reasoning: the agent is a
+    # member, so the WebUI can read a server's state and log without a second transport, and setgid
+    # keeps that true for directories the host creates later. It grants the agent nothing over the
+    # host's own socket directory, which stays 2710 below.
+    mkdir -p "$mcp_dir" || return 1
+    if getent group "$mcp_ipc_group" >/dev/null 2>&1; then
+        chown -R "$mcp_host_run_user:$mcp_ipc_group" "$mcp_dir" || return 1
+        chmod 2770 "$mcp_dir" || return 1
+        find "$mcp_dir" -mindepth 1 -type d -exec chmod 2770 {} + 2>/dev/null || true
+    else
+        chown -R "$mcp_host_run_user:$mcp_host_run_group" "$mcp_dir" || return 1
+        chmod 2700 "$mcp_dir" || return 1
+        echo "[entrypoint] warning: no $mcp_ipc_group group, so the WebUI cannot read MCP logs" >&2
+    fi
+
     mkdir -p "$mcp_host_socket_dir" || return 1
     chown "$mcp_host_run_user:$mcp_host_run_group" "$mcp_host_socket_dir" || return 1
     # Mode 2710, the same four reasons as the other two socket directories:
