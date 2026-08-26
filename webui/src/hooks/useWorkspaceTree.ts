@@ -18,6 +18,9 @@ export interface WorkspaceTreeRow {
 }
 
 export function joinPath(directory: string, name: string, separator: string): string {
+  // "." is the workspace root, and joining onto it would produce "./cron" — correct but noisy in
+  // every URL the explorer builds. The listing addresses children relative to the workspace now.
+  if (directory === "." || directory === "") return name;
   return directory.endsWith(separator) ? `${directory}${name}` : `${directory}${separator}${name}`;
 }
 

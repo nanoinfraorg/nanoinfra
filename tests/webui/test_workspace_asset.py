@@ -237,3 +237,52 @@ def test_the_signed_url_round_trips_through_the_route_shape(tmp_path: Path) -> N
     )
     assert r.status_code == 200
     assert r.body == PNG
+
+
+def test_every_route_that_returns_a_preview_attaches_the_asset_url() -> None:
+    """Two routes build a preview payload, and the first cut signed in only one of them.
+
+    The explorer's own route reuses `file_preview_payload` with a different scope, so it returned
+    `kind: "image"` with no URL and the panel said the file could not be served from this
+    workspace. This scans for the call sites rather than listing them: a list is what missed the
+    second one.
+    """
+    import re
+
+    source = (
+        Path(__file__).resolve().parents[2] / "nanoinfra" / "webui" / "ws_http.py"
+    ).read_text(encoding="utf-8")
+
+    builders = [m.start() for m in re.finditer(r"= file_preview_payload\(", source)]
+    assert len(builders) >= 2, "expected the chat route and the explorer route"
+    for start in builders:
+        window = source[start : start + 900]
+        assert "attach_asset_url(" in window, (
+            "a route builds a preview payload and never attaches the asset URL, so an image "
+            "opened through it renders as 'cannot be served from the current workspace'"
+        )
+
+
+def test_attach_asset_url_signs_bytes_and_leaves_text_alone(tmp_path: Path) -> None:
+    from nanoinfra.webui.workspace_asset import attach_asset_url
+
+    (tmp_path / "shot.png").write_bytes(PNG)
+    image = attach_asset_url(
+        {"path": str(tmp_path / "shot.png"), "kind": "image"},
+        secret=SECRET,
+        workspace_root=tmp_path,
+    )
+    assert str(image["asset_url"]).startswith("/api/workspace-asset/")
+
+    text = attach_asset_url(
+        {"path": str(tmp_path / "notes.md"), "kind": "text"},
+        secret=SECRET,
+        workspace_root=tmp_path,
+    )
+    assert "asset_url" not in text
+
+    # A gateway older than the kind field sends none, and gets no URL rather than a bad one.
+    legacy = attach_asset_url(
+        {"path": str(tmp_path / "notes.md")}, secret=SECRET, workspace_root=tmp_path
+    )
+    assert "asset_url" not in legacy

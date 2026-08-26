@@ -29,7 +29,9 @@ def test_no_path_lists_the_workspace_root(tmp_path: Path) -> None:
 
     payload = directory_listing_payload(None, scope=default_workspace_scope(workspace, True))
 
-    assert Path(payload["path"]) == workspace.resolve()
+    # Relative to the workspace, with "." for the root: the client joins this with an entry name,
+    # so an absolute path here put the host's layout in every query string the explorer built.
+    assert payload["path"] == "."
     assert payload["displayPath"] == ""
     assert payload["parent"] is None
     assert [e["name"] for e in payload["entries"]] == ["src", "notes.md"]
@@ -74,7 +76,7 @@ def test_a_subdirectory_reports_its_parent_and_relative_path(tmp_path: Path) -> 
     payload = directory_listing_payload("src/deep", scope=default_workspace_scope(workspace, True))
 
     assert payload["displayPath"] == "src/deep"
-    assert Path(payload["parent"]) == (workspace / "src").resolve()
+    assert payload["parent"] == "src"
 
 
 def test_a_relative_escape_is_refused(tmp_path: Path) -> None:
@@ -654,3 +656,44 @@ def test_move_will_not_take_a_source_from_outside_the_workspace(tmp_path: Path) 
 
     assert exc.value.status == 403
     assert (outside / "secret.txt").exists()
+
+
+def test_a_relative_path_addresses_the_same_file_as_an_absolute_one(tmp_path: Path) -> None:
+    """The listing hands out relative paths, so the routes have to take them back.
+
+    An absolute path still resolves, because a caller that kept sending one — the chat's own
+    preview route hands the agent's absolute paths straight through — must not break.
+    """
+    workspace = tmp_path / "workspace"
+    (workspace / "docs").mkdir(parents=True)
+    (workspace / "docs" / "note.md").write_text("hi", encoding="utf-8")
+    scope = default_workspace_scope(workspace, True)
+
+    from nanoinfra.webui.file_browser import resolve_within_workspace
+
+    relative = resolve_within_workspace("docs/note.md", scope=scope, must_exist=True)
+    dotted = resolve_within_workspace("./docs/note.md", scope=scope, must_exist=True)
+    absolute = resolve_within_workspace(
+        str(workspace / "docs" / "note.md"), scope=scope, must_exist=True
+    )
+    root_dot = resolve_within_workspace(".", scope=scope, must_exist=True)
+
+    assert relative == dotted == absolute == (workspace / "docs" / "note.md").resolve()
+    assert root_dot == workspace.resolve()
+
+
+def test_the_listing_paths_never_name_the_host_layout(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    (workspace / "docs" / "deep").mkdir(parents=True)
+    scope = default_workspace_scope(workspace, True)
+
+    from nanoinfra.webui.file_browser import directory_listing_payload
+
+    root = directory_listing_payload(None, scope=scope, include_hidden=False)
+    nested = directory_listing_payload("docs/deep", scope=scope, include_hidden=False)
+
+    for payload in (root, nested):
+        assert not str(payload["path"]).startswith("/"), payload["path"]
+        assert str(tmp_path) not in str(payload["path"])
+    assert root["path"] == "." and root["parent"] is None
+    assert nested["path"] == "docs/deep" and nested["parent"] == "docs"

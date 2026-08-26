@@ -195,7 +195,7 @@ from nanoinfra.webui.skills_marketplace import (
 )
 from nanoinfra.webui.thread_disk import delete_webui_thread
 from nanoinfra.webui.transcript import build_webui_thread_response
-from nanoinfra.webui.workspace_asset import serve_workspace_asset, sign_workspace_asset
+from nanoinfra.webui.workspace_asset import attach_asset_url, serve_workspace_asset
 from nanoinfra.webui.workspace_roots import (
     create_workspace,
     resolve_client_workspace,
@@ -966,14 +966,10 @@ class GatewayHTTPHandler:
             if is_probe and e.status in {400, 403, 404, 415}:
                 return _http_json_response({"available": False})
             return _http_error(e.status, e.message)
-        if not is_probe and payload.get("kind") not in (None, "text"):
+        if not is_probe:
             # Signed here rather than in file_preview, which holds no secret and should not: the
             # module decides what a path is, and the gateway decides what a client may fetch.
-            payload["asset_url"] = sign_workspace_asset(
-                Path(str(payload["path"])),
-                secret=self.media.secret,
-                workspace_root=scope.project_path,
-            )
+            attach_asset_url(payload, secret=self.media.secret, workspace_root=scope.project_path)
         return _http_json_response(payload)
 
     def _handle_session_automations(self, request: WsRequest, key: str) -> Response:
@@ -1637,6 +1633,8 @@ class GatewayHTTPHandler:
             payload = file_preview_payload(str(resolved), scope=scope)
         except WebUIFilePreviewError as e:
             return _http_error(e.status, e.message)
+        # The explorer opens images and PDFs too, and this route is the one it uses.
+        attach_asset_url(payload, secret=self.media.secret, workspace_root=scope.project_path)
         return _http_json_response(payload)
 
     def _handle_workspace_download(self, request: WsRequest) -> Response:

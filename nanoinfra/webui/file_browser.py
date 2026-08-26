@@ -133,12 +133,17 @@ def directory_listing_payload(
 
     entries.sort(key=lambda e: (e.kind != "directory", e.name.casefold()))
     return {
-        "path": str(resolved),
+        # Relative to the workspace, with "." for the root. The client joins this with an entry
+        # name to address a child, so an absolute path here put the host's layout in every query
+        # string the explorer produced -- `?path=/home/nanoinfra/.nanoinfra/workspaces/default/...`
+        # for a file the reader is looking at inside that workspace already. The resolver takes
+        # either form, so an absolute path a caller still sends keeps working.
+        "path": _relative_path(resolved, root),
         "displayPath": _display_path(resolved, root),
         "projectPath": str(root),
         # ``None`` at the root, so the UI can render "up" as unavailable instead of
         # offering a step the resolver would refuse.
-        "parent": None if resolved == root else str(resolved.parent),
+        "parent": None if resolved == root else _relative_path(resolved.parent, root),
         "entries": [entry.to_dict() for entry in entries],
         "truncated": truncated,
         "includeHidden": include_hidden,
@@ -479,6 +484,22 @@ def _entry_for(item: os.DirEntry[str], *, root: Path) -> DirectoryEntry:
         modified=modified,
         escapes_workspace=escapes,
     )
+
+
+def _relative_path(path: Path, root: Path) -> str:
+    """The path as the client should send it back: relative to the workspace, "." for the root.
+
+    Never absolute, and never empty: an empty string is falsy in the client, so a first-level
+    directory's parent would read as "no parent" and the tree would lose its way up.
+    """
+    if path == root:
+        return "."
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        # Outside the root. The resolver refuses it anyway; the absolute form is the honest answer
+        # rather than a relative one that would silently mean somewhere else.
+        return str(path)
 
 
 def _is_within(path: Path, root: Path) -> bool:

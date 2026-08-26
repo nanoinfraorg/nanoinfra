@@ -28,7 +28,7 @@ import binascii
 import hashlib
 import hmac
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
@@ -106,6 +106,34 @@ def sign_workspace_asset(
     payload = b64url_encode(f"{root.as_posix()}\n{rel.as_posix()}".encode())
     mac = hmac.new(secret, payload.encode("ascii"), hashlib.sha256).digest()[:16]
     return f"{ROUTE_PREFIX}/{b64url_encode(mac)}/{payload}"
+
+
+def attach_asset_url(
+    payload: dict[str, Any],
+    *,
+    secret: bytes,
+    workspace_root: Path,
+) -> dict[str, Any]:
+    """Give a non-text preview payload the signed URL its viewer loads.
+
+    Every route that returns a preview payload calls this. The first cut signed inside one route
+    handler, and the explorer's own preview route -- which reuses the same payload builder with a
+    different scope -- returned `kind: "image"` with no URL, so the panel said the file could not be
+    served from this workspace. Two callers, one of them patched. A test scans for the call sites
+    rather than listing them, because a list is what missed the second one.
+
+    Text is left alone: it carries its content already, and a URL for it would be a second way to
+    read the same bytes.
+    """
+    if payload.get("kind") in (None, "text"):
+        return payload
+    raw_path = payload.get("path")
+    if not isinstance(raw_path, str):
+        return payload
+    payload["asset_url"] = sign_workspace_asset(
+        Path(raw_path), secret=secret, workspace_root=workspace_root
+    )
+    return payload
 
 
 def serve_workspace_asset(

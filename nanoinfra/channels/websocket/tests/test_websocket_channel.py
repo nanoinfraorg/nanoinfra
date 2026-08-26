@@ -4559,7 +4559,8 @@ def test_handle_file_preview_probe_checks_availability_without_content(tmp_path)
     resp = gateway.http._handle_file_preview(req, enc)
 
     assert resp.status_code == 200
-    assert json.loads(resp.body.decode()) == {"available": True}
+    # The probe names the viewer as well as the answer, so the client knows what will open.
+    assert json.loads(resp.body.decode()) == {"available": True, "kind": "text"}
 
 
 def test_handle_file_preview_probe_reports_missing_file_as_unavailable(tmp_path) -> None:
@@ -4585,7 +4586,7 @@ def test_handle_file_preview_probe_reports_missing_file_as_unavailable(tmp_path)
     assert json.loads(resp.body.decode()) == {"available": False}
 
 
-def test_handle_file_preview_probe_reports_binary_file_as_unavailable(tmp_path) -> None:
+def test_handle_file_preview_probe_reports_an_image_with_its_kind(tmp_path) -> None:
     from urllib.parse import quote
 
     from websockets.datastructures import Headers
@@ -4594,7 +4595,10 @@ def test_handle_file_preview_probe_reports_binary_file_as_unavailable(tmp_path) 
     workspace = tmp_path / "workspace"
     source = workspace / "image.png"
     workspace.mkdir()
-    source.write_bytes(b"\x89PNG\r\n\0binary")
+    # The real 8-byte PNG signature. The fixture used to be `\x89PNG\r\n\0binary`, a truncated
+    # magic that only had to contain a NUL byte to trip the old check -- and the sniffer is right to
+    # call that one `binary`, which the case below pins.
+    source.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0\0\0\rIHDR")
     gateway = _basic_handler(MagicMock(), workspace_path=workspace)
     gateway.tokens.api_tokens["tok"] = time.monotonic() + 300.0
     key = "websocket:file-preview"
@@ -4607,7 +4611,37 @@ def test_handle_file_preview_probe_reports_binary_file_as_unavailable(tmp_path) 
     resp = gateway.http._handle_file_preview(req, enc)
 
     assert resp.status_code == 200
-    assert json.loads(resp.body.decode()) == {"available": False}
+    # It used to answer `available: false`, and that was the bug: an image the agent had just
+    # written never became a clickable chip, so the reader was not told the file existed. The
+    # bytes are served by the workspace-asset route now, and the probe says which viewer opens it.
+    assert json.loads(resp.body.decode()) == {"available": True, "kind": "image"}
+
+
+def test_handle_file_preview_probe_reports_a_partial_magic_as_binary(tmp_path) -> None:
+    """A name and a NUL byte prove nothing: the type comes from the bytes, or not at all."""
+    import json
+    import time
+    from unittest.mock import MagicMock
+    from urllib.parse import quote
+
+    from websockets.datastructures import Headers
+    from websockets.http11 import Request
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "image.png").write_bytes(b"\x89PNG\r\n\0not really")
+    gateway = _basic_handler(MagicMock(), workspace_path=workspace)
+    gateway.tokens.api_tokens["tok"] = time.monotonic() + 300.0
+    enc = quote("websocket:file-preview", safe="")
+    req = Request(
+        f"/api/sessions/{enc}/file-preview?path=image.png&probe=1",
+        Headers([("Authorization", "Bearer tok")]),
+    )
+
+    resp = gateway.http._handle_file_preview(req, enc)
+
+    assert resp.status_code == 200
+    assert json.loads(resp.body.decode()) == {"available": True, "kind": "binary"}
 
 
 def test_file_preview_normalizes_windows_file_url() -> None:
