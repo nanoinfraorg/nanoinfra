@@ -110,7 +110,40 @@ resolve_workspace() {
             --workspace=*) printf '%s' "${arg#--workspace=}"; return ;;
         esac
     done
-    printf '%s' "$dir/workspace"
+    printf '%s' "$dir/workspaces/default"
+}
+
+# Move a pre-root workspace before anything is prepared under it.
+#
+# The gateway performs this migration itself, at startup. In a container that is too late: this
+# script prepares the credential store and the job store under the workspace and starts three
+# confined helpers against it *first*, so a move that happens afterwards leaves the agent on
+# `workspaces/default` and the executor on a path that no longer exists -- with its Landlock rules,
+# its `secrets/` and its `servers/jobs` all named after the old one.
+#
+# So it runs here, before `resolve_workspace` is consulted, by calling the same function with the
+# same guards rather than reimplementing them in sh: only the pre-root default moves, never a
+# symlink, never onto a destination that holds something, and a failed config rewrite moves it back.
+# As the agent account, because config.json is that account's file. The gateway then finds nothing
+# left to do, which is what its own guards report.
+migrate_workspace_layout() {
+    if [ -n "${NANOINFRA_WORKSPACE:-}" ]; then
+        echo "[entrypoint] workspace layout: NANOINFRA_WORKSPACE is set, so nothing is moved"
+        return 0
+    fi
+    if [ ! -d "$dir/workspace" ]; then
+        return 0
+    fi
+    setpriv --reuid="$agent_user" --regid="$agent_user" --init-groups \
+        python -c 'import os, sys
+from pathlib import Path
+from nanoinfra.config.workspace_migration import migrate_default_workspace
+result = migrate_default_workspace(Path(os.environ["HOME"]) / ".nanoinfra" / "config.json")
+if result.moved:
+    print(f"[entrypoint] workspace moved: {result.source} -> {result.target}")
+else:
+    print(f"[entrypoint] workspace layout unchanged: {result.reason}")
+' 2>&1 || echo "[entrypoint] warning: the workspace migration could not run; the layout is unchanged"
 }
 
 # Hand the two executor-only paths to the executor account, and keep the agent account out.
@@ -568,6 +601,7 @@ if [ "$(id -u)" = "0" ]; then
         # still starts, and the log states the property this deployment does not have.
         warn_split_not_enforced "no $exec_user account on this image"
     else
+        migrate_workspace_layout
         workspace=$(resolve_workspace "$@")
         echo "[entrypoint] executor workspace: $workspace"
         if ! prepare_executor_paths "$workspace"; then
