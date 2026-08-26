@@ -10,6 +10,7 @@ from urllib.parse import unquote, urlparse
 from nanoinfra.config.paths import get_media_dir
 from nanoinfra.security.workspace_access import WorkspaceScope
 from nanoinfra.security.workspace_policy import WorkspaceBoundaryError, resolve_allowed_path
+from nanoinfra.webui.workspace_asset import asset_kind
 
 MAX_FILE_PREVIEW_BYTES = 384 * 1024
 
@@ -39,8 +40,21 @@ def file_preview_payload(
     except OSError as e:
         raise WebUIFilePreviewError(500, "failed to read file") from e
 
-    if b"\0" in raw[:4096]:
-        raise WebUIFilePreviewError(415, "binary files cannot be previewed")
+    # A binary is no longer a refusal. The kind travels, and the caller signs an asset URL for it:
+    # a `.png` the agent just wrote used to be unviewable *and* unlinkable, because the probe below
+    # rejected it before the path could become a chip.
+    kind = asset_kind(raw[:4096])
+    if kind != "text":
+        return {
+            "path": str(resolved),
+            "display_path": _display_path(resolved, scope.project_path),
+            "project_path": str(scope.project_path),
+            "language": "",
+            "content": "",
+            "size": resolved.stat().st_size,
+            "truncated": False,
+            "kind": kind,
+        }
 
     truncated = len(raw) > max_bytes
     preview_bytes = raw[:max_bytes]
@@ -58,6 +72,7 @@ def file_preview_payload(
         "content": content,
         "size": resolved.stat().st_size,
         "truncated": truncated,
+        "kind": "text",
     }
 
 
@@ -65,8 +80,13 @@ def file_preview_availability_payload(
     raw_path: str | None,
     *,
     scope: WorkspaceScope,
-) -> dict[str, bool]:
-    """Confirm that a path is a readable text preview candidate without loading it fully."""
+) -> dict[str, Any]:
+    """Confirm a path can be opened, and say which viewer opens it.
+
+    This used to answer 415 for anything with a NUL byte in the first 4 KiB, and the caller turned
+    that into ``available: false``. So an image the agent had just written never became a clickable
+    chip -- the panel could not have rendered it, but the reader was not even told it existed.
+    """
 
     resolved = _resolve_preview_path(raw_path, scope=scope)
     try:
@@ -74,9 +94,7 @@ def file_preview_availability_payload(
             prefix = f.read(4096)
     except OSError as e:
         raise WebUIFilePreviewError(500, "failed to read file") from e
-    if b"\0" in prefix:
-        raise WebUIFilePreviewError(415, "binary files cannot be previewed")
-    return {"available": True}
+    return {"available": True, "kind": asset_kind(prefix)}
 
 
 def _resolve_preview_path(raw_path: str | None, *, scope: WorkspaceScope) -> Path:

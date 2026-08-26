@@ -74,7 +74,7 @@ _SVG_MEDIA_HEADERS: tuple[tuple[str, str], ...] = (
 _BYTE_RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
 
 
-def _parse_single_byte_range(range_header: str, size: int) -> tuple[int, int]:
+def parse_single_byte_range(range_header: str, size: int) -> tuple[int, int]:
     """Parse a single HTTP byte range for signed media responses."""
     if size <= 0 or "," in range_header:
         raise ValueError("invalid byte range")
@@ -269,7 +269,7 @@ def serve_signed_media(
     range_header = _case_insensitive_header(request.headers, "Range") if request else ""
     if range_header:
         try:
-            start, end = _parse_single_byte_range(range_header, size)
+            start, end = parse_single_byte_range(range_header, size)
         except ValueError:
             return _http_response(
                 b"range not satisfiable",

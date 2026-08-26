@@ -195,6 +195,7 @@ from nanoinfra.webui.skills_marketplace import (
 )
 from nanoinfra.webui.thread_disk import delete_webui_thread
 from nanoinfra.webui.transcript import build_webui_thread_response
+from nanoinfra.webui.workspace_asset import serve_workspace_asset, sign_workspace_asset
 from nanoinfra.webui.workspace_roots import (
     create_workspace,
     resolve_client_workspace,
@@ -965,6 +966,14 @@ class GatewayHTTPHandler:
             if is_probe and e.status in {400, 403, 404, 415}:
                 return _http_json_response({"available": False})
             return _http_error(e.status, e.message)
+        if not is_probe and payload.get("kind") not in (None, "text"):
+            # Signed here rather than in file_preview, which holds no secret and should not: the
+            # module decides what a path is, and the gateway decides what a client may fetch.
+            payload["asset_url"] = sign_workspace_asset(
+                Path(str(payload["path"])),
+                secret=self.media.secret,
+                workspace_root=scope.project_path,
+            )
         return _http_json_response(payload)
 
     def _handle_session_automations(self, request: WsRequest, key: str) -> Response:
@@ -1968,7 +1977,29 @@ class GatewayHTTPHandler:
         m = re.match(r"^/api/media/([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)$", got)
         if m:
             return self._handle_media_fetch(m.group(1), m.group(2), request)
+        m = re.match(r"^/api/workspace-asset/([A-Za-z0-9_-]+)/([A-Za-z0-9_-]+)$", got)
+        if m:
+            return self._handle_workspace_asset(m.group(1), m.group(2), request)
         return None
+
+    def _handle_workspace_asset(
+        self, sig: str, payload: str, request: WsRequest | None = None
+    ) -> Response:
+        """Serve one workspace file as bytes: an image, a PDF, or a download.
+
+        No API-token check, and the signature is why. A browser loading an `<img>` or an `<iframe>`
+        sends no Authorization header, so a token check here would refuse every subresource the
+        panel asks for -- which is the same reason the media route beside this one is signed rather
+        than authenticated. The HMAC covers the workspace root as well as the path, so a URL cannot
+        outlive the workspace it was minted under.
+        """
+        return serve_workspace_asset(
+            sig,
+            payload,
+            secret=self.media.secret,
+            scope=self.workspaces.default_scope(),
+            request=request,
+        )
 
     def _handle_media_fetch(
         self, sig: str, payload: str, request: WsRequest | None = None

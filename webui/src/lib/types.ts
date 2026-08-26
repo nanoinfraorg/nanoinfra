@@ -1727,6 +1727,10 @@ export interface FilePreviewPayload {
   content: string;
   size: number;
   truncated: boolean;
+  /** What the bytes are, sniffed by the gateway. Absent on a gateway older than this field. */
+  kind?: "text" | "image" | "pdf" | "binary";
+  /** Signed `/api/workspace-asset/...` URL. Present only when `kind` is not `text`. */
+  asset_url?: string | null;
 }
 
 export type Outbound =

@@ -10,6 +10,7 @@ import { InertSvg } from "@/components/preview/InertSvg";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useFilePreviewMode } from "@/hooks/useFilePreviewMode";
 import { useFilePreviewWrap } from "@/hooks/useFilePreviewWrap";
+import { WorkspaceAssetView } from "@/components/preview/WorkspaceAssetView";
 import { ApiError, fetchFilePreview } from "@/lib/api";
 import { rendererForPath } from "@/lib/file-preview-render";
 import type { FilePreviewPayload } from "@/lib/types";
@@ -163,6 +164,11 @@ export function FilePreviewPanel({
     fileName,
   ].join("/")}`;
   const renderer = rendererForPath(displayPath);
+  // A gateway older than the asset route sends no `kind`; that reads as text, which is what it
+  // used to be able to send at all.
+  const assetKind = state.status === "ready" && state.payload.kind && state.payload.kind !== "text"
+    ? state.payload.kind
+    : null;
   const [mode, setMode] = useFilePreviewMode(displayPath, renderer);
   const [wrap, setWrap] = useFilePreviewWrap();
   const showSource = useCallback(() => setMode("raw"), [setMode]);
@@ -170,7 +176,7 @@ export function FilePreviewPanel({
   // half a flowchart is a parse error. Rendering either would report a large file as a broken one.
   const truncated = state.status === "ready" && state.payload.truncated;
   const effectiveMode = truncated ? "raw" : mode;
-  const canRender = renderer !== null && state.status === "ready";
+  const canRender = renderer !== null && state.status === "ready" && assetKind === null;
 
   const errorMessage = state.status === "error"
     ? (state.error instanceof ApiError
@@ -319,7 +325,7 @@ export function FilePreviewPanel({
                 onChange={(next) => setMode(next === "preview" ? "preview" : "raw")}
               />
             ) : null}
-            {effectiveMode === "raw" ? (
+            {effectiveMode === "raw" && assetKind === null ? (
               <button
                 type="button"
                 onClick={() => setWrap(!wrap)}
@@ -375,7 +381,16 @@ export function FilePreviewPanel({
                 </div>
               </div>
             ) : (
-              <div className="min-h-full">
+              <div className={assetKind ? "flex h-full min-h-full flex-col" : "min-h-full"}>
+                {assetKind ? (
+                  <WorkspaceAssetView
+                    kind={assetKind}
+                    url={state.payload.asset_url ?? null}
+                    fileName={fileName}
+                    size={state.payload.size}
+                  />
+                ) : (
+                  <>
                 {state.payload.truncated ? (
                   <div className="mx-4 mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-200">
                     {t("filePreview.truncated", {
@@ -408,6 +423,8 @@ export function FilePreviewPanel({
                     wrapLongLines={wrap}
                     className="min-h-full"
                   />
+                )}
+                  </>
                 )}
               </div>
             )}
