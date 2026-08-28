@@ -8,6 +8,7 @@
     <a href="https://github.com/nanoinfraorg/nanoinfra/releases/latest"><img src="https://img.shields.io/github/v/release/nanoinfraorg/nanoinfra?label=latest&logo=github" alt="Latest release"></a>
     <a href="https://github.com/nanoinfraorg/nanoinfra"><img src="https://img.shields.io/github/stars/nanoinfraorg/nanoinfra?style=flat&logo=github" alt="GitHub stars"></a>
     <a href="https://pypi.org/project/nanoinfra/"><img src="https://img.shields.io/pypi/v/nanoinfra" alt="PyPI version"></a>
+    <a href="https://github.com/nanoinfraorg/nanoinfra/pkgs/container/nanoinfra"><img src="https://img.shields.io/badge/ghcr.io-nanoinfra-2496ED?logo=docker&logoColor=white" alt="Container image on GHCR"></a>
     <a href="https://github.com/nanoinfraorg/nanoinfra/actions/workflows/ci.yml"><img src="https://github.com/nanoinfraorg/nanoinfra/actions/workflows/ci.yml/badge.svg?branch=main" alt="Test Suite"></a>
     <a href="https://pypi.org/project/nanoinfra/"><img src="https://img.shields.io/badge/python-%3E%3D3.11-blue" alt="Python 3.11 or newer"></a>
     <a href="./LICENSE"><img src="https://img.shields.io/github/license/nanoinfraorg/nanoinfra" alt="MIT License"></a>
@@ -64,33 +65,9 @@ nanoinfra is a self-hosted personal AI agent runtime. It can:
 
 Pick **one** install method:
 
-Prerequisites: Python 3.11 or newer. Git is only needed for a source install. Published packages already include the WebUI; a current-source install needs `bun` or `npm` to build it.
+Prerequisites: Python 3.11 or newer, or Docker for the container. Git is only needed for a source install. Published packages already include the WebUI; a current-source install needs `bun` or `npm` to build it.
 
 If terminals, API keys, or config files are new to you, use the guided zero-background walkthrough in [Start Without Technical Background](https://docs.nanoinfra.org/start-without-technical-background/) instead of this compact README path.
-
-**One-command setup**
-
-macOS / Linux:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | sh
-```
-
-The default command installs or upgrades `nanoinfra` from PyPI. On a fresh local desktop, it then starts `nanoinfra webui` so you can configure the first provider and model in **Settings → Models**. SSH, headless, existing-config, and older-release paths keep the terminal setup wizard. The installer avoids system-wide pip installs by using an active virtual environment, `uv`, `pipx`, or a managed venv under `~/.nanoinfra/venv`. It also prints the exact command it used to run nanoinfra; reuse that full command below if `nanoinfra` is not on `PATH`.
-
-To preview the plan without changing your environment, pass `--dry-run`; combine it with `--dev` when you want to preview the main-branch install.
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | sh -s -- --dry-run
-```
-
-To install the current `main` branch instead, pass `--dev`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/nanoinfraorg/nanoinfra/main/scripts/install.sh | sh -s -- --dev
-```
-
-If you prefer to inspect the script first, open [`scripts/install.sh`](./scripts/install.sh).
 
 **Install with `uv`**
 
@@ -104,20 +81,40 @@ uv tool install nanoinfra
 python -m pip install nanoinfra
 ```
 
-If pip reports `externally-managed-environment` on macOS or Linux, use the one-command installer, `uv tool install nanoinfra`, `pipx install nanoinfra`, or install inside a virtual environment.
+If pip reports `externally-managed-environment` on macOS or Linux, use `uv tool install nanoinfra`, `pipx install nanoinfra`, or install inside a virtual environment.
 
 **Run the container**
 
-The published image is the deployment where the kernel enforces the privilege split: the entrypoint starts as root, places the executor on `nanoinfra-exec` and the agent on `nanoinfra`, and drops root before either serves. A single-account install cannot do that, and nanoinfra says so at startup.
+The image is the deployment where the kernel enforces the privilege split: the entrypoint starts as root, places the executor on `nanoinfra-exec`, the fetcher on `nanoinfra-fetch` and the MCP host on `nanoinfra-mcp`, and drops root before any of them serves. A single-account install cannot do that, and nanoinfra says so at startup.
 
 ```bash
+# first run: write the config
+docker run -it --rm -v ~/.nanoinfra:/home/nanoinfra/.nanoinfra \
+  ghcr.io/nanoinfraorg/nanoinfra:latest onboard --wizard
+
+# then the gateway
 docker run -d --name nanoinfra \
   -v ~/.nanoinfra:/home/nanoinfra/.nanoinfra \
   -p 127.0.0.1:8765:8765 \
   ghcr.io/nanoinfraorg/nanoinfra:latest gateway
 ```
 
-`gateway` is required because the image's default command is `status`. No `--security-opt` and no added capability is needed: a root start already holds the five the entrypoint uses, and Docker has allowed the Landlock syscalls since 20.10.13. To keep everything else off the process, [`docker-compose.yml`](./docker-compose.yml) drops all capabilities and adds back only those five.
+Tags are `latest`, the minor (`0.17`) and the exact version (`0.17.5`), for `linux/amd64`. Pin the exact version in production, so an upgrade is something you do rather than something that happens.
+
+`gateway` is not optional: the image's default command is `status`. No `--security-opt` and no added capability is needed either — a root start already holds the five the entrypoint uses (`SETUID`, `SETGID`, `CHOWN`, `FOWNER`, `DAC_OVERRIDE`), and Docker has allowed the Landlock syscalls since 20.10.13. To keep everything else off the process, [`docker-compose.yml`](./docker-compose.yml) drops all capabilities and adds back only those five.
+
+One thing to know before you publish a port: the WebUI and the WebSocket channel bind `127.0.0.1` **inside** the container, and Docker's `-p` cannot reach a container's loopback. To use the published port, set `channels.websocket.host` to `"0.0.0.0"` in `~/.nanoinfra/config.json` and give the channel a `tokenIssueSecret` — it refuses to start on all interfaces without a token, a static one or a proxy identity. [Deployment](https://docs.nanoinfra.org/deployment/#docker) has the exact config block.
+
+A first start says what it built, and this is the part worth reading:
+
+```text
+[entrypoint] executor starting as nanoinfra-exec on /run/nanoinfra-exec/executor.sock
+[confinement] executor confinement: landlock abi 7, 48 filesystem rules, no tcp listener
+[entrypoint] fetcher account: nanoinfra-fetch (separate uid from the agent)
+[confinement] fetcher confinement: landlock abi 7, 41 filesystem rules, tcp connect limited to 53, 80, 443
+[entrypoint] MCP host account: nanoinfra-mcp (separate uid from the agent)
+[entrypoint] agent runs without NANOINFRA_SECRETS_KEY: the executor holds it
+```
 
 **Install from source**
 
@@ -146,7 +143,7 @@ Verify the install:
 nanoinfra --version
 ```
 
-If `nanoinfra` is not on `PATH`, invoke it through the method that installed it: reuse the recommended installer's command, use `uv tool run --from nanoinfra nanoinfra ...` or `pipx run --spec nanoinfra nanoinfra ...`, or use the Python executable from the environment where pip installed the package.
+If `nanoinfra` is not on `PATH`, invoke it through the method that installed it: `uv tool run --from nanoinfra nanoinfra ...`, `pipx run --spec nanoinfra nanoinfra ...`, `uv run nanoinfra ...` in a source checkout, or the Python executable from the environment where pip installed the package.
 
 ## 🚀 Quick Start
 
