@@ -20,6 +20,7 @@ from nanoinfra.security.workspace_access import (
     validate_workspace_scope_payload,
 )
 from nanoinfra.webui.identity_workspaces import (
+    IDENTITY_DEFAULT_WORKSPACE,
     ensure_identity_workspace,
     identity_workspace_path,
 )
@@ -208,7 +209,7 @@ class WebUIWorkspaceController:
     # it did before this existed.
 
     def identity_root(self, identity_key: str, *, name: str = "") -> Path | None:
-        """This identity's directory, created if needed, or None when shared."""
+        """This identity's own workspaces root, created if needed, or None when shared."""
         if not identity_key:
             return None
         return ensure_identity_workspace(self._workspaces_root(), identity_key, name=name)
@@ -223,14 +224,16 @@ class WebUIWorkspaceController:
         root = self.identity_root(identity_key, name=name)
         if root is None:
             return self.default_scope()
+        # Under their root, not their root: see ensure_identity_workspace.
+        own = root / IDENTITY_DEFAULT_WORKSPACE
         mode = read_webui_default_access_mode()
         if mode == "default":
             return default_workspace_scope(
-                root,
+                own,
                 self._default_restrict_to_workspace,
                 source_channel=_WEBUI_SCOPE_CHANNEL,
             )
-        return build_workspace_scope(root, mode, source_channel=_WEBUI_SCOPE_CHANNEL)
+        return build_workspace_scope(own, mode, source_channel=_WEBUI_SCOPE_CHANNEL)
 
     def within_identity(self, scope: WorkspaceScope, identity_key: str) -> bool:
         """Whether a scope stays inside the identity that asked for it."""

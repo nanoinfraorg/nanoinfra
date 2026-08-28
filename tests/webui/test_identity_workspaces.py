@@ -146,3 +146,15 @@ def test_every_workspace_scope_call_site_names_a_carrier() -> None:
             if len(node.args) < 2:
                 offenders.append(f"{path.relative_to(root.parent)}:{node.lineno}")
     assert not offenders, f"workspace_scope_for called without a carrier: {offenders}"
+
+
+def test_the_identity_root_holds_a_default_workspace(tmp_path: Path) -> None:
+    """A root holds workspaces. Point the root and the workspace at one directory and
+    the person's own workspace is the one thing their switcher cannot list."""
+    from nanoinfra.webui.identity_workspaces import IDENTITY_DEFAULT_WORKSPACE
+
+    own_root = ensure_identity_workspace(
+        tmp_path, identity_workspace_key(GOOGLE, "42"), name="a@example.com"
+    )
+    assert (own_root / IDENTITY_DEFAULT_WORKSPACE).is_dir()
+    assert [p.name for p in own_root.iterdir()] == [IDENTITY_DEFAULT_WORKSPACE]

@@ -1559,7 +1559,7 @@ class GatewayHTTPHandler:
             return self._handle_workspace_delete(request)
         return None
 
-    def workspace_bounds(self, carrier: Any) -> tuple[Path, Any]:
+    def workspace_bounds(self, carrier: Any) -> tuple[Path, Any]:  # noqa: D401
         """The root a caller may choose within, and the workspace they start in.
 
         A verified identity gets its own directory as both. Everyone else gets the
@@ -1583,6 +1583,10 @@ class GatewayHTTPHandler:
             self.workspaces.default_scope(),
         )
 
+    def _root_is_personal(self, carrier: Any) -> bool:
+        raw_key = cast(object, getattr(carrier, TRUSTED_PROXY_WORKSPACE_KEY_ATTR, ""))
+        return bool(raw_key.strip()) if isinstance(raw_key, str) else False
+
     def workspace_scope_for(self, raw: str | None, carrier: Any) -> Any:
         """The scope for a workspace a client named, or the one they start in.
 
@@ -1593,7 +1597,10 @@ class GatewayHTTPHandler:
         """
         root, default = self.workspace_bounds(carrier)
         resolved = resolve_client_workspace(
-            raw, root=root, default_workspace=Path(default.project_path)
+            raw,
+            root=root,
+            default_workspace=Path(default.project_path),
+            root_is_personal=self._root_is_personal(carrier),
         )
         if resolved == Path(default.project_path):
             return default

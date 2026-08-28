@@ -118,11 +118,17 @@ def resolve_client_workspace(
     *,
     root: Path,
     default_workspace: Path,
+    root_is_personal: bool = False,
 ) -> Path:
     """The one gate for a workspace a client named. Returns it, or raises.
 
     Empty means the configured default, so a client that has chosen nothing gets
     what the operator configured rather than a refusal.
+
+    ``root_is_personal`` changes only the refusal text. When the root is one
+    identity's own directory, telling the reader to widen ``tools.workspacesRoot``
+    is advice for the wrong problem -- and advice an operator might follow, which
+    would put everyone back in one directory.
     """
     resolved_root = root.expanduser()
     resolved_default = default_workspace.expanduser()
@@ -142,7 +148,9 @@ def resolve_client_workspace(
     if not _is_within(candidate, resolved_root.resolve(strict=False)):
         raise WebUIFileBrowserError(
             403,
-            "that workspace is outside the workspaces root — "
+            "that workspace is not yours"
+            if root_is_personal
+            else "that workspace is outside the workspaces root — "
             "set tools.workspacesRoot to a directory that holds it",
         )
     if not candidate.is_dir():

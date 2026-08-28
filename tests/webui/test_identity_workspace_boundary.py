@@ -17,7 +17,11 @@ from nanoinfra.security.workspace_access import (
     WorkspaceScopeError,
     default_workspace_scope,
 )
-from nanoinfra.webui.identity_workspaces import identity_workspace_key, identity_workspace_path
+from nanoinfra.webui.identity_workspaces import (
+    IDENTITY_DEFAULT_WORKSPACE,
+    identity_workspace_key,
+    identity_workspace_path,
+)
 from nanoinfra.webui.workspaces import WebUIWorkspaceController
 
 GOOGLE = "https://accounts.google.com"
@@ -56,8 +60,10 @@ class TestWhereAPersonStarts:
     def test_a_verified_identity_starts_in_its_own_directory(
         self, controller: WebUIWorkspaceController, tmp_path: Path
     ) -> None:
+        """Under their own root, not at it: a switcher lists what is under a root."""
         scope = controller.identity_default_scope(ALICE, name="alice@example.com")
-        assert Path(scope.project_path) == identity_workspace_path(tmp_path / "workspaces", ALICE)
+        own_root = identity_workspace_path(tmp_path / "workspaces", ALICE)
+        assert Path(scope.project_path) == own_root / IDENTITY_DEFAULT_WORKSPACE
 
     def test_the_directory_is_created_on_first_use(
         self, controller: WebUIWorkspaceController
@@ -146,7 +152,10 @@ class TestWhatAnEnvelopeMayAsk:
         scope = controller.scope_from_envelope(
             {}, session_key=None, controls_available=True, identity_key=ALICE
         )
-        assert Path(scope.project_path) == identity_workspace_path(tmp_path / "workspaces", ALICE)
+        assert (
+            Path(scope.project_path)
+            == identity_workspace_path(tmp_path / "workspaces", ALICE) / IDENTITY_DEFAULT_WORKSPACE
+        )
 
     def test_without_a_key_the_shared_workspace_is_still_allowed(
         self, controller: WebUIWorkspaceController, tmp_path: Path
@@ -179,3 +188,28 @@ def test_a_carrier_that_answers_every_attribute_is_not_an_identity() -> None:
     written = MagicMock()
     written._nanoinfra_trusted_proxy_workspace_key = ALICE
     assert _connection_workspace_key(written) == ALICE
+
+
+def test_the_refusal_does_not_send_an_operator_after_the_wrong_setting() -> None:
+    """A person who named someone else's directory has a client problem, not a
+    config problem. The shared-root text tells the reader to widen
+    tools.workspacesRoot -- advice that, followed here, puts everyone back into one
+    directory."""
+    from nanoinfra.webui.file_browser import WebUIFileBrowserError
+    from nanoinfra.webui.workspace_roots import resolve_client_workspace
+
+    with pytest.raises(WebUIFileBrowserError) as shared:
+        resolve_client_workspace(
+            "/somewhere/else", root=Path("/roots"), default_workspace=Path("/roots/default")
+        )
+    assert "tools.workspacesRoot" in shared.value.message
+
+    with pytest.raises(WebUIFileBrowserError) as personal:
+        resolve_client_workspace(
+            "/roots/u-other/default",
+            root=Path("/roots/u-mine"),
+            default_workspace=Path("/roots/u-mine/default"),
+            root_is_personal=True,
+        )
+    assert personal.value.message == "that workspace is not yours"
+    assert "workspacesRoot" not in personal.value.message

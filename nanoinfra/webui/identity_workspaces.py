@@ -136,8 +136,17 @@ def record_identity(root: Path, key: str, *, name: str) -> None:
     _write_identity_index(root, entries)
 
 
+IDENTITY_DEFAULT_WORKSPACE = "default"
+
+
 def ensure_identity_workspace(root: Path, key: str, *, name: str) -> Path:
-    """Create this identity's workspace if it is not there, and return it.
+    """Create this identity's own root if it is not there, and return it.
+
+    The person's first workspace is ``default`` **inside** it, mirroring the shared
+    posture one level down: a root holds workspaces, and one of them is the default.
+    The identity directory is the root and not the workspace, because a switcher
+    lists what is under a root -- point both at the same directory and a person's
+    own workspace is the one thing the picker cannot show them.
 
     The mode is the one the container's entrypoint gives ``workspaces/default``:
     the agent account owns the directory and nothing else on the host reads it.
@@ -146,5 +155,6 @@ def ensure_identity_workspace(root: Path, key: str, *, name: str) -> Path:
     """
     path = identity_workspace_path(root, key)
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    (path / IDENTITY_DEFAULT_WORKSPACE).mkdir(exist_ok=True, mode=0o700)
     record_identity(root, key, name=name)
     return path
