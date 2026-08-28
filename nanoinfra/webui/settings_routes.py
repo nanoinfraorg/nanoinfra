@@ -18,6 +18,7 @@ import inspect
 import json
 import time
 from collections.abc import Callable
+from contextvars import ContextVar
 from typing import Any, cast
 from urllib.parse import unquote
 
@@ -124,6 +125,14 @@ _MCP_PRESET_ACTIONS_BY_PATH = {
 }
 
 
+# Per-request, and a ContextVar rather than an attribute: two settings routes are
+# async, so an attribute set in `dispatch` could be read by the other request that
+# interleaved at an await. A context variable follows the task instead.
+_REQUEST_WORKSPACE: ContextVar[str | None] = ContextVar(
+    "nanoinfra_settings_request_workspace", default=None
+)
+
+
 class WebUISettingsRouter:
     """Route WebUI Settings HTTP requests behind a transport-neutral boundary."""
 
@@ -141,12 +150,19 @@ class WebUISettingsRouter:
         channel_feature_action: Callable[..., Any] | None = None,
         channel_runtime_status: Callable[[], dict[str, Any]] | None = None,
         trusted_proxy_auth: Callable[[], Any] | None = None,
+        effective_workspace: Callable[[Any], str | None] | None = None,
     ) -> None:
         self.bus = bus
         self.logger = logger
         self._check_api_token = check_api_token
         self._parse_query = parse_query
-        self._json_response = json_response
+        # Wrapped, not stored directly: one serializer means one place that can
+        # answer "whose workspace is this" without touching fifteen handlers.
+        self._json_response_raw = json_response
+        # A verified identity has its own workspace, and `config.workspace_path` is
+        # the deployment's. Showing the deployment's to a person whose files go
+        # elsewhere is a true value in the wrong place.
+        self._effective_workspace = effective_workspace
         self._error_response = error_response
         self._runtime_surface = runtime_surface
         self._runtime_capabilities = runtime_capabilities
@@ -159,7 +175,25 @@ class WebUISettingsRouter:
         self._restart_sections: set[str] = set()
         self._channel_connectors: dict[str, Any] = {}
 
+    def _json_response(self, payload: dict[str, Any]) -> Response:
+        workspace = _REQUEST_WORKSPACE.get()
+        runtime = payload.get("runtime")
+        if workspace and isinstance(runtime, dict):
+            cast(dict[str, Any], runtime)["workspace_path"] = workspace
+        return self._json_response_raw(payload)
+
     async def dispatch(self, connection: Any, request: WsRequest, path: str) -> Response | None:
+        token = _REQUEST_WORKSPACE.set(
+            self._effective_workspace(request) if self._effective_workspace is not None else None
+        )
+        try:
+            return await self._dispatch_routes(connection, request, path)
+        finally:
+            _REQUEST_WORKSPACE.reset(token)
+
+    async def _dispatch_routes(
+        self, connection: Any, request: WsRequest, path: str
+    ) -> Response | None:
         if path == "/api/settings":
             return self._handle_settings(request)
         if path == "/api/settings/usage":

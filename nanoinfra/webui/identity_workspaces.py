@@ -148,13 +148,32 @@ def ensure_identity_workspace(root: Path, key: str, *, name: str) -> Path:
     lists what is under a root -- point both at the same directory and a person's
     own workspace is the one thing the picker cannot show them.
 
+    It is seeded the way ``create_workspace`` seeds one, through the same
+    ``sync_workspace_templates``: ``AGENTS.md``, ``HEARTBEAT.md``, ``SOUL.md``,
+    ``USER.md``, ``memory/`` and ``prompts/``. That function's own docstring says
+    why, and it applies here word for word -- a bare directory is a workspace the
+    agent reads no instructions from and keeps no memory in, and the word would
+    mean two different things depending on which surface made it.
+
+    The store directories (``secrets/``, ``servers/``, ``diagrams/``,
+    ``triggers/``) are deliberately not created and deliberately not copied. Each
+    store makes its own on first write, an empty one would claim the feature is in
+    use, and copying a credential store would be the worst of the three.
+
     The mode is the one the container's entrypoint gives ``workspaces/default``:
     the agent account owns the directory and nothing else on the host reads it.
     A creation that fails is raised rather than swallowed, because the caller's
     alternative -- the shared default -- would hand one person another's files.
     """
+    from nanoinfra.utils.helpers import sync_workspace_templates
+
     path = identity_workspace_path(root, key)
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
-    (path / IDENTITY_DEFAULT_WORKSPACE).mkdir(exist_ok=True, mode=0o700)
+    workspace = path / IDENTITY_DEFAULT_WORKSPACE
+    fresh = not workspace.exists()
+    workspace.mkdir(exist_ok=True, mode=0o700)
+    if fresh:
+        # silent: this runs on a handshake, and no console is watching.
+        sync_workspace_templates(workspace, silent=True)
     record_identity(root, key, name=name)
     return path

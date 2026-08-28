@@ -1,0 +1,45 @@
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	log
+
+	handle /oauth2/* {
+		reverse_proxy oauth2-proxy:4180
+	}
+
+	# `route` and not `handle`: inside a handle block Caddy sorts directives by its
+	# own order, and this block has two proxies whose order is the whole point.
+	route {
+		# Nothing the browser sent may look like an assertion.
+		request_header -X-Nanoinfra-Assertion
+
+		# What `forward_auth` sugars, written out. The sugar's `copy_headers` lives
+		# inside a handle_response block it generates, and a handle_response of our
+		# own for the 401 replaced it -- so the token was verified and then dropped.
+		reverse_proxy oauth2-proxy:4180 {
+			method GET
+			rewrite /oauth2/auth
+
+			header_up X-Forwarded-Method {method}
+			header_up X-Forwarded-Uri {uri}
+
+			# 2xx: take the verified ID token out of the auth response and put it on
+			# the request that goes to the gateway.
+			@ok status 2xx
+			handle_response @ok {
+				request_header X-Nanoinfra-Assertion {rp.header.X-Nanoinfra-Assertion}
+			}
+
+			# 401: a browser gets a sign-in, not a status it cannot read.
+			@anon status 401
+			handle_response @anon {
+				redir * /oauth2/start?rd={http.request.scheme}://{http.request.hostport}{http.request.uri}
+			}
+		}
+
+		reverse_proxy nanoinfra-gateway:8765
+	}
+}

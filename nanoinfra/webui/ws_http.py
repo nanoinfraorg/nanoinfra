@@ -456,6 +456,7 @@ class GatewayHTTPHandler:
             # The posture the gate panel shows (#85). It is a read of the live block rather
             # than a copy, because an operator can replace that block while the process runs.
             trusted_proxy_auth=lambda: getattr(self.config, "trusted_proxy_auth", None),
+            effective_workspace=self._effective_workspace_for,
         )
 
     def attach_latch_surface(self, surface: LatchOperatorSurface) -> None:
@@ -1582,6 +1583,19 @@ class GatewayHTTPHandler:
             Path(load_config().tools.workspaces_root).expanduser(),
             self.workspaces.default_scope(),
         )
+
+    def _effective_workspace_for(self, carrier: Any) -> str | None:
+        """The workspace this caller actually writes in, when it is not the shared one.
+
+        `settings.runtime.workspace_path` is the deployment's configured workspace,
+        which stays true and stops being useful the moment a person's files go
+        somewhere else. None means "nothing to override", so a deployment without
+        identities reports exactly what it reported before.
+        """
+        if not self._root_is_personal(carrier):
+            return None
+        _root, default = self.workspace_bounds(carrier)
+        return str(default.project_path)
 
     def _root_is_personal(self, carrier: Any) -> bool:
         raw_key = cast(object, getattr(carrier, TRUSTED_PROXY_WORKSPACE_KEY_ATTR, ""))

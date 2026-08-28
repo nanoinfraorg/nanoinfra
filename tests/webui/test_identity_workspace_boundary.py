@@ -213,3 +213,54 @@ def test_the_refusal_does_not_send_an_operator_after_the_wrong_setting() -> None
         )
     assert personal.value.message == "that workspace is not yours"
     assert "workspacesRoot" not in personal.value.message
+
+
+class TestWhatTheSettingsPanelShows:
+    """`runtime.workspace_path` is a System row, and a person reads it as "where my
+    files go". The deployment's configured workspace is a true answer to a
+    different question."""
+
+    def test_the_row_reports_the_callers_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from nanoinfra.webui.settings_routes import WebUISettingsRouter
+
+        payloads: list[dict[str, Any]] = []
+        router = WebUISettingsRouter(
+            bus=object(),
+            logger=object(),
+            check_api_token=lambda _r: True,
+            parse_query=lambda _p: {},
+            json_response=lambda payload: payloads.append(payload) or "response",
+            error_response=lambda _s, _m=None: "error",
+            runtime_surface="browser",
+            runtime_capabilities={},
+            effective_workspace=lambda _r: "/data/workspaces/u-abc/default",
+        )
+        # The wrapper is what every handler serializes through.
+        from nanoinfra.webui.settings_routes import _REQUEST_WORKSPACE
+
+        token = _REQUEST_WORKSPACE.set("/data/workspaces/u-abc/default")
+        try:
+            router._json_response({"runtime": {"workspace_path": "/data/workspaces/default"}})
+        finally:
+            _REQUEST_WORKSPACE.reset(token)
+        assert payloads[0]["runtime"]["workspace_path"] == "/data/workspaces/u-abc/default"
+
+    def test_without_an_identity_the_row_is_left_alone(self) -> None:
+        """The regression that would rewrite the row on every deployment that has
+        no proxy."""
+        from nanoinfra.webui.settings_routes import WebUISettingsRouter
+
+        payloads: list[dict[str, Any]] = []
+        router = WebUISettingsRouter(
+            bus=object(),
+            logger=object(),
+            check_api_token=lambda _r: True,
+            parse_query=lambda _p: {},
+            json_response=lambda payload: payloads.append(payload) or "response",
+            error_response=lambda _s, _m=None: "error",
+            runtime_surface="browser",
+            runtime_capabilities={},
+            effective_workspace=lambda _r: None,
+        )
+        router._json_response({"runtime": {"workspace_path": "/data/workspaces/default"}})
+        assert payloads[0]["runtime"]["workspace_path"] == "/data/workspaces/default"

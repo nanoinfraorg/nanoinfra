@@ -20,10 +20,13 @@ issuer: http://dex.localhost:5556/dex
 
 storage:
   # No database, and no second store. The signing key lives in memory, so a
-  # restart of Dex rotates it. The gateway then reads a token with a `kid` it does
-  # not know, refreshes the JWKS once, and recovers with no restart of its own.
-  # A deployment that wants a token to survive a restart uses `sqlite3` or
-  # `postgres` here.
+  # restart of Dex mints new ones -- and every session issued before that restart
+  # is now signed by a key that exists nowhere. The gateway refetches the JWKS
+  # once, finds no such `kid`, and refuses: correct, and it looks like a bug the
+  # first time. Everyone signs in again, which is the whole cost here.
+  #
+  # A deployment uses `sqlite3` on a volume or `postgres`, so a restart of the
+  # identity provider does not sign everybody out.
   type: memory
 
 web:
@@ -43,14 +46,25 @@ staticClients:
     # `clientSecret`, and the two must match. Replace both.
     secret: REPLACE-ME-dex-client-secret
     redirectURIs:
-      # The address the browser reaches oauth2-proxy on. Dex refuses every other
+      # The address the browser reaches the door on. Dex refuses every other
       # address, so an authorization code cannot be redeemed somewhere else.
+      # Two, because this directory ships two shapes: oauth2-proxy as the door,
+      # and Caddy in front of it (compose.caddy.yaml). Listing both here is what
+      # lets one file serve both, and each shape still uses exactly one.
       - http://127.0.0.1:4180/oauth2/callback
+      - http://127.0.0.1:8080/oauth2/callback
 
 # The user list is entries in this file, and nothing else stores it. That is the
 # feature: this example needs no database.
 enablePasswordDB: true
 staticPasswords:
+  # Two people, because one person cannot demonstrate a boundary. Each one gets
+  # their own workspace directory, and neither one can reach the other's.
+  - email: beatriz@example.com
+    username: beatriz
+    userID: "22222222-2222-2222-2222-222222222222"
+    hash: "$2y$10$REPLACEMEREPLACEMEREPLREPLACEMEREPLACEMEREPLACEMEREPL"
+
   - email: alberto@example.com
     username: alberto
     # A stable id for this person. Dex builds the `sub` claim from this value and

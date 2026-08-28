@@ -158,3 +158,35 @@ def test_the_identity_root_holds_a_default_workspace(tmp_path: Path) -> None:
     )
     assert (own_root / IDENTITY_DEFAULT_WORKSPACE).is_dir()
     assert [p.name for p in own_root.iterdir()] == [IDENTITY_DEFAULT_WORKSPACE]
+
+
+def test_a_personal_workspace_is_seeded_like_any_other(tmp_path: Path) -> None:
+    """`create_workspace` seeds a new workspace with the CLI's templates and says why:
+    a bare directory is a workspace the agent reads no instructions from, and the
+    word would mean two different things depending on which surface made it. A
+    directory created by a handshake is that same word."""
+    own_root = ensure_identity_workspace(
+        tmp_path, identity_workspace_key(GOOGLE, "42"), name="a@example.com"
+    )
+    seeded = {p.name for p in (own_root / "default").iterdir()}
+    assert {"AGENTS.md", "SOUL.md", "USER.md", "HEARTBEAT.md", "memory", "prompts"} <= seeded
+
+
+def test_a_personal_workspace_holds_no_store_directories(tmp_path: Path) -> None:
+    """The stores belong to the deployment. `secrets/` copied per person would be the
+    worst of three bad options, and an empty one claims a feature is in use."""
+    own_root = ensure_identity_workspace(
+        tmp_path, identity_workspace_key(GOOGLE, "42"), name="a@example.com"
+    )
+    seeded = {p.name for p in (own_root / "default").iterdir()}
+    assert not ({"secrets", "servers", "triggers", "diagrams"} & seeded)
+
+
+def test_seeding_does_not_run_twice(tmp_path: Path) -> None:
+    """A second sign-in must not overwrite the AGENTS.md the person edited."""
+    key = identity_workspace_key(GOOGLE, "42")
+    own_root = ensure_identity_workspace(tmp_path, key, name="a@example.com")
+    agents = own_root / "default" / "AGENTS.md"
+    agents.write_text("mine\n", encoding="utf-8")
+    ensure_identity_workspace(tmp_path, key, name="a@example.com")
+    assert agents.read_text(encoding="utf-8") == "mine\n"

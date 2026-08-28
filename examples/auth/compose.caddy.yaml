@@ -1,0 +1,53 @@
+# Caddy in front of the stack -- an overlay, not a replacement.
+#
+#   docker compose -f compose.yaml -f compose.caddy.yaml up -d
+#
+# Why bother, when oauth2-proxy can be the door on its own: because a deployment
+# already has a reverse proxy, and the question "how does this sit behind mine"
+# is the one that decides whether any of it ships. This is that answer, with the
+# three details that cost an evening to find written down in Caddyfile.
+#
+# It changes exactly four things:
+#
+#   - Caddy is the only published port, on 8080, and it holds the TLS a
+#     deployment terminates.
+#   - The gateway trusts Caddy's address instead of oauth2-proxy's, which is why
+#     config.caddy.json exists: `trustedPeerCidrs` and `publicWsUrl` are the two
+#     values that move.
+#   - oauth2-proxy's redirect address becomes Caddy's, through the environment,
+#     so oauth2-proxy.cfg stays the file the base shape uses.
+#   - The WebSocket upgrade goes from Caddy straight to the gateway, so chat
+#     traffic crosses one proxy rather than two.
+
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: nanoinfra-auth-caddy
+    restart: unless-stopped
+    depends_on:
+      - oauth2-proxy
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      # The only door in this shape. Loopback, like every other port here.
+      - "127.0.0.1:8080:8080"
+    networks:
+      auth:
+        # Named in config.caddy.json under `trustedPeerCidrs`. Change one, change
+        # the other, or the gateway refuses every assertion Caddy forwards.
+        ipv4_address: 10.89.0.5
+
+  oauth2-proxy:
+    environment:
+      # Dex lists both callback addresses, so this is the only value that has to
+      # move for the browser to come back to Caddy rather than to the proxy.
+      OAUTH2_PROXY_REDIRECT_URL: "http://127.0.0.1:8080/oauth2/callback"
+      # Caddy sets X-Forwarded-For, and oauth2-proxy has to be told it may read
+      # it. Without this it logs the proxy's own peer for every request.
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+
+  nanoinfra-gateway:
+    volumes:
+      - gateway-data:/home/nanoinfra/.nanoinfra
+      # The two values that differ from the base shape, and nothing else.
+      - ./config.caddy.json:/home/nanoinfra/.nanoinfra/config.json:ro

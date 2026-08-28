@@ -29,6 +29,16 @@ injectRequestHeaders:
       # gateway reads both providers the same way.
       - claim: id_token
 
+# What the `/oauth2/auth` subrequest answers with, which is not the same list as
+# the one above. `injectRequestHeaders` applies to oauth2-proxy's own upstream;
+# Caddy's `forward_auth` never uses that path -- it asks this endpoint and copies
+# a header off the answer. A stack with Caddy in front needs this list, and one
+# without it ignores it.
+injectResponseHeaders:
+  - name: X-Nanoinfra-Assertion
+    values:
+      - claim: id_token
+
 upstreamConfig:
   upstreams:
     - id: nanoinfra-gateway
