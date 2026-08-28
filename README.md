@@ -121,7 +121,16 @@ docker run -d --name nanoinfra \
 
 **Install from source**
 
-`bun` or `npm` must be available. From an activated virtual environment:
+`bun` or `npm` must be available, because the install builds the WebUI. With `uv`, which reads the lockfile in the repo:
+
+```bash
+git clone https://github.com/nanoinfraorg/nanoinfra.git
+cd nanoinfra
+uv sync
+uv run nanoinfra --version
+```
+
+Or with pip, from an activated virtual environment:
 
 ```bash
 git clone https://github.com/nanoinfraorg/nanoinfra.git
