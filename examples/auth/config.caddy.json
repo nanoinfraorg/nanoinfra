@@ -29,7 +29,8 @@
         "allowedIdentities": [
           "alberto@example.com",
           "beatriz@example.com"
-        ]
+        ],
+        "signOutPath": "/oauth2/sign_out"
       }
     }
   },

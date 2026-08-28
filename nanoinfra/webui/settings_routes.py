@@ -175,6 +175,13 @@ class WebUISettingsRouter:
         self._restart_sections: set[str] = set()
         self._channel_connectors: dict[str, Any] = {}
 
+    def _deployment_workspace(self) -> str:
+        """What everyone shares when nobody is signed in. Read late: an operator can
+        move it, and a copy taken at construction would name the old one."""
+        from nanoinfra.config.loader import load_config
+
+        return str(load_config().workspace_path)
+
     def _json_response(self, payload: dict[str, Any]) -> Response:
         workspace = _REQUEST_WORKSPACE.get()
         runtime = payload.get("runtime")
@@ -340,7 +347,15 @@ class WebUISettingsRouter:
         gates = advanced.get("gates")
         if not isinstance(gates, dict):
             return payload
-        identity = identity_panel_payload(self._trusted_proxy_auth(), request)
+        # The caller's own workspace, from the same seam the System row reads, so the
+        # two cannot disagree about where this person's files go.
+        workspace = _REQUEST_WORKSPACE.get()
+        identity = identity_panel_payload(
+            self._trusted_proxy_auth(),
+            request,
+            workspace=workspace or self._deployment_workspace(),
+            workspace_personal=bool(workspace),
+        )
         gates_block = {**cast(dict[str, Any], gates), "identity": identity}
         return {**payload, "advanced": {**advanced, "gates": gates_block}}
 

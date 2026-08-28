@@ -77,7 +77,8 @@
     "releaseNotes": "Notes de version v{{version}}",
     "website": "Site de nanoinfra",
     "documentation": "Documentation",
-    "docs": "docs"
+    "docs": "docs",
+    "signOut": "Se déconnecter"
   },
   "settings": {
     "backToChat": "Retour au chat",
@@ -1045,7 +1046,14 @@
         "approverRow": "Écrivez cette valeur exacte dans une ligne d’approbateur.",
         "assertionMissing": "Un proxy est configuré, et aucune identité vérifiée n’est arrivée avec cette requête. La passerelle a lu le jeton partagé, donc ici chaque approbation ne nomme personne. Vérifiez le proxy et l’en-tête d’assertion.",
         "plainCaution": "La passerelle lit cet en-tête et ne vérifie rien. Le proxy décide seul qui atteint l’agent.",
-        "anyVerifiedCaution": "Toute identité signée par le fournisseur peut atteindre l’agent. allowAnyVerifiedIdentity est activé."
+        "anyVerifiedCaution": "Toute identité signée par le fournisseur peut atteindre l’agent. allowAnyVerifiedIdentity est activé.",
+        "workspaceKeyClaim": "Claim qui indexe l'espace de travail",
+        "workspaceLabel": "Votre espace de travail",
+        "workspacePersonal": "Le vôtre. Personne d'autre connecté à ce déploiement n'atteint ces fichiers.",
+        "workspaceShared": "Partagé. Tous ceux qui atteignent cette passerelle travaillent dans le même répertoire.",
+        "sessionLabel": "Session",
+        "signOutNote": "Le proxy en amont détient la session, et ceci lui demande d'y mettre fin.",
+        "signOut": "Se déconnecter"
       },
       "approvers": {
         "title": "Approbateurs",

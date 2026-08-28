@@ -77,7 +77,8 @@
     "releaseNotes": "Release notes for v{{version}}",
     "website": "nanoinfra website",
     "documentation": "Documentation",
-    "docs": "docs"
+    "docs": "docs",
+    "signOut": "Sign out"
   },
   "settings": {
     "backToChat": "Back to chat",
@@ -1045,7 +1046,14 @@
         "approverRow": "Write this exact value in an approver row.",
         "assertionMissing": "A proxy is configured, and no verified identity reached this request. The gateway read the shared token instead, so every approval here names nobody. Check the proxy and the assertion header.",
         "plainCaution": "The gateway reads this header and verifies nothing. The proxy alone decides who reaches the agent.",
-        "anyVerifiedCaution": "Every identity the provider signs for may reach the agent. allowAnyVerifiedIdentity is set."
+        "anyVerifiedCaution": "Every identity the provider signs for may reach the agent. allowAnyVerifiedIdentity is set.",
+        "workspaceKeyClaim": "Workspace key claim",
+        "workspaceLabel": "Your workspace",
+        "workspacePersonal": "Yours. Files here are reachable by nobody else signed in to this deployment.",
+        "workspaceShared": "Shared. Everyone who reaches this gateway works in the same directory.",
+        "sessionLabel": "Session",
+        "signOut": "Sign out",
+        "signOutNote": "The proxy in front holds the session, and this asks it to end it."
       },
       "approvers": {
         "title": "Approvers",

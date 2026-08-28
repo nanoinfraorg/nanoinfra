@@ -77,7 +77,8 @@
     "releaseNotes": "v{{version}} のリリースノート",
     "website": "nanoinfra のサイト",
     "documentation": "ドキュメント",
-    "docs": "ドキュメント"
+    "docs": "ドキュメント",
+    "signOut": "サインアウト"
   },
   "settings": {
     "backToChat": "チャットに戻る",
@@ -1045,7 +1046,14 @@
         "approverRow": "この値をそのまま承認者の行に書いてください。",
         "assertionMissing": "プロキシは設定されていますが、この要求には検証済みのアイデンティティが届きませんでした。gateway は代わりに共有トークンを読んだため、ここでの承認は誰も名指ししません。プロキシとアサーションヘッダーを確認してください。",
         "plainCaution": "gateway はこのヘッダーを読み、何も検証しません。エージェントに到達できる相手はプロキシだけが決めます。",
-        "anyVerifiedCaution": "プロバイダーが署名したすべてのアイデンティティがエージェントに到達できます。allowAnyVerifiedIdentity が有効です。"
+        "anyVerifiedCaution": "プロバイダーが署名したすべてのアイデンティティがエージェントに到達できます。allowAnyVerifiedIdentity が有効です。",
+        "workspaceKeyClaim": "ワークスペースのキーとなるクレーム",
+        "workspaceLabel": "あなたのワークスペース",
+        "workspacePersonal": "あなた専用です。このデプロイにサインインした他の誰も、ここのファイルには到達しません。",
+        "workspaceShared": "共有です。このゲートウェイに到達する全員が同じディレクトリで作業します。",
+        "sessionLabel": "セッション",
+        "signOutNote": "セッションは前段のプロキシが保持しています。これはその終了を要求します。",
+        "signOut": "サインアウト"
       },
       "approvers": {
         "title": "承認者",

@@ -2160,6 +2160,14 @@ function Shell({
     defaultWorkspacePath: workspaces?.default_scope.project_path ?? null,
     version: settingsSnapshot?.version?.current,
     docsUrl: settingsSnapshot?.docs?.base_url,
+    // Only when a proxy asserted somebody. `webui` is the bare path name of a
+    // deployment behind a shared token, and naming that as a person would be a
+    // label a reader acts on.
+    identityActor:
+      settingsSnapshot?.advanced?.gates?.identity?.assertionMissing === false
+        ? (settingsSnapshot?.advanced?.gates?.identity?.actor ?? null)
+        : null,
+    signOutPath: settingsSnapshot?.advanced?.gates?.identity?.signOutPath ?? null,
   };
   const hostSidebarCollapsed = showHostChrome && !hostSidebarOpen;
   const showHostSidebarPreview =

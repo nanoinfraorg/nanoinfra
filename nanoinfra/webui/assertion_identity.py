@@ -409,6 +409,9 @@ def describe_trusted_proxy_posture(config: TrustedProxyAuthConfig | None) -> Ass
 def identity_panel_payload(
     config: TrustedProxyAuthConfig | None,
     request: Any,
+    *,
+    workspace: str = "",
+    workspace_personal: bool = False,
 ) -> dict[str, Any]:
     """Answer the posture and the actor for the gate panel, as facts and never as a sentence.
 
@@ -423,6 +426,12 @@ def identity_panel_payload(
     tells the operator to write that value in an approver row, and ``gates.approvers`` compares
     the whole string (#66). A second rule for the prefix here would drift, and the drift would
     read as an approval that does not count.
+
+    **The workspace rides here because it is a fact about this caller**, not about the
+    deployment: with a verified identity it is the person's own directory, and a panel that
+    showed the deployment's would answer a question nobody asked. ``signOutPath`` is the
+    proxy's route and not a URL, because the cookie belongs to the proxy in front and the
+    gateway can only send the browser there.
 
     **``assertionMissing`` is the warning this payload exists for.** A configured proxy plus an
     actor of the bare path name means the assertion did not arrive or did not verify. The
@@ -440,7 +449,13 @@ def identity_panel_payload(
         "assertionHeader": (
             config.assertion_header if config is not None and kind == POSTURE_PLAIN else ""
         ),
+        "workspaceKeyClaim": (
+            config.workspace_key_claim if config is not None and verified else ""
+        ),
         "actor": actor,
+        "workspace": workspace,
+        "workspacePersonal": workspace_personal,
+        "signOutPath": str(getattr(config, "sign_out_path", "") or "") if config is not None else "",
         "assertionMissing": kind != POSTURE_NO_PROXY and actor == PATH_ACTOR,
     }
 

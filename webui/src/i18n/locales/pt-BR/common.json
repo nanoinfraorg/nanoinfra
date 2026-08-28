@@ -77,7 +77,8 @@
     "releaseNotes": "Notas da versão v{{version}}",
     "website": "Site do nanoinfra",
     "documentation": "Documentação",
-    "docs": "docs"
+    "docs": "docs",
+    "signOut": "Sair"
   },
   "settings": {
     "backToChat": "Voltar para a conversa",
@@ -1045,7 +1046,14 @@
         "approverRow": "Escreva este valor exato em uma linha de aprovador.",
         "assertionMissing": "Há um proxy configurado, e nenhuma identidade verificada chegou nesta requisição. O gateway leu o token compartilhado, então aqui cada aprovação não nomeia ninguém. Verifique o proxy e o cabeçalho de asserção.",
         "plainCaution": "O gateway lê este cabeçalho e não verifica nada. O proxy decide sozinho quem alcança o agente.",
-        "anyVerifiedCaution": "Qualquer identidade assinada pelo provedor pode alcançar o agente. allowAnyVerifiedIdentity está ligado."
+        "anyVerifiedCaution": "Qualquer identidade assinada pelo provedor pode alcançar o agente. allowAnyVerifiedIdentity está ligado.",
+        "workspaceKeyClaim": "Claim que indexa o workspace",
+        "workspaceLabel": "Seu workspace",
+        "workspacePersonal": "Seu. Mais ninguém autenticado neste deployment alcança estes arquivos.",
+        "workspaceShared": "Compartilhado. Todos que alcançam este gateway trabalham no mesmo diretório.",
+        "sessionLabel": "Sessão",
+        "signOutNote": "O proxy à frente detém a sessão, e isto pede que ele a encerre.",
+        "signOut": "Sair"
       },
       "approvers": {
         "title": "Aprovadores",

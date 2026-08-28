@@ -77,7 +77,8 @@
     "releaseNotes": "Catatan rilis v{{version}}",
     "website": "Situs nanoinfra",
     "documentation": "Dokumentasi",
-    "docs": "dokumen"
+    "docs": "dokumen",
+    "signOut": "Keluar"
   },
   "settings": {
     "backToChat": "Kembali ke chat",
@@ -1045,7 +1046,14 @@
         "approverRow": "Tulis nilai ini secara persis di satu baris penyetuju.",
         "assertionMissing": "Satu proxy sudah dikonfigurasi, dan tidak ada identitas terverifikasi yang sampai pada permintaan ini. Gateway membaca token bersama, jadi setiap persetujuan di sini tidak menyebut siapa pun. Periksa proxy dan header asersi.",
         "plainCaution": "Gateway membaca header ini dan tidak memverifikasi apa pun. Proxy sendiri yang memutuskan siapa yang sampai ke agen.",
-        "anyVerifiedCaution": "Setiap identitas yang ditandatangani penyedia bisa sampai ke agen. allowAnyVerifiedIdentity aktif."
+        "anyVerifiedCaution": "Setiap identitas yang ditandatangani penyedia bisa sampai ke agen. allowAnyVerifiedIdentity aktif.",
+        "workspaceKeyClaim": "Claim kunci workspace",
+        "workspaceLabel": "Workspace Anda",
+        "workspacePersonal": "Milik Anda. Tidak ada orang lain yang masuk ke deployment ini dapat menjangkau berkas ini.",
+        "workspaceShared": "Bersama. Semua yang menjangkau gateway ini bekerja di direktori yang sama.",
+        "sessionLabel": "Sesi",
+        "signOutNote": "Proxy di depan memegang sesi, dan ini memintanya untuk mengakhirinya.",
+        "signOut": "Keluar"
       },
       "approvers": {
         "title": "Penyetuju",

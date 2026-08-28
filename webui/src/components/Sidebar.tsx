@@ -96,6 +96,10 @@ interface SidebarProps {
   archivedCount?: number;
   defaultWorkspacePath?: string | null;
   hostChromeInset?: boolean;
+  /** Who the gateway resolved for this connection, when a proxy asserted one. */
+  identityActor?: string | null;
+  /** The proxy's sign-out route on this origin. Absent means this deployment has none. */
+  signOutPath?: string | null;
 }
 
 type NavigatorWithUserAgentData = Navigator & {
@@ -459,11 +463,62 @@ export function Sidebar(props: SidebarProps) {
           />
           <ConnectionBadge />
         </div>
+        {collapsed || !props.identityActor ? null : (
+          <SidebarIdentity
+            actor={props.identityActor}
+            signOutPath={props.signOutPath ?? null}
+          />
+        )}
         {collapsed ? null : (
           <SidebarVersion version={props.version} docsUrl={props.docsUrl} />
         )}
       </div>
     </nav>
+  );
+}
+
+/**
+ * Who you are, and the way out.
+ *
+ * It renders only when a proxy asserted an identity: a deployment behind a shared
+ * token has no person to name, and inventing one there would be a lie a reader
+ * would act on. The sign-out link renders only when the deployment configured a
+ * path, because the session cookie belongs to the proxy in front -- the gateway
+ * cannot end it, and a button that does nothing is worse than no button.
+ */
+function SidebarIdentity({
+  actor,
+  signOutPath,
+}: {
+  actor: string;
+  signOutPath: string | null;
+}) {
+  const { t } = useTranslation();
+  // The actor is `webui:<identity>`; the prefix is the path that authenticated it,
+  // and Settings is where the whole string belongs. A sidebar shows the person.
+  const shown = actor.includes(":") ? actor.slice(actor.indexOf(":") + 1) : actor;
+  return (
+    <div
+      className="mt-2 flex items-center justify-between gap-2 border-t border-sidebar-border/60 pt-2"
+      data-testid="sidebar-identity"
+    >
+      <span
+        className="min-w-0 truncate text-[11.5px] text-muted-foreground"
+        title={actor}
+        data-testid="sidebar-identity-actor"
+      >
+        {shown}
+      </span>
+      {signOutPath ? (
+        <a
+          className="shrink-0 rounded px-1.5 py-0.5 text-[11.5px] text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+          data-testid="sidebar-sign-out"
+          href={signOutPath}
+        >
+          {t("sidebar.signOut", { defaultValue: "Sign out" })}
+        </a>
+      ) : null}
+    </div>
   );
 }
 

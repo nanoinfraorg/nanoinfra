@@ -592,13 +592,22 @@ export type GatesIdentityPosture = "no_proxy" | "verified" | "any_verified" | "p
  *
  * `assertionMissing` is the warning. A proxy is configured, and the actor is the bare path name,
  * so the assertion did not arrive or did not verify.
+ *
+ * `workspace` is this caller's own, and `workspacePersonal` says whether it is theirs alone or
+ * the one every signed-in person shares. `signOutPath` is a route on this origin, because the
+ * session cookie belongs to the proxy in front and the gateway cannot invalidate it -- empty
+ * means this deployment offers no sign-out and the UI must not invent one.
  */
 export interface GatesIdentity {
   posture: GatesIdentityPosture;
   issuer: string;
   identityClaim: string;
+  workspaceKeyClaim: string;
   assertionHeader: string;
   actor: string;
+  workspace: string;
+  workspacePersonal: boolean;
+  signOutPath: string;
   assertionMissing: boolean;
 }
 

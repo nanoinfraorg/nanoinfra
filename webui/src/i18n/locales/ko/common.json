@@ -77,7 +77,8 @@
     "releaseNotes": "v{{version}} 릴리스 노트",
     "website": "nanoinfra 웹사이트",
     "documentation": "문서",
-    "docs": "문서"
+    "docs": "문서",
+    "signOut": "로그아웃"
   },
   "settings": {
     "backToChat": "채팅으로 돌아가기",
@@ -1045,7 +1046,14 @@
         "approverRow": "이 값을 그대로 승인자 행에 적으세요.",
         "assertionMissing": "프록시가 설정되어 있지만 이 요청에는 검증된 신원이 도착하지 않았습니다. gateway가 대신 공유 토큰을 읽었으므로 여기서의 승인은 아무도 지목하지 않습니다. 프록시와 어설션 헤더를 확인하세요.",
         "plainCaution": "gateway는 이 헤더를 읽고 아무것도 검증하지 않습니다. 에이전트에 닿는 사람은 프록시만 결정합니다.",
-        "anyVerifiedCaution": "공급자가 서명한 모든 신원이 에이전트에 닿을 수 있습니다. allowAnyVerifiedIdentity가 켜져 있습니다."
+        "anyVerifiedCaution": "공급자가 서명한 모든 신원이 에이전트에 닿을 수 있습니다. allowAnyVerifiedIdentity가 켜져 있습니다.",
+        "workspaceKeyClaim": "워크스페이스 키 클레임",
+        "workspaceLabel": "내 워크스페이스",
+        "workspacePersonal": "당신의 것입니다. 이 배포에 로그인한 다른 누구도 이 파일에 접근하지 못합니다.",
+        "workspaceShared": "공유됩니다. 이 게이트웨이에 도달하는 모두가 같은 디렉터리에서 작업합니다.",
+        "sessionLabel": "세션",
+        "signOutNote": "세션은 앞단 프록시가 보유하며, 이 링크는 종료를 요청합니다.",
+        "signOut": "로그아웃"
       },
       "approvers": {
         "title": "승인자",

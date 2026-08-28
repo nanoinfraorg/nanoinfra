@@ -875,6 +875,12 @@ function IdentitySection({ identity }: { identity?: GatesIdentity }) {
       value: identity.identityClaim,
     });
   }
+  if (identity.workspaceKeyClaim) {
+    facts.push({
+      label: tx("settings.gates.identity.workspaceKeyClaim", "Workspace key claim"),
+      value: identity.workspaceKeyClaim,
+    });
+  }
   if (identity.assertionHeader) {
     facts.push({
       label: tx("settings.gates.identity.header", "Assertion header"),
@@ -932,6 +938,46 @@ function IdentitySection({ identity }: { identity?: GatesIdentity }) {
               )}
             </p>
           </IdentityRow>
+          {identity.workspace ? (
+            <IdentityRow label={tx("settings.gates.identity.workspaceLabel", "Your workspace")}>
+              <code
+                className="inline-block break-all rounded bg-muted px-1.5 py-0.5 text-[12px] text-foreground"
+                data-testid="gates-identity-workspace"
+              >
+                {identity.workspace}
+              </code>
+              <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
+                {identity.workspacePersonal
+                  ? tx(
+                    "settings.gates.identity.workspacePersonal",
+                    "Yours. Files here are reachable by nobody else signed in to this deployment.",
+                  )
+                  : tx(
+                    "settings.gates.identity.workspaceShared",
+                    "Shared. Everyone who reaches this gateway works in the same directory.",
+                  )}
+              </p>
+            </IdentityRow>
+          ) : null}
+          {identity.signOutPath ? (
+            <IdentityRow label={tx("settings.gates.identity.sessionLabel", "Session")}>
+              <a
+                className="inline-flex items-center rounded border border-border px-2 py-1 text-[12px] text-foreground hover:bg-muted"
+                data-testid="gates-identity-sign-out"
+                href={identity.signOutPath}
+              >
+                {tx("settings.gates.identity.signOut", "Sign out")}
+              </a>
+              <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
+                {/* The cookie is the proxy's, so this leaves the app rather than
+                    calling an endpoint the gateway owns. */}
+                {tx(
+                  "settings.gates.identity.signOutNote",
+                  "The proxy in front holds the session, and this asks it to end it.",
+                )}
+              </p>
+            </IdentityRow>
+          ) : null}
         </div>
         {identity.assertionMissing ? (
           <GatesNote tone="warning" testId="gates-identity-assertion-missing">

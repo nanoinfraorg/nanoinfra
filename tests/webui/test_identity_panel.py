@@ -68,9 +68,21 @@ _POLICY: dict[str, Any] = {
 # The identity attribute ``ws_http.dispatch`` writes once per request.
 _IDENTITY = "_nanoinfra_trusted_proxy_identity"
 
-# The four keys the payload holds beside the posture and the actor. The set is fixed, so a
-# field somebody adds later has to arrive in this test as well as in the payload.
-_KEYS = {"posture", "issuer", "identityClaim", "assertionHeader", "actor", "assertionMissing"}
+# Every key the payload holds. The set is fixed, so a field somebody adds later has to arrive
+# in this test as well as in the payload -- which is how the identity/workspace fields below
+# got here.
+_KEYS = {
+    "posture",
+    "issuer",
+    "identityClaim",
+    "workspaceKeyClaim",
+    "assertionHeader",
+    "actor",
+    "workspace",
+    "workspacePersonal",
+    "signOutPath",
+    "assertionMissing",
+}
 
 
 def _b64url(raw: bytes) -> str:
@@ -240,7 +252,8 @@ def test_the_actor_is_the_answer_the_gate_reads(identity: str | None) -> None:
     ids=["no_proxy", "verified", "static_keys", "any_verified", "plain"],
 )
 def test_no_posture_sends_the_config_block(config: TrustedProxyAuthConfig | None) -> None:
-    """The panel needs four facts. A client that held the rest would leak the deployment shape.
+    """The panel needs a short list of facts. A client that held the rest would leak the
+    deployment shape.
 
     The address list is the clearest case: ``trustedPeerCidrs`` names the internal address of
     the proxy, and no browser needs it. The key material is checked too, because a public
@@ -489,3 +502,51 @@ async def test_the_route_sends_no_part_of_the_config_block(tmp_path: Path) -> No
     assert _JWKS_URL not in text
     assert "127.0.0.1/32" not in text
     assert _OPERATOR not in text
+
+
+def test_the_panel_learns_whose_workspace_this_is() -> None:
+    """A person reads this block to answer "who am I and where do my files go". The
+    deployment's workspace is a true answer to the second question only when nobody
+    signed in."""
+    block = identity_panel_payload(
+        None,
+        _request(_OPERATOR),
+        workspace="/data/workspaces/u-abc/default",
+        workspace_personal=True,
+    )
+    assert block["workspace"] == "/data/workspaces/u-abc/default"
+    assert block["workspacePersonal"] is True
+
+
+def test_a_shared_deployment_says_the_workspace_is_not_personal() -> None:
+    block = identity_panel_payload(None, _request(_OPERATOR), workspace="/data/workspaces/default")
+    assert block["workspace"] == "/data/workspaces/default"
+    assert block["workspacePersonal"] is False
+
+
+def test_the_sign_out_path_is_a_path_and_not_a_url() -> None:
+    """The cookie belongs to the proxy in front, so the gateway can only send the
+    browser to a route that proxy serves. A URL here would let config send every
+    reader of the page somewhere else."""
+    import pytest as _pytest
+    from pydantic import ValidationError
+
+    from nanoinfra.channels.websocket.runtime import TrustedProxyAuthConfig
+
+    ok = TrustedProxyAuthConfig(
+        trusted_peer_cidrs=["10.4.7.9/32"],
+        assertion_header="X-Access-Token",
+        assertion_format="plain",
+        sign_out_path="/oauth2/sign_out",
+    )
+    assert ok.sign_out_path == "/oauth2/sign_out"
+    assert identity_panel_payload(ok, _request(_OPERATOR))["signOutPath"] == "/oauth2/sign_out"
+
+    for bad in ("https://elsewhere.example/logout", "//elsewhere.example/logout", "oauth2/out"):
+        with _pytest.raises(ValidationError):
+            TrustedProxyAuthConfig(
+                trusted_peer_cidrs=["10.4.7.9/32"],
+                assertion_header="X-Access-Token",
+                assertion_format="plain",
+                sign_out_path=bad,
+            )

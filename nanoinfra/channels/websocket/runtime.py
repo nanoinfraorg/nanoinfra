@@ -227,6 +227,13 @@ class TrustedProxyAuthConfig(Base):
     # the person. `email` is readable and mutable: a rename orphans a directory and
     # a reassigned address inherits one. `sub` is opaque and no provider reuses it.
     workspace_key_claim: str = "sub"
+    # The proxy's sign-out route, on this origin. The session is the proxy's cookie
+    # and the gateway cannot invalidate it, so the WebUI can only send the browser
+    # there -- and it will not invent the path, because the proxy in front decides
+    # it: `/oauth2/sign_out` for oauth2-proxy, `/cdn-cgi/access/logout` for
+    # Cloudflare Access. Empty means the WebUI offers no sign-out at all, which is
+    # honest for a deployment that has none.
+    sign_out_path: str = ""
     # Who may enter, which is not the same list as whose approval counts (#62).
     allowed_identities: list[str] = Field(default_factory=list[str])
     required_claims: dict[str, str] = Field(default_factory=dict[str, str])
@@ -234,6 +241,22 @@ class TrustedProxyAuthConfig(Base):
     _trusted_peer_networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = PrivateAttr(
         default=()
     )
+
+    @field_validator("sign_out_path")
+    @classmethod
+    def validate_sign_out_path(cls, value: str) -> str:
+        """A path on this origin, or nothing.
+
+        Not a URL. A full URL in this field would let a config send every reader of
+        the page somewhere else, and the proxy that owns the cookie is the one in
+        front -- so the only useful answer is a path it serves.
+        """
+        value = value.strip()
+        if not value:
+            return ""
+        if not value.startswith("/") or value.startswith("//"):
+            raise ValueError("signOutPath must be a path on this origin, such as /oauth2/sign_out")
+        return value
 
     @field_validator("trusted_peer_cidrs")
     @classmethod

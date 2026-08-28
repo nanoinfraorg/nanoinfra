@@ -77,7 +77,8 @@
     "releaseNotes": "Ghi chú phát hành v{{version}}",
     "website": "Trang web nanoinfra",
     "documentation": "Tài liệu",
-    "docs": "tài liệu"
+    "docs": "tài liệu",
+    "signOut": "Đăng xuất"
   },
   "settings": {
     "backToChat": "Quay lại chat",
@@ -1045,7 +1046,14 @@
         "approverRow": "Hãy ghi đúng giá trị này vào một hàng người phê duyệt.",
         "assertionMissing": "Một proxy đã được cấu hình, và không có danh tính đã kiểm chứng nào tới cùng yêu cầu này. Gateway đã đọc token dùng chung, nên mọi phê duyệt ở đây không nêu tên ai. Hãy kiểm tra proxy và header xác nhận.",
         "plainCaution": "Gateway đọc header này và không kiểm chứng gì. Chỉ proxy quyết định ai tới được tác nhân.",
-        "anyVerifiedCaution": "Mọi danh tính do nhà cung cấp ký đều tới được tác nhân. allowAnyVerifiedIdentity đang bật."
+        "anyVerifiedCaution": "Mọi danh tính do nhà cung cấp ký đều tới được tác nhân. allowAnyVerifiedIdentity đang bật.",
+        "workspaceKeyClaim": "Claim dùng làm khóa workspace",
+        "workspaceLabel": "Workspace của bạn",
+        "workspacePersonal": "Của bạn. Không ai khác đã đăng nhập vào bản triển khai này chạm tới các tệp ở đây.",
+        "workspaceShared": "Dùng chung. Mọi người tới được gateway này đều làm việc trong cùng một thư mục.",
+        "sessionLabel": "Phiên",
+        "signOutNote": "Proxy phía trước giữ phiên, và đây là yêu cầu nó kết thúc phiên.",
+        "signOut": "Đăng xuất"
       },
       "approvers": {
         "title": "Người phê duyệt",
