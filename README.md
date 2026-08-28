@@ -235,10 +235,27 @@ See the [WebUI guide](https://docs.nanoinfra.org/webui/) for LAN access, backgro
 ## 🏗️ Architecture
 
 <p align="center">
-  <img src="images/nanoinfra_arch.png" alt="nanoinfra architecture" width="800">
+  <img src="images/nanoinfra_gate.png" alt="The agent asks and holds no key. The executor decides every action, holds the key, and answers allow, approve, grant or deny. Every decision is appended to an audit log the agent reads and cannot write." width="820">
 </p>
 
-🐈 nanoinfra stays lightweight by centering everything around a small agent loop: messages come in from chat apps, the LLM decides when tools are needed, and memory or skills are pulled in only as context instead of becoming a heavy orchestration layer. That keeps the core path readable and easy to extend, while still letting you add channels, tools, memory, and deployment options without turning the system into a monolith.
+Two things run this, and they are deliberately not the same process.
+
+**The loop** is small. A channel publishes an inbound message on an async bus, `AgentLoop` builds the context, `AgentRunner` holds the conversation with the provider and executes the tools it asks for, and the reply goes back out on the bus. Memory and skills arrive as context rather than as an orchestration layer, which is what keeps the core path readable and the core small enough to audit.
+
+**The boundary** is the part the loop cannot talk its way around. A remote action is not something the agent performs; it is something the agent *asks for*. A second process owns the credential store, resolves one secret for one action, answers with `allow`, `approve`, `grant` or `deny`, and appends that decision to a log the agent may read and may not write. The agent holds neither the credential nor the decision. An unattended turn gets the strictest answer, because nobody is watching it, and a denial latches for the session — rebuilt from that log after a restart, so a refusal survives the thing that was refused.
+
+In the container these are four processes on four accounts, which `ps -eo user,comm --forest` shows by name:
+
+| process | account | what it holds |
+|---|---|---|
+| `gateway` | `nanoinfra` | the agent loop, the channels, the WebUI. No credential and no verdict |
+| `exec` | `nanoinfra-exec` | the credential store, the gate decision, the audit log |
+| `fetch` | `nanoinfra-fetch` | web search and web fetch, and nothing of yours |
+| `mcp` | `nanoinfra-mcp` | stdio MCP servers, each with its own Landlock policy |
+
+Each helper applies a Landlock policy to itself before it serves, so its reachable filesystem is a list rather than a convention: 48 rules on the executor, 41 on the fetcher, 45 on the MCP host, none of them with a TCP listener. Outside a container, with a single account, all four still run and nanoinfra says at startup that the split is organisational rather than kernel-enforced — the same words, whether or not anyone is reading.
+
+[Capability gates](https://docs.nanoinfra.org/capability-gates/) states every default. [Deployment](https://docs.nanoinfra.org/deployment/) states what makes the split kernel-enforced.
 
 ## 📚 Docs
 
