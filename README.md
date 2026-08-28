@@ -106,6 +106,19 @@ python -m pip install nanoinfra
 
 If pip reports `externally-managed-environment` on macOS or Linux, use the one-command installer, `uv tool install nanoinfra`, `pipx install nanoinfra`, or install inside a virtual environment.
 
+**Run the container**
+
+The published image is the deployment where the kernel enforces the privilege split: the entrypoint starts as root, places the executor on `nanoinfra-exec` and the agent on `nanoinfra`, and drops root before either serves. A single-account install cannot do that, and nanoinfra says so at startup.
+
+```bash
+docker run -d --name nanoinfra \
+  -v ~/.nanoinfra:/home/nanoinfra/.nanoinfra \
+  -p 127.0.0.1:8765:8765 \
+  ghcr.io/nanoinfraorg/nanoinfra:latest gateway
+```
+
+`gateway` is required because the image's default command is `status`. No `--security-opt` and no added capability is needed: a root start already holds the five the entrypoint uses, and Docker has allowed the Landlock syscalls since 20.10.13. To keep everything else off the process, [`docker-compose.yml`](./docker-compose.yml) drops all capabilities and adds back only those five.
+
 **Install from source**
 
 `bun` or `npm` must be available. From an activated virtual environment:
