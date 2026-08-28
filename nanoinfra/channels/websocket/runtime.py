@@ -69,6 +69,7 @@ from nanoinfra.webui.forking import handle_webui_fork_chat
 from nanoinfra.webui.gateway_services import GatewayServices
 from nanoinfra.webui.http_utils import (
     TRUSTED_PROXY_IDENTITY_ATTR,
+    TRUSTED_PROXY_WORKSPACE_KEY_ATTR,
 )
 from nanoinfra.webui.http_utils import (
     normalize_config_path as _normalize_config_path,
@@ -129,6 +130,21 @@ def _verified_sender(connection: Any) -> str | None:
     """
     actor = str(getattr(connection, _HANDSHAKE_ACTOR_ATTR, "") or "").strip()
     return actor if actor and actor != PATH_ACTOR else None
+
+
+def _connection_workspace_key(connection: Any) -> str:
+    """The storage key the handshake proved for this connection, or empty.
+
+    Empty is the shared posture and not an error: a deployment with no trusted
+    proxy, or a token that verified and carried no key claim.
+
+    Only a string counts. The handshake writes one there and nothing else does, so
+    anything of another type means the attribute was never written -- and a carrier
+    that fabricates attributes on demand would otherwise read as a verified
+    identity and be handed a directory of its own.
+    """
+    value = cast(object, getattr(connection, TRUSTED_PROXY_WORKSPACE_KEY_ATTR, ""))
+    return value.strip() if isinstance(value, str) else ""
 
 
 def _handshake_actor(identity: str) -> str:
@@ -207,6 +223,10 @@ class TrustedProxyAuthConfig(Base):
     jwks_url: str = ""
     jwks: dict[str, Any] | None = None
     identity_claim: str = "email"
+    # The claim that keys per-identity storage, which is not the claim that names
+    # the person. `email` is readable and mutable: a rename orphans a directory and
+    # a reassigned address inherits one. `sub` is opaque and no provider reuses it.
+    workspace_key_claim: str = "sub"
     # Who may enter, which is not the same list as whose approval counts (#62).
     allowed_identities: list[str] = Field(default_factory=list[str])
     required_claims: dict[str, str] = Field(default_factory=dict[str, str])
@@ -659,7 +679,9 @@ class WebSocketChannel(BaseChannel):
         fork_key: str,
     ) -> None:
         """Attach and hydrate a newly created WebUI chat fork."""
-        scope = self._workspaces.scope_for_session_key(fork_key)
+        scope = self._workspaces.scope_for_session_key(
+            fork_key, identity_key=_connection_workspace_key(connection)
+        )
         self._attach(connection, fork_id)
         await self._send_event(connection, "attached", chat_id=fork_id)
         await self._send_event(
@@ -801,9 +823,17 @@ class WebSocketChannel(BaseChannel):
         """
         proxy = self._http_router.trusted_proxy_authenticator()
         identity = ""
+        workspace_key = ""
         if proxy is not None:
-            identity = await proxy.authenticate(connection, headers or {})
+            admitted = await proxy.admit(connection, headers or {})
+            identity = admitted.name
+            workspace_key = admitted.key if identity else ""
         setattr(connection, _HANDSHAKE_ACTOR_ATTR, _handshake_actor(identity))
+        # Written once, here, where the identity was proved. Every later reader --
+        # the envelope path, the upload path, the explorer -- takes it from the
+        # connection rather than from a frame, so no client can name its own.
+        setattr(connection, TRUSTED_PROXY_IDENTITY_ATTR, identity)
+        setattr(connection, TRUSTED_PROXY_WORKSPACE_KEY_ATTR, workspace_key)
         if identity:
             self._webui_connections.add(connection)
             return None
@@ -1020,6 +1050,7 @@ class WebSocketChannel(BaseChannel):
                 connection,
                 lambda: self._workspaces.scope_for_new_chat(
                     envelope,
+                    identity_key=_connection_workspace_key(connection),
                     controls_available=self._workspace_controls_available(connection),
                 ),
             )
@@ -1082,6 +1113,7 @@ class WebSocketChannel(BaseChannel):
                 connection,
                 lambda: self._workspaces.scope_for_set_request(
                     envelope,
+                    identity_key=_connection_workspace_key(connection),
                     chat_id=cid,
                     chat_running=websocket_turn_wall_started_at(cid) is not None,
                     controls_available=self._workspace_controls_available(connection),
@@ -1110,7 +1142,8 @@ class WebSocketChannel(BaseChannel):
             # workspace the listing routes would refuse to show.
             try:
                 upload_scope = self._http_router.workspace_scope_for(
-                    envelope.get("workspace") if isinstance(envelope.get("workspace"), str) else None
+                    envelope.get("workspace") if isinstance(envelope.get("workspace"), str) else None,
+                    connection,
                 )
             except WebUIFileBrowserError as exc:
                 await self._send_event(
@@ -1220,6 +1253,7 @@ class WebSocketChannel(BaseChannel):
                 connection,
                 lambda: self._workspaces.scope_for_message(
                     envelope,
+                    identity_key=_connection_workspace_key(connection),
                     chat_id=cid,
                     chat_running=websocket_turn_wall_started_at(cid) is not None,
                     controls_available=self._workspace_controls_available(connection),

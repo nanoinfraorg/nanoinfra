@@ -28,6 +28,10 @@ _JSON_GZIP_LEVEL = 5
 # route that needs only a yes or no reads the flag rather than repeat the derivation.
 TRUSTED_PROXY_IDENTITY_ATTR = "_nanoinfra_trusted_proxy_identity"
 TRUSTED_PROXY_AUTHENTICATED_ATTR = "_nanoinfra_trusted_proxy_authenticated"
+# The storage key of a verified identity, which is not its name. Empty for a
+# `plain` assertion and for a token that carries no such claim, and a caller that
+# reads nothing here gets the shared default workspace rather than a refusal.
+TRUSTED_PROXY_WORKSPACE_KEY_ATTR = "_nanoinfra_trusted_proxy_workspace_key"
 
 # The longest identity this gateway will name (#63). An identity reaches an audit record and
 # ``gates.approvers`` compares it whole, so a longer value refuses rather than arrive cut: a

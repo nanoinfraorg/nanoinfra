@@ -95,6 +95,7 @@ from nanoinfra.webui.gateway_tokens import (
 from nanoinfra.webui.http_utils import (
     TRUSTED_PROXY_AUTHENTICATED_ATTR,
     TRUSTED_PROXY_IDENTITY_ATTR,
+    TRUSTED_PROXY_WORKSPACE_KEY_ATTR,
     bearer_token,
 )
 from nanoinfra.webui.http_utils import (
@@ -514,15 +515,19 @@ class GatewayHTTPHandler:
         # and therefore an await, so this is the only place that can decide it, and every route
         # below reads the two attributes rather than repeating the check.
         identity = ""
+        workspace_key = ""
         authenticator = self.trusted_proxy_authenticator()
         if authenticator is not None:
-            identity = await authenticator.authenticate(connection, request.headers)
+            admitted = await authenticator.admit(connection, request.headers)
+            identity = admitted.name
+            workspace_key = admitted.key if identity else ""
         # The flag is derived from the identity rather than decided beside it, so the two can
         # never disagree. A request this gateway admitted with no name would reach every route
         # below as the shared ``webui`` actor, and a forged assertion would then buy whatever
         # the shared token holds (#63).
         setattr(request, TRUSTED_PROXY_AUTHENTICATED_ATTR, bool(identity))
         setattr(request, TRUSTED_PROXY_IDENTITY_ATTR, identity)
+        setattr(request, TRUSTED_PROXY_WORKSPACE_KEY_ATTR, workspace_key)
 
         try:
             response = await self._dispatch_resolved(connection, request, got)
@@ -1554,16 +1559,39 @@ class GatewayHTTPHandler:
             return self._handle_workspace_delete(request)
         return None
 
-    def workspace_scope_for(self, raw: str | None) -> Any:
-        """The scope for a workspace a client named, or the configured one.
+    def workspace_bounds(self, carrier: Any) -> tuple[Path, Any]:
+        """The root a caller may choose within, and the workspace they start in.
+
+        A verified identity gets its own directory as both. Everyone else gets the
+        configured root and the configured workspace, which is what this was before
+        identities existed. The carrier is the request or the connection -- whichever
+        one the caller has -- and it is required rather than optional, because a
+        call site that forgot it would silently widen the root back to everyone's.
+        """
+        # Only strings count. `dispatch` and the handshake write these, and a
+        # carrier that answers every attribute would otherwise be read as a
+        # verified identity.
+        raw_key = cast(object, getattr(carrier, TRUSTED_PROXY_WORKSPACE_KEY_ATTR, ""))
+        raw_name = cast(object, getattr(carrier, TRUSTED_PROXY_IDENTITY_ATTR, ""))
+        key = raw_key.strip() if isinstance(raw_key, str) else ""
+        name = raw_name.strip() if isinstance(raw_name, str) else ""
+        identity_scope = self.workspaces.identity_root(key, name=name)
+        if identity_scope is not None:
+            return identity_scope, self.workspaces.identity_default_scope(key, name=name)
+        return (
+            Path(load_config().tools.workspaces_root).expanduser(),
+            self.workspaces.default_scope(),
+        )
+
+    def workspace_scope_for(self, raw: str | None, carrier: Any) -> Any:
+        """The scope for a workspace a client named, or the one they start in.
 
         The single gate for that choice (`workspace_roots.resolve_client_workspace`):
         the workspaces root, something under it, or the configured workspace. The
         access mode is the operator's, never the client's -- picking which workspace
         to look at is not a way to widen what may be done inside it.
         """
-        default = self.workspaces.default_scope()
-        root = Path(load_config().tools.workspaces_root).expanduser()
+        root, default = self.workspace_bounds(carrier)
         resolved = resolve_client_workspace(
             raw, root=root, default_workspace=Path(default.project_path)
         )
@@ -1577,8 +1605,7 @@ class GatewayHTTPHandler:
 
     def _handle_workspace_projects(self, request: WsRequest) -> Response:
         """The workspaces a client may choose between."""
-        default = self.workspaces.default_scope()
-        root = Path(load_config().tools.workspaces_root).expanduser()
+        root, default = self.workspace_bounds(request)
         return _http_json_response(
             workspaces_payload_for_root(root, Path(default.project_path))
         )
@@ -1587,7 +1614,7 @@ class GatewayHTTPHandler:
         values = _workspace_values_from_request(request)
         if values is None:
             return _http_error(400, "invalid workspace payload")
-        root = Path(load_config().tools.workspaces_root).expanduser()
+        root, _default = self.workspace_bounds(request)
         try:
             payload = create_workspace(root, str(values.get("name") or ""))
         except WebUIFileBrowserError as e:
@@ -1601,7 +1628,7 @@ class GatewayHTTPHandler:
         try:
             payload = directory_listing_payload(
                 path,
-                scope=self.workspace_scope_for(_query_first(query, "workspace")),
+                scope=self.workspace_scope_for(_query_first(query, "workspace"), request),
                 include_hidden=_query_first(query, "hidden") == "1",
             )
         except WebUIFileBrowserError as e:
@@ -1619,7 +1646,7 @@ class GatewayHTTPHandler:
         query = _parse_query(request.path)
         path = _query_first(query, "path")
         try:
-            scope = self.workspace_scope_for(_query_first(query, "workspace"))
+            scope = self.workspace_scope_for(_query_first(query, "workspace"), request)
         except WebUIFileBrowserError as e:
             return _http_error(e.status, e.message)
         try:
@@ -1644,7 +1671,7 @@ class GatewayHTTPHandler:
         try:
             resolved, body = read_file_for_download(
                 _query_first(query, "path"),
-                scope=self.workspace_scope_for(_query_first(query, "workspace")),
+                scope=self.workspace_scope_for(_query_first(query, "workspace"), request),
             )
         except WebUIFileBrowserError as e:
             return _http_error(e.status, e.message)
@@ -1675,7 +1702,7 @@ class GatewayHTTPHandler:
             payload = create_directory(
                 _optional_str(values.get("parent")),
                 str(values.get("name") or ""),
-                scope=self.workspace_scope_for(_optional_str(values.get("workspace"))),
+                scope=self.workspace_scope_for(_optional_str(values.get("workspace")), request),
                 include_hidden=values.get("includeHidden") is True,
             )
         except WebUIFileBrowserError as e:
@@ -1691,7 +1718,7 @@ class GatewayHTTPHandler:
                 _optional_str(values.get("parent")),
                 str(values.get("name") or ""),
                 str(values.get("newName") or ""),
-                scope=self.workspace_scope_for(_optional_str(values.get("workspace"))),
+                scope=self.workspace_scope_for(_optional_str(values.get("workspace")), request),
                 include_hidden=values.get("includeHidden") is True,
             )
         except WebUIFileBrowserError as e:
@@ -1707,7 +1734,7 @@ class GatewayHTTPHandler:
                 _optional_str(values.get("parent")),
                 str(values.get("name") or ""),
                 _optional_str(values.get("destination")),
-                scope=self.workspace_scope_for(_optional_str(values.get("workspace"))),
+                scope=self.workspace_scope_for(_optional_str(values.get("workspace")), request),
                 include_hidden=values.get("includeHidden") is True,
             )
         except WebUIFileBrowserError as e:
@@ -1725,7 +1752,7 @@ class GatewayHTTPHandler:
                 # Absent reads as false: a client that has not said it means to remove a
                 # tree does not get to remove one because the field was missing.
                 recursive=values.get("recursive") is True,
-                scope=self.workspace_scope_for(_optional_str(values.get("workspace"))),
+                scope=self.workspace_scope_for(_optional_str(values.get("workspace")), request),
                 include_hidden=values.get("includeHidden") is True,
             )
         except WebUIFileBrowserError as e:

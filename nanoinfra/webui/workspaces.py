@@ -19,6 +19,10 @@ from nanoinfra.security.workspace_access import (
     default_workspace_scope,
     validate_workspace_scope_payload,
 )
+from nanoinfra.webui.identity_workspaces import (
+    ensure_identity_workspace,
+    identity_workspace_path,
+)
 
 if TYPE_CHECKING:
     from nanoinfra.session.manager import SessionManager
@@ -191,6 +195,54 @@ class WebUIWorkspaceController:
             self._default_restrict_to_workspace,
         )
 
+    # -- One identity, one boundary ----------------------------------------
+    #
+    # A verified identity turns the workspaces root into that person's own
+    # directory. Nothing else about the model changes: the switcher lists what is
+    # under the root, a client may name a workspace under the root, and the access
+    # mode stays the operator's. Narrowing one input narrows all three, so there is
+    # no second containment gate to keep in agreement with the first.
+    #
+    # An empty key is the shared posture -- a deployment with no trusted proxy, or
+    # a token that verifies and carries no key claim -- and it behaves exactly as
+    # it did before this existed.
+
+    def identity_root(self, identity_key: str, *, name: str = "") -> Path | None:
+        """This identity's directory, created if needed, or None when shared."""
+        if not identity_key:
+            return None
+        return ensure_identity_workspace(self._workspaces_root(), identity_key, name=name)
+
+    def _workspaces_root(self) -> Path:
+        from nanoinfra.config.loader import load_config
+
+        return Path(load_config().tools.workspaces_root).expanduser()
+
+    def identity_default_scope(self, identity_key: str, *, name: str = "") -> WorkspaceScope:
+        """The scope a person starts in: their own directory, or the shared default."""
+        root = self.identity_root(identity_key, name=name)
+        if root is None:
+            return self.default_scope()
+        mode = read_webui_default_access_mode()
+        if mode == "default":
+            return default_workspace_scope(
+                root,
+                self._default_restrict_to_workspace,
+                source_channel=_WEBUI_SCOPE_CHANNEL,
+            )
+        return build_workspace_scope(root, mode, source_channel=_WEBUI_SCOPE_CHANNEL)
+
+    def within_identity(self, scope: WorkspaceScope, identity_key: str) -> bool:
+        """Whether a scope stays inside the identity that asked for it."""
+        if not identity_key:
+            return True
+        boundary = identity_workspace_path(self._workspaces_root(), identity_key).resolve()
+        try:
+            candidate = Path(scope.project_path).expanduser().resolve()
+        except OSError:
+            return False
+        return candidate == boundary or boundary in candidate.parents
+
     def _scope_from_metadata_value(
         self,
         raw_scope: object,
@@ -219,7 +271,16 @@ class WebUIWorkspaceController:
             return default_scope
         return self._scope_from_metadata_value(raw_scope, default_scope=default_scope)
 
-    def scope_for_session_key(self, session_key: str) -> WorkspaceScope:
+    def scope_for_session_key(self, session_key: str, *, identity_key: str = "") -> WorkspaceScope:
+        scope = self._stored_scope_for_session_key(session_key)
+        if identity_key and not self.within_identity(scope, identity_key):
+            # A stored scope outside the caller's own directory is not a refusal to
+            # send back -- the caller asked for a session, not for a path -- so it
+            # reads as their own default and reaches none of the other person's files.
+            return self.identity_default_scope(identity_key)
+        return scope
+
+    def _stored_scope_for_session_key(self, session_key: str) -> WorkspaceScope:
         if self._sessions is None:
             return self.default_scope()
         data = self._sessions.read_session_metadata(session_key)
@@ -246,8 +307,13 @@ class WebUIWorkspaceController:
         *,
         session_key: str | None,
         controls_available: bool,
+        identity_key: str = "",
     ) -> WorkspaceScope:
-        current = self.scope_for_session_key(session_key) if session_key else self.default_scope()
+        current = (
+            self.scope_for_session_key(session_key, identity_key=identity_key)
+            if session_key
+            else self.identity_default_scope(identity_key)
+        )
         raw = envelope.get(WORKSPACE_SCOPE_METADATA_KEY)
         if raw is None:
             scope = current
@@ -260,24 +326,32 @@ class WebUIWorkspaceController:
             )
         if not controls_available and not _scope_change_is_non_escalating(current, scope):
             raise WorkspaceScopeError("workspace controls are localhost-only", status=403)
+        # Refused, not corrected. A client that named another person's directory
+        # asked a question this gateway will not answer quietly, and the reason
+        # reaches the WebUI as workspace_scope_rejected.
+        if not self.within_identity(scope, identity_key):
+            raise WorkspaceScopeError("workspace outside your own", status=403)
         return scope
 
     def scope_for_new_chat(
         self,
         envelope: dict[str, Any],
         *,
+        identity_key: str = "",
         controls_available: bool,
     ) -> WorkspaceScope:
         return self.scope_from_envelope(
             envelope,
             session_key=None,
             controls_available=controls_available,
+            identity_key=identity_key,
         )
 
     def scope_for_set_request(
         self,
         envelope: dict[str, Any],
         *,
+        identity_key: str = "",
         chat_id: str,
         chat_running: bool,
         controls_available: bool,
@@ -288,12 +362,14 @@ class WebUIWorkspaceController:
             envelope,
             session_key=f"websocket:{chat_id}",
             controls_available=controls_available,
+            identity_key=identity_key,
         )
 
     def scope_for_message(
         self,
         envelope: dict[str, Any],
         *,
+        identity_key: str = "",
         chat_id: str,
         chat_running: bool,
         controls_available: bool,
@@ -302,6 +378,7 @@ class WebUIWorkspaceController:
             envelope,
             session_key=f"websocket:{chat_id}",
             controls_available=controls_available,
+            identity_key=identity_key,
         )
         if (
             WORKSPACE_SCOPE_METADATA_KEY in envelope

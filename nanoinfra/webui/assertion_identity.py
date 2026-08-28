@@ -54,6 +54,7 @@ from nanoinfra.webui.assertion_jwt import (
     verify_assertion,
 )
 from nanoinfra.webui.http_utils import MAX_IDENTITY_CHARS, trusted_proxy_peer_assertion
+from nanoinfra.webui.identity_workspaces import identity_workspace_key
 from nanoinfra.webui.latch_api import PATH_ACTOR, operator_actor
 
 if TYPE_CHECKING:
@@ -97,6 +98,25 @@ class AssertionPosture:
 
     warn: bool
     message: str
+
+
+@dataclass(frozen=True, slots=True)
+class AdmittedIdentity:
+    """What one verified assertion proves.
+
+    ``name`` is what ``gates.approvers`` compares and what a record shows, and it
+    comes from ``identityClaim``. ``key`` is what per-identity storage is filed
+    under, and it comes from the issuer plus ``workspaceKeyClaim``. They are two
+    values because they answer to two different requirements: a name has to stay
+    readable for a reviewer, and a key has to stay stable when the name changes.
+
+    An empty ``key`` is not a failure. A ``plain`` assertion carries no claims at
+    all, and a token can verify without the claim that keys storage; both are
+    admitted, and both land on the shared workspace.
+    """
+
+    name: str
+    key: str = ""
 
 
 def admit_identity(
@@ -212,20 +232,24 @@ class TrustedProxyAuthenticator:
         self._log = log
 
     async def authenticate(self, connection: Any, headers: Any) -> str:
-        """Answer the identity this request proves, or an empty string."""
+        """Answer the name this request proves, or an empty string."""
+        return (await self.admit(connection, headers)).name
+
+    async def admit(self, connection: Any, headers: Any) -> AdmittedIdentity:
+        """Answer what this request proves: a name, and the key storage files it under."""
         assertion = trusted_proxy_peer_assertion(connection, headers, self._config)
         if not assertion:
-            return ""
+            return AdmittedIdentity("")
         try:
             resolved = (
                 await self._verified_identity(assertion)
                 if self._config.assertion_format == "jwt"
-                else assertion
+                else AdmittedIdentity(assertion)
             )
             # Both formats end here, so one rule decides which identities this gateway can
             # name. The ``plain`` path needs it as much as the ``jwt`` path: a header value is
             # no shorter than a claim, and a name this gateway cut belongs to nobody.
-            return named_identity(resolved)
+            return AdmittedIdentity(named_identity(resolved.name), resolved.key)
         except AssertionRefusedError as refusal:
             # One line per refusal, and the line never carries the token: a log reaches more
             # accounts than a live credential should. The reason and the value it read are
@@ -235,9 +259,9 @@ class TrustedProxyAuthenticator:
                 refusal.reason.value,
                 refusal.detail,
             )
-            return ""
+            return AdmittedIdentity("")
 
-    async def _verified_identity(self, assertion: str) -> str:
+    async def _verified_identity(self, assertion: str) -> AdmittedIdentity:
         if self._key_source is None:
             # A verifier with no key cannot verify. Refusing is the only safe answer.
             raise AssertionRefusedError(
@@ -258,13 +282,24 @@ class TrustedProxyAuthenticator:
             audience=self._config.audience,
             now=self._clock(),
         )
-        return admit_identity(
+        name = admit_identity(
             verified.claims,
             identity_claim=self._config.identity_claim,
             allowed_identities=self._config.allowed_identities,
             required_claims=self._config.required_claims,
             allow_any_verified_identity=self._config.allow_any_verified_identity,
         )
+        # The key is read after admission, so a token this gateway refuses never
+        # creates a directory. A missing claim is not a refusal: the person is in,
+        # and they share the workspace everyone else shares.
+        key_claim = str(getattr(self._config, "workspace_key_claim", "sub") or "")
+        subject = cast(object, verified.claims.get(key_claim)) if key_claim else None
+        issuer = cast(object, verified.claims.get("iss"))
+        key = identity_workspace_key(
+            issuer if isinstance(issuer, str) else "",
+            subject if isinstance(subject, str) else "",
+        )
+        return AdmittedIdentity(name, key)
 
 
 def build_trusted_proxy_authenticator(
