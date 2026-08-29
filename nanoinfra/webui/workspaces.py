@@ -21,7 +21,9 @@ from nanoinfra.security.workspace_access import (
 )
 from nanoinfra.webui.identity_workspaces import (
     IDENTITY_DEFAULT_WORKSPACE,
+    SESSION_IDENTITY_METADATA_KEY,
     ensure_identity_workspace,
+    identity_dirname,
     identity_workspace_path,
 )
 
@@ -391,9 +393,41 @@ class WebUIWorkspaceController:
             raise WorkspaceScopeError("chat_running", status=409)
         return scope
 
-    def persist_scope(self, chat_id: str, scope: WorkspaceScope) -> None:
+    def persist_scope(self, chat_id: str, scope: WorkspaceScope, identity_key: str = "") -> None:
+        """Write the scope of a WebUI chat, and whose chat it is.
+
+        The identity is stored as the directory name rather than the key: it is what
+        every comparison uses, and it carries no subject claim into a file a client
+        can be shown. A session written with no identity stays visible to the shared
+        posture and to nobody else -- see `session_belongs_to`.
+        """
         if self._sessions is not None:
             session = self._sessions.get_or_create(f"websocket:{chat_id}")
             session.metadata["webui"] = True
             session.metadata[WORKSPACE_SCOPE_METADATA_KEY] = scope.metadata()
+            if identity_key:
+                session.metadata[SESSION_IDENTITY_METADATA_KEY] = identity_dirname(identity_key)
             self._sessions.save(session)
+
+    def session_belongs_to(self, session_key: str, identity_key: str) -> bool:
+        """Whether this caller may see that session at all.
+
+        Three cases, and the third is the one worth stating. A caller with no identity
+        sees the sessions with none: that is every deployment that has no proxy, and
+        the behaviour it had before identities existed. A caller with an identity sees
+        their own. And a session with no identity is **not** shown to a caller who has
+        one -- it predates them or belongs to the shared posture, and showing it would
+        hand one person a conversation they never had.
+        """
+        if self._sessions is None:
+            return True
+        data = self._sessions.read_session_metadata(session_key)
+        stored = ""
+        if isinstance(data, dict):
+            metadata = cast(dict[str, Any], data).get("metadata")
+            if isinstance(metadata, dict):
+                raw = cast(dict[str, Any], metadata).get(SESSION_IDENTITY_METADATA_KEY)
+                stored = raw if isinstance(raw, str) else ""
+        if not identity_key:
+            return not stored
+        return stored == identity_dirname(identity_key)

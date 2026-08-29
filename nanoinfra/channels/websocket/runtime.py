@@ -1079,7 +1079,7 @@ class WebSocketChannel(BaseChannel):
             )
             if scope is None:
                 return
-            self._workspaces.persist_scope(new_id, scope)
+            self._workspaces.persist_scope(new_id, scope, _connection_workspace_key(connection))
             self._attach(connection, new_id)
             await self._send_event(connection, "attached", chat_id=new_id)
             await self._send_event(
@@ -1098,6 +1098,14 @@ class WebSocketChannel(BaseChannel):
             cid = envelope.get("chat_id")
             if not _is_valid_chat_id(cid):
                 await self._send_event(connection, "error", detail="invalid chat_id")
+                return
+            # A chat is somebody's. The HTTP routes answer 404 for another person's
+            # session, and attaching over the socket would otherwise be the way around
+            # that: the frames of a live turn would arrive on this connection.
+            if not self._workspaces.session_belongs_to(
+                f"websocket:{cid}", _connection_workspace_key(connection)
+            ):
+                await self._send_event(connection, "error", detail="chat_not_found")
                 return
             self._attach(connection, cid)
             await self._send_event(connection, "attached", chat_id=cid)
@@ -1145,7 +1153,7 @@ class WebSocketChannel(BaseChannel):
             )
             if scope is None:
                 return
-            self._workspaces.persist_scope(cid, scope)
+            self._workspaces.persist_scope(cid, scope, _connection_workspace_key(connection))
             await self._send_event(
                 connection,
                 "session_updated",
@@ -1346,7 +1354,7 @@ class WebSocketChannel(BaseChannel):
                         mention.to_payload() for mention in resource_mentions
                     ]
             metadata[WORKSPACE_SCOPE_METADATA_KEY] = scope.metadata()
-            self._workspaces.persist_scope(cid, scope)
+            self._workspaces.persist_scope(cid, scope, _connection_workspace_key(connection))
             is_webui = metadata.get("webui") is True
             queued_owner = None
             if is_webui and builtin_command_starts_agent_turn(content):

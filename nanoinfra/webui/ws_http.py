@@ -140,6 +140,7 @@ from nanoinfra.webui.http_utils import (
 from nanoinfra.webui.http_utils import (
     safe_host_header as _safe_host_header,
 )
+from nanoinfra.webui.identity_workspaces import identity_dirname
 from nanoinfra.webui.ingress_policy import WebUIIngressPolicy
 from nanoinfra.webui.latch_api import (
     LATCH_CLEAR_PATH,
@@ -173,6 +174,7 @@ from nanoinfra.webui.session_automations import (
 )
 from nanoinfra.webui.session_list_index import (
     WEBUI_SESSION_INDEX_INTERNAL_FIELDS,
+    indexed_identity,
     indexed_workspace_scope,
     list_webui_sessions,
 )
@@ -732,7 +734,27 @@ class GatewayHTTPHandler:
 
     # -- Session routes -----------------------------------------------------
 
+    def _session_is_visible(self, request: WsRequest, encoded_key: str) -> bool:
+        """Whether this caller may reach that session at all.
+
+        A malformed key answers True, so the handler below returns its own 400 rather
+        than having this guard turn a bad request into a missing session.
+        """
+        decoded = _decode_api_key(encoded_key)
+        if decoded is None:
+            return True
+        raw_key = cast(object, getattr(request, TRUSTED_PROXY_WORKSPACE_KEY_ATTR, ""))
+        identity_key = raw_key.strip() if isinstance(raw_key, str) else ""
+        return self.workspaces.session_belongs_to(decoded, identity_key)
+
     async def _dispatch_session_routes(self, request: WsRequest, got: str) -> Response | None:
+        # One check for five routes, before any of them reads a transcript. It answers
+        # 404 and not 403: a 403 tells the caller the session exists, and the caller
+        # asking is the one person who should learn nothing from the difference.
+        addressed = re.match(r"^/api/sessions/([^/]+)/", got)
+        if addressed is not None and not self._session_is_visible(request, addressed.group(1)):
+            return _http_error(404, "session not found")
+
         m = re.match(r"^/api/sessions/([^/]+)/messages$", got)
         if m:
             return self._handle_session_messages(request, m.group(1))
@@ -760,13 +782,21 @@ class GatewayHTTPHandler:
             return _http_error(401, "Unauthorized")
         if self.session_manager is None:
             return _http_error(503, "session manager unavailable")
-        payload = await asyncio.to_thread(self._sessions_list_payload)
+        payload = await asyncio.to_thread(
+            self._sessions_list_payload, self._identity_dir_for(request)
+        )
         return _http_json_response(
             payload,
             accept_encoding=_combined_list_header(request.headers, "Accept-Encoding"),
         )
 
-    def _sessions_list_payload(self) -> dict[str, Any]:
+    def _identity_dir_for(self, carrier: Any) -> str:
+        """The directory this caller's sessions are filed under, or empty when shared."""
+        raw_key = cast(object, getattr(carrier, TRUSTED_PROXY_WORKSPACE_KEY_ATTR, ""))
+        key = raw_key.strip() if isinstance(raw_key, str) else ""
+        return identity_dirname(key) if key else ""
+
+    def _sessions_list_payload(self, identity_dir: str = "") -> dict[str, Any]:
         assert self.session_manager is not None
         sessions = list_webui_sessions(self.session_manager)
         from nanoinfra.session.webui_turns import websocket_turn_wall_started_at
@@ -776,6 +806,13 @@ class GatewayHTTPHandler:
         for s in sessions:
             key = s.get("key")
             if not (isinstance(key, str) and key.startswith("websocket:")):
+                continue
+            # Whose row this is. A caller with no identity sees the rows with none --
+            # every deployment that has no proxy -- and a caller with one sees theirs.
+            # A row with no identity is not shown to a caller who has one: it predates
+            # them or belongs to the shared posture, and showing it would hand somebody
+            # a conversation they never had.
+            if indexed_identity(s) != identity_dir:
                 continue
             row = {
                 k: v

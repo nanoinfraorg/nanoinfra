@@ -33,6 +33,10 @@ IDENTITY_DIR_PREFIX = "u-"
 # on one deployment before it becomes likely, and the index below would show it.
 IDENTITY_DIR_DIGEST_CHARS = 10
 IDENTITY_INDEX_NAME = ".identities.json"
+# Where a session records whose it is. The value is the directory name, not the key:
+# a comparison needs no more, and a subject claim in a session file is a subject claim
+# in whatever a route hands a client.
+SESSION_IDENTITY_METADATA_KEY = "identity_dir"
 _MAX_INDEX_BYTES = 512 * 1024
 
 

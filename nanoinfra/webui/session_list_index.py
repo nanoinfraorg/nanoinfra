@@ -35,8 +35,12 @@ _INDEX_FILENAME = ".webui_session_index.json"
 _MODEL_PRESET_FIELD = "model_preset"
 _WORKSPACE_SCOPE_PRESENT_FIELD = "_workspace_scope_present"
 _WORKSPACE_SCOPE_VALUE_FIELD = "_workspace_scope_value"
+# Whose session this is, cached from the metadata so the sidebar needs no read per row.
+# Internal: a client is shown the sessions it may see, and never the list of who else
+# has some.
+_IDENTITY_FIELD = "_identity_dir"
 WEBUI_SESSION_INDEX_INTERNAL_FIELDS = frozenset(
-    {_WORKSPACE_SCOPE_PRESENT_FIELD, _WORKSPACE_SCOPE_VALUE_FIELD}
+    {_WORKSPACE_SCOPE_PRESENT_FIELD, _WORKSPACE_SCOPE_VALUE_FIELD, _IDENTITY_FIELD}
 )
 _INDEXED_WORKSPACE_SCOPE_KEYS = ("project_path", "path", "access_mode")
 _MAX_INDEXED_WORKSPACE_SCOPE_BYTES = 4096
@@ -169,8 +173,15 @@ def _public_row(sessions_dir: Path, row: dict[str, Any]) -> dict[str, Any]:
         _MODEL_PRESET_FIELD: row.get(_MODEL_PRESET_FIELD),
         _WORKSPACE_SCOPE_PRESENT_FIELD: row.get(_WORKSPACE_SCOPE_PRESENT_FIELD, False),
         _WORKSPACE_SCOPE_VALUE_FIELD: row.get(_WORKSPACE_SCOPE_VALUE_FIELD),
+        _IDENTITY_FIELD: row.get(_IDENTITY_FIELD, ""),
         "path": str(sessions_dir / str(row.get("file", ""))),
     }
+
+
+def indexed_identity(row: dict[str, Any]) -> str:
+    """The directory this session belongs to, or empty for one written without an identity."""
+    raw = cast(object, row.get(_IDENTITY_FIELD))
+    return raw if isinstance(raw, str) else ""
 
 
 def indexed_workspace_scope(row: dict[str, Any]) -> tuple[bool, object]:
@@ -179,6 +190,16 @@ def indexed_workspace_scope(row: dict[str, Any]) -> tuple[bool, object]:
         row.get(_WORKSPACE_SCOPE_PRESENT_FIELD) is True,
         cast(object, row.get(_WORKSPACE_SCOPE_VALUE_FIELD)),
     )
+
+
+def _indexed_identity_field(metadata: object) -> dict[str, object]:
+    """Cache whose session this is, from the same metadata the scope comes from."""
+    from nanoinfra.webui.identity_workspaces import SESSION_IDENTITY_METADATA_KEY
+
+    if not isinstance(metadata, dict):
+        return {_IDENTITY_FIELD: ""}
+    raw = cast(object, cast(dict[str, Any], metadata).get(SESSION_IDENTITY_METADATA_KEY))
+    return {_IDENTITY_FIELD: raw if isinstance(raw, str) else ""}
 
 
 def _indexed_workspace_scope_fields(metadata: object) -> dict[str, object]:
@@ -333,6 +354,7 @@ def _indexed_row_for_session(session: Session, path: Path, webui_dir: Path) -> d
         "preview": _preview_from_messages(session.messages),
         _MODEL_PRESET_FIELD: model_preset_from_metadata(session.metadata),
         **_indexed_workspace_scope_fields(session.metadata),
+        **_indexed_identity_field(session.metadata),
         "file": path.name,
         "mtime_ns": signature["mtime_ns"],
         "size": signature["size"],
@@ -418,6 +440,7 @@ def _scan_session_row(
                 "preview": preview or fallback_preview,
                 _MODEL_PRESET_FIELD: model_preset_from_metadata(metadata),
                 **_indexed_workspace_scope_fields(metadata),
+                **_indexed_identity_field(metadata),
                 "file": path.name,
                 "mtime_ns": signature["mtime_ns"],
                 "size": signature["size"],
