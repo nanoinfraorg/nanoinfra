@@ -2248,10 +2248,16 @@ def test_optional_dependency_metadata_for_enable():
     deps = data["project"]["optional-dependencies"]
     required = data["project"]["dependencies"]
 
-    assert "boto3>=1.43.0" not in data["project"]["dependencies"]
+    # boto3 and aiohttp are base dependencies since v1.0.2: a remote action over SSM
+    # and `nanoinfra serve` are surfaces this project promises, and the container
+    # image installs no extras, so an optional transport meant the published image
+    # answered ModuleNotFoundError at the first remote action. The extras keep their
+    # names so a requirements file that spells them out still resolves.
     assert deps["bedrock"] == ["boto3>=1.43.0"]
+    assert deps["api"] == ["aiohttp>=3.9.0,<4.0.0"]
+    # Channel dependencies stay out of the base install and arrive when a channel is
+    # enabled. That is what `optional_features` is for, and it is unchanged.
     for dep_name in (
-        "aiohttp",
         "discord.py",
         "msgpack",
         "python-telegram-bot",
@@ -2261,6 +2267,10 @@ def test_optional_dependency_metadata_for_enable():
     ):
         assert not any(dep.startswith(dep_name) for dep in required)
     for dependency in (
+        "aiohttp>=3.9.0,<4.0.0",
+        "asyncssh>=2.14.0,<3.0.0",
+        "ansible-runner>=2.4.0,<3.0.0",
+        "boto3>=1.43.0",
         "tzdata>=2025.2",
         "defusedxml>=0.7.1,<1.0.0",
         "pypdf>=5.0.0,<6.0.0",
