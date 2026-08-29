@@ -99,7 +99,7 @@ docker run -d --name nanoinfra \
   ghcr.io/nanoinfraorg/nanoinfra:latest gateway
 ```
 
-Tags are `latest`, the minor (`1.0`) and the exact version (`1.0.0`), for `linux/amd64`. Pin the exact version in production, so an upgrade is something you do rather than something that happens.
+Tags are `latest`, the minor (`1.0`) and the exact version (`1.0.1`), for `linux/amd64`. Pin the exact version in production, so an upgrade is something you do rather than something that happens.
 
 `gateway` is not optional: the image's default command is `status`. No `--security-opt` and no added capability is needed either — a root start already holds the five the entrypoint uses (`SETUID`, `SETGID`, `CHOWN`, `FOWNER`, `DAC_OVERRIDE`), and Docker has allowed the Landlock syscalls since 20.10.13. To keep everything else off the process, [`docker-compose.yml`](./docker-compose.yml) drops all capabilities and adds back only those five.
 
