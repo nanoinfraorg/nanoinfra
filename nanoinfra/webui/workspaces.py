@@ -424,9 +424,11 @@ class WebUIWorkspaceController:
         data = self._sessions.read_session_metadata(session_key)
         stored = ""
         if isinstance(data, dict):
-            metadata = cast(dict[str, Any], data).get("metadata")
+            # No cast: `read_session_metadata` is already typed `dict[str, Any] | None`,
+            # and basedpyright rejects a cast that narrows nothing (reportUnnecessaryCast).
+            metadata = cast(object, data.get("metadata"))
             if isinstance(metadata, dict):
-                raw = cast(dict[str, Any], metadata).get(SESSION_IDENTITY_METADATA_KEY)
+                raw = cast(object, cast(dict[str, Any], metadata).get(SESSION_IDENTITY_METADATA_KEY))
                 stored = raw if isinstance(raw, str) else ""
         if not identity_key:
             return not stored
