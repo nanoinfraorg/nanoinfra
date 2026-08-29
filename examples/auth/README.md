@@ -32,7 +32,7 @@ that reaches a deployment.
 
 | File | Key | What it decides |
 |---|---|---|
-| `dex.yaml` | `staticPasswords[0]` | Who can log in, and with which password. |
+| `dex.yaml` | `staticPasswords` | Who can log in, and with which password. Two people, because one cannot demonstrate a boundary: each gets their own workspace directory and neither reaches the other's. |
 | `oauth2-proxy.emails` | the one line | Who reaches the agent at all. |
 | `config.json` | `trustedProxyAuth.allowedIdentities` | Who the gateway admits, after it verifies the token. |
 | `config.json` | `gates.approvers[0].sender` | Whose approval counts. |
@@ -154,6 +154,84 @@ docker compose down -v
 The `-v` removes the gateway's named volume, and with it the sessions and the audit log of the
 example.
 
+## Behind Caddy
+
+A deployment already has a reverse proxy, and "how does this sit behind mine" is the question that
+decides whether any of it ships. So this directory runs a second way:
+
+```bash
+docker compose -f compose.yaml -f compose.caddy.yaml up -d
+```
+
+The door moves to `http://127.0.0.1:8080/`, Caddy holds the TLS a deployment terminates, and the
+WebSocket upgrade goes from Caddy straight to the gateway so chat traffic crosses one proxy rather
+than two. Three files carry it: `Caddyfile`, `compose.caddy.yaml`, and `config.caddy.json` for the
+two values that move (`trustedPeerCidrs` becomes Caddy's address, `publicWsUrl` becomes Caddy's
+port). Dex lists both callback addresses, so only oauth2-proxy's redirect changes, and the overlay
+sets it through the environment.
+
+The flow, and the gateway is in none of the first four steps: the browser asks Caddy, Caddy asks
+oauth2-proxy at `/oauth2/auth`, an unauthenticated answer is a 401 that Caddy turns into a
+sign-in, oauth2-proxy runs the OIDC flow with Dex, and the browser comes back with a cookie. Only
+then does `/oauth2/auth` answer 202 with the ID token, Caddy copies it onto the request, and the
+gateway verifies a signature. The gateway never redirects anybody: it reads a header and fetches a
+JWKS, and that is the whole of its part.
+
+### Three details that do not fail loudly
+
+Each one leaves the stack up, the login working, and the WebUI asking for a `tokenIssueSecret` --
+because the assertion verified somewhere and never arrived. `tests/test_auth_example.py` pins all
+three, so an edit that undoes one fails a test instead of costing an evening.
+
+**`forward_auth` and your own `handle_response` do not compose.** The directive's `copy_headers`
+lives inside a `handle_response` block it generates, and a `handle_response` of your own -- for the
+401 that has to become a sign-in -- replaces it. oauth2-proxy verifies the token, Caddy drops it.
+The `Caddyfile` therefore writes out what that sugar expands to: a `reverse_proxy` with
+`@ok status 2xx` copying `{rp.header.X-Nanoinfra-Assertion}` onto the request, and `@anon status
+401` redirecting.
+
+**`route`, not `handle`.** Inside a `handle` block Caddy sorts directives by its own order, and
+this block holds two proxies whose order is the entire point: ask oauth2-proxy first, then the
+gateway.
+
+**`{host}` drops the port.** The return address built from it sends a browser on `:8080` back to
+`:80`. `{http.request.hostport}` keeps it, and on 443 the difference is invisible -- which is why
+it survives review and fails in a lab.
+
+And one that does fail loudly, once you know where to look: the auth subrequest needs
+`injectResponseHeaders` in `oauth2-proxy.alpha.yaml`. `injectRequestHeaders` applies to
+oauth2-proxy's own upstream, which is not the path Caddy uses, so without the response list the
+subrequest answers 202 and no header at all.
+
+## Two people, two workspaces
+
+`dex.yaml` holds two static users, and that is not decoration: a verified identity gets its own
+workspace directory, and one person cannot show you a boundary.
+
+Sign in as `alberto@example.com`, then as `beatriz@example.com` in a private window -- the session
+is the proxy's cookie, so two windows are two people. Each one's **Workspaces** panel lists one
+workspace, `default`, and the two are different directories:
+
+```bash
+docker compose exec nanoinfra-gateway \
+  sh -c 'ls -la /home/nanoinfra/.nanoinfra/workspaces/; cat /home/nanoinfra/.nanoinfra/workspaces/.identities.json'
+```
+
+The directory name is a digest of the issuer and the `sub` claim, never of the address:
+`workspaceKeyClaim` names that claim, and an address is mutable -- a rename would orphan a
+directory and a reassigned address would inherit one. `.identities.json` is the label that keeps
+the disk legible, and it is never the authority.
+
+Ask for the other person's workspace and the answer is `403 that workspace is not yours`. Ask for
+the shared `default` and the answer is the same, because a verified identity's root is their own
+directory. **Settings → Identity** shows which one you are in, and `signOutPath` is what puts
+*Sign out* in the sidebar: the session belongs to the proxy, so the gateway can only send the
+browser to a route that proxy serves.
+
+One thing this example cannot hide: Dex keeps its signing keys in memory. Restart it and every
+session issued before that restart is signed by a key that exists nowhere, so the gateway refuses
+and everyone signs in again. A deployment uses `sqlite3` on a volume or `postgres`.
+
 ## The files
 
 | File | What it holds |
@@ -164,6 +242,9 @@ example.
 | `oauth2-proxy.alpha.yaml` | The listen address, the upstream, the provider, and the header that carries the ID token. |
 | `oauth2-proxy.emails` | The people who reach the agent at all. |
 | `config.json` | The gateway: what it verifies, which identity it reads, and whose approval counts. |
+| `Caddyfile` | The reverse-proxy shape, and the three details above written out rather than described. |
+| `compose.caddy.yaml` | An overlay that puts Caddy in front. It repeats nothing the base file already says. |
+| `config.caddy.json` | The same gateway config with the two values that move behind Caddy. |
 
 oauth2-proxy reads two files, and that is not a preference. It refuses an option in one file that
 the other file replaces, and only the second file can name a request header of our own choice. Its
@@ -210,6 +291,10 @@ docker compose exec nanoinfra-gateway \
 publishes a port outside loopback, that `allowAnyVerifiedIdentity` is absent or false, that
 `allowedIdentities` names somebody, that the oauth2-proxy allowlist is not `*`, and that every
 secret is a recognisable placeholder.
+
+It reads **both shapes**, and for the Caddy one it reads base and overlay merged, because that is
+what runs. A guard that read the overlay alone would find no secrets to check and no peer address
+to compare, and would report that as a pass. It also pins the four Caddy details above.
 
 A reader can break this example silently. An edit that opens it fails that test, so a copy of
 these files cannot become an open agent by accident.

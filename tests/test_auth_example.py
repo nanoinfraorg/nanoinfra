@@ -12,6 +12,10 @@ copies it, edits it, and runs it. Four edits open it, and each one is silent:
 4. The oauth2-proxy allowlist becomes `*`, and the proxy admits whoever completes the flow. The
    gateway's approver list gives no warning, because it was never the list for that job.
 
+**The Caddy shape is checked too.** `compose.caddy.yaml` and `config.caddy.json` are a second
+way to run these files, and a guard that read only the first shape would let the second one open
+quietly -- the fixtures below therefore run every assertion against both.
+
 A fifth edit is not an edit at all: a placeholder that stays a placeholder in a deployment. So this
 file also reads every secret and requires the `REPLACE-ME` marker, which keeps the copy that a
 reader edits distinct from the copy this repository ships.
@@ -25,7 +29,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import yaml
@@ -51,14 +55,80 @@ def _load_yaml(name: str) -> dict[str, Any]:
     return yaml.safe_load((EXAMPLE_DIR / name).read_text(encoding="utf-8"))
 
 
-@pytest.fixture(scope="module")
-def compose() -> dict[str, Any]:
-    return _load_yaml("compose.yaml")
+# Both shapes: oauth2-proxy as the door, and Caddy in front of it. The two files of
+# one shape are one parameter and not two, because the peer the gateway trusts is the
+# address of whatever is directly in front of it -- crossing the pairs would assert
+# that the proxy's address is Caddy's.
+SHAPES = (
+    (("compose.yaml",), "config.json"),
+    (("compose.yaml", "compose.caddy.yaml"), "config.caddy.json"),
+)
+
+
+@pytest.fixture(scope="module", params=SHAPES, ids=["proxy-is-the-door", "caddy-in-front"])
+def shape(request: pytest.FixtureRequest) -> tuple[tuple[str, ...], str]:
+    return cast("tuple[tuple[str, ...], str]", request.param)
 
 
 @pytest.fixture(scope="module")
-def gateway_config() -> dict[str, Any]:
-    return json.loads((EXAMPLE_DIR / "config.json").read_text(encoding="utf-8"))
+def compose(shape: tuple[tuple[str, ...], str]) -> dict[str, Any]:
+    """The shape as it runs, which for the Caddy variant means base plus overlay.
+
+    An overlay repeats nothing: it names Caddy, one environment key and one mount, and
+    it inherits the rest. A guard that read the overlay alone would find no secrets to
+    check and no proxy address to compare -- and would report that as a pass.
+
+    So this merges, and it merges only the four keys the assertions below read:
+    ``environment`` as a mapping, ``ports`` as a list, ``networks`` as a mapping, and
+    ``volumes`` by container path so a later file can replace an earlier mount, which
+    is what config.caddy.json does. It is not a compose implementation and does not
+    try to be; a new assertion that reads a fifth key extends this.
+    """
+    merged: dict[str, Any] = {}
+    for name in shape[0]:
+        _merge_compose(merged, _load_yaml(name))
+    return merged
+
+
+def _merge_compose(into: dict[str, Any], overlay: dict[str, Any]) -> None:
+    for key, value in overlay.items():
+        if key != "services":
+            into.setdefault(key, value)
+            continue
+        services = cast(dict[str, Any], into.setdefault("services", {}))
+        for service_name, service in cast(dict[str, Any], value).items():
+            target = cast(dict[str, Any], services.setdefault(service_name, {}))
+            for field, field_value in cast(dict[str, Any], service).items():
+                if field == "environment" and isinstance(field_value, dict):
+                    env = cast(dict[str, Any], target.setdefault("environment", {}))
+                    if isinstance(env, dict):
+                        env.update(cast(dict[str, Any], field_value))
+                    continue
+                if field == "ports" and isinstance(field_value, list):
+                    ports = cast(list[Any], target.setdefault("ports", []))
+                    ports.extend(cast(list[Any], field_value))
+                    continue
+                if field == "networks" and isinstance(field_value, dict):
+                    nets = cast(dict[str, Any], target.setdefault("networks", {}))
+                    if isinstance(nets, dict):
+                        nets.update(cast(dict[str, Any], field_value))
+                    continue
+                if field == "volumes" and isinstance(field_value, list):
+                    mounts = cast(list[Any], target.setdefault("volumes", []))
+                    by_target = {str(m).rsplit(":", 2)[1] if str(m).count(":") >= 2
+                                 else str(m).split(":")[-1]: m for m in mounts}
+                    for mount in cast(list[Any], field_value):
+                        text = str(mount)
+                        container = text.rsplit(":", 2)[1] if text.count(":") >= 2 else text.split(":")[-1]
+                        by_target[container] = mount
+                    target["volumes"] = list(by_target.values())
+                    continue
+                target[field] = field_value
+
+
+@pytest.fixture(scope="module")
+def gateway_config(shape: tuple[tuple[str, ...], str]) -> dict[str, Any]:
+    return json.loads((EXAMPLE_DIR / shape[1]).read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")
@@ -248,9 +318,18 @@ def test_the_assertion_is_verified_and_not_merely_trusted(
 def test_the_trusted_peer_is_one_address_on_the_compose_network(
     compose: dict[str, Any], trusted_proxy_auth: dict[str, Any]
 ) -> None:
-    """A CIDR wider than the proxy would trust another container as an asserting proxy."""
-    proxy_address = compose["services"]["oauth2-proxy"]["networks"]["auth"]["ipv4_address"]
-    assert trusted_proxy_auth["trustedPeerCidrs"] == [f"{proxy_address}/32"]
+    """A CIDR wider than the peer would trust another container as an asserting proxy.
+
+    The peer is whatever sits directly in front of the gateway, and the two shapes put
+    something different there: oauth2-proxy when it is the door, Caddy when it is. So
+    the address comes from the service the assertion actually arrives from, which is
+    the one that reaches the gateway -- and getting this pair wrong is exactly how a
+    working stack starts refusing every assertion.
+    """
+    services = cast(dict[str, Any], compose["services"])
+    front = "caddy" if "caddy" in services else "oauth2-proxy"
+    peer = cast(dict[str, Any], services[front])["networks"]["auth"]["ipv4_address"]
+    assert trusted_proxy_auth["trustedPeerCidrs"] == [f"{peer}/32"]
 
 
 def test_the_proxy_sets_the_header_the_gateway_reads(
@@ -268,3 +347,55 @@ def test_the_proxy_sets_the_header_the_gateway_reads(
     assert header["values"] == [{"claim": "id_token"}], (
         "the assertion is the signed token, and not a claim the gateway can only trust"
     )
+
+
+# -- The Caddyfile ------------------------------------------------------------
+#
+# Three details cost an evening, and none of them fails loudly: the stack comes up,
+# the login works, and the gateway then answers the WebUI's own token prompt because
+# the assertion never arrived. So each one is pinned here rather than left in a
+# comment somebody edits around.
+
+
+@pytest.fixture(scope="module")
+def caddyfile() -> str:
+    return (EXAMPLE_DIR / "Caddyfile").read_text(encoding="utf-8")
+
+
+def test_the_caddyfile_strips_a_client_supplied_assertion(caddyfile: str) -> None:
+    """A signature would refuse a forged header, and a header that never arrives
+    cannot be read, logged or refused at all."""
+    assert "request_header -X-Nanoinfra-Assertion" in caddyfile
+
+
+def test_the_caddyfile_copies_the_assertion_off_the_auth_response(caddyfile: str) -> None:
+    """`forward_auth`'s own `copy_headers` lives inside a `handle_response` block that
+    directive generates. A `handle_response` of your own for the 401 replaces it, and
+    the token is then verified by oauth2-proxy and dropped by Caddy. The explicit form
+    is what survives having both."""
+    assert "{rp.header.X-Nanoinfra-Assertion}" in caddyfile
+    # The directive, not the word: the file names it in a comment to say why it is
+    # not used, and that comment is the point of this test rather than a violation.
+    assert not re.search(r"^\s*forward_auth\b", caddyfile, re.MULTILINE)
+
+
+def test_the_caddyfile_keeps_its_two_proxies_in_order(caddyfile: str) -> None:
+    """`handle` sorts directives by Caddy's own order, and this block has two proxies
+    whose order is the whole point: ask oauth2-proxy first, then the gateway."""
+    assert re.search(r"\broute\s*\{", caddyfile)
+
+
+def test_the_caddyfile_returns_to_the_port_it_was_reached_on(caddyfile: str) -> None:
+    """`{host}` drops the port, so a deployment on anything but 80 or 443 sends the
+    browser back to an address that does not answer."""
+    assert "{http.request.hostport}" in caddyfile
+    assert "://{host}" not in caddyfile
+
+
+def test_the_proxy_answers_the_auth_subrequest_with_the_token() -> None:
+    """`injectRequestHeaders` covers oauth2-proxy's own upstream, which is not the path
+    Caddy uses. Without the response list the subrequest answers 202 and no header."""
+    alpha = yaml.safe_load((EXAMPLE_DIR / "oauth2-proxy.alpha.yaml").read_text(encoding="utf-8"))
+    response_headers = cast(list[Any], alpha["injectResponseHeaders"])
+    names = {cast(dict[str, Any], header)["name"] for header in response_headers}
+    assert "X-Nanoinfra-Assertion" in names
