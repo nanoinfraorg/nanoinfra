@@ -1,6 +1,6 @@
 [project]
 name = "nanoinfra"
-version = "1.0.1"
+version = "1.0.2"
 description = "A lightweight self-hosted AI agent for infrastructure"
 readme = { file = "README_PYPI.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -61,6 +61,17 @@ dependencies = [
     "python-docx>=1.1.0,<2.0.0",
     "openpyxl>=3.1.0,<4.0.0",
     "python-pptx>=1.0.0,<2.0.0",
+    # The OpenAI-compatible API server. Same story as the transports below: it is a
+    # surface this project documents and ships a compose service for, and it was an
+    # extra, so `nanoinfra serve` in the published image answered ModuleNotFoundError.
+    "aiohttp>=3.9.0,<4.0.0",
+    # The transports. These were an extra, and the image installs no extras, so the
+    # published container could not reach a server over SSH, Ansible or SSM -- which
+    # is the whole product. An agent for infrastructure that has to be told to
+    # install the ability to reach infrastructure has the default the wrong way round.
+    "asyncssh>=2.14.0,<3.0.0",
+    "ansible-runner>=2.4.0,<3.0.0",
+    "boto3>=1.43.0",
     "pytest-playwright>=0.8.0",
     "cryptography>=42.0.0,<46.0.0",
 ]
@@ -73,6 +84,7 @@ Changelog = "https://docs.nanoinfra.org/release-archive/"
 
 [project.optional-dependencies]
 api = [
+    # Compatibility extra: aiohttp is bundled since v1.0.2.
     "aiohttp>=3.9.0,<4.0.0",
 ]
 azure = [
@@ -103,6 +115,8 @@ olostep = [
     "olostep>=0.1.0; python_version < '3.14'",
 ]
 servers = [
+    # Compatibility extra: the transports are bundled since v1.0.2. Kept so
+    # `nanoinfra[servers]` in somebody's requirements file keeps resolving.
     "asyncssh>=2.14.0,<3.0.0",
     "ansible-runner>=2.4.0,<3.0.0",
     "boto3>=1.43.0",
