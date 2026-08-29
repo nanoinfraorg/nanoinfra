@@ -498,26 +498,31 @@ function SidebarIdentity({
   // and Settings is where the whole string belongs. A sidebar shows the person.
   const shown = actor.includes(":") ? actor.slice(actor.indexOf(":") + 1) : actor;
   return (
-    <div
-      className="mt-2 flex items-center justify-between gap-2 border-t border-sidebar-border/60 pt-2"
-      data-testid="sidebar-identity"
-    >
-      <span
-        className="min-w-0 truncate text-[11.5px] text-muted-foreground"
-        title={actor}
-        data-testid="sidebar-identity-actor"
-      >
-        {shown}
-      </span>
-      {signOutPath ? (
-        <a
-          className="shrink-0 rounded px-1.5 py-0.5 text-[11.5px] text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
-          data-testid="sidebar-sign-out"
-          href={signOutPath}
+    // The rule spans the rail; the content sits at `px-3`, which is the action
+    // row's own padding and what SidebarVersion aligns to for the same reason.
+    // Without it this line started 12px left of the gear above it and of the
+    // version below it -- visible, and not explicable.
+    <div className="mt-2 border-t border-sidebar-border/60 pt-2" data-testid="sidebar-identity">
+      <div className="flex items-center justify-between gap-2 px-3">
+        <span
+          className="min-w-0 truncate text-[11.5px] text-sidebar-foreground/60"
+          title={actor}
+          data-testid="sidebar-identity-actor"
         >
-          {t("sidebar.signOut", { defaultValue: "Sign out" })}
-        </a>
-      ) : null}
+          {shown}
+        </span>
+        {signOutPath ? (
+          // The negative margin cancels the link's own padding, so its text ends on
+          // the same edge as the version line rather than 6px short of it.
+          <a
+            className="-mr-1.5 shrink-0 rounded px-1.5 py-0.5 text-[11.5px] text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            data-testid="sidebar-sign-out"
+            href={signOutPath}
+          >
+            {t("sidebar.signOut", { defaultValue: "Sign out" })}
+          </a>
+        ) : null}
+      </div>
     </div>
   );
 }
