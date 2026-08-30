@@ -23,6 +23,7 @@ from typing import Any
 
 import pytest
 
+from nanoinfra.config.loader import get_config_path
 from nanoinfra.gates.mcp_host import __main__ as entry_point
 from nanoinfra.gates.mcp_host import supervisor
 
@@ -155,6 +156,8 @@ def test_child_command_is_the_fixed_module_entry_point(tmp_path: Path) -> None:
         str(socket_path),
         "--workspace",
         str(tmp_path),
+        "--config",
+        str(get_config_path()),
     ]
     assert supervisor.MCP_HOST_MODULE == "nanoinfra.gates.mcp_host"
 

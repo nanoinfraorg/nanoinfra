@@ -864,6 +864,14 @@ def connectors_authorize(
         0, "--port", help="Loopback port for the redirect. Defaults to the connector default."
     ),
     no_browser: bool = typer.Option(False, "--no-browser", help="Print the URL and open nothing"),
+    manual: bool = typer.Option(
+        False,
+        "--manual",
+        help=(
+            "Start no local server: open the URL yourself and paste the URL Google redirects "
+            "to. Use this from a shell with no browser, or when the browser runs elsewhere."
+        ),
+    ),
     config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
     """Consent as a person, and store the refresh token this connector will act with.
@@ -896,7 +904,8 @@ def connectors_authorize(
             client_secret=client_secret,
             port=port or DEFAULT_LOOPBACK_PORT,
             login_hint=account,
-            open_browser=not no_browser,
+            open_browser=not (no_browser or manual),
+            manual=manual,
             print_fn=_print_plain,
         )
     except AuthorizationError as exc:

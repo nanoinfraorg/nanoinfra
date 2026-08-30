@@ -25,7 +25,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--socket", required=True, type=Path, help="Unix socket path to bind.")
     parser.add_argument("--workspace", required=True, type=Path, help="Workspace root path.")
+    # Which config this child reads. Without it the loader falls back to
+    # ~/.nanoinfra/config.json, so an instance started with `--config` ran its fetcher against
+    # another instance's settings -- and the Landlock rule already grants read on the parent's
+    # config file rather than on that fallback.
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Config file the parent loaded. Defaults to the standard location.",
+    )
     args = parser.parse_args(argv)
+
+    if args.config is not None:
+        # Before any import that reads config, because several modules resolve paths from it at
+        # import time.
+        from nanoinfra.config.loader import set_config_path
+
+        set_config_path(args.config)
 
     # The import stays local. A module level import would pull in httpx and the readers before
     # argparse checks the arguments. A bad argument must fail first.

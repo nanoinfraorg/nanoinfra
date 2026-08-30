@@ -56,6 +56,34 @@ def test_a_configured_connector_activates_with_its_operations_and_defaults() -> 
     assert entry.credential.name == "google-workspace"
 
 
+def test_a_manifest_field_default_applies_without_config_repeating_it() -> None:
+    """`calendarId: "primary"` is declared by the package, so config need not say it.
+
+    Without this the first call failed with "needs 'calendarId'" for a field the manifest had
+    already answered -- a path placeholder with no value.
+    """
+    cfg = _cfg(
+        connectors={"google-calendar": {"credential": "google-workspace"}}
+    )
+    active, problems = resolve_active(cfg)
+    assert problems == []
+    assert active[0].defaults == {"calendarId": "primary"}
+
+
+def test_an_operator_setting_wins_over_the_manifest_default() -> None:
+    """Config is the authority over a package."""
+    cfg = _cfg(
+        connectors={
+            "google-calendar": {
+                "credential": "google-workspace",
+                "settings": {"calendarId": "team@example.test"},
+            }
+        }
+    )
+    active, _problems = resolve_active(cfg)
+    assert active[0].defaults == {"calendarId": "team@example.test"}
+
+
 def test_nothing_activates_when_the_operator_asked_for_nothing() -> None:
     active, problems = resolve_active(_cfg(active=[]))
     assert (active, problems) == ([], [])

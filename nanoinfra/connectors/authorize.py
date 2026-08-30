@@ -49,6 +49,14 @@ DEFAULT_LOOPBACK_PORT = 8765 + 1
 # read a consent screen, short enough that a forgotten terminal does not hold a port all day.
 CONSENT_TIMEOUT_S = 300.0
 
+# Said before the URL, and again if the wait times out. A person who meets
+# `redirect_uri_mismatch` is looking at a browser error this process never receives, so the
+# only useful moment to name the two client types is before they click.
+REDIRECT_URI_NOTE = (
+    "A Desktop app client needs nothing registered for it. A Web application client must list "
+    "that exact string, trailing slash included, under its authorised redirect URIs."
+)
+
 _DONE_PAGE = (
     b"<!doctype html><meta charset=utf-8><title>nanoinfra</title>"
     b"<body style='font-family:system-ui;padding:3rem'>"
@@ -117,6 +125,46 @@ class _CodeHandler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 -- stdlib signature
         """Silence the stdlib access log: it would print the code in the URL."""
+
+
+def code_from_redirect(text: str, *, expected_state: str) -> str:
+    """Read the authorization code out of the URL Google redirected to.
+
+    The manual path exists because a redirect only has to *happen*, not to be *received*: the
+    browser lands on a page that fails to load, and its address bar still holds
+    ``?code=...&state=...``. So a shell with no browser, or one where the browser cannot reach
+    the loopback server, needs no local listener at all.
+
+    The state is checked here as well. In the loopback flow the local server checks it; on this
+    path there is no server, and dropping the check would accept a code from a page the operator
+    did not start.
+    """
+    candidate = text.strip()
+    if not candidate:
+        raise AuthorizationError("nothing was pasted, so nothing was stored")
+
+    if "?" in candidate or candidate.startswith("http"):
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(candidate).query)
+        error = (query.get("error") or [""])[0]
+        if error:
+            raise AuthorizationError(f"the consent screen returned {error!r}, so nothing was stored")
+        state = (query.get("state") or [""])[0]
+        if state != expected_state:
+            raise AuthorizationError(
+                "the pasted URL carries a different state than this flow issued, so it is not "
+                "this flow's redirect. Start again and paste the URL from the same run."
+            )
+        code = (query.get("code") or [""])[0]
+        if not code:
+            raise AuthorizationError(
+                "the pasted URL carries no code. Copy the whole address bar after Google "
+                "redirects, including everything after the '?'."
+            )
+        return code
+
+    # A bare code, for somebody who pulled it out of the URL themselves. There is no state to
+    # compare in that case, and saying so is better than pretending it was checked.
+    return candidate
 
 
 def authorize_url(
@@ -191,6 +239,54 @@ def exchange_code(
     return Authorization(refresh_token=refresh, granted_scopes=scopes)
 
 
+def _manual_consent(
+    *,
+    token_url: str,
+    client_id: str,
+    client_secret: str,
+    scopes: tuple[str, ...],
+    redirect_uri: str,
+    verifier: str,
+    challenge: str,
+    state: str,
+    login_hint: str,
+    print_fn: Callable[[str], None],
+    input_fn: Callable[[str], str],
+) -> Authorization:
+    """Consent with no local listener: the operator pastes the redirect back.
+
+    The redirect URI still has to be the loopback one, because Google removed the out-of-band
+    redirect in 2022. The browser therefore lands on a page that will not load, and that is
+    expected: the code is in the address bar either way.
+    """
+    url = authorize_url(
+        client_id=client_id,
+        scopes=scopes,
+        redirect_uri=redirect_uri,
+        challenge=challenge,
+        state=state,
+        login_hint=login_hint,
+    )
+    print_fn(f"Redirect this flow uses: {redirect_uri}")
+    print_fn(REDIRECT_URI_NOTE)
+    print_fn(f"\n1. Open this and consent as the account the connector should act as:\n\n{url}\n")
+    print_fn(
+        f"2. The browser will end up on {redirect_uri}... and fail to load. That is expected on "
+        "this path -- nothing is listening here."
+    )
+    print_fn("3. Copy the whole address bar from that failed page and paste it below.\n")
+    pasted = input_fn("Redirected URL: ")
+    code = code_from_redirect(pasted, expected_state=state)
+    return exchange_code(
+        token_url=token_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        code=code,
+        verifier=verifier,
+        redirect_uri=redirect_uri,
+    )
+
+
 def run_consent_flow(
     plugin: ConnectorPlugin,
     *,
@@ -200,13 +296,20 @@ def run_consent_flow(
     port: int = DEFAULT_LOOPBACK_PORT,
     login_hint: str = "",
     open_browser: bool = True,
+    manual: bool = False,
     print_fn: Callable[[str], None] = print,
+    input_fn: Callable[[str], str] = input,
 ) -> Authorization:
     """Take one person through consent and return the refresh token.
 
     ``scopes`` defaults to every scope the connector declares, across all its classes, because
     a credential granted less than that is refused at activation -- and being told that here,
     at the browser, is better than being told at the next boot.
+
+    ``manual`` starts no local server. The operator opens the URL, consents, and pastes the URL
+    the browser was redirected to -- which is what a shell with no browser needs, and what a
+    browser on another machine needs, because the redirect there cannot reach this loopback
+    address at all.
     """
     wanted = scopes or plugin.credential.declared_scopes()
     if not wanted:
@@ -218,6 +321,21 @@ def run_consent_flow(
     verifier, challenge = _pkce_pair()
     state = secrets.token_urlsafe(24)
     redirect_uri = f"http://{LOOPBACK_HOST}:{port}/"
+
+    if manual:
+        return _manual_consent(
+            token_url=token_url,
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=wanted,
+            redirect_uri=redirect_uri,
+            verifier=verifier,
+            challenge=challenge,
+            state=state,
+            login_hint=login_hint,
+            print_fn=print_fn,
+            input_fn=input_fn,
+        )
 
     handler = type("_Handler", (_CodeHandler,), {"finished": threading.Event(), "state": state})
     try:
@@ -239,7 +357,13 @@ def run_consent_flow(
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        print_fn(f"Open this and consent as the account the connector should act as:\n\n{url}\n")
+        # The redirect URI is printed before the URL, because it is the one value a person has
+        # to reconcile with the console. A web-application client validates it exactly, and the
+        # browser then shows `redirect_uri_mismatch` -- an error this process never sees, since
+        # Google refuses before it redirects. So the value goes on screen up front.
+        print_fn(f"Redirect this flow uses: {redirect_uri}")
+        print_fn(REDIRECT_URI_NOTE)
+        print_fn(f"\nOpen this and consent as the account the connector should act as:\n\n{url}\n")
         if open_browser:
             import webbrowser
 
@@ -247,7 +371,10 @@ def run_consent_flow(
         if not handler.finished.wait(CONSENT_TIMEOUT_S):
             raise AuthorizationError(
                 f"nobody completed the consent within {int(CONSENT_TIMEOUT_S)}s, so nothing was "
-                "stored."
+                f"stored.\n\nIf the browser showed 'Error 400: redirect_uri_mismatch', the OAuth "
+                f"client is a Web application and does not list {redirect_uri} -- add it there "
+                "exactly, with the trailing slash, or create a client of type Desktop app, which "
+                "needs no redirect registered at all."
             )
     finally:
         server.shutdown()
@@ -279,9 +406,11 @@ __all__ = [
     "CONSENT_TIMEOUT_S",
     "DEFAULT_LOOPBACK_PORT",
     "GOOGLE_AUTHORIZE_URL",
+    "REDIRECT_URI_NOTE",
     "Authorization",
     "AuthorizationError",
     "authorize_url",
+    "code_from_redirect",
     "exchange_code",
     "run_consent_flow",
 ]

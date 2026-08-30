@@ -144,9 +144,16 @@ class FetcherRuntime(ManagedProcessRuntime[FetcherStartOptions]):
     def _build_child_command(self, options: FetcherStartOptions) -> list[str]:
         """Return the fixed argv for the fetcher.
 
-        The argv holds a constant module name plus two paths. So a caller of this class still has
-        no way to run a program of its choice.
+        The argv holds a constant module name plus three paths. So a caller of this class still
+        has no way to run a program of its choice.
+
+        The config path travels because the child otherwise falls back to
+        ``~/.nanoinfra/config.json``: an instance started with ``--config`` ran its helper
+        against another instance's settings. The Landlock rule already grants read on this
+        exact file (``confinement._live_config_path``), so nothing widens.
         """
+        from nanoinfra.config.loader import get_config_path
+
         workspace = options.workspace
         if not workspace:
             raise FetcherStartError("the fetcher needs a workspace path")
@@ -158,6 +165,8 @@ class FetcherRuntime(ManagedProcessRuntime[FetcherStartOptions]):
             options.socket_path,
             "--workspace",
             workspace,
+            "--config",
+            str(get_config_path()),
         ]
 
     def _spawn(self, command: list[str], **kwargs: Any) -> subprocess.Popen[Any]:

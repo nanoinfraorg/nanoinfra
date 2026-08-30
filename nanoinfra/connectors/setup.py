@@ -120,6 +120,26 @@ def _operations_for(
     return capped
 
 
+def _defaults_for(plugin: ConnectorPlugin, settings: dict[str, str]) -> dict[str, Any]:
+    """What every call of this connector starts with.
+
+    A manifest field carries a default, and that default is part of the contract: Calendar
+    declares ``calendarId: "primary"``, so a deployment that says nothing about it means the
+    primary calendar. Reading only the operator's settings made a declared default a value
+    config had to repeat, and a path placeholder then had no value at all -- the first call
+    failed with "needs 'calendarId'" for a field the package had already answered.
+
+    The operator's settings win, because config is the authority over a package.
+    """
+    declared: dict[str, Any] = {}
+    if plugin.setup is not None:
+        for name, spec in plugin.setup.fields.items():
+            if spec.default not in (None, ""):
+                declared[name] = spec.default
+    declared.update(settings)
+    return declared
+
+
 def resolve_active(
     cfg: ConnectorRuntimeConfig,
 ) -> tuple[list[ActiveConnector], list[ActivationProblem]]:
@@ -172,7 +192,9 @@ def resolve_active(
                 plugin=plugin,
                 operations=operations,
                 credential=credential,
-                defaults=dict(connector_cfg.settings) if connector_cfg else {},
+                defaults=_defaults_for(
+                    plugin, dict(connector_cfg.settings) if connector_cfg else {}
+                ),
             )
         )
     return active, problems
