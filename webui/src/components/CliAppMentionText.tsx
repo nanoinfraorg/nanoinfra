@@ -16,7 +16,14 @@ type CliAppMentionSegment =
 
 /** A resource mention as it appears in text: the id is the token, the name is what is shown. */
 export interface ResourceMentionTarget {
-  kind: "server" | "diagram";
+  /**
+   * `server`, `diagram`, or a kind a data connector declares -- `calendar` for Google Calendar.
+   *
+   * A string rather than a union because which kinds exist depends on which connectors the
+   * deployment activated. The list of targets is the authority either way: the parser below
+   * builds its token map from these entries, so a kind nobody supplied matches nothing.
+   */
+  kind: string;
   id: string;
   name: string;
   detail: string;
@@ -106,7 +113,19 @@ export function splitCapabilityMentionSegments(
   // Greedy, not lazy: a lazy match stopped at the first dot and resolved "server:barrahome",
   // which is a different thing or nothing at all. Trailing sentence punctuation the greedy match
   // swallows is trimmed back below until the token resolves.
-  const mentionRe = /(^|[\s([{])@((?:server|diagram):[^\s([{)\]}]+|[\p{L}\p{N}_-]+)(?=$|[^\p{L}\p{N}_:.-])/giu;
+  // The kinds come from the targets rather than from a literal alternation. A data connector
+  // declares its own -- `calendar` -- so a hardcoded `server|diagram` silently refused to parse a
+  // token the picker had just inserted. Building it from the targets also means a kind nobody
+  // supplied cannot match, which is the property the token map already had.
+  const kindAlternation = Array.from(new Set(resources.map((resource) => resource.kind)))
+    .map((kind) => kind.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  const mentionRe = new RegExp(
+    kindAlternation
+      ? `(^|[\\s([{])@((?:${kindAlternation}):[^\\s([{)\\]}]+|[\\p{L}\\p{N}_-]+)(?=$|[^\\p{L}\\p{N}_:.-])`
+      : "(^|[\\s([{])@([\\p{L}\\p{N}_-]+)(?=$|[^\\p{L}\\p{N}_:.-])",
+    "giu",
+  );
   let cursor = 0;
   let match: RegExpExecArray | null;
   while ((match = mentionRe.exec(value)) !== null) {

@@ -164,7 +164,7 @@ def test_enabled_operations_narrows_what_the_model_sees(calendar: ConnectorPlugi
 def test_a_read_ceiling_drops_the_writes(calendar: ConnectorPlugin) -> None:
     """`maxClass` is the operator's answer to a package declaring its own classes."""
     capped = capped_operations(calendar.operations, "read")
-    assert [op.name for op in capped] == ["list_events", "get_event"]
+    assert [op.name for op in capped] == ["list_events", "list_calendars", "get_event"]
     assert len(capped_operations(calendar.operations, None)) == len(calendar.operations)
 
 

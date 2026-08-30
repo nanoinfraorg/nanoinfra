@@ -14,6 +14,7 @@ checkable: a reviewer or the loader can see that a `read` operation is a `GET`.
 from nanoinfra.channels._manifest import field, required_fields
 from nanoinfra.connectors.contracts import (
     ConnectorCredentialSpec,
+    ConnectorMentionSpec,
     ConnectorPlugin,
     ConnectorSetupSpec,
     operation,
@@ -53,6 +54,18 @@ PLUGIN = ConnectorPlugin(
     credential=CREDENTIAL,
     setup=SETUP,
     skill="SKILL.md",
+    # A calendar id is stable and its name is not, which is exactly when pinning is worth
+    # having: an automation that says "the team calendar" re-matches on every run.
+    mentions=(
+        ConnectorMentionSpec(
+            kind="calendar",
+            operation="list_calendars",
+            id_field="id",
+            label_field="summary",
+            detail_fields=("accessRole", "timeZone"),
+            argument="calendarId",
+        ),
+    ),
     operations=(
         operation(
             "list_events",
@@ -75,6 +88,25 @@ PLUGIN = ConnectorPlugin(
                     "timeMin": {"type": "string", "description": "RFC 3339 lower bound."},
                     "timeMax": {"type": "string", "description": "RFC 3339 upper bound."},
                     "maxResults": {"type": "integer", "description": "1-250, default 10."},
+                },
+            },
+        ),
+        operation(
+            "list_calendars",
+            "read",
+            "GET",
+            "/calendar/v3/users/me/calendarList",
+            returns=("id", "summary", "primary", "accessRole", "timeZone"),
+            collection="items",
+            description=(
+                "The calendars this account can see, with their ids. Use it to find the id of a "
+                "calendar the user named; the primary one carries primary=true and its id is the "
+                "account's own address."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "maxResults": {"type": "integer", "description": "1-250, default 100."},
                 },
             },
         ),

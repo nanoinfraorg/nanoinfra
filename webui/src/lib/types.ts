@@ -112,7 +112,8 @@ export interface UIMcpPresetAttachment {
 
 /** What the agent receives for an `@server:` or `@diagram:` mention: the id, never the name. */
 export interface ResourceMention {
-  kind: "server" | "diagram";
+  /** `server`, `diagram`, or a kind a data connector declares. Validated server-side. */
+  kind: string;
   id: string;
 }
 
@@ -1302,6 +1303,98 @@ export interface McpPresetInfo {
   enabled_tools?: string[];
   source?: "preset" | "custom" | string;
   manifest?: AppManifest;
+}
+
+export interface ConnectorGateAnswer {
+  outcome: "allow" | "approve" | "deny" | string;
+  reason: string;
+  grant_id: string;
+}
+
+export interface ConnectorOperationInfo {
+  name: string;
+  tool: string;
+  capability_class: string;
+  method: string;
+  description: string;
+  returns: string[];
+  enabled: boolean;
+  interactive: ConnectorGateAnswer;
+  unattended: ConnectorGateAnswer;
+}
+
+export interface ConnectorScopeInfo {
+  scope: string;
+  short: string;
+  capability_class: string;
+  granted: boolean;
+}
+
+export interface ConnectorSetupField {
+  name: string;
+  kind: string;
+  default: string;
+  required: boolean;
+  choices: string[];
+  secret: boolean;
+}
+
+export interface ConnectorInfo {
+  name: string;
+  display_name: string;
+  description: string;
+  state: "active" | "not_activated" | "inactive" | string;
+  problem: string;
+  credential: string;
+  max_class: string;
+  settings: Record<string, string>;
+  defaults: Record<string, string>;
+  official_url: string;
+  setup_fields: ConnectorSetupField[];
+  operations: ConnectorOperationInfo[];
+  scopes: ConnectorScopeInfo[];
+  classes: string[];
+  acts_as: string;
+  refreshed_at: string;
+  tested_at: string;
+  test_summary: string;
+  last_error: string;
+  last_error_at: string;
+  authorize_command: string;
+  testable: boolean;
+}
+
+export interface ConnectorObject {
+  connector: string;
+  kind: string;
+  id: string;
+  name: string;
+  detail: string;
+  argument: string;
+  tools: string[];
+  tool: string;
+}
+
+export interface ConnectorObjectsPayload {
+  objects: ConnectorObject[];
+  problems: { connector: string; message: string }[];
+}
+
+export interface ConnectorsPayload {
+  connectors: ConnectorInfo[];
+  installed_count: number;
+  active_count: number;
+  activation_key: string;
+}
+
+export interface ConnectorTestResult {
+  ok: boolean;
+  connector: string;
+  operation: string;
+  summary?: string;
+  acts_as?: string;
+  result?: string;
+  message?: string;
 }
 
 export interface McpPresetsPayload {

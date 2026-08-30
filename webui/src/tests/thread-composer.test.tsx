@@ -1404,6 +1404,20 @@ describe("ThreadComposer", () => {
     { id: "srv_a1b2", name: "db-01", providerId: "ssh", tags: ["prod"], updatedAt: "2026-08-21" },
     { id: "srv_c3d4", name: "web-01", providerId: "ssh", tags: ["edge"], updatedAt: "2026-08-21" },
   ];
+/** One connector object, shaped like the payload of /api/settings/connectors/objects. */
+const MENTION_CALENDARS = [
+  {
+    connector: "google-calendar",
+    kind: "calendar",
+    id: "cal_team@group.calendar.google.com",
+    name: "Team calendar",
+    detail: "owner · America/Mexico_City",
+    argument: "calendarId",
+    tools: ["google_calendar_list_events"],
+    tool: "google_calendar_list_events",
+  },
+];
+
   const MENTION_DIAGRAMS = [
     { id: "dg_1", name: "prod-net", targets: ["aws"], nodeCount: 11, updatedAt: "2026-08-21", status: "ok" },
   ];
@@ -1474,6 +1488,72 @@ describe("ThreadComposer", () => {
 
     expect(screen.getByRole("option", { name: /web-01/i })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /db-01/i })).not.toBeInTheDocument();
+  });
+
+  it("lists a connector's objects on @calendar: and pins the id", () => {
+    const onSend = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={onSend}
+        placeholder="Type your message..."
+        servers={MENTION_SERVERS}
+        connectorObjects={MENTION_CALENDARS}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: "@calendar:", selectionStart: 10 } });
+
+    expect(screen.getByRole("option", { name: /Team calendar/i })).toBeInTheDocument();
+    // A prefix narrows to one kind, exactly as @server: does.
+    expect(screen.queryByRole("option", { name: /db-01/i })).not.toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: "@calendar:team", selectionStart: 14 } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    // The name has a space, so the token falls back to the id rather than producing something
+    // the parser would split.
+    expect(input).toHaveValue("@calendar:cal_team@group.calendar.google.com ");
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).toHaveBeenCalledWith(
+      "@calendar:cal_team@group.calendar.google.com",
+      undefined,
+      {
+        resourceMentions: [
+          { kind: "calendar", id: "cal_team@group.calendar.google.com" },
+        ],
+      },
+    );
+  });
+
+  it("offers the connector prefix only when the connector has objects", () => {
+    const { unmount } = render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        servers={MENTION_SERVERS}
+        connectorObjects={MENTION_CALENDARS}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, { target: { value: "@cal", selectionStart: 4 } });
+    expect(screen.getByRole("option", { name: /calendar:/ })).toBeInTheDocument();
+    unmount();
+
+    // No connector, no prefix: a menu entry for a kind that resolves nothing would be a dead end.
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        servers={MENTION_SERVERS}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Message input"), {
+      target: { value: "@cal", selectionStart: 4 },
+    });
+    expect(screen.queryByRole("option", { name: /calendar:/ })).not.toBeInTheDocument();
   });
 
   it("matches a server on its tags, not only its name", () => {

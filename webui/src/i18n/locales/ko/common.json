@@ -626,7 +626,9 @@
       "featured": "도구",
       "loading": "앱을 불러오는 중...",
       "empty": "이 보기에 일치하는 도구가 없습니다.",
-      "restartRequired": "업데이트된 앱과 기능을 적용하려면 nanoinfra을 다시 시작하세요."
+      "restartRequired": "업데이트된 앱과 기능을 적용하려면 nanoinfra을 다시 시작하세요.",
+      "filterConnector": "Connectors",
+      "connectorLabel": "Connector"
     },
     "channels": {
       "description": "nanoinfra을 채팅 앱에 연결합니다. 지원 설치는 통합 패키지만 추가하며, 대부분의 채널은 여전히 토큰이나 워크스페이스 설정이 필요합니다.",
@@ -988,7 +990,9 @@
       "unavailableReasonLabel": "사용 불가 이유",
       "rawInstructions": "원본 SKILL.md",
       "rawInstructionsEmpty": "원본 지침이 없습니다.",
-      "detailDescription": "{{name}} 세부 정보."
+      "detailDescription": "{{name}} 세부 정보.",
+      "connectorGroup": "Connectors",
+      "sourceConnector": "Connector"
     },
     "voice": {
       "selectProvider": "제공자 선택",
@@ -1179,6 +1183,31 @@
         "cancel": "그대로 두기",
         "confirm": "넓히기"
       }
+    },
+    "connectors": {
+      "viaGrant": "allowed by a grant",
+      "needsGrant": "needs a grant",
+      "actsAs": "acts as {{identity}}",
+      "actsAsUnknown": "acts as: run Test to find out",
+      "refreshed": "refreshed {{when}}",
+      "neverRefreshed": "no token minted yet",
+      "notActivated": "did not activate",
+      "inactiveHint": "not activated — add it to {{key}} in config",
+      "interactive": "interactive",
+      "unattended": "unattended",
+      "missingScopes": "not granted: {{scopes}} — operations that need them are unavailable",
+      "operations": "Operations",
+      "operationDisabled": "not enabled here",
+      "scopes": "Scopes",
+      "settings": "Settings",
+      "heldInStore": "held in the secret store",
+      "unset": "not set",
+      "required": "required",
+      "officialUrl": "Where these come from",
+      "reauthorise": "Re-authorise",
+      "reauthoriseHint": "Consent happens at a browser, as a person, so it is a command rather than a button here.",
+      "lastTest": "last test {{when}}: {{summary}}",
+      "testing": "Testing…"
     }
   },
   "chat": {
@@ -1527,7 +1556,9 @@
         "serverGroup": "서버",
         "diagramGroup": "다이어그램",
         "serverBadge": "서버",
-        "diagramBadge": "다이어그램"
+        "diagramBadge": "다이어그램",
+        "connectorGroup": "Connectors",
+        "connectorPrefixHint": "Reference one of {{count}} {{kind}} objects"
       },
       "workspace": {
         "accessAria": "작업공간 접근 모드",

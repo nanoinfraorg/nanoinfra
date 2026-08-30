@@ -626,7 +626,9 @@
       "featured": "ツール",
       "loading": "アプリを読み込み中...",
       "empty": "この表示に一致するツールはありません。",
-      "restartRequired": "更新したアプリと機能を反映するには nanoinfra を再起動してください。"
+      "restartRequired": "更新したアプリと機能を反映するには nanoinfra を再起動してください。",
+      "filterConnector": "Connectors",
+      "connectorLabel": "Connector"
     },
     "channels": {
       "description": "nanoinfra をチャットアプリに接続します。サポートのインストールは統合パッケージを追加するだけで、多くのチャンネルでは引き続きトークンやワークスペース設定が必要です。",
@@ -988,7 +990,9 @@
       "unavailableReasonLabel": "利用不可の理由",
       "rawInstructions": "元の SKILL.md",
       "rawInstructionsEmpty": "元の説明はありません。",
-      "detailDescription": "{{name}} の詳細。"
+      "detailDescription": "{{name}} の詳細。",
+      "connectorGroup": "Connectors",
+      "sourceConnector": "Connector"
     },
     "voice": {
       "selectProvider": "プロバイダーを選択",
@@ -1179,6 +1183,31 @@
         "cancel": "そのままにする",
         "confirm": "広げる"
       }
+    },
+    "connectors": {
+      "viaGrant": "allowed by a grant",
+      "needsGrant": "needs a grant",
+      "actsAs": "acts as {{identity}}",
+      "actsAsUnknown": "acts as: run Test to find out",
+      "refreshed": "refreshed {{when}}",
+      "neverRefreshed": "no token minted yet",
+      "notActivated": "did not activate",
+      "inactiveHint": "not activated — add it to {{key}} in config",
+      "interactive": "interactive",
+      "unattended": "unattended",
+      "missingScopes": "not granted: {{scopes}} — operations that need them are unavailable",
+      "operations": "Operations",
+      "operationDisabled": "not enabled here",
+      "scopes": "Scopes",
+      "settings": "Settings",
+      "heldInStore": "held in the secret store",
+      "unset": "not set",
+      "required": "required",
+      "officialUrl": "Where these come from",
+      "reauthorise": "Re-authorise",
+      "reauthoriseHint": "Consent happens at a browser, as a person, so it is a command rather than a button here.",
+      "lastTest": "last test {{when}}: {{summary}}",
+      "testing": "Testing…"
     }
   },
   "chat": {
@@ -1527,7 +1556,9 @@
         "serverGroup": "サーバー",
         "diagramGroup": "図",
         "serverBadge": "サーバー",
-        "diagramBadge": "図"
+        "diagramBadge": "図",
+        "connectorGroup": "Connectors",
+        "connectorPrefixHint": "Reference one of {{count}} {{kind}} objects"
       },
       "workspace": {
         "accessAria": "ワークスペースのアクセスモード",

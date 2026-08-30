@@ -123,6 +123,7 @@ import {
   commissionAutomation,
   fetchAutomations,
   fetchCliApps,
+  fetchConnectors,
   fetchMcpPresets,
   fetchNanoinfraFeatures,
   fetchProviderModels,
@@ -136,6 +137,7 @@ import {
   resetAutomationState,
   runAutomationAction,
   runCliAppAction,
+  runConnectorTest,
   runMcpPresetAction,
   saveCustomMcpServer,
   startApiService,
@@ -178,6 +180,7 @@ import {
 } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
 import { shortWorkspacePath } from "@/lib/workspace";
+import { ConnectorAppsCatalogRow } from "@/components/settings/ConnectorAppsCatalogRow";
 import {
   resourceMentionsInText,
   type ResourceMentionTarget,
@@ -185,6 +188,8 @@ import {
 import type { DiagramSummary } from "@/components/diagrams/diagramTypes";
 import { useClient } from "@/providers/ClientProvider";
 import type {
+  ConnectorInfo,
+  ConnectorsPayload,
   ApiServicePayload,
   AutomationDeliveryPolicy,
   ResourceMention,
@@ -239,13 +244,14 @@ function isProviderOAuthPending(
   return (payload as ProviderOAuthPending).status === "pending";
 }
 
-type AppsKindFilter = "ready" | "cli" | "mcp";
+type AppsKindFilter = "ready" | "cli" | "mcp" | "connector";
 type AutomationFilter = "all" | "active" | "paused" | "failed" | "system";
 type AutomationSort = "next" | "last" | "updated" | "name";
 type AutomationAction = "enable" | "disable" | "delete" | "run";
 type AppsCatalogItem =
   | { id: string; kind: "cli"; app: CliAppInfo }
-  | { id: string; kind: "mcp"; preset: McpPresetInfo };
+  | { id: string; kind: "mcp"; preset: McpPresetInfo }
+  | { id: string; kind: "connector"; connector: ConnectorInfo };
 
 interface AgentSettingsDraft {
   model: string;
@@ -674,11 +680,17 @@ export function SettingsView({
   const [nanoinfraFeatures, setNanoinfraFeatures] = useState<NanoinfraFeaturesPayload | null>(null);
   const featureCatalog = nanoinfraFeatures?.features ?? [];
   const [mcpPresets, setMcpPresets] = useState<McpPresetsPayload | null>(null);
+  const [connectors, setConnectors] = useState<ConnectorsPayload | null>(null);
   const [automations, setAutomations] = useState<AutomationsPayload | null>(null);
   const [loading, setLoading] = useState(() => initialSettings === null);
   const [cliAppsLoading, setCliAppsLoading] = useState(true);
   const [nanoinfraFeaturesLoading, setNanoinfraFeaturesLoading] = useState(true);
   const [mcpPresetsLoading, setMcpPresetsLoading] = useState(true);
+  const [connectorsLoading, setConnectorsLoading] = useState(true);
+  const [connectorAction, setConnectorAction] = useState<string | null>(null);
+  const [connectorTestResults, setConnectorTestResults] = useState<
+    Record<string, { ok: boolean; message: string }>
+  >({});
   const [automationsLoading, setAutomationsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [modelPresetCreating, setModelPresetCreating] = useState(false);
@@ -1005,6 +1017,57 @@ export function SettingsView({
       cancelled = true;
     };
   }, [activeSection, getToken]);
+
+  useEffect(() => {
+    if (activeSection !== "apps") return;
+    let cancelled = false;
+    setConnectorsLoading(true);
+    fetchConnectors(getToken())
+      .then((payload) => {
+        if (!cancelled) setConnectors(payload);
+      })
+      .catch(() => {
+        // A connectors payload that will not load must not take the Apps page down: the CLI
+        // apps and the MCP rows are independent of it, and the row itself carries every
+        // failure a connector can have.
+      })
+      .finally(() => {
+        if (!cancelled) setConnectorsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSection, getToken]);
+
+  const handleConnectorTest = useCallback(
+    async (name: string) => {
+      setConnectorAction(name);
+      try {
+        const result = await runConnectorTest(getToken(), name);
+        const message = result.ok
+          ? [result.summary, result.acts_as ? `acts as ${result.acts_as}` : ""]
+              .filter(Boolean)
+              .join(" · ")
+          : result.message || "the test did not succeed";
+        setConnectorTestResults((current) => ({
+          ...current,
+          [name]: { ok: Boolean(result.ok), message },
+        }));
+        // The test records what it learned -- who the connector acts as, and when -- so the
+        // row reads it back from the payload rather than from this component's state.
+        const refreshed = await fetchConnectors(getToken());
+        setConnectors(refreshed);
+      } catch (err) {
+        setConnectorTestResults((current) => ({
+          ...current,
+          [name]: { ok: false, message: (err as Error).message },
+        }));
+      } finally {
+        setConnectorAction(null);
+      }
+    },
+    [getToken],
+  );
 
   useEffect(() => {
     if (activeSection !== "apps") return;
@@ -2336,8 +2399,13 @@ export function SettingsView({
           <AppsCatalogSettings
             cliApps={cliApps}
             mcpPresets={mcpPresets}
+            connectors={connectors}
             cliAppsLoading={cliAppsLoading}
             mcpPresetsLoading={mcpPresetsLoading}
+            connectorsLoading={connectorsLoading}
+            connectorActionKey={connectorAction}
+            connectorTestResults={connectorTestResults}
+            onConnectorTest={handleConnectorTest}
             query={appsQuery}
             filter={appsKindFilter}
             cliActionKey={cliAppsAction}
@@ -8308,8 +8376,13 @@ function ChannelsSettings({
 function AppsCatalogSettings({
   cliApps,
   mcpPresets,
+  connectors,
   cliAppsLoading,
   mcpPresetsLoading,
+  connectorsLoading,
+  connectorActionKey,
+  connectorTestResults,
+  onConnectorTest,
   query,
   filter,
   cliActionKey,
@@ -8342,8 +8415,13 @@ function AppsCatalogSettings({
 }: {
   cliApps: CliAppsPayload | null;
   mcpPresets: McpPresetsPayload | null;
+  connectors: ConnectorsPayload | null;
   cliAppsLoading: boolean;
   mcpPresetsLoading: boolean;
+  connectorsLoading: boolean;
+  connectorActionKey: string | null;
+  connectorTestResults: Record<string, { ok: boolean; message: string }>;
+  onConnectorTest: (name: string) => void;
   query: string;
   filter: AppsKindFilter;
   cliActionKey: string | null;
@@ -8381,6 +8459,7 @@ function AppsCatalogSettings({
     { value: "ready", label: tx("settings.apps.filterAll", "Ready") },
     { value: "cli", label: tx("settings.apps.filterCli", "Apps") },
     { value: "mcp", label: tx("settings.apps.filterMcp", "Integrations") },
+    { value: "connector", label: tx("settings.apps.filterConnector", "Connectors") },
   ];
   const normalizedQuery = query.trim().toLowerCase();
   const items: AppsCatalogItem[] = [
@@ -8389,6 +8468,11 @@ function AppsCatalogSettings({
       id: `mcp:${preset.name}`,
       kind: "mcp" as const,
       preset,
+    })),
+    ...(connectors?.connectors ?? []).map((connector) => ({
+      id: `connector:${connector.name}`,
+      kind: "connector" as const,
+      connector,
     })),
   ]
     .filter((item) => {
@@ -8403,15 +8487,19 @@ function AppsCatalogSettings({
     ? (cliApps?.apps ?? []).find((app) => app.name === cliFocusName && app.installed)
     : null;
   const loading =
-    (cliAppsLoading || mcpPresetsLoading) &&
+    (cliAppsLoading || mcpPresetsLoading || connectorsLoading) &&
     !cliApps &&
-    !mcpPresets;
+    !mcpPresets &&
+    !connectors;
   const statusMessage =
     cliError ||
     mcpError ||
     (!focusedApp ? cliMessage || mcpMessage : null);
   const statusIsError = Boolean(cliError || mcpError);
-  const readyCount = (cliApps?.installed_count ?? 0) + (mcpPresets?.installed_count ?? 0);
+  const readyCount =
+    (cliApps?.installed_count ?? 0)
+    + (mcpPresets?.installed_count ?? 0)
+    + (connectors?.active_count ?? 0);
   const caption = t("settings.apps.enabledSummary", {
     count: readyCount,
     defaultValue: "{{count}} ready",
@@ -8485,7 +8573,15 @@ function AppsCatalogSettings({
         ) : items.length ? (
           <div className="grid gap-x-10 gap-y-1 py-3 md:grid-cols-2">
             {items.map((item) =>
-              item.kind === "cli" ? (
+              item.kind === "connector" ? (
+                <ConnectorAppsCatalogRow
+                  key={item.id}
+                  connector={item.connector}
+                  busy={connectorActionKey === item.connector.name}
+                  testResult={connectorTestResults?.[item.connector.name] ?? null}
+                  onTest={onConnectorTest}
+                />
+              ) : item.kind === "cli" ? (
                 <CliAppsCatalogRow
                   key={item.id}
                   app={item.app}
@@ -8948,14 +9044,35 @@ const AppsActionButton = forwardRef<HTMLButtonElement, {
 });
 
 function appsTitle(item: AppsCatalogItem): string {
-  return item.kind === "cli" ? item.app.display_name : item.preset.display_name;
+  if (item.kind === "cli") return item.app.display_name;
+  if (item.kind === "mcp") return item.preset.display_name;
+  return item.connector.display_name;
 }
 
 function appsReady(item: AppsCatalogItem): boolean {
-  return item.kind === "cli" ? item.app.installed : item.preset.installed && item.preset.configured;
+  if (item.kind === "cli") return item.app.installed;
+  if (item.kind === "mcp") return item.preset.installed && item.preset.configured;
+  // `Ready` is a state filter across kinds rather than a kind of its own, so a connector
+  // belongs in it exactly when it is active -- the same bar an MCP server clears by being
+  // installed *and* configured.
+  return item.connector.state === "active";
 }
 
 function appsSearchText(item: AppsCatalogItem): string {
+  if (item.kind === "connector") {
+    const connector = item.connector;
+    return [
+      connector.display_name,
+      connector.name,
+      connector.description,
+      connector.acts_as,
+      connector.credential,
+      ...connector.operations.map((op) => `${op.tool} ${op.capability_class}`),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+  }
   if (item.kind === "cli") {
     const app = item.app;
     return [

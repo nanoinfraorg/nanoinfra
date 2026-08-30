@@ -32,6 +32,10 @@ from nanoinfra.runtime_context import RuntimeContextBlock, wrap_runtime_context_
 #: The kinds a mention may name. Sessions keep their own path: they predate this and their block
 #: says something different (read the history), so folding them in would change existing behaviour
 #: for no gain.
+#:
+#: A data connector adds its own kinds at runtime -- ``calendar`` for Google Calendar -- because
+#: which kinds exist depends on which connectors a deployment activated. :func:`mention_kinds`
+#: is the set to check against; this tuple is the part that is always there.
 RESOURCE_MENTION_KINDS: tuple[str, ...] = ("server", "diagram")
 
 #: How many mentions one message may carry. A bound because the payload is client-supplied, and
@@ -50,8 +54,9 @@ _DATA_LABEL = (
 )
 
 _TOOL_HINT = (
-    "These are references, not contents. Use get_server or get_diagram when the detail matters; "
-    "the ids below are exact, so there is no need to search or match on a name."
+    "These are references, not contents. Use get_server or get_diagram when the detail matters, "
+    "and for a connector object use the tool named in its 'use' field; the ids below are exact, "
+    "so there is no need to search or match on a name."
 )
 
 
@@ -89,6 +94,29 @@ class MentionResolution:
         raise UnresolvedMentionError(f"referenced resource no longer exists: {detail}")
 
 
+def connector_mention_kinds() -> frozenset[str]:
+    """The mention kinds the active connectors declare.
+
+    Reads config and the installed manifests, and nothing else: no network, no secret, no
+    executor. So this is safe on the send path, which is where it runs.
+    """
+    try:
+        from nanoinfra.config.loader import load_config
+        from nanoinfra.connectors.setup import resolve_active
+
+        active, _problems = resolve_active(load_config().connectors)
+    except Exception:  # noqa: BLE001 -- a broken connector must not cost every mention
+        return frozenset()
+    return frozenset(
+        mention.kind for entry in active for mention in entry.plugin.mentions
+    )
+
+
+def mention_kinds() -> frozenset[str]:
+    """Every kind a mention may name in this deployment."""
+    return frozenset(RESOURCE_MENTION_KINDS) | connector_mention_kinds()
+
+
 def normalize_resource_mentions(raw: object) -> list[tuple[str, str]]:
     """Read ``[{kind, id}]`` off a client payload, dropping anything malformed.
 
@@ -98,6 +126,7 @@ def normalize_resource_mentions(raw: object) -> list[tuple[str, str]]:
     """
     if not isinstance(raw, (list, tuple)):
         return []
+    allowed = mention_kinds()
     out: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for entry in list(cast("list[object] | tuple[object, ...]", raw)):
@@ -106,7 +135,7 @@ def normalize_resource_mentions(raw: object) -> list[tuple[str, str]]:
         item = cast("Mapping[str, object]", entry)
         kind = str(item.get("kind") or "").strip().lower()
         ident = str(item.get("id") or "").strip()
-        if kind not in RESOURCE_MENTION_KINDS or not ident:
+        if kind not in allowed or not ident:
             continue
         key = (kind, ident)
         if key in seen:
@@ -136,13 +165,80 @@ class ResourceMentionResolver:
         # holding it.
         servers = self._server_index() if any(k == "server" for k, _ in pairs) else {}
         diagrams = self._diagram_index() if any(k == "diagram" for k, _ in pairs) else {}
+        connectors = (
+            self._connector_index()
+            if any(k not in RESOURCE_MENTION_KINDS for k, _ in pairs)
+            else {}
+        )
         for kind, ident in pairs:
-            found = servers.get(ident) if kind == "server" else diagrams.get(ident)
+            if kind == "server":
+                found = servers.get(ident)
+            elif kind == "diagram":
+                found = diagrams.get(ident)
+            else:
+                found = connectors.get((kind, ident))
             if found is None:
                 missing.append((kind, ident))
                 continue
             resolved.append(found)
         return MentionResolution(resolved=resolved, missing=missing)
+
+    def _connector_index(self) -> dict[tuple[str, str], ResolvedMention]:
+        """The connector objects last listed, from the deployment's own record.
+
+        Read from the cache rather than from the API. A mention is resolved on every send, and a
+        listing there would put a network call on the path of every message and fail a send when
+        an API is slow. An id that is not in the cache is refused the same way an id naming no
+        server is: the picker refreshes it, and a chat turn drops the mention while an automation
+        stops.
+
+        The deployment's workspace, not this resolver's: a connector's credential and its objects
+        belong to the deployment, so a personal workspace has no calendars of its own.
+        """
+        from nanoinfra.config.loader import load_config
+        from nanoinfra.connectors import state as connector_state
+
+        index: dict[tuple[str, str], ResolvedMention] = {}
+        try:
+            workspace = Path(load_config().workspace_path)
+            recorded = connector_state.read_all(workspace)
+        except Exception:  # noqa: BLE001 -- an unreadable record resolves nothing, and no more
+            return index
+
+        for name, entry in recorded.items():
+            if not entry.objects:
+                continue
+            try:
+                raw = cast("object", json.loads(entry.objects))
+            except ValueError:
+                continue
+            if not isinstance(raw, list):
+                continue
+            for item in cast("list[object]", raw):
+                if not isinstance(item, Mapping):
+                    continue
+                obj = cast("Mapping[str, Any]", item)
+                kind = str(obj.get("kind") or "")
+                ident = str(obj.get("id") or "")
+                if not kind or not ident:
+                    continue
+                index[(kind, ident)] = ResolvedMention(
+                    kind=kind,
+                    id=ident,
+                    name=str(obj.get("name") or ident),
+                    summary={
+                        "connector": str(obj.get("connector") or name),
+                        "detail": str(obj.get("detail") or ""),
+                        # What makes a pinned id useful rather than decorative: the tool to call
+                        # and the argument this id fills.
+                        "use": (
+                            f"pass {obj.get('argument')}={ident} to {obj.get('tool')}"
+                            if obj.get("argument") and obj.get("tool")
+                            else ""
+                        ),
+                    },
+                )
+        return index
 
     def _server_index(self) -> dict[str, ResolvedMention]:
         from nanoinfra.servers.store import ServerStore

@@ -10,6 +10,9 @@ import type {
   ChannelValidationPayload,
   ChatSummary,
   CliAppsPayload,
+  ConnectorObjectsPayload,
+  ConnectorTestResult,
+  ConnectorsPayload,
   FilePreviewPayload,
   GatesApprovalAnswer,
   GatesApprovalAnswerValues,
@@ -1049,6 +1052,45 @@ export async function fetchMcpPresets(
     token,
     undefined,
     API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchConnectors(
+  token: string,
+  base: string = "",
+): Promise<ConnectorsPayload> {
+  return request<ConnectorsPayload>(
+    `${base}/api/settings/connectors`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchConnectorObjects(
+  token: string,
+  base: string = "",
+): Promise<ConnectorObjectsPayload> {
+  return request<ConnectorObjectsPayload>(
+    `${base}/api/settings/connectors/objects`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function runConnectorTest(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<ConnectorTestResult> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  // No read timeout: the test performs a real call through the executor, and the executor owns
+  // how long that may take.
+  return request<ConnectorTestResult>(
+    `${base}/api/settings/connectors/test?${query}`,
+    token,
   );
 }
 

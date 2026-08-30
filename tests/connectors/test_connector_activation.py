@@ -58,7 +58,12 @@ def test_a_configured_connector_activates_with_its_operations_and_defaults() -> 
     assert len(active) == 1
     entry = active[0]
     assert entry.name == "google-calendar"
-    assert [op.name for op in entry.operations] == ["list_events", "get_event", "create_event"]
+    assert [op.name for op in entry.operations] == [
+        "list_events",
+        "list_calendars",
+        "get_event",
+        "create_event",
+    ]
     assert entry.defaults == {"calendarId": "primary"}
     assert entry.credential.name == "google-workspace"
 
@@ -148,7 +153,11 @@ def test_the_same_read_only_credential_activates_a_connector_capped_at_read() ->
     )
     active, problems = resolve_active(cfg)
     assert problems == []
-    assert [op.name for op in active[0].operations] == ["list_events", "get_event"]
+    assert [op.name for op in active[0].operations] == [
+        "list_events",
+        "list_calendars",
+        "get_event",
+    ]
     assert "read" in startup_summary(active, problems)
 
 
@@ -203,6 +212,7 @@ def test_registration_adds_one_tool_per_enabled_operation(tmp_path: Any) -> None
     names = register_connector_tools(_ctx(tmp_path), registry, _cfg())
     assert names == [
         "google_calendar_list_events",
+        "google_calendar_list_calendars",
         "google_calendar_get_event",
         "google_calendar_create_event",
     ]

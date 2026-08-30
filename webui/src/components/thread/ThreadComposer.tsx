@@ -34,6 +34,7 @@ import {
   History,
   ImageIcon,
   Loader2,
+  CalendarDays,
   MessageCircle,
   Mic,
   Network,
@@ -53,6 +54,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import type { ConnectorObject } from "@/lib/types";
 import type { DiagramSummary } from "@/components/diagrams/diagramTypes";
 import type { ServerSummary } from "@/lib/api";
 
@@ -202,6 +204,8 @@ interface ThreadComposerProps {
   mcpPresets?: McpPresetInfo[];
   sessions?: ChatSummary[];
   servers?: ServerSummary[];
+  /** Mentionable objects of the active data connectors, from /api/settings/connectors/objects. */
+  connectorObjects?: ConnectorObject[];
   diagrams?: DiagramSummary[];
   skills?: SkillSummary[];
   onStop?: () => void;
@@ -322,17 +326,23 @@ interface QueuedPromptImage {
 interface CliAppMentionQuery {
   query: string;
   /** Set when the token carried a known `kind:` prefix, which narrows the menu to that kind. */
-  kind: ResourceMentionKind | null;
+  kind: MentionKind | null;
   start: number;
   end: number;
 }
 
+/**
+ * The mention kinds that always exist. A data connector adds its own -- `calendar` for Google
+ * Calendar -- so anything that has to know *every* kind reads the target list instead of this.
+ */
 export const RESOURCE_MENTION_KINDS = ["server", "diagram"] as const;
 /** Matches the server-side bound, so the composer cannot build a payload the gateway will trim. */
 const RESOURCE_MENTIONS_LIMIT = 16;
 /** A name safe to put in a mention token: no space and no colon for the parser to split on. */
 const TOKENISABLE_NAME = /^[\p{L}\p{N}_.-]+$/u;
 export type ResourceMentionKind = (typeof RESOURCE_MENTION_KINDS)[number];
+/** A mention kind: one of the built-ins, or one a connector declared. */
+export type MentionKind = ResourceMentionKind | string;
 
 type MentionCandidate = {
   name: string;
@@ -351,8 +361,19 @@ type MentionCandidate = {
       reference: ResourceMention;
       detail: string;
     }
+  /**
+   * One object of a data connector -- a calendar, a mailbox. `kind` stays a literal so the union
+   * keeps discriminating; the connector's own kind travels in `resourceKind`, because which
+   * kinds exist depends on which connectors the deployment activated.
+   */
+  | {
+      kind: "connector";
+      resourceKind: string;
+      reference: ResourceMention;
+      detail: string;
+    }
   /** A discoverability entry on a bare `@`: choosing it types the prefix. Nothing is referenced. */
-  | { kind: "prefix"; prefix: ResourceMentionKind; detail: string }
+  | { kind: "prefix"; prefix: MentionKind; detail: string }
 );
 
 interface MentionInsertion {
@@ -982,6 +1003,7 @@ export function ThreadComposer({
   cliApps = [],
   mcpPresets = [],
   servers = [],
+  connectorObjects = [],
   diagrams = [],
   sessions = [],
   skills = [],
@@ -1341,23 +1363,44 @@ export function ThreadComposer({
   }, [goalState?.active, isStreaming, modelLabel, recentSlashCommands, skills, skillQuery, slashQuery, t, visibleSlashCommands]);
 
   const showSlashMenu = filteredSlashCommands.length > 0;
+
+  /** The mention kinds the active connectors offer, from their own objects. */
+  const connectorKinds = useMemo(
+    () => new Set(connectorObjects.map((object) => object.kind)),
+    [connectorObjects],
+  );
+
+  /**
+   * The kinds a `@prefix:` may narrow to: the built-ins plus whatever the connectors declared.
+   * Derived rather than hardcoded, so a deployment that activates Gmail tomorrow gets its
+   * prefix with no change here.
+   */
+  const mentionPrefixKinds = useMemo(
+    () => new Set<string>([...RESOURCE_MENTION_KINDS, ...connectorKinds]),
+    [connectorKinds],
+  );
+
   const cliAppMention = useMemo<CliAppMentionQuery | null>(() => {
     if (disabled || cliAppMenuDismissed) return null;
     const caret = Math.min(Math.max(cursorPosition, 0), value.length);
-    const beforeCaret = value.slice(0, caret);
+  const beforeCaret = value.slice(0, caret);
     // The colon is in the class so `@server:db-01` stays one token. Without it the menu closed
     // the moment the colon was typed, which is what made a namespaced mention impossible.
     // The dot is in the class so a name like "barrahome.org" keeps the menu open while typing.
-    const match = /(?:^|\s)@([\p{L}\p{N}_:.-]*)$/iu.exec(beforeCaret);
+    // `@` and `#` are in it because a connector object's id is often an address --
+    // `albertof@barrahome.org`, `es.mexican#holiday@group.v.calendar.google.com` -- and without
+    // them the menu closed halfway through the id the picker had just inserted. A bare address
+    // still triggers nothing: the pattern needs whitespace or a line start before the `@`.
+    const match = /(?:^|\s)@([\p{L}\p{N}_:.@#-]*)$/iu.exec(beforeCaret);
     if (!match) return null;
     const token = match[1];
     const colon = token.indexOf(":");
     // An unprefixed token keeps meaning what it means today, so nothing an operator already
     // types changes behaviour. Only a known prefix narrows the menu.
     const rawKind = colon >= 0 ? token.slice(0, colon).toLowerCase() : "";
-    const kind = RESOURCE_MENTION_KINDS.includes(rawKind as ResourceMentionKind)
-      ? (rawKind as ResourceMentionKind)
-      : null;
+    // Every kind the deployment offers, not only the two built in: a connector declares its
+    // own, so `@calendar:` has to narrow the menu the way `@server:` does.
+    const kind = mentionPrefixKinds.has(rawKind) ? rawKind : null;
     const query = (colon >= 0 && kind ? token.slice(colon + 1) : token).toLowerCase();
     return {
       query,
@@ -1365,7 +1408,7 @@ export function ThreadComposer({
       start: caret - token.length - 1,
       end: caret,
     };
-  }, [cliAppMenuDismissed, cursorPosition, disabled, value]);
+  }, [cliAppMenuDismissed, cursorPosition, disabled, mentionPrefixKinds, value]);
 
   const availableSessionMentions = useMemo(
     () => sessionMentionOptions(
@@ -1401,7 +1444,16 @@ export function ThreadComposer({
       name: diagram.name,
       detail: `${diagram.nodeCount} nodes`,
     })),
-  ], [diagrams, servers]);
+    // A data connector's objects, whose kind comes from its manifest -- `calendar` for Google
+    // Calendar. Pinning one is worth it for the same reason it is for a server: an automation
+    // that says "the team calendar" re-matches on a name every run.
+    ...connectorObjects.map((object) => ({
+      kind: object.kind,
+      id: object.id,
+      name: object.name,
+      detail: object.detail,
+    })),
+  ], [connectorObjects, diagrams, servers]);
 
   /** The references actually present in the text, in the order they appear. */
   const liveResourceMentions = useMemo<ResourceMention[]>(
@@ -1474,14 +1526,40 @@ export function ThreadComposer({
           reference: { kind: "diagram" as const, id: diagram.id },
         }));
     }
+    // A connector kind, such as `@calendar:`. One branch for every connector because the kinds
+    // come from their manifests: matching on the name and the detail is what makes
+    // "@calendar:team" find a calendar whose id is a uuid.
+    if (cliAppMention.kind && connectorKinds.has(cliAppMention.kind)) {
+      const wanted = cliAppMention.kind;
+      return connectorObjects
+        .filter((object) => object.kind === wanted)
+        .filter((object) => [object.name, object.id, object.detail]
+          .join(" ").toLowerCase().includes(cliAppMention.query))
+        .slice(0, 8)
+        .map((object) => ({
+          kind: "connector" as const,
+          resourceKind: object.kind,
+          // The id is the token, and the title is the label. Putting the title in both read as
+          // "Team calendar @Team calendar" -- the row said one thing twice and never showed the
+          // id, which is the part that ends up in the message.
+          name: object.id,
+          displayName: object.name,
+          detail: object.detail || object.id,
+          reference: { kind: object.kind, id: object.id },
+        }));
+    }
     // Without these, the only way to learn that "@server:" exists is to be told. They appear on
     // an unprefixed query and disappear as soon as a prefix is typed.
     const prefixCandidates: MentionCandidate[] = cliAppMention.kind
       ? []
-      : ([
-        { prefix: "server" as const, count: servers.length },
-        { prefix: "diagram" as const, count: diagrams.length },
-      ])
+      : (([
+        { prefix: "server", count: servers.length },
+        { prefix: "diagram", count: diagrams.length },
+        ...Array.from(connectorKinds).map((kind) => ({
+          prefix: kind,
+          count: connectorObjects.filter((object) => object.kind === kind).length,
+        })),
+      ]) as { prefix: string; count: number }[])
         .filter(({ count }) => count > 0)
         .filter(({ prefix }) => prefix.startsWith(cliAppMention.query))
         .map(({ prefix, count }) => ({
@@ -1494,10 +1572,16 @@ export function ThreadComposer({
                 defaultValue: "Reference one of {{count}} servers",
                 count,
               })
-            : t("thread.composer.mentions.diagramPrefixHint", {
-                defaultValue: "Reference one of {{count}} diagrams",
-                count,
-              }),
+            : prefix === "diagram"
+              ? t("thread.composer.mentions.diagramPrefixHint", {
+                  defaultValue: "Reference one of {{count}} diagrams",
+                  count,
+                })
+              : t("thread.composer.mentions.connectorPrefixHint", {
+                  defaultValue: "Reference one of {{count}} {{kind}} objects",
+                  count,
+                  kind: prefix,
+                }),
         }));
     const sessionCandidates: MentionCandidate[] = availableSessionMentions
       .filter((mention) => (
@@ -1883,7 +1967,8 @@ export function ThreadComposer({
       // the operator; the server re-reads it from the store, so a rename does not strand the
       // reference.
       let token = candidate.name;
-      if (candidate.kind === "server" || candidate.kind === "diagram") {
+      if (candidate.kind === "server" || candidate.kind === "diagram" || candidate.kind === "connector") {
+        const tokenKind = candidate.kind === "connector" ? candidate.resourceKind : candidate.kind;
         // Nothing is recorded here. The token in the text is the record, resolved against the
         // catalogue, so a hand-typed token behaves exactly like a clicked one.
         //
@@ -1891,8 +1976,8 @@ export function ThreadComposer({
         // uuid; a name with a space, a colon or a dot -- "Example: blog on Azure",
         // "barrahome.org" -- falls back to the id rather than producing a token the parser splits.
         token = TOKENISABLE_NAME.test(candidate.name)
-          ? `${candidate.kind}:${candidate.name}`
-          : `${candidate.kind}:${candidate.reference.id}`;
+          ? `${tokenKind}:${candidate.name}`
+          : `${tokenKind}:${candidate.reference.id}`;
       }
       const insertion = mentionInsertion(value, token, start, end);
       setValue(insertion.value);
@@ -3107,7 +3192,7 @@ function CliAppMentionPalette({
     layout.maxHeight - SLASH_PALETTE_CHROME_PX,
   );
   const listRef = useSelectedOptionScroll(selectedIndex);
-  const groupedCandidates = (["prefix", "cli", "mcp", "session", "server", "diagram"] as const)
+  const groupedCandidates = (["prefix", "cli", "mcp", "session", "server", "diagram", "connector"] as const)
     .map((kind) => ({
       kind,
       label: kind === "prefix"
@@ -3120,7 +3205,9 @@ function CliAppMentionPalette({
             ? t("thread.composer.mentions.serverGroup", { defaultValue: "Servers" })
             : kind === "diagram"
               ? t("thread.composer.mentions.diagramGroup", { defaultValue: "Diagrams" })
-              : t("thread.composer.mentions.mcpGroup"),
+              : kind === "connector"
+                ? t("thread.composer.mentions.connectorGroup", { defaultValue: "Connectors" })
+                : t("thread.composer.mentions.mcpGroup"),
       items: candidates
         .map((candidate, index) => ({ candidate, index }))
         .filter(({ candidate }) => candidate.kind === kind),
@@ -3149,7 +3236,7 @@ function CliAppMentionPalette({
               const selected = index === selectedIndex;
               const name = candidate.name;
               const resource = candidate.kind === "server" || candidate.kind === "diagram"
-                || candidate.kind === "prefix";
+                || candidate.kind === "connector" || candidate.kind === "prefix";
               const typeLabel = candidate.kind === "cli"
                 ? t("thread.composer.mentions.cliBadge")
                 : candidate.kind === "mcp"
@@ -3160,7 +3247,12 @@ function CliAppMentionPalette({
                     ? t("thread.composer.mentions.serverBadge", { defaultValue: "Server" })
                     : candidate.kind === "diagram"
                       ? t("thread.composer.mentions.diagramBadge", { defaultValue: "Diagram" })
-                      : t("thread.composer.mentions.sessionBadge");
+                      : candidate.kind === "connector"
+                        // The connector's own kind, so a row says what it is -- "calendar" --
+                        // rather than falling through to the session badge, which is what it did
+                        // when this branch was missing.
+                        ? candidate.resourceKind
+                        : t("thread.composer.mentions.sessionBadge");
               // A resource reads out its summary -- provider and tags, or a node count -- because
               // that is what tells an operator which "db-01" they are about to pick.
               const ariaDescription = candidate.kind === "cli"
@@ -3243,7 +3335,9 @@ function MentionCandidateLogo({
       ? MessageCircle
       : candidate.kind === "server" || (candidate.kind === "prefix" && candidate.prefix === "server")
         ? Server
-        : Network;
+        : candidate.kind === "connector"
+          ? CalendarDays
+          : Network;
     return (
       <span className="flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground">
         <Icon className="h-4 w-4" aria-hidden />

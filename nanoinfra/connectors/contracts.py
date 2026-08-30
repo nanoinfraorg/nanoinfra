@@ -166,6 +166,41 @@ class ConnectorCredentialSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class ConnectorMentionSpec:
+    """One kind of object of this connector that a person may pin with a mention.
+
+    A mention is not for attaching content. It **pins identity**, so a task does not begin with
+    a search -- and the value is in an automation, where a fuzzy match on a name is re-done on
+    every run, so a rename or a second calendar silently changes what the 03:00 run touches.
+
+    ``argument`` is the field that makes a pinned id useful rather than decorative: it names the
+    operation argument the id fills, so the runtime context can say *pass ``calendarId=<id>``*
+    instead of leaving the model to guess which parameter an id belongs to.
+    """
+
+    #: The mention prefix a person types: ``@calendar:``.
+    kind: str
+    #: The read operation that lists these objects. It must be one of this connector's own.
+    operation: str
+    #: Where the id and the label live in the projected result.
+    id_field: str = "id"
+    label_field: str = "summary"
+    #: Extra projected fields worth showing in the picker and the context block.
+    detail_fields: tuple[str, ...] = ()
+    #: The operation argument this id fills.
+    argument: str = ""
+
+    def __post_init__(self) -> None:
+        if _NAME.fullmatch(self.kind) is None:
+            raise ValueError(
+                f"mention kind {self.kind!r} must start with a letter and hold only lowercase "
+                "letters, digits or underscores"
+            )
+        if not self.operation:
+            raise ValueError(f"mention kind {self.kind!r} names no listing operation")
+
+
+@dataclass(frozen=True, slots=True)
 class ConnectorPlugin:
     """Dependency-free manifest for one connector package.
 
@@ -185,6 +220,10 @@ class ConnectorPlugin:
     webui: str | None = None
     skill: str | None = None
     description: str = ""
+    #: The objects of this connector a person may pin with a mention. Empty means none, and a
+    #: connector with none is complete -- pinning is worth having where an id is stable and a
+    #: name is not.
+    mentions: tuple[ConnectorMentionSpec, ...] = ()
 
     def __post_init__(self) -> None:
         if _CONNECTOR_NAME.fullmatch(self.name) is None:
@@ -206,6 +245,22 @@ class ConnectorPlugin:
             cast(object, self.setup), ConnectorSetupSpec
         ):
             raise TypeError("connector setup must be a ConnectorSetupSpec or None")
+        for mention in self.mentions:
+            listing = self.operation(mention.operation)
+            if listing is None:
+                raise ValueError(
+                    f"connector {self.name!r} declares mention kind {mention.kind!r} listed by "
+                    f"{mention.operation!r}, which it does not offer"
+                )
+            if not listing.is_read:
+                # Listing what may be pinned must not be able to change anything: the picker
+                # calls this operation, and a picker that wrote would be a write nobody asked
+                # for.
+                raise ValueError(
+                    f"connector {self.name!r} lists mention kind {mention.kind!r} with "
+                    f"{mention.operation!r}, which is {listing.capability_class!r} rather than a "
+                    "read"
+                )
 
     @property
     def classes(self) -> tuple[str, ...]:
@@ -229,6 +284,7 @@ class ConnectorPlugin:
 
 __all__ = [
     "ConnectorCredentialSpec",
+    "ConnectorMentionSpec",
     "ConnectorOperation",
     "ConnectorPlugin",
     "ConnectorSetupSpec",

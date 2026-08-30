@@ -69,10 +69,18 @@ export function SkillsCatalogSettings({ skills }: { skills: SkillSummary[] }) {
       skills: filteredSkills.filter((skill) => skill.source === "builtin"),
     },
     {
+      key: "connector",
+      label: t("settings.skills.connectorGroup", { defaultValue: "Connectors" }),
+      skills: filteredSkills.filter((skill) => skill.source === "connector"),
+    },
+    {
       key: "other",
       label: t("settings.skills.otherGroup", { defaultValue: "Other" }),
       skills: filteredSkills.filter(
-        (skill) => skill.source !== "workspace" && skill.source !== "builtin",
+        (skill) =>
+          skill.source !== "workspace"
+          && skill.source !== "builtin"
+          && skill.source !== "connector",
       ),
     },
   ].filter((group) => group.skills.length);
@@ -799,6 +807,12 @@ function skillSourceLabel(source: string, t: TFunction): string {
   }
   if (source === "builtin") {
     return t("settings.skills.sourceBuiltin", { defaultValue: "Built-in" });
+  }
+  if (source === "connector") {
+    // A connector's skill is loaded because that connector is active, so the pill names the
+    // kind rather than the file's location: an operator turns it off by deactivating the
+    // connector, not by finding a directory.
+    return t("settings.skills.sourceConnector", { defaultValue: "Connector" });
   }
   return source;
 }

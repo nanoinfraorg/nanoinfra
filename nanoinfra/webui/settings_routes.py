@@ -49,6 +49,11 @@ from nanoinfra.pairing import approve_code, deny_code, list_pending
 from nanoinfra.webui.agent_plugins_api import agent_plugins_payload
 from nanoinfra.webui.assertion_identity import identity_panel_payload
 from nanoinfra.webui.cli_apps_api import cli_apps_action, cli_apps_payload
+from nanoinfra.webui.connectors_api import (
+    connector_objects,
+    connector_test,
+    webui_connectors_payload,
+)
 from nanoinfra.webui.http_utils import case_insensitive_header
 from nanoinfra.webui.http_utils import is_local_browser_request as _is_local_browser_request
 from nanoinfra.webui.http_utils import query_first as _query_first
@@ -259,6 +264,16 @@ class WebUISettingsRouter:
             return await self._handle_settings_cli_apps_action(request, "uninstall")
         if path == "/api/settings/cli-apps/test":
             return await self._handle_settings_cli_apps_action(request, "test")
+        # Read plus one action, and no enable: activation is declared in connectors.active and
+        # applied when the agent starts, so a toggle here would be a second authority. The test
+        # is the useful action -- a connector that was never tried and one whose token was
+        # revoked look identical without it.
+        if path == "/api/settings/connectors":
+            return await self._handle_settings_connectors(request)
+        if path == "/api/settings/connectors/test":
+            return await self._handle_settings_connector_test(request)
+        if path == "/api/settings/connectors/objects":
+            return await self._handle_settings_connector_objects(request)
         if path == "/api/settings/nanoinfra-features":
             return await self._handle_settings_nanoinfra_features(request)
         if path == "/api/settings/nanoinfra-features/enable":
@@ -852,6 +867,65 @@ class WebUISettingsRouter:
             if status >= 500:
                 self.logger.exception("CLI Apps action '{}' failed", action)
             return self._error_response(status, message)
+        return self._json_response(payload)
+
+    async def _handle_settings_connectors(self, request: WsRequest) -> Response:
+        if not self._authorized(request):
+            return self._unauthorized()
+        try:
+            # The deployment's workspace, not the caller's. A connector's credential and its
+            # recorded facts belong to the deployment -- the executor writes them beside its own
+            # workspace -- so a signed-in person reading their personal one would see an empty
+            # record while the executor kept writing to another file.
+            payload = await asyncio.to_thread(
+                webui_connectors_payload, self._deployment_workspace()
+            )
+        except Exception:
+            self.logger.exception("failed to load connectors payload")
+            return self._error_response(500, "failed to load connectors")
+        return self._json_response(payload)
+
+    async def _handle_settings_connector_test(self, request: WsRequest) -> Response:
+        if not self._authorized(request):
+            return self._unauthorized()
+        name = (_query_first(self._query(request), "name") or "").strip()
+        if not name:
+            return self._error_response(400, "name is required")
+        try:
+            # One real read through the executor, so a pass means the real path works. It blocks
+            # on a socket, so it runs off the event loop.
+            payload = await asyncio.to_thread(
+                connector_test, name, workspace_path=self._deployment_workspace()
+            )
+        except WebUISettingsError as exc:
+            return self._error_response(exc.status, exc.message)
+        except Exception:
+            self.logger.exception("connector test for '{}' failed", name)
+            return self._error_response(500, "the connector test failed")
+        return self._json_response(payload)
+
+    async def _handle_settings_connector_objects(self, request: WsRequest) -> Response:
+        """The objects a person may pin with a mention, for the composer's autocomplete.
+
+        One declared read per connector, and the result is cached: a mention is resolved on
+        every send, and this is the only place that pays for a listing.
+        """
+        if not self._authorized(request):
+            return self._unauthorized()
+        refresh = (_query_first(self._query(request), "refresh") or "").lower() not in {
+            "0",
+            "false",
+            "no",
+        }
+        try:
+            payload = await asyncio.to_thread(
+                connector_objects,
+                workspace_path=self._deployment_workspace(),
+                refresh=refresh,
+            )
+        except Exception:
+            self.logger.exception("failed to list connector objects")
+            return self._error_response(500, "failed to list connector objects")
         return self._json_response(payload)
 
     async def _handle_settings_nanoinfra_features(self, request: WsRequest) -> Response:

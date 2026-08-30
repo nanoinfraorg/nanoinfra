@@ -626,7 +626,9 @@
       "featured": "Herramientas",
       "loading": "Cargando aplicaciones...",
       "empty": "Ninguna herramienta coincide con esta vista.",
-      "restartRequired": "Reinicia nanoinfra para aplicar las aplicaciones y funciones actualizadas."
+      "restartRequired": "Reinicia nanoinfra para aplicar las aplicaciones y funciones actualizadas.",
+      "filterConnector": "Connectors",
+      "connectorLabel": "Connector"
     },
     "channels": {
       "description": "Conecta nanoinfra con aplicaciones de chat. Instalar el soporte solo añade el paquete de integración; la mayoría de canales aún necesitan tokens o configuración del espacio de trabajo.",
@@ -988,7 +990,9 @@
       "unavailableReasonLabel": "Motivo de indisponibilidad",
       "rawInstructions": "SKILL.md original",
       "rawInstructionsEmpty": "No hay instrucciones originales.",
-      "detailDescription": "Detalles de {{name}}."
+      "detailDescription": "Detalles de {{name}}.",
+      "connectorGroup": "Connectors",
+      "sourceConnector": "Connector"
     },
     "voice": {
       "selectProvider": "Seleccionar proveedor",
@@ -1179,6 +1183,31 @@
         "cancel": "Dejarlo como está",
         "confirm": "Ampliarlo"
       }
+    },
+    "connectors": {
+      "viaGrant": "allowed by a grant",
+      "needsGrant": "needs a grant",
+      "actsAs": "acts as {{identity}}",
+      "actsAsUnknown": "acts as: run Test to find out",
+      "refreshed": "refreshed {{when}}",
+      "neverRefreshed": "no token minted yet",
+      "notActivated": "did not activate",
+      "inactiveHint": "not activated — add it to {{key}} in config",
+      "interactive": "interactive",
+      "unattended": "unattended",
+      "missingScopes": "not granted: {{scopes}} — operations that need them are unavailable",
+      "operations": "Operations",
+      "operationDisabled": "not enabled here",
+      "scopes": "Scopes",
+      "settings": "Settings",
+      "heldInStore": "held in the secret store",
+      "unset": "not set",
+      "required": "required",
+      "officialUrl": "Where these come from",
+      "reauthorise": "Re-authorise",
+      "reauthoriseHint": "Consent happens at a browser, as a person, so it is a command rather than a button here.",
+      "lastTest": "last test {{when}}: {{summary}}",
+      "testing": "Testing…"
     }
   },
   "chat": {
@@ -1527,7 +1556,9 @@
         "serverGroup": "Servidores",
         "diagramGroup": "Diagramas",
         "serverBadge": "Servidor",
-        "diagramBadge": "Diagrama"
+        "diagramBadge": "Diagrama",
+        "connectorGroup": "Connectors",
+        "connectorPrefixHint": "Reference one of {{count}} {{kind}} objects"
       },
       "workspace": {
         "accessAria": "Modo de acceso al espacio de trabajo",

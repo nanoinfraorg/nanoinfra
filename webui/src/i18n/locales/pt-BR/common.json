@@ -626,7 +626,9 @@
       "featured": "Ferramentas",
       "loading": "Carregando aplicativos...",
       "empty": "Nenhuma ferramenta corresponde a esta visualização.",
-      "restartRequired": "Reinicie o nanoinfra para aplicar os aplicativos e integrações atualizados."
+      "restartRequired": "Reinicie o nanoinfra para aplicar os aplicativos e integrações atualizados.",
+      "filterConnector": "Connectors",
+      "connectorLabel": "Connector"
     },
     "channels": {
       "description": "Conecte aplicativos de chat, e-mail e WebUI ao nanoinfra.",
@@ -988,7 +990,9 @@
       "unavailableReasonLabel": "Motivo da indisponibilidade",
       "rawInstructions": "SKILL.md bruto",
       "rawInstructionsEmpty": "Sem instruções brutas.",
-      "detailDescription": "Detalhes de {{name}}."
+      "detailDescription": "Detalhes de {{name}}.",
+      "connectorGroup": "Connectors",
+      "sourceConnector": "Connector"
     },
     "voice": {
       "selectProvider": "Selecionar provedor",
@@ -1179,6 +1183,31 @@
         "cancel": "Manter como está",
         "confirm": "Ampliar"
       }
+    },
+    "connectors": {
+      "viaGrant": "allowed by a grant",
+      "needsGrant": "needs a grant",
+      "actsAs": "acts as {{identity}}",
+      "actsAsUnknown": "acts as: run Test to find out",
+      "refreshed": "refreshed {{when}}",
+      "neverRefreshed": "no token minted yet",
+      "notActivated": "did not activate",
+      "inactiveHint": "not activated — add it to {{key}} in config",
+      "interactive": "interactive",
+      "unattended": "unattended",
+      "missingScopes": "not granted: {{scopes}} — operations that need them are unavailable",
+      "operations": "Operations",
+      "operationDisabled": "not enabled here",
+      "scopes": "Scopes",
+      "settings": "Settings",
+      "heldInStore": "held in the secret store",
+      "unset": "not set",
+      "required": "required",
+      "officialUrl": "Where these come from",
+      "reauthorise": "Re-authorise",
+      "reauthoriseHint": "Consent happens at a browser, as a person, so it is a command rather than a button here.",
+      "lastTest": "last test {{when}}: {{summary}}",
+      "testing": "Testing…"
     }
   },
   "chat": {
@@ -1511,7 +1540,9 @@
         "serverGroup": "Servidores",
         "diagramGroup": "Diagramas",
         "serverBadge": "Servidor",
-        "diagramBadge": "Diagrama"
+        "diagramBadge": "Diagrama",
+        "connectorGroup": "Connectors",
+        "connectorPrefixHint": "Reference one of {{count}} {{kind}} objects"
       },
       "encoding": "Codificando…",
       "remove": "Remover anexo",

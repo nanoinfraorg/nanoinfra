@@ -22,6 +22,7 @@ import {
   fetchDiagrams,
   fetchFilePreviewAvailability,
   fetchInstalledCliApps,
+  fetchConnectorObjects,
   fetchMcpPresets,
   fetchServers,
   fetchSettings,
@@ -40,6 +41,7 @@ import {
 import type { CanonicalRunSnapshot, StreamError } from "@/lib/nanoinfra-client";
 import { inferProviderFromModelName, providerDisplayLabel } from "@/lib/provider-brand";
 import type {
+  ConnectorObject,
   ChatSummary,
   SettingsPayload,
   SlashCommand,
@@ -649,6 +651,11 @@ export function ThreadShell({
   // against the store at send time, so a stale menu entry is refused rather than acted on.
   const [mentionServers, setMentionServers] = useState<ServerSummary[]>([]);
   const [mentionDiagrams, setMentionDiagrams] = useState<DiagramSummary[]>([]);
+  // A connector's objects come from the connector rather than from a local store, so this is one
+  // read through the executor per shell. The result is cached server-side: a mention resolves
+  // against that cache at send time, so a menu entry that has gone stale is refused rather than
+  // acted on -- the same posture as a renamed server.
+  const [mentionConnectorObjects, setMentionConnectorObjects] = useState<ConnectorObject[]>([]);
   useEffect(() => {
     let cancelled = false;
     void fetchServers(getToken())
@@ -664,6 +671,16 @@ export function ThreadShell({
       })
       .catch(() => {
         if (!cancelled) setMentionDiagrams([]);
+      });
+    void fetchConnectorObjects(getToken())
+      .then((payload) => {
+        if (!cancelled) setMentionConnectorObjects(payload.objects);
+      })
+      .catch(() => {
+        // A connector that cannot be listed offers no mentions, and the rest of the menu is
+        // unaffected. Nothing here is worth a message: the Apps row is where a connector's
+        // failures are reported.
+        if (!cancelled) setMentionConnectorObjects([]);
       });
     return () => {
       cancelled = true;
@@ -1340,6 +1357,7 @@ export function ThreadShell({
           slashCommands={slashCommands}
           cliApps={cliApps}
           servers={mentionServers}
+          connectorObjects={mentionConnectorObjects}
           diagrams={mentionDiagrams}
           mcpPresets={mcpPresets}
           sessions={mentionSessions}
@@ -1387,6 +1405,7 @@ export function ThreadShell({
           slashCommands={slashCommands}
           cliApps={cliApps}
           servers={mentionServers}
+          connectorObjects={mentionConnectorObjects}
           diagrams={mentionDiagrams}
           mcpPresets={mcpPresets}
           sessions={mentionSessions}
