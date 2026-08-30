@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import AliasChoices, ConfigDict, Field
+from pydantic import AliasChoices, ConfigDict, Field, model_validator
 
 from nanoinfra.config_base import Base
 
@@ -109,6 +109,17 @@ class StandingGrant(Base):
 
     ``hosts`` names inventory records. #24 compares the *resolved* target instead of the
     label, because an inventory write can repoint a label at another address.
+
+    ``connectors`` and ``operations`` are the same idea for a data connector, which has
+    neither a host nor a command string. Without them a connector's write is ``mutate.remote``
+    in an unattended turn with no grant that could ever match it -- permanently denied, so
+    "reply to the on-call thread overnight" is not expressible. They carry exact names for the
+    same reason ``commands`` does: a grant matches, or it does not.
+
+    A grant names **one kind of action**. A grant that named both a host and a connector would
+    have to mean either "and" or "or", and both readings are wrong: the first makes a grant
+    that never matches, the second silently widens one grant into two. The validator refuses it
+    instead of choosing.
     """
 
     model_config = _FORBID_EXTRA
@@ -117,6 +128,26 @@ class StandingGrant(Base):
     contexts: list[Literal["interactive", "unattended"]] = Field(default_factory=lambda: ["unattended"])
     hosts: list[str] = Field(default_factory=list)
     commands: list[str] = Field(default_factory=list)
+    connectors: list[str] = Field(default_factory=list)
+    operations: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _one_kind_of_action(self) -> StandingGrant:
+        names_command = bool(self.hosts or self.commands)
+        names_connector = bool(self.connectors or self.operations)
+        if names_command and names_connector:
+            raise ValueError(
+                "a standing grant names hosts and commands, or connectors and operations, "
+                "never both: split it into two grants"
+            )
+        # Half a grant matches nothing, and an operator who wrote one will be waiting for it to
+        # work. Say so at load rather than at 03:00.
+        if bool(self.connectors) != bool(self.operations):
+            raise ValueError(
+                "a connector grant needs both 'connectors' and 'operations'; one without the "
+                "other matches nothing"
+            )
+        return self
 
 
 class Approver(Base):

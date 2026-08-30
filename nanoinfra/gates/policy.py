@@ -41,6 +41,7 @@ from nanoinfra.agent.tools.capabilities import (
     CREDENTIAL_ACCESS,
     MUTATE_INVENTORY,
     MUTATE_REMOTE,
+    READ,
 )
 from nanoinfra.agent.tools.context import EXECUTION_CONTEXT_INTERACTIVE
 from nanoinfra.servers.scope import ALL, GROUP, HOST
@@ -191,6 +192,7 @@ def _grant_matches(
     command: str,
     servers: Any = None,
     cache: dict[str, set[str]] | None = None,
+    connector_grant: bool = False,
 ) -> bool:
     """True when this grant covers the whole action.
 
@@ -201,6 +203,11 @@ def _grant_matches(
     if command not in grant_commands:
         return False
     if not hosts:
+        return False
+    if connector_grant:
+        # A connector grant permits a connector call and nothing else. Matching it here would
+        # let a grant written for `send_message` cover a shell command that happened to share
+        # the name.
         return False
     # With an inventory, compare resolved targets (#24). Without one, compare labels: an
     # inventory write reaches no host, so #23's caller has nothing to resolve, and every
@@ -232,6 +239,7 @@ def _matching_grant_id(
             command=command,
             servers=servers,
             cache=cache,
+            connector_grant=bool(grant.connectors or grant.operations),
         ):
             return grant.id or f"grant[{index}]"
     return None
@@ -348,6 +356,110 @@ def evaluate(
             else f"{capability_class} at {scope} scope is deny for a {context_key} context.",
         )
     return Decision(outcome, f"{capability_class} at {scope} scope is {configured}.")
+
+
+def _connector_grant_matches(
+    grant: Any, *, connector: str, operation: str
+) -> bool:
+    """True when this grant was written for this connector call.
+
+    A grant that names hosts or commands is not a connector grant, and the schema already
+    refuses one that names both. This still checks, because a config written before that
+    validator existed must not match here by having empty connector lists.
+    """
+    if not grant.connectors or not grant.operations:
+        return False
+    if grant.hosts or grant.commands:
+        return False
+    return connector in grant.connectors and operation in grant.operations
+
+
+def _matching_connector_grant_id(
+    gates: GatesConfig, *, context_key: str, connector: str, operation: str
+) -> str | None:
+    for index, grant in enumerate(gates.standing_grants):
+        if context_key not in grant.contexts:
+            continue
+        if _connector_grant_matches(grant, connector=connector, operation=operation):
+            return grant.id or f"grant[{index}]"
+    return None
+
+
+def evaluate_connector(
+    gates: GatesConfig,
+    *,
+    capability_class: str,
+    execution_context: str,
+    connector: str,
+    operation: str,
+) -> Decision:
+    """Decide one connector operation. The class comes from the connector's manifest.
+
+    Scope is ``host``, and the reason is the same one inventory writes give: a connector call
+    reaches one remote service under one credential, so blast radius does not vary with the
+    operation. Widening it per operation would invent a tier the matrix does not model.
+
+    ``read`` is not a gated class, here or anywhere, so a read is allowed and the record of it
+    is the audit log rather than a decision. That asymmetry **is** the design: an MCP server's
+    tools all resolve to ``mutate.remote``, and a connector that declares ``read`` on its GETs
+    is what buys the difference.
+    """
+    unattended = execution_context != EXECUTION_CONTEXT_INTERACTIVE
+    context_key = "unattended" if unattended else "interactive"
+
+    if capability_class == READ:
+        return Decision(Outcome.ALLOW, f"{connector}.{operation} is a read.")
+
+    if capability_class != MUTATE_REMOTE:
+        # A connector operation is a remote call or a read of one. Anything else means the
+        # manifest declared a class this path does not model, and inventing a policy for it
+        # here would be the fail-open direction.
+        return Decision(
+            Outcome.DENY,
+            f"Refusing {connector}.{operation}: a connector operation cannot be "
+            f"{capability_class!r}.",
+        )
+
+    policy = _context_policy(gates, unattended=unattended)
+    configured = policy.mutate_remote.host
+
+    if configured in ("grant", "approve"):
+        grant_id = _matching_connector_grant_id(
+            gates, context_key=context_key, connector=connector, operation=operation
+        )
+        if grant_id is not None:
+            return Decision(
+                Outcome.ALLOW,
+                f"Standing grant {grant_id} covers {connector}.{operation}, so nobody was asked.",
+                grant_id,
+            )
+        if configured == "grant":
+            return Decision(
+                Outcome.DENY,
+                f"Refusing {connector}.{operation}: gates.{context_key}.mutate.remote.host is "
+                "'grant' and no standing grant names it. Add "
+                f'{{"connectors": ["{connector}"], "operations": ["{operation}"]}} to '
+                "gates.standingGrants to permit it.",
+            )
+
+    outcome = _decision_for(configured)
+    if outcome is Outcome.DENY:
+        shadowed = _matching_connector_grant_id(
+            gates, context_key=context_key, connector=connector, operation=operation
+        )
+        if shadowed is not None:
+            return Decision(
+                Outcome.DENY,
+                f"Standing grant {shadowed} covers {connector}.{operation}, but "
+                f"gates.{context_key}.mutate.remote.host is {configured!r}. "
+                "Set it to 'grant' for the grant to apply.",
+            )
+        return Decision(
+            Outcome.DENY,
+            f"Refusing {connector}.{operation}: gates.{context_key}.mutate.remote.host is "
+            f"{configured!r}.",
+        )
+    return Decision(outcome, f"{connector}.{operation} is {capability_class}, which is {configured}.")
 
 
 def evaluate_credential_access(
@@ -470,6 +582,7 @@ __all__ = [
     "Decision",
     "Outcome",
     "evaluate",
+    "evaluate_connector",
     "evaluate_credential_access",
     "load_policy",
 ]

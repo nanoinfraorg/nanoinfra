@@ -163,7 +163,11 @@ include = [
     "nanoinfra/templates/**/*.md",
     "nanoinfra/skills/**/*.md",
     "nanoinfra/skills/**/*.sh",
+    # A connector ships its own skill beside its manifest, so the file has to travel with the
+    # wheel: a connector whose skill is missing is a connector the model uses by guessing.
+    "nanoinfra/connectors/**/*.md",
     "nanoinfra/channels/*/webui/**/*",
+    "nanoinfra/connectors/*/webui/**/*",
     "nanoinfra/web/dist/**/*",
 ]
 # nanoinfra/web/dist/ is produced by `cd webui && bun run build` and is
