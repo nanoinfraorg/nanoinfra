@@ -16,6 +16,12 @@ Item 10 (#47) took the version to 3 and added ``origin_actor``. The field set ch
 version rises. The executor treats both origin fields as the agent's assertion about itself, and
 an absent identity travels as null rather than as an empty string, because #13 must be able to
 tell "no identity" from a person named by the empty text.
+
+Data connectors took the version to 5 and added a second request kind. The kind travels in the
+envelope beside the version, so one socket serves two shapes and neither can be read as the
+other. The connector frame names a connector and an operation and never a URL or a method: the
+executor reads those from the installed manifest, so a frame cannot describe a call the package
+never declared, and it cannot relabel a write as a read.
 """
 
 from __future__ import annotations
@@ -26,6 +32,7 @@ import pytest
 
 from nanoinfra.gates.executor.protocol import (
     PROTOCOL_VERSION,
+    ConnectorRequest,
     ExecuteRequest,
     ExecuteResponse,
     ProtocolError,
@@ -66,6 +73,75 @@ def test_a_response_round_trips() -> None:
     assert decode_response(encode_response(response)) == response
 
 
+def _connector_request(**over: object) -> ConnectorRequest:
+    fields: dict[str, object] = {
+        "connector": "google-calendar",
+        "operation": "create_event",
+        "arguments_json": '{"summary": "Standup"}',
+        "session_id": "s1",
+        "execution_context": "interactive",
+        "preview_requested": False,
+        "token_nonce": None,
+        "origin_path": "telegram",
+        "origin_actor": "12345",
+    }
+    fields.update(over)
+    return ConnectorRequest(**fields)  # pyright: ignore[reportArgumentType]
+
+
+def test_a_connector_request_round_trips() -> None:
+    request = _connector_request()
+
+    assert decode_request(encode_request(request)) == request
+
+
+def test_the_two_request_kinds_do_not_read_as_each_other() -> None:
+    """One socket, two shapes. The kind decides which, and a frame with none refuses."""
+    assert isinstance(decode_request(encode_request(_request())), ExecuteRequest)
+    assert isinstance(decode_request(encode_request(_connector_request())), ConnectorRequest)
+
+    payload = json.loads(encode_request(_connector_request()))
+    del payload["kind"]
+    with pytest.raises(ProtocolError):
+        decode_request(json.dumps(payload).encode())
+
+    payload = json.loads(encode_request(_connector_request()))
+    payload["kind"] = "gmail"
+    with pytest.raises(ProtocolError):
+        decode_request(json.dumps(payload).encode())
+
+
+def test_a_connector_frame_names_no_url_and_no_method() -> None:
+    """The executor reads both from the manifest, so the agent cannot describe the call.
+
+    ``arguments_json`` is the one caller-shaped field, and it is bounded elsewhere: the
+    executor validates it against the operation's own declared schema and refuses an
+    undeclared key, so the bound is a manifest in this repository rather than the sender.
+    """
+    allowed = set(ConnectorRequest.__dataclass_fields__)
+
+    assert allowed == {
+        "connector",
+        "operation",
+        "arguments_json",
+        "session_id",
+        "execution_context",
+        "preview_requested",
+        "token_nonce",
+        "origin_path",
+        "origin_actor",
+    }
+
+
+def test_an_unknown_field_on_a_connector_frame_is_refused() -> None:
+    """A tolerated extra field is an ambiguity between two peers, and that is the hole."""
+    payload = json.loads(encode_request(_connector_request()))
+    payload["capability_class"] = "read"
+
+    with pytest.raises(ProtocolError):
+        decode_request(json.dumps(payload).encode())
+
+
 def test_a_request_carries_no_free_form_field() -> None:
     """A field the model could fill with prose is a field it could use to describe intent.
 
@@ -86,18 +162,22 @@ def test_a_request_carries_no_free_form_field() -> None:
     }
 
 
-def test_the_version_is_four_and_a_version_one_frame_is_refused() -> None:
+def test_the_version_is_five_and_a_version_one_frame_is_refused() -> None:
     """#38 needs the origin path, so the older frame cannot describe a request any more.
 
     A version 1 peer states no path. #13 cannot prove path independence for it, so the frame
     gets a refusal instead of a default.
+
+    The version reached 5 when the wire gained a second request kind for a data connector
+    call. The field set of this request did not change; the envelope did, and an envelope
+    change is a version change for the same reason a field change is.
     """
     payload = json.loads(encode_request(_request()))
     payload["v"] = 1
     del payload["origin_path"]
     del payload["origin_actor"]
 
-    assert PROTOCOL_VERSION == 4
+    assert PROTOCOL_VERSION == 5
     with pytest.raises(ProtocolError):
         decode_request(json.dumps(payload).encode())
 

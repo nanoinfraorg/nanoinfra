@@ -21,7 +21,6 @@ from nanoinfra.connectors.contracts import ConnectorPlugin, operation
 from nanoinfra.connectors.credentials import (
     ConnectorCredential,
     CredentialError,
-    RefreshTokenSource,
     check_connector_scopes,
     scope_subset,
 )
@@ -39,6 +38,9 @@ from nanoinfra.connectors.registry import (
     operation_summary,
 )
 from nanoinfra.connectors.tools import build_tools
+from nanoinfra.gates.executor.client import ExecutorClient, ExecutorUnavailableError
+from nanoinfra.gates.executor.connector_credentials import RefreshTokenSource
+from nanoinfra.gates.executor.protocol import ExecuteResponse
 from nanoinfra.gates.policy import Outcome, evaluate, evaluate_connector
 
 CALENDAR = "google-calendar"
@@ -55,6 +57,25 @@ class _FixedTokens:
     ) -> str:
         self.asked.append((connector, capability_class, force_refresh))
         return f"token-for-{capability_class}"
+
+
+class _FakeExecutor(ExecutorClient):
+    """Stands in for the executor. Records the frame the tool would have sent.
+
+    A subclass rather than a mock, so a signature change here fails a test rather than
+    silently passing a keyword nothing reads.
+    """
+
+    def __init__(self, response: Any = None) -> None:
+        super().__init__("/nonexistent/executor.sock")
+        self.calls: list[dict[str, Any]] = []
+        self._response = response
+
+    def connector_call(self, **kwargs: Any) -> Any:  # pyright: ignore[reportIncompatibleMethodOverride]
+        self.calls.append(kwargs)
+        if isinstance(self._response, Exception):
+            raise self._response
+        return self._response
 
 
 @pytest.fixture
@@ -101,9 +122,16 @@ def test_a_plaintext_base_url_is_refused() -> None:
 # --- the tools -------------------------------------------------------------------------
 
 
+def _tools(calendar: ConnectorPlugin, executor: _FakeExecutor) -> dict[str, Any]:
+    return {
+        tool.name: tool
+        for tool in build_tools(calendar, calendar.operations, client=executor)
+    }
+
+
 def test_two_operations_become_two_tools_with_two_classes(calendar: ConnectorPlugin) -> None:
     """The whole point of the kind, asserted on the tools the model would see."""
-    tools = {t.name: t for t in build_tools(calendar, calendar.operations, tokens=_FixedTokens())}
+    tools = _tools(calendar, _FakeExecutor())
     assert capability_class_of(tools["google_calendar_list_events"]) == "read"
     assert capability_class_of(tools["google_calendar_create_event"]) == "mutate.remote"
     assert tools["google_calendar_list_events"].read_only is True
@@ -112,9 +140,17 @@ def test_two_operations_become_two_tools_with_two_classes(calendar: ConnectorPlu
 
 def test_a_tool_refuses_an_undeclared_argument(calendar: ConnectorPlugin) -> None:
     """An extra argument would become a query parameter nobody reviewed."""
-    tools = {t.name: t for t in build_tools(calendar, calendar.operations, tokens=_FixedTokens())}
-    listing = tools["google_calendar_list_events"]
-    assert listing.parameters["additionalProperties"] is False
+    tools = _tools(calendar, _FakeExecutor())
+    assert tools["google_calendar_list_events"].parameters["additionalProperties"] is False
+
+
+def test_only_a_write_offers_a_preview(calendar: ConnectorPlugin) -> None:
+    """A read is not gated, so previewing one would cost a round trip and teach nothing."""
+    tools = _tools(calendar, _FakeExecutor())
+    write = tools["google_calendar_create_event"].parameters["properties"]
+    read = tools["google_calendar_list_events"].parameters["properties"]
+    assert write["dry_run"]["default"] is True
+    assert "dry_run" not in read
 
 
 def test_enabled_operations_narrows_what_the_model_sees(calendar: ConnectorPlugin) -> None:
@@ -431,53 +467,103 @@ async def test_a_429_is_a_failure_of_the_action_and_says_it_can_be_retried(
     assert "Retry-After: 30" in str(raised.value)
 
 
-async def test_a_write_refused_by_the_gate_never_reaches_the_wire(
-    calendar: ConnectorPlugin, monkeypatch: pytest.MonkeyPatch
+async def test_a_tool_sends_the_call_to_the_executor_and_never_the_wire(
+    calendar: ConnectorPlugin,
 ) -> None:
-    """The refusal is a tool result, and no request is made."""
-    sent: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        sent.append(str(request.url))
-        return httpx.Response(200, json={})
-
-    monkeypatch.setattr(
-        "nanoinfra.connectors.engine._client",
-        lambda: httpx.AsyncClient(transport=_transport(handler)),
+    """The agent side opens no transport and holds no token: it submits one frame."""
+    executor = _FakeExecutor(
+        ExecuteResponse(
+            ok=True,
+            output='{"items": []}',
+            exit_code=0,
+            error=None,
+            reason="google_calendar_list_events ran as read.",
+        )
     )
-    monkeypatch.setattr("nanoinfra.connectors.tools.load_policy", GatesConfig)
-    tools = {t.name: t for t in build_tools(calendar, calendar.operations, tokens=_FixedTokens())}
-    write = tools["google_calendar_create_event"]
-
+    tools = _tools(calendar, executor)
     with request_context(
         RequestContext(channel="webui", chat_id="c1", session_key="s1", execution_context="cron")
     ):
-        result = await write.execute(
-            summary="Standup", start={"dateTime": "x"}, end={"dateTime": "y"}, calendarId="primary"
+        result = await tools["google_calendar_list_events"].execute(timeMin="2026-09-01T00:00:00Z")
+    assert getattr(result, "is_error", False) is False
+    assert result == '{"items": []}'
+    sent = executor.calls[0]
+    assert sent["connector"] == CALENDAR
+    assert sent["operation"] == "list_events"
+    assert json.loads(sent["arguments_json"]) == {"timeMin": "2026-09-01T00:00:00Z"}
+    # A read never previews, because a read is not gated.
+    assert sent["preview_requested"] is False
+    assert sent["execution_context"] == "cron"
+
+
+async def test_a_write_previews_by_default_and_says_what_the_gate_would_answer(
+    calendar: ConnectorPlugin,
+) -> None:
+    executor = _FakeExecutor(
+        ExecuteResponse(
+            ok=True,
+            output="POST https://www.googleapis.com/calendar/v3/calendars/primary/events",
+            exit_code=None,
+            error=None,
+            reason="preview only.",
+            preview_outcome="approve",
+            preview_reason="google-calendar.create_event is mutate.remote, which is approve.",
+        )
+    )
+    tools = _tools(calendar, executor)
+    with request_context(
+        RequestContext(
+            channel="webui", chat_id="c1", session_key="s1", execution_context="interactive"
+        )
+    ):
+        result = await tools["google_calendar_create_event"].execute(
+            summary="Standup", start={"dateTime": "x"}, end={"dateTime": "y"}
+        )
+    assert executor.calls[0]["preview_requested"] is True
+    assert "Nothing was sent" in str(result)
+    assert "'approve'" in str(result)
+    # dry_run is the tool's own argument and must not travel to the executor as a call argument.
+    assert "dry_run" not in json.loads(executor.calls[0]["arguments_json"])
+
+
+async def test_a_refusal_from_the_executor_is_reported_as_an_error(
+    calendar: ConnectorPlugin,
+) -> None:
+    executor = _FakeExecutor(
+        ExecuteResponse(
+            ok=False,
+            output="",
+            exit_code=None,
+            error=None,
+            reason=(
+                "Refusing google_calendar_create_event. gates.unattended.mutate.remote.host is "
+                "'deny'."
+            ),
+        )
+    )
+    tools = _tools(calendar, executor)
+    with request_context(
+        RequestContext(channel="webui", chat_id="c1", session_key="s1", execution_context="cron")
+    ):
+        result = await tools["google_calendar_create_event"].execute(
+            summary="Standup", start={"dateTime": "x"}, end={"dateTime": "y"}, dry_run=False
         )
     assert getattr(result, "is_error", False) is True
-    assert sent == []
-    assert "create_event" in str(result)
+    assert "deny" in str(result)
 
 
-async def test_a_read_runs_unattended(
-    calendar: ConnectorPlugin, monkeypatch: pytest.MonkeyPatch
+async def test_an_unreachable_executor_reads_as_a_deployment_fault(
+    calendar: ConnectorPlugin,
 ) -> None:
-    """The asymmetry that an MCP server cannot express, end to end."""
-    monkeypatch.setattr(
-        "nanoinfra.connectors.engine._client",
-        lambda: httpx.AsyncClient(
-            transport=_transport(lambda _r: httpx.Response(200, json={"items": []}))
-        ),
-    )
-    monkeypatch.setattr("nanoinfra.connectors.tools.load_policy", GatesConfig)
-    tools = {t.name: t for t in build_tools(calendar, calendar.operations, tokens=_FixedTokens())}
+    """Not as a policy decision: an operator must not read a broken deployment as a refusal."""
+    executor = _FakeExecutor(ExecutorUnavailableError("no such socket"))
+    tools = _tools(calendar, executor)
     with request_context(
         RequestContext(channel="webui", chat_id="c1", session_key="s1", execution_context="cron")
     ):
-        result = await tools["google_calendar_list_events"].execute(calendarId="primary")
-    assert getattr(result, "is_error", False) is False
-    assert result["items"] == []
+        result = await tools["google_calendar_list_events"].execute()
+    assert getattr(result, "is_error", False) is True
+    assert "deployment fault" in str(result)
 
 
 # --- credentials -----------------------------------------------------------------------

@@ -35,6 +35,18 @@ and why the approver set lives in git-reviewed config rather than in a reachabil
 request came from another person. ``gates.identityIndependence`` therefore defaults to false,
 and ``nanoinfra/gates/approvals.py`` states what a deployment gives up when it turns the flag
 on.
+
+**Version 5 carries a second request kind: a data connector call.** A connector call is
+performed in the executor for the same reasons a command is -- the credential lives here, the
+approval socket is here, and the audit record is written here -- so it needs a frame. The kind
+travels in the envelope beside the version, and an unknown kind refuses: a frame this side
+cannot name must not fall through to the one it can.
+
+``ConnectorRequest.arguments_json`` is the one field that carries caller-shaped content, and it
+is not the free-form member this wire refuses. Every key in it must appear in the operation's
+own declared parameter schema, which the executor reads from the installed package rather than
+from the frame, and a key that does not appear is refused before anything is sent. So the
+bound is the manifest in this repository, not the sender's word.
 """
 
 from __future__ import annotations
@@ -45,7 +57,7 @@ import struct
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any, cast
 
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 5
 
 # A peer controls the length prefix, so the reader caps it. 8 MiB is far above a command and
 # far below a memory problem. Output is bounded separately by truncate_output.
@@ -94,6 +106,34 @@ class ExecuteRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class ConnectorRequest:
+    """One request to perform one declared operation of one active connector.
+
+    ``connector`` and ``operation`` are names, never a URL and never a method: the executor
+    reads the method, the path and the capability class out of the installed manifest, so the
+    agent cannot name a call the package did not declare. That is the same rule
+    ``server_id_or_name`` follows -- nothing about the target rides on the agent's word.
+
+    ``arguments_json`` is a JSON object of the call arguments. The executor validates it against
+    the operation's declared schema and refuses an undeclared key, so the frame carries content
+    without carrying a free-form member.
+
+    ``token_nonce`` exists for one reason: to be refused. The executor issues every nonce and
+    hands none to the agent, so a nonce arriving on this wire came from model-visible text.
+    """
+
+    connector: str
+    operation: str
+    arguments_json: str
+    session_id: str | None
+    execution_context: str
+    preview_requested: bool
+    token_nonce: str | None
+    origin_path: str | None = None
+    origin_actor: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ExecuteResponse:
     """The executor's answer. ``reason`` carries the gate's words for a refusal."""
 
@@ -122,9 +162,31 @@ class ExecuteResponse:
     preview_credential_reason: str = ""
 
 
-def encode_request(request: ExecuteRequest) -> bytes:
+# What each request kind is called on the wire. The name travels in the envelope, so one
+# socket serves two shapes and neither can be read as the other.
+KIND_EXECUTE = "execute"
+KIND_CONNECTOR = "connector"
+
+_REQUEST_KINDS: dict[str, type[Any]] = {
+    KIND_EXECUTE: ExecuteRequest,
+    KIND_CONNECTOR: ConnectorRequest,
+}
+_KIND_NAMES: dict[type[Any], str] = {value: key for key, value in _REQUEST_KINDS.items()}
+
+# The envelope keys, which are not fields of any request. A response carries the version alone.
+_REQUEST_ENVELOPE = frozenset({"v", "kind"})
+_RESPONSE_ENVELOPE = frozenset({"v"})
+
+Request = ExecuteRequest | ConnectorRequest
+
+
+def encode_request(request: Request) -> bytes:
+    kind = _KIND_NAMES.get(type(request))
+    if kind is None:
+        raise ProtocolError(f"{type(request).__name__} is not a request kind on this wire")
     payload = asdict(request)
     payload["v"] = PROTOCOL_VERSION
+    payload["kind"] = kind
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
 
@@ -134,15 +196,35 @@ def encode_response(response: ExecuteResponse) -> bytes:
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
 
-def decode_request(payload: bytes) -> ExecuteRequest:
-    return _decode(payload, ExecuteRequest)
+def decode_request(payload: bytes) -> Request:
+    """Parse one request frame, choosing the shape from the kind it declares."""
+    kind = _peek_kind(payload)
+    target = _REQUEST_KINDS.get(kind)
+    if target is None:
+        raise ProtocolError(f"request kind {kind!r} is not one of {sorted(_REQUEST_KINDS)}")
+    return cast("Request", _decode(payload, target, envelope=_REQUEST_ENVELOPE))
 
 
 def decode_response(payload: bytes) -> ExecuteResponse:
     return _decode(payload, ExecuteResponse)
 
 
-def _decode(payload: bytes, kind: type[Any]) -> Any:
+def _peek_kind(payload: bytes) -> str:
+    try:
+        raw = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProtocolError(f"frame is not JSON: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ProtocolError("frame is not an object")
+    kind = cast("dict[str, Any]", raw).get("kind")
+    if not isinstance(kind, str) or not kind:
+        raise ProtocolError("request frame carries no kind")
+    return kind
+
+
+def _decode(
+    payload: bytes, kind: type[Any], *, envelope: frozenset[str] = _RESPONSE_ENVELOPE
+) -> Any:
     """Parse one frame into *kind*, and refuse anything that does not match exactly."""
     try:
         raw = json.loads(payload.decode("utf-8"))
@@ -152,6 +234,8 @@ def _decode(payload: bytes, kind: type[Any]) -> Any:
         raise ProtocolError("frame is not an object")
 
     data: dict[str, Any] = cast("dict[str, Any]", raw)
+    for key in envelope - {"v"}:
+        data.pop(key, None)
     version = data.pop("v", None)
     if version is None:
         raise ProtocolError("frame carries no protocol version")
@@ -203,10 +287,14 @@ def _read_exactly(conn: socket.socket, count: int) -> bytes:
 
 
 __all__ = [
+    "KIND_CONNECTOR",
+    "KIND_EXECUTE",
     "MAX_FRAME_BYTES",
     "PROTOCOL_VERSION",
+    "ConnectorRequest",
     "ExecuteRequest",
     "ExecuteResponse",
+    "Request",
     "ProtocolError",
     "decode_request",
     "decode_response",

@@ -8,6 +8,7 @@ from loguru import logger
 from pydantic import AliasChoices, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from nanoinfra.config.connectors import ConnectorRuntimeConfig
 from nanoinfra.config.gates import GatesConfig
 from nanoinfra.config_base import Base
 from nanoinfra.cron.types import CronSchedule
@@ -474,6 +475,10 @@ class Config(BaseSettings):
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     gates: GatesConfig = Field(default_factory=GatesConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    # Data connectors and the credentials they name. Beside `gates` rather than under `tools`
+    # because both halves are authority: a credential says what the deployment holds, and a
+    # connector's `credential` key is the only thing that lets a package resolve it.
+    connectors: ConnectorRuntimeConfig = Field(default_factory=ConnectorRuntimeConfig)
     model_presets: dict[str, ModelPresetConfig] = Field(
         default_factory=dict,
         validation_alias=AliasChoices("modelPresets", "model_presets"),

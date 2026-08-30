@@ -108,6 +108,7 @@ from nanoinfra.utils.runtime import (
 
 if TYPE_CHECKING:
     from nanoinfra.agent.tools.mcp import MCPConnection
+    from nanoinfra.config.connectors import ConnectorRuntimeConfig
     from nanoinfra.config.schema import (
         ChannelsConfig,
         Config,
@@ -322,6 +323,7 @@ class AgentLoop:
         restrict_to_workspace: bool = False,
         session_manager: SessionManager | None = None,
         mcp_servers: dict[str, MCPServerConfig] | None = None,
+        connectors_config: ConnectorRuntimeConfig | None = None,
         channels_config: ChannelsConfig | None = None,
         timezone: str | None = None,
         session_ttl_minutes: int = 0,
@@ -457,6 +459,10 @@ class AgentLoop:
         self._unified_session = unified_session
         self._running = False
         self._mcp_servers = mcp_servers or {}
+        # Data connectors (#connectors). None in an embedded construction, and no connector
+        # then activates -- the same posture as an absent gates block: an omission widens
+        # nothing.
+        self._connectors_config = connectors_config
         self._mcp_stacks: dict[str, MCPConnection] = {}
         self._mcp_connecting = False
         self._runtime_context_providers: list[RuntimeContextProvider] = []
@@ -557,6 +563,7 @@ class AgentLoop:
             tool_hint_max_length=defaults.tool_hint_max_length,
             restrict_to_workspace=config.tools.restrict_to_workspace,
             mcp_servers=config.tools.mcp_servers,
+            connectors_config=config.connectors,
             channels_config=config.channels,
             timezone=defaults.timezone,
             unified_session=defaults.unified_session,
@@ -689,6 +696,16 @@ class AgentLoop:
         )
         loader = ToolLoader()
         registered = loader.load(ctx, self.tools)
+
+        # One tool per enabled operation of every active connector, each carrying the class
+        # its manifest declared. Registered here rather than discovered by the loader scan,
+        # because a connector's tools exist per configured connector and not per class in the
+        # tree.
+        from nanoinfra.connectors.registration import register_connector_tools
+
+        registered.extend(
+            register_connector_tools(ctx, self.tools, self._connectors_config)
+        )
 
         # MyTool needs runtime state reference — manual registration
         if self.tools_config.my.enable:

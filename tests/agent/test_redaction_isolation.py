@@ -32,13 +32,18 @@ _SCRUB_MODULE = "nanoinfra.gates.executor.scrub"
 # ``nanoinfra/secrets`` defines the decryption seam, and the Secrets REST lane owns it.
 # ``tests/secrets/test_no_plaintext_leak_invariant.py`` holds that half.
 #
-# The two executor files run in the executor child. ``server.py`` resolves one credential for
-# one action (#18). ``scrub.py`` builds the sentinels (#41). Both are the address space that
-# is allowed to hold a plaintext.
+# The executor files run in the executor child. ``server.py`` resolves one credential for one
+# action (#18). ``scrub.py`` builds the sentinels (#41). ``connector_credentials.py`` exchanges
+# a connector's refresh token for a short-lived access token, and ``connector_action.py`` is the
+# chain that spends it -- a connector call is performed in this process for the same reason a
+# command is, so the agent holds no token at all. Each is an address space that is allowed to
+# hold a plaintext.
 _NOT_IN_THE_AGENT_PROCESS = (
     Path("nanoinfra/secrets"),
     Path("nanoinfra/gates/executor/server.py"),
     Path("nanoinfra/gates/executor/scrub.py"),
+    Path("nanoinfra/gates/executor/connector_credentials.py"),
+    Path("nanoinfra/gates/executor/connector_action.py"),
 )
 
 

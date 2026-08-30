@@ -31,9 +31,11 @@ import socket
 from pathlib import Path
 
 from nanoinfra.gates.executor.protocol import (
+    ConnectorRequest,
     ExecuteRequest,
     ExecuteResponse,
     ProtocolError,
+    Request,
     decode_response,
     encode_request,
     read_frame,
@@ -78,23 +80,65 @@ class ExecutorClient:
         Raises ``ExecutorUnavailableError`` when the socket is absent or the peer disappears. It
         never raises for a refusal, because a refusal is a response.
         """
-        request = ExecuteRequest(
-            server_id_or_name=server_id_or_name,
-            command=command,
-            session_id=session_id,
-            execution_context=execution_context,
-            preview_requested=preview_requested,
-            timeout_s=timeout_s,
-            token_nonce=token_nonce,
-            origin_path=_origin_path(),
-            origin_actor=_origin_actor(),
+        return self._send(
+            ExecuteRequest(
+                server_id_or_name=server_id_or_name,
+                command=command,
+                session_id=session_id,
+                execution_context=execution_context,
+                preview_requested=preview_requested,
+                timeout_s=timeout_s,
+                token_nonce=token_nonce,
+                origin_path=_origin_path(),
+                origin_actor=_origin_actor(),
+            )
         )
+
+    def connector_call(
+        self,
+        *,
+        connector: str,
+        operation: str,
+        arguments_json: str,
+        session_id: str | None,
+        execution_context: str,
+        preview_requested: bool = False,
+    ) -> ExecuteResponse:
+        """Ask the executor to perform one connector operation, and return its answer.
+
+        No token, no method and no URL cross this wire: the executor reads them from the
+        installed manifest, so a caller beside the model can name a connector and cannot
+        describe a call the package never declared.
+
+        There is no ``token_nonce`` parameter, and that is deliberate rather than an omission.
+        The executor issues every nonce and hands none to the agent, so this side has none to
+        pass, and the field on the frame exists only to be refused.
+        """
+        return self._send(
+            ConnectorRequest(
+                connector=connector,
+                operation=operation,
+                arguments_json=arguments_json,
+                session_id=session_id,
+                execution_context=execution_context,
+                preview_requested=preview_requested,
+                token_nonce=None,
+                origin_path=_origin_path(),
+                origin_actor=_origin_actor(),
+            )
+        )
+
+    def _send(self, request: Request) -> ExecuteResponse:
+        """One frame out, one frame back. Both request kinds share it.
+
+        A second copy of this would be a second place for the timeout rule to drift, and the
+        rule is the interesting part: no read deadline past the connect, because the executor
+        owns the wait and a deadline here would report a long action as an unavailable executor.
+        """
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
                 conn.settimeout(self._connect_timeout_s)
                 conn.connect(str(self._socket_path))
-                # No read deadline past the connect: the executor owns the idle timeout, and a
-                # deadline here would cut a long command short and report it as unavailable.
                 conn.settimeout(None)
                 write_frame(conn, encode_request(request))
                 return decode_response(read_frame(conn))

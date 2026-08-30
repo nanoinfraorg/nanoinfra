@@ -73,8 +73,10 @@ from nanoinfra.gates.executor.operator_socket import (
     serve_operator_socket,
 )
 from nanoinfra.gates.executor.protocol import (
+    ConnectorRequest,
     ExecuteResponse,
     ProtocolError,
+    Request,
     decode_request,
     encode_response,
     read_frame,
@@ -170,6 +172,34 @@ class Executor:
     # execute it, which is the fail-closed direction: no store means no human can answer.
     pending: PendingApprovalStore | None = None
     tokens: ApprovalTokenStore | None = None
+    # The connector half (#connectors). Built lazily by `_connectors`, from the same three
+    # collaborators, because a connector call needs exactly what a command needs: policy, an
+    # approval path, and a record.
+    connector_runner: Any = None
+
+    def _connectors(self) -> Any:
+        if self.connector_runner is None:
+            from nanoinfra.gates.executor.connector_action import ConnectorActionRunner
+
+            self.connector_runner = ConnectorActionRunner(
+                workspace=self.workspace,
+                gates_loader=self.gates_loader,
+                audit=self.audit,
+                pending=self.pending,
+                tokens=self.tokens,
+            )
+        return self.connector_runner
+
+    async def dispatch(self, request: Request) -> ExecuteResponse:
+        """Route one decoded frame to the half that answers it.
+
+        Two kinds, one socket. The connector half lives in its own module because it shares
+        the collaborators and none of the steps: no inventory record, no scope resolution, no
+        transport, and a credential that is minted rather than decrypted for a backend.
+        """
+        if isinstance(request, ConnectorRequest):
+            return await self._connectors().handle(request)
+        return await self.handle(request)
 
     async def handle(self, request: ExecuteRequest) -> ExecuteResponse:
         """Answer one request. Never raises for a refusal: a refusal is a response."""
@@ -1195,7 +1225,7 @@ def _serve_one(conn: socket.socket, executor: Executor) -> None:
         return
 
     try:
-        response = asyncio.run(executor.handle(request))
+        response = asyncio.run(executor.dispatch(request))
     except Exception as exc:  # noqa: BLE001 -- one bad request must not end the process
         logger.exception("gates: executor failed a request")
         response = _error(f"The executor failed this request: {exc}")
