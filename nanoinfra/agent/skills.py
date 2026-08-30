@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import yaml
+from loguru import logger
 
 # Default builtin skills directory (relative to this file)
 BUILTIN_SKILLS_DIR = Path(__file__).parent.parent / "skills"
@@ -54,6 +55,21 @@ def valid_skill_metadata(metadata: dict[str, object], name: str) -> bool:
     )
 
 
+def _connector_package_dir(connector_name: str) -> Path | None:
+    """Where one connector's package lives on disk.
+
+    The directory name is the connector name with hyphens as underscores, which is the same
+    mapping the registry uses to check that a manifest agrees with its directory.
+    """
+    import nanoinfra.connectors as package
+
+    for root in package.__path__:
+        candidate = Path(root) / connector_name.replace("-", "_")
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
 class SkillsLoader:
     """
     Loader for agent skills.
@@ -94,9 +110,11 @@ class SkillsLoader:
         Returns:
             List of skill info dicts with 'name', 'path', 'source'.
         """
-        # Precedence is workspace > plugin > builtin. The workspace file is the operator's own and
-        # wins outright. A plugin package was reviewed and installed deliberately, so it beats a
-        # builtin of the same name. The builtin is the fallback.
+        # Precedence is workspace > plugin > connector > builtin. The workspace file is the
+        # operator's own and wins outright. A plugin package was reviewed and installed
+        # deliberately, so it beats a builtin of the same name. A connector's skill describes
+        # that connector's own tools, so it ranks with the deliberately installed ones and above
+        # a builtin. The builtin is the fallback.
         skills = self._skill_entries_from_dir(self.workspace_skills, "workspace")
         seen_names = {entry["name"] for entry in skills}
 
@@ -104,6 +122,12 @@ class SkillsLoader:
             if name in seen_names:
                 continue
             skills.append({"name": name, "path": str(path), "source": "plugin"})
+            seen_names.add(name)
+
+        for name, path in self._connector_skills():
+            if name in seen_names:
+                continue
+            skills.append({"name": name, "path": str(path), "source": "connector"})
             seen_names.add(name)
 
         if self.builtin_skills and self.builtin_skills.exists():
@@ -117,6 +141,41 @@ class SkillsLoader:
         if filter_unavailable:
             return [skill for skill in skills if self._check_requirements(self._get_skill_meta(skill["name"]))]
         return skills
+
+    def _connector_skills(self) -> list[tuple[str, Path]]:
+        """Return the skill of each data connector config activated.
+
+        A connector ships its skill beside its manifest, and it is loaded because the connector
+        is active -- never because the package is installed. A skill for an inactive connector
+        would teach the model about tools that are not in its context, which is worse than no
+        skill at all: it would describe a capability and then fail to have it.
+
+        The skill takes the connector's own name, so ``agents.defaults.disabledSkills`` can turn
+        it off by the same string an operator already uses in ``connectors.active``.
+
+        Imported here rather than at module scope. This module is imported by the context
+        builder on every turn, and the connector tree pulls in the gate and the executor client.
+        """
+        from nanoinfra.config.loader import load_config
+        from nanoinfra.connectors.setup import resolve_active
+
+        try:
+            active, _problems = resolve_active(load_config().connectors)
+        except Exception as exc:  # noqa: BLE001 -- a bad connector must not cost every skill
+            logger.warning("connector skills unavailable: {}", exc)
+            return []
+
+        found: list[tuple[str, Path]] = []
+        for entry in active:
+            if not entry.plugin.skill:
+                continue
+            package = _connector_package_dir(entry.plugin.name)
+            if package is None:
+                continue
+            path = package / entry.plugin.skill
+            if path.is_file():
+                found.append((entry.plugin.name, path))
+        return found
 
     def _plugin_skills(self) -> list[tuple[str, Path]]:
         """Return skills from Agent Plugins the operator has enabled.

@@ -45,6 +45,13 @@ def _cfg(**over: Any) -> ConnectorRuntimeConfig:
     return ConnectorRuntimeConfig.model_validate(payload)
 
 
+def _config(connectors: ConnectorRuntimeConfig) -> Config:
+    """A whole config carrying one connectors block, for a caller that loads config itself."""
+    config = Config()
+    config.connectors = connectors
+    return config
+
+
 def test_a_configured_connector_activates_with_its_operations_and_defaults() -> None:
     active, problems = resolve_active(_cfg())
     assert problems == []
@@ -223,3 +230,53 @@ def test_a_deployment_that_configures_no_connector_is_unchanged() -> None:
     assert config.connectors.active == []
     active, problems = resolve_active(config.connectors)
     assert (active, problems) == ([], [])
+
+
+# --- the skill ---------------------------------------------------------------------------
+
+
+def test_an_active_connector_contributes_its_skill(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The manifest declares a skill, so the loader has to find it.
+
+    It did not, for the first pass of this work: the sources were workspace, plugin and
+    builtin, so a connector's SKILL.md was shipped in the wheel and read by nobody -- while
+    the docs told the reader it loads when the connector is enabled.
+    """
+    from nanoinfra.agent.skills import SkillsLoader
+
+    monkeypatch.setattr("nanoinfra.config.loader.load_config", lambda *_a, **_k: _config(_cfg()))
+    rows = {
+        entry["name"]: entry
+        for entry in SkillsLoader(tmp_path).list_skills(filter_unavailable=False)
+    }
+    assert rows["google-calendar"]["source"] == "connector"
+    assert rows["google-calendar"]["path"].endswith("google_calendar/SKILL.md")
+
+
+def test_an_inactive_connector_contributes_no_skill(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A skill for tools that are not in context would describe a capability and then lack it."""
+    from nanoinfra.agent.skills import SkillsLoader
+
+    monkeypatch.setattr(
+        "nanoinfra.config.loader.load_config", lambda *_a, **_k: _config(_cfg(active=[]))
+    )
+    names = {
+        entry["name"] for entry in SkillsLoader(tmp_path).list_skills(filter_unavailable=False)
+    }
+    assert "google-calendar" not in names
+
+
+def test_the_connector_skill_can_be_disabled_by_its_own_name(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same string an operator wrote in connectors.active turns the skill off."""
+    from nanoinfra.agent.skills import SkillsLoader
+
+    monkeypatch.setattr("nanoinfra.config.loader.load_config", lambda *_a, **_k: _config(_cfg()))
+    loader = SkillsLoader(tmp_path, disabled_skills={"google-calendar"})
+    names = {entry["name"] for entry in loader.list_skills(filter_unavailable=False)}
+    assert "google-calendar" not in names
