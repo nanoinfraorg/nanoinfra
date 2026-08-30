@@ -3,6 +3,7 @@
 # pyright: reportConstantRedefinition=false, reportMissingTypeStubs=false, reportPrivateUsage=false, reportUnusedFunction=false, reportUnusedImport=false
 
 import asyncio
+import json
 import os
 import sys
 from contextlib import suppress
@@ -769,6 +770,191 @@ def status(
         console.print("Agent: [red]✗ configuration file not found[/red]")
         console.print("Create the provider/model configuration:")
         _print_model_setup_steps(config_path)
+
+
+# ============================================================================
+# Data connectors
+# ============================================================================
+
+# Read plus one write, and the write is a consent flow rather than an activation. Activating a
+# connector is declared in config and applied by the executor -- the same rule
+# `tools.agentPlugins` states -- so a CLI that enabled one would be a second authority
+# contradicting the first. Consent is different in kind: it is a person at a browser saying "act
+# as me", which no config file and no chat turn can do on their behalf.
+connectors_app = typer.Typer(help="Inspect data connectors and authorise one")
+app.add_typer(connectors_app, name="connectors")
+
+
+def _print_plain(text: str) -> None:
+    """Print a line from the consent flow with no markup interpretation.
+
+    A URL carries square brackets in a query string often enough, and rich would read those as
+    markup and print a URL nobody can paste.
+    """
+    console.print(escape(text))
+
+
+def _connector_state(config_path: str | None):
+    from nanoinfra.config.loader import load_config, set_config_path
+    from nanoinfra.connectors.registry import discover_connectors
+
+    resolved = Path(config_path).expanduser().resolve() if config_path else None
+    if resolved is not None:
+        set_config_path(resolved)
+    config = load_config(resolved)
+    return config, discover_connectors()
+
+
+@connectors_app.command("list")
+def connectors_list(
+    config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+):
+    """List installed connectors, their operations, and each operation's capability class."""
+    from nanoinfra.connectors.registry import operation_summary
+    from nanoinfra.connectors.setup import resolve_active
+
+    config, installed = _connector_state(config_path)
+    if not installed:
+        console.print("No connectors are installed.")
+        return
+
+    active, problems = resolve_active(config.connectors)
+    active_names = {entry.name for entry in active}
+    enabled = {entry.name: {op.name for op in entry.operations} for entry in active}
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("CONNECTOR")
+    table.add_column("STATE")
+    table.add_column("OPERATION")
+    table.add_column("CLASS")
+    for name, plugin in sorted(installed.items()):
+        if name in active_names:
+            state = "active"
+        elif name in config.connectors.active:
+            state = "[yellow]not activated[/yellow]"
+        else:
+            state = "[dim]inactive[/dim]"
+        for row in operation_summary(plugin):
+            offered = row["name"] in enabled.get(name, set())
+            operation = row["name"] if offered or name not in active_names else f"[dim]{row['name']}[/dim]"
+            table.add_row(name, state, operation, str(row["capability_class"]))
+            state = ""
+            name = ""
+    console.print(table)
+
+    for problem in problems:
+        console.print(f"[yellow]{escape(str(problem))}[/yellow]")
+
+
+@connectors_app.command("authorize")
+def connectors_authorize(
+    name: str = typer.Argument(..., help="Connector name (e.g. google-calendar)"),
+    client_id: str = typer.Option(..., "--client-id", help="OAuth client id for this deployment"),
+    client_secret: str = typer.Option(
+        ...,
+        "--client-secret",
+        prompt=True,
+        hide_input=True,
+        help="OAuth client secret. Prompted, so it stays out of the shell history.",
+    ),
+    account: str = typer.Option(
+        "", "--account", help="Pre-fill the consent screen with this address"
+    ),
+    port: int = typer.Option(
+        0, "--port", help="Loopback port for the redirect. Defaults to the connector default."
+    ),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Print the URL and open nothing"),
+    config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+):
+    """Consent as a person, and store the refresh token this connector will act with.
+
+    The connector acts as whoever completes this flow, so run it as that account. Two secrets
+    are written -- the refresh token and the client secret -- and their ids are printed with the
+    config to add. Nothing else is printed, and neither value is.
+    """
+    from nanoinfra.config.paths import get_workspace_path
+    from nanoinfra.connectors.authorize import (
+        DEFAULT_LOOPBACK_PORT,
+        AuthorizationError,
+        run_consent_flow,
+    )
+    from nanoinfra.secrets.store import SecretStore
+
+    config, installed = _connector_state(config_path)
+    plugin = installed.get(name)
+    if plugin is None:
+        console.print(
+            f"[red]No connector named {escape(name)} is installed.[/red] Installed: "
+            f"{escape(', '.join(sorted(installed)) or 'none')}."
+        )
+        raise typer.Exit(1)
+
+    try:
+        authorization = run_consent_flow(
+            plugin,
+            client_id=client_id,
+            client_secret=client_secret,
+            port=port or DEFAULT_LOOPBACK_PORT,
+            login_hint=account,
+            open_browser=not no_browser,
+            print_fn=_print_plain,
+        )
+    except AuthorizationError as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+
+    workspace = get_workspace_path(config.agents.defaults.workspace)
+    store = SecretStore(workspace)
+    stem = name.replace("-", "_")
+    try:
+        refresh_secret = store.create(
+            {
+                "name": f"{stem}_refresh_token",
+                "kind": "token",
+                "providerId": "local",
+                "value": authorization.refresh_token,
+            }
+        )
+        client_secret_record = store.create(
+            {
+                "name": f"{stem}_client_secret",
+                "kind": "api_key",
+                "providerId": "local",
+                "value": client_secret,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 -- the store names its own failures
+        console.print(f"[red]The consent worked and the secret store refused: {escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+
+    credential = f"{stem}_credential"
+    console.print()
+    console.print("[green]Authorised.[/green] Two secrets were stored, and no value was printed.")
+    console.print()
+    console.print("Add this to your config, review it, and restart the gateway:")
+    console.print()
+    console.print(
+        escape(
+            json.dumps(
+                {
+                    "connectors": {
+                        "credentials": {
+                            credential: {
+                                "clientId": client_id,
+                                "secretRef": refresh_secret.id,
+                                "clientSecretRef": client_secret_record.id,
+                                "scopes": list(authorization.granted_scopes)
+                                or list(plugin.credential.declared_scopes()),
+                            }
+                        },
+                        "connectors": {name: {"credential": credential}},
+                        "active": [name],
+                    }
+                },
+                indent=2,
+            )
+        )
+    )
 
 
 # ============================================================================
