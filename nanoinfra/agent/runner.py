@@ -930,18 +930,7 @@ class AgentRunner:
         conversation_state: ProviderConversationStateController,
         provider_context: ProviderCallContext | None = None,
     ) -> LLMResponse:
-        timeout_s: float | None = spec.llm_timeout_s
-        if timeout_s is None:
-            # Default to a finite timeout to avoid per-session lock starvation when an LLM
-            # request hangs indefinitely (e.g. gateway/network stall).
-            # Set NANOINFRA_LLM_TIMEOUT_S=0 to disable.
-            raw = os.environ.get("NANOINFRA_LLM_TIMEOUT_S", "300").strip()
-            try:
-                timeout_s = float(raw)
-            except (TypeError, ValueError):
-                timeout_s = 300.0
-        if timeout_s <= 0:
-            timeout_s = None
+        timeout_s = self._resolve_llm_timeout_s(spec)
 
         kwargs = self._build_request_kwargs(
             spec,
@@ -1267,6 +1256,22 @@ class AgentRunner:
             return None
         return clean
 
+    @staticmethod
+    def _resolve_llm_timeout_s(spec: Any) -> float | None:
+        """The finite bound on one provider request, shared by both request paths.
+
+        A hang holds the per-session lock, so the default is finite rather than none.
+        ``NANOINFRA_LLM_TIMEOUT_S=0`` removes it for a deployment that wants to wait.
+        """
+        timeout_s: float | None = spec.llm_timeout_s
+        if timeout_s is None:
+            raw = os.environ.get("NANOINFRA_LLM_TIMEOUT_S", "300").strip()
+            try:
+                timeout_s = float(raw)
+            except (TypeError, ValueError):
+                timeout_s = 300.0
+        return None if timeout_s <= 0 else timeout_s
+
     async def _request_no_tools(
         self,
         spec: AgentRunSpec,
@@ -1279,10 +1284,29 @@ class AgentRunner:
             messages,
             tools=None,
         )
-        return await spec.runtime.provider.chat_with_retry(
+        # The same finite timeout the tool-carrying path uses. Without it a stalled provider
+        # holds the per-session lock forever, and this path is the one that runs when the turn
+        # has no tools to offer -- so the hang looks like a session that simply stopped
+        # answering. Backport of HKUDS/nanobot f5e46762.
+        timeout_s = self._resolve_llm_timeout_s(spec)
+        coro = spec.runtime.provider.chat_with_retry(
             **kwargs,
             provider_context=provider_context,
         )
+        if timeout_s is None:
+            return await coro
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout_s)
+        except asyncio.TimeoutError:
+            logger.warning("No-tools model request timed out after {}s", timeout_s)
+            return LLMResponse(
+                content=(
+                    f"The model did not answer within {int(timeout_s)}s, so this request was "
+                    "abandoned. Set NANOINFRA_LLM_TIMEOUT_S to change the bound, or 0 to remove it."
+                ),
+                tool_calls=[],
+                finish_reason="error",
+            )
 
     @staticmethod
     def _budget_exhausted_finalization_messages(

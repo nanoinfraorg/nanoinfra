@@ -1383,7 +1383,11 @@ class Consolidator:
             logger.warning("Consolidation provider call failed, raw-dumping to history")
             self.store.raw_archive(original, session_key=session_key)
             return None
-        if response.finish_reason == "error":
+        # `length` means the model ran out of room mid-summary, so what came back is a
+        # half-written history replacement. Treated like an error: raw-dump instead, because a
+        # truncated summary silently loses whatever it did not reach. Backport of
+        # HKUDS/nanobot ff674144.
+        if response.finish_reason in {"error", "length"}:
             logger.warning("Consolidation provider returned an error, raw-dumping to history")
             self.store.raw_archive(original, session_key=session_key)
             return None

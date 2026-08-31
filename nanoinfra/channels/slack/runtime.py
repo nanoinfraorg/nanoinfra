@@ -21,6 +21,11 @@ from nanoinfra.channels.base import BaseChannel
 from nanoinfra.config.paths import get_media_dir
 from nanoinfra.config.schema import Base
 from nanoinfra.pairing import is_approved
+from nanoinfra.security.network import (
+    PinnedDNSAsyncTransport,
+    httpx_env_proxy_mounts,
+    validate_url_target,
+)
 from nanoinfra.utils.helpers import safe_filename, split_message
 
 
@@ -32,6 +37,18 @@ def _as_json_object(value: Any) -> dict[str, Any] | None:
 def _as_json_list(value: Any) -> list[Any] | None:
     """Narrow Slack's untyped Socket Mode arrays at the boundary."""
     return cast(list[Any], value) if isinstance(value, list) else None
+
+
+async def _validate_slack_download_request(request: httpx.Request) -> None:
+    """Refuse an unsafe Slack file URL before the transport connects.
+
+    Runs on the redirect chain too, which is the case a one-time check on the original URL
+    misses: a Slack-hosted URL that answers 302 to an internal address would otherwise be
+    followed.
+    """
+    ok, error = validate_url_target(str(request.url))
+    if not ok:
+        raise httpx.RequestError(f"unsafe Slack file URL: {error}", request=request)
 
 
 class _SlackWebAPI(Protocol):
@@ -562,7 +579,18 @@ class SlackChannel(BaseChannel):
         filename = safe_filename(f"{file_id}_{name}")
         path = Path(get_media_dir("slack")) / filename
         try:
-            async with httpx.AsyncClient(timeout=SLACK_DOWNLOAD_TIMEOUT, follow_redirects=True) as client:
+            # Every request, redirects included, goes through the shared guard. A Slack file
+            # URL is data from a workspace this bot joined: it could name, or redirect to, a
+            # loopback / RFC1918 / cloud-metadata address, and the download would then be this
+            # server making that request. Backport of HKUDS/nanobot a4acd839, which found the
+            # same hole; the three helpers are the ones nanoinfra/agent/tools/mcp.py uses.
+            async with httpx.AsyncClient(
+                timeout=SLACK_DOWNLOAD_TIMEOUT,
+                follow_redirects=True,
+                transport=PinnedDNSAsyncTransport(),
+                mounts=httpx_env_proxy_mounts(),
+                event_hooks={"request": [_validate_slack_download_request]},
+            ) as client:
                 response = await client.get(
                     url,
                     headers={"Authorization": f"Bearer {self.config.bot_token}"},
