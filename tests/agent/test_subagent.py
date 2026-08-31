@@ -11,7 +11,7 @@ from nanoinfra.agent.subagent import SubagentManager, SubagentStatus
 from nanoinfra.agent.tools.filesystem import FileToolsConfig
 from nanoinfra.bus.queue import MessageBus
 from nanoinfra.config.schema import ToolsConfig
-from nanoinfra.providers.base import GenerationSettings, LLMProvider
+from nanoinfra.providers.base import GenerationSettings, LLMProvider, LLMUsage
 from nanoinfra.security.workspace_access import build_workspace_scope
 from nanoinfra.utils.llm_runtime import LLMRuntime
 
@@ -295,7 +295,7 @@ async def test_subagent_success_persists_transcript(tmp_path):
                 final_content="done",
                 messages=_full_messages(),
                 stop_reason="completed",
-                usage={"prompt_tokens": 10, "completion_tokens": 5},
+                usage=LLMUsage.reported(input_tokens=10, output_tokens=5),
             )
         )
     )
@@ -354,7 +354,7 @@ async def test_subagent_max_iterations_persists_transcript(tmp_path):
                 final_content=None,
                 messages=_full_messages(),
                 stop_reason="max_iterations",
-                usage={"prompt_tokens": 3},
+                usage=LLMUsage.reported(input_tokens=3, output_tokens=0),
             )
         )
     )

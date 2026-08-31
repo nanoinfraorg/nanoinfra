@@ -58,7 +58,7 @@ from nanoinfra.bus.queue import MessageBus
 from nanoinfra.bus.runtime_events import RuntimeEventBus
 from nanoinfra.command import CommandContext, CommandRouter, register_builtin_commands
 from nanoinfra.config.schema import AgentDefaults, ModelPresetConfig
-from nanoinfra.providers.base import LLMProvider, ProviderConversationState
+from nanoinfra.providers.base import LLMProvider, LLMUsage, ProviderConversationState
 from nanoinfra.providers.factory import ProviderSnapshot
 from nanoinfra.runtime_context import (
     RUNTIME_CONTEXT_HISTORY_META,
@@ -427,7 +427,7 @@ class AgentLoop:
             default_restrict_to_workspace=restrict_to_workspace,
         )
         self._start_time = time.time()
-        self._last_usage: dict[str, int] = {}
+        self._last_usage: LLMUsage | None = None
         self._extra_hooks: list[AgentHook] = hooks or []
         self._hook_factories: list[AgentTurnHookFactory] = hook_factories or []
 

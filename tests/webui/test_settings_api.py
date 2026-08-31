@@ -9,6 +9,7 @@ import pytest
 
 from nanoinfra.config.loader import load_config, save_config
 from nanoinfra.config.schema import Config, InlineFallbackConfig, ModelPresetConfig
+from nanoinfra.providers.base import LLMUsage
 from nanoinfra.providers.registry import find_by_name
 from nanoinfra.webui.settings_api import (
     WebUISettingsError,
@@ -1327,7 +1328,7 @@ def test_settings_payload_includes_token_usage_summary(
 
     from nanoinfra.webui.token_usage import record_token_usage
 
-    record_token_usage({"prompt_tokens": 10, "completion_tokens": 5})
+    record_token_usage(LLMUsage.reported(input_tokens=10, output_tokens=5))
 
     payload = settings_payload()
 
@@ -1352,7 +1353,7 @@ def test_settings_usage_payload_returns_lightweight_token_usage(
 
     from nanoinfra.webui.token_usage import record_token_usage
 
-    record_token_usage({"prompt_tokens": 20, "completion_tokens": 2})
+    record_token_usage(LLMUsage.reported(input_tokens=20, output_tokens=2))
 
     payload = settings_usage_payload()
 

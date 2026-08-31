@@ -210,13 +210,17 @@ class AgentProgressHook(AgentHook):
                     tool_hint=False,
                     tool_events=tool_events,
                 )
-        u = context.usage or {}
-        logger.debug(
-            "LLM usage: prompt={} completion={} cached={}",
-            u.get("prompt_tokens", 0),
-            u.get("completion_tokens", 0),
-            u.get("cached_tokens", 0),
-        )
+        usage = context.usage
+        if usage is not None:
+            logger.debug(
+                "LLM usage: in={} out={} cached={} source={}",
+                usage.input_tokens,
+                usage.output_tokens,
+                # A dash rather than a zero: this provider reported no cache metric, which the
+                # old line could not distinguish from a call that hit no cache.
+                "-" if usage.cache_read_tokens is None else usage.cache_read_tokens,
+                usage.source,
+            )
 
     def finalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
         return self._strip_think(content)

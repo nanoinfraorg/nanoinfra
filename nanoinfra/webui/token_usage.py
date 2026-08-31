@@ -15,6 +15,7 @@ from loguru import logger
 
 from nanoinfra.agent.hook import AgentHook, AgentHookContext
 from nanoinfra.config.paths import get_webui_dir
+from nanoinfra.providers.base import LLMUsage
 
 TOKEN_USAGE_SCHEMA_VERSION = 1
 _MAX_STATE_FILE_BYTES = 512 * 1024
@@ -88,20 +89,25 @@ def _source_from_session_key(session_key: str | None) -> str:
     return "user"
 
 
-def _normalize_usage(raw: dict[str, Any] | None) -> dict[str, int]:
-    if not isinstance(raw, dict):
+def _row_from_usage(usage: LLMUsage | None) -> dict[str, int]:
+    """Project one typed usage value into the day-row keys.
+
+    The mapping is deliberately narrow: this file's schema predates the contract, so it keeps its
+    own names (`prompt_tokens`, `provider_tokens`) rather than renaming a file every deployment
+    already has on disk. `cached_tokens` takes a zero when the provider reported no metric,
+    because a day row is a sum and the distinction cannot survive one anyway -- the store that
+    can keep it is the per-attempt one in #176.
+    """
+    if usage is None or usage.total_tokens <= 0:
         return {}
-    usage = {key: _clean_int(raw.get(key)) for key in _USAGE_KEYS}
-    fallback_total = usage["prompt_tokens"] + usage["completion_tokens"]
-    if usage["total_tokens"] <= 0:
-        usage["total_tokens"] = fallback_total
-    if usage["estimated_tokens"] <= 0 and usage["provider_tokens"] <= 0:
-        usage["provider_tokens"] = usage["total_tokens"]
-    elif usage["estimated_tokens"] > 0 and usage["provider_tokens"] <= 0:
-        usage["estimated_tokens"] = min(usage["estimated_tokens"], usage["total_tokens"])
-    elif usage["provider_tokens"] > 0 and usage["estimated_tokens"] <= 0:
-        usage["provider_tokens"] = min(usage["provider_tokens"], usage["total_tokens"])
-    return usage if usage["total_tokens"] > 0 else {}
+    return {
+        "prompt_tokens": usage.input_tokens,
+        "completion_tokens": usage.output_tokens,
+        "cached_tokens": usage.cache_read_tokens or 0,
+        "total_tokens": usage.total_tokens,
+        "provider_tokens": usage.reported_tokens,
+        "estimated_tokens": usage.estimated_tokens,
+    }
 
 
 def _normalize_usage_row(row: dict[str, Any]) -> dict[str, int]:
@@ -230,13 +236,20 @@ def write_token_usage_state(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def record_token_usage(
-    usage: dict[str, Any] | None,
+    usage: LLMUsage | None,
     *,
     source: str = "user",
     timezone_name: str | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    normalized = _normalize_usage(usage)
+    """Add one call's usage to today's row.
+
+    Takes the type as of #175. `_normalize_usage_row` stays, because rows already on disk were
+    written before the contract existed and still have to be read back -- but nothing *new* goes
+    through its heuristics, because which half of the partition a number belongs to now arrives
+    decided rather than being guessed from which keys are present.
+    """
+    normalized = _row_from_usage(usage)
     if not normalized:
         return read_token_usage_state()
 

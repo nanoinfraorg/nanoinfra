@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from nanoinfra.agent.tools.context import RequestContext, request_context
 from nanoinfra.agent.tools.self import MyTool
 from nanoinfra.config.schema import ModelPresetConfig
+from nanoinfra.providers.base import LLMUsage
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -29,7 +30,7 @@ def _make_mock_loop(**overrides):
     loop._start_time = 1000.0
     loop.exec_config = MagicMock()
     loop.channels_config = MagicMock()
-    loop._last_usage = {"prompt_tokens": 100, "completion_tokens": 50}
+    loop._last_usage = LLMUsage.reported(input_tokens=100, output_tokens=50)
     loop._runtime_vars = {}
     loop._current_iteration = 0
     loop.provider_retry_mode = "standard"
@@ -644,7 +645,7 @@ class TestSubagentStatusFormatting:
                 {"name": "grep", "status": "ok", "detail": "searched ERROR"},
                 {"name": "exec", "status": "error", "detail": "timeout"},
             ],
-            usage={"prompt_tokens": 4500, "completion_tokens": 1200},
+            usage=LLMUsage.reported(input_tokens=4500, output_tokens=1200),
         )
         result = MyTool._format_value(status)
         assert "abc12345" in result
@@ -718,14 +719,14 @@ class TestSubagentHookStatus:
             iteration=5,
             messages=[],
             tool_events=[{"name": "read_file", "status": "ok", "detail": "ok"}],
-            usage={"prompt_tokens": 100, "completion_tokens": 50},
+            usage=LLMUsage.reported(input_tokens=100, output_tokens=50),
         )
         await hook.after_iteration(context)
 
         assert status.iteration == 5
         assert len(status.tool_events) == 1
         assert status.tool_events[0]["name"] == "read_file"
-        assert status.usage == {"prompt_tokens": 100, "completion_tokens": 50}
+        assert status.usage == LLMUsage.reported(input_tokens=100, output_tokens=50)
 
     @pytest.mark.asyncio
     async def test_after_iteration_with_error(self):
@@ -841,7 +842,7 @@ class TestInspectTaskStatuses:
                 phase="awaiting_tools",
                 iteration=2,
                 tool_events=[{"name": "read_file", "status": "ok", "detail": "ok"}],
-                usage={"prompt_tokens": 500, "completion_tokens": 100},
+                usage=LLMUsage.reported(input_tokens=500, output_tokens=100),
             ),
         }
         tool = _make_tool(runtime_state=loop)
@@ -1149,7 +1150,7 @@ class TestLastUsageInSummary:
     @pytest.mark.asyncio
     async def test_last_usage_not_shown_when_empty(self):
         loop = _make_mock_loop()
-        loop._last_usage = {}
+        loop._last_usage = None
         tool = _make_tool(runtime_state=loop)
         result = await tool.execute(action="check")
         assert "_last_usage" not in result

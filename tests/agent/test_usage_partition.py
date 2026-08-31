@@ -69,9 +69,10 @@ async def test_a_reported_turn_is_entirely_reported() -> None:
         )
     )
 
-    assert result.usage["total_tokens"] == 120
-    assert result.usage["estimated_tokens"] == 0
-    assert result.usage["provider_tokens"] == 120
+    assert result.usage is not None
+    assert result.usage.total_tokens == 120
+    assert result.usage.estimated_tokens == 0
+    assert result.usage.reported_tokens == 120
 
 
 @pytest.mark.asyncio
@@ -79,9 +80,11 @@ async def test_a_turn_the_provider_did_not_measure_is_entirely_estimated() -> No
     """The number is still useful, and it is no longer indistinguishable from a measurement."""
     result = await _run(LLMResponse(content="done", finish_reason="stop", usage=None))
 
-    assert result.usage["total_tokens"] > 0
-    assert result.usage["estimated_tokens"] == result.usage["total_tokens"]
-    assert "provider_tokens" not in result.usage
+    assert result.usage is not None
+    assert result.usage.total_tokens > 0
+    assert result.usage.estimated_tokens == result.usage.total_tokens
+    assert result.usage.reported_tokens == 0
+    assert result.usage.source == "estimated"
 
 
 @pytest.mark.asyncio
@@ -91,7 +94,7 @@ async def test_an_error_response_costs_nothing_rather_than_an_estimate() -> None
         LLMResponse(content="Error calling LLM: boom", finish_reason="error", usage=None)
     )
 
-    assert result.usage == {}
+    assert result.usage is None
 
 
 # --- aggregation across a turn ----------------------------------------------------------
@@ -111,11 +114,13 @@ async def test_a_tool_loop_keeps_both_halves_of_the_partition() -> None:
     )
 
     usage = result.usage
-    assert usage["provider_tokens"] == 120
-    assert usage["estimated_tokens"] > 0
+    assert usage is not None
+    assert usage.reported_tokens == 120
+    assert usage.estimated_tokens > 0
     # The invariant that had to survive the accumulation: the two halves exhaust the total.
-    assert usage["provider_tokens"] + usage["estimated_tokens"] == usage["total_tokens"]
-    assert usage["request_count"] == 2
+    assert usage.reported_tokens + usage.estimated_tokens == usage.total_tokens
+    assert usage.source == "mixed"
+    assert usage.request_count == 2
 
 
 @pytest.mark.asyncio
@@ -135,7 +140,8 @@ async def test_a_cache_count_on_one_call_and_not_the_other_reports_nothing() -> 
         ),
     )
 
-    assert "cached_tokens" not in result.usage
+    assert result.usage is not None
+    assert result.usage.cache_read_tokens is None
 
 
 @pytest.mark.asyncio
@@ -154,7 +160,8 @@ async def test_the_context_level_is_the_last_call_and_not_the_sum() -> None:
         ),
     )
 
-    assert result.usage["context_tokens"] == 41_000
+    assert result.usage is not None
+    assert result.usage.context_tokens == 41_000
 
 
 # --- what the calibration module is allowed to learn from -------------------------------

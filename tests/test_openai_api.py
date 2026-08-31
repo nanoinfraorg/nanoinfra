@@ -17,6 +17,7 @@ from nanoinfra.api.server import (
     create_app,
     handle_chat_completions,
 )
+from nanoinfra.providers.base import LLMUsage
 
 try:
     from aiohttp.test_utils import TestClient, TestServer
@@ -36,7 +37,7 @@ def _make_mock_agent(response_text: str = "mock response") -> MagicMock:
     agent.process_direct = AsyncMock(return_value=response_text)
     agent._connect_mcp = AsyncMock()
     agent.close_mcp = AsyncMock()
-    agent._last_usage = {"prompt_tokens": 100, "completion_tokens": 50}
+    agent._last_usage = LLMUsage.reported(input_tokens=100, output_tokens=50)
     return agent
 
 
@@ -88,7 +89,7 @@ def test_chat_completion_response() -> None:
 
 
 def test_chat_completion_response_with_usage() -> None:
-    usage = {"prompt_tokens": 150, "completion_tokens": 42}
+    usage = LLMUsage.reported(input_tokens=150, output_tokens=42)
     result = _chat_completion_response("hello world", "test-model", usage)
     assert result["usage"]["prompt_tokens"] == 150
     assert result["usage"]["completion_tokens"] == 42
@@ -96,7 +97,7 @@ def test_chat_completion_response_with_usage() -> None:
 
 
 def test_chat_completion_response_preserves_provider_total_usage() -> None:
-    usage = {"total_tokens": 77}
+    usage = LLMUsage.reported(input_tokens=0, output_tokens=0, total_tokens=77)
     result = _chat_completion_response("hello world", "test-model", usage)
     assert result["usage"]["prompt_tokens"] == 0
     assert result["usage"]["completion_tokens"] == 0

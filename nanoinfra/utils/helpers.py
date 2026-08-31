@@ -1,5 +1,7 @@
 """Utility functions for nanoinfra."""
 
+from __future__ import annotations
+
 import base64
 import json
 import os
@@ -13,7 +15,7 @@ from contextlib import suppress
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Any, TypeVar, cast, overload
 
 import tiktoken
 from loguru import logger
@@ -29,6 +31,12 @@ def sanitize_surrogates(text: str) -> str: ...
 
 @overload
 def sanitize_surrogates(text: _T) -> _T: ...
+
+
+if TYPE_CHECKING:
+    # Imported for typing only: `providers.base` imports this module, so a runtime import
+    # here would be a cycle.
+    from nanoinfra.providers.base import LLMUsage
 
 
 def sanitize_surrogates(text: Any) -> Any:
@@ -870,7 +878,7 @@ def build_status_content(
     version: str,
     model: str,
     start_time: float,
-    last_usage: dict[str, int],
+    last_usage: LLMUsage | None,
     context_window_tokens: int,
     session_msg_count: int,
     context_tokens_estimate: int,
@@ -891,9 +899,11 @@ def build_status_content(
         if uptime_s >= 3600
         else f"{uptime_s // 60}m {uptime_s % 60}s"
     )
-    last_in = last_usage.get("prompt_tokens", 0)
-    last_out = last_usage.get("completion_tokens", 0)
-    cached = last_usage.get("cached_tokens", 0)
+    last_in = last_usage.input_tokens if last_usage else 0
+    last_out = last_usage.output_tokens if last_usage else 0
+    # `None` means the provider reported no cache metric at all, and the line below prints a
+    # percentage only when there is one to print -- a zero read as "nothing was cached".
+    cached = (last_usage.cache_read_tokens or 0) if last_usage else 0
     ctx_total = max(context_window_tokens, 0)
     # Budget mirrors Consolidator formula: ctx_window - max_completion - _SAFETY_BUFFER
     ctx_budget = max(ctx_total - int(max_completion_tokens) - 1024, 1)

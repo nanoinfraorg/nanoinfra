@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from nanoinfra.agent.subagent import SubagentManager
     from nanoinfra.agent.tools.shell import ExecToolConfig
     from nanoinfra.agent.tools.web import WebToolsConfig
+    from nanoinfra.providers.base import LLMUsage
     from nanoinfra.utils.llm_runtime import LLMRuntime
 
 
@@ -58,7 +59,7 @@ class RuntimeState(Protocol):
     def _runtime_vars(self) -> dict[str, Any]: ...
 
     @property
-    def _last_usage(self) -> dict[str, int]: ...
+    def _last_usage(self) -> LLMUsage | None: ...
 
     def _sync_subagent_runtime_limits(self) -> None: ...
 

@@ -730,8 +730,8 @@ async def test_runner_retries_empty_final_response_with_summary_prompt():
     assert calls[0]["tools"] is not None
     assert calls[1]["tools"] is not None
     assert calls[2]["tools"] is None
-    assert result.usage["prompt_tokens"] == 13
-    assert result.usage["completion_tokens"] == 9
+    assert result.usage.input_tokens == 13
+    assert result.usage.output_tokens == 9
 
 
 @pytest.mark.asyncio
@@ -1068,9 +1068,9 @@ async def test_runner_accumulates_usage_and_preserves_cached_tokens():
     ))
 
     # Usage should be accumulated across iterations
-    assert result.usage["prompt_tokens"] == 300  # 100 + 200
-    assert result.usage["completion_tokens"] == 30  # 10 + 20
-    assert result.usage["cached_tokens"] == 230  # 80 + 150
+    assert result.usage.input_tokens == 300  # 100 + 200
+    assert result.usage.output_tokens == 30  # 10 + 20
+    assert result.usage.cache_read_tokens == 230  # 80 + 150
 
 
 @pytest.mark.asyncio

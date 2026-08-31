@@ -29,7 +29,7 @@ from nanoinfra.agent.tools.registry import ToolRegistry
 from nanoinfra.bus.events import InboundMessage
 from nanoinfra.bus.queue import MessageBus
 from nanoinfra.config.schema import AgentDefaults, ToolsConfig
-from nanoinfra.providers.base import LLMProvider
+from nanoinfra.providers.base import LLMProvider, LLMUsage
 from nanoinfra.security.workspace_access import (
     WorkspaceScope,
     bind_workspace_scope,
@@ -57,7 +57,7 @@ class SubagentStatus:
     phase: str = "initializing"  # initializing | awaiting_tools | tools_completed | final_response | done | error
     iteration: int = 0
     tool_events: list[dict[str, str]] = field(default_factory=list)
-    usage: dict[str, int] = field(default_factory=dict)
+    usage: LLMUsage | None = None
     stop_reason: str | None = None
     error: str | None = None
 
@@ -90,7 +90,7 @@ class _SubagentHook(AgentHook):
             return
         self._status.iteration = context.iteration
         self._status.tool_events = list(context.tool_events)
-        self._status.usage = dict(context.usage)
+        self._status.usage = context.usage
         if context.error:
             self._status.error = str(context.error)
 
@@ -542,7 +542,7 @@ class SubagentManager:
         hook: _SubagentHook,
         stop_reason: str,
         error: str | None = None,
-        usage: dict[str, int] | None = None,
+        usage: LLMUsage | None = None,
     ) -> bool:
         """Persist the subagent transcript best-effort.
 
@@ -556,8 +556,10 @@ class SubagentManager:
             metadata: dict[str, Any] = {"stop_reason": stop_reason}
             if error:
                 metadata["error"] = error
-            if usage:
-                metadata["usage"] = dict(usage)
+            if usage is not None:
+                # The compact shape, because a transcript record is read back by a client rather
+                # than by this process.
+                metadata["usage"] = usage.to_turn_dict()
             self.transcripts.write(task_id, hook.last_messages, metadata=metadata)
             return True
         except Exception:

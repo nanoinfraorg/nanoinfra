@@ -250,7 +250,7 @@ class MyTool(Tool):
         lines = [
             f"{indent}phase: {st.phase}, iteration: {st.iteration}, elapsed: {elapsed:.1f}s",
             f"{indent}tools: {tool_summary}",
-            f"{indent}usage: {st.usage or 'n/a'}",
+            f"{indent}usage: {st.usage.to_turn_dict() if st.usage else 'n/a'}",
         ]
         if st.error:
             lines.append(f"{indent}error: {st.error}")
@@ -426,8 +426,10 @@ class MyTool(Tool):
                 parts.append(self._format_value(getattr(state, k, None), k))
         # Token usage
         usage = state._last_usage
-        if usage:
-            parts.append(self._format_value(usage, "_last_usage"))
+        if usage is not None:
+            # The compact projection, because this is text the model reads: the type's own field
+            # names would be a second vocabulary for the same numbers.
+            parts.append(self._format_value(usage.to_turn_dict(), "_last_usage"))
         rv = state._runtime_vars
         if rv:
             parts.append(self._format_value(rv, "scratchpad"))

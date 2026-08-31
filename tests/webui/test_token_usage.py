@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from nanoinfra.agent.hook import AgentHookContext
+from nanoinfra.providers.base import LLMUsage
 from nanoinfra.webui.token_usage import (
     TokenUsageHook,
     record_response_token_usage,
@@ -58,7 +59,7 @@ def test_record_scrubs_malformed_day_keys(tmp_path, monkeypatch) -> None:
     })
 
     record_token_usage(
-        {"prompt_tokens": 1, "completion_tokens": 1},
+        LLMUsage.reported(input_tokens=1, output_tokens=1),
         timezone_name="UTC",
         now=datetime(2026, 6, 3, 12, 0, tzinfo=timezone.utc),
     )
@@ -73,12 +74,12 @@ def test_record_token_usage_aggregates_by_local_day(tmp_path, monkeypatch) -> No
     monkeypatch.setattr("nanoinfra.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
 
     record_token_usage(
-        {"prompt_tokens": 100, "completion_tokens": 40, "cached_tokens": 20},
+        LLMUsage.reported(input_tokens=100, output_tokens=40, cache_read_tokens=20),
         timezone_name="Asia/Shanghai",
         now=datetime(2026, 6, 2, 18, 0, tzinfo=timezone.utc),
     )
     record_token_usage(
-        {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        LLMUsage.reported(input_tokens=10, output_tokens=5),
         timezone_name="Asia/Shanghai",
         now=datetime(2026, 6, 2, 19, 0, tzinfo=timezone.utc),
     )
@@ -123,7 +124,7 @@ def test_record_token_usage_aggregates_by_local_day(tmp_path, monkeypatch) -> No
 def test_record_token_usage_skips_empty_usage(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("nanoinfra.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
 
-    record_token_usage({"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+    record_token_usage(LLMUsage.empty_request())
 
     payload = token_usage_payload(now=datetime(2026, 6, 3, tzinfo=timezone.utc))
     assert payload["days"] == []
@@ -134,7 +135,7 @@ def test_record_token_usage_keeps_estimated_split(tmp_path, monkeypatch) -> None
     monkeypatch.setattr("nanoinfra.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
 
     record_token_usage(
-        {"prompt_tokens": 100, "completion_tokens": 25, "estimated_tokens": 125},
+        LLMUsage.estimated(input_tokens=100, output_tokens=25),
         now=datetime(2026, 6, 3, tzinfo=timezone.utc),
     )
 
@@ -150,12 +151,12 @@ def test_record_token_usage_keeps_source_breakdown(tmp_path, monkeypatch) -> Non
     monkeypatch.setattr("nanoinfra.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
 
     record_token_usage(
-        {"prompt_tokens": 100, "completion_tokens": 25},
+        LLMUsage.reported(input_tokens=100, output_tokens=25),
         source="user",
         now=datetime(2026, 6, 3, tzinfo=timezone.utc),
     )
     record_token_usage(
-        {"prompt_tokens": 20, "completion_tokens": 5},
+        LLMUsage.reported(input_tokens=20, output_tokens=5),
         source="dream",
         now=datetime(2026, 6, 3, tzinfo=timezone.utc),
     )
@@ -175,7 +176,7 @@ def test_record_response_token_usage_uses_response_usage(tmp_path, monkeypatch) 
     monkeypatch.setattr("nanoinfra.webui.token_usage._local_day", lambda *_, **__: "2026-06-03")
 
     record_response_token_usage(
-        SimpleNamespace(usage={"prompt_tokens": 20, "completion_tokens": 5}),
+        SimpleNamespace(usage=LLMUsage.reported(input_tokens=20, output_tokens=5)),
         source="dream",
     )
 
@@ -194,7 +195,7 @@ async def test_token_usage_hook_classifies_source_from_session_key(tmp_path, mon
             iteration=0,
             messages=[],
             session_key="cron:drink-water",
-            usage={"prompt_tokens": 10, "completion_tokens": 5},
+            usage=LLMUsage.reported(input_tokens=10, output_tokens=5),
         )
     )
 

@@ -126,7 +126,8 @@ class AgentRunResult:
     final_content: str | None
     messages: list[dict[str, Any]]
     tools_used: list[str] = field(default_factory=list)
-    usage: dict[str, int] = field(default_factory=dict)
+    #: What the turn cost, summed across every provider call. `None` when nothing was measurable.
+    usage: LLMUsage | None = None
     stop_reason: str = "completed"
     error: str | None = None
     tool_events: list[dict[str, str]] = field(default_factory=list)
@@ -421,7 +422,7 @@ class AgentRunner:
             context.messages = deepcopy(result.messages)
             context.final_content = result.final_content
             context.tools_used = list(result.tools_used)
-            context.usage = dict(result.usage)
+            context.usage = result.usage
             context.stop_reason = result.stop_reason
             context.error = result.error
             context.tool_events = deepcopy(result.tool_events)
@@ -528,7 +529,7 @@ class AgentRunner:
             )
             response.content = cleaned_content
             raw_usage = self._usage_or_estimate(spec, messages_for_model, response)
-            context.usage = self._usage_dict(raw_usage)
+            context.usage = raw_usage
             usage = self._accumulate_usage(usage, raw_usage)
             if reasoning_text and not context.streamed_reasoning:
                 await hook.emit_reasoning(reasoning_text)
@@ -695,7 +696,7 @@ class AgentRunner:
                 usage = self._accumulate_usage(usage, retry_usage)
                 raw_usage = self._accumulate_usage(raw_usage, retry_usage)
                 context.response = response
-                context.usage = self._usage_dict(raw_usage)
+                context.usage = raw_usage
                 context.tool_calls = self._tool_calls_for_context(response.tool_calls, spec.tools)
                 original_content = response.content
                 clean = hook.finalize_content(context, response.content)
@@ -891,7 +892,7 @@ class AgentRunner:
             final_content=final_content,
             messages=messages,
             tools_used=tools_used,
-            usage=self._usage_dict(usage),
+            usage=usage,
             stop_reason=stop_reason,
             error=error,
             tool_events=tool_events,
@@ -1253,7 +1254,7 @@ class AgentRunner:
             iteration=spec.max_iterations,
             messages=messages,
             response=response,
-            usage=self._usage_dict(raw_usage),
+            usage=raw_usage,
             session_key=spec.session_key,
         )
         clean = hook.finalize_content(context, response.content)
@@ -1418,22 +1419,6 @@ class AgentRunner:
             input_tokens=max(0, prompt_tokens),
             output_tokens=max(0, completion_tokens),
         )
-
-    @staticmethod
-    def _usage_dict(usage: LLMUsage | None) -> dict[str, int]:
-        """Project a boundary-normalised `LLMUsage` back into the shape this file still uses.
-
-        A seam, and a short-lived one: the providers produce the type as of #173 and everything
-        downstream of here still reads keys. #174 moves this file onto the type and deletes this
-        method. It keeps `provider_tokens` because that key is what the day-row store reads to
-        decide which half of the partition a number belongs to.
-        """
-        if usage is None:
-            return {}
-        projected = usage.to_turn_dict()
-        if usage.reported_tokens:
-            projected["provider_tokens"] = usage.reported_tokens
-        return projected
 
     @staticmethod
     def _accumulate_usage(target: LLMUsage | None, addition: LLMUsage | None) -> LLMUsage | None:

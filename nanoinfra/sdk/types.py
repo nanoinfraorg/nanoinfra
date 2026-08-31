@@ -204,7 +204,9 @@ def result_from_response(response: Any, capture: Any) -> RunResult:
         content=content,
         tools_used=capture.tools_used,
         messages=capture.messages,
-        usage=capture.usage,
+        # The compact projection, not the type: `RunResult` is what an SDK consumer receives, so
+        # it keeps the shape and the names it already had (#175).
+        usage=capture.usage.to_turn_dict() if capture.usage is not None else {},
         stop_reason=capture.stop_reason,
         error=capture.error,
         metadata=metadata,

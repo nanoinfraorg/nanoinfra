@@ -49,7 +49,6 @@ def _make_hook_context(**overrides) -> AgentHookContext:
         tool_calls=[],
         tool_events=[],
         messages=[],
-        usage={},
         error=None,
         stop_reason="completed",
         final_content="ok",
@@ -97,7 +96,7 @@ class TestSubagentStatus:
         assert s.phase == "initializing"
         assert s.iteration == 0
         assert s.tool_events == []
-        assert s.usage == {}
+        assert s.usage is None
         assert s.stop_reason is None
         assert s.error is None
 

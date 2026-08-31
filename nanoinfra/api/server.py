@@ -20,6 +20,7 @@ from aiohttp import web
 from loguru import logger
 
 from nanoinfra.config.paths import get_media_dir
+from nanoinfra.providers.base import LLMUsage
 from nanoinfra.utils.helpers import safe_filename
 from nanoinfra.utils.media_decode import (
     MAX_FILE_SIZE,
@@ -146,11 +147,13 @@ def _error_json(status: int, message: str, err_type: str = "invalid_request_erro
 def _chat_completion_response(
     content: str,
     model: str,
-    usage: dict[str, int] | None = None,
+    usage: LLMUsage | None = None,
 ) -> dict[str, Any]:
-    prompt = (usage or {}).get("prompt_tokens", 0)
-    completion = (usage or {}).get("completion_tokens", 0)
-    total = (usage or {}).get("total_tokens", 0) or prompt + completion
+    # The OpenAI-compatible shape is a wire format somebody else's client reads, so this stays
+    # `prompt_tokens`/`completion_tokens` however the type spells them internally (#175).
+    prompt = usage.input_tokens if usage else 0
+    completion = usage.output_tokens if usage else 0
+    total = (usage.total_tokens if usage else 0) or prompt + completion
     return {
         "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
         "object": "chat.completion",

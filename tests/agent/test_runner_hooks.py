@@ -202,11 +202,11 @@ async def test_runner_passes_cached_tokens_to_hook_context():
     from nanoinfra.agent.runner import AgentRunner
 
     provider = MagicMock(spec=LLMProvider)
-    captured_usage: list[dict] = []
+    captured_usage: list[LLMUsage | None] = []
 
     class UsageHook(AgentHook):
         async def after_iteration(self, context: AgentHookContext) -> None:
-            captured_usage.append(dict(context.usage))
+            captured_usage.append(context.usage)
 
     async def chat_with_retry(**kwargs):
         return LLMResponse(
@@ -230,8 +230,9 @@ async def test_runner_passes_cached_tokens_to_hook_context():
     ))
 
     assert len(captured_usage) == 1
-    assert captured_usage[0]["cached_tokens"] == 150
-    assert captured_usage[0]["provider_tokens"] == 220
+    assert captured_usage[0] is not None
+    assert captured_usage[0].cache_read_tokens == 150
+    assert captured_usage[0].reported_tokens == 220
 
 
 @pytest.mark.asyncio
@@ -244,7 +245,7 @@ async def test_runner_estimates_usage_when_provider_omits_usage(monkeypatch):
 
     class UsageHook(AgentHook):
         async def after_iteration(self, context: AgentHookContext) -> None:
-            captured_usage.append(dict(context.usage))
+            captured_usage.append(context.usage)
 
     async def chat_with_retry(**kwargs):
         return LLMResponse(content="done", tool_calls=[], usage=None)
@@ -268,11 +269,11 @@ async def test_runner_estimates_usage_when_provider_omits_usage(monkeypatch):
         hook=UsageHook(),
     ))
 
-    assert result.usage["prompt_tokens"] == 123
-    assert result.usage["completion_tokens"] == 7
-    assert result.usage["total_tokens"] == 130
-    assert result.usage["estimated_tokens"] == 130
-    assert captured_usage[0]["estimated_tokens"] == 130
+    assert result.usage.input_tokens == 123
+    assert result.usage.output_tokens == 7
+    assert result.usage.total_tokens == 130
+    assert result.usage.estimated_tokens == 130
+    assert captured_usage[0].estimated_tokens == 130
 
 
 @pytest.mark.asyncio
@@ -306,7 +307,7 @@ async def test_runner_calls_run_level_hooks_on_success():
                 context.final_content,
                 context.stop_reason,
                 context.error,
-                dict(context.usage),
+                context.usage,
                 [msg["role"] for msg in context.messages],
             ))
 
@@ -335,17 +336,7 @@ async def test_runner_calls_run_level_hooks_on_success():
             "done",
             "completed",
             None,
-            {
-                "prompt_tokens": 3,
-                "completion_tokens": 2,
-                "total_tokens": 5,
-                # Two numbers the dict could not carry before the boundary was typed: how many
-                # provider calls this turn made, and the context the last one held.
-                "request_count": 1,
-                "estimated_tokens": 0,
-                "context_tokens": 3,
-                "provider_tokens": 5,
-            },
+            LLMUsage.reported(input_tokens=3, output_tokens=2),
             ["user", "assistant"],
         ),
         ("on_finally", "completed", None),
