@@ -1658,6 +1658,7 @@ class WebSocketChannel(BaseChannel):
                 latency_ms=event.latency_ms,
                 goal_state=event.goal_state,
                 usage=event.usage,
+                prompt_manifest=event.prompt_manifest,
                 metadata=msg.metadata,
                 turn_owner=turn_owner if isinstance(turn_owner, str) else None,
             )
@@ -1873,6 +1874,7 @@ class WebSocketChannel(BaseChannel):
         *,
         goal_state: dict[str, Any] | None = None,
         usage: LLMUsage | None = None,
+        prompt_manifest: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
         turn_owner: str | None = None,
     ) -> None:
@@ -1887,6 +1889,10 @@ class WebSocketChannel(BaseChannel):
             # Beside the latency, and persisted with it by the call below -- so a reloaded thread
             # shows the same number as a live one rather than losing it on refresh (#202).
             body["usage"] = usage.to_turn_dict()
+        if prompt_manifest:
+            # Names and sizes. A manifest that carried the prompt's text would be a second copy of
+            # the conversation persisted where nobody expects one (#203).
+            body["prompt"] = prompt_manifest
         canonical_webui_turn = (metadata or {}).get("webui") is True
         prior_persistence_failure = (
             canonical_webui_turn

@@ -475,6 +475,10 @@ class _MCPWrapperBase(Tool):
     _server_name: str
     _name: str
 
+    @property
+    def source(self) -> str:
+        return f"mcp:{getattr(self, '_server_name', '') or 'unknown'}"
+
     def _set_mcp_connection(self, session: "MCPSession", server_name: str) -> None:
         self._session = session
         self._server_name = server_name

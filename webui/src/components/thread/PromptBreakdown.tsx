@@ -1,0 +1,134 @@
+import { useState } from "react";
+import { ChevronRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
+
+import { cn } from "@/lib/utils";
+import type { PromptManifest } from "@/lib/types";
+
+/**
+ * Where a turn's input tokens went (#203).
+ *
+ * The question this exists for was asked about a real turn: *31K input tokens for a "hola"*. The
+ * answer took an SSH session and a hand-written SQLite query — the system prompt was 7.4K and the
+ * other 23K was tool schemas, three MCP servers carrying the same fifteen GitHub tools. None of
+ * that was visible anywhere, which is the actual finding.
+ *
+ * Collapsed by default and grouped, because the useful reading is almost always one line: which
+ * group is big. The per-section rows are for the turn after that.
+ */
+export function PromptBreakdown({ manifest }: { manifest: PromptManifest }) {
+  const { t, i18n } = useTranslation();
+  const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
+    t(key, { defaultValue: fallback, ...(values ?? {}) });
+  const [open, setOpen] = useState(false);
+  const numbers = new Intl.NumberFormat(i18n.language);
+
+  const total = manifest.total_tokens;
+  if (total <= 0) return null;
+
+  // Largest first: the row worth reading is the one paying for the turn.
+  const groups = Object.entries(manifest.groups).sort((a, b) => b[1] - a[1]);
+  const sections = [...manifest.sections].sort((a, b) => b.tokens - a.tokens);
+
+  return (
+    <div className="mt-1 w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className={cn(
+          "inline-flex items-center gap-1 text-[11px] leading-4 text-muted-foreground/70",
+          "transition-colors hover:text-foreground",
+        )}
+      >
+        <ChevronRight
+          className={cn("h-3 w-3 transition-transform", open && "rotate-90")}
+          aria-hidden
+        />
+        {tx("message.prompt.summary", "{{total}} in prompt", {
+          total: numbers.format(total),
+        })}
+        <span className="text-muted-foreground/60">
+          {groups
+            .map(([name, tokens]) =>
+              `${groupLabel(name, tx)} ${Math.round((tokens / total) * 100)}%`,
+            )
+            .join(" · ")}
+        </span>
+      </button>
+
+      {open ? (
+        <dl className="mt-1.5 grid grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 text-[11px] leading-4">
+          {sections.map((section) => (
+            <PromptRow
+              key={`${section.group}/${section.name}`}
+              label={section.name}
+              group={groupLabel(section.group, tx)}
+              items={section.items}
+              tokens={section.tokens}
+              share={section.tokens / total}
+              format={(value) => numbers.format(value)}
+            />
+          ))}
+          <dt className="pt-1 font-semibold text-foreground">
+            {tx("message.prompt.total", "Total")}
+          </dt>
+          <dd className="pt-1 text-right font-semibold tabular-nums text-foreground">
+            {numbers.format(total)}
+          </dd>
+          {/* Said once, at the bottom: the exact number is the provider's and it does not
+              itemise, so every row above is this tokenizer's estimate. */}
+          {!manifest.measured ? (
+            <dd className="col-span-2 pt-1 text-[10.5px] text-muted-foreground/70">
+              {tx("message.prompt.estimated", "Estimated locally, per section")}
+            </dd>
+          ) : null}
+        </dl>
+      ) : null}
+    </div>
+  );
+}
+
+function PromptRow({
+  label,
+  group,
+  items,
+  tokens,
+  share,
+  format,
+}: {
+  label: string;
+  group: string;
+  items?: number;
+  tokens: number;
+  share: number;
+  format: (value: number) => string;
+}) {
+  return (
+    <>
+      <dt className="flex min-w-0 items-baseline gap-1.5 text-muted-foreground">
+        <span className="truncate text-foreground">{label}</span>
+        <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/60">
+          {group}
+        </span>
+        {items ? <span className="shrink-0 text-muted-foreground/60">×{items}</span> : null}
+      </dt>
+      <dd className="text-right tabular-nums text-muted-foreground">
+        {format(tokens)}
+        {/* A share rather than a bar: the reading is "which one is most of it", and 74% says
+            that faster than a bar a reader has to compare against its neighbours. */}
+        <span className="ml-2 text-muted-foreground/60">{Math.round(share * 100)}%</span>
+      </dd>
+    </>
+  );
+}
+
+function groupLabel(
+  group: string,
+  tx: (key: string, fallback: string) => string,
+): string {
+  if (group === "tools") return tx("message.prompt.groups.tools", "tools");
+  if (group === "messages") return tx("message.prompt.groups.messages", "messages");
+  if (group === "system") return tx("message.prompt.groups.system", "system");
+  return group;
+}

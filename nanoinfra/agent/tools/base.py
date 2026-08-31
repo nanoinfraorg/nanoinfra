@@ -173,6 +173,17 @@ class Tool(ABC):
         return Schema.resolve_json_schema_type(t)
 
     @property
+    def source(self) -> str:
+        """Where this tool came from, for the prompt manifest (#203).
+
+        `builtin` unless a subclass says otherwise. An MCP wrapper answers `mcp:<server>` and a
+        connector tool `connector:<name>`, so a panel can attribute the ~23K of schemas to the
+        server that produced them. The tool *name* cannot be parsed for it: `mcp_<server>_<tool>`
+        is sanitised and both halves may hold underscores.
+        """
+        return "builtin"
+
+    @property
     @abstractmethod
     def name(self) -> str:
         """Tool name used in function calls."""

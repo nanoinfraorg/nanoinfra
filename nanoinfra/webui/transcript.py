@@ -1945,6 +1945,13 @@ def replay_transcript_to_ui_messages(
                 }
                 return
 
+    def stamp_prompt(manifest: dict[str, Any]) -> None:
+        """Put the prompt breakdown on the same row the usage lands on (#203)."""
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "assistant" and messages[i].get("kind") != "trace":
+                messages[i] = {**messages[i], "prompt": manifest}
+                return
+
     def stamp_usage(usage: dict[str, Any]) -> None:
         """Put the turn's cost on the same row the latency lands on (#202).
 
@@ -2434,6 +2441,9 @@ def replay_transcript_to_ui_messages(
             turn_usage = rec.get("usage")
             if isinstance(turn_usage, dict):
                 stamp_usage(cast(dict[str, Any], turn_usage))
+            turn_prompt = rec.get("prompt")
+            if isinstance(turn_prompt, dict):
+                stamp_prompt(cast(dict[str, Any], turn_prompt))
             buffer_message_id = None
             buffer_parts = []
             continue

@@ -22,6 +22,7 @@ import { AttachmentTile } from "@/components/AttachmentTile";
 import { ImageLightbox } from "@/components/ImageLightbox";
 import { MarkdownText } from "@/components/MarkdownText";
 import { SlashCommandText } from "@/components/SlashCommandText";
+import { PromptBreakdown } from "@/components/thread/PromptBreakdown";
 import { ReasoningRow } from "@/components/thread/activity/ReasoningRow";
 import { UserMessageText } from "@/components/UserMessageText";
 import {
@@ -458,6 +459,13 @@ export function MessageBubble({
             ) : null}
             {showUsage && turnUsage ? (
               <TurnUsageMeta usage={turnUsage} latencyMs={message.latencyMs} />
+            ) : null}
+            {/* Full width, below the footer row: the breakdown is a list, and a list does not
+                belong beside the copy button. */}
+            {showUsage && message.prompt ? (
+              <div className="w-full basis-full">
+                <PromptBreakdown manifest={message.prompt} />
+              </div>
             ) : null}
           </div>
         </TooltipProvider>

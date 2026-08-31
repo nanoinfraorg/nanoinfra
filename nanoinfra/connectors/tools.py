@@ -81,6 +81,11 @@ class ConnectorOperationTool(Tool):
         self.capability_class = operation.capability_class
 
     @property
+    def source(self) -> str:
+        """`connector:<name>`, so the prompt manifest can attribute this schema (#203)."""
+        return f"connector:{self._plugin.name}"
+
+    @property
     def name(self) -> str:
         return self._name
 

@@ -59,6 +59,8 @@ class TurnCompleted:
     runtime: LLMRuntime | None = None
     #: What the turn cost, so the surface that shows the turn can show it (#202).
     usage: LLMUsage | None = None
+    #: What the turn's prompt was made of, by section (#203). Names and sizes, never content.
+    prompt_manifest: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -165,6 +167,7 @@ class RuntimeEventPublisher:
         # Keyed by session, like the latency: two sessions can be mid-turn at once, and a
         # loop-global "last usage" would hand one session's number to the other's thread.
         self._turn_usage: dict[str, LLMUsage] = {}
+        self._turn_prompt: dict[str, dict[str, Any]] = {}
 
     @staticmethod
     def _context(
@@ -194,10 +197,15 @@ class RuntimeEventPublisher:
         if usage is not None:
             self._turn_usage[session_key] = usage
 
+    def record_turn_prompt(self, session_key: str, manifest: dict[str, Any] | None) -> None:
+        if manifest:
+            self._turn_prompt[session_key] = manifest
+
     def clear_turn(self, session_key: str) -> None:
         self._turn_latency_ms.pop(session_key, None)
         self._turn_runtime.pop(session_key, None)
         self._turn_usage.pop(session_key, None)
+        self._turn_prompt.pop(session_key, None)
 
     async def session_turn_started(
         self,
@@ -277,6 +285,7 @@ class RuntimeEventPublisher:
                 latency_ms=self._turn_latency_ms.pop(session_key, None),
                 runtime=self._turn_runtime.pop(session_key, None),
                 usage=self._turn_usage.pop(session_key, None),
+                prompt_manifest=self._turn_prompt.pop(session_key, None),
             )
         )
 

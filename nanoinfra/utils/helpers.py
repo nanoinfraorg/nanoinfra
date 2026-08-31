@@ -111,6 +111,22 @@ def _get_token_encoding() -> Any:
     return tiktoken.get_encoding("cl100k_base")
 
 
+def count_text_tokens(text: str) -> int:
+    """Count one string's tokens with the encoding the rest of this module uses.
+
+    Public because the prompt manifest (#203) needs exactly this and nothing else, and reaching
+    into `_get_token_encoding` from another module would make a private name part of the contract
+    by accident. Falls back to the same conservative byte budget the truncation helpers take: a
+    diagnostic that can raise is worse than one that is approximate.
+    """
+    if not text:
+        return 0
+    try:
+        return len(_get_token_encoding().encode(text))
+    except Exception:
+        return max(1, len(text) // 4)
+
+
 def _cache_tools_token_count(
     tools_id: int,
     fingerprint: tuple[int, ...],

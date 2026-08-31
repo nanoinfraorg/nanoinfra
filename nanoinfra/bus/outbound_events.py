@@ -61,6 +61,8 @@ class TurnEndEvent(OutboundEvent):
     goal_state: dict[str, Any] | None = None
     #: What the turn cost. Travels as the value; the frame projects it (#202).
     usage: LLMUsage | None = None
+    #: What the turn's prompt was made of, by section (#203).
+    prompt_manifest: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

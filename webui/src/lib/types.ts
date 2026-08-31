@@ -78,6 +78,8 @@ export interface UIMessage {
   latencyMs?: number;
   /** What this turn cost, summed across every provider call it made (``turn_end``). */
   usage?: TurnUsage;
+  /** What this turn's prompt was made of, by section (``turn_end``). */
+  prompt?: PromptManifest;
   /** Client epoch milliseconds when the definitive ``turn_end`` was received. */
   completedAt?: number;
   /** Lightweight provenance for proactive assistant messages. */
@@ -114,6 +116,32 @@ export interface TurnUsage {
   measured_completion_tokens?: number;
   ttft_ms?: number;
   timed_requests?: number;
+}
+
+/**
+ * What one turn's prompt was made of (`nanoinfra/agent/prompt_manifest.py`).
+ *
+ * Names and sizes, never content: a prompt holds `MEMORY.md`, `AGENTS.md` and the conversation
+ * itself, so a record of it that carried the text would be a second copy of the conversation
+ * living somewhere nobody expects one.
+ *
+ * `tokens` is estimated with a local tokenizer, not reported by the provider — `measured` says
+ * which, and is false today.
+ */
+export interface PromptManifest {
+  sections: Array<{
+    name: string;
+    chars: number;
+    tokens: number;
+    /** `system`, `tools` or `messages` — what a reader collapses by. */
+    group: string;
+    detail?: string;
+    /** How many things this row stands for: skills, tools, messages. */
+    items?: number;
+  }>;
+  groups: Record<string, number>;
+  total_tokens: number;
+  measured: boolean;
 }
 
 export interface UICliAppAttachment {
@@ -1721,6 +1749,8 @@ export type InboundEvent =
       latency_ms?: number;
       /** What the turn cost. Same body the transcript persists, so a reload matches. */
       usage?: TurnUsage;
+      /** What the turn's prompt was made of, by section. */
+      prompt?: PromptManifest;
       /** Authoritative sustained-goal snapshot for this chat (same shape as ``goal_state`` events). */
       goal_state?: GoalStateWsPayload;
     } & InboundTurnMetadata)

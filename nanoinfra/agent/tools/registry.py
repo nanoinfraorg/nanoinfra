@@ -112,6 +112,35 @@ class ToolRegistry:
             if self._tools[self._schema_name(schema)].available()
         ]
 
+    def schema_breakdown(self) -> list[dict[str, Any]]:
+        """What the tool schemas cost, per source, for the prompt manifest (#203).
+
+        Measured on the schemas that would actually be sent -- the same availability filter
+        `get_definitions` applies -- because a panel that counted tools the request does not carry
+        would be a panel that disagrees with the bill.
+
+        Grouped by `Tool.source` rather than by parsing names: `mcp_<server>_<tool>` is sanitised
+        and both halves may hold underscores, so the string cannot be split reliably.
+        """
+        import json
+
+        from nanoinfra.utils.helpers import count_text_tokens
+
+        grouped: dict[str, dict[str, int]] = {}
+        for schema in self.get_definitions():
+            name = self._schema_name(schema)
+            tool = self._tools.get(name)
+            source = tool.source if tool is not None else "builtin"
+            serialised = json.dumps(schema, ensure_ascii=False)
+            entry = grouped.setdefault(source, {"chars": 0, "tokens": 0, "items": 0})
+            entry["chars"] += len(serialised)
+            entry["tokens"] += count_text_tokens(serialised)
+            entry["items"] += 1
+        return [
+            {"source": source, **totals}
+            for source, totals in sorted(grouped.items(), key=lambda item: -item[1]["tokens"])
+        ]
+
     def prepare_call(
         self,
         name: str,

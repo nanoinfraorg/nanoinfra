@@ -99,8 +99,8 @@ from nanoinfra.session.model_selection import (
 from nanoinfra.triggers.local_turns import LocalTriggerTurnCoordinator
 from nanoinfra.utils.cancellation import task_is_cancelling
 from nanoinfra.utils.document import reference_non_image_attachments
+from nanoinfra.utils.helpers import count_text_tokens, image_placeholder_text, open_tool_call_ids
 from nanoinfra.utils.helpers import declared_tool_call_ids as declared_tool_call_ids_of
-from nanoinfra.utils.helpers import image_placeholder_text, open_tool_call_ids
 from nanoinfra.utils.helpers import truncate_text as truncate_text_fn
 from nanoinfra.utils.llm_runtime import LLMRuntime
 from nanoinfra.utils.runtime import (
@@ -178,6 +178,9 @@ class TurnContext:
     turn_wall_started_at: float = field(default_factory=time.time)
     visible_run_started_at: float | None = None
     turn_latency_ms: int | None = None
+    #: What this turn's prompt was made of, by section (#203). `None` when it could not be built,
+    #: which is a missing diagnostic rather than a failed turn.
+    prompt_manifest: dict[str, Any] | None = None
 
     def require_runtime(self) -> LLMRuntime:
         """Return the runtime established by the BUILD stage."""
@@ -813,7 +816,7 @@ class AgentLoop:
         """Build the initial message list for the LLM turn."""
         assert ctx.session is not None
         scope = self.workspace_scopes.for_message(ctx.msg, ctx.session.metadata)
-        return self.context.build_messages(
+        messages = self.context.build_messages(
             history=ctx.history,
             current_message=ctx.msg.content,
             media=ctx.msg.media if ctx.kind is TurnKind.USER and ctx.msg.media else None,
@@ -826,6 +829,64 @@ class AgentLoop:
             unified_session=self._unified_session,
             declared_skills=automation_declared_skills(ctx.msg.metadata),
         )
+        ctx.prompt_manifest = self._prompt_manifest_for(ctx, messages)
+        return messages
+
+    def _prompt_manifest_for(
+        self, ctx: TurnContext, messages: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        """What this turn's prompt is made of, for the debug panel (#203).
+
+        Read here rather than returned by the builder, because the builder has a dozen call sites
+        and only this one is about to send the result.
+
+        Two things are added on top of the system prompt's own sections. The **tool schemas**,
+        which are the larger half of a turn -- ~23K against a 7.4K prompt on the deployment this
+        was measured on -- and are not part of the message list at all. And the **messages**,
+        counted as one row: their content is the conversation, and a manifest records sizes.
+
+        Never fails a turn: a diagnostic that can raise is worse than one that is missing.
+        """
+        try:
+            payload = self.context.last_manifest.as_dict()
+            sections: list[dict[str, Any]] = payload["sections"]
+
+            tools = ctx.tools or self.tools
+            for row in tools.schema_breakdown():
+                sections.append({
+                    "name": row["source"],
+                    "chars": row["chars"],
+                    "tokens": row["tokens"],
+                    "group": "tools",
+                    "items": row["items"],
+                })
+
+            conversation = [
+                message for message in messages if message.get("role") != "system"
+            ]
+            if conversation:
+                text = "\n".join(
+                    content if isinstance(content := message.get("content"), str) else ""
+                    for message in conversation
+                )
+                sections.append({
+                    "name": "Messages",
+                    "chars": len(text),
+                    "tokens": count_text_tokens(text),
+                    "group": "messages",
+                    "items": len(conversation),
+                })
+
+            groups: dict[str, int] = {}
+            for section in sections:
+                group = str(section["group"])
+                groups[group] = groups.get(group, 0) + int(section["tokens"])
+            payload["groups"] = groups
+            payload["total_tokens"] = sum(int(section["tokens"]) for section in sections)
+            return payload
+        except Exception:
+            logger.debug("prompt manifest unavailable for this turn", exc_info=True)
+            return None
 
     def _request_context_for_turn(self, ctx: TurnContext) -> RequestContext:
         assert ctx.session is not None
@@ -2095,6 +2156,9 @@ class AgentLoop:
             turn_latency_ms=ctx.turn_latency_ms,
         )
         ctx.delivery.record_latency(ctx.turn_latency_ms)
+        # Recorded beside the latency, and keyed by session for the same reason (#203): the
+        # manifest belongs to the turn that built it, and two sessions can be mid-turn at once.
+        self.runtime_event_publisher.record_turn_prompt(ctx.session_key, ctx.prompt_manifest)
         if not ctx.ephemeral:
             session.enforce_file_cap(
                 on_archive=partial(self.context.memory.raw_archive, session_key=ctx.session_key)
