@@ -2001,6 +2001,58 @@ async def test_turn_end_carries_what_the_turn_cost() -> None:
 
 
 @pytest.mark.asyncio
+async def test_turn_end_carries_the_prompt_breakdown() -> None:
+    """The last mile of #203: the breakdown has to reach the thread, or the panel shows nothing.
+
+    Names and sizes only -- a frame carrying the prompt's text would persist a second copy of the
+    conversation with the transcript.
+    """
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-prompt")
+    manifest = {
+        "sections": [
+            {"name": "Memory", "chars": 10_867, "tokens": 2_720, "group": "system"},
+            {"name": "mcp:github-nanoinfraorg", "chars": 32_000, "tokens": 8_200,
+             "group": "tools", "items": 15},
+        ],
+        "groups": {"system": 2_720, "tools": 8_200},
+        "total_tokens": 10_920,
+        "measured": False,
+    }
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-prompt",
+        content="",
+        event=TurnEndEvent(latency_ms=4_100, prompt_manifest=manifest),
+    ))
+
+    frame = _sent_ws_payloads(mock_ws)[0]
+    assert frame["prompt"] == manifest
+    assert frame["prompt"]["groups"]["tools"] == 8_200
+
+
+@pytest.mark.asyncio
+async def test_turn_end_omits_the_breakdown_when_there_is_none() -> None:
+    """A missing diagnostic is a missing key, not an empty object the UI has to special-case."""
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-no-prompt")
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-no-prompt",
+        content="",
+        event=TurnEndEvent(latency_ms=12),
+    ))
+
+    assert "prompt" not in _sent_ws_payloads(mock_ws)[0]
+
+
+@pytest.mark.asyncio
 async def test_turn_end_omits_usage_when_nothing_was_measured() -> None:
     """An error turn measures nothing, and a zero would read as a turn that cost nothing."""
     bus = MagicMock()
