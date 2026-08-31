@@ -76,6 +76,8 @@ export interface UIMessage {
   reasoningStreaming?: boolean;
   /** End-to-end wall time for this assistant turn (persisted ``latency_ms`` / ``turn_end``). */
   latencyMs?: number;
+  /** What this turn cost, summed across every provider call it made (``turn_end``). */
+  usage?: TurnUsage;
   /** Client epoch milliseconds when the definitive ``turn_end`` was received. */
   completedAt?: number;
   /** Lightweight provenance for proactive assistant messages. */
@@ -88,6 +90,30 @@ export interface UIMessage {
   deliveryStatus?: MessageDeliveryStatus;
   /** Structured rejection reason shown with a failed optimistic message. */
   deliveryErrorKind?: MessageDeliveryErrorKind;
+}
+
+/**
+ * One turn's token cost, as ``LLMUsage.to_turn_dict()`` writes it
+ * (``nanoinfra/providers/base.py``).
+ *
+ * A key is present only when the number behind it means something: an absent ``cached_tokens``
+ * means the provider reported no cache metric at all, which is not the same as a turn that hit
+ * no cache. ``estimated_tokens`` above zero means part of the total came from our own tokenizer
+ * rather than from the provider.
+ */
+export interface TurnUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  request_count: number;
+  estimated_tokens: number;
+  context_tokens?: number;
+  cached_tokens?: number;
+  cache_write_tokens?: number;
+  generation_ms?: number;
+  measured_completion_tokens?: number;
+  ttft_ms?: number;
+  timed_requests?: number;
 }
 
 export interface UICliAppAttachment {
@@ -1673,6 +1699,8 @@ export type InboundEvent =
       event: "turn_end";
       chat_id: string;
       latency_ms?: number;
+      /** What the turn cost. Same body the transcript persists, so a reload matches. */
+      usage?: TurnUsage;
       /** Authoritative sustained-goal snapshot for this chat (same shape as ``goal_state`` events). */
       goal_state?: GoalStateWsPayload;
     } & InboundTurnMetadata)

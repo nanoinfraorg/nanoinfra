@@ -1219,6 +1219,11 @@ class AgentLoop:
             reset_request_context(request_token)
             reset_file_states(file_state_token)
         self._last_usage = result.usage
+        # Recorded here rather than read from `_last_usage` at delivery time: that attribute is
+        # loop-global, and between this line and the outbound frame there are awaits during which
+        # another session's turn can overwrite it. The publisher keys by session (#202).
+        if session_key:
+            self.runtime_event_publisher.record_turn_usage(session_key, result.usage)
         if session is not None and not ephemeral:
             session.provider_state = result.provider_state
         if result.stop_reason == "max_iterations":

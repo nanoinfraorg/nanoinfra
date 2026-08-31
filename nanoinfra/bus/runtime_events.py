@@ -19,6 +19,7 @@ from loguru import logger
 from nanoinfra.bus.events import InboundMessage
 
 if TYPE_CHECKING:
+    from nanoinfra.providers.base import LLMUsage
     from nanoinfra.utils.llm_runtime import LLMRuntime
 
 
@@ -56,6 +57,8 @@ class TurnCompleted:
     context: RuntimeEventContext
     latency_ms: int | None = None
     runtime: LLMRuntime | None = None
+    #: What the turn cost, so the surface that shows the turn can show it (#202).
+    usage: LLMUsage | None = None
 
 
 @dataclass(frozen=True)
@@ -159,6 +162,9 @@ class RuntimeEventPublisher:
         self.bus = bus or RuntimeEventBus()
         self._turn_latency_ms: dict[str, int] = {}
         self._turn_runtime: dict[str, LLMRuntime] = {}
+        # Keyed by session, like the latency: two sessions can be mid-turn at once, and a
+        # loop-global "last usage" would hand one session's number to the other's thread.
+        self._turn_usage: dict[str, LLMUsage] = {}
 
     @staticmethod
     def _context(
@@ -184,9 +190,14 @@ class RuntimeEventPublisher:
         if latency_ms is not None:
             self._turn_latency_ms[session_key] = int(latency_ms)
 
+    def record_turn_usage(self, session_key: str, usage: LLMUsage | None) -> None:
+        if usage is not None:
+            self._turn_usage[session_key] = usage
+
     def clear_turn(self, session_key: str) -> None:
         self._turn_latency_ms.pop(session_key, None)
         self._turn_runtime.pop(session_key, None)
+        self._turn_usage.pop(session_key, None)
 
     async def session_turn_started(
         self,
@@ -265,6 +276,7 @@ class RuntimeEventPublisher:
                 ),
                 latency_ms=self._turn_latency_ms.pop(session_key, None),
                 runtime=self._turn_runtime.pop(session_key, None),
+                usage=self._turn_usage.pop(session_key, None),
             )
         )
 

@@ -41,6 +41,7 @@ from nanoinfra.config.loader import load_config, save_config
 from nanoinfra.config.schema import Config, ModelPresetConfig
 from nanoinfra.diagrams.changes import subscribe_diagram_changes
 from nanoinfra.diagrams.store import DiagramStore
+from nanoinfra.providers.base import LLMUsage
 from nanoinfra.runtime_context import RUNTIME_CONTEXT_INPUT_META, WEBUI_QUOTE_SOURCE
 from nanoinfra.session import webui_turns as wth
 from nanoinfra.session.manager import SessionManager
@@ -1959,6 +1960,62 @@ async def test_send_turn_end_emits_turn_end_event() -> None:
         {"event": "turn_end", "chat_id": "chat-1"},
         {"event": "session_updated", "chat_id": "chat-1", "scope": "thread"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_turn_end_carries_what_the_turn_cost() -> None:
+    """The frame the thread footer reads, and the record a reload reads (#202).
+
+    Beside the latency on purpose: both are per-turn facts, both persist in the same body, and a
+    reloaded thread has to show the number a live one showed.
+    """
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-usage")
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-usage",
+        content="",
+        event=TurnEndEvent(
+            latency_ms=4_100,
+            usage=LLMUsage.reported(
+                input_tokens=3_241, output_tokens=412, cache_read_tokens=2_820
+            ),
+        ),
+    ))
+
+    frame = _sent_ws_payloads(mock_ws)[0]
+    assert frame["event"] == "turn_end"
+    assert frame["latency_ms"] == 4_100
+    assert frame["usage"] == {
+        "prompt_tokens": 3_241,
+        "completion_tokens": 412,
+        "total_tokens": 3_653,
+        "request_count": 1,
+        "estimated_tokens": 0,
+        "context_tokens": 3_241,
+        "cached_tokens": 2_820,
+    }
+
+
+@pytest.mark.asyncio
+async def test_turn_end_omits_usage_when_nothing_was_measured() -> None:
+    """An error turn measures nothing, and a zero would read as a turn that cost nothing."""
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-no-usage")
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-no-usage",
+        content="",
+        event=TurnEndEvent(latency_ms=12),
+    ))
+
+    assert "usage" not in _sent_ws_payloads(mock_ws)[0]
 
 
 @pytest.mark.asyncio

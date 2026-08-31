@@ -34,7 +34,7 @@ from nanoinfra.bus.runtime_events import (
     TurnCompleted,
     TurnRunStatusChanged,
 )
-from nanoinfra.providers.base import LLMProvider
+from nanoinfra.providers.base import LLMProvider, LLMUsage
 from nanoinfra.providers.fallback_provider import FallbackModelObserver
 from nanoinfra.runtime_context import public_history_message
 from nanoinfra.session.goal_state import goal_state_ws_blob
@@ -545,6 +545,7 @@ class WebuiTurnCoordinator:
             msg,
             session_key=event.context.session_key,
             latency_ms=event.latency_ms,
+            usage=event.usage,
         )
         self._schedule_title_update_from_event(event)
 
@@ -592,6 +593,7 @@ class WebuiTurnCoordinator:
         *,
         session_key: str,
         latency_ms: int | None,
+        usage: LLMUsage | None = None,
     ) -> None:
         if msg.channel != "websocket":
             return
@@ -604,6 +606,7 @@ class WebuiTurnCoordinator:
                 event=TurnEndEvent(
                     latency_ms=latency_ms,
                     goal_state=goal_state_ws_blob(session.metadata),
+                    usage=usage,
                 ),
                 metadata=msg.metadata,
             )

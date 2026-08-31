@@ -393,6 +393,53 @@ def test_replay_delta_and_turn_end(tmp_path, monkeypatch) -> None:
     assert msgs[1]["latencyMs"] == 42
 
 
+def test_replay_puts_the_turn_cost_back_on_the_answer(tmp_path, monkeypatch) -> None:
+    """A reload has to show the number the live turn showed (#202).
+
+    The frame and the persisted record are the same body, so this asserts the round trip rather
+    than a second serialisation nobody would keep in step.
+    """
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
+    key = "websocket:t-usage"
+    usage = {
+        "prompt_tokens": 3_241,
+        "completion_tokens": 412,
+        "total_tokens": 3_653,
+        "request_count": 3,
+        "estimated_tokens": 0,
+        "cached_tokens": 2_820,
+    }
+    for ev in (
+        {"event": "user", "chat_id": "t-usage", "text": "q"},
+        {"event": "delta", "chat_id": "t-usage", "text": "a"},
+        {"event": "stream_end", "chat_id": "t-usage"},
+        {"event": "turn_end", "chat_id": "t-usage", "latency_ms": 4_100, "usage": usage},
+    ):
+        append_transcript_object(key, ev)
+
+    msgs = replay_transcript_to_ui_messages(read_transcript_lines(key))
+
+    assert msgs[1]["role"] == "assistant"
+    assert msgs[1]["usage"] == usage
+    assert msgs[1]["latencyMs"] == 4_100
+
+
+def test_replay_leaves_no_usage_on_a_turn_that_measured_nothing(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
+    key = "websocket:t-no-usage"
+    for ev in (
+        {"event": "user", "chat_id": "t-no-usage", "text": "q"},
+        {"event": "delta", "chat_id": "t-no-usage", "text": "a"},
+        {"event": "stream_end", "chat_id": "t-no-usage"},
+        {"event": "turn_end", "chat_id": "t-no-usage", "latency_ms": 7},
+    ):
+        append_transcript_object(key, ev)
+
+    msgs = replay_transcript_to_ui_messages(read_transcript_lines(key))
+
+    assert "usage" not in msgs[1]
+
+
 def test_replay_uses_persisted_created_at_ms() -> None:
     msgs = replay_transcript_to_ui_messages(
         [

@@ -346,6 +346,109 @@ describe("MessageBubble", () => {
     expect(onForkFromHere).toHaveBeenCalledTimes(1);
   });
 
+  it("shows what the turn cost, in the assistant footer", () => {
+    const { container } = render(
+      <MessageBubble
+        message={{
+          id: "a-usage",
+          role: "assistant",
+          content: "Finished answer",
+          latencyMs: 4_100,
+          createdAt: Date.now(),
+          usage: {
+            prompt_tokens: 3_241,
+            completion_tokens: 412,
+            total_tokens: 3_653,
+            request_count: 3,
+            estimated_tokens: 0,
+            cached_tokens: 2_820,
+          },
+        }}
+      />,
+    );
+
+    const usage = container.querySelector("[data-turn-usage]");
+    expect(usage).toHaveTextContent("3.2K in");
+    expect(usage).toHaveTextContent("412 out");
+    expect(usage).toHaveTextContent("87% cached");
+    expect(usage).toHaveTextContent("4.1s");
+  });
+
+  it("marks a total that includes an estimate, rather than showing it as measured", () => {
+    const { container } = render(
+      <MessageBubble
+        message={{
+          id: "a-usage-estimated",
+          role: "assistant",
+          content: "Finished answer",
+          latencyMs: 2_700,
+          createdAt: Date.now(),
+          usage: {
+            prompt_tokens: 1_800,
+            completion_tokens: 240,
+            total_tokens: 2_040,
+            request_count: 1,
+            estimated_tokens: 2_040,
+          },
+        }}
+      />,
+    );
+
+    const usage = container.querySelector("[data-turn-usage]");
+    expect(usage).toHaveTextContent("~1.8K in");
+    expect(usage).toHaveTextContent("~240 out");
+    expect(usage).toHaveClass("cursor-help");
+  });
+
+  it("omits the cache share when the provider reported no cache metric", () => {
+    // An absent `cached_tokens` means *not reported*. Rendering `0% cached` would state
+    // something the provider never said.
+    const { container } = render(
+      <MessageBubble
+        message={{
+          id: "a-usage-no-cache",
+          role: "assistant",
+          content: "Finished answer",
+          createdAt: Date.now(),
+          usage: {
+            prompt_tokens: 900,
+            completion_tokens: 100,
+            total_tokens: 1_000,
+            request_count: 1,
+            estimated_tokens: 0,
+          },
+        }}
+      />,
+    );
+
+    const usage = container.querySelector("[data-turn-usage]");
+    expect(usage).toHaveTextContent("900 in");
+    expect(usage?.textContent ?? "").not.toContain("cached");
+  });
+
+  it("shows no cost while the turn is still streaming", () => {
+    const { container } = render(
+      <MessageBubble
+        message={{
+          id: "a-usage-streaming",
+          role: "assistant",
+          content: "partial",
+          createdAt: Date.now(),
+          isStreaming: true,
+          usage: {
+            prompt_tokens: 10,
+            completion_tokens: 1,
+            total_tokens: 11,
+            request_count: 1,
+            estimated_tokens: 0,
+          },
+        }}
+      />,
+    );
+
+    expect(container.querySelector("[data-turn-usage]")).toBeNull();
+  });
+
   it("shows the assistant completion time in the former latency slot", () => {
     const completedAt = Date.UTC(2026, 6, 25, 12, 34, 56);
     const { container } = render(

@@ -43,6 +43,7 @@ from nanoinfra.channels.base import BaseChannel
 from nanoinfra.command.builtin import builtin_command_starts_agent_turn
 from nanoinfra.config.schema import Base
 from nanoinfra.diagrams.changes import DiagramChange, subscribe_diagram_changes
+from nanoinfra.providers.base import LLMUsage
 from nanoinfra.runtime_context import (
     RUNTIME_CONTEXT_INPUT_META,
     WEBUI_QUOTE_METADATA,
@@ -1656,6 +1657,7 @@ class WebSocketChannel(BaseChannel):
                 msg.chat_id,
                 latency_ms=event.latency_ms,
                 goal_state=event.goal_state,
+                usage=event.usage,
                 metadata=msg.metadata,
                 turn_owner=turn_owner if isinstance(turn_owner, str) else None,
             )
@@ -1870,6 +1872,7 @@ class WebSocketChannel(BaseChannel):
         latency_ms: int | None = None,
         *,
         goal_state: dict[str, Any] | None = None,
+        usage: LLMUsage | None = None,
         metadata: dict[str, Any] | None = None,
         turn_owner: str | None = None,
     ) -> None:
@@ -1880,6 +1883,10 @@ class WebSocketChannel(BaseChannel):
             body["latency_ms"] = int(latency_ms)
         if goal_state is not None:
             body["goal_state"] = goal_state
+        if usage is not None:
+            # Beside the latency, and persisted with it by the call below -- so a reloaded thread
+            # shows the same number as a live one rather than losing it on refresh (#202).
+            body["usage"] = usage.to_turn_dict()
         canonical_webui_turn = (metadata or {}).get("webui") is True
         prior_persistence_failure = (
             canonical_webui_turn

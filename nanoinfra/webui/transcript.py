@@ -1945,6 +1945,17 @@ def replay_transcript_to_ui_messages(
                 }
                 return
 
+    def stamp_usage(usage: dict[str, Any]) -> None:
+        """Put the turn's cost on the same row the latency lands on (#202).
+
+        A reload has to show what the live turn showed. The frame and the persisted record are
+        the same body, so this reads the same key the client read.
+        """
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "assistant" and messages[i].get("kind") != "trace":
+                messages[i] = {**messages[i], "usage": usage}
+                return
+
     def absorb_complete(extra: dict[str, Any], idx: int, created_at_ms: int) -> None:
         nonlocal active_activity_segment_id, active_file_edit_segment_id
         last = messages[-1] if messages else None
@@ -2420,6 +2431,9 @@ def replay_transcript_to_ui_messages(
             lat = rec.get("latency_ms")
             if isinstance(lat, (int, float)) and lat >= 0:
                 stamp_latency(int(lat))
+            turn_usage = rec.get("usage")
+            if isinstance(turn_usage, dict):
+                stamp_usage(cast(dict[str, Any], turn_usage))
             buffer_message_id = None
             buffer_parts = []
             continue

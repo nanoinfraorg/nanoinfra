@@ -45,6 +45,7 @@ import type {
   UIImage,
   UIMediaAttachment,
   UIMessage,
+  TurnUsage,
   MessageDeliveryErrorKind,
   MessageDeliveryStatus,
 } from "@/lib/types";
@@ -367,7 +368,12 @@ export function MessageBubble({
     assistantTimestampLabel.length > 0
     && (!empty || hasReasoning || media.length > 0);
   const assistantTimestampTitle = showAssistantTimestamp ? fmtDateTime(assistantTimestamp) : "";
-  const showAssistantFooterRow = showCopyButton || showForkButton || showAssistantTimestamp;
+  const turnUsage = message.role === "assistant" && !message.isStreaming
+    ? message.usage
+    : undefined;
+  const showUsage = !!turnUsage && (!empty || hasReasoning || media.length > 0);
+  const showAssistantFooterRow =
+    showCopyButton || showForkButton || showAssistantTimestamp || showUsage;
   const showAssistantFooterSlot =
     message.role === "assistant"
     && (!empty || hasReasoning || media.length > 0);
@@ -450,11 +456,98 @@ export function MessageBubble({
                 {assistantTimestampLabel}
               </time>
             ) : null}
+            {showUsage && turnUsage ? (
+              <TurnUsageMeta usage={turnUsage} latencyMs={message.latencyMs} />
+            ) : null}
           </div>
         </TooltipProvider>
       ) : null}
     </div>
   );
+}
+
+/**
+ * What one turn cost, on the turn (#202).
+ *
+ * `3.2K in · 412 out · 87% cached · 4.1s`, in the assistant footer beside the timestamp. The
+ * numbers existed per call and per turn and reached no thread before this: the only WebUI surface
+ * was a bucket per day in Settings.
+ *
+ * Two details carry meaning rather than decoration:
+ *
+ * - A `~` marks a total that includes an estimate, because a provider that reports no usage still
+ *   costs money and our tokenizer's guess should not be read as a measurement.
+ * - The cache percentage appears only when the provider reported the metric. An absent
+ *   `cached_tokens` is *not reported*, and rendering it as `0% cached` would state something the
+ *   provider never said.
+ */
+function TurnUsageMeta({ usage, latencyMs }: { usage: TurnUsage; latencyMs?: number }) {
+  const { t } = useTranslation();
+  const approximate = usage.estimated_tokens > 0 ? "~" : "";
+  const parts: string[] = [];
+  if (Number.isFinite(usage.prompt_tokens)) {
+    parts.push(t("message.usage.in", {
+      tokens: `${approximate}${formatCompactTokens(usage.prompt_tokens)}`,
+      defaultValue: "{{tokens}} in",
+    }));
+  }
+  if (Number.isFinite(usage.completion_tokens)) {
+    parts.push(t("message.usage.out", {
+      tokens: `${approximate}${formatCompactTokens(usage.completion_tokens)}`,
+      defaultValue: "{{tokens}} out",
+    }));
+  }
+  if (typeof usage.cached_tokens === "number" && usage.prompt_tokens > 0) {
+    const percent = Math.round(Math.min(1, usage.cached_tokens / usage.prompt_tokens) * 100);
+    parts.push(t("message.usage.cached", {
+      percent,
+      defaultValue: "{{percent}}% cached",
+    }));
+  }
+  if (typeof latencyMs === "number" && latencyMs >= 0) {
+    parts.push(formatUsageDuration(latencyMs));
+  }
+  if (parts.length === 0) return null;
+
+  const meta = (
+    <span
+      data-turn-usage
+      tabIndex={approximate ? 0 : undefined}
+      className={cn(
+        "text-[11px] leading-none text-muted-foreground/70 tabular-nums",
+        approximate && "cursor-help",
+      )}
+    >
+      {parts.join(" · ")}
+    </span>
+  );
+  if (!approximate) return meta;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{meta}</TooltipTrigger>
+      <TooltipContent side="top" align="start" className="max-w-96">
+        {t("message.usage.estimatedHint", {
+          defaultValue: "Includes usage this provider did not report, estimated locally",
+        })}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function formatCompactTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens >= 10_000_000 ? 0 : 1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(tokens >= 10_000 ? 0 : 1)}K`;
+  return String(tokens);
+}
+
+function formatUsageDuration(ms: number): string {
+  if (ms < 1_000) return `${Math.max(0, Math.round(ms))}ms`;
+  const seconds = ms / 1_000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
 }
 
 function UserQuotedContext({ text, label }: { text: string; label: string }) {

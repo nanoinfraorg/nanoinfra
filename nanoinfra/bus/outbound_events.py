@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from typing import Any, cast
 
 from nanoinfra.bus.events import OutboundMessage
+from nanoinfra.providers.base import LLMUsage
 
 
 class OutboundEvent:
@@ -58,6 +59,8 @@ class StreamedResponseEvent(OutboundEvent):
 class TurnEndEvent(OutboundEvent):
     latency_ms: int | None = None
     goal_state: dict[str, Any] | None = None
+    #: What the turn cost. Travels as the value; the frame projects it (#202).
+    usage: LLMUsage | None = None
 
 
 @dataclass(frozen=True)
