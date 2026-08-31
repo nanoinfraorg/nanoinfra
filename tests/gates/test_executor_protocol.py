@@ -162,22 +162,23 @@ def test_a_request_carries_no_free_form_field() -> None:
     }
 
 
-def test_the_version_is_five_and_a_version_one_frame_is_refused() -> None:
+def test_the_version_is_six_and_a_version_one_frame_is_refused() -> None:
     """#38 needs the origin path, so the older frame cannot describe a request any more.
 
     A version 1 peer states no path. #13 cannot prove path independence for it, so the frame
     gets a refusal instead of a default.
 
     The version reached 5 when the wire gained a second request kind for a data connector
-    call. The field set of this request did not change; the envelope did, and an envelope
-    change is a version change for the same reason a field change is.
+    call, and 6 when it gained a third for a secret write. The field set of this request did
+    not change either time; the envelope did, and an envelope change is a version change for
+    the same reason a field change is.
     """
     payload = json.loads(encode_request(_request()))
     payload["v"] = 1
     del payload["origin_path"]
     del payload["origin_actor"]
 
-    assert PROTOCOL_VERSION == 5
+    assert PROTOCOL_VERSION == 6
     with pytest.raises(ProtocolError):
         decode_request(json.dumps(payload).encode())
 

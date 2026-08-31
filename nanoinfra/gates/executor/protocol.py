@@ -42,6 +42,14 @@ approval socket is here, and the audit record is written here -- so it needs a f
 travels in the envelope beside the version, and an unknown kind refuses: a frame this side
 cannot name must not fall through to the one it can.
 
+**Version 6 carries a third kind: a secret write.** The store belongs to the executor account,
+so the gateway could not write the file at all -- the Secrets page failed with a permission
+error on every deployment with the privilege split. The gateway holds the encryption key, so it
+encrypts and this wire carries **ciphertext**: no plaintext crosses the socket, and the write
+lands with the ownership the executor needs by construction. Making the directory group-writable
+would have been the ten-minute answer and would have let the process the model steers *replace*
+a credential, which is worse than reading one.
+
 ``ConnectorRequest.arguments_json`` is the one field that carries caller-shaped content, and it
 is not the free-form member this wire refuses. Every key in it must appear in the operation's
 own declared parameter schema, which the executor reads from the installed package rather than
@@ -57,7 +65,7 @@ import struct
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any, cast
 
-PROTOCOL_VERSION = 5
+PROTOCOL_VERSION = 6
 
 # A peer controls the length prefix, so the reader caps it. 8 MiB is far above a command and
 # far below a memory problem. Output is bounded separately by truncate_output.
@@ -133,6 +141,38 @@ class ConnectorRequest:
     origin_actor: str | None = None
 
 
+# What a secret write may do. Three verbs and no fourth: a rename is an update, and there is no
+# "read", because reading a plaintext is the one thing this wire has never carried.
+SECRET_VERBS = frozenset({"create", "update", "delete"})
+
+
+@dataclass(frozen=True, slots=True)
+class SecretWriteRequest:
+    """One write to the credential store, performed by the account that owns it.
+
+    ``ciphertext_b64`` is already encrypted by the caller. The executor writes bytes it cannot
+    read, which is the property that makes this wire safe to add: it moves a *file write* across
+    the boundary and not a secret.
+
+    ``verb`` is checked against ``SECRET_VERBS``. A delete carries no ciphertext and no name; a
+    create and an update carry both.
+    """
+
+    verb: str
+    secret_id: str
+    name: str
+    # `secret_kind` and not `kind`: the envelope's discriminator is `kind`, and the decoder
+    # strips envelope keys before matching fields, so a field of that name went missing on
+    # every frame. Found by round-tripping one.
+    secret_kind: str
+    provider_id: str
+    ciphertext_b64: str
+    created_at: str
+    updated_at: str
+    origin_path: str | None = None
+    origin_actor: str | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class ExecuteResponse:
     """The executor's answer. ``reason`` carries the gate's words for a refusal."""
@@ -166,10 +206,12 @@ class ExecuteResponse:
 # socket serves two shapes and neither can be read as the other.
 KIND_EXECUTE = "execute"
 KIND_CONNECTOR = "connector"
+KIND_SECRET_WRITE = "secret_write"
 
 _REQUEST_KINDS: dict[str, type[Any]] = {
     KIND_EXECUTE: ExecuteRequest,
     KIND_CONNECTOR: ConnectorRequest,
+    KIND_SECRET_WRITE: SecretWriteRequest,
 }
 _KIND_NAMES: dict[type[Any], str] = {value: key for key, value in _REQUEST_KINDS.items()}
 
@@ -177,7 +219,7 @@ _KIND_NAMES: dict[type[Any], str] = {value: key for key, value in _REQUEST_KINDS
 _REQUEST_ENVELOPE = frozenset({"v", "kind"})
 _RESPONSE_ENVELOPE = frozenset({"v"})
 
-Request = ExecuteRequest | ConnectorRequest
+Request = ExecuteRequest | ConnectorRequest | SecretWriteRequest
 
 
 def encode_request(request: Request) -> bytes:
@@ -289,12 +331,15 @@ def _read_exactly(conn: socket.socket, count: int) -> bytes:
 __all__ = [
     "KIND_CONNECTOR",
     "KIND_EXECUTE",
+    "KIND_SECRET_WRITE",
+    "SECRET_VERBS",
     "MAX_FRAME_BYTES",
     "PROTOCOL_VERSION",
     "ConnectorRequest",
     "ExecuteRequest",
     "ExecuteResponse",
     "Request",
+    "SecretWriteRequest",
     "ProtocolError",
     "decode_request",
     "decode_response",

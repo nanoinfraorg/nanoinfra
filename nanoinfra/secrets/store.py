@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -54,6 +55,27 @@ class SecretsStoreUnreadableError(RuntimeError):
     A page that says "no secrets yet" about a store holding a credential is worse than an error.
     So the refusal travels.
     """
+
+
+def _record_mode(root: Path) -> int:
+    """The mode one secret file gets, from the mode of the directory holding it.
+
+    0600 unless the directory grants its group a read, in which case 0640 — and that case is
+    the container: `secrets/` is `drwxr-s---` owned by the executor with a group read, because
+    the gateway lists secret *metadata* from these files and cannot ask the executor for every
+    row. A hardcoded 0600 wrote a file the gateway could not read back, so a create through the
+    executor succeeded and the next listing raised. Found by running it in that layout.
+
+    The group read is not what keeps a plaintext away from the agent — the key is in the
+    gateway either way, and the boundary is the import rule
+    (`tests/agent/test_redaction_isolation.py`). It is what lets the Secrets page show a row at
+    all.
+    """
+    try:
+        mode = root.stat().st_mode
+    except OSError:
+        return 0o600
+    return 0o640 if mode & stat.S_IRGRP else 0o600
 
 
 class SecretStore:
@@ -156,7 +178,14 @@ class SecretStore:
             if existing.name.lower() == needle:
                 raise SecretValidationError(f"a secret named {name!r} already exists")
 
-    def create(self, raw: dict[str, Any]) -> Secret:
+    def build_create(self, raw: dict[str, Any]) -> Secret:
+        """Validate and encrypt one new secret, writing nothing.
+
+        Split from :meth:`create` so a caller that cannot write the file itself still holds a
+        finished, encrypted record to hand to whoever can. The encryption stays here either
+        way: this process holds the key, and shipping a plaintext to another one to encrypt
+        would put it where it does not belong.
+        """
         secret_id = uuid.uuid4().hex
         secret, plaintext = normalize_secret_input(raw, secret_id=secret_id)
         self._check_name_unique(secret.name, exclude_id=None)
@@ -164,13 +193,22 @@ class SecretStore:
         secret.ciphertext = crypto.encrypt(plaintext)
         secret.created_at = now
         secret.updated_at = now
-        if secret.provider_id == "postgres":
-            PostgresBackend().create(secret)
-        else:
-            self._write_local(secret)
         return secret
 
-    def update(self, secret_id: str, raw: dict[str, Any]) -> Secret | None:
+    def write_record(self, secret: Secret) -> None:
+        """Persist an already-built record. Raises SecretsStoreUnreadableError when refused."""
+        if secret.provider_id == "postgres":
+            PostgresBackend().create(secret)
+            return
+        self._write_local(secret)
+
+    def create(self, raw: dict[str, Any]) -> Secret:
+        secret = self.build_create(raw)
+        self.write_record(secret)
+        return secret
+
+    def build_update(self, secret_id: str, raw: dict[str, Any]) -> Secret | None:
+        """Validate and encrypt an edit, writing nothing. ``None`` means no such secret."""
         existing = self.get(secret_id)
         if existing is None:
             return None
@@ -188,16 +226,33 @@ class SecretStore:
         # "existing" and genuinely misroute -- e.g. silently no-op'ing
         # against a Postgres row that was never created.
         secret.provider_id = existing.provider_id
-        if existing.provider_id == "postgres":
+        return secret
+
+    def write_update(self, secret: Secret) -> None:
+        """Persist an edited record built by :meth:`build_update`."""
+        if secret.provider_id == "postgres":
             PostgresBackend().update(secret)
-        else:
-            self._write_local(secret)
+            return
+        self._write_local(secret)
+
+    def update(self, secret_id: str, raw: dict[str, Any]) -> Secret | None:
+        secret = self.build_update(secret_id, raw)
+        if secret is None:
+            return None
+        self.write_update(secret)
         return secret
 
     def delete(self, secret_id: str) -> bool:
         local_path = self._path(secret_id)
         if local_path is not None and local_path.is_file():
-            local_path.unlink()
+            try:
+                local_path.unlink()
+            except PermissionError as exc:
+                # Same case as a refused write: the directory belongs to another account.
+                raise SecretsStoreUnreadableError(
+                    f"the secret store at {self.root} belongs to another account, so this "
+                    f"process cannot delete from it: {exc}"
+                ) from exc
             return True
         if not _VALID_ID_RE.match(secret_id):
             return False
@@ -240,11 +295,23 @@ class SecretStore:
                 f"the secret store at {self.root} belongs to another account, so this process "
                 f"cannot write to it: {exc}"
             ) from exc
-        _write_text_atomic(path, json.dumps(secret.to_storage_dict(), ensure_ascii=False, indent=2))
-        # _write_text_atomic only preserves an *existing* file's permissions
-        # -- a brand-new secret file would otherwise inherit the process
-        # umask (commonly 0644, world-readable on a shared host).
-        os.chmod(path, 0o600)
+        try:
+            _write_text_atomic(
+                path, json.dumps(secret.to_storage_dict(), ensure_ascii=False, indent=2)
+            )
+            # _write_text_atomic only preserves an *existing* file's permissions
+            # -- a brand-new secret file would otherwise inherit the process
+            # umask (commonly 0644, world-readable on a shared host).
+            os.chmod(path, _record_mode(self.root))
+        except PermissionError as exc:
+            # The directory guard above covers creating the directory. This covers writing in
+            # one that already exists and belongs to another account, which is the container
+            # case: the WebUI answered a bare 500 with a temp-file path in it, and the caller
+            # could not tell a broken deployment from a broken payload.
+            raise SecretsStoreUnreadableError(
+                f"the secret store at {self.root} belongs to another account, so this process "
+                f"cannot write to it: {exc}"
+            ) from exc
 
 
 __all__ = ["SecretStore"]

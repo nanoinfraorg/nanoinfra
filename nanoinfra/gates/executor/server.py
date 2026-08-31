@@ -77,6 +77,7 @@ from nanoinfra.gates.executor.protocol import (
     ExecuteResponse,
     ProtocolError,
     Request,
+    SecretWriteRequest,
     decode_request,
     encode_response,
     read_frame,
@@ -176,6 +177,18 @@ class Executor:
     # collaborators, because a connector call needs exactly what a command needs: policy, an
     # approval path, and a record.
     connector_runner: Any = None
+    # The secret-write half (#192). The store belongs to this account, so the gateway cannot
+    # write it at all; this side performs the write from ciphertext the gateway encrypted.
+    secret_write_runner: Any = None
+
+    def _secret_writes(self) -> Any:
+        if self.secret_write_runner is None:
+            from nanoinfra.gates.executor.secret_writes import SecretWriteRunner
+
+            self.secret_write_runner = SecretWriteRunner(
+                workspace=self.workspace, audit=self.audit
+            )
+        return self.secret_write_runner
 
     def _connectors(self) -> Any:
         if self.connector_runner is None:
@@ -199,6 +212,10 @@ class Executor:
         """
         if isinstance(request, ConnectorRequest):
             return await self._connectors().handle(request)
+        if isinstance(request, SecretWriteRequest):
+            # Synchronous and short: one validated file write, off the event loop because the
+            # rest of this process must stay responsive while a disk is slow.
+            return await asyncio.to_thread(self._secret_writes().handle, request)
         return await self.handle(request)
 
     async def handle(self, request: ExecuteRequest) -> ExecuteResponse:
