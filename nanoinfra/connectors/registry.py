@@ -73,6 +73,17 @@ def load_connector_package(name: str) -> ConnectorPlugin | None:
     return plugin
 
 
+#: Where a marketplace package is written (#195, part 2).
+#:
+#: **Not** `<workspace>/connectors/`, which is already `state.py`'s directory: that one is
+#: `drwxrwx---` owned by the agent, so the executor cannot even traverse it -- and pointing package
+#: discovery at it broke the *first-party* Google Calendar connector on a live deployment with a
+#: `PermissionError`, before any marketplace package existed anywhere. A package has to be readable
+#: by three accounts (the agent lists, the executor routes, the confined host calls) and a state
+#: file has to be writable by one. Those are different directories.
+CONNECTOR_PACKAGE_DIR = "connector-packages"
+
+
 def workspace_connector_root(workspace_path: Path) -> Path:
     """Where a marketplace package is written (#195, part 2).
 
@@ -80,7 +91,7 @@ def workspace_connector_root(workspace_path: Path) -> Path:
     skill goes there: the tree is what this repository reviewed, and a deployment's own installs
     are the deployment's.
     """
-    return Path(workspace_path) / "connectors"
+    return Path(workspace_path) / CONNECTOR_PACKAGE_DIR
 
 
 def discover_connectors(workspace_path: Path | None = None) -> dict[str, ConnectorPlugin]:
@@ -120,18 +131,32 @@ def is_marketplace_connector(name: str, workspace_path: Path | None) -> bool:
     """
     if workspace_path is None:
         return False
-    return (workspace_connector_root(workspace_path) / name / "connector.json").is_file()
+    try:
+        return (workspace_connector_root(workspace_path) / name / "connector.json").is_file()
+    except OSError as exc:
+        # `Path.is_file()` propagates a permission error rather than answering False, and this
+        # question has a safe answer when it cannot be answered: a package this process cannot see
+        # is not one to route through the host. Logged, because a package root the executor cannot
+        # read is a deployment fault worth noticing rather than swallowing.
+        logger.warning("could not check for a marketplace package of '{}': {}", name, exc)
+        return False
 
 
 def _workspace_connectors(root: Path) -> list[ConnectorPlugin]:
     """Load every declarative package under *root*, skipping the ones that refuse to validate."""
-    if not root.is_dir():
+    try:
+        if not root.is_dir():
+            return []
+        entries = sorted(root.iterdir())
+    except OSError as exc:
+        # An unreadable package root must not take the bundled connectors down with it.
+        logger.warning("could not list connector packages in {}: {}", root, exc)
         return []
     from nanoinfra.connectors.package import ConnectorPackageError
     from nanoinfra.connectors.package import load_connector_package as _load
 
     plugins: list[ConnectorPlugin] = []
-    for entry in sorted(root.iterdir()):
+    for entry in entries:
         if not entry.is_dir():
             continue
         try:

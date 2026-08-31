@@ -83,6 +83,11 @@ FETCHER_ROLE = "fetcher"
 MCP_HOST_ROLE = "mcp-host"
 CONNECTOR_HOST_ROLE = "connector-host"
 
+# Kept in step with `nanoinfra.connectors.registry.CONNECTOR_PACKAGE_DIR`, and not
+# imported from it: these rules apply between a fork and an exec, so this module
+# imports nothing that could run code at that moment.
+_CONNECTOR_PACKAGE_DIR = "connector-packages"
+
 LAYER_LANDLOCK = "landlock"
 LAYER_NONE = "none"
 
@@ -583,14 +588,18 @@ def _connector_host_rules(*, workspace: Path | None) -> list[PathRule]:
     **Read on the connector packages, and nothing else in the workspace.** The host re-reads a
     package's `connector.json` on every call, so it needs those directories -- and it must not
     reach the credential store, the server inventory or the job store, which live in the same
-    workspace. So the grant names `connectors/` rather than the workspace root.
+    workspace. So the grant names the package directory rather than the workspace root.
+
+    It is not `connectors/`, which is the connector *state* directory and belongs to the agent
+    alone: pointing at that one broke a first-party connector on a live deployment before any
+    package existed.
 
     No exec grant beyond the interpreter. The package format runs no code, so a host that could
     execute anything would be a host with a capability the format does not use.
     """
     rules: list[PathRule] = []
     if workspace is not None:
-        rules.append(PathRule(workspace / "connectors", _READ))
+        rules.append(PathRule(workspace / _CONNECTOR_PACKAGE_DIR, _READ))
     return rules
 
 

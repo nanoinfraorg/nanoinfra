@@ -54,6 +54,7 @@ export function ConnectorAppsCatalogRow({
   testResult,
   onTest,
   onConnect,
+  className,
 }: {
   connector: ConnectorInfo;
   busy: boolean;
@@ -63,6 +64,8 @@ export function ConnectorAppsCatalogRow({
     name: string,
     values: { clientId: string; clientSecret: string; account: string },
   ) => void;
+  /** Set by the catalog so the row can span both columns of its grid. */
+  className?: string;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -104,7 +107,7 @@ export function ConnectorAppsCatalogRow({
         });
 
   return (
-    <article className="rounded-[14px] transition-colors hover:bg-muted/45">
+    <article className={cn("rounded-[14px] transition-colors hover:bg-muted/45", className)}>
       <div className="group flex min-w-0 items-start gap-3 px-3 py-3">
         <span
           className={cn(
@@ -116,11 +119,14 @@ export function ConnectorAppsCatalogRow({
           {active ? <ShieldCheck className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-baseline gap-2">
-            <h3 className="truncate text-[14px] font-semibold leading-5 text-foreground">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+            {/* `min-w-0` on the name and no `shrink-0` on the badge: with those the other way
+               round, a narrow container kept the badge at full width and truncated the name to a
+               single character. A name is the one thing a row cannot lose. */}
+            <h3 className="min-w-0 truncate text-[14px] font-semibold leading-5 text-foreground">
               {connector.display_name}
             </h3>
-            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
               {tx("settings.apps.connectorLabel", "Connector")}
             </span>
           </div>
@@ -128,18 +134,22 @@ export function ConnectorAppsCatalogRow({
             {identityLine}
           </p>
           {active && classes.length ? (
-            <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] leading-4 text-muted-foreground">
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {/* One chip per capability class, so a read and a write are two things a reader can
+                 tell apart at a glance rather than two sentences that wrapped into each other. */}
               {classes.map((row) => (
-                <span key={row.capability_class}>
-                  <code className="text-foreground">{row.capability_class}</code>{" "}
-                  {row.interactive}
-                  <span className="text-muted-foreground/80">
-                    {" "}
-                    ({tx("settings.connectors.unattended", "unattended")}: {row.unattended})
+                <span
+                  key={row.capability_class}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border/70 px-2 py-0.5 text-[11px] leading-4 text-muted-foreground"
+                >
+                  <code className="font-semibold text-foreground">{row.capability_class}</code>
+                  <span>{row.interactive}</span>
+                  <span className="text-muted-foreground/70">
+                    · {tx("settings.connectors.unattended", "unattended")} {row.unattended}
                   </span>
                 </span>
               ))}
-            </p>
+            </div>
           ) : null}
           {missingScopes.length && active ? (
             <p className="mt-1 text-[11.5px] leading-4 text-amber-600 dark:text-amber-300">

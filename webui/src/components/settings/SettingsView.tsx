@@ -8647,8 +8647,14 @@ function AppsCatalogSettings({
           <div className="grid gap-x-10 gap-y-1 py-3 md:grid-cols-2">
             {items.map((item) =>
               item.kind === "connector" ? (
+                /* Both columns. A CLI or MCP row is an icon, a name and two buttons, which fits a
+                   half-width cell; a connector row carries who it acts as, the gate's answer for
+                   every capability class, any ungranted scopes and its last error. In one column
+                   the header collapsed to nothing -- the badge holds its width and the name is
+                   what truncates -- and the class list stacked into a vertical wall. */
                 <ConnectorAppsCatalogRow
                   key={item.id}
+                  className="md:col-span-2"
                   connector={item.connector}
                   busy={connectorActionKey === item.connector.name}
                   testResult={connectorTestResults?.[item.connector.name] ?? null}

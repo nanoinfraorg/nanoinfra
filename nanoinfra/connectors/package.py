@@ -351,7 +351,13 @@ def parse_connector_package(payload: object, *, expected_name: str = "") -> Conn
 def load_connector_package(directory: Path, *, expected_name: str = "") -> ConnectorPlugin:
     """Read and validate `<directory>/connector.json`, refusing anything importable beside it."""
     path = directory / PACKAGE_FILE
-    if not path.is_file():
+    try:
+        exists = path.is_file()
+    except OSError as exc:
+        # `is_file()` propagates a permission error, and a package this process cannot read is a
+        # refusal with a reason rather than a traceback out of a caller that expected one.
+        raise ConnectorPackageError(f"{directory.name} could not be read: {exc}") from exc
+    if not exists:
         raise ConnectorPackageError(f"{directory.name} holds no {PACKAGE_FILE}")
     try:
         size = path.stat().st_size
@@ -375,7 +381,11 @@ def refuse_executable_files(directory: Path) -> None:
     Checked at load as well as at install, because a package directory is a directory: an install
     that validated once says nothing about what is there the next time the gateway starts.
     """
-    for entry in sorted(directory.rglob("*")):
+    try:
+        entries = sorted(directory.rglob("*"))
+    except OSError as exc:
+        raise ConnectorPackageError(f"{directory.name} could not be read: {exc}") from exc
+    for entry in entries:
         if entry.is_dir():
             continue
         if entry.suffix.lower() in FORBIDDEN_SUFFIXES:

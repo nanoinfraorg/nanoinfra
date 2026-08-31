@@ -91,3 +91,58 @@ def test_no_authorization_header_is_sent(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "Authorization" not in seen["headers"]
     assert seen["headers"]["Accept"] == "application/json"
     assert payload["current"]["temperature_2m"] == 20.3
+
+
+# --- the directory collision that broke a live deployment --------------------------------
+
+
+def test_the_package_root_is_not_the_state_directory() -> None:
+    """`<workspace>/connectors/` is `state.py`'s directory, and it is `drwxrwx---` owned by the
+    agent: the executor cannot even traverse it.
+
+    Pointing package discovery at it broke the *first-party* Google Calendar connector on a live
+    deployment, before any marketplace package existed anywhere -- `Path.is_file()` propagates a
+    permission error rather than answering False, so the origin check raised instead of saying
+    "not a marketplace connector".
+    """
+    from nanoinfra.connectors.registry import workspace_connector_root
+    from nanoinfra.connectors.state import STATE_DIR_NAME
+
+    root = workspace_connector_root(Path("/tmp/workspace"))
+
+    assert root.name != STATE_DIR_NAME
+    assert root == Path("/tmp/workspace") / "connector-packages"
+
+
+def test_an_unreadable_package_root_is_not_a_marketplace_connector(tmp_path: Path) -> None:
+    """The safe answer when the question cannot be answered: a package this process cannot see is
+    not one to route through the confined host."""
+    import os
+
+    from nanoinfra.connectors.registry import is_marketplace_connector, workspace_connector_root
+
+    root = workspace_connector_root(tmp_path)
+    (root / "acme-crm").mkdir(parents=True)
+    (root / "acme-crm" / "connector.json").write_text("{}", encoding="utf-8")
+    os.chmod(root, 0o000)
+    try:
+        assert is_marketplace_connector("acme-crm", tmp_path) is False
+    finally:
+        os.chmod(root, 0o755)
+
+
+def test_an_unreadable_package_root_still_lists_the_bundled_connectors(tmp_path: Path) -> None:
+    """One unreadable directory must not take Google Calendar down with it."""
+    import os
+
+    from nanoinfra.connectors.registry import discover_connectors, workspace_connector_root
+
+    root = workspace_connector_root(tmp_path)
+    root.mkdir(parents=True)
+    os.chmod(root, 0o000)
+    try:
+        installed = discover_connectors(tmp_path)
+    finally:
+        os.chmod(root, 0o755)
+
+    assert "google-calendar" in installed

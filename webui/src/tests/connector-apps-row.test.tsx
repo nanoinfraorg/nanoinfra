@@ -102,6 +102,42 @@ function renderRow(info: ConnectorInfo, onTest = vi.fn()) {
 }
 
 describe("connector row", () => {
+  it("keeps the connector's name, which is the one thing a row cannot lose", () => {
+    // It lost it: the badge held `shrink-0` and the name held `truncate`, so in a half-width grid
+    // cell the badge kept its width and "Google Calendar" rendered as a single character.
+    const { container } = render(
+      <ConnectorAppsCatalogRow
+        connector={connector()}
+        busy={false}
+        testResult={null}
+        onTest={vi.fn()}
+      />,
+    );
+
+    const heading = screen.getByRole("heading", { level: 3 });
+    expect(heading.textContent).toBe("Google Calendar");
+    expect(heading.className).toContain("min-w-0");
+    const badge = container.querySelector(".uppercase");
+    expect(badge?.className).not.toContain("shrink-0");
+  });
+
+  it("spans both columns of the Apps grid", () => {
+    // A CLI or MCP row is an icon, a name and two buttons. This one carries who it acts as, the
+    // gate's answer per capability class, ungranted scopes and its last error -- so it is given
+    // the full width rather than being squeezed into half of it.
+    const { container } = render(
+      <ConnectorAppsCatalogRow
+        connector={connector()}
+        busy={false}
+        testResult={null}
+        onTest={vi.fn()}
+        className="md:col-span-2"
+      />,
+    );
+
+    expect(container.querySelector("article")?.className).toContain("md:col-span-2");
+  });
+
   it("says who it acts as and when the token last refreshed", () => {
     renderRow(connector());
 
