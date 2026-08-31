@@ -197,3 +197,49 @@ def test_a_persisted_automation_carries_no_identity_or_workspace() -> None:
     assert "workspace_scope" not in persisted
     assert "identity_dir" not in persisted
     assert "u-9f2" not in json.dumps(persisted)
+
+
+# --- 649e3958: an unbounded scan burned the turn ------------------------------------------
+
+
+async def test_find_files_stops_at_its_entry_budget_and_says_so(tmp_path: Path) -> None:
+    """`find_files` walked until it finished, however large the tree.
+
+    A workspace with a `node_modules` or a mounted dataset spent the turn in `os.walk`.
+    """
+    from nanoinfra.agent.tools import search as search_tools
+
+    for index in range(40):
+        (tmp_path / f"file-{index:03d}.txt").write_text("x", encoding="utf-8")
+
+    tool = search_tools.FindFilesTool(str(tmp_path))
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(search_tools, "SCAN_ENTRY_BUDGET", 5)
+        answer = await tool.execute(path=".")
+
+    assert search_tools.SCAN_TRUNCATED_NOTE in str(answer)
+    # A partial list is useful; one that does not say it is partial is a wrong answer.
+    assert "file-000.txt" in str(answer)
+
+
+async def test_find_files_answers_normally_within_the_budget(tmp_path: Path) -> None:
+    from nanoinfra.agent.tools import search as search_tools
+
+    (tmp_path / "one.txt").write_text("x", encoding="utf-8")
+    (tmp_path / "two.txt").write_text("x", encoding="utf-8")
+
+    answer = await search_tools.FindFilesTool(str(tmp_path)).execute(path=".")
+
+    assert "one.txt" in str(answer)
+    assert "two.txt" in str(answer)
+    assert search_tools.SCAN_TRUNCATED_NOTE not in str(answer)
+
+
+def test_the_scan_runs_off_the_event_loop() -> None:
+    """The walk is synchronous, so holding the loop stalls every other session."""
+    import inspect
+
+    from nanoinfra.agent.tools.search import FindFilesTool
+
+    source = inspect.getsource(FindFilesTool.execute)
+    assert "asyncio.to_thread" in source

@@ -4,10 +4,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import fnmatch
 import os
 import re
+import time
 from contextlib import suppress
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, TypeVar
 
@@ -100,8 +103,62 @@ def _matches_query(rel_path: str, query: str | None) -> bool:
     return all(term in haystack for term in terms)
 
 
+#: How many filesystem entries one search may visit.
+#:
+#: `find_files` and `grep` walked until they finished, so a workspace with a `node_modules`, a
+#: `.venv` or a mounted dataset spent the whole turn in `os.walk` -- and the walk ran inside an
+#: async `execute`, holding the event loop while it did. A bound plus a worker thread is the
+#: answer; the number is high enough that an ordinary project never reaches it. Upstream bounded
+#: the same scan in HKUDS/nanobot 649e3958.
+SCAN_ENTRY_BUDGET = 200_000
+
+#: And a wall clock, because the real case is not a big tree but a slow one -- a network mount
+#: answers each `stat` in milliseconds and never runs out of entries.
+SCAN_SECONDS_BUDGET = 10.0
+
+#: What the answer says when it stopped early. The caller can act on both halves.
+SCAN_TRUNCATED_NOTE = (
+    "(the scan stopped at its budget, so this list is partial: narrow it with a path, a glob "
+    "or a type)"
+)
+
+
+@dataclass(slots=True)
+class _ScanBudget:
+    """How much of a filesystem one search may look at before it answers what it has.
+
+    Two bounds because they catch different failures: entries catch a huge tree, and the clock
+    catches a slow one. ``exhausted`` is what makes the answer honest -- a partial list that
+    says it is partial is useful, and one that does not is a wrong answer.
+    """
+
+    # Read at construction rather than bound at class creation, so the module constant is the
+    # one place the bound lives -- a default frozen into the dataclass ignored it.
+    entries: int = field(default_factory=lambda: SCAN_ENTRY_BUDGET)
+    deadline: float = 0.0
+    seen: int = 0
+    exhausted: bool = False
+
+    def spent(self) -> bool:
+        self.seen += 1
+        if self.seen > self.entries:
+            self.exhausted = True
+            return True
+        # Checked every 512 entries: `monotonic()` per entry is measurable on a big walk, and
+        # 512 stats is far below the resolution anybody notices.
+        if self.deadline and self.seen % 512 == 0 and time.monotonic() > self.deadline:
+            self.exhausted = True
+            return True
+        return False
+
+
+
 class _SearchTool(_FsTool):
     _IGNORE_DIRS = set(ListDirTool._IGNORE_DIRS)
+
+    @staticmethod
+    def _scan_deadline() -> float:
+        return time.monotonic() + SCAN_SECONDS_BUDGET
 
     def _display_path(self, target: Path, root: Path) -> str:
         workspace = self._display_workspace()
@@ -110,7 +167,7 @@ class _SearchTool(_FsTool):
                 return target.relative_to(workspace).as_posix()
         return target.relative_to(root).as_posix()
 
-    def _iter_files(self, root: Path) -> Iterable[Path]:
+    def _iter_files(self, root: Path, budget: _ScanBudget | None = None) -> Iterable[Path]:
         if root.is_file():
             yield root
             return
@@ -119,6 +176,8 @@ class _SearchTool(_FsTool):
             dirnames[:] = sorted(d for d in dirnames if d not in self._IGNORE_DIRS)
             current = Path(dirpath)
             for filename in sorted(filenames):
+                if budget is not None and budget.spent():
+                    return
                 yield current / filename
 
 
@@ -195,7 +254,9 @@ class FindFilesTool(_SearchTool):
             },
         }
 
-    def _iter_paths(self, root: Path, *, include_dirs: bool) -> Iterable[Path]:
+    def _iter_paths(
+        self, root: Path, *, include_dirs: bool, budget: _ScanBudget | None = None
+    ) -> Iterable[Path]:
         if root.is_file():
             yield root
             return
@@ -205,8 +266,12 @@ class FindFilesTool(_SearchTool):
             dirnames[:] = sorted(d for d in dirnames if d not in self._IGNORE_DIRS)
             current = Path(dirpath)
             if include_dirs and current != root:
+                if budget is not None and budget.spent():
+                    return
                 yield current
             for filename in sorted(filenames):
+                if budget is not None and budget.spent():
+                    return
                 yield current / filename
 
     async def execute(
@@ -237,29 +302,38 @@ class FindFilesTool(_SearchTool):
                 else None if head_limit == 0 else head_limit
             )
             root = target if target.is_dir() else target.parent
-            matches: list[tuple[str, float]] = []
+            budget = _ScanBudget(deadline=self._scan_deadline())
 
-            for candidate in self._iter_paths(target, include_dirs=include_dirs):
-                if candidate.is_dir() and not include_dirs:
-                    continue
-                rel_path = candidate.relative_to(root).as_posix()
-                display_path = self._display_path(candidate, root)
-                name = candidate.name
+            def _collect() -> list[tuple[str, float]]:
+                # In a worker thread: the walk is synchronous, and holding the event loop for
+                # the length of a filesystem scan stalls every other session on this gateway.
+                found: list[tuple[str, float]] = []
+                for candidate in self._iter_paths(
+                    target, include_dirs=include_dirs, budget=budget
+                ):
+                    if candidate.is_dir() and not include_dirs:
+                        continue
+                    rel_path = candidate.relative_to(root).as_posix()
+                    display_path = self._display_path(candidate, root)
+                    name = candidate.name
 
-                if glob and not _match_glob(rel_path, name, glob):
-                    continue
-                if candidate.is_file() and not _matches_type(name, type):
-                    continue
-                if candidate.is_dir() and type:
-                    continue
-                if not _matches_query(display_path, query):
-                    continue
-                try:
-                    mtime = candidate.stat().st_mtime
-                except OSError:
-                    mtime = 0.0
-                suffix = "/" if candidate.is_dir() else ""
-                matches.append((display_path + suffix, mtime))
+                    if glob and not _match_glob(rel_path, name, glob):
+                        continue
+                    if candidate.is_file() and not _matches_type(name, type):
+                        continue
+                    if candidate.is_dir() and type:
+                        continue
+                    if not _matches_query(display_path, query):
+                        continue
+                    try:
+                        mtime = candidate.stat().st_mtime
+                    except OSError:
+                        mtime = 0.0
+                    suffix = "/" if candidate.is_dir() else ""
+                    found.append((display_path + suffix, mtime))
+                return found
+
+            matches = await asyncio.to_thread(_collect)
 
             if sort == "modified":
                 matches.sort(key=lambda item: (-item[1], item[0]))
@@ -275,6 +349,8 @@ class FindFilesTool(_SearchTool):
             note = _pagination_note(limit, offset, truncated)
             if note:
                 result += "\n\n" + note
+            if budget.exhausted:
+                result += "\n\n" + SCAN_TRUNCATED_NOTE
             return result
         except PermissionError as e:
             return ToolResult.error(f"Error: {e}")
@@ -470,7 +546,11 @@ class GrepTool(_SearchTool):
                 self._MAX_EXPLICIT_FILE_BYTES if target.is_file() else self._MAX_FILE_BYTES
             )
 
-            for file_path in self._iter_files(target):
+            # The same bound `find_files` uses, and grep needs it more: this loop reads file
+            # contents, so a tree it cannot finish costs the turn twice over.
+            scan_budget = _ScanBudget(deadline=self._scan_deadline())
+
+            for file_path in self._iter_files(target, budget=scan_budget):
                 rel_path = file_path.relative_to(root).as_posix()
                 if glob and not _match_glob(rel_path, file_path.name, glob):
                     continue
@@ -586,6 +666,8 @@ class GrepTool(_SearchTool):
                 notes.append(f"(skipped {skipped_binary} binary/unreadable files)")
             if skipped_large:
                 notes.append(f"(skipped {skipped_large} large files)")
+            if scan_budget.exhausted:
+                notes.append(SCAN_TRUNCATED_NOTE)
             if output_mode == "count" and counts:
                 notes.append(
                     f"(total matches: {sum(counts.values())} in {len(counts)} files)"
