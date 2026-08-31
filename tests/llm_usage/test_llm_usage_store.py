@@ -261,3 +261,36 @@ def test_a_missing_database_reads_as_empty_rather_than_raising(tmp_path: Path) -
 
     assert payload["days"] == []
     assert payload["total_tokens"] == 0
+
+
+# --- what a migrated day may and may not answer -----------------------------------------
+
+
+def test_a_migrated_day_counts_in_the_totals_and_not_in_the_per_model_breakdown(
+    store: LLMUsageStore,
+) -> None:
+    """A migrated row is a whole day folded into one record: no model, and a request count that
+    is a day's worth. Left in the breakdown it took first place with 17.9M tokens against 19
+    "calls", which invites a reader to divide and get nonsense."""
+    from nanoinfra.llm_usage.store import MIGRATED_PROVIDER
+
+    store.record(
+        _record(
+            provider=MIGRATED_PROVIDER,
+            model=MIGRATED_PROVIDER,
+            usage=LLMUsage.reported(input_tokens=17_000_000, output_tokens=1),
+        )
+    )
+    store.record(
+        _record(
+            provider="anthropic",
+            model="claude-sonnet-5",
+            usage=LLMUsage.reported(input_tokens=900_000, output_tokens=1),
+        )
+    )
+
+    payload = store.usage_payload()
+
+    assert [row["provider"] for row in payload["providers_30d"]] == ["anthropic"]
+    # The history is still history: the day totals keep it.
+    assert payload["total_tokens_30d"] == 17_900_002

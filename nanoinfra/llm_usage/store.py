@@ -38,6 +38,9 @@ from loguru import logger
 from nanoinfra.llm_usage.models import LLMCallRecord
 
 SCHEMA_VERSION = 1
+#: The provider name a migrated day carries. Named for what it is rather than for a
+#: real provider, so a per-model chart cannot claim precision the data never had.
+MIGRATED_PROVIDER = "migrated"
 #: The same 400 days the JSON store kept, so nothing that was visible stops being visible.
 MAX_DAYS_RETAINED = 400
 #: A second bound, because 400 days of a busy deployment is a lot of rows and the point of the
@@ -452,13 +455,21 @@ class LLMUsageStore:
         days: int,
         today: date,
     ) -> list[dict[str, Any]]:
-        """Per provider and model, which no day row could carry at all."""
+        """Per provider and model, which no day row could carry at all.
+
+        Migrated rows are excluded. A migrated row is a whole day of a deployment's
+        history folded into one record -- it has no model and its request count is a
+        day's worth -- so leaving it in produced a first place of `migrated /
+        migrated` with 17.9M tokens against 19 "calls", which invites a reader to
+        divide and get nonsense. The day totals still count it; only the per-model
+        breakdown, which it cannot answer, drops it.
+        """
         start_ms = self._midnight_ms(today - timedelta(days=days - 1), zone)
         rows = connection.execute(
             f"""
             SELECT provider, model, {_AGGREGATE_SQL}
             FROM llm_calls
-            WHERE started_at_ms >= ?
+            WHERE started_at_ms >= ? AND provider != '{MIGRATED_PROVIDER}'
             GROUP BY provider, model
             ORDER BY total_tokens DESC
             LIMIT 24

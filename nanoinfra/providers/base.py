@@ -784,6 +784,15 @@ class LLMProvider(ABC):
         """Attach the callback that records one row per provider attempt."""
         self._llm_call_observer = observer
 
+    def observed_provider_name(self) -> str:
+        """The provider name to record for the call that just finished.
+
+        Overridable because a *wrapper* answers to its own class name and that is
+        not what made the call: `FallbackProvider` recorded every row as
+        `fallback`, which is a useless answer to "which provider is expensive".
+        """
+        return self.provider_name
+
     def can_resume_conversation_state(
         self,
         state: ProviderConversationState,
@@ -1567,7 +1576,7 @@ class LLMProvider(ABC):
             observer(LLMCallRecord(
                 started_at_ms=started_at_ms,
                 duration_ms=max(0, (time.monotonic_ns() - started_at_ns) // 1_000_000),
-                provider=self.provider_name,
+                provider=self.observed_provider_name(),
                 model=model,
                 source=current_llm_usage_source(),
                 stream=stream,

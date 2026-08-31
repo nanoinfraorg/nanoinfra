@@ -216,3 +216,65 @@ def test_a_cron_trigger_is_a_cron_turn_whatever_its_session_key_says() -> None:
 
 def test_the_api_channel_is_an_api_turn() -> None:
     assert source_from_request("chat-1", channel="api", metadata=None) == "api"
+
+
+# --- a wrapper names the leaf, not itself -------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_fallback_wrapper_records_the_leaf_that_answered() -> None:
+    """It recorded every row as `fallback`, which is a useless answer to "which provider is
+    expensive". `FallbackProvider.chat()` delegates to the leaf's `chat()` rather than its
+    `chat_with_retry`, so the wrapper's own retry loop is the only one that records."""
+    from nanoinfra.providers.fallback_provider import FallbackProvider
+
+    primary = _FakeProvider([
+        LLMResponse(content="ok", usage=LLMUsage.reported(input_tokens=10, output_tokens=2))
+    ])
+    wrapper = FallbackProvider(
+        primary=primary,
+        fallback_presets=[],
+        provider_factory=lambda preset: primary,
+    )
+    rows, observer = _collector()
+    wrapper.set_llm_call_observer(observer)
+
+    await wrapper.chat_with_retry(messages=[{"role": "user", "content": "hi"}], model="fake/model")
+
+    assert rows[0].provider == "fake"
+
+
+@pytest.mark.asyncio
+async def test_a_fallback_leaf_is_named_as_itself() -> None:
+    from nanoinfra.providers.fallback_provider import FallbackProvider
+
+    class _Leaf(_FakeProvider):
+        """A second provider type, so the two have different names."""
+
+    primary = _FakeProvider([
+        LLMResponse(content=None, finish_reason="error", error_kind="timeout")
+    ])
+    leaf = _Leaf([
+        LLMResponse(content="ok", usage=LLMUsage.reported(input_tokens=5, output_tokens=1))
+    ])
+    wrapper = FallbackProvider(
+        primary=primary,
+        fallback_presets=[_preset("leaf/model")],
+        provider_factory=lambda preset: leaf,
+    )
+    rows, observer = _collector()
+    wrapper.set_llm_call_observer(observer)
+    wrapper._CHAT_RETRY_DELAYS = ()  # pyright: ignore[reportAttributeAccessIssue]
+
+    await wrapper.chat_with_retry(messages=[{"role": "user", "content": "hi"}], model="fake/model")
+
+    assert rows[-1].provider == "leaf", [row.provider for row in rows]
+
+
+def _preset(model: str) -> Any:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        model=model, provider="leaf", api_key="", api_base="", temperature=None,
+        max_tokens=None, reasoning_effort=None, context_window_tokens=None,
+    )

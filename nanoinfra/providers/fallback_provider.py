@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from dataclasses import replace
 from typing import Any
 
@@ -93,6 +94,13 @@ _FALLBACK_ERROR_TOKENS = (
 FallbackModelObserver = Callable[[str], Awaitable[None]]
 
 
+#: The leaf provider serving the call in this task, for the telemetry row (#176).
+#:
+#: Set around each delegation rather than stored on the instance, so two turns in
+#: flight cannot label each other's rows.
+_SERVING_PROVIDER: ContextVar[str] = ContextVar("nanoinfra_serving_provider", default="")
+
+
 class FallbackProvider(LLMProvider):
     """Wrap a primary provider and transparently failover to fallback models.
 
@@ -145,6 +153,19 @@ class FallbackProvider(LLMProvider):
     def set_fallback_model_observer(self, observer: FallbackModelObserver | None) -> None:
         """Attach a process-level observer without changing request call signatures."""
         self._fallback_model_observer = observer
+
+    def observed_provider_name(self) -> str:
+        """The leaf that served the last call in *this* task, not this wrapper's name.
+
+        A contextvar rather than an instance field: two turns can be mid-call at
+        once, and an instance field would let one of them label the other's row.
+        Each turn runs in its own Task, so each gets its own copy.
+
+        Unset means the primary answered, which is the case a bare `chat()` with no
+        fallbacks configured takes.
+        """
+        served = _SERVING_PROVIDER.get()
+        return served or self._primary.observed_provider_name()
 
     def set_llm_call_observer(self, observer: Callable[[Any], None] | None) -> None:
         """Attach the usage observer to this wrapper *and* to the leaves that do the calling.
@@ -293,6 +314,12 @@ class FallbackProvider(LLMProvider):
 
         if self._primary_available():
             primary_was_attempted = True
+            # Set and deliberately not reset: the row is written after this returns, in the
+            # wrapper's own retry loop, so a value cleared on the way out would be gone by the
+            # time the observer reads it -- which is exactly how this first went wrong. Every
+            # call sets it before delegating, and each turn is its own Task with its own
+            # context, so nothing leaks between two of them.
+            _SERVING_PROVIDER.set(self._primary.observed_provider_name())
             response = await call(self._primary, kwargs)
             if response.finish_reason != "error":
                 self._primary_failures = 0
@@ -412,6 +439,7 @@ class FallbackProvider(LLMProvider):
                 fallback_kwargs.pop("reasoning_effort", None)
             else:
                 fallback_kwargs["reasoning_effort"] = fallback.reasoning_effort
+            _SERVING_PROVIDER.set(fallback_provider.observed_provider_name())
             fallback_response = await call(fallback_provider, fallback_kwargs)
 
             if fallback_response.finish_reason != "error":

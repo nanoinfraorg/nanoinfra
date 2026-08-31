@@ -76,6 +76,7 @@ import { GatesAuditLog } from "@/components/settings/GatesAuditLog";
 import { GatesSettings } from "@/components/settings/GatesSettings";
 import { SkillsCatalogSettings } from "@/components/settings/SkillsCatalogSettings";
 import { TokenUsageHeatmap } from "@/components/settings/TokenUsageHeatmap";
+import { TokenUsageSummary } from "@/components/settings/TokenUsageSummary";
 import { ToggleButton } from "@/components/settings/ToggleButton";
 import {
   channelIsRunning,
@@ -2982,6 +2983,10 @@ function OverviewSettings({
   return (
     <div className="space-y-7">
       <section className="rounded-[22px] bg-settings-surface px-4 py-4 sm:px-5">
+        {/* The numbers first, the year of shape second. A grid of grey dots with
+            no figure on it answered nothing for a deployment with eighteen days
+            of history. */}
+        <TokenUsageSummary usage={settings.usage} className="mb-4" />
         <TokenUsageHeatmap usage={settings.usage} timeZone={settings.agent.timezone} />
       </section>
 

@@ -999,6 +999,26 @@ export interface SettingsPayload {
     longest_streak_days: number;
     active_days_30d: number;
     requests_30d: number;
+    /** Calls that ended in an error or a cancellation. One row per attempt, so a
+     *  retried call counts twice -- which is what makes the number answerable. */
+    failed_requests_30d?: number;
+    /** Per provider and model, which a day row could not carry at all. */
+    providers_30d?: Array<{
+      provider: string;
+      model: string;
+      total_tokens: number;
+      prompt_tokens: number;
+      completion_tokens: number;
+      cached_tokens: number;
+      provider_tokens: number;
+      estimated_tokens: number;
+      requests: number;
+      failed_requests: number;
+      ttft_ms: number;
+      timed_requests: number;
+      generation_ms: number;
+      measured_completion_tokens: number;
+    }>;
     updated_at?: string | null;
   };
   advanced: {

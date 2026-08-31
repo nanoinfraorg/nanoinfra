@@ -28,7 +28,7 @@ from typing import Any, cast
 from loguru import logger
 
 from nanoinfra.llm_usage.models import LLM_USAGE_SOURCES, LLMCallRecord
-from nanoinfra.llm_usage.store import LLMUsageStore
+from nanoinfra.llm_usage.store import MIGRATED_PROVIDER, LLMUsageStore
 from nanoinfra.providers.base import LLMUsage
 
 #: The marker file. Written beside the database so a second start does not migrate a JSON file that
@@ -119,8 +119,8 @@ def _records_for_day(day: str, row: dict[str, Any]) -> list[LLMCallRecord]:
                 # Named for what it is. A migrated day is not one attempt against one model, and
                 # labelling it with a real provider would let a per-model chart claim precision
                 # this data never had.
-                provider="migrated",
-                model="migrated",
+                provider=MIGRATED_PROVIDER,
+                model=MIGRATED_PROVIDER,
                 source=cast(Any, source),
                 stream=False,
                 finish_reason="stop",
