@@ -1079,6 +1079,13 @@ export async function fetchConnectorObjects(
   );
 }
 
+export async function reloadConnectors(
+  token: string,
+  base: string = "",
+): Promise<ConnectorsPayload> {
+  return request<ConnectorsPayload>(`${base}/api/settings/connectors/reload`, token);
+}
+
 export async function runConnectorTest(
   token: string,
   name: string,

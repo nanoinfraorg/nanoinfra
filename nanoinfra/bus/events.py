@@ -19,6 +19,10 @@ INBOUND_META_RUNTIME_CONTROL = "_runtime_control"
 INBOUND_META_SESSION_READ_SCOPE = "_session_read_scope"
 RUNTIME_CONTROL_ACK = "_ack"
 RUNTIME_CONTROL_MCP_RELOAD = "mcp_reload"
+# Re-register the data connectors' tools against what config says now (#194). The same
+# shape as the MCP reload, because it answers the same question: the registry was built
+# at boot and config has changed since.
+RUNTIME_CONTROL_CONNECTOR_RELOAD = "connector_reload"
 RUNTIME_CONTROL_IMAGE_GENERATION_RELOAD = "image_generation_reload"
 
 

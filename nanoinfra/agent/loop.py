@@ -666,16 +666,20 @@ class AgentLoop:
         """Select a context limit for future turns."""
         return self.runtime_resolver.select_context_window(context_window_tokens)
 
-    def _register_default_tools(
+    def build_tool_context(
         self,
         *,
-        provider_snapshot_loader: Callable[..., ProviderSnapshot] | None,
-    ) -> None:
-        """Register the default set of tools via plugin loader."""
-        from nanoinfra.agent.tools.context import ToolContext
-        from nanoinfra.agent.tools.loader import ToolLoader
+        provider_snapshot_loader: Callable[..., ProviderSnapshot] | None = None,
+    ) -> Any:
+        """The context a tool is constructed with.
 
-        ctx = ToolContext(
+        Public because a reload needs it too (#194): connector tools are rebuilt against config
+        that changed after boot, and rebuilding them needs the same collaborators the first
+        registration used.
+        """
+        from nanoinfra.agent.tools.context import ToolContext
+
+        return ToolContext(
             config=self.tools_config,
             # #33: the gate runtime the gateway built at boot. None in an embedded or a
             # test construction, and the tool then falls back to policy alone.
@@ -694,6 +698,16 @@ class AgentLoop:
             workspace_sandbox=self.workspace_scopes.sandbox_status,
             runtime_events=self.runtime_events,
         )
+
+    def _register_default_tools(
+        self,
+        *,
+        provider_snapshot_loader: Callable[..., ProviderSnapshot] | None,
+    ) -> None:
+        """Register the default set of tools via plugin loader."""
+        from nanoinfra.agent.tools.loader import ToolLoader
+
+        ctx = self.build_tool_context(provider_snapshot_loader=provider_snapshot_loader)
         loader = ToolLoader()
         registered = loader.load(ctx, self.tools)
 

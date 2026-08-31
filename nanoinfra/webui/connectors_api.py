@@ -191,6 +191,17 @@ def _row(
     }
 
 
+def registered_connector_tools() -> set[str]:
+    """The connector tools this process actually registered.
+
+    What the model can call, rather than what config says it should be able to call. The two
+    disagree whenever config changed after boot, and that gap is what `requires_reload` reports.
+    """
+    from nanoinfra.connectors.registration import registered_tool_names
+
+    return registered_tool_names()
+
+
 def webui_connectors_payload(workspace_path: Path | str | None = None) -> dict[str, Any]:
     """Every installed connector, with its posture. Reads config, the manifests and the record."""
     config = load_config()
@@ -213,10 +224,23 @@ def webui_connectors_payload(workspace_path: Path | str | None = None) -> dict[s
         )
         for name, plugin in sorted(installed.items())
     ]
+    # What config says the model should be able to call, against what it can. A `docker compose
+    # up -d` after a config edit answers "Running" and changes nothing, so the operator has done
+    # the documented thing and the tools are still absent -- the row has to say so.
+    expected = {
+        row["tool"] for entry in rows for row in entry["operations"] if row["enabled"]
+    }
+    registered = registered_connector_tools()
+    missing = sorted(expected - registered)
+    stale = sorted(registered - expected)
+
     return {
         "connectors": rows,
         "installed_count": len(rows),
         "active_count": len(by_name),
+        "requires_reload": bool(missing or stale),
+        "missing_tools": missing,
+        "stale_tools": stale,
         # Named so the UI can say where activation happens rather than offering a toggle it
         # must not have: enabling a connector gives a package a token and a capability class.
         "activation_key": "connectors.active",

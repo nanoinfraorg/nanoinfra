@@ -125,6 +125,7 @@ import {
   fetchCliApps,
   fetchConnectors,
   fetchMcpPresets,
+  reloadConnectors,
   fetchNanoinfraFeatures,
   fetchProviderModels,
   fetchSettings,
@@ -1038,6 +1039,22 @@ export function SettingsView({
       cancelled = true;
     };
   }, [activeSection, getToken]);
+
+  const handleConnectorReload = useCallback(async () => {
+    setConnectorAction("__reload__");
+    try {
+      // The route answers with the fresh payload, so the banner and the rows agree with the
+      // registry in one round trip.
+      setConnectors(await reloadConnectors(getToken()));
+    } catch (err) {
+      setConnectorTestResults((current) => ({
+        ...current,
+        __reload__: { ok: false, message: (err as Error).message },
+      }));
+    } finally {
+      setConnectorAction(null);
+    }
+  }, [getToken]);
 
   const handleConnectorTest = useCallback(
     async (name: string) => {
@@ -2406,6 +2423,7 @@ export function SettingsView({
             connectorActionKey={connectorAction}
             connectorTestResults={connectorTestResults}
             onConnectorTest={handleConnectorTest}
+            onConnectorReload={handleConnectorReload}
             query={appsQuery}
             filter={appsKindFilter}
             cliActionKey={cliAppsAction}
@@ -8383,6 +8401,7 @@ function AppsCatalogSettings({
   connectorActionKey,
   connectorTestResults,
   onConnectorTest,
+  onConnectorReload,
   query,
   filter,
   cliActionKey,
@@ -8422,6 +8441,7 @@ function AppsCatalogSettings({
   connectorActionKey: string | null;
   connectorTestResults: Record<string, { ok: boolean; message: string }>;
   onConnectorTest: (name: string) => void;
+  onConnectorReload: () => void;
   query: string;
   filter: AppsKindFilter;
   cliActionKey: string | null;
@@ -8544,6 +8564,30 @@ function AppsCatalogSettings({
           isError={statusIsError}
           onDismiss={onDismissStatus}
         />
+      ) : null}
+
+      {connectors?.requires_reload ? (
+        <div className="flex flex-col gap-2 rounded-[14px] bg-amber-500/10 px-3 py-2.5 text-[12.5px] leading-5 text-amber-700 sm:flex-row sm:items-center sm:justify-between dark:text-amber-300">
+          <span>
+            {t("settings.connectors.staleRegistry", {
+              count: (connectors.missing_tools ?? []).length,
+              defaultValue:
+                "Config activates {{count}} connector tool(s) the running agent does not hold. Editing config does not reload it.",
+            })}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={connectorActionKey === "__reload__"}
+            onClick={onConnectorReload}
+            className="h-8 shrink-0 rounded-full px-3 text-[12px] font-semibold"
+          >
+            {connectorActionKey === "__reload__"
+              ? tx("settings.connectors.reloading", "Reloading…")
+              : tx("settings.connectors.reload", "Reload connectors")}
+          </Button>
+        </div>
       ) : null}
 
       {focusedApp ? (

@@ -33,8 +33,13 @@ def test_the_tool_context_carries_a_gate() -> None:
 
 
 def test_the_agent_loop_puts_its_gate_into_the_tool_context() -> None:
-    """The loop builds the ToolContext, so the field has to travel that far."""
-    source = inspect.getsource(AgentLoop._register_default_tools)
+    """The loop builds the ToolContext, so the field has to travel that far.
+
+    Read from `build_tool_context` rather than from `_register_default_tools`: the build moved
+    there when a connector reload needed to rebuild the same context (#194), and a reload that
+    dropped the gate would hand the rebuilt tools no way to refuse.
+    """
+    source = inspect.getsource(AgentLoop.build_tool_context)
 
     assert "gate=self.gate" in source
 

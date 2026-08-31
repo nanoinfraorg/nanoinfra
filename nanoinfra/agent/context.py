@@ -52,9 +52,12 @@ async def close_mcp(state: Any) -> None:
 
 
 async def handle_runtime_control(state: Any, msg: InboundMessage, tools: ToolRegistry) -> bool:
+    from nanoinfra.connectors import runtime_control as connector_control
+
     for handler in (
         image_generation_tools.handle_runtime_control,
         mcp_tools.handle_runtime_control,
+        connector_control.handle_runtime_control,
     ):
         if await handler(state, msg, tools):
             return True

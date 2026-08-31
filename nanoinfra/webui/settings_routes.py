@@ -274,6 +274,8 @@ class WebUISettingsRouter:
             return await self._handle_settings_connector_test(request)
         if path == "/api/settings/connectors/objects":
             return await self._handle_settings_connector_objects(request)
+        if path == "/api/settings/connectors/reload":
+            return await self._handle_settings_connector_reload(request)
         if path == "/api/settings/nanoinfra-features":
             return await self._handle_settings_nanoinfra_features(request)
         if path == "/api/settings/nanoinfra-features/enable":
@@ -903,6 +905,22 @@ class WebUISettingsRouter:
             self.logger.exception("connector test for '{}' failed", name)
             return self._error_response(500, "the connector test failed")
         return self._json_response(payload)
+
+    async def _handle_settings_connector_reload(self, request: WsRequest) -> Response:
+        """Re-register the connector tools against what config says now (#194).
+
+        Not an activation: this reads config and reconciles the registry, so it can only make
+        the running agent agree with the file. What config says is still the authority.
+        """
+        if not self._authorized(request):
+            return self._unauthorized()
+        from nanoinfra.connectors.runtime_control import request_connector_reload
+
+        result = await request_connector_reload(self.bus)
+        payload = await asyncio.to_thread(
+            webui_connectors_payload, self._deployment_workspace()
+        )
+        return self._json_response({**payload, "reload": result})
 
     async def _handle_settings_connector_objects(self, request: WsRequest) -> Response:
         """The objects a person may pin with a mention, for the composer's autocomplete.

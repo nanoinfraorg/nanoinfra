@@ -11,7 +11,7 @@ say why in the place somebody is looking.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -24,16 +24,43 @@ if TYPE_CHECKING:
     from nanoinfra.agent.tools.registry import ToolRegistry
 
 
+#: What the last registration in this process registered.
+#:
+#: Process-local and deliberately not a lookup service: it records what this module did, so a
+#: payload can compare it against what config now says without reaching into the agent loop
+#: from an HTTP route. The gap between the two is the answer to "do I need to reload", and that
+#: question exists because `docker compose up -d` after a config edit answers "Running" and
+#: changes nothing.
+_REGISTERED: set[str] = set()
+
+
+def registered_tool_names() -> set[str]:
+    """The connector tools this process registered, as of the last registration or reload."""
+    return set(_REGISTERED)
+
+
 def register_connector_tools(
-    ctx: ToolContext, registry: ToolRegistry, cfg: ConnectorRuntimeConfig | None
+    ctx: ToolContext,
+    registry: ToolRegistry,
+    cfg: ConnectorRuntimeConfig | None,
+    *,
+    replace: bool = False,
 ) -> list[str]:
     """Register one tool per enabled operation of every active connector.
 
     Returns the tool names, so the boot log lists them beside the built-in ones. A connector
     that did not activate contributes no tools and one warning naming the key that fixes it: a
     half-registered connector would give the model a tool that always fails.
+
+    ``replace`` overwrites a tool of the same name rather than skipping it, which is what a
+    reload wants: the operation may now carry different defaults or a different gate answer, and
+    the stale instance holds the old ones.
     """
     if cfg is None or not cfg.active:
+        # Recorded as empty rather than left alone: "nothing is active" is an answer, and a
+        # stale record here is what made a payload say a reload was unnecessary when the
+        # registry held nothing.
+        _REGISTERED.clear()
         return []
 
     from nanoinfra.agent.tools.server_execution import default_socket_path
@@ -51,7 +78,7 @@ def register_connector_tools(
     names: list[str] = []
     for entry in active:
         for tool in build_tools(entry.plugin, entry.operations, client=client, ctx=ctx):
-            if registry.has(tool.name):
+            if registry.has(tool.name) and not replace:
                 logger.warning(
                     "connector '{}' would register '{}', which already exists; skipping",
                     entry.name,
@@ -63,7 +90,54 @@ def register_connector_tools(
 
     if active or problems:
         logger.info(startup_summary(active, problems))
+    # Replaced, not accumulated. This records what the *last* registration registered, so two
+    # registrations in one process cannot leave a union nobody holds.
+    _REGISTERED.clear()
+    _REGISTERED.update(names)
     return names
 
 
-__all__ = ["register_connector_tools"]
+def reload_connector_tools(
+    ctx: ToolContext, registry: ToolRegistry, cfg: ConnectorRuntimeConfig | None
+) -> dict[str, Any]:
+    """Reconcile the live registry against what config says now.
+
+    Registration runs once at boot, so activating a connector afterwards left the two halves
+    disagreeing: `connectors list` read config fresh and said `active`, while the running agent
+    had no such tool and answered a calendar question by listing cron jobs. Restarting was the
+    only fix, and `docker compose up -d` does not restart when only the config inside the volume
+    changed -- it says `Running` and changes nothing.
+
+    Removals come first. A connector that lost an operation, or a ceiling that dropped one, must
+    take the tool out of the context window rather than leave one that now refuses.
+    """
+    from nanoinfra.connectors.tools import ConnectorOperationTool
+
+    live: set[str] = {
+        name
+        for name in registry.tool_names
+        if isinstance(registry.get(name), ConnectorOperationTool)
+    }
+    wanted = register_connector_tools(ctx, registry, cfg, replace=True)
+    removed = sorted(live - set(wanted))
+    for name in removed:
+        registry.unregister(name)
+        _REGISTERED.discard(name)
+
+    return {
+        "ok": True,
+        "registered": wanted,
+        "removed": removed,
+        "message": (
+            f"{len(wanted)} connector tool(s) registered"
+            + (f", {len(removed)} removed" if removed else "")
+        ),
+        "requires_restart": False,
+    }
+
+
+__all__ = [
+    "register_connector_tools",
+    "registered_tool_names",
+    "reload_connector_tools",
+]

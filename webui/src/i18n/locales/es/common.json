@@ -1207,7 +1207,10 @@
       "reauthorise": "Re-authorise",
       "reauthoriseHint": "Consent happens at a browser, as a person, so it is a command rather than a button here.",
       "lastTest": "last test {{when}}: {{summary}}",
-      "testing": "Testing…"
+      "testing": "Testing…",
+      "staleRegistry": "Config activates {{count}} connector tool(s) the running agent does not hold. Editing config does not reload it.",
+      "reload": "Reload connectors",
+      "reloading": "Reloading…"
     }
   },
   "chat": {

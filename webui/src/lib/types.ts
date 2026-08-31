@@ -1385,6 +1385,11 @@ export interface ConnectorsPayload {
   installed_count: number;
   active_count: number;
   activation_key: string;
+  /** True when config says a tool should exist and the running agent does not hold it. */
+  requires_reload?: boolean;
+  missing_tools?: string[];
+  stale_tools?: string[];
+  reload?: { ok: boolean; message: string; requires_restart?: boolean };
 }
 
 export interface ConnectorTestResult {

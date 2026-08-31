@@ -290,3 +290,96 @@ def test_the_connector_skill_can_be_disabled_by_its_own_name(
     loader = SkillsLoader(tmp_path, disabled_skills={"google-calendar"})
     names = {entry["name"] for entry in loader.list_skills(filter_unavailable=False)}
     assert "google-calendar" not in names
+
+
+# --- reload (#194) ---------------------------------------------------------------------
+
+
+def test_a_reload_registers_what_config_now_says(tmp_path: Any) -> None:
+    """Registration runs at boot, so activating afterwards left the halves disagreeing."""
+    from nanoinfra.connectors.registration import (
+        registered_tool_names,
+        reload_connector_tools,
+    )
+
+    registry = ToolRegistry()
+    ctx = _ctx(tmp_path)
+
+    # Nothing activated yet: no tools, and nothing recorded as registered.
+    assert register_connector_tools(ctx, registry, _cfg(active=[])) == []
+
+    result = reload_connector_tools(ctx, registry, _cfg())
+
+    assert result["ok"] is True
+    assert "google_calendar_list_events" in result["registered"]
+    assert registry.get("google_calendar_list_events") is not None
+    assert "google_calendar_list_events" in registered_tool_names()
+
+
+def test_a_reload_removes_a_tool_the_ceiling_dropped(tmp_path: Any) -> None:
+    """A tool that would now refuse must leave the context window, not sit there."""
+    from nanoinfra.connectors.registration import reload_connector_tools
+
+    registry = ToolRegistry()
+    ctx = _ctx(tmp_path)
+    register_connector_tools(ctx, registry, _cfg())
+    assert registry.get("google_calendar_create_event") is not None
+
+    capped = _cfg(
+        connectors={"google-calendar": {"credential": "google-workspace", "maxClass": "read"}},
+        credentials={
+            "google-workspace": {
+                "clientId": "cid",
+                "secretRef": "google-refresh",
+                "scopes": [READONLY],
+            }
+        },
+    )
+    result = reload_connector_tools(ctx, registry, capped)
+
+    assert "google_calendar_create_event" in result["removed"]
+    assert registry.get("google_calendar_create_event") is None
+    assert registry.get("google_calendar_list_events") is not None
+
+
+def test_a_reload_replaces_a_stale_instance(tmp_path: Any) -> None:
+    """The operation may now carry different defaults, and the old instance holds the old ones."""
+    from nanoinfra.connectors.registration import reload_connector_tools
+
+    registry = ToolRegistry()
+    ctx = _ctx(tmp_path)
+    register_connector_tools(ctx, registry, _cfg())
+    first = registry.get("google_calendar_list_events")
+
+    reload_connector_tools(ctx, registry, _cfg())
+    second = registry.get("google_calendar_list_events")
+
+    assert first is not None and second is not None
+    assert first is not second
+
+
+def test_the_payload_reports_the_gap_between_config_and_the_registry(tmp_path: Any) -> None:
+    """The operator did the documented thing and the tools were still absent."""
+    from nanoinfra.connectors.registration import reload_connector_tools
+    from nanoinfra.webui.connectors_api import webui_connectors_payload
+
+    registry = ToolRegistry()
+    ctx = _ctx(tmp_path)
+    reload_connector_tools(ctx, registry, _cfg(active=[]))
+
+    import nanoinfra.webui.connectors_api as api
+
+    original = api.load_config
+    config = _config(_cfg())
+    api.load_config = lambda: config  # pyright: ignore[reportAttributeAccessIssue]
+    try:
+        stale = webui_connectors_payload(tmp_path)
+        assert stale["requires_reload"] is True
+        assert "google_calendar_list_events" in stale["missing_tools"]
+
+        reload_connector_tools(ctx, registry, _cfg())
+        fresh = webui_connectors_payload(tmp_path)
+        assert fresh["requires_reload"] is False
+        assert fresh["missing_tools"] == []
+    finally:
+        api.load_config = original  # pyright: ignore[reportAttributeAccessIssue]
