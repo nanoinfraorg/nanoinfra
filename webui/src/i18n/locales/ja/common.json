@@ -1210,7 +1210,14 @@
       "testing": "Testing…",
       "staleRegistry": "Config activates {{count}} connector tool(s) the running agent does not hold. Editing config does not reload it.",
       "reload": "Reload connectors",
-      "reloading": "Reloading…"
+      "reloading": "Reloading…",
+      "connect": "Connect",
+      "reconnect": "Re-authorise",
+      "connectHint": "Create an OAuth client for this deployment, then consent as the account this connector should act as. The browser comes back here and nothing is copied by hand.",
+      "clientId": "OAuth client id",
+      "clientSecret": "OAuth client secret",
+      "account": "Account to consent as (optional)",
+      "consent": "Open the consent screen"
     }
   },
   "chat": {

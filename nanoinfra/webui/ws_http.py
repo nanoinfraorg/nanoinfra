@@ -63,6 +63,7 @@ from nanoinfra.webui.commissioning_api import (
     CommissioningOperatorSurface,
     PromotionRefusedError,
 )
+from nanoinfra.webui.connector_consent import CALLBACK_PATH as CONNECTOR_CALLBACK_PATH
 from nanoinfra.webui.diagrams_api import (
     create_webui_diagram,
     delete_webui_diagram,
@@ -340,6 +341,32 @@ def _resolve_bootstrap_model_name(
 # ---------------------------------------------------------------------------
 
 
+def _consent_page(ok: bool, detail: str) -> str:
+    """The page a browser lands on after consenting.
+
+    Plain and self-contained: this is a redirect target, not part of the SPA, and it must render
+    with no bundle, no token and no round trip. The detail is escaped because it can carry a
+    provider's own error text.
+    """
+    from html import escape
+
+    heading = "Connector authorised" if ok else "Not authorised"
+    colour = "#0e8a16" if ok else "#d93f0b"
+    return (
+        "<!doctype html><meta charset=utf-8><title>nanoinfra</title>"
+        "<body style='font-family:system-ui;max-width:34rem;margin:3rem auto;padding:0 1rem'>"
+        f"<h1 style='color:{colour};font-size:1.4rem'>{heading}</h1>"
+        f"<p style='line-height:1.55'>{escape(detail)}</p>"
+        "<p style='color:#666'>You can close this tab.</p>"
+    )
+
+
+def _http_html(status: int, body: str) -> Response:
+    return _http_response(
+        body.encode("utf-8"), status=status, content_type="text/html; charset=utf-8"
+    )
+
+
 class GatewayHTTPHandler:
     """Handles all HTTP routes served alongside the WebSocket endpoint.
 
@@ -550,6 +577,14 @@ class GatewayHTTPHandler:
             if got == issue_expected:
                 return self._handle_token_issue(connection, request)
 
+        # The connector consent callback (#193). Answers without the API token on purpose:
+        # Google redirects a browser carrying a cookie and no bearer, so the `state` is what
+        # authorises it -- unguessable, single use, expiring, and naming a consent this
+        # deployment started. One that matches nothing answers 404 and records nothing, which is
+        # the case a scanner produces.
+        if got == CONNECTOR_CALLBACK_PATH:
+            return await self._handle_connector_callback(request)
+
         # Bootstrap
         if got == "/webui/bootstrap":
             return self._handle_bootstrap(connection, request)
@@ -658,6 +693,50 @@ class GatewayHTTPHandler:
         return _http_json_response(token_response_payload(token_value, self.config.token_ttl_s))
 
     # -- Bootstrap ----------------------------------------------------------
+
+    async def _handle_connector_callback(self, request: WsRequest) -> Any:
+        """Finish a consent the browser was sent on, and answer with a page a person can read.
+
+        HTML rather than JSON: the reader is a browser that a redirect landed in, not a client
+        of this API.
+        """
+        import asyncio as _asyncio
+
+        from nanoinfra.webui.connector_consent import finish_consent
+        from nanoinfra.webui.settings_api import WebUISettingsError
+
+        url = f"http://callback{request.path}"
+        try:
+            result = await _asyncio.to_thread(
+                finish_consent, url, workspace=str(self._deployment_workspace_path())
+            )
+        except WebUISettingsError as exc:
+            return _http_html(exc.status, _consent_page(False, exc.message))
+        except Exception as exc:  # noqa: BLE001 -- the browser must not get a traceback
+            self._log.exception("the connector consent callback failed")
+            return _http_html(500, _consent_page(False, f"the consent failed: {exc}"))
+
+        missing = [str(scope) for scope in cast("list[Any]", result.get("missing_scopes") or [])]
+        detail = (
+            f"{result['connector']} is authorised and active."
+            + (
+                f" Google granted fewer scopes than were asked for: {', '.join(missing)}."
+                if missing
+                else ""
+            )
+            + " Reload connectors on the Apps page, or restart, for its tools to appear."
+        )
+        return _http_html(200, _consent_page(True, detail))
+
+    def _deployment_workspace_path(self) -> Path:
+        """The deployment's workspace, where the credential store lives.
+
+        Not the caller's: a connector's credential belongs to the deployment, and this callback
+        arrives with a browser cookie rather than an identity a route resolved.
+        """
+        from nanoinfra.config.loader import load_config
+
+        return Path(load_config().workspace_path)
 
     def _handle_bootstrap(self, connection: Any, request: Any) -> Response:
         secret = self.config.token_issue_secret.strip() or self.config.token.strip()

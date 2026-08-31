@@ -49,6 +49,7 @@ from nanoinfra.pairing import approve_code, deny_code, list_pending
 from nanoinfra.webui.agent_plugins_api import agent_plugins_payload
 from nanoinfra.webui.assertion_identity import identity_panel_payload
 from nanoinfra.webui.cli_apps_api import cli_apps_action, cli_apps_payload
+from nanoinfra.webui.connector_consent import start_consent
 from nanoinfra.webui.connectors_api import (
     connector_objects,
     connector_test,
@@ -101,12 +102,60 @@ _API_SERVICE_VALUES_HEADER = "X-Nanoinfra-API-Service-Values"
 _API_SERVICE_VALUES_HEADER_MAX_BYTES = 8 * 1024
 _GATES_VALUES_HEADER = "X-Nanoinfra-Gates-Values"
 _GATES_VALUES_HEADER_MAX_BYTES = 64 * 1024
+_CONNECTOR_VALUES_HEADER = "X-Nanoinfra-Connector-Values"
+_CONNECTOR_VALUES_HEADER_MAX_BYTES = 16 * 1024
 _OAUTH_CODE_HEADER = "X-Nanoinfra-OAuth-Code"
 _OAUTH_CALLBACK_HEADER = "X-Nanoinfra-OAuth-Callback"
 _OAUTH_RESPONSE_HEADER_MAX_BYTES = 8 * 1024
 
 _SKIP_FIELD = object()
 _CHANNEL_CONNECT_ACTIONS = frozenset({"start", "poll", "cancel"})
+
+
+def _connector_setup_values(request: WsRequest) -> dict[str, str]:
+    """The client id and secret for one consent, from a header rather than the path.
+
+    A query string reaches an access log and a browser history; a header does not. The same
+    reason the MCP setup fields travel this way.
+    """
+    raw = request.headers.get(_CONNECTOR_VALUES_HEADER)
+    if not raw:
+        return {}
+    if len(raw.encode("utf-8")) > _CONNECTOR_VALUES_HEADER_MAX_BYTES:
+        raise WebUISettingsError("connector settings payload is too large")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise WebUISettingsError("invalid connector settings payload") from exc
+    if not isinstance(payload, dict):
+        raise WebUISettingsError("connector settings payload must be a JSON object")
+    values: dict[str, str] = {}
+    for key, value in cast(dict[object, Any], payload).items():
+        if isinstance(key, str) and key and isinstance(value, str):
+            values[key] = value
+    return values
+
+
+def _request_origin(request: WsRequest) -> str:
+    """This deployment's own origin, as the browser reached it.
+
+    Derived from the request rather than configured, because it has to match what the operator
+    registered on the OAuth client -- and the thing they registered is the URL they use. A
+    forwarded scheme wins over a guess, because behind a proxy this process speaks http and the
+    browser spoke https, and Google compares the string byte for byte.
+    """
+    headers = request.headers
+    host = (
+        headers.get("X-Forwarded-Host")
+        or headers.get("Host")
+        or ""
+    ).split(",")[0].strip()
+    if not host:
+        return ""
+    scheme = (headers.get("X-Forwarded-Proto") or "").split(",")[0].strip()
+    if not scheme:
+        scheme = "https" if host.endswith(":443") or ":" not in host else "http"
+    return f"{scheme}://{host}"
 
 
 def _channel_connect_route(path: str) -> tuple[str, str] | None:
@@ -276,6 +325,8 @@ class WebUISettingsRouter:
             return await self._handle_settings_connector_objects(request)
         if path == "/api/settings/connectors/reload":
             return await self._handle_settings_connector_reload(request)
+        if path == "/api/settings/connectors/connect":
+            return await self._handle_settings_connector_connect(request)
         if path == "/api/settings/nanoinfra-features":
             return await self._handle_settings_nanoinfra_features(request)
         if path == "/api/settings/nanoinfra-features/enable":
@@ -375,6 +426,20 @@ class WebUISettingsRouter:
         )
         gates_block = {**cast(dict[str, Any], gates), "identity": identity}
         return {**payload, "advanced": {**advanced, "gates": gates_block}}
+
+    def _request_actor(self, request: WsRequest) -> str:
+        """The person this request authenticated, in the vocabulary `gates.approvers` uses.
+
+        `operator_actor` is the function the gate itself reads, so a consent's record names the
+        person the same way an approval does. A second rule here would drift, and the drift
+        would read as a name that does not count.
+        """
+        from nanoinfra.webui.latch_api import operator_actor
+
+        try:
+            return operator_actor(request) or ""
+        except Exception:  # noqa: BLE001 -- an unnamed operator is not a failure here
+            return ""
 
     def _parse_mcp_settings_query(self, request: WsRequest) -> QueryParams:
         query = self._query(request)
@@ -904,6 +969,45 @@ class WebUISettingsRouter:
         except Exception:
             self.logger.exception("connector test for '{}' failed", name)
             return self._error_response(500, "the connector test failed")
+        return self._json_response(payload)
+
+    async def _handle_settings_connector_connect(self, request: WsRequest) -> Response:
+        """Start a consent and answer with the URL to open (#193).
+
+        The client id and the client secret arrive as headers rather than in the path, the same
+        way the MCP setup fields do, so neither lands in an access log.
+        """
+        if not self._authorized(request):
+            return self._unauthorized()
+        query = self._query(request)
+        name = (_query_first(query, "name") or "").strip()
+        if not name:
+            return self._error_response(400, "name is required")
+
+        values = _connector_setup_values(request)
+        origin = _request_origin(request)
+        if not origin:
+            return self._error_response(
+                400,
+                "this request carries no origin, so the redirect Google must return to cannot be "
+                "derived. Open the WebUI by its URL rather than by a bare host.",
+            )
+        try:
+            payload = await asyncio.to_thread(
+                start_consent,
+                name,
+                client_id=values.get("clientId", ""),
+                client_secret=values.get("clientSecret", ""),
+                origin=origin,
+                workspace=self._deployment_workspace(),
+                account=values.get("account", ""),
+                actor=self._request_actor(request),
+            )
+        except WebUISettingsError as exc:
+            return self._error_response(exc.status, exc.message)
+        except Exception:
+            self.logger.exception("starting the consent for '{}' failed", name)
+            return self._error_response(500, "the consent could not be started")
         return self._json_response(payload)
 
     async def _handle_settings_connector_reload(self, request: WsRequest) -> Response:

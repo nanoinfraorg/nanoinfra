@@ -1380,6 +1380,15 @@ export interface ConnectorObjectsPayload {
   problems: { connector: string; message: string }[];
 }
 
+export interface ConnectorConsentStart {
+  ok: boolean;
+  connector: string;
+  authorize_url: string;
+  redirect_uri: string;
+  scopes: string[];
+  register_this_redirect: string;
+}
+
 export interface ConnectorsPayload {
   connectors: ConnectorInfo[];
   installed_count: number;

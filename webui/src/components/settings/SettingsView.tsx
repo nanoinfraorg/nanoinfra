@@ -126,6 +126,7 @@ import {
   fetchConnectors,
   fetchMcpPresets,
   reloadConnectors,
+  startConnectorConsent,
   fetchNanoinfraFeatures,
   fetchProviderModels,
   fetchSettings,
@@ -1039,6 +1040,28 @@ export function SettingsView({
       cancelled = true;
     };
   }, [activeSection, getToken]);
+
+  const handleConnectorConnect = useCallback(
+    async (
+      name: string,
+      values: { clientId: string; clientSecret: string; account: string },
+    ) => {
+      setConnectorAction(name);
+      try {
+        const started = await startConnectorConsent(getToken(), name, values);
+        // The browser leaves this page and comes back to the callback, which finishes the flow
+        // and renders its own result. Nothing is carried by hand in either direction.
+        window.location.assign(started.authorize_url);
+      } catch (err) {
+        setConnectorTestResults((current) => ({
+          ...current,
+          [name]: { ok: false, message: (err as Error).message },
+        }));
+        setConnectorAction(null);
+      }
+    },
+    [getToken],
+  );
 
   const handleConnectorReload = useCallback(async () => {
     setConnectorAction("__reload__");
@@ -2424,6 +2447,7 @@ export function SettingsView({
             connectorTestResults={connectorTestResults}
             onConnectorTest={handleConnectorTest}
             onConnectorReload={handleConnectorReload}
+            onConnectorConnect={handleConnectorConnect}
             query={appsQuery}
             filter={appsKindFilter}
             cliActionKey={cliAppsAction}
@@ -8402,6 +8426,7 @@ function AppsCatalogSettings({
   connectorTestResults,
   onConnectorTest,
   onConnectorReload,
+  onConnectorConnect,
   query,
   filter,
   cliActionKey,
@@ -8442,6 +8467,10 @@ function AppsCatalogSettings({
   connectorTestResults: Record<string, { ok: boolean; message: string }>;
   onConnectorTest: (name: string) => void;
   onConnectorReload: () => void;
+  onConnectorConnect: (
+    name: string,
+    values: { clientId: string; clientSecret: string; account: string },
+  ) => void;
   query: string;
   filter: AppsKindFilter;
   cliActionKey: string | null;
@@ -8624,6 +8653,7 @@ function AppsCatalogSettings({
                   busy={connectorActionKey === item.connector.name}
                   testResult={connectorTestResults?.[item.connector.name] ?? null}
                   onTest={onConnectorTest}
+                  onConnect={onConnectorConnect}
                 />
               ) : item.kind === "cli" ? (
                 <CliAppsCatalogRow

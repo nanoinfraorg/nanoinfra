@@ -10,6 +10,7 @@ import type {
   ChannelValidationPayload,
   ChatSummary,
   CliAppsPayload,
+  ConnectorConsentStart,
   ConnectorObjectsPayload,
   ConnectorTestResult,
   ConnectorsPayload,
@@ -1076,6 +1077,23 @@ export async function fetchConnectorObjects(
     token,
     undefined,
     API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function startConnectorConsent(
+  token: string,
+  name: string,
+  values: { clientId: string; clientSecret: string; account?: string },
+  base: string = "",
+): Promise<ConnectorConsentStart> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  // The client id and secret travel in a header, not the query string: a query string reaches
+  // an access log and a browser history.
+  return request<ConnectorConsentStart>(
+    `${base}/api/settings/connectors/connect?${query}`,
+    token,
+    { headers: { "X-Nanoinfra-Connector-Values": JSON.stringify(values) } },
   );
 }
 

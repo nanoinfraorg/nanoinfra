@@ -19,9 +19,10 @@
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, ChevronDown, PlayCircle, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Check, ChevronDown, Link2, PlayCircle, ShieldAlert, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { ConnectorInfo, ConnectorOperationInfo } from "@/lib/types";
@@ -52,15 +53,24 @@ export function ConnectorAppsCatalogRow({
   busy,
   testResult,
   onTest,
+  onConnect,
 }: {
   connector: ConnectorInfo;
   busy: boolean;
   testResult: { ok: boolean; message: string } | null;
   onTest: (name: string) => void;
+  onConnect?: (
+    name: string,
+    values: { clientId: string; clientSecret: string; account: string },
+  ) => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
   const [open, setOpen] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [account, setAccount] = useState("");
 
   const active = connector.state === "active";
   const classes = classSummary(connector, {
@@ -146,6 +156,21 @@ export function ConnectorAppsCatalogRow({
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {onConnect ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setConnectOpen((value) => !value)}
+              className="h-8 rounded-full px-3 text-[12px] font-semibold"
+            >
+              <Link2 className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+              {connector.acts_as
+                ? tx("settings.connectors.reconnect", "Re-authorise")
+                : tx("settings.connectors.connect", "Connect")}
+            </Button>
+          ) : null}
           {connector.testable ? (
             <Button
               type="button"
@@ -174,6 +199,61 @@ export function ConnectorAppsCatalogRow({
           </Button>
         </div>
       </div>
+
+      {connectOpen && onConnect ? (
+        <form
+          className="mx-3 mb-3 space-y-2 rounded-[14px] bg-background/55 p-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onConnect(connector.name, { clientId, clientSecret, account });
+          }}
+        >
+          <p className="text-[12px] leading-5 text-muted-foreground">
+            {tx(
+              "settings.connectors.connectHint",
+              "Create an OAuth client for this deployment, then consent as the account this connector should act as. The browser comes back here and nothing is copied by hand.",
+            )}
+          </p>
+          <Input
+            value={clientId}
+            onChange={(event) => setClientId(event.target.value)}
+            placeholder={tx("settings.connectors.clientId", "OAuth client id")}
+            className="h-9 rounded-full bg-background/80 text-[12.5px]"
+          />
+          <Input
+            type="password"
+            value={clientSecret}
+            onChange={(event) => setClientSecret(event.target.value)}
+            placeholder={tx("settings.connectors.clientSecret", "OAuth client secret")}
+            className="h-9 rounded-full bg-background/80 text-[12.5px]"
+          />
+          <Input
+            value={account}
+            onChange={(event) => setAccount(event.target.value)}
+            placeholder={tx("settings.connectors.account", "Account to consent as (optional)")}
+            className="h-9 rounded-full bg-background/80 text-[12.5px]"
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setConnectOpen(false)}
+              className="h-8 rounded-full px-3 text-[12px] font-semibold text-muted-foreground"
+            >
+              {tx("settings.actions.cancel", "Cancel")}
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={busy || !clientId.trim() || !clientSecret.trim()}
+              className="h-8 rounded-full px-3 text-[12px] font-semibold"
+            >
+              {tx("settings.connectors.consent", "Open the consent screen")}
+            </Button>
+          </div>
+        </form>
+      ) : null}
 
       {testResult ? (
         <p

@@ -88,7 +88,11 @@ class Authorization:
     account: str = ""
 
 
-def _pkce_pair() -> tuple[str, str]:
+def pkce_pair() -> tuple[str, str]:
+    """A verifier and its S256 challenge (RFC 7636).
+
+    Public because two flows need it: the CLI's loopback consent and the WebUI's redirect one.
+    """
     verifier = base64.urlsafe_b64encode(secrets.token_bytes(64)).decode().rstrip("=")
     digest = hashlib.sha256(verifier.encode()).digest()
     challenge = base64.urlsafe_b64encode(digest).decode().rstrip("=")
@@ -318,7 +322,7 @@ def run_consent_flow(
     if not token_url:
         raise AuthorizationError(f"connector {plugin.name!r} declares no token endpoint")
 
-    verifier, challenge = _pkce_pair()
+    verifier, challenge = pkce_pair()
     state = secrets.token_urlsafe(24)
     redirect_uri = f"http://{LOOPBACK_HOST}:{port}/"
 
@@ -411,6 +415,7 @@ __all__ = [
     "AuthorizationError",
     "authorize_url",
     "code_from_redirect",
+    "pkce_pair",
     "exchange_code",
     "run_consent_flow",
 ]
