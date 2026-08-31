@@ -13,7 +13,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import json_repair
 from loguru import logger
@@ -292,6 +292,296 @@ class ProviderCallContext:
 
     conversation_state: ProviderConversationState | None = field(default=None, repr=False)
     context_window_tokens: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LLMUsage:
+    """What one or more model calls cost, as a value rather than as a convention (#172).
+
+    This replaced `usage: dict[str, int]`, and the four rules below were the argument for doing
+    it. Each one was previously a habit that held everywhere until it did not:
+
+    1. `input_tokens` is the *logical* input, so it **includes** cache reads and writes. A
+       provider that bills a cached read for less still sent those tokens.
+    2. `total_tokens` is at least `input_tokens + output_tokens`, and keeps a larger
+       provider-reported total rather than recomputing it -- hidden reasoning and server-side
+       tool use are real tokens somebody paid for.
+    3. `reported_tokens + estimated_tokens == total_tokens`, after aggregation as well. This is
+       the one the old dict could not state: `provider_tokens` was set with `setdefault`, so a
+       number's origin survived as a key that happened to be present, and a reader of a cost
+       figure could not tell which half they were looking at.
+    4. A `None` cache count means *the wire protocol did not report this metric*; `0` means it
+       reported no cache activity. An absent dict key read as zero at every consumer, which
+       made "this provider does not tell us" and "nothing was cached" the same number.
+
+    Validated in `__post_init__` rather than checked by callers, because a producer that can
+    build an invalid one has already lost the argument. Field names and semantics match upstream
+    HKUDS/nanobot deliberately (see `proposals/llm-usage-contract.md`): this tree has its own
+    consumers, and converging on the contract is what keeps a later port a port.
+    """
+
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    #: `None` means not reported by the wire protocol. Zero means reported as no cache activity.
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    #: The partition. Reported came from the provider; estimated came from our own tokenizer.
+    reported_tokens: int = 0
+    estimated_tokens: int = 0
+    #: Locally measured streaming telemetry. Zero means "not measured", which is why a request
+    #: that was timed is counted separately rather than inferred from a zero.
+    generation_ms: int = 0
+    measured_output_tokens: int = 0
+    ttft_ms: int = 0
+    timed_requests: int = 0
+    #: The context this call actually carried, for the compaction decision that reads it.
+    context_tokens: int | None = None
+    request_count: int = 0
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("input_tokens", self.input_tokens),
+            ("output_tokens", self.output_tokens),
+            ("total_tokens", self.total_tokens),
+            ("reported_tokens", self.reported_tokens),
+            ("estimated_tokens", self.estimated_tokens),
+            ("generation_ms", self.generation_ms),
+            ("measured_output_tokens", self.measured_output_tokens),
+            ("ttft_ms", self.ttft_ms),
+            ("timed_requests", self.timed_requests),
+            ("request_count", self.request_count),
+        ):
+            # `bool` is an `int` and `True` is not a token count. A provider payload that
+            # deserialised a flag into a number would otherwise validate.
+            runtime_value = cast(object, value)
+            if (
+                not isinstance(runtime_value, int)
+                or isinstance(runtime_value, bool)
+                or runtime_value < 0
+            ):
+                raise ValueError(f"{name} must be a non-negative integer")
+        for name, optional in (
+            ("cache_read_tokens", self.cache_read_tokens),
+            ("cache_write_tokens", self.cache_write_tokens),
+            ("context_tokens", self.context_tokens),
+        ):
+            runtime_optional = cast(object, optional)
+            if runtime_optional is not None and (
+                not isinstance(runtime_optional, int)
+                or isinstance(runtime_optional, bool)
+                or runtime_optional < 0
+            ):
+                raise ValueError(f"{name} must be None or a non-negative integer")
+
+        if self.total_tokens < self.input_tokens + self.output_tokens:
+            raise ValueError("total_tokens must be at least input_tokens + output_tokens")
+        if self.reported_tokens + self.estimated_tokens != self.total_tokens:
+            raise ValueError("reported_tokens + estimated_tokens must equal total_tokens")
+        if (self.cache_read_tokens or 0) + (self.cache_write_tokens or 0) > self.input_tokens:
+            # Rule 1 read backwards: cache counts are part of the logical input, so a cache
+            # total above it means the provider's shape was mapped wrong at the boundary.
+            raise ValueError("cache token counts cannot exceed logical input_tokens")
+
+    @classmethod
+    def reported(
+        cls,
+        *,
+        input_tokens: int,
+        output_tokens: int,
+        total_tokens: int | None = None,
+        cache_read_tokens: int | None = None,
+        cache_write_tokens: int | None = None,
+    ) -> LLMUsage:
+        """Build usage a provider reported. The whole total counts as reported."""
+        visible = input_tokens + output_tokens
+        resolved = visible if total_tokens is None else max(visible, total_tokens)
+        return cls(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=resolved,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+            reported_tokens=resolved,
+            context_tokens=input_tokens,
+            request_count=1,
+        )
+
+    @classmethod
+    def estimated(cls, *, input_tokens: int, output_tokens: int) -> LLMUsage:
+        """Build usage our own tokenizer produced because the provider reported none."""
+        total = input_tokens + output_tokens
+        return cls(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total,
+            estimated_tokens=total,
+            context_tokens=input_tokens,
+            request_count=1,
+        )
+
+    @classmethod
+    def empty_request(cls) -> LLMUsage:
+        """One request that completed with nothing measurable, which is not the same as no request."""
+        return cls(input_tokens=0, output_tokens=0, total_tokens=0, request_count=1)
+
+    @property
+    def source(self) -> Literal["reported", "estimated", "mixed"]:
+        """Which half of the partition this value came from. `mixed` after aggregating both."""
+        if self.estimated_tokens == 0:
+            return "reported"
+        if self.reported_tokens == 0:
+            return "estimated"
+        return "mixed"
+
+    def with_timing(self, *, generation_ms: int | None, ttft_ms: int | None) -> LLMUsage:
+        """Attach locally measured streaming telemetry.
+
+        `measured_output_tokens` is set only when a generation time exists, so a tokens-per-second
+        figure is always divided by the time that produced exactly those tokens.
+        """
+        return replace(
+            self,
+            generation_ms=max(0, generation_ms or 0),
+            measured_output_tokens=self.output_tokens if generation_ms is not None else 0,
+            ttft_ms=max(0, ttft_ms or 0),
+            timed_requests=1 if ttft_ms is not None else 0,
+        )
+
+    def __add__(self, other: LLMUsage) -> LLMUsage:
+        """Aggregate calls without inventing a cache number nobody reported.
+
+        Two calls where one reported a cache read and the other reported nothing sum to *not
+        reported*, not to the one number that happens to exist: a percentage over a denominator
+        that includes calls with no measurement is a made-up percentage.
+        """
+
+        def _cache(left: int | None, right: int | None) -> int | None:
+            return left + right if left is not None and right is not None else None
+
+        return LLMUsage(
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+            total_tokens=self.total_tokens + other.total_tokens,
+            cache_read_tokens=_cache(self.cache_read_tokens, other.cache_read_tokens),
+            cache_write_tokens=_cache(self.cache_write_tokens, other.cache_write_tokens),
+            reported_tokens=self.reported_tokens + other.reported_tokens,
+            estimated_tokens=self.estimated_tokens + other.estimated_tokens,
+            generation_ms=self.generation_ms + other.generation_ms,
+            measured_output_tokens=self.measured_output_tokens + other.measured_output_tokens,
+            ttft_ms=self.ttft_ms + other.ttft_ms,
+            timed_requests=self.timed_requests + other.timed_requests,
+            # The latest call's context, not the sum: context is a level, not a quantity. Two
+            # calls of 40k each did not carry 80k.
+            context_tokens=(
+                other.context_tokens if other.context_tokens is not None else self.context_tokens
+            ),
+            request_count=self.request_count + other.request_count,
+        )
+
+    def to_dict(self) -> dict[str, int | str | None]:
+        """The full contract, for persistence and for the store."""
+        return {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "total_tokens": self.total_tokens,
+            "cache_read_tokens": self.cache_read_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
+            "reported_tokens": self.reported_tokens,
+            "estimated_tokens": self.estimated_tokens,
+            "source": self.source,
+            "generation_ms": self.generation_ms,
+            "measured_output_tokens": self.measured_output_tokens,
+            "ttft_ms": self.ttft_ms,
+            "timed_requests": self.timed_requests,
+            "context_tokens": self.context_tokens,
+            "request_count": self.request_count,
+        }
+
+    def to_turn_dict(self) -> dict[str, int]:
+        """The compact per-turn shape the WebUI, `/status` and the OpenAI-compatible API read.
+
+        Keeps the OpenAI-flavoured key names on purpose: this is the shape that already travels
+        to a client, and renaming it on the wire would be a breaking change to the API for no
+        gain. A key is present only when the number behind it means something, so a consumer
+        cannot read a zero as a measurement.
+        """
+        result: dict[str, int] = {
+            "prompt_tokens": self.input_tokens,
+            "completion_tokens": self.output_tokens,
+            "total_tokens": self.total_tokens,
+            "request_count": self.request_count,
+            "estimated_tokens": self.estimated_tokens,
+        }
+        if self.context_tokens is not None:
+            result["context_tokens"] = self.context_tokens
+        if self.cache_read_tokens is not None:
+            result["cached_tokens"] = self.cache_read_tokens
+        if self.cache_write_tokens is not None:
+            result["cache_write_tokens"] = self.cache_write_tokens
+        if self.generation_ms > 0 and self.measured_output_tokens > 0:
+            result["generation_ms"] = self.generation_ms
+            result["measured_completion_tokens"] = self.measured_output_tokens
+        if self.timed_requests > 0:
+            result["ttft_ms"] = self.ttft_ms
+            result["timed_requests"] = self.timed_requests
+        return result
+
+    @classmethod
+    def from_dict(cls, value: object) -> LLMUsage | None:
+        """Read back exactly what `to_dict` wrote, and nothing else.
+
+        Deliberately strict: a persisted record this cannot validate is `None` rather than a
+        best-effort reconstruction, because a usage value that silently lost its partition is
+        worse than a missing one.
+        """
+        if not isinstance(value, dict):
+            return None
+        data = cast(dict[object, object], value)
+        numbers: dict[str, int] = {}
+        for key in (
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "reported_tokens",
+            "estimated_tokens",
+            "generation_ms",
+            "measured_output_tokens",
+            "ttft_ms",
+            "timed_requests",
+            "request_count",
+        ):
+            raw = data.get(key, 0)
+            if not isinstance(raw, int) or isinstance(raw, bool) or raw < 0:
+                return None
+            numbers[key] = raw
+        optionals: dict[str, int | None] = {}
+        for key in ("cache_read_tokens", "cache_write_tokens", "context_tokens"):
+            raw = data.get(key)
+            if raw is None:
+                optionals[key] = None
+                continue
+            if not isinstance(raw, int) or isinstance(raw, bool) or raw < 0:
+                return None
+            optionals[key] = raw
+        try:
+            return cls(
+                input_tokens=numbers["input_tokens"],
+                output_tokens=numbers["output_tokens"],
+                total_tokens=numbers["total_tokens"],
+                cache_read_tokens=optionals["cache_read_tokens"],
+                cache_write_tokens=optionals["cache_write_tokens"],
+                reported_tokens=numbers["reported_tokens"],
+                estimated_tokens=numbers["estimated_tokens"],
+                generation_ms=numbers["generation_ms"],
+                measured_output_tokens=numbers["measured_output_tokens"],
+                ttft_ms=numbers["ttft_ms"],
+                timed_requests=numbers["timed_requests"],
+                context_tokens=optionals["context_tokens"],
+                request_count=numbers["request_count"],
+            )
+        except ValueError:
+            return None
 
 
 @dataclass
