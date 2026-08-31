@@ -332,6 +332,11 @@ def connector_test(name: str, *, workspace_path: Path | str | None = None) -> di
         tested_at=connector_state.now_iso(),
         test_summary=summary,
         acts_as=acts_as,
+        # A read that just succeeded retracts the last failure. Without this the field only ever
+        # accumulated: a connector fixed two releases ago kept showing the error that no longer
+        # happens, in red, under a row that works. An error nothing retracts stops being
+        # information and becomes decoration.
+        clear=("last_error", "last_error_at"),
     )
     return {
         "ok": True,
@@ -385,6 +390,9 @@ def connector_objects(
                     entry.name,
                     objects=json.dumps(fresh, ensure_ascii=False),
                     objects_at=connector_state.now_iso(),
+                    # A live listing is a successful read, so it retracts the last failure for the
+                    # same reason a successful test does.
+                    clear=("last_error", "last_error_at"),
                 )
                 objects.extend(fresh)
                 continue

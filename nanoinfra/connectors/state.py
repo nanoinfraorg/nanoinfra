@@ -62,9 +62,23 @@ class ConnectorState:
     objects: str = ""
     objects_at: str = ""
 
-    def merged(self, **fields: Any) -> ConnectorState:
-        """A copy with these fields replaced. Empty values do not erase a recorded fact."""
+    def merged(self, clear: tuple[str, ...] = (), **fields: Any) -> ConnectorState:
+        """A copy with these fields replaced, and the named ones blanked.
+
+        An empty value does not erase a recorded fact: a write that does not know who the
+        connector acts as must not delete the answer a previous one found.
+
+        That rule is right for a fact and wrong for a **failure**, which is the one field that has
+        to be retractable -- and it was not. A connector fixed two releases ago kept showing the
+        error that no longer happens, in red, under a row that works, because every write passed
+        `last_error=""` and every write was ignored. So a caller that means "this no longer
+        applies" says so by naming the field rather than by passing a value that looks like an
+        omission.
+        """
         current = asdict(self)
+        for key in clear:
+            if key in current:
+                current[key] = ""
         for key, value in fields.items():
             if value not in (None, ""):
                 current[key] = value
@@ -111,8 +125,12 @@ def read_one(workspace: Path, connector: str) -> ConnectorState:
     return read_all(workspace).get(connector, ConnectorState())
 
 
-def record(workspace: Path, connector: str, **fields: Any) -> ConnectorState:
+def record(
+    workspace: Path, connector: str, clear: tuple[str, ...] = (), **fields: Any
+) -> ConnectorState:
     """Merge these facts into one connector's record and write the file.
+
+    ``clear`` names fields to blank -- the way a success retracts the last failure.
 
     Read-modify-write with an atomic replace. Two executor threads can answer two connector
     calls at once, so the replace is what keeps a half-written file off the disk; a lost update
@@ -121,7 +139,7 @@ def record(workspace: Path, connector: str, **fields: Any) -> ConnectorState:
     """
     path = state_path(workspace)
     current = read_all(workspace)
-    updated = current.get(connector, ConnectorState()).merged(**fields)
+    updated = current.get(connector, ConnectorState()).merged(clear=clear, **fields)
     current[connector] = updated
     payload = {name: asdict(state) for name, state in current.items()}
 
