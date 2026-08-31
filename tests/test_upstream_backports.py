@@ -10,6 +10,7 @@ The triage that produced them is `proposals/upstream-sync-triage.md`.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from pathlib import Path
 from typing import Any
@@ -243,3 +244,107 @@ def test_the_scan_runs_off_the_event_loop() -> None:
 
     source = inspect.getsource(FindFilesTool.execute)
     assert "asyncio.to_thread" in source
+
+
+# --- d8b4f612: a dead listener left the gateway up and deaf -------------------------------
+
+
+async def test_the_listener_rebinds_after_a_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A listener that ended left the process healthy-looking and unable to serve the WebUI."""
+    from nanoinfra.channels.websocket import runtime as ws_runtime
+
+    attempts: list[int] = []
+
+    class _Server:
+        def close(self) -> None: ...
+
+        async def wait_closed(self) -> None: ...
+
+    async def _serve(*_args: Any, **_kwargs: Any) -> Any:
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise OSError("address already in use")
+        return _Server()
+
+    monkeypatch.setattr(ws_runtime, "serve", _serve)
+    monkeypatch.setattr(ws_runtime, "BackoffPolicy", lambda: _NoWaitBackoff())
+
+    channel = _minimal_ws_channel(tmp_path)
+    task = asyncio.create_task(channel.start())
+    for _ in range(200):
+        if channel.listener_ready():
+            break
+        await asyncio.sleep(0.01)
+
+    assert channel.listener_ready() is True, "the listener never came back"
+    assert len(attempts) == 2, "it did not rebind after the first failure"
+
+    await channel.stop()
+    with contextlib.suppress(Exception):
+        await asyncio.wait_for(task, timeout=5)
+
+
+async def test_the_listener_gives_up_loudly_rather_than_looping(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A bind failing ten times is a deployment fault, and a loop that hides it is worse."""
+    from nanoinfra.channels.websocket import runtime as ws_runtime
+
+    attempts: list[int] = []
+
+    async def _always_fails(*_args: Any, **_kwargs: Any) -> Any:
+        attempts.append(1)
+        raise OSError("address already in use")
+
+    monkeypatch.setattr(ws_runtime, "serve", _always_fails)
+    monkeypatch.setattr(ws_runtime, "BackoffPolicy", lambda: _NoWaitBackoff())
+
+    channel = _minimal_ws_channel(tmp_path)
+    with pytest.raises(OSError):
+        await asyncio.wait_for(channel.start(), timeout=10)
+
+    assert len(attempts) == ws_runtime._LISTENER_MAX_ATTEMPTS  # pyright: ignore[reportPrivateUsage]
+    assert channel.listener_ready() is False
+
+
+class _NoWaitBackoff:
+    """The real policy with the waiting taken out, so a test is not a sleep."""
+
+    def delay_ms(self, attempts: int) -> int:
+        return 0
+
+
+def _minimal_ws_channel(tmp_path: Path) -> Any:
+    """A channel with a real config and a stubbed bus. Only the listener is under test."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from nanoinfra.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
+    from nanoinfra.webui.gateway_services import build_gateway_services
+
+    config = WebSocketConfig.model_validate(
+        {
+            "enabled": True,
+            "allowFrom": ["*"],
+            "host": "127.0.0.1",
+            "port": 28471,
+            "path": "/ws",
+            "websocketRequiresToken": False,
+        }
+    )
+    bus = MagicMock()
+    bus.publish_inbound = AsyncMock()
+    gateway = build_gateway_services(
+        config=config,
+        bus=bus,
+        session_manager=None,
+        static_dist_path=None,
+        workspace_path=tmp_path,
+        default_restrict_to_workspace=False,
+        runtime_model_name=None,
+        runtime_surface="browser",
+        runtime_capabilities_overrides=None,
+        logger=MagicMock(),
+    )
+    return WebSocketChannel(config, bus, gateway=gateway)

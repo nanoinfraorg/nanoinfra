@@ -62,6 +62,7 @@ from nanoinfra.session.webui_turns import (
     websocket_turn_transcript_persistence_failed,
     websocket_turn_wall_started_at,
 )
+from nanoinfra.utils.backoff import BackoffPolicy
 from nanoinfra.webui.assertion_identity import describe_trusted_proxy_posture
 from nanoinfra.webui.cli_apps_api import normalize_cli_app_mentions
 from nanoinfra.webui.file_browser import WebUIFileBrowserError
@@ -110,6 +111,13 @@ from nanoinfra.webui.workspace_upload_ws import (
 )
 
 # Plain HTTP WebUI routes also run through websockets.process_request.
+#: How many consecutive bind failures the listener rebinds through before it gives up.
+#:
+#: A bind that fails ten times in a row is a deployment fault -- a port taken, a socket
+#: directory gone -- and a loop that hides it forever is worse than a process that stops with
+#: the reason in its log.
+_LISTENER_MAX_ATTEMPTS = 10
+
 _WEBUI_HTTP_OPEN_TIMEOUT_S = 360.0
 
 # Where the actor of a handshake waits for the connection loop (#70). The connection object is
@@ -643,6 +651,9 @@ class WebSocketChannel(BaseChannel):
         self._upload_sessions: dict[ServerConnection, dict[str, UploadSession]] = {}
         self._stop_event: asyncio.Event | None = None
         self._server_task: asyncio.Task[None] | None = None
+        #: Set while a listener is bound and accepting. The process staying alive says nothing
+        #: about that, which is how a dead listener looked healthy.
+        self._listener_ready: asyncio.Event = asyncio.Event()
         # Set while started: drops the diagram-change listener again on stop, so a
         # restarted channel does not accumulate one broadcast per past start.
         self._diagram_unsubscribe: Callable[[], None] | None = None
@@ -939,7 +950,8 @@ class WebSocketChannel(BaseChannel):
                 ),
             )
 
-        async def runner() -> None:
+        async def bind_and_serve() -> None:
+            """Bind once and serve until the stop event. Raises if the bind fails."""
             socket_path = self.config.unix_socket_path
             if socket_path:
                 path_obj = Path(socket_path)
@@ -973,13 +985,59 @@ class WebSocketChannel(BaseChannel):
                 )
             try:
                 assert self._stop_event is not None
+                # Bound and accepting. Anything that asks whether this gateway can serve the
+                # WebUI reads this rather than assuming, because the process staying alive says
+                # nothing about the listener.
+                self._listener_ready.set()
                 await self._stop_event.wait()
             finally:
+                self._listener_ready.clear()
                 server.close()
                 await server.wait_closed()
                 if socket_path:
                     with suppress(FileNotFoundError):
                         Path(socket_path).unlink()
+
+        async def runner() -> None:
+            """Keep a listener bound for as long as this channel is running.
+
+            Without this loop, a listener that ended -- a bind that lost its socket, an
+            unhandled error in the accept path -- left the gateway alive and deaf: the process
+            looked healthy, every other subsystem kept working, and the WebUI simply could not
+            connect. Nothing said which part had failed, so the symptom reached the operator as
+            "the page does not load".
+
+            A clean stop exits. A failure backs off and rebinds, and gives up after
+            `_LISTENER_MAX_ATTEMPTS` consecutive failures, because a bind that fails ten times
+            in a row is a deployment fault and a loop that hides it is worse than a stop.
+            """
+            policy = BackoffPolicy()
+            attempts = 0
+            while self._running:
+                try:
+                    await bind_and_serve()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 -- the reason is logged and retried
+                    attempts += 1
+                    if attempts >= _LISTENER_MAX_ATTEMPTS or not self._running:
+                        self.logger.error(
+                            "WebSocket listener failed {} times and is giving up: {}",
+                            attempts,
+                            exc,
+                        )
+                        raise
+                    delay_ms = policy.delay_ms(attempts)
+                    self.logger.error(
+                        "WebSocket listener failed ({}); rebinding in {}ms (attempt {})",
+                        exc,
+                        delay_ms,
+                        attempts,
+                    )
+                    await asyncio.sleep(delay_ms / 1000)
+                    continue
+                # A clean return means the stop event fired.
+                return
 
         self._server_task = asyncio.create_task(runner())
         await self._server_task
@@ -1433,6 +1491,10 @@ class WebSocketChannel(BaseChannel):
             return None
 
     # -- Outbound WebSocket events -----------------------------------------
+
+    def listener_ready(self) -> bool:
+        """Whether a listener is bound and accepting right now."""
+        return self._listener_ready.is_set()
 
     async def stop(self) -> None:
         # Dropped before the not-running guard: a listener outlives the socket it
