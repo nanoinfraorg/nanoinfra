@@ -888,6 +888,7 @@ def _run_gateway(
     from nanoinfra.cron.service import CronJobSkippedError, CronService
     from nanoinfra.cron.session_turns import is_bound_cron_job
     from nanoinfra.cron.types import CronJob
+    from nanoinfra.llm_usage import migrate_legacy_token_usage, record_llm_call
     from nanoinfra.providers.factory import (
         ProviderSnapshot,
         build_provider_snapshot,
@@ -904,7 +905,6 @@ def _run_gateway(
     )
     from nanoinfra.triggers.local_runner import run_local_trigger_queue
     from nanoinfra.triggers.local_store import LocalTriggerStore
-    from nanoinfra.webui.token_usage import TokenUsageHook
 
     port = port if port is not None else config.gateway.port
     webui_url = _webui_browser_url(config)
@@ -931,6 +931,9 @@ def _run_gateway(
         webui_static_dist=webui_static_dist,
     )
     sync_workspace_templates(config.workspace_path)
+    # Before anything can read the usage payload, so an upgrade never shows an empty heatmap to a
+    # deployment that had months of history (#177).
+    migrate_legacy_token_usage()
     bus = MessageBus()
     runtime_events = RuntimeEventBus()
     fallback_model_observer = build_webui_fallback_model_observer(bus)
@@ -938,6 +941,10 @@ def _run_gateway(
     def _observe_fallback_models(snapshot: ProviderSnapshot) -> ProviderSnapshot:
         if isinstance(snapshot.provider, FallbackProvider):
             snapshot.provider.set_fallback_model_observer(fallback_model_observer)
+        # Every provider this gateway builds records one row per attempt (#176). Attached here
+        # rather than in the factory so that an embedding of this package -- the SDK, a test --
+        # writes nothing to a store it never asked for.
+        snapshot.provider.set_llm_call_observer(record_llm_call)
         return snapshot
 
     def _load_gateway_provider_snapshot(
@@ -1029,7 +1036,10 @@ def _run_gateway(
         runtime_events=runtime_events,
         turn_delivery_factory=turn_delivery_factory,
         provider_signature=provider_snapshot.signature,
-        hooks=[TokenUsageHook(timezone_name=config.agents.defaults.timezone)],
+        # No usage hook. An `AgentHook` only fires for turns that went through the agent loop,
+        # which is why three call sites were never counted; the provider-level observer attached
+        # above records every physical call instead (#176).
+        hooks=[],
         local_trigger_store=trigger_store,
         hook_factories=[create_file_edit_activity_hook],
     )

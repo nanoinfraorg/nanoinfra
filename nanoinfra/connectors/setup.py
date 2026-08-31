@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -23,6 +24,7 @@ from nanoinfra.connectors.contracts import ConnectorOperation, ConnectorPlugin
 from nanoinfra.connectors.credentials import (
     ConnectorCredential,
     CredentialError,
+    check_connector_hosts,
     check_connector_scopes,
 )
 from nanoinfra.connectors.registry import (
@@ -85,6 +87,12 @@ def _credential_for(
         client_secret_ref=credential_cfg.client_secret_ref,
         token_url=credential_cfg.token_url or plugin.credential.token_url,
         scopes=tuple(credential_cfg.scopes),
+        # Config's list, or the manifest's own when config names none: a first-party package
+        # reviewed in this repository may state its reach, and an operator may narrow it.
+        allowed_hosts=(
+            tuple(credential_cfg.allowed_hosts)
+            or plugin.credential.allowed_hosts
+        ),
     )
 
 
@@ -142,13 +150,18 @@ def _defaults_for(plugin: ConnectorPlugin, settings: dict[str, str]) -> dict[str
 
 def resolve_active(
     cfg: ConnectorRuntimeConfig,
+    workspace_path: Path | None = None,
 ) -> tuple[list[ActiveConnector], list[ActivationProblem]]:
     """The connectors that activate, and the ones that did not with the reason.
 
     Nothing here reads a secret or opens a socket, so this is safe to call at startup and
     safe to call again from a settings route that wants to show an operator what is wrong.
+
+    ``workspace_path`` adds the marketplace packages installed under it (#195). Omitted, only the
+    packages bundled in this repository are considered -- which is what a caller with no workspace
+    in hand should see, rather than a partial answer.
     """
-    installed = discover_connectors()
+    installed = discover_connectors(workspace_path)
     active: list[ActiveConnector] = []
     problems: list[ActivationProblem] = []
 
@@ -182,6 +195,8 @@ def resolve_active(
                 description=plugin.description,
             )
             check_connector_scopes(offered, credential)
+            # Where the token may go, checked before the first call rather than during one.
+            check_connector_hosts(offered, credential)
         except CredentialError as exc:
             problems.append(ActivationProblem(name, str(exc)))
             continue

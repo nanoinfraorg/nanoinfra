@@ -81,6 +81,7 @@ logger = logging.getLogger(__name__)
 EXECUTOR_ROLE = "executor"
 FETCHER_ROLE = "fetcher"
 MCP_HOST_ROLE = "mcp-host"
+CONNECTOR_HOST_ROLE = "connector-host"
 
 LAYER_LANDLOCK = "landlock"
 LAYER_NONE = "none"
@@ -91,6 +92,7 @@ ROLE_MODULES = {
     EXECUTOR_ROLE: "nanoinfra.gates.executor",
     FETCHER_ROLE: "nanoinfra.gates.fetcher",
     MCP_HOST_ROLE: "nanoinfra.gates.mcp_host",
+    CONNECTOR_HOST_ROLE: "nanoinfra.gates.connector_host",
 }
 
 # The filesystem access rights, from include/uapi/linux/landlock.h.
@@ -561,8 +563,35 @@ def _build_plan(
     if role == EXECUTOR_ROLE:
         rules += _executor_rules(workspace=workspace, data_dir=data_dir)
         return ConfinementPlan(role=role, rules=_merge_rules(rules))
+    if role == CONNECTOR_HOST_ROLE:
+        rules += _connector_host_rules(workspace=workspace)
+        return ConfinementPlan(
+            role=role,
+            rules=_merge_rules(rules),
+            # Outbound HTTPS and nothing else. The fetcher's list is wider because a person may
+            # ask it for any URL; a connector addresses an API, and 443 is where an API is.
+            connect_ports=(443,),
+            restrict_connect=True,
+        )
     rules += _mcp_host_rules()
     return ConfinementPlan(role=role, rules=_merge_rules(rules))
+
+
+def _connector_host_rules(*, workspace: Path | None) -> list[PathRule]:
+    """The paths only the connector host reaches (#195, part 4).
+
+    **Read on the connector packages, and nothing else in the workspace.** The host re-reads a
+    package's `connector.json` on every call, so it needs those directories -- and it must not
+    reach the credential store, the server inventory or the job store, which live in the same
+    workspace. So the grant names `connectors/` rather than the workspace root.
+
+    No exec grant beyond the interpreter. The package format runs no code, so a host that could
+    execute anything would be a host with a capability the format does not use.
+    """
+    rules: list[PathRule] = []
+    if workspace is not None:
+        rules.append(PathRule(workspace / "connectors", _READ))
+    return rules
 
 
 def _executor_rules(*, workspace: Path | None, data_dir: Path | None) -> list[PathRule]:
@@ -929,6 +958,7 @@ __all__ = [
     "FETCHER_ROLE",
     "LAYER_LANDLOCK",
     "LAYER_NONE",
+    "CONNECTOR_HOST_ROLE",
     "MCP_HOST_ROLE",
     "ROLE_MODULES",
     "ChildConfinement",

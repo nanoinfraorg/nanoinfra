@@ -58,6 +58,7 @@ from nanoinfra.bus.queue import MessageBus
 from nanoinfra.bus.runtime_events import RuntimeEventBus
 from nanoinfra.command import CommandContext, CommandRouter, register_builtin_commands
 from nanoinfra.config.schema import AgentDefaults, ModelPresetConfig
+from nanoinfra.llm_usage.context import llm_usage_source, source_from_request
 from nanoinfra.providers.base import LLMProvider, LLMUsage, ProviderConversationState
 from nanoinfra.providers.factory import ProviderSnapshot
 from nanoinfra.runtime_context import (
@@ -1142,6 +1143,15 @@ class AgentLoop:
         # binding happens here because this is the task the tools run in: the turn crossed the
         # bus, so a context variable set by whoever submitted it never reached them.
         turn_scope_stack.enter_context(bind_commissioning(request_ctx.metadata))
+        # What kind of turn this is, for the store's rows (#176). Bound on the same stack and for
+        # the same reason as the line above: the turn crossed the bus, so anything set by whoever
+        # submitted it never reached the task the provider calls run in. The classification is
+        # coarse on purpose -- `nanoinfra/llm_usage/context.py` keeps none of the key it read.
+        turn_scope_stack.enter_context(
+            llm_usage_source(
+                source_from_request(session_key, channel=channel, metadata=metadata)
+            )
+        )
         # Compute lazily because create_goal may create goal metadata during this run.
         def _goal_continue() -> str | None:
             _goal_lines = goal_state_runtime_lines(session.metadata if session is not None else None)

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -72,14 +73,74 @@ def load_connector_package(name: str) -> ConnectorPlugin | None:
     return plugin
 
 
-def discover_connectors() -> dict[str, ConnectorPlugin]:
-    """Every installed connector, by the name config uses."""
+def workspace_connector_root(workspace_path: Path) -> Path:
+    """Where a marketplace package is written (#195, part 2).
+
+    Under the workspace rather than beside the bundled packages, for the same reason a marketplace
+    skill goes there: the tree is what this repository reviewed, and a deployment's own installs
+    are the deployment's.
+    """
+    return Path(workspace_path) / "connectors"
+
+
+def discover_connectors(workspace_path: Path | None = None) -> dict[str, ConnectorPlugin]:
+    """Every installed connector, by the name config uses.
+
+    Two roots. The bundled packages are Python manifests reviewed in this repository; a workspace
+    package is `connector.json`, validated on every load rather than trusted from install time,
+    because a directory is a directory and nothing stops it changing between two gateway starts.
+
+    A bundled package wins a name collision. A marketplace package that could shadow
+    `google-calendar` would be a package that redefines what an operator already reviewed.
+    """
     found: dict[str, ConnectorPlugin] = {}
+    if workspace_path is not None:
+        for plugin in _workspace_connectors(workspace_connector_root(workspace_path)):
+            found[plugin.name] = plugin
     for package in connector_package_names():
         plugin = load_connector_package(package)
         if plugin is not None:
+            if plugin.name in found:
+                logger.warning(
+                    "connector '{}' is installed in the workspace and bundled in the tree; "
+                    "the bundled package wins",
+                    plugin.name,
+                )
             found[plugin.name] = plugin
     return found
+
+
+def is_marketplace_connector(name: str, workspace_path: Path | None) -> bool:
+    """Whether *name* is a package installed under the workspace rather than bundled here (#195).
+
+    The origin decides the route: a bundled manifest is reviewed in this repository and the executor
+    performs its call; a marketplace package's call goes through the confined host. Checked by
+    looking for the directory rather than by remembering the install, because a directory is a
+    directory and nothing stops it appearing between two gateway starts.
+    """
+    if workspace_path is None:
+        return False
+    return (workspace_connector_root(workspace_path) / name / "connector.json").is_file()
+
+
+def _workspace_connectors(root: Path) -> list[ConnectorPlugin]:
+    """Load every declarative package under *root*, skipping the ones that refuse to validate."""
+    if not root.is_dir():
+        return []
+    from nanoinfra.connectors.package import ConnectorPackageError
+    from nanoinfra.connectors.package import load_connector_package as _load
+
+    plugins: list[ConnectorPlugin] = []
+    for entry in sorted(root.iterdir()):
+        if not entry.is_dir():
+            continue
+        try:
+            plugins.append(_load(entry, expected_name=entry.name))
+        except ConnectorPackageError as exc:
+            # Skipped rather than fatal, and named: one refused package must not stop the others,
+            # and an operator who installed it is the person who needs to read this.
+            logger.warning("connector package '{}' refused: {}", entry.name, exc)
+    return plugins
 
 
 def enabled_operations(

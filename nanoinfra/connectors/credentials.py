@@ -21,6 +21,7 @@ Two rules do the real work, and both are RFC 6749 rather than anything invented 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from nanoinfra.connectors.contracts import ConnectorPlugin
 
@@ -51,9 +52,58 @@ class ConnectorCredential:
     # The OAuth client secret's own reference. Google issues one for a "web" or "desktop"
     # client and requires it in the refresh exchange.
     client_secret_ref: str = ""
+    #: The hosts a package holding this credential may address (#195, part 0). Empty means the
+    #: manifest decides, which is what a reviewed first-party package gets.
+    allowed_hosts: tuple[str, ...] = ()
 
     def granted(self) -> frozenset[str]:
         return frozenset(self.scopes)
+
+    def permits_host(self, host: str) -> bool:
+        """Exact match, or unconstrained when no hosts are named."""
+        if not self.allowed_hosts:
+            return True
+        return host.lower() in {allowed.lower() for allowed in self.allowed_hosts}
+
+
+def check_connector_hosts(plugin: ConnectorPlugin, credential: ConnectorCredential) -> None:
+    """Refuse a package that would send this credential's token somewhere it may not go.
+
+    Checked at activation rather than per call, because the manifest's `base_url` is fixed at load
+    and an operator reading a refusal wants it before the first request rather than during one.
+
+    Both sets are named in the refusal, the same way the `maxClass` mismatch names both halves: a
+    message that says only "refused" makes the operator guess which side to change, and the answer
+    is almost always the config -- because the package declaring its own reach is the thing this
+    check exists not to trust.
+    """
+    declared_hosts = {urlsplit(plugin.base_url).hostname or ""}
+    for operation in plugin.operations:
+        # An operation path is relative by contract, but a manifest that got one absolute would
+        # otherwise route a token past this check entirely.
+        if "://" in operation.path:
+            declared_hosts.add(urlsplit(operation.path).hostname or "")
+    for host in sorted(declared_hosts):
+        if not host:
+            raise CredentialError(
+                f"connector {plugin.name!r} declares a URL with no host, which cannot be checked "
+                f"against credentials.{credential.name}.allowedHosts."
+            )
+        if not credential.permits_host(host):
+            raise CredentialError(
+                f"connector {plugin.name!r} would address {host!r}, and "
+                f"credentials.{credential.name}.allowedHosts holds "
+                f"{sorted(credential.allowed_hosts)}. A package declares where it sends a token "
+                f"and config decides whether it may: add the host there, or install a package "
+                f"that stays within it."
+            )
+    manifest_hosts = {host.lower() for host in plugin.credential.allowed_hosts}
+    if manifest_hosts and not manifest_hosts >= {host.lower() for host in declared_hosts}:
+        raise CredentialError(
+            f"connector {plugin.name!r} declares allowedHosts {sorted(manifest_hosts)} and then "
+            f"addresses {sorted(declared_hosts)}. A package that contradicts its own declaration "
+            f"is refused rather than reconciled."
+        )
 
 
 def scope_subset(declared: tuple[str, ...], credential: ConnectorCredential) -> tuple[str, ...]:

@@ -152,6 +152,31 @@ class ConnectorCredentialSpec:
         default_factory=dict[str, tuple[str, ...]]
     )
     token_url: str = ""
+    #: The hosts a package holding this credential may address (#195, part 0).
+    #:
+    #: The hole this closes is not the one the marketplace design named. A package declares its
+    #: own `base_url`, and the executor mints a token for the scopes the operation's class asked
+    #: for and sends it there -- so a package declaring Google scopes and
+    #: `base_url: https://evil.example` receives a live Google token. A confined host process
+    #: forwards it just as obediently as the executor would, because the token is in the request
+    #: the manifest asked for rather than in the process's memory: Landlock does not stop an
+    #: outbound HTTPS call, which is the one thing a connector host exists to do.
+    #:
+    #: Empty means unconstrained, which is what a first-party manifest reviewed in this repository
+    #: gets. A marketplace package must name its hosts, and activation refuses a `base_url` outside
+    #: them with both hosts named.
+    allowed_hosts: tuple[str, ...] = ()
+
+    def permits_host(self, host: str) -> bool:
+        """Whether this credential may be used against *host*.
+
+        Exact match, no suffix matching: `api.acme.example` does not authorise
+        `evil-api.acme.example`, and a wildcard would be the kind of convenience that makes the
+        check decorative.
+        """
+        if not self.allowed_hosts:
+            return True
+        return host.lower() in {allowed.lower() for allowed in self.allowed_hosts}
 
     def scopes_for(self, capability_class: str) -> tuple[str, ...]:
         return self.scopes.get(capability_class, ())

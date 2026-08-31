@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import builtins
 import json
+import time
 from types import SimpleNamespace
+from typing import Any
 
 import httpx
 import pytest
@@ -1316,6 +1318,36 @@ def test_update_transcription_settings_validates_language(
         update_transcription_settings({"language": ["en-US"]})
 
 
+def _record_one_call(
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    input_tokens: int,
+    output_tokens: int,
+) -> None:
+    """Put one attempt in the call store the settings payload reads (#176, #177)."""
+    from nanoinfra.llm_usage import get_llm_usage_store, reset_llm_usage_stores
+    from nanoinfra.llm_usage.models import LLMCallRecord
+
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
+    reset_llm_usage_stores()
+    get_llm_usage_store().record(
+        LLMCallRecord(
+            started_at_ms=int(time.time() * 1000),
+            duration_ms=120,
+            provider="fake",
+            model="fake/model",
+            source="user",
+            stream=False,
+            finish_reason="stop",
+            usage=LLMUsage.reported(input_tokens=input_tokens, output_tokens=output_tokens),
+        )
+    )
+    monkeypatch.setattr(
+        "nanoinfra.llm_usage.get_llm_usage_store", lambda path=None: get_llm_usage_store()
+    )
+
+
 def test_settings_payload_includes_token_usage_summary(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1324,11 +1356,7 @@ def test_settings_payload_includes_token_usage_summary(
     config = Config()
     save_config(config, config_path)
     monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
-    monkeypatch.setattr("nanoinfra.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
-
-    from nanoinfra.webui.token_usage import record_token_usage
-
-    record_token_usage(LLMUsage.reported(input_tokens=10, output_tokens=5))
+    _record_one_call(tmp_path, monkeypatch, input_tokens=10, output_tokens=5)
 
     payload = settings_payload()
 
@@ -1349,11 +1377,7 @@ def test_settings_usage_payload_returns_lightweight_token_usage(
     config = Config()
     save_config(config, config_path)
     monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
-    monkeypatch.setattr("nanoinfra.webui.token_usage.get_webui_dir", lambda: tmp_path / "webui")
-
-    from nanoinfra.webui.token_usage import record_token_usage
-
-    record_token_usage(LLMUsage.reported(input_tokens=20, output_tokens=2))
+    _record_one_call(tmp_path, monkeypatch, input_tokens=20, output_tokens=2)
 
     payload = settings_usage_payload()
 

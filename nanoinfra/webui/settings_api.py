@@ -41,6 +41,7 @@ from nanoinfra.config.loader import (
     save_config,
 )
 from nanoinfra.config.schema import Config, FallbackCandidate, ModelPresetConfig, ProviderConfig
+from nanoinfra.llm_usage import llm_usage_payload
 from nanoinfra.providers.image_generation import (
     get_image_gen_provider,
     image_gen_provider_names,
@@ -48,7 +49,6 @@ from nanoinfra.providers.image_generation import (
 from nanoinfra.providers.registry import PROVIDERS, create_dynamic_spec, find_by_name
 from nanoinfra.security.network import is_loopback_host
 from nanoinfra.security.workspace_access import workspace_sandbox_status
-from nanoinfra.webui.token_usage import token_usage_payload
 from nanoinfra.webui.workspaces import (
     read_webui_default_access_mode,
     write_webui_default_access_mode,
@@ -1389,7 +1389,7 @@ def settings_payload(
             },
             "unified_session": defaults.unified_session,
         },
-        "usage": token_usage_payload(timezone_name=defaults.timezone),
+        "usage": llm_usage_payload(timezone_name=defaults.timezone),
         "advanced": {
             "restrict_to_workspace": config.tools.restrict_to_workspace,
             "workspace_sandbox": sandbox_status.as_dict(),
@@ -1421,7 +1421,7 @@ def settings_payload(
 def settings_usage_payload() -> dict[str, Any]:
     """Return the lightweight token usage slice for Overview refreshes."""
     config = load_config()
-    return token_usage_payload(timezone_name=config.agents.defaults.timezone)
+    return llm_usage_payload(timezone_name=config.agents.defaults.timezone)
 
 
 def update_agent_settings(query: QueryParams) -> dict[str, Any]:

@@ -42,6 +42,7 @@ GATEWAY_NAME: Final = "gateway"
 EXECUTOR_NAME: Final = "exec"
 FETCHER_NAME: Final = "fetch"
 MCP_HOST_NAME: Final = "mcp"
+CONNECTOR_HOST_NAME: Final = "connector"
 
 
 def set_process_name(name: str) -> bool:

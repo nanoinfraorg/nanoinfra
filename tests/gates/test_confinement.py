@@ -435,9 +435,12 @@ def test_the_launcher_accepts_no_command_and_no_argv() -> None:
 
 
 def test_the_launcher_names_one_fixed_entry_point_per_role() -> None:
-    """Three roles, three module names, and no other program."""
+    """Four roles, four module names, and no other program."""
     assert confinement.ROLE_MODULES == {
         "executor": "nanoinfra.gates.executor",
         "fetcher": "nanoinfra.gates.fetcher",
         "mcp-host": "nanoinfra.gates.mcp_host",
+        # The fourth (#195). It makes a marketplace connector's request, so the process that holds
+        # the credential store does not.
+        "connector-host": "nanoinfra.gates.connector_host",
     }

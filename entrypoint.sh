@@ -78,6 +78,17 @@ mcp_ipc_group="nanoinfra-mcp-ipc"
 mcp_host_socket_path="$mcp_host_socket_dir/mcp_host.sock"
 mcp_host_module="nanoinfra.gates.mcp_host"
 
+# nanoinfraorg/nanoinfra#195 puts a *marketplace* connector's HTTPS request in a fourth helper. The
+# package format runs no code, so this is not a sandbox for somebody else's Python: it is the
+# process that makes a stranger's request, so that the process holding the credential store does
+# not. Its group holds the executor and not the agent, because a connector call starts in the
+# executor after the gate answered.
+connector_host_user="nanoinfra-connector"
+connector_host_ipc_group="nanoinfra-connector-ipc"
+connector_host_socket_dir="/run/nanoinfra-connector"
+connector_host_socket_path="$connector_host_socket_dir/connector_host.sock"
+connector_host_module="nanoinfra.gates.connector_host"
+
 # Item 17 (nanoinfraorg/nanoinfra#20) puts one confinement layer on each helper process. This
 # script starts every helper with setpriv, so no Python supervisor runs on this path. The launcher
 # below applies the same Landlock rules the supervisors apply, then it execs the helper. It reads a
@@ -92,6 +103,7 @@ confinement_refused_status=78
 executor_role="executor"
 fetcher_role="fetcher"
 mcp_host_role="mcp-host"
+connector_host_role="connector-host"
 
 # The executor resolves credentials out of the workspace, so it needs the same workspace the
 # agent uses. Three sources, in order: NANOINFRA_WORKSPACE, then a --workspace/-w flag on the
@@ -573,6 +585,89 @@ start_mcp_host() {
     echo "[entrypoint] MCP host entry point: $mcp_host_module, confined"
 }
 
+# Pick the account that runs the connector host (#195).
+#
+# Never the executor's account: that one decrypts the credentials, and moving the request out of it
+# is the whole point. Never the agent's either, unless the image has no separate account -- the agent
+# is the process the model steers.
+resolve_connector_host_user() {
+    if [ "$connector_host_user" != "$exec_user" ] && id "$connector_host_user" >/dev/null 2>&1; then
+        printf '%s' "$connector_host_user"
+        return
+    fi
+    printf '%s' "$exec_user"
+}
+
+# Pick the group that owns the connector host's socket directory (#195).
+#
+# The executor is the only client, so this is the executor's shared group and never the agent's.
+resolve_connector_host_group() {
+    if getent group "$connector_host_ipc_group" >/dev/null 2>&1; then
+        printf '%s' "$connector_host_ipc_group"
+        return
+    fi
+    printf '%s' "$exec_user"
+}
+
+# Hand the connector host's socket directory to its account, and keep every other account out.
+prepare_connector_host_paths() {
+    mkdir -p "$connector_host_socket_dir" || return 1
+    chown "$connector_host_run_user:$connector_host_run_group" "$connector_host_socket_dir" || return 1
+    # Mode 2710, the same reasoning as the other socket directories -- except that the group here
+    # is the executor's, so the "group --x" line means the executor traverses to the socket and the
+    # agent does not.
+    chmod 2710 "$connector_host_socket_dir" || return 1
+}
+
+# Start the connector host and keep it up. A dead host means a marketplace connector's calls fail
+# while a first-party one keeps working, which is a confusing outage: hence the restart loop and
+# the plain message.
+start_connector_host() {
+    connector_host_workspace="$1"
+    (
+        umask 0007
+        failures=0
+        while [ "$failures" -lt 5 ]; do
+            started=$(date +%s)
+            setpriv --reuid="$connector_host_run_user" --regid="$connector_host_run_user" \
+                --init-groups \
+                python -m "$confinement_module" --role "$connector_host_role" \
+                --socket "$connector_host_socket_path" --workspace "$connector_host_workspace"
+            status=$?
+            if [ "$status" = "$confinement_refused_status" ]; then
+                echo "[entrypoint] error: the connector host refuses to start unconfined" >&2
+                echo "[entrypoint] error: marketplace connectors stay unreachable" >&2
+                break
+            fi
+            if [ "$(($(date +%s) - started))" -ge 60 ]; then
+                failures=0
+            else
+                failures=$((failures + 1))
+            fi
+            echo "[entrypoint] warning: connector host exited with status $status, restart in 5s" >&2
+            sleep 5
+        done
+        echo "[entrypoint] error: the connector host failed 5 starts in a row, no more restarts" >&2
+    ) &
+    echo "[entrypoint] connector host starting as $connector_host_run_user on $connector_host_socket_path"
+    echo "[entrypoint] connector host entry point: $connector_host_module, confined"
+}
+
+wait_for_connector_host_socket() {
+    attempt=0
+    while [ "$attempt" -lt 5 ]; do
+        if [ -S "$connector_host_socket_path" ]; then
+            echo "[entrypoint] connector host socket ready at $connector_host_socket_path"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        sleep 1
+    done
+    echo "[entrypoint] warning: no connector host socket at $connector_host_socket_path after 5s" >&2
+    echo "[entrypoint] warning: marketplace connectors will fail until the host answers" >&2
+    return 1
+}
+
 # Report whether the host socket came up. This never blocks the agent, and it never goes quiet.
 wait_for_mcp_host_socket() {
     attempt=0
@@ -788,6 +883,36 @@ if [ "$(id -u)" = "0" ]; then
             fi
             export NANOINFRA_MCP_HOST_SOCKET="$mcp_host_socket_path"
             export NANOINFRA_MCP_HOST_EXTERNAL=1
+        fi
+
+        # The connector host (#195). Started even when no marketplace connector is installed: a
+        # host that is only started on demand is a host whose first call pays for the start, and
+        # the process costs one idle python.
+        connector_host_run_user=$(resolve_connector_host_user)
+        connector_host_run_group=$(resolve_connector_host_group)
+        if [ "$connector_host_run_user" = "$exec_user" ]; then
+            echo "[entrypoint] warning: no separate $connector_host_user account, so the" >&2
+            echo "[entrypoint] warning: connector host shares the executor's uid. A marketplace" >&2
+            echo "[entrypoint] warning: package's request is then made by the process that holds" >&2
+            echo "[entrypoint] warning: the credential store, which is what #195 moves away." >&2
+        else
+            echo "[entrypoint] connector host account: $connector_host_run_user (separate uid)"
+        fi
+        if ! prepare_connector_host_paths; then
+            echo "[entrypoint] warning: the connector host paths could not be prepared" >&2
+            echo "[entrypoint] warning: marketplace connectors will refuse rather than run" >&2
+        else
+            export NANOINFRA_CONNECTOR_HOST_SOCKET_GROUP="$connector_host_run_group"
+            rm -f "$connector_host_socket_path" 2>/dev/null || true
+            start_connector_host "$mcp_host_workspace"
+            if wait_for_connector_host_socket; then
+                chown "$connector_host_run_user:$connector_host_run_group" \
+                    "$connector_host_socket_dir" "$connector_host_socket_path" 2>/dev/null || \
+                    echo "[entrypoint] warning: chown $connector_host_socket_dir failed"
+                chmod 2710 "$connector_host_socket_dir" 2>/dev/null || true
+                chmod 660 "$connector_host_socket_path" 2>/dev/null || true
+            fi
+            export NANOINFRA_CONNECTOR_HOST_SOCKET="$connector_host_socket_path"
         fi
     fi
 

@@ -192,12 +192,11 @@ def _finish_dream_run(
     skipped the rest, and in ``/dream`` it also left the "Dreaming..." message unresolved (#121).
     """
     from nanoinfra.agent.memory import MemoryStore
-    from nanoinfra.webui.token_usage import record_response_token_usage
 
-    try:
-        record_response_token_usage(response, source="dream", timezone_name=timezone_name)
-    except Exception:
-        logger.exception("Dream: recording token usage failed")
+    # This call used to be recorded here, by hand, with its source spelled out -- and it was the
+    # only one of the three provider calls outside the agent loop that was recorded at all (#176).
+    # The observer on the provider records it now, and `llm_usage_source` names the source from
+    # the session key, so a Dream run is counted the same way as everything else.
 
     commit_sha: str | None = None
     try:

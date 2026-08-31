@@ -66,6 +66,13 @@ RUN for channel in $(printf '%s' "$NANOINFRA_CHANNELS" | tr ',' ' '); do \
 #   nanoinfra-mcp   the stdio MCP host (item 20, nanoinfraorg/nanoinfra#22). It starts
 #                   the MCP servers the config names, so it holds the exec right the
 #                   fetcher refuses. It holds no credential and reaches no inventory host.
+#   nanoinfra-connector the connector host (item, nanoinfraorg/nanoinfra#195). It makes the HTTPS
+#                   request a *marketplace* connector package declares. Not because the package
+#                   format runs code -- it does not -- but because the executor holds the credential
+#                   store, and a stranger's request has no reason to be made from that process.
+#                   Its group holds nanoinfra-exec and not nanoinfra: a connector call starts in the
+#                   executor after the gate answered, so nothing the model steers reaches this one.
+#
 #   nanoinfra-mcp-ipc  the MCP host's group, for the same reason the fetcher has its own.
 #   nanoinfra-op    the operator socket group (item 36, nanoinfraorg/nanoinfra#38). The
 #                   executor suspends an action that needs an approval, and an operator
@@ -92,6 +99,7 @@ RUN useradd -m -u 1000 -s /bin/bash nanoinfra && \
     groupadd --system nanoinfra-ipc && \
     groupadd --system nanoinfra-fetch-ipc && \
     groupadd --system nanoinfra-mcp-ipc && \
+    groupadd --system nanoinfra-connector-ipc && \
     groupadd --system nanoinfra-op && \
     useradd --system --uid 1001 --user-group --no-create-home \
         --home-dir /home/nanoinfra --shell /usr/sbin/nologin nanoinfra-exec && \
@@ -101,10 +109,14 @@ RUN useradd -m -u 1000 -s /bin/bash nanoinfra && \
     usermod --append --groups nanoinfra-ipc nanoinfra-exec && \
     useradd --system --uid 1003 --user-group --no-create-home \
         --home-dir /home/nanoinfra --shell /usr/sbin/nologin nanoinfra-mcp && \
+    useradd --system --uid 1004 --user-group --no-create-home \
+        --home-dir /nonexistent --shell /usr/sbin/nologin nanoinfra-connector && \
     usermod --append --groups nanoinfra-fetch-ipc nanoinfra && \
     usermod --append --groups nanoinfra-fetch-ipc nanoinfra-fetch && \
     usermod --append --groups nanoinfra-mcp-ipc nanoinfra && \
     usermod --append --groups nanoinfra-mcp-ipc nanoinfra-mcp && \
+    usermod --append --groups nanoinfra-connector-ipc nanoinfra-exec && \
+    usermod --append --groups nanoinfra-connector-ipc nanoinfra-connector && \
     usermod --append --groups nanoinfra-op nanoinfra && \
     mkdir -p /home/nanoinfra/.nanoinfra && \
     chown -R nanoinfra:nanoinfra /home/nanoinfra /app/.venv

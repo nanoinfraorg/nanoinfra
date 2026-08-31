@@ -213,7 +213,8 @@ def test_a_refused_confinement_stops_the_container_retries() -> None:
     text = _entrypoint()
 
     assert 'confinement_refused_status=78' in text
-    assert text.count('"$status" = "$confinement_refused_status"') == 3
+    # One per confined helper: the executor, the fetcher, the MCP host, and the connector host.
+    assert text.count('"$status" = "$confinement_refused_status"') == 4
     assert "refuses to start unconfined" in text
 
 

@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -292,6 +293,45 @@ class ProviderCallContext:
 
     conversation_state: ProviderConversationState | None = field(default=None, repr=False)
     context_window_tokens: int | None = None
+
+
+@dataclass
+class _StreamTiming:
+    """When a stream produced its first and last content delta (#176).
+
+    Measured here because this is where the deltas are consumed and where the store row is
+    emitted -- and because no provider reports time to first token, which is the number that says
+    whether a slow turn was slow to *start* or slow to write.
+
+    Content deltas only. Reasoning deltas are output too, but a tokens-per-second figure that
+    mixed them would divide visible output by a duration that produced something else.
+    """
+
+    first_output_at: float | None = None
+    last_output_at: float | None = None
+
+    def mark(self) -> None:
+        now = time.perf_counter()
+        if self.first_output_at is None:
+            self.first_output_at = now
+        self.last_output_at = now
+
+    def reset(self) -> None:
+        self.first_output_at = None
+        self.last_output_at = None
+
+    def measured(self, request_started_at: float) -> tuple[int | None, int | None]:
+        """`(ttft_ms, generation_ms)`, or `(None, None)` when nothing streamed.
+
+        `generation_ms` spans the deltas rather than the request, so it excludes the wait before
+        the first token -- the two numbers answer different questions and adding them together
+        would answer neither.
+        """
+        if self.first_output_at is None or self.last_output_at is None:
+            return None, None
+        ttft_ms = max(0, round((self.first_output_at - request_started_at) * 1000))
+        generation_ms = max(1, round((self.last_output_at - self.first_output_at) * 1000))
+        return ttft_ms, generation_ms
 
 
 @dataclass(frozen=True, slots=True)
@@ -595,6 +635,11 @@ class LLMResponse:
     #: reported none -- which is not the same as a call that cost nothing.
     usage: LLMUsage | None = None
     retry_after: float | None = None  # Provider supplied retry wait in seconds.
+    # Locally measured streaming telemetry, set by whoever consumed the stream. `generation_ms`
+    # excludes time to first token; `ttft_ms` is the wait before the first one. Measured rather
+    # than read from usage because no provider reports either consistently.
+    generation_ms: int | None = None
+    ttft_ms: int | None = None
     reasoning_content: str | None = None  # Kimi, DeepSeek-R1, MiMo etc.
     thinking_blocks: list[dict[str, Any]] | None = None  # Anthropic extended thinking
     provider_state: ProviderConversationState | None = field(default=None, repr=False)
@@ -639,6 +684,13 @@ class LLMProvider(ABC):
     """Base class for LLM providers."""
 
     supports_progress_deltas = False
+
+    # A class-level default, because a subclass may not call this constructor -- `FallbackProvider`
+    # deliberately does not, since `super().__init__()` would overwrite the generation settings it
+    # delegates to its primary. Without the default, reading this attribute on such a provider
+    # raised inside a `try` that reported it as a *factory* failure, and every fallback silently
+    # became "no fallbacks available".
+    _llm_call_observer: Callable[[Any], None] | None = None
 
     _CHAT_RETRY_DELAYS = (1, 2, 4)
     _PERSISTENT_MAX_DELAY = 60
@@ -714,6 +766,23 @@ class LLMProvider(ABC):
         self.api_key = api_key
         self.api_base = api_base
         self.generation: GenerationSettings = GenerationSettings()
+        # Set by the gateway, once, for every provider it builds (#176). `None` means nothing is
+        # recording, which is the case in a test, in the SDK, and in any embedding of this class.
+        self._llm_call_observer = None
+
+    @property
+    def provider_name(self) -> str:
+        """A stable, coarse name for this provider, for telemetry and calibration keys.
+
+        The class name rather than the configured model or endpoint: a store row names *what kind*
+        of provider made a call, and an api_base would be a deployment detail in a telemetry row.
+        """
+        name = type(self).__name__.lstrip("_")
+        return name[:-8].lower() if name.endswith("Provider") else name.lower()
+
+    def set_llm_call_observer(self, observer: Callable[[Any], None] | None) -> None:
+        """Attach the callback that records one row per provider attempt."""
+        self._llm_call_observer = observer
 
     def can_resume_conversation_state(
         self,
@@ -1214,10 +1283,13 @@ class LLMProvider(ABC):
 
         has_streamed_content = False
 
+        timing = _StreamTiming()
+
         async def _tracking_delta(text: str) -> None:
             nonlocal has_streamed_content
             if text:
                 has_streamed_content = True
+                timing.mark()
             if on_content_delta:
                 await on_content_delta(text)
 
@@ -1247,6 +1319,8 @@ class LLMProvider(ABC):
             on_retry_wait=on_retry_wait,
             should_retry_guard=lambda: not has_streamed_content,
             on_stream_recover=_recover_stream if on_stream_recover else None,
+            stream=True,
+            timing=timing,
         )
 
     async def chat_with_retry(
@@ -1388,6 +1462,124 @@ class LLMProvider(ABC):
             await asyncio.sleep(chunk)
             remaining -= chunk
 
+    def _usage_for_call(
+        self,
+        response: LLMResponse,
+        kwargs: dict[str, Any],
+    ) -> LLMUsage | None:
+        """What this attempt cost, estimating when the provider reported nothing (#176).
+
+        The estimate lives here rather than in `AgentRunner` because three call sites reach a
+        provider without going through the runner at all -- the WebUI title generation, the
+        evaluator, and the Dream consolidation -- and their tokens were charged by the provider,
+        paid by the operator, and counted by nobody. A record emitted here with the estimate added
+        later in the runner would be precise about the calls it could see and silent about exactly
+        the ones it had to guess.
+
+        An error or a cancellation is left unmeasured. It is not a call that cost nothing, and an
+        estimate of a request that failed would be an invented number in a cost figure.
+        """
+        usage = response.usage
+        if usage is not None and usage.total_tokens > 0:
+            return usage.with_timing(
+                generation_ms=response.generation_ms,
+                ttft_ms=response.ttft_ms,
+            )
+        if response.finish_reason in {"error", "cancelled"}:
+            return None
+        messages = kwargs.get("messages")
+        if not isinstance(messages, list):
+            return usage
+        tools_value = kwargs.get("tools")
+        tools = (
+            cast(list[dict[str, Any]], tools_value) if isinstance(tools_value, list) else None
+        )
+        model_value = kwargs.get("model")
+        model = model_value if isinstance(model_value, str) and model_value else None
+        try:
+            from nanoinfra.utils.helpers import (
+                build_assistant_message,
+                estimate_message_tokens,
+                estimate_prompt_tokens_chain,
+            )
+
+            input_tokens, _source = estimate_prompt_tokens_chain(
+                self,
+                model or self.get_default_model(),
+                cast(list[dict[str, Any]], messages),
+                tools,
+            )
+            assistant_message = build_assistant_message(
+                response.content or "",
+                tool_calls=[call.to_openai_tool_call() for call in response.tool_calls],
+                reasoning_content=response.reasoning_content,
+                thinking_blocks=response.thinking_blocks,
+            )
+            output_tokens = estimate_message_tokens(assistant_message)
+        except Exception:
+            logger.exception("failed to estimate usage for {}", self.provider_name)
+            return usage
+        if max(0, input_tokens) + max(0, output_tokens) <= 0:
+            # A completed call with nothing measurable is still a call, and a store that counted
+            # it as no call would report a request rate below the one the provider saw.
+            return LLMUsage.empty_request().with_timing(
+                generation_ms=response.generation_ms,
+                ttft_ms=response.ttft_ms,
+            )
+        return LLMUsage.estimated(
+            input_tokens=max(0, input_tokens),
+            output_tokens=max(0, output_tokens),
+        ).with_timing(
+            generation_ms=response.generation_ms,
+            ttft_ms=response.ttft_ms,
+        )
+
+    def _observe_llm_call(
+        self,
+        response: LLMResponse,
+        kwargs: dict[str, Any],
+        *,
+        started_at_ms: int,
+        started_at_ns: int,
+        stream: bool,
+    ) -> LLMResponse:
+        """Fill in the usage and record one attempt. Never raises into the caller.
+
+        One row per *attempt*, so a retried call is two rows and the retry's cost is answerable --
+        which is the whole reason the store keeps rows rather than day totals.
+        """
+        usage = self._usage_for_call(response, kwargs)
+        if usage is not None:
+            response.usage = usage
+        observer = self._llm_call_observer
+        if observer is None:
+            return response
+        model_value = kwargs.get("model")
+        model = (
+            model_value
+            if isinstance(model_value, str) and model_value
+            else self.get_default_model()
+        )
+        try:
+            from nanoinfra.llm_usage.context import current_llm_usage_source
+            from nanoinfra.llm_usage.models import LLMCallRecord
+
+            observer(LLMCallRecord(
+                started_at_ms=started_at_ms,
+                duration_ms=max(0, (time.monotonic_ns() - started_at_ns) // 1_000_000),
+                provider=self.provider_name,
+                model=model,
+                source=current_llm_usage_source(),
+                stream=stream,
+                finish_reason=response.finish_reason,
+                usage=usage,
+                error_status_code=response.error_status_code,
+                error_kind=response.error_kind,
+            ))
+        except Exception:
+            logger.exception("LLM call observer failed for {}", self.provider_name)
+        return response
+
     async def _run_with_retry(
         self,
         call: Callable[..., Awaitable[LLMResponse]],
@@ -1398,6 +1590,8 @@ class LLMProvider(ABC):
         on_retry_wait: Callable[[str], Awaitable[None]] | None,
         should_retry_guard: Callable[[], bool] | None = None,
         on_stream_recover: Callable[[], Awaitable[None]] | None = None,
+        stream: bool = False,
+        timing: _StreamTiming | None = None,
     ) -> LLMResponse:
         attempt = 0
         delays = list(self._CHAT_RETRY_DELAYS)
@@ -1407,7 +1601,36 @@ class LLMProvider(ABC):
         identical_error_count = 0
         while True:
             attempt += 1
-            response = await call(**kw)
+            started_at_ms = int(time.time() * 1000)
+            started_at_ns = time.monotonic_ns()
+            request_started_at = time.perf_counter()
+            # Per attempt, not per call: a retried stream's time to first token is the retry's,
+            # and averaging it with the attempt that stalled would describe neither.
+            if timing is not None:
+                timing.reset()
+            try:
+                response = await call(**kw)
+            except asyncio.CancelledError:
+                # A cancelled attempt still cost whatever the provider had already generated, and
+                # "how often does a turn get cancelled mid-call" is a question the store should be
+                # able to answer. Recorded, then re-raised unchanged.
+                self._observe_llm_call(
+                    LLMResponse(content=None, finish_reason="cancelled", error_kind="cancelled"),
+                    kw,
+                    started_at_ms=started_at_ms,
+                    started_at_ns=started_at_ns,
+                    stream=stream,
+                )
+                raise
+            if timing is not None:
+                response.ttft_ms, response.generation_ms = timing.measured(request_started_at)
+            response = self._observe_llm_call(
+                response,
+                kw,
+                started_at_ms=started_at_ms,
+                started_at_ns=started_at_ns,
+                stream=stream,
+            )
             if response.finish_reason != "error":
                 return response
             last_response = response

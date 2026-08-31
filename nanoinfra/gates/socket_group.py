@@ -48,6 +48,10 @@ OPERATOR_SOCKET_GROUP_ENV = "NANOINFRA_OPERATOR_SOCKET_GROUP"
 #: every inventory host, which is the one thing the split exists to prevent. So the fetcher and
 #: the MCP host each get a group the agent belongs to and the other helpers do not.
 FETCHER_SOCKET_GROUP_ENV = "NANOINFRA_FETCHER_SOCKET_GROUP"
+#: The connector host's group (#195). Unlike the fetcher's and the MCP host's, the agent is
+#: **not** a member: a connector call originates in the executor after the gate answered, so
+#: nothing in the process the model steers has a reason to reach this socket.
+CONNECTOR_HOST_SOCKET_GROUP_ENV = "NANOINFRA_CONNECTOR_HOST_SOCKET_GROUP"
 MCP_HOST_SOCKET_GROUP_ENV = "NANOINFRA_MCP_HOST_SOCKET_GROUP"
 
 #: Owner read/write plus group read/write. A connect() needs the write bit, and nothing outside

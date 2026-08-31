@@ -63,6 +63,12 @@ class ConnectorCredentialConfig(Base):
     # provider whose endpoint differs from the package's default.
     token_url: str = ""
     scopes: list[str] = Field(default_factory=list)
+    # The hosts a package holding this credential may address (#195, part 0). Empty means the
+    # package's own manifest decides, which is what a first-party connector reviewed in this
+    # repository gets. A marketplace package must be pinned here, because otherwise a manifest
+    # declaring `baseUrl: https://evil.example` and Google scopes receives a live Google token --
+    # and a confined host process would forward it just as obediently as the executor.
+    allowed_hosts: list[str] = Field(default_factory=list)
 
 
 class ConnectorConfig(Base):

@@ -146,6 +146,17 @@ class FallbackProvider(LLMProvider):
         """Attach a process-level observer without changing request call signatures."""
         self._fallback_model_observer = observer
 
+    def set_llm_call_observer(self, observer: Callable[[Any], None] | None) -> None:
+        """Attach the usage observer to this wrapper *and* to the leaves that do the calling.
+
+        This class makes no provider calls of its own -- it delegates to a primary and, on
+        failure, to a provider the factory builds. Setting it only here would record nothing at
+        all, and setting it only on the primary would lose exactly the calls a fallback made,
+        which are the ones worth knowing about (#176).
+        """
+        super().set_llm_call_observer(observer)
+        self._primary.set_llm_call_observer(observer)
+
     @property
     def supports_progress_deltas(self) -> bool:
         return bool(getattr(self._primary, "supports_progress_deltas", False))
@@ -367,6 +378,10 @@ class FallbackProvider(LLMProvider):
                     "Failed to create provider for fallback '{}': {}", fallback_model, exc
                 )
                 continue
+            # Built after the observer was attached, so it has to be told. Outside the `try`
+            # above on purpose: a problem here is not a factory failure and must not be reported
+            # as one.
+            fallback_provider.set_llm_call_observer(self._llm_call_observer)
 
             await self._notify_fallback_model(fallback_model)
 

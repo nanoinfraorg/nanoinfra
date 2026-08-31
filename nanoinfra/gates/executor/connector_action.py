@@ -43,8 +43,13 @@ from nanoinfra.connectors.engine import (
     call,
     prepare,
 )
+from nanoinfra.connectors.registry import is_marketplace_connector
 from nanoinfra.connectors.setup import ActiveConnector, resolve_active
 from nanoinfra.gates.approvals import approval_feasible
+from nanoinfra.gates.connector_host.client import (
+    ConnectorHostClient,
+    ConnectorHostUnavailableError,
+)
 from nanoinfra.gates.executor.connector_credentials import (
     RefreshTokenSource,
     token_source_for,
@@ -142,6 +147,9 @@ class ConnectorActionRunner:
     audit: Any = None
     pending: PendingApprovalStore | None = None
     tokens: ApprovalTokenStore | None = None
+    #: Where the confined host listens (#195). `None` resolves the deployment's default, the same
+    #: way the command tool resolves the executor's own socket.
+    connector_host_socket: Path | None = None
     # One token source per connector, so a warm access token serves the next call of the same
     # class rather than paying for an exchange per action.
     _sources: dict[str, RefreshTokenSource] = dataclass_field(
@@ -469,7 +477,19 @@ class ConnectorActionRunner:
         arguments: dict[str, Any],
         tool: str,
     ) -> ExecuteResponse:
-        """Mint the token, make the call, and hand back the projection."""
+        """Mint the token, make the call, and hand back the projection.
+
+        The token is minted **here**, after the gate answered and after any approval resolved, so a
+        refusal never produces one at all.
+
+        Where the call runs depends on the package's origin (#195). A connector bundled in this
+        repository is a manifest a reviewer read, and the executor makes its request. A package
+        installed from the marketplace is a declaration somebody else wrote, and its request is made
+        by the confined host -- not because the format runs code, but because this process holds the
+        credential store and a stranger's request has no reason to be made from here.
+        """
+        if is_marketplace_connector(entry.name, self.workspace):
+            return await self._run_in_host(request, entry, op, arguments, tool)
         try:
             payload = await call(
                 entry.plugin,
@@ -497,6 +517,65 @@ class ConnectorActionRunner:
             exit_code=0,
             error=None,
             reason=f"{tool} ran as {op.capability_class}.",
+        )
+
+    async def _run_in_host(
+        self,
+        request: ConnectorRequest,
+        entry: ActiveConnector,
+        op: ConnectorOperation,
+        arguments: dict[str, Any],
+        tool: str,
+    ) -> ExecuteResponse:
+        """Make a marketplace package's call in the confined host.
+
+        What crosses: the package directory name, the operation name, the rendered request, one
+        short-lived access token, and a deadline. What does not: the refresh token, the credential
+        id, the secrets directory, the config, the session key, and the gate's decision.
+        """
+        try:
+            prepared = prepare(entry.plugin, op, arguments, defaults=entry.defaults)
+        except ConnectorCallError as exc:
+            return _refusal(str(exc))
+        try:
+            token = await self._token_source(entry).access_token(entry.name, op.capability_class)
+        except CredentialError as exc:
+            return _refusal(f"{entry.name}: {exc}", terminal=False)
+
+        client = ConnectorHostClient(self.connector_host_socket)
+        try:
+            answer = await client.call(
+                package=entry.name,
+                operation=op.name,
+                method=prepared.method,
+                url=prepared.url,
+                query={key: str(value) for key, value in prepared.params.items()},
+                body=prepared.body,
+                access_token=token,
+            )
+        except ConnectorHostUnavailableError as exc:
+            # A deployment fault rather than a refused action, and said as one: an operator who
+            # reads "the package failed" goes looking in the wrong place.
+            return _refusal(
+                f"the connector host is not reachable, so {entry.name} cannot run a call it is "
+                f"otherwise allowed to make: {exc}",
+                terminal=False,
+            )
+        if not answer.ok:
+            return ExecuteResponse(
+                ok=False,
+                output="",
+                exit_code=None,
+                error=answer.error,
+                reason=answer.error or "the connector host refused the call",
+                terminal=not answer.retryable,
+            )
+        return ExecuteResponse(
+            ok=True,
+            output=json.dumps(answer.payload, ensure_ascii=False, indent=2),
+            exit_code=0,
+            error=None,
+            reason=f"{tool} ran as {op.capability_class} in the connector host.",
         )
 
     def _record(

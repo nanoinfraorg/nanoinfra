@@ -1342,22 +1342,52 @@ class AgentRunner:
     ) -> LLMUsage | None:
         """What this call cost, and which half of the partition the number belongs to (#174).
 
-        The provider's own figure when there is one, our tokenizer's when there is not, and
-        `None` for an error response -- an error is not a call that cost nothing, and estimating
-        one would put invented tokens in a cost figure.
+        The value arrives already decided: `LLMProvider._usage_for_call` reports the provider's own
+        figure, estimates when the provider reported none, and leaves an error unmeasured (#176).
+        That moved out of here because three call sites reach a provider without passing through
+        this class at all, and their tokens were counted by nobody.
 
-        The partition used to be `usage.setdefault("provider_tokens", total)`: a convention that
-        held only while every site remembered it. `LLMUsage.reported` and `LLMUsage.estimated`
-        make it the constructor's business, and the type refuses a value where the two halves do
-        not sum to the total.
+        What is still this class's business is the calibration, which needs the tools and the model
+        as *this run* resolved them.
         """
-        reported = response.usage
-        if reported is not None and reported.total_tokens > 0:
-            self._calibrate_prompt_estimate(spec, messages, reported)
-            return reported
-        if response.finish_reason == "error":
+        usage = response.usage
+        if usage is not None and usage.reported_tokens > 0:
+            self._calibrate_prompt_estimate(spec, messages, usage)
+        if usage is None and response.finish_reason != "error":
+            # A response that reached here with no usage did not pass through
+            # `LLMProvider._run_with_retry` -- a provider wrapper, an embedding, a fake. The
+            # boundary is where the estimate belongs, and this is the floor under it: a turn
+            # whose cost is unknown reads as free, and free is the one wrong answer.
+            return self._estimate_response_usage(spec, messages, response)
+        return usage
+
+    def _estimate_response_usage(
+        self,
+        spec: AgentRunSpec,
+        messages: list[dict[str, Any]],
+        response: LLMResponse,
+    ) -> LLMUsage | None:
+        """Our own tokenizer's figure for a call the provider did not measure."""
+        try:
+            tools = spec.tools.get_definitions()
+        except Exception:
+            tools = None
+        prompt_tokens, _ = estimate_prompt_tokens_chain(
+            spec.runtime.provider, spec.runtime.model, messages, tools
+        )
+        assistant_message = build_assistant_message(
+            response.content or "",
+            tool_calls=[tc.to_openai_tool_call() for tc in response.tool_calls],
+            reasoning_content=response.reasoning_content,
+            thinking_blocks=response.thinking_blocks,
+        )
+        completion_tokens = estimate_message_tokens(assistant_message)
+        if max(0, prompt_tokens) + max(0, completion_tokens) <= 0:
             return None
-        return self._estimate_response_usage(spec, messages, response)
+        return LLMUsage.estimated(
+            input_tokens=max(0, prompt_tokens),
+            output_tokens=max(0, completion_tokens),
+        )
 
     def _calibrate_prompt_estimate(
         self,
@@ -1388,36 +1418,6 @@ class AgentRunner:
         )
         record_observation(
             calibration_key(spec.runtime.provider, spec.runtime.model), estimated, observed
-        )
-
-    def _estimate_response_usage(
-        self,
-        spec: AgentRunSpec,
-        messages: list[dict[str, Any]],
-        response: LLMResponse,
-    ) -> LLMUsage | None:
-        try:
-            tools = spec.tools.get_definitions()
-        except Exception:
-            tools = None
-        prompt_tokens, _ = estimate_prompt_tokens_chain(
-            spec.runtime.provider,
-            spec.runtime.model,
-            messages,
-            tools,
-        )
-        assistant_message = build_assistant_message(
-            response.content or "",
-            tool_calls=[tc.to_openai_tool_call() for tc in response.tool_calls],
-            reasoning_content=response.reasoning_content,
-            thinking_blocks=response.thinking_blocks,
-        )
-        completion_tokens = estimate_message_tokens(assistant_message)
-        if max(0, prompt_tokens) + max(0, completion_tokens) <= 0:
-            return None
-        return LLMUsage.estimated(
-            input_tokens=max(0, prompt_tokens),
-            output_tokens=max(0, completion_tokens),
         )
 
     @staticmethod
