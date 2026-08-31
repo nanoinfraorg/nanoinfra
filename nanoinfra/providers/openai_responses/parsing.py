@@ -10,7 +10,7 @@ from typing import Any, AsyncGenerator, cast
 import httpx
 from loguru import logger
 
-from nanoinfra.providers.base import LLMResponse, ToolCallRequest, parse_tool_arguments
+from nanoinfra.providers.base import LLMResponse, LLMUsage, ToolCallRequest, parse_tool_arguments
 from nanoinfra.providers.openai_responses.state import build_responses_state
 
 FINISH_REASON_MAP = {
@@ -186,7 +186,17 @@ def _response_finish_reason(
     return map_finish_reason(terminal_status)
 
 
-def _usage_from_response_obj(response: object) -> dict[str, int]:
+def _usage_from_response_obj(response: object) -> LLMUsage | None:
+    """Normalise a Responses-API payload's usage into `LLMUsage` (#173).
+
+    This was the parser that made the argument for the contract: the Responses API already
+    reports `input_tokens` and `output_tokens` -- the canonical names -- and this function used
+    to flatten them into `prompt_tokens`/`completion_tokens` so the rest of the tree could read
+    them. The normalisation was not missing, it was running backwards.
+
+    `cached_tokens` lives under `input_tokens_details` here, which is a third spelling and the
+    reason this mapping belongs at the boundary rather than at each consumer.
+    """
     response_object = _response_object(response)
     usage_raw: object = (
         response_object.get("usage")
@@ -194,20 +204,23 @@ def _usage_from_response_obj(response: object) -> dict[str, int]:
         else getattr(response, "usage", None)
     )
     if not usage_raw:
-        return {}
+        return None
     usage = _response_object(usage_raw)
     if usage is None:
-        return {}
-    prompt_tokens = int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
-    completion_tokens = int(
-        usage.get("output_tokens") or usage.get("completion_tokens") or 0
+        return None
+    input_tokens = int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+    output_tokens = int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+    total_tokens = int(usage.get("total_tokens") or 0)
+    cached: int | None = None
+    details = _response_object(usage.get("input_tokens_details"))
+    if details is not None and details.get("cached_tokens") is not None:
+        cached = int(details.get("cached_tokens") or 0)
+    return LLMUsage.reported(
+        input_tokens=max(input_tokens, cached or 0),
+        output_tokens=output_tokens,
+        total_tokens=total_tokens or None,
+        cache_read_tokens=cached,
     )
-    total_tokens = int(usage.get("total_tokens") or prompt_tokens + completion_tokens)
-    return {
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "total_tokens": total_tokens,
-    }
 
 
 def _parse_tool_call_arguments(args_raw: Any, name: str | None) -> Any:
@@ -327,14 +340,14 @@ async def consume_sse_with_reasoning(
     on_reasoning_delta: Callable[[str], Awaitable[None]] | None = None,
     on_response_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     capture: ResponsesStreamCapture | None = None,
-) -> tuple[str, list[ToolCallRequest], str, dict[str, int], str | None]:
+) -> tuple[str, list[ToolCallRequest], str, LLMUsage | None, str | None]:
     """Consume a Responses API SSE stream, including visible reasoning summaries."""
     content = ""
     tool_calls: list[ToolCallRequest] = []
     tool_call_buffers: dict[str, dict[str, Any]] = {}
     tool_call_args_emitted: set[str] = set()
     finish_reason = "stop"
-    usage: dict[str, int] = {}
+    usage: LLMUsage | None = None
     reasoning_content: str | None = None
     streamed_reasoning = False
     refusal_seen = False
@@ -616,14 +629,14 @@ async def consume_sdk_stream(
     on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     on_reasoning_delta: Callable[[str], Awaitable[None]] | None = None,
     capture: ResponsesStreamCapture | None = None,
-) -> tuple[str, list[ToolCallRequest], str, dict[str, int], str | None]:
+) -> tuple[str, list[ToolCallRequest], str, LLMUsage | None, str | None]:
     """Consume an SDK async stream from ``client.responses.create(stream=True)``."""
     content = ""
     tool_calls: list[ToolCallRequest] = []
     tool_call_buffers: dict[str, dict[str, Any]] = {}
     tool_call_args_emitted: set[str] = set()
     finish_reason = "stop"
-    usage: dict[str, int] = {}
+    usage: LLMUsage | None = None
     reasoning_content: str | None = None
     streamed_reasoning = False
     refusal_seen = False
@@ -784,11 +797,7 @@ async def consume_sdk_stream(
             if resp:
                 usage_obj = getattr(resp, "usage", None)
                 if usage_obj:
-                    usage = {
-                        "prompt_tokens": int(getattr(usage_obj, "input_tokens", 0) or 0),
-                        "completion_tokens": int(getattr(usage_obj, "output_tokens", 0) or 0),
-                        "total_tokens": int(getattr(usage_obj, "total_tokens", 0) or 0),
-                    }
+                    usage = _usage_from_response_obj(resp) or usage
                 if not reasoning_content:
                     reasoning_content = _extract_reasoning_summary_from_output(
                         getattr(resp, "output", None)

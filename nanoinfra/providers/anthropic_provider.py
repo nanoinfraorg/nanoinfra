@@ -17,12 +17,30 @@ from loguru import logger
 from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
+    LLMUsage,
     ToolCallRequest,
     resolve_stream_idle_timeout_s,
     tool_arguments_object_for_replay,
 )
 
 _ALNUM = string.ascii_letters + string.digits
+
+
+def _optional_token_count(usage: object, attribute: str) -> int | None:
+    """A cache count the wire actually carried, or `None` when it carried nothing.
+
+    The distinction is the whole point of the optional fields on `LLMUsage`: an absent attribute
+    means this API version does not report the metric, and a present zero means it reported no
+    cache activity. Collapsing both to zero is what the old dict did, and it made a cache-hit
+    rate over a denominator that included calls with no measurement.
+    """
+    value = getattr(usage, attribute, None)
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _gen_tool_id() -> str:
@@ -689,24 +707,23 @@ class AnthropicProvider(LLMProvider):
         stop_map = {"tool_use": "tool_calls", "end_turn": "stop", "max_tokens": "length"}
         finish_reason = stop_map.get(response.stop_reason or "", response.stop_reason or "stop")
 
-        usage: dict[str, int] = {}
+        usage: LLMUsage | None = None
         if response.usage:
-            input_tokens = response.usage.input_tokens
-            cache_creation = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
-            cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
-            total_prompt_tokens = input_tokens + cache_creation + cache_read
-            usage = {
-                "prompt_tokens": total_prompt_tokens,
-                "completion_tokens": response.usage.output_tokens,
-                "total_tokens": total_prompt_tokens + response.usage.output_tokens,
-            }
-            for attr in ("cache_creation_input_tokens", "cache_read_input_tokens"):
-                val = getattr(response.usage, attr, 0)
-                if val:
-                    usage[attr] = val
-            # Normalize to cached_tokens for downstream consistency.
-            if cache_read:
-                usage["cached_tokens"] = cache_read
+            # Anthropic reports uncached input, cache writes and cache reads as three separate
+            # numbers. The logical input is their sum, which this already got right by hand --
+            # what it could not do was carry the write half anywhere: it went into the dict under
+            # the provider's own key and no consumer in the tree ever read it (#173).
+            cache_creation = _optional_token_count(response.usage, "cache_creation_input_tokens")
+            cache_read = _optional_token_count(response.usage, "cache_read_input_tokens")
+            input_tokens = (
+                response.usage.input_tokens + (cache_creation or 0) + (cache_read or 0)
+            )
+            usage = LLMUsage.reported(
+                input_tokens=input_tokens,
+                output_tokens=response.usage.output_tokens,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=cache_creation,
+            )
 
         return LLMResponse(
             content="".join(content_parts) or None,

@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from nanoinfra.config.schema import Config, ProvidersConfig
+from nanoinfra.providers.base import LLMUsage
 from nanoinfra.providers.bedrock_provider import BedrockProvider
 from nanoinfra.providers.registry import find_by_name
 
@@ -229,8 +230,10 @@ def test_parse_response_maps_text_tools_reasoning_usage_and_stop_reason() -> Non
 
     assert result.content == "hello"
     assert result.finish_reason == "tool_calls"
-    assert result.usage["prompt_tokens"] == 10
-    assert result.usage["cached_tokens"] == 2
+    # Converse reports cached input outside `inputTokens`, and the contract says the logical
+    # input includes cache reads -- so 10 uncached plus 2 cached is an input of 12.
+    assert result.usage.input_tokens == 12
+    assert result.usage.cache_read_tokens == 2
     assert result.reasoning_content == "think"
     assert result.thinking_blocks == [{"type": "thinking", "thinking": "think", "signature": "sig"}]
     assert result.tool_calls[0].id == "t1"
@@ -276,7 +279,7 @@ async def test_chat_stream_aggregates_text_tool_use_and_usage() -> None:
     assert deltas == ["he", "llo"]
     assert result.content == "hello"
     assert result.finish_reason == "tool_calls"
-    assert result.usage == {"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7}
+    assert result.usage == LLMUsage.reported(input_tokens=3, output_tokens=4, total_tokens=7)
     assert result.tool_calls[0].name == "search"
     assert result.tool_calls[0].arguments == {"q": "x"}
 

@@ -14,6 +14,7 @@ from nanoinfra.config.schema import AgentDefaults
 from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
+    LLMUsage,
     ProviderCallContext,
     ProviderConversationState,
     ToolCallRequest,
@@ -38,10 +39,10 @@ async def test_runner_preserves_reasoning_fields_and_tool_results():
                 tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
                 reasoning_content="hidden reasoning",
                 thinking_blocks=[{"type": "thinking", "thinking": "step"}],
-                usage={"prompt_tokens": 5, "completion_tokens": 3},
+                usage=LLMUsage.reported(input_tokens=5, output_tokens=3),
             )
         captured_second_call[:] = messages
-        return LLMResponse(content="done", tool_calls=[], usage={})
+        return LLMResponse(content="done", tool_calls=[], usage=None)
 
     provider.chat_with_retry = chat_with_retry
     tools = MagicMock()
@@ -441,7 +442,7 @@ async def test_runner_uses_no_tools_finalization_after_max_iterations():
         return LLMResponse(
             content="Read the directory twice. More investigation remains.",
             tool_calls=[],
-            usage={"prompt_tokens": 10, "completion_tokens": 7},
+            usage=LLMUsage.reported(input_tokens=10, output_tokens=7),
         )
 
     provider.chat_with_retry = chat_with_retry
@@ -664,10 +665,10 @@ async def test_runner_replaces_empty_tool_result_with_marker():
             return LLMResponse(
                 content="working",
                 tool_calls=[ToolCallRequest(id="call_1", name="noop", arguments={})],
-                usage={},
+                usage=None,
             )
         captured_second_call[:] = messages
-        return LLMResponse(content="done", tool_calls=[], usage={})
+        return LLMResponse(content="done", tool_calls=[], usage=None)
 
     provider.chat_with_retry = chat_with_retry
     tools = MagicMock()
@@ -702,12 +703,12 @@ async def test_runner_retries_empty_final_response_with_summary_prompt():
             return LLMResponse(
                 content=None,
                 tool_calls=[],
-                usage={"prompt_tokens": 5, "completion_tokens": 1},
+                usage=LLMUsage.reported(input_tokens=5, output_tokens=1),
             )
         return LLMResponse(
             content="final answer",
             tool_calls=[],
-            usage={"prompt_tokens": 3, "completion_tokens": 7},
+            usage=LLMUsage.reported(input_tokens=3, output_tokens=7),
         )
 
     provider.chat_with_retry = chat_with_retry
@@ -802,7 +803,7 @@ async def test_runner_uses_specific_message_after_empty_finalization_retry():
     provider = MagicMock(spec=LLMProvider)
 
     async def chat_with_retry(*, messages, **kwargs):
-        return LLMResponse(content=None, tool_calls=[], usage={})
+        return LLMResponse(content=None, tool_calls=[], usage=None)
 
     provider.chat_with_retry = chat_with_retry
     tools = MagicMock()
@@ -842,14 +843,14 @@ async def test_empty_finalization_retry_discards_candidate_provider_state():
     provider = MagicMock(spec=LLMProvider)
     provider.can_resume_conversation_state.return_value = True
     provider.chat_with_retry = AsyncMock(side_effect=[
-        LLMResponse(content=None, tool_calls=[], usage={}),
-        LLMResponse(content=None, tool_calls=[], usage={}),
+        LLMResponse(content=None, tool_calls=[], usage=None),
+        LLMResponse(content=None, tool_calls=[], usage=None),
         LLMResponse(
             content="finalized without tools",
             tool_calls=[ToolCallRequest(id="call_1", name="exec", arguments={})],
             finish_reason="stop",
             provider_state=candidate,
-            usage={},
+            usage=None,
         ),
     ])
     tools = MagicMock()
@@ -988,20 +989,20 @@ async def test_runner_empty_response_does_not_break_tool_chain():
             return LLMResponse(
                 content=None,
                 tool_calls=[ToolCallRequest(id="tc1", name="read_file", arguments={"path": "a.txt"})],
-                usage={"prompt_tokens": 10, "completion_tokens": 5},
+                usage=LLMUsage.reported(input_tokens=10, output_tokens=5),
             )
         if call_count == 2:
-            return LLMResponse(content=None, tool_calls=[], usage={"prompt_tokens": 10, "completion_tokens": 1})
+            return LLMResponse(content=None, tool_calls=[], usage=LLMUsage.reported(input_tokens=10, output_tokens=1))
         if call_count == 3:
             return LLMResponse(
                 content=None,
                 tool_calls=[ToolCallRequest(id="tc2", name="read_file", arguments={"path": "b.txt"})],
-                usage={"prompt_tokens": 10, "completion_tokens": 5},
+                usage=LLMUsage.reported(input_tokens=10, output_tokens=5),
             )
         return LLMResponse(
             content="Here are the results.",
             tool_calls=[],
-            usage={"prompt_tokens": 10, "completion_tokens": 10},
+            usage=LLMUsage.reported(input_tokens=10, output_tokens=10),
         )
 
     provider.chat_with_retry = chat_with_retry
@@ -1044,12 +1045,12 @@ async def test_runner_accumulates_usage_and_preserves_cached_tokens():
             return LLMResponse(
                 content="thinking",
                 tool_calls=[ToolCallRequest(id="call_1", name="read_file", arguments={"path": "x"})],
-                usage={"prompt_tokens": 100, "completion_tokens": 10, "cached_tokens": 80},
+                usage=LLMUsage.reported(input_tokens=100, output_tokens=10, cache_read_tokens=80),
             )
         return LLMResponse(
             content="done",
             tool_calls=[],
-            usage={"prompt_tokens": 200, "completion_tokens": 20, "cached_tokens": 150},
+            usage=LLMUsage.reported(input_tokens=200, output_tokens=20, cache_read_tokens=150),
         )
 
     provider.chat_with_retry = chat_with_retry
@@ -1086,7 +1087,7 @@ async def test_runner_binds_on_retry_wait_to_retry_callback_not_progress():
 
     async def chat_with_retry(**kwargs):
         captured.update(kwargs)
-        return LLMResponse(content="done", tool_calls=[], usage={})
+        return LLMResponse(content="done", tool_calls=[], usage=None)
 
     provider = MagicMock(spec=LLMProvider)
     provider.chat_with_retry = chat_with_retry
@@ -1128,7 +1129,7 @@ async def test_runner_passes_temperature_to_provider():
 
     async def chat_with_retry(**kwargs):
         captured.update(kwargs)
-        return LLMResponse(content="done", tool_calls=[], usage={})
+        return LLMResponse(content="done", tool_calls=[], usage=None)
 
     provider = MagicMock(spec=LLMProvider)
     provider.chat_with_retry = chat_with_retry
@@ -1157,7 +1158,7 @@ async def test_runner_passes_max_tokens_to_provider():
 
     async def chat_with_retry(**kwargs):
         captured.update(kwargs)
-        return LLMResponse(content="done", tool_calls=[], usage={})
+        return LLMResponse(content="done", tool_calls=[], usage=None)
 
     provider = MagicMock(spec=LLMProvider)
     provider.chat_with_retry = chat_with_retry
@@ -1186,7 +1187,7 @@ async def test_runner_passes_reasoning_effort_to_provider():
 
     async def chat_with_retry(**kwargs):
         captured.update(kwargs)
-        return LLMResponse(content="done", tool_calls=[], usage={})
+        return LLMResponse(content="done", tool_calls=[], usage=None)
 
     provider = MagicMock(spec=LLMProvider)
     provider.chat_with_retry = chat_with_retry

@@ -22,6 +22,7 @@ from nanoinfra.agent.tools.registry import ToolRegistry, is_tool_error_result
 from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
+    LLMUsage,
     ProviderCallContext,
     ProviderConversationState,
     ToolCallRequest,
@@ -1405,16 +1406,20 @@ class AgentRunner:
         }
 
     @staticmethod
-    def _usage_dict(usage: dict[str, Any] | None) -> dict[str, int]:
-        if not usage:
+    def _usage_dict(usage: LLMUsage | None) -> dict[str, int]:
+        """Project a boundary-normalised `LLMUsage` back into the shape this file still uses.
+
+        A seam, and a short-lived one: the providers produce the type as of #173 and everything
+        downstream of here still reads keys. #174 moves this file onto the type and deletes this
+        method. It keeps `provider_tokens` because that key is what the day-row store reads to
+        decide which half of the partition a number belongs to.
+        """
+        if usage is None:
             return {}
-        result: dict[str, int] = {}
-        for key, value in usage.items():
-            try:
-                result[key] = int(value or 0)
-            except (TypeError, ValueError):
-                continue
-        return result
+        projected = usage.to_turn_dict()
+        if usage.reported_tokens:
+            projected["provider_tokens"] = usage.reported_tokens
+        return projected
 
     @staticmethod
     def _usage_total(usage: dict[str, int]) -> int:

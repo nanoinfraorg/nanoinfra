@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nanoinfra.bus.events import InboundMessage
-from nanoinfra.providers.base import LLMResponse
+from nanoinfra.providers.base import LLMResponse, LLMUsage
 
 
 def _make_loop():
@@ -305,8 +305,8 @@ class TestRestartCommand:
             lambda _message: 7,
         )
         loop.provider.chat_with_retry = AsyncMock(side_effect=[
-            LLMResponse(content="first", usage={"prompt_tokens": 9, "completion_tokens": 4}),
-            LLMResponse(content="second", usage={}),
+            LLMResponse(content="first", usage=LLMUsage.reported(input_tokens=9, output_tokens=4)),
+            LLMResponse(content="second", usage=None),
         ])
 
         await loop._run_agent_loop([], runtime=loop.llm_runtime())

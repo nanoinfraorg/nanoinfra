@@ -43,7 +43,7 @@ from nanoinfra.gates.executor.scrub_protocol import (
     encode_scrub_response,
 )
 from nanoinfra.gates.executor.supervisor import start_executor
-from nanoinfra.providers.base import ProviderConversationState
+from nanoinfra.providers.base import LLMUsage, ProviderConversationState
 from nanoinfra.providers.openai_responses.state import (
     RESPONSES_STATE_KIND,
     build_responses_state,
@@ -156,7 +156,7 @@ def _state(items: list[dict[str, Any]] | None = None) -> ProviderConversationSta
         model=MODEL,
         input_items=items if items is not None else _payload_items(),
         output_items=[],
-        usage={"total_tokens": 4096},
+        usage=LLMUsage.reported(input_tokens=4096, output_tokens=0),
     )
 
 

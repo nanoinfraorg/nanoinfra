@@ -14,6 +14,7 @@ from typing import Any, cast
 from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
+    LLMUsage,
     ToolCallRequest,
     parse_tool_arguments,
     resolve_stream_idle_timeout_s,
@@ -25,6 +26,24 @@ _TEXT_BLOCK_TYPES = {"text", "input_text", "output_text"}
 _TEMPERATURE_UNSUPPORTED_MODEL_TOKENS = ("claude-opus-4-7",)
 _ADAPTIVE_THINKING_ONLY_MODEL_TOKENS = ("claude-opus-4-7",)
 _NOOP_TOOL_NAME = "nanoinfra_noop"
+
+
+def _optional_token_count(usage: dict[str, Any], key: str) -> int | None:
+    """A cache count Converse actually reported, or `None` when the key was absent.
+
+    An absent key means this model does not report the metric; a present zero means it reported
+    no cache activity. The old dict could say only one of those, because a missing key read as
+    zero at every consumer.
+    """
+    if key not in usage:
+        return None
+    value = usage.get(key)
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -453,25 +472,30 @@ class BedrockProvider(LLMProvider):
         }.get(stop_reason or "", stop_reason or "stop")
 
     @staticmethod
-    def _usage(usage: dict[str, Any] | None) -> dict[str, int]:
+    def _usage(usage: dict[str, Any] | None) -> LLMUsage | None:
+        """Normalise a Converse-API usage block into `LLMUsage` (#173).
+
+        Bedrock camel-cases everything and reports both cache halves, so this was already the
+        most complete producer in the tree -- and the write half went into the dict under a key
+        no consumer read. A present `None` and an absent key mean different things here, which is
+        why the cache counts are read as optional rather than defaulted to zero.
+        """
         if not usage:
-            return {}
+            return None
         prompt = int(usage.get("inputTokens") or 0)
         completion = int(usage.get("outputTokens") or 0)
-        total = int(usage.get("totalTokens") or prompt + completion)
-        result = {
-            "prompt_tokens": prompt,
-            "completion_tokens": completion,
-            "total_tokens": total,
-        }
-        cache_read = int(usage.get("cacheReadInputTokens") or 0)
-        cache_write = int(usage.get("cacheWriteInputTokens") or 0)
-        if cache_read:
-            result["cached_tokens"] = cache_read
-            result["cache_read_input_tokens"] = cache_read
-        if cache_write:
-            result["cache_creation_input_tokens"] = cache_write
-        return result
+        total = int(usage.get("totalTokens") or 0)
+        cache_read = _optional_token_count(usage, "cacheReadInputTokens")
+        cache_write = _optional_token_count(usage, "cacheWriteInputTokens")
+        return LLMUsage.reported(
+            # Converse reports cached input outside `inputTokens`, so the logical input is the
+            # sum. Without this the type refuses the value, which is the check working.
+            input_tokens=prompt + (cache_read or 0) + (cache_write or 0),
+            output_tokens=completion,
+            total_tokens=total or None,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
+        )
 
     @staticmethod
     def _parse_reasoning(block: dict[str, Any]) -> tuple[str | None, dict[str, Any] | None]:

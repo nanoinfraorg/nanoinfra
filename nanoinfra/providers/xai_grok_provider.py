@@ -18,6 +18,7 @@ from nanoinfra import __version__
 from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
+    LLMUsage,
     ToolCallRequest,
     resolve_stream_idle_timeout_s,
 )
@@ -436,7 +437,7 @@ async def _request_xai(
     on_content_delta: Callable[[str], Awaitable[None]] | None = None,
     on_thinking_delta: Callable[[str], Awaitable[None]] | None = None,
     on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
-) -> tuple[str, list[ToolCallRequest], str, dict[str, int], str | None]:
+) -> tuple[str, list[ToolCallRequest], str, LLMUsage | None, str | None]:
     async def _on_response_event(event: dict[str, Any]) -> None:
         hosted_event = _xai_hosted_tool_event(event)
         if hosted_event is not None and on_tool_call_delta is not None:

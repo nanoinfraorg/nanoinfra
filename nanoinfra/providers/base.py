@@ -590,7 +590,10 @@ class LLMResponse:
     content: str | None
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
     finish_reason: str = "stop"
-    usage: dict[str, int] = field(default_factory=dict)
+    #: What the call cost, normalised at the wire boundary by the provider that made it (#173).
+    #: `None` means no usage was available at all -- an error response, or a provider that
+    #: reported none -- which is not the same as a call that cost nothing.
+    usage: LLMUsage | None = None
     retry_after: float | None = None  # Provider supplied retry wait in seconds.
     reasoning_content: str | None = None  # Kimi, DeepSeek-R1, MiMo etc.
     thinking_blocks: list[dict[str, Any]] | None = None  # Anthropic extended thinking

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from loguru import logger
 
+from nanoinfra.providers.base import LLMUsage
 from nanoinfra.providers.openai_responses.converters import (
     convert_messages,
     convert_tools,
@@ -484,7 +485,7 @@ class TestParseResponseOutput:
         result = parse_response_output(resp)
         assert result.content == "Hello!"
         assert result.finish_reason == "stop"
-        assert result.usage == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        assert result.usage == LLMUsage.reported(input_tokens=10, output_tokens=5, total_tokens=15)
         assert result.tool_calls == []
 
     def test_refusal_response_surfaces_text_without_advancing_state(self):
@@ -652,7 +653,7 @@ class TestParseResponseOutput:
         }
         result = parse_response_output(mock)
         assert result.content == "sdk"
-        assert result.usage["prompt_tokens"] == 1
+        assert result.usage.input_tokens == 1
 
     def test_usage_maps_responses_api_keys(self):
         """Responses API uses input_tokens/output_tokens, not prompt_tokens/completion_tokens."""
@@ -662,9 +663,9 @@ class TestParseResponseOutput:
             "usage": {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150},
         }
         result = parse_response_output(resp)
-        assert result.usage["prompt_tokens"] == 100
-        assert result.usage["completion_tokens"] == 50
-        assert result.usage["total_tokens"] == 150
+        assert result.usage.input_tokens == 100
+        assert result.usage.output_tokens == 50
+        assert result.usage.total_tokens == 150
 
     def test_preserves_every_output_item_as_opaque_state(self):
         input_items = [{"role": "user", "content": "inspect the repo"}]
@@ -713,11 +714,7 @@ class TestResponsesConversationState:
                 {"type": "compaction", "encrypted_content": "compact"},
                 {"type": "message", "role": "assistant", "content": "new"},
             ],
-            usage={
-                "prompt_tokens": 90,
-                "completion_tokens": 10,
-                "total_tokens": 100,
-            },
+            usage=LLMUsage.reported(input_tokens=90, output_tokens=10, total_tokens=100),
         )
 
         assert responses_state_items(state) == [
@@ -1074,7 +1071,7 @@ class TestConsumeSse:
         assert content == "answer"
         assert tool_calls == []
         assert finish_reason == "stop"
-        assert usage == {}
+        assert usage is None
         assert reasoning == "thinking briefly"
         assert deltas == ["thinking ", "briefly"]
 
@@ -1208,7 +1205,7 @@ class TestConsumeSse:
 
         assert content == "partial"
         assert finish_reason == expected_finish_reason
-        assert usage == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        assert usage == LLMUsage.reported(input_tokens=10, output_tokens=5, total_tokens=15)
         assert capture.completed is True
         assert capture.response == terminal_response
         assert capture.output_items == output
@@ -1285,7 +1282,7 @@ class TestConsumeSse:
 
         _, _, _, usage, _ = await consume_sse_with_reasoning(response)
 
-        assert usage == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        assert usage == LLMUsage.reported(input_tokens=10, output_tokens=5, total_tokens=15)
 
     @pytest.mark.asyncio
     async def test_tool_call_done_arguments_callback(self):
@@ -1760,7 +1757,7 @@ class TestConsumeSdkStream:
             yield ev
 
         _, _, _, usage, _ = await consume_sdk_stream(stream())
-        assert usage == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        assert usage == LLMUsage.reported(input_tokens=10, output_tokens=5, total_tokens=15)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1815,7 +1812,7 @@ class TestConsumeSdkStream:
 
         assert content == "partial"
         assert finish_reason == expected_finish_reason
-        assert usage == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        assert usage == LLMUsage.reported(input_tokens=10, output_tokens=5, total_tokens=15)
         assert capture.completed is True
         assert capture.response == terminal_response
         assert capture.output_items == output

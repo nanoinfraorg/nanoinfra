@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from loguru import logger
 
-from nanoinfra.providers.base import ProviderConversationState
+from nanoinfra.providers.base import LLMUsage, ProviderConversationState
 from nanoinfra.providers.openai_responses.converters import convert_messages
 
 RESPONSES_STATE_KIND = "openai_responses"
@@ -84,7 +84,7 @@ def build_responses_state(
     model: str,
     input_items: list[dict[str, Any]],
     output_items: list[dict[str, Any]],
-    usage: dict[str, int] | None = None,
+    usage: LLMUsage | None = None,
 ) -> ProviderConversationState:
     """Create the canonical next state from request input and every output item."""
     unpruned_items = [*input_items, *output_items]
@@ -178,16 +178,20 @@ def _prune_before_latest_output_compaction(
     return output_items[latest:]
 
 
-def _context_tokens_from_usage(usage: dict[str, int] | None) -> int:
-    if not usage:
+def _context_tokens_from_usage(usage: LLMUsage | None) -> int:
+    """How much context a *resumed* request will carry, which is what the saved state records.
+
+    Deliberately not `LLMUsage.context_tokens`, which is the context *this* call carried -- its
+    input. A saved Responses state is resumed by sending the previous input **and** the previous
+    output, so the number that decides native compaction at 90% of the window is the total. The
+    type's own field would under-report by exactly the length of the last answer.
+
+    What the type does remove is the guard this used to need against a `bool` that had
+    deserialised into a token count (#173).
+    """
+    if usage is None:
         return 0
-    prompt_tokens = usage.get("prompt_tokens", 0)
-    completion_tokens = usage.get("completion_tokens", 0)
-    total_tokens = usage.get("total_tokens", 0)
-    values = (prompt_tokens, completion_tokens, total_tokens)
-    if any(isinstance(value, bool) for value in values):
-        return 0
-    return max(0, total_tokens or prompt_tokens + completion_tokens)
+    return max(0, usage.total_tokens or usage.input_tokens + usage.output_tokens)
 
 
 def _state_items(

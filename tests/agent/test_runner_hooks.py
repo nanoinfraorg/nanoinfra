@@ -9,7 +9,7 @@ import pytest
 
 from agent.runner_helpers import make_run_spec
 from nanoinfra.config.schema import AgentDefaults
-from nanoinfra.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from nanoinfra.providers.base import LLMProvider, LLMResponse, LLMUsage, ToolCallRequest
 
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
@@ -30,7 +30,7 @@ async def test_runner_calls_hooks_in_order():
                 content="thinking",
                 tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
             )
-        return LLMResponse(content="done", tool_calls=[], usage={})
+        return LLMResponse(content="done", tool_calls=[], usage=None)
 
     provider.chat_with_retry = chat_with_retry
     tools = MagicMock()
@@ -110,7 +110,7 @@ async def test_runner_streaming_hook_receives_deltas_and_end_signal():
     async def chat_stream_with_retry(*, on_content_delta, **kwargs):
         await on_content_delta("he")
         await on_content_delta("llo")
-        return LLMResponse(content="hello", tool_calls=[], usage={})
+        return LLMResponse(content="hello", tool_calls=[], usage=None)
 
     provider.chat_stream_with_retry = chat_stream_with_retry
     provider.chat_with_retry = AsyncMock()
@@ -212,7 +212,7 @@ async def test_runner_passes_cached_tokens_to_hook_context():
         return LLMResponse(
             content="done",
             tool_calls=[],
-            usage={"prompt_tokens": 200, "completion_tokens": 20, "cached_tokens": 150},
+            usage=LLMUsage.reported(input_tokens=200, output_tokens=20, cache_read_tokens=150),
         )
 
     provider.chat_with_retry = chat_with_retry
@@ -247,7 +247,7 @@ async def test_runner_estimates_usage_when_provider_omits_usage(monkeypatch):
             captured_usage.append(dict(context.usage))
 
     async def chat_with_retry(**kwargs):
-        return LLMResponse(content="done", tool_calls=[], usage={})
+        return LLMResponse(content="done", tool_calls=[], usage=None)
 
     provider.chat_with_retry = chat_with_retry
     tools = MagicMock()
@@ -288,7 +288,7 @@ async def test_runner_calls_run_level_hooks_on_success():
         return LLMResponse(
             content="done",
             tool_calls=[],
-            usage={"prompt_tokens": 3, "completion_tokens": 2},
+            usage=LLMUsage.reported(input_tokens=3, output_tokens=2),
         )
 
     provider.chat_with_retry = chat_with_retry
@@ -339,6 +339,11 @@ async def test_runner_calls_run_level_hooks_on_success():
                 "prompt_tokens": 3,
                 "completion_tokens": 2,
                 "total_tokens": 5,
+                # Two numbers the dict could not carry before the boundary was typed: how many
+                # provider calls this turn made, and the context the last one held.
+                "request_count": 1,
+                "estimated_tokens": 0,
+                "context_tokens": 3,
                 "provider_tokens": 5,
             },
             ["user", "assistant"],
@@ -364,7 +369,7 @@ async def test_runner_run_level_context_is_detached_snapshot():
                 content="thinking",
                 tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={"path": "."})],
             )
-        return LLMResponse(content="done", tool_calls=[], usage={})
+        return LLMResponse(content="done", tool_calls=[], usage=None)
 
     provider.chat_with_retry = chat_with_retry
     tools = MagicMock()

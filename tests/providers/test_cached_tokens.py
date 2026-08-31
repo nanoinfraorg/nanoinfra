@@ -62,8 +62,8 @@ def test_extract_usage_openai_cached_tokens_dict():
         }
     }
     result = p._parse(response)
-    assert result.usage["cached_tokens"] == 1200
-    assert result.usage["prompt_tokens"] == 2000
+    assert result.usage.cache_read_tokens == 1200
+    assert result.usage.input_tokens == 2000
 
 
 def test_extract_usage_deepseek_cached_tokens_dict():
@@ -80,7 +80,7 @@ def test_extract_usage_deepseek_cached_tokens_dict():
         }
     }
     result = p._parse(response)
-    assert result.usage["cached_tokens"] == 1200
+    assert result.usage.cache_read_tokens == 1200
 
 
 def test_extract_usage_no_cached_tokens_dict():
@@ -95,7 +95,7 @@ def test_extract_usage_no_cached_tokens_dict():
         }
     }
     result = p._parse(response)
-    assert "cached_tokens" not in result.usage
+    assert result.usage.cache_read_tokens is None
 
 
 def test_extract_usage_openai_cached_zero_dict():
@@ -111,7 +111,7 @@ def test_extract_usage_openai_cached_zero_dict():
         }
     }
     result = p._parse(response)
-    assert "cached_tokens" not in result.usage
+    assert result.usage.cache_read_tokens is None
 
 
 # --- object-based response (OpenAI SDK Pydantic model) ---
@@ -127,7 +127,7 @@ def test_extract_usage_openai_cached_tokens_obj():
     )
     response = FakeUsage(choices=[_FakeChoice()], usage=usage_obj)
     result = p._parse(response)
-    assert result.usage["cached_tokens"] == 1200
+    assert result.usage.cache_read_tokens == 1200
 
 
 def test_extract_usage_deepseek_cached_tokens_obj():
@@ -141,7 +141,7 @@ def test_extract_usage_deepseek_cached_tokens_obj():
     )
     response = FakeUsage(choices=[_FakeChoice()], usage=usage_obj)
     result = p._parse(response)
-    assert result.usage["cached_tokens"] == 1200
+    assert result.usage.cache_read_tokens == 1200
 
 
 def test_extract_usage_stepfun_top_level_cached_tokens_dict():
@@ -157,7 +157,7 @@ def test_extract_usage_stepfun_top_level_cached_tokens_dict():
         }
     }
     result = p._parse(response)
-    assert result.usage["cached_tokens"] == 512
+    assert result.usage.cache_read_tokens == 512
 
 
 def test_extract_usage_stepfun_top_level_cached_tokens_obj():
@@ -171,7 +171,7 @@ def test_extract_usage_stepfun_top_level_cached_tokens_obj():
     )
     response = FakeUsage(choices=[_FakeChoice()], usage=usage_obj)
     result = p._parse(response)
-    assert result.usage["cached_tokens"] == 512
+    assert result.usage.cache_read_tokens == 512
 
 
 def test_extract_usage_priority_nested_over_top_level_dict():
@@ -188,7 +188,7 @@ def test_extract_usage_priority_nested_over_top_level_dict():
         }
     }
     result = p._parse(response)
-    assert result.usage["cached_tokens"] == 100
+    assert result.usage.cache_read_tokens == 100
 
 
 def test_anthropic_maps_cache_fields_to_cached_tokens():
@@ -210,10 +210,10 @@ def test_anthropic_maps_cache_fields_to_cached_tokens():
         usage=usage_obj,
     )
     result = AnthropicProvider._parse_response(response)
-    assert result.usage["cached_tokens"] == 1200
-    assert result.usage["prompt_tokens"] == 2300
-    assert result.usage["total_tokens"] == 2500
-    assert result.usage["cache_creation_input_tokens"] == 300
+    assert result.usage.cache_read_tokens == 1200
+    assert result.usage.input_tokens == 2300
+    assert result.usage.total_tokens == 2500
+    assert result.usage.cache_write_tokens == 300
 
 
 def test_anthropic_no_cache_fields():
@@ -230,4 +230,4 @@ def test_anthropic_no_cache_fields():
         usage=usage_obj,
     )
     result = AnthropicProvider._parse_response(response)
-    assert "cached_tokens" not in result.usage
+    assert result.usage.cache_read_tokens is None

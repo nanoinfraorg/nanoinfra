@@ -30,6 +30,7 @@ from nanoinfra.nanoinfra import (
     StreamEvent,
     StreamEventType,
 )
+from nanoinfra.providers.base import LLMUsage
 from nanoinfra.runtime_context import (
     RUNTIME_CONTEXT_HISTORY_META,
     RuntimeContextBlock,
@@ -663,7 +664,7 @@ async def test_run_ephemeral_still_captures_runner_observability(tmp_path):
     provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
         content="done",
         tool_calls=[],
-        usage={"total_tokens": 3},
+        usage=LLMUsage.reported(input_tokens=0, output_tokens=0, total_tokens=3),
     ))
     bot = Nanoinfra(AgentLoop(
         bus=MessageBus(),

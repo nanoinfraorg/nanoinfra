@@ -143,7 +143,7 @@ class TestMaxMessagesIntegration:
         loop = _make_loop(tmp_path)
         runtime = replace(loop.llm_runtime(), context_window_tokens=32_768)
         loop.provider.chat_with_retry = AsyncMock(
-            return_value=LLMResponse(content="ok", tool_calls=[], usage={})
+            return_value=LLMResponse(content="ok", tool_calls=[], usage=None)
         )
         loop.tools.get_definitions = MagicMock(return_value=[])
         loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
@@ -167,7 +167,7 @@ class TestMaxMessagesIntegration:
     ) -> None:
         loop = _make_loop(tmp_path)
         loop.provider.chat_with_retry = AsyncMock(
-            return_value=LLMResponse(content="ok", tool_calls=[], usage={})
+            return_value=LLMResponse(content="ok", tool_calls=[], usage=None)
         )
         loop.tools.get_definitions = MagicMock(return_value=[])
         loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
@@ -190,7 +190,7 @@ class TestMaxMessagesIntegration:
         """A live user turn should not extend history to an older long tool turn."""
         loop = _make_loop(tmp_path, context_window_tokens=8_000)
         loop.provider.chat_with_retry = AsyncMock(
-            return_value=LLMResponse(content="ok", tool_calls=[], usage={})
+            return_value=LLMResponse(content="ok", tool_calls=[], usage=None)
         )
         loop.tools.get_definitions = MagicMock(return_value=[])
         loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]

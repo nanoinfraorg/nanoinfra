@@ -26,6 +26,7 @@ from pydantic.alias_generators import to_snake
 from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
+    LLMUsage,
     ProviderCallContext,
     ProviderConversationState,
     ToolCallRequest,
@@ -1444,12 +1445,17 @@ class OpenAICompatProvider(LLMProvider):
         return "".join(parts) or None
 
     @classmethod
-    def _extract_usage(cls, response: Any) -> dict[str, int]:
-        """Extract token usage from an OpenAI-compatible response.
+    def _extract_usage(cls, response: Any) -> LLMUsage | None:
+        """Normalise an OpenAI-compatible response's usage into `LLMUsage` (#173).
 
-        Handles both dict-based (raw JSON) and object-based (SDK Pydantic)
-        responses.  Provider-specific ``cached_tokens`` fields are normalised
-        under a single key; see the priority chain inside for details.
+        Handles both dict-based (raw JSON) and object-based (SDK Pydantic) responses. The
+        cached-token field is the interesting part: a dozen providers spell it differently, and
+        the priority chain below picks the most specific one. That mapping used to happen here
+        into a dict key and again at every consumer; now it happens once, into a field.
+
+        `None` means this response carried no usage at all. A zero-token usage object would say
+        something different -- that the provider reported nothing was charged -- and only one of
+        those two is true when a payload has no `usage` member.
         """
         # --- resolve usage object ---
         usage_obj = None
@@ -1461,36 +1467,42 @@ class OpenAICompatProvider(LLMProvider):
 
         usage_map = cls._maybe_mapping(usage_obj)
         if usage_map is not None:
-            result = {
-                "prompt_tokens": int(usage_map.get("prompt_tokens") or 0),
-                "completion_tokens": int(usage_map.get("completion_tokens") or 0),
-                "total_tokens": int(usage_map.get("total_tokens") or 0),
-            }
+            prompt = int(usage_map.get("prompt_tokens") or 0)
+            completion = int(usage_map.get("completion_tokens") or 0)
+            reported_total = int(usage_map.get("total_tokens") or 0)
         elif usage_obj:
-            result = {
-                "prompt_tokens": getattr(usage_obj, "prompt_tokens", 0) or 0,
-                "completion_tokens": getattr(usage_obj, "completion_tokens", 0) or 0,
-                "total_tokens": getattr(usage_obj, "total_tokens", 0) or 0,
-            }
+            prompt = int(getattr(usage_obj, "prompt_tokens", 0) or 0)
+            completion = int(getattr(usage_obj, "completion_tokens", 0) or 0)
+            reported_total = int(getattr(usage_obj, "total_tokens", 0) or 0)
         else:
-            return {}
+            return None
 
-        # --- cached_tokens (normalised across providers) ---
-        # Try nested paths first (dict), fall back to attribute (SDK object).
-        # Priority order ensures the most specific field wins.
+        # --- cached tokens, spelled differently by every provider ---
+        # Try nested paths first (dict), fall back to attribute (SDK object). Priority order
+        # ensures the most specific field wins.
+        cached: int | None = None
         for path in (
             ("prompt_tokens_details", "cached_tokens"),  # OpenAI/Zhipu/MiniMax/Qwen/Mistral/xAI
             ("cached_tokens",),                          # StepFun/Moonshot (top-level)
             ("prompt_cache_hit_tokens",),                # DeepSeek/SiliconFlow
         ):
-            cached = cls._get_nested_int(usage_map, path)
-            if not cached and usage_obj:
-                cached = cls._get_nested_int(usage_obj, path)
-            if cached:
-                result["cached_tokens"] = cached
+            found = cls._get_nested_int(usage_map, path)
+            if not found and usage_obj:
+                found = cls._get_nested_int(usage_obj, path)
+            if found:
+                cached = found
                 break
 
-        return result
+        # A cache read above the reported prompt total means this provider counts cached input
+        # outside `prompt_tokens`. The contract says the logical input includes it, so it is
+        # added rather than dropped -- the alternative is a value the type would refuse.
+        input_tokens = max(prompt, cached or 0)
+        return LLMUsage.reported(
+            input_tokens=input_tokens,
+            output_tokens=completion,
+            total_tokens=reported_total or None,
+            cache_read_tokens=cached,
+        )
 
     @staticmethod
     def _get_nested_int(obj: object, path: tuple[str, ...]) -> int:
@@ -1661,7 +1673,7 @@ class OpenAICompatProvider(LLMProvider):
         reasoning_parts: list[str] = []
         tc_bufs: dict[int, dict[str, Any]] = {}
         finish_reason = "stop"
-        usage: dict[str, int] = {}
+        usage: LLMUsage | None = None
 
         def _accum_tc(tc: Any, idx_hint: int) -> None:
             """Accumulate one streaming tool-call delta into *tc_bufs*."""

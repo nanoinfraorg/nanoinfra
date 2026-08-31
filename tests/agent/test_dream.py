@@ -383,7 +383,7 @@ class TestEphemeralDirect:
         provider.supports_tools = True
         provider.generation = MagicMock(max_tokens=4096)
         provider.chat_with_retry = AsyncMock(
-            return_value=LLMResponse(content="done", tool_calls=[], finish_reason="stop", usage={})
+            return_value=LLMResponse(content="done", tool_calls=[], finish_reason="stop", usage=None)
         )
 
         with (
@@ -577,7 +577,7 @@ class TestEphemeralHooks:
         provider.generation = MagicMock(max_tokens=4096)
         provider.chat_with_retry = AsyncMock(
             return_value=MagicMock(
-                content="done", finish_reason="stop", tool_calls=[], usage={},
+                content="done", finish_reason="stop", tool_calls=[], usage=None,
             )
         )
 
