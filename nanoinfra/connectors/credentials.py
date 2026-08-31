@@ -129,6 +129,10 @@ def check_connector_scopes(plugin: ConnectorPlugin, credential: ConnectorCredent
     first, because a connector that reads today and refuses to write at 03:00 is the failure
     this replaces.
     """
+    if plugin.credential.kind == "none":
+        # Nothing is minted, so there is no scope to be short of. A connector against a public API
+        # is still gated per operation: the class decides that, not the credential.
+        return
     for capability_class in plugin.classes:
         scope_subset(plugin.credential.scopes_for(capability_class), credential)
 

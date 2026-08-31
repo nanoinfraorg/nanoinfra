@@ -1,0 +1,36 @@
+{
+  "$schema": "https://nanoinfra.org/schemas/connector/1.0.0/connector.schema.json",
+  "name": "hello-world",
+  "displayName": "Hello World (Open-Meteo)",
+  "description": "The smallest real connector: one read against a public weather API, no credential.",
+  "baseUrl": "https://api.open-meteo.com",
+  "credential": {
+    "kind": "none"
+  },
+  "setup": {
+    "officialUrl": "https://open-meteo.com/en/docs",
+    "fields": [
+      { "name": "latitude", "kind": "string", "required": true, "default": "19.4326" },
+      { "name": "longitude", "kind": "string", "required": true, "default": "-99.1332" }
+    ]
+  },
+  "operations": [
+    {
+      "name": "current_weather",
+      "class": "read",
+      "method": "GET",
+      "path": "/v1/forecast",
+      "summary": "Current temperature and wind for one point. Pass latitude and longitude, or rely on the configured defaults.",
+      "parameters": {
+        "latitude": { "type": "string", "description": "Decimal degrees, e.g. 19.4326" },
+        "longitude": { "type": "string", "description": "Decimal degrees, e.g. -99.1332" },
+        "current": {
+          "type": "string",
+          "description": "Comma-separated fields to return. Defaults to temperature_2m,wind_speed_10m."
+        }
+      },
+      "returns": ["latitude", "longitude", "timezone", "current.time", "current.temperature_2m", "current.wind_speed_10m"]
+    }
+  ],
+  "dependencies": []
+}

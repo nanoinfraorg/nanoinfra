@@ -291,3 +291,40 @@ def test_a_setup_field_may_not_introduce_a_widget_the_form_never_rendered() -> N
         parse_connector_package(
             manifest(setup={"fields": [{"name": "when", "kind": "datepicker"}]})
         )
+
+
+# --- a connector that needs no credential ------------------------------------------------
+
+
+def test_a_public_api_connector_needs_no_credential() -> None:
+    """The simplest connector somebody writes -- one read against a public API -- must be able to
+    run. Requiring a credential would have made it the only kind that could not."""
+    plugin = parse_connector_package(
+        manifest(
+            credential={"kind": "none"},
+            operations=[
+                {"name": "current_weather", "class": "read", "method": "GET", "path": "/v1/forecast"}
+            ],
+        )
+    )
+
+    assert plugin.credential.kind == "none"
+    # No hosts required: there is no token to send anywhere.
+    assert plugin.credential.allowed_hosts == ()
+
+
+def test_the_bundled_hello_world_example_loads() -> None:
+    """The example in `examples/connectors/hello-world` is the documentation. If it stops loading,
+    the thing people copy is broken."""
+    root = Path(__file__).resolve().parents[2] / "examples" / "connectors" / "hello-world"
+
+    plugin = load_connector_package(root)
+
+    assert plugin.name == "hello-world"
+    assert plugin.classes == ("read",)
+    assert plugin.credential.kind == "none"
+    operation = plugin.operation("current_weather")
+    assert operation is not None
+    assert operation.method == "GET"
+    # The projection is the point of the example, so it has to stay in it.
+    assert "current.temperature_2m" in operation.returns

@@ -64,6 +64,15 @@ def _credential_for(
 ) -> ConnectorCredential:
     connector_cfg = cfg.connectors.get(name)
     ref = connector_cfg.credential if connector_cfg else ""
+    if plugin.credential.kind == "none":
+        # A connector against a public API holds no credential, so there is nothing to bind and
+        # nothing to mint. Refusing one would have made the simplest connector -- the one somebody
+        # writes first, to see the shape -- the only one that could not run.
+        #
+        # A credential named anyway is still honoured: an operator who put one there meant it, and
+        # a package declaring `none` does not get to decide that a deployment sends no token.
+        if not ref:
+            return ConnectorCredential(name="", client_id="", secret_ref="", token_url="")
     if not ref:
         raise CredentialError(
             f"connectors.{name} names no credential. Set connectors.{name}.credential to one "

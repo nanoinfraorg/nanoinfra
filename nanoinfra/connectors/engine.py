@@ -254,7 +254,9 @@ def _api_error_message(payload: Any, status: int) -> str:
 async def _send(
     client: httpx.AsyncClient, prepared: PreparedRequest, *, token: str, timeout_s: float
 ) -> httpx.Response:
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     return await client.request(
         prepared.method,
         prepared.url,
@@ -281,11 +283,17 @@ async def call(
     the mail twice" is a worse question than "it failed, run it again".
     """
     prepared = prepare(plugin, op, arguments, defaults=defaults)
-    token = await tokens.access_token(plugin.name, op.capability_class)
+    # A connector against a public API declares `credential.kind = "none"`, and asking for a token
+    # it never had would fail before the call rather than during it.
+    token = (
+        ""
+        if plugin.credential.kind == "none"
+        else await tokens.access_token(plugin.name, op.capability_class)
+    )
 
     async with _client() as client:
         response = await _send(client, prepared, token=token, timeout_s=timeout_s)
-        if response.status_code == 401:
+        if response.status_code == 401 and token:
             logger.debug("connector {} got 401 on {}; refreshing once", plugin.name, op.name)
             token = await tokens.access_token(
                 plugin.name, op.capability_class, force_refresh=True

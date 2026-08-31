@@ -1,6 +1,6 @@
 [project]
 name = "nanoinfra"
-version = "1.1.0"
+version = "1.1.1"
 description = "A lightweight self-hosted AI agent for infrastructure"
 readme = { file = "README_PYPI.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -188,6 +188,9 @@ exclude = ["nanoinfra/channels/*/tests/**"]
 include = [
     "nanoinfra/",
     "nanoinfra/web/dist/",
+    # The example connectors travel in the sdist. They are documentation people copy, and a `pip`
+    # user has no checkout to copy them from.
+    "examples/",
     "hatch_build.py",
     "README.md",
     "README_PYPI.md",
