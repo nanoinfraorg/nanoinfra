@@ -161,3 +161,49 @@ async def test_dispatch_cancellation_restores_checkpoint():
         "Checkpoint metadata should be cleared after restore"
     assert loop.sessions.save.called, \
         "Session should be persisted so the restored state survives process restart"
+
+
+# --- a gateway exit is the same interruption, and #200 asks whether it survives -----------
+
+
+@pytest.mark.asyncio
+async def test_shutdown_awaits_the_tasks_it_cancels(tmp_path: Path) -> None:
+    """The branch that materialises a checkpoint runs *in* the cancelled task.
+
+    So a shutdown that cancelled without awaiting would exit before that branch could write,
+    and the partial turn would be lost -- which is what #200 was raised about. It survives
+    because `_close_mcp_unlocked` gathers what it cancels; nothing asserted that until now.
+    """
+    import inspect
+
+    source = inspect.getsource(AgentLoop._close_mcp_unlocked)
+
+    assert "task.cancel()" in source
+    cancel_at = source.index("task.cancel()")
+    gather_at = source.index("asyncio.gather(*active_tasks")
+    assert cancel_at < gather_at, "the cancel must be followed by a gather, not replace it"
+
+
+def test_an_interrupted_turn_closes_with_a_record_rather_than_a_gap(tmp_path: Path) -> None:
+    """A turn that persisted only the user message is closed on the next start.
+
+    Deliberately closed rather than resumed. A resumed turn re-enters the capability gate, and
+    an approval answered before the restart is not answered after it -- so a silent replay
+    would ask a person to approve the same action twice, or worse, act on the belief that they
+    already had.
+    """
+    from nanoinfra.session.manager import SessionManager
+
+    manager = SessionManager(tmp_path)
+    session = manager.get_or_create("websocket:interrupted")
+    session.messages.append({"role": "user", "content": "do the thing"})
+    session.metadata[AgentLoop._PENDING_USER_TURN_KEY] = True
+
+    loop = AgentLoop.__new__(AgentLoop)
+    assert loop._restore_pending_user_turn(session) is True
+
+    assert session.messages[-1]["role"] == "assistant"
+    assert "interrupted" in session.messages[-1]["content"]
+    # And the flag is gone, so a second start does not append a second record.
+    assert AgentLoop._PENDING_USER_TURN_KEY not in session.metadata
+    assert loop._restore_pending_user_turn(session) is False
