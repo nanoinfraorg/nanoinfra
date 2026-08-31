@@ -10,6 +10,7 @@ The triage that produced them is `proposals/upstream-sync-triage.md`.
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 
@@ -165,3 +166,34 @@ def test_history_survives_when_there_is_no_summary() -> None:
     entries = [{"timestamp": "t1", "content": "a message"}]
 
     assert ContextBuilder._without_duplicate_session_summary(entries, "") == entries  # pyright: ignore[reportPrivateUsage]
+
+
+# --- 679a0746 + our own half: an automation freezes no identity ---------------------------
+
+
+def test_a_persisted_automation_carries_no_identity_or_workspace() -> None:
+    """A cron job kept the workspace one person's turn resolved, by absolute path.
+
+    Nothing read it back -- `webui/workspaces.py` resolves a later run's workspace from the
+    session file -- so it was a copy nobody used, written into `jobs.json` and echoed by the
+    automations payload. One person's identity directory therefore reached a store the agent
+    reads and a page another person can open.
+    """
+    from nanoinfra.runtime_context import persistable_metadata
+
+    persisted = persistable_metadata(
+        {
+            "webui": True,
+            "sender": "webui:ops@example.test",
+            "workspace_scope": {"workspace": "/home/x/.nanoinfra/workspaces/u-9f2/default"},
+            "identity_dir": "u-9f2",
+        }
+    )
+
+    # Routing survives, because a later delivery needs it.
+    assert persisted["webui"] is True
+    assert persisted["sender"] == "webui:ops@example.test"
+    # Who asked does not, because an automation has no asker.
+    assert "workspace_scope" not in persisted
+    assert "identity_dir" not in persisted
+    assert "u-9f2" not in json.dumps(persisted)

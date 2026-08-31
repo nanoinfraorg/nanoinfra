@@ -63,6 +63,18 @@ _LIVE_TURN_ONLY_META: frozenset[str] = frozenset({
     # after a restart, and a stored one that happened to match would make a scheduled run
     # rehearse instead of act.
     "_commissioning_turn",
+    # The workspace this turn resolved, and the identity directory behind it (#198). Both
+    # describe *who asked*, and an automation has no asker: the session file is what governs a
+    # later run's workspace (`webui/workspaces.py` reads it from there, never from a job), so a
+    # copy here is read by nobody and is still persisted.
+    #
+    # And it is not inert. It is an absolute path naming one person's directory, written into
+    # jobs.json and echoed back by the automations payload -- so one person's identity reached a
+    # store the agent reads and a page another person can open. Upstream sanitised this metadata
+    # for JSON-safety (HKUDS/nanobot 679a0746); this is the half that only exists here, because
+    # only this tree has per-identity workspaces.
+    "workspace_scope",
+    "identity_dir",
 })
 
 
