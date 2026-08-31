@@ -134,3 +134,34 @@ def test_the_archive_prompt_says_not_to_repeat_recent_history() -> None:
     )
 
     assert "already present in the system prompt's Recent History" in template
+
+
+# --- 82e50e2c: the session summary appeared twice in one prompt --------------------------
+
+
+def test_the_summary_is_dropped_from_recent_history() -> None:
+    """A compaction archives the summary and the same text reaches recent history.
+
+    So a long session paid for it on every turn and the model read two copies with two
+    different framings.
+    """
+    from nanoinfra.agent.context import ContextBuilder
+
+    summary = "The user prefers direct commits and no PRs."
+    entries = [
+        {"timestamp": "t1", "content": f"Previous conversation summary (last active x):\n{summary}"},
+        {"timestamp": "t2", "content": summary},
+        {"timestamp": "t3", "content": "something that is not the summary"},
+    ]
+
+    kept = ContextBuilder._without_duplicate_session_summary(entries, summary)  # pyright: ignore[reportPrivateUsage]
+
+    assert [entry["content"] for entry in kept] == ["something that is not the summary"]
+
+
+def test_history_survives_when_there_is_no_summary() -> None:
+    from nanoinfra.agent.context import ContextBuilder
+
+    entries = [{"timestamp": "t1", "content": "a message"}]
+
+    assert ContextBuilder._without_duplicate_session_summary(entries, "") == entries  # pyright: ignore[reportPrivateUsage]

@@ -232,13 +232,47 @@ async def test_read_session_reports_invalid_requests(tmp_path):
         missing = await ReadSessionTool(SessionManager(tmp_path)).execute(
             session_key="websocket:missing"
         )
-        blank_query = await ReadSessionTool(SessionManager(tmp_path)).execute(
-            session_key="websocket:history",
-            query=" ",
-        )
 
     assert missing.is_error and "session not found" in str(missing)
-    assert blank_query.is_error and "query must not be empty" in str(blank_query)
+
+
+@pytest.mark.asyncio
+async def test_read_session_reads_the_latest_on_a_blank_query(tmp_path):
+    """A blank query used to be an error, which is a dead end for a caller that meant "latest".
+
+    Backport of HKUDS/nanobot 23dc344b + c62aec01, whose two passes landed on this split.
+    """
+    manager = SessionManager(tmp_path)
+    _save_session(manager, "websocket:history", title="History", messages=[
+        {"role": "user", "content": "the first thing"},
+    ])
+
+    with _webui_request():
+        blank = await ReadSessionTool(manager).execute(session_key="websocket:history", query=" ")
+
+    assert not getattr(blank, "is_error", False)
+    assert "the first thing" in str(blank)
+
+
+@pytest.mark.asyncio
+async def test_read_session_refuses_a_wildcard_and_says_why(tmp_path):
+    """`*` and `.*` look like wildcards and are not: the filter is a literal substring.
+
+    A model reaches for them, and the old "query must not be empty" taught it nothing.
+    """
+    manager = SessionManager(tmp_path)
+    _save_session(manager, "websocket:history", title="History", messages=[
+        {"role": "user", "content": "the first thing"},
+    ])
+
+    with _webui_request():
+        for wildcard in ("*", ".*"):
+            answer = await ReadSessionTool(manager).execute(
+                session_key="websocket:history", query=wildcard
+            )
+            assert answer.is_error
+            assert "do not mean match all" in str(answer)
+            assert "Omit query" in str(answer)
 
 
 @pytest.mark.asyncio
