@@ -452,7 +452,7 @@ class AgentRunner:
     ) -> AgentRunResult:
         final_content: str | None = None
         tools_used: list[str] = []
-        usage: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
+        usage: LLMUsage | None = None
         error: str | None = None
         stop_reason = "completed"
         tool_events: list[dict[str, str]] = []
@@ -528,8 +528,8 @@ class AgentRunner:
             )
             response.content = cleaned_content
             raw_usage = self._usage_or_estimate(spec, messages_for_model, response)
-            context.usage = dict(raw_usage)
-            self._accumulate_usage(usage, raw_usage)
+            context.usage = self._usage_dict(raw_usage)
+            usage = self._accumulate_usage(usage, raw_usage)
             if reasoning_text and not context.streamed_reasoning:
                 await hook.emit_reasoning(reasoning_text)
                 await hook.emit_reasoning_end()
@@ -692,10 +692,10 @@ class AgentRunner:
                     conversation_state=conversation_state,
                 )
                 retry_usage = self._usage_or_estimate(spec, retry_messages, response)
-                self._accumulate_usage(usage, retry_usage)
-                raw_usage = self._merge_usage(raw_usage, retry_usage)
+                usage = self._accumulate_usage(usage, retry_usage)
+                raw_usage = self._accumulate_usage(raw_usage, retry_usage)
                 context.response = response
-                context.usage = dict(raw_usage)
+                context.usage = self._usage_dict(raw_usage)
                 context.tool_calls = self._tool_calls_for_context(response.tool_calls, spec.tools)
                 original_content = response.content
                 clean = hook.finalize_content(context, response.content)
@@ -868,7 +868,7 @@ class AgentRunner:
                 had_injections = True
             terminal_content = None
             if spec.finalize_on_max_iterations:
-                terminal_content = await self._try_finalize_after_max_iterations(
+                terminal_content, usage = await self._try_finalize_after_max_iterations(
                     spec,
                     hook,
                     messages,
@@ -891,7 +891,7 @@ class AgentRunner:
             final_content=final_content,
             messages=messages,
             tools_used=tools_used,
-            usage=usage,
+            usage=self._usage_dict(usage),
             stop_reason=stop_reason,
             error=error,
             tool_events=tool_events,
@@ -1214,9 +1214,9 @@ class AgentRunner:
         spec: AgentRunSpec,
         hook: AgentHook,
         messages: list[dict[str, Any]],
-        usage: dict[str, int],
+        usage: LLMUsage | None,
         conversation_state: ProviderConversationStateController,
-    ) -> str | None:
+    ) -> tuple[str | None, LLMUsage | None]:
         retry_messages = self._budget_exhausted_finalization_messages(messages)
         try:
             response = await self._request_no_tools(
@@ -1231,10 +1231,14 @@ class AgentRunner:
                 "Budget-exhausted finalization failed for {}; using fallback",
                 spec.session_key or "default",
             )
-            return None
+            return None, usage
 
         raw_usage = self._usage_or_estimate(spec, retry_messages, response)
-        self._accumulate_usage(usage, raw_usage)
+        # Returned rather than mutated through the argument: the accumulator is a value now, so
+        # a caller that ignored the return would silently lose this call's tokens -- and this
+        # call happens on the path where a turn already went over budget, which is exactly when
+        # somebody is looking at the number.
+        usage = self._accumulate_usage(usage, raw_usage)
         if response.finish_reason == "error" or response.has_tool_calls:
             logger.warning(
                 "Budget-exhausted finalization returned finish_reason='{}' "
@@ -1243,19 +1247,19 @@ class AgentRunner:
                 len(response.tool_calls),
                 spec.session_key or "default",
             )
-            return None
+            return None, usage
 
         context = AgentHookContext(
             iteration=spec.max_iterations,
             messages=messages,
             response=response,
-            usage=dict(raw_usage),
+            usage=self._usage_dict(raw_usage),
             session_key=spec.session_key,
         )
         clean = hook.finalize_content(context, response.content)
         if is_blank_text(clean):
-            return None
-        return clean
+            return None, usage
+        return clean, usage
 
     @staticmethod
     def _resolve_llm_timeout_s(spec: Any) -> float | None:
@@ -1334,32 +1338,45 @@ class AgentRunner:
         spec: AgentRunSpec,
         messages: list[dict[str, Any]],
         response: LLMResponse,
-    ) -> dict[str, int]:
-        usage = self._usage_dict(response.usage)
-        total = self._usage_total(usage)
-        if total > 0:
-            usage["total_tokens"] = total
-            usage.setdefault("provider_tokens", total)
-            self._calibrate_prompt_estimate(spec, messages, usage)
-            return usage
+    ) -> LLMUsage | None:
+        """What this call cost, and which half of the partition the number belongs to (#174).
+
+        The provider's own figure when there is one, our tokenizer's when there is not, and
+        `None` for an error response -- an error is not a call that cost nothing, and estimating
+        one would put invented tokens in a cost figure.
+
+        The partition used to be `usage.setdefault("provider_tokens", total)`: a convention that
+        held only while every site remembered it. `LLMUsage.reported` and `LLMUsage.estimated`
+        make it the constructor's business, and the type refuses a value where the two halves do
+        not sum to the total.
+        """
+        reported = response.usage
+        if reported is not None and reported.total_tokens > 0:
+            self._calibrate_prompt_estimate(spec, messages, reported)
+            return reported
         if response.finish_reason == "error":
-            return {}
+            return None
         return self._estimate_response_usage(spec, messages, response)
 
     def _calibrate_prompt_estimate(
         self,
         spec: AgentRunSpec,
         messages: list[dict[str, Any]],
-        usage: dict[str, int],
+        usage: LLMUsage,
     ) -> None:
         """Learn how far our estimate sits from what the provider actually charged (#153).
 
         Only runs when the provider reported a real prompt size, which is the one moment the truth
         is available. Costs one local tokenizer pass; the alternative is a count_tokens round trip
         per turn.
+
+        `reported_tokens` is the guard now, not the caller's position in `_usage_or_estimate`
+        (#174). This module is the reason the partition had to become a type: calibrating an
+        estimate against another estimate would teach the correction factor its own output, and
+        the old dict could not tell the two apart.
         """
-        observed = usage.get("prompt_tokens", 0)
-        if observed <= 0:
+        observed = usage.input_tokens
+        if observed <= 0 or usage.reported_tokens <= 0:
             return
         try:
             tools = spec.tools.get_definitions()
@@ -1377,7 +1394,7 @@ class AgentRunner:
         spec: AgentRunSpec,
         messages: list[dict[str, Any]],
         response: LLMResponse,
-    ) -> dict[str, int]:
+    ) -> LLMUsage | None:
         try:
             tools = spec.tools.get_definitions()
         except Exception:
@@ -1395,15 +1412,12 @@ class AgentRunner:
             thinking_blocks=response.thinking_blocks,
         )
         completion_tokens = estimate_message_tokens(assistant_message)
-        total_tokens = max(0, prompt_tokens) + max(0, completion_tokens)
-        if total_tokens <= 0:
-            return {}
-        return {
-            "prompt_tokens": max(0, prompt_tokens),
-            "completion_tokens": max(0, completion_tokens),
-            "total_tokens": total_tokens,
-            "estimated_tokens": total_tokens,
-        }
+        if max(0, prompt_tokens) + max(0, completion_tokens) <= 0:
+            return None
+        return LLMUsage.estimated(
+            input_tokens=max(0, prompt_tokens),
+            output_tokens=max(0, completion_tokens),
+        )
 
     @staticmethod
     def _usage_dict(usage: LLMUsage | None) -> dict[str, int]:
@@ -1422,22 +1436,19 @@ class AgentRunner:
         return projected
 
     @staticmethod
-    def _usage_total(usage: dict[str, int]) -> int:
-        return max(0, usage.get("total_tokens", 0) or (
-            usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0)
-        ))
+    def _accumulate_usage(target: LLMUsage | None, addition: LLMUsage | None) -> LLMUsage | None:
+        """Sum two calls, keeping `None` distinguishable from a call that cost nothing.
 
-    @staticmethod
-    def _accumulate_usage(target: dict[str, int], addition: dict[str, int]) -> None:
-        for key, value in addition.items():
-            target[key] = target.get(key, 0) + value
-
-    @staticmethod
-    def _merge_usage(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
-        merged = dict(left)
-        for key, value in right.items():
-            merged[key] = merged.get(key, 0) + value
-        return merged
+        Summing dicts key by key is what made the old accumulator wrong in a way nobody saw: a
+        cache count present on one call and absent on another added to the one that existed, and
+        two turns' context levels added to a context nobody ever held. `LLMUsage.__add__` states
+        both rules once.
+        """
+        if addition is None:
+            return target
+        if target is None:
+            return addition
+        return target + addition
 
     async def _execute_tools(
         self,
