@@ -50,10 +50,16 @@ async def _download_connector_archive(
     connector_id: str,
     destination: Path,
 ) -> None:
-    """Stream one connector package from the catalog's own download endpoint."""
+    """Stream one connector package from the catalog's download endpoint.
+
+    The same endpoint a skill uses, because the catalog publishes one archive per id whatever its
+    kind: a connector submission goes through the same pipeline, the same scan shield and the same
+    review. What the kind changes is the *listing* -- `kind` on the version detail says what a
+    reader is installing -- and what this client does with the bytes once they land.
+    """
     received = 0
     async with client.stream(
-        "GET", f"/api/v1/connectors/{quote(connector_id, safe='')}/download"
+        "GET", f"/api/v1/skills/{quote(connector_id, safe='')}/download"
     ) as response:
         if response.status_code == 404:
             raise ConnectorMarketplaceError(
