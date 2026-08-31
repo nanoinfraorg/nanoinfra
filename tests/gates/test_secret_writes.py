@@ -15,6 +15,7 @@ import asyncio
 import base64
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -320,3 +321,64 @@ def test_a_record_in_a_private_store_stays_private(tmp_path: Path) -> None:
 
     written = secrets_dir / f"{'a' * 32}.json"
     assert stat.S_IMODE(written.stat().st_mode) == 0o600
+
+
+def test_a_record_takes_the_directory_group_when_the_directory_has_no_setgid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mode is only half the answer: a 0640 file in the wrong group is still unreadable.
+
+    The container's `secrets/` is `nanoinfra-exec:nanoinfra-ipc` and the gateway is in
+    `nanoinfra-ipc`, so a file the executor creates with its own primary group answers EACCES to
+    the one account that needs the metadata. A directory with setgid hands its group down; the
+    demo's predates that, which is how a create succeeded and the next listing raised -- on the
+    deployment, and not in the test that had setgid.
+    """
+    import os
+
+    secrets_dir = tmp_path / "secrets"
+    secrets_dir.mkdir()
+    secrets_dir.chmod(0o750)
+
+    chowns: list[tuple[str, int, int]] = []
+
+    def _record_chown(target: Any, uid: int, gid: int) -> None:
+        chowns.append((str(target), uid, gid))
+
+    # The real gid cannot be changed in a test without two accounts, so the call is recorded.
+    monkeypatch.setattr(os, "chown", _record_chown)
+    monkeypatch.setattr(
+        Path, "stat", _stat_with_gid(Path.stat, secrets_dir, dir_gid=4242, file_gid=1111)
+    )
+
+    SecretWriteRunner(workspace=tmp_path).handle(_request())
+
+    assert chowns, "the record kept the writer's own group"
+    _, uid, gid = chowns[-1]
+    assert uid == -1, "the owner is not changed, only the group"
+    assert gid == 4242, "the record must take the directory's group"
+
+
+def _stat_with_gid(real: Any, directory: Path, *, dir_gid: int, file_gid: int) -> Any:
+    """Report one gid for the directory and another for the files inside it."""
+    import os as _os
+
+    def _patched(self: Path, *args: Any, **kwargs: Any) -> Any:
+        result = real(self, *args, **kwargs)
+        wanted = dir_gid if self == directory else file_gid
+        return _os.stat_result(
+            (
+                result.st_mode,
+                result.st_ino,
+                result.st_dev,
+                result.st_nlink,
+                result.st_uid,
+                wanted,
+                result.st_size,
+                int(result.st_atime),
+                int(result.st_mtime),
+                int(result.st_ctime),
+            )
+        )
+
+    return _patched

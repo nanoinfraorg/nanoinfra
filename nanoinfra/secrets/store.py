@@ -57,6 +57,32 @@ class SecretsStoreUnreadableError(RuntimeError):
     """
 
 
+def _match_record_group(path: Path, root: Path) -> None:
+    """Give a new record the directory's group, when the directory shares with one.
+
+    The mode is only half the answer. A group-readable file in the *wrong* group is still
+    unreadable: the container's `secrets/` is owned by `nanoinfra-exec:nanoinfra-ipc` and the
+    gateway is in `nanoinfra-ipc`, so a file created by the executor with its own primary group
+    (`nanoinfra-exec`) reads 0640 and answers EACCES to the one account that needs the metadata.
+
+    A directory with setgid hands its group down and this is a no-op. The demo's directory
+    predates that, which is how a create through the executor succeeded and the next listing
+    raised -- **on the deployment and not in the test**, because the test's directory had setgid.
+
+    A refused chown is logged and left: the record is correct for its owner, and the metadata
+    listing degrading is better than a write that fails after the bytes landed.
+    """
+    try:
+        directory = root.stat()
+        if not directory.st_mode & stat.S_IRGRP:
+            return
+        if path.stat().st_gid == directory.st_gid:
+            return
+        os.chown(path, -1, directory.st_gid)
+    except OSError as exc:
+        logger.warning("could not give {} the group of {}: {}", path.name, root, exc)
+
+
 def _record_mode(root: Path) -> int:
     """The mode one secret file gets, from the mode of the directory holding it.
 
@@ -303,6 +329,7 @@ class SecretStore:
             # -- a brand-new secret file would otherwise inherit the process
             # umask (commonly 0644, world-readable on a shared host).
             os.chmod(path, _record_mode(self.root))
+            _match_record_group(path, self.root)
         except PermissionError as exc:
             # The directory guard above covers creating the directory. This covers writing in
             # one that already exists and belongs to another account, which is the container
