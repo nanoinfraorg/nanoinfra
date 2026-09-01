@@ -672,6 +672,17 @@ export function ThreadShell({
       .catch(() => {
         if (!cancelled) setMentionDiagrams([]);
       });
+    // Twice on purpose. The cached read answers immediately, so `@calendar:` is in the menu on the
+    // first keystroke; the refreshing read costs a token mint and a live call per connector, and
+    // until it landed the prefix simply was not there -- which reads as "connectors are not
+    // mentionable" rather than "wait a moment".
+    void fetchConnectorObjects(getToken(), "", { refresh: false })
+      .then((payload) => {
+        if (!cancelled && payload.objects.length) setMentionConnectorObjects(payload.objects);
+      })
+      .catch(() => {
+        // The refreshing read below is the one that matters; a cold cache is not a failure.
+      });
     void fetchConnectorObjects(getToken())
       .then((payload) => {
         if (!cancelled) setMentionConnectorObjects(payload.objects);
@@ -679,8 +690,8 @@ export function ThreadShell({
       .catch(() => {
         // A connector that cannot be listed offers no mentions, and the rest of the menu is
         // unaffected. Nothing here is worth a message: the Apps row is where a connector's
-        // failures are reported.
-        if (!cancelled) setMentionConnectorObjects([]);
+        // failures are reported. The cached objects above stay, because a listing that fails now
+        // does not mean the calendar stopped existing.
       });
     return () => {
       cancelled = true;

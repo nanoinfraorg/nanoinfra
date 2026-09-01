@@ -412,6 +412,54 @@ describe("ThreadShell", () => {
     );
   });
 
+  it("reads the cached connector objects rather than waiting on a live call", async () => {
+    // The refreshing read costs a token mint and a live API call per connector. Until it landed the
+    // composer had no `@calendar:` prefix and no way to say why, which reads as "connectors are not
+    // mentionable at all" -- the conclusion an operator actually reached.
+    await preloadMarkdownText();
+    const client = makeClient();
+    const urls: string[] = [];
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/settings/connectors/objects")) {
+        urls.push(url);
+        if (url.includes("refresh=0")) {
+          return Promise.resolve(httpJson({
+            objects: [{
+              connector: "google-calendar",
+              kind: "calendar",
+              id: "albertof@example.invalid",
+              name: "albertof@example.invalid",
+              detail: "",
+            }],
+            problems: [],
+          }));
+        }
+        // The live one never answers, which is the case this test is about.
+        return new Promise<Response>(() => {});
+      }
+      return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(wrap(
+      client,
+      <ThreadShell
+        session={{ key: "websocket:cached-objects", title: "Cached objects" }}
+        title="Cached objects"
+        onToggleSidebar={() => {}}
+        onNewChat={() => {}}
+      />,
+    ));
+
+    // Both reads go out: the cache answers now, the live one corrects it later. What the composer
+    // does with the objects is covered where the menu is -- `thread-composer.test.tsx` renders the
+    // `@calendar:` prefix and pins an id -- so this asserts the delivery that was missing.
+    await waitFor(() => expect(urls.some((url) => url.includes("refresh=0"))).toBe(true));
+
+    expect(urls.filter((url) => !url.includes("refresh=0")).length).toBe(1);
+  });
+
   it("keeps inferred file paths non-interactive when the availability probe fails", async () => {
     await preloadMarkdownText();
     const client = makeClient();

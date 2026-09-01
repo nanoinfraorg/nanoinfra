@@ -1071,9 +1071,14 @@ export async function fetchConnectors(
 export async function fetchConnectorObjects(
   token: string,
   base: string = "",
+  { refresh = true }: { refresh?: boolean } = {},
 ): Promise<ConnectorObjectsPayload> {
+  // `refresh=0` reads the recorded objects and calls nothing. The default costs one declared read
+  // per connector through the executor -- a token mint and a live API call -- which is seconds, and
+  // for that whole time the composer had no `@calendar:` prefix and no way to say why.
+  const query = refresh ? "" : "?refresh=0";
   return request<ConnectorObjectsPayload>(
-    `${base}/api/settings/connectors/objects`,
+    `${base}/api/settings/connectors/objects${query}`,
     token,
     undefined,
     API_READ_TIMEOUT_MS,
