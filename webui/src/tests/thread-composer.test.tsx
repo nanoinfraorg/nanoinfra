@@ -1931,6 +1931,36 @@ const MENTION_CALENDARS = [
     expect(screen.getByTestId("composer-cli-mention-blender")).toHaveTextContent("@blender");
   });
 
+  it("keeps every reference prefix when conversations compete for the same rows", () => {
+    // The palette holds ten rows and reserved two for prefixes. With `server:`, `diagram:` and a
+    // connector's `calendar:` that is one short, and the leftovers went to conversations first --
+    // so `@calendar:` vanished from a menu that had room for it. A missing prefix hides a whole
+    // capability; a missing conversation row hides one of many similar things.
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        servers={MENTION_SERVERS}
+        diagrams={MENTION_DIAGRAMS}
+        connectorObjects={MENTION_CALENDARS}
+        sessionMentions={Array.from({ length: 8 }, (_, index) => ({
+          session_key: `websocket:chat-${index}`,
+          name: `Chat-${index}`,
+          title: `Chat ${index}`,
+          channel: "websocket",
+          updated_at: "2026-08-31T00:00:00Z",
+        }))}
+      />,
+    );
+
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, { target: { value: "@", selectionStart: 1 } });
+
+    expect(screen.getByRole("option", { name: /server:/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /diagram:/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /calendar:/ })).toBeInTheDocument();
+  });
+
   it("offers a mention-only connector and sends its name with the turn", () => {
     // The connector's *objects* were already mentionable. This is the connector itself, for the
     // turn that needs its operations without pinning one calendar (#204).

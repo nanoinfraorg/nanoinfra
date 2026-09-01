@@ -1666,7 +1666,12 @@ export function ThreadComposer({
         }),
       }));
     const groups = [
-      { candidates: prefixCandidates, reserved: 2 },
+      // Every prefix, not two of them. These rows are how a capability is *discovered*, and the
+      // list is bounded by how many mention kinds the deployment has -- so cutting one hides a
+      // whole capability, while cutting a session row hides one of many similar things. With
+      // `server:`, `diagram:` and a connector's `calendar:`, a reserve of two dropped whichever
+      // sorted last and the leftovers went to conversations first.
+      { candidates: prefixCandidates, reserved: prefixCandidates.length },
       { candidates: connectorAppCandidates, reserved: 2 },
       { candidates: cliCandidates, reserved: 2 },
       { candidates: mcpCandidates, reserved: 2 },
