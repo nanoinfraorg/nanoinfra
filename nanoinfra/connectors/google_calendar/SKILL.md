@@ -6,12 +6,13 @@ description: Read and write events on a Google Calendar through the google-calen
 # Google Calendar
 
 Tools: `google_calendar_list_events`, `google_calendar_list_calendars`,
-`google_calendar_get_event`, `google_calendar_create_event`, `google_calendar_delete_event`.
+`google_calendar_get_event`, `google_calendar_create_event`, `google_calendar_update_event`,
+`google_calendar_delete_event`.
 
-The reads and the writes are enforced apart, not merely labelled: `create_event` and
-`delete_event` carry the `mutate.remote` capability class, so each asks a person in an
-interactive turn and needs a standing grant naming this connector to run unattended. The
-reads carry `read` and simply run.
+The reads and the writes are enforced apart, not merely labelled: `create_event`,
+`update_event` and `delete_event` carry the `mutate.remote` capability class, so each asks a
+person in an interactive turn and needs a standing grant naming this connector to run
+unattended. The reads carry `read` and simply run.
 
 ## Answering "what is on my calendar"
 
@@ -40,6 +41,20 @@ send mail to attendees. So:
 3. An all-day event uses `{"date": "2026-09-01"}` and never `dateTime`.
 4. If the call is refused, the refusal names what would permit it. Report that text — do not
    retry, and do not look for another route to the same write.
+
+## Changing an event
+
+`google_calendar_update_event` takes an `eventId` and the same `mutate.remote` class as creating
+one. It is a partial update: send only the fields to change, and anything you omit keeps its
+current value.
+
+1. Resolve the id and read the event first. The user names it ("move my 3pm to 4"), not an id,
+   and reading it is how you avoid pasting a whole event back when one field moved.
+2. Send only what changes. To move an event, send `start` and `end` and nothing else; the
+   summary, description and attendees stay. Sending a partial `start` object (a `dateTime` with
+   no matching `end`) makes an inconsistent event — change the pair.
+3. It writes to a calendar others see and may notify attendees, so state the specific change and
+   confirm it, the same as creating.
 
 ## Deleting an event
 

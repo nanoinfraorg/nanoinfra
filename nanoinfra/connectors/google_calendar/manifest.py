@@ -150,6 +150,37 @@ PLUGIN = ConnectorPlugin(
             },
         ),
         operation(
+            "update_event",
+            "mutate.remote",
+            "PATCH",
+            "/calendar/v3/calendars/{calendarId}/events/{eventId}",
+            returns=("id", "summary", "start", "end", "htmlLink"),
+            # PATCH, not PUT: a field left out is unchanged, not cleared. So sending
+            # only `start`/`end` moves an event and keeps its summary, description and
+            # attendees. A full replace would drop everything the call did not repeat.
+            description=(
+                "Change an existing event, by id. Send only the fields to change -- times are "
+                "RFC 3339 with an offset, or a date for an all-day event. A field left out keeps "
+                "its current value; read the event first if you are unsure what is there."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "calendarId": {
+                        "type": "string",
+                        "description": "Calendar id. Defaults to the configured one.",
+                    },
+                    "eventId": {"type": "string", "description": "Id of the event to change."},
+                    "summary": {"type": "string"},
+                    "description": {"type": "string"},
+                    "start": {"type": "object", "description": '{"dateTime": "..."} or {"date": "..."}'},
+                    "end": {"type": "object"},
+                    "attendees": {"type": "array", "items": {"type": "object"}},
+                },
+                "required": ["eventId"],
+            },
+        ),
+        operation(
             "delete_event",
             "mutate.remote",
             "DELETE",

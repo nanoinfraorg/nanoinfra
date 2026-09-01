@@ -94,6 +94,15 @@ def test_calendar_declares_two_classes(calendar: ConnectorPlugin) -> None:
     assert calendar.operation("create_event") is not None
 
 
+def test_update_event_is_a_partial_write_by_id(calendar: ConnectorPlugin) -> None:
+    op = calendar.operation("update_event")
+    assert op is not None
+    # A change is a write, and PATCH so an omitted field is unchanged rather than cleared.
+    assert op.capability_class == "mutate.remote"
+    assert op.method == "PATCH"
+    assert op.parameters["required"] == ["eventId"]
+
+
 def test_delete_event_is_a_write_by_id(calendar: ConnectorPlugin) -> None:
     op = calendar.operation("delete_event")
     assert op is not None
@@ -354,6 +363,23 @@ def test_a_get_puts_the_rest_in_the_query_and_a_post_in_the_body(
     write = prepare(calendar, creating, {"calendarId": "primary", "summary": "Standup"})
     assert write.body == {"summary": "Standup"}
     assert write.params == {}
+
+
+def test_a_patch_puts_the_changed_fields_in_the_body(calendar: ConnectorPlugin) -> None:
+    op = calendar.operation("update_event")
+    assert op is not None
+
+    prepared = prepare(
+        calendar,
+        op,
+        {"calendarId": "primary", "eventId": "evt-1", "summary": "Moved"},
+    )
+
+    assert prepared.method == "PATCH"
+    assert prepared.url.endswith("/calendars/primary/events/evt-1")
+    # Only the field to change rides in the body; the ids were consumed by the path.
+    assert prepared.body == {"summary": "Moved"}
+    assert prepared.params == {}
 
 
 def test_a_delete_reads_a_204_as_an_empty_result_and_carries_the_token(
