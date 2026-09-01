@@ -1670,7 +1670,12 @@ describe("ThreadShell", () => {
       expect(screen.getByText("partial answer completed while away")).toBeInTheDocument(),
     );
     expect(screen.queryByText("partial answer")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument();
+    // Awaited rather than asserted: the text arriving and the run state clearing are two
+    // independent updates, so a synchronous check here passes only while the runner is fast
+    // enough. That is what went red on CI while passing locally.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument(),
+    );
   });
 
   it("refreshes after opening when mounted while the socket is reconnecting", async () => {
@@ -2234,7 +2239,9 @@ describe("ThreadShell", () => {
       expect(screen.getByText("partial answer completed")).toBeInTheDocument(),
     );
     expect(screen.queryByText("partial answer")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument(),
+    );
   });
 
   it("does not let an older completed snapshot clear a run that starts in flight", async () => {
@@ -2398,7 +2405,9 @@ describe("ThreadShell", () => {
     expect(screen.getAllByText("canonical complete answer")).toHaveLength(1);
     expect(screen.queryByText(" delayed duplicate")).not.toBeInTheDocument();
     expect(screen.queryByText("canonical complete answer delayed duplicate")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument(),
+    );
   });
 
   it("does not revive a canonically completed run after switching chats", async () => {
@@ -2460,14 +2469,18 @@ describe("ThreadShell", () => {
 
     act(() => client._emitSessionUpdate("visibility-complete-a", "thread"));
     await waitFor(() => expect(screen.getByText("completed while hidden")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument(),
+    );
     expect(client.getRunStartedAt("visibility-complete-a")).toBeNull();
 
     rerender(view("visibility-complete-b"));
     await waitFor(() => expect(screen.getByText("other thread")).toBeInTheDocument());
     rerender(view("visibility-complete-a"));
     await waitFor(() => expect(screen.getByText("completed while hidden")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument(),
+    );
   });
 
   it("uses explicit completion ids when a completed turn has no assistant row", async () => {
@@ -2530,7 +2543,9 @@ describe("ThreadShell", () => {
         hasPendingToolCalls: false,
       }),
     ));
-    expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument(),
+    );
   });
 
   it("converges after reconnecting before the first assistant delta", async () => {
