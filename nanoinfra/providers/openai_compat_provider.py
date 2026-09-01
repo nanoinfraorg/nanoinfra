@@ -31,6 +31,7 @@ from nanoinfra.providers.base import (
     ProviderConversationState,
     ToolCallRequest,
     parse_tool_arguments,
+    prefix_cache_key,
     resolve_stream_idle_timeout_s,
     tool_arguments_json_for_replay,
 )
@@ -522,6 +523,11 @@ def _merge_responses_extra_body(
     return merged
 
 
+#: Namespace for deriving `prompt_cache_key` from a session key. Distinct from the xAI one, so the
+#: same chat presents a different opaque key to each provider.
+_PROMPT_CACHE_NAMESPACE = uuid.UUID("2b7d5c90-8e14-5a6f-b3d2-19c4f7a08e51")
+
+
 class OpenAICompatProvider(LLMProvider):
     """Unified provider for all OpenAI-compatible APIs.
 
@@ -865,6 +871,16 @@ class OpenAICompatProvider(LLMProvider):
             "model": model_name,
             "messages": self._sanitize_messages(self._sanitize_empty_content(messages)),
         }
+
+        # A routing hint, not a switch: OpenAI caches the longest matching prefix automatically and
+        # routes on a hash of the first 256 tokens, which for us is byte-identical across every
+        # chat -- so all of them land in one bucket and evict each other. One key per chat spreads
+        # them, which is the same fix `x-grok-conv-id` needed on the xAI path.
+        #
+        # Gated per provider because this is a body field on a path 42 providers share, and one
+        # that rejects an unknown field answers 400 rather than ignoring it.
+        if spec and spec.supports_prompt_cache_key:
+            kwargs["prompt_cache_key"] = prefix_cache_key(_PROMPT_CACHE_NAMESPACE)
 
         # GPT-5 and reasoning models (o1/o3/o4) reject temperature when
         # reasoning_effort is active.  Only include it when safe.

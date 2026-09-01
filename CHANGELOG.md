@@ -11,6 +11,12 @@ not here.
 
 ## [Unreleased]
 
+### Added
+
+- OpenAI requests carry `prompt_cache_key`, one key per chat, so its automatic prefix cache is
+  reached instead of every session landing in the bucket its first 256 tokens hash to. Opt-in per
+  provider: it is a body field, and a provider that rejects an unknown one answers 400.
+
 ## [1.6.1] — 2026-09-01
 
 ### Fixed

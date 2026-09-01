@@ -82,6 +82,12 @@ class ProviderSpec:
     # Provider supports cache_control on content blocks (e.g. Anthropic prompt caching)
     supports_prompt_caching: bool = False
 
+    # Provider accepts OpenAI's `prompt_cache_key`: a routing hint that sends requests sharing a
+    # prefix to the same backend, so its automatic cache is actually warm. Off by default because
+    # this is a body field, and 42 providers share the openai_compat path -- one that rejects an
+    # unknown field answers 400 rather than ignoring it, so it is opt-in per provider.
+    supports_prompt_cache_key: bool = False
+
     # How to inject the thinking on/off toggle into extra_body.
     # ""              — no extra_body needed (default)
     # "thinking_type" — {"thinking": {"type": "enabled"/"disabled"}}
@@ -389,6 +395,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         display_name="OpenAI",
         backend="openai_compat",
         supports_max_completion_tokens=True,
+        supports_prompt_cache_key=True,
     ),
     # OpenAI Codex: OAuth-based, dedicated provider
     ProviderSpec(

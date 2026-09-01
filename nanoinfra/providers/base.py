@@ -7,6 +7,7 @@ import json
 import os
 import re
 import time
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -678,6 +679,33 @@ class GenerationSettings:
 
 
 _SYNTHETIC_USER_CONTENT = "(conversation continued)"
+
+
+#: The cache key used when no turn is bound -- a background call, a probe. Per *process* rather than
+#: per request, because those calls still share a prefix with each other.
+_PROCESS_CACHE_KEY = str(uuid.uuid4())
+
+
+def prefix_cache_key(namespace: uuid.UUID) -> str:
+    """A cache key that is stable for the length of one chat.
+
+    Several providers cache the longest matching prompt prefix automatically and then need to be
+    told *which* cache a request belongs to, so it reaches the machine holding that prefix — xAI's
+    `x-grok-conv-id` header and OpenAI's `prompt_cache_key` parameter are the same idea. Given a key
+    that changes per request, both route every call to a different backend and the prefix is never
+    warm: measured on a live deployment, xAI reported 128 cached tokens on every call across four
+    calls sharing a byte-identical 17,300-token prefix, and 50% once the key was stable.
+
+    Derived from the session key rather than being the session key, so a chat id never travels to a
+    provider. `namespace` is per provider, so the same chat presents a different opaque key to each
+    one.
+    """
+    from nanoinfra.agent.tools.context import current_request_session_key
+
+    session_key = current_request_session_key()
+    if not session_key:
+        return _PROCESS_CACHE_KEY
+    return str(uuid.uuid5(namespace, session_key))
 
 
 class LLMProvider(ABC):
