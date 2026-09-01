@@ -482,6 +482,8 @@ export interface SendAttachment {
 export interface SendOptions {
   cliApps?: OutboundCliAppMention[];
   mcpPresets?: OutboundMcpPresetMention[];
+  /** Data connectors this turn named, by name (#204). */
+  connectors?: string[];
   sessionMentions?: SessionMention[];
   quotedContext?: string;
   workspaceScope?: WorkspaceScopePayload | null;

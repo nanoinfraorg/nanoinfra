@@ -23,6 +23,7 @@ import {
   fetchFilePreviewAvailability,
   fetchInstalledCliApps,
   fetchConnectorObjects,
+  fetchConnectors,
   fetchMcpPresets,
   fetchServers,
   fetchSettings,
@@ -41,6 +42,7 @@ import {
 import type { CanonicalRunSnapshot, StreamError } from "@/lib/nanoinfra-client";
 import { inferProviderFromModelName, providerDisplayLabel } from "@/lib/provider-brand";
 import type {
+  ConnectorInfo,
   ConnectorObject,
   ChatSummary,
   SettingsPayload,
@@ -656,6 +658,8 @@ export function ThreadShell({
   // against that cache at send time, so a menu entry that has gone stale is refused rather than
   // acted on -- the same posture as a renamed server.
   const [mentionConnectorObjects, setMentionConnectorObjects] = useState<ConnectorObject[]>([]);
+  // The connectors themselves, so `@<name>` can load a mention-only one for a turn (#204).
+  const [mentionConnectors, setMentionConnectors] = useState<ConnectorInfo[]>([]);
   useEffect(() => {
     let cancelled = false;
     void fetchServers(getToken())
@@ -676,6 +680,15 @@ export function ThreadShell({
     // first keystroke; the refreshing read costs a token mint and a live call per connector, and
     // until it landed the prefix simply was not there -- which reads as "connectors are not
     // mentionable" rather than "wait a moment".
+    void fetchConnectors(getToken())
+      .then((payload) => {
+        if (!cancelled) setMentionConnectors(payload.connectors);
+      })
+      .catch(() => {
+        // Reads config and the manifests, so a failure here means the settings API is down; the
+        // rest of the menu is unaffected and the Apps page is where that gets reported.
+        if (!cancelled) setMentionConnectors([]);
+      });
     void fetchConnectorObjects(getToken(), "", { refresh: false })
       .then((payload) => {
         if (!cancelled && payload.objects.length) setMentionConnectorObjects(payload.objects);
@@ -1369,6 +1382,7 @@ export function ThreadShell({
           cliApps={cliApps}
           servers={mentionServers}
           connectorObjects={mentionConnectorObjects}
+          connectors={mentionConnectors}
           diagrams={mentionDiagrams}
           mcpPresets={mcpPresets}
           sessions={mentionSessions}
@@ -1417,6 +1431,7 @@ export function ThreadShell({
           cliApps={cliApps}
           servers={mentionServers}
           connectorObjects={mentionConnectorObjects}
+          connectors={mentionConnectors}
           diagrams={mentionDiagrams}
           mcpPresets={mcpPresets}
           sessions={mentionSessions}

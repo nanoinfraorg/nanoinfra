@@ -30,7 +30,7 @@ from typing import Any, cast
 
 from nanoinfra.agent.tools.capabilities import READ
 from nanoinfra.config.connectors import ConnectorRuntimeConfig
-from nanoinfra.config.loader import load_config
+from nanoinfra.config.loader import load_config, save_config
 from nanoinfra.connectors import state as connector_state
 from nanoinfra.connectors.contracts import ConnectorOperation, ConnectorPlugin
 from nanoinfra.connectors.credentials import ConnectorCredential
@@ -169,6 +169,9 @@ def _row(
         "problem": problem,
         "credential": connector_cfg.credential if connector_cfg else "",
         "max_class": (connector_cfg.max_class if connector_cfg else None) or "",
+        # When its operations reach the prompt (#204). `mention` sends one advertised line and the
+        # schemas only for a turn that names the connector.
+        "attach": (getattr(connector_cfg, "attach", "always") if connector_cfg else "always"),
         "settings": dict(connector_cfg.settings) if connector_cfg else {},
         "defaults": dict(active.defaults) if active is not None else {},
         "official_url": plugin.setup.official_url if plugin.setup else "",
@@ -245,6 +248,30 @@ def webui_connectors_payload(workspace_path: Path | str | None = None) -> dict[s
         # must not have: enabling a connector gives a package a token and a capability class.
         "activation_key": "connectors.active",
     }
+
+
+def set_connector_attach(
+    name: str, attach: str, *, workspace_path: Path | str | None = None
+) -> dict[str, Any]:
+    """Set when this connector's operations reach the prompt, and return the fresh payload.
+
+    Writes config only. The live registry answers `available()` from the modes recorded at
+    registration, so the change lands on the next start -- the payload says so rather than letting
+    a row look applied while every prompt still carries the schemas.
+    """
+    if attach not in {"always", "mention"}:
+        raise ValueError(f"unknown attach mode {attach!r}")
+    config = load_config()
+    connector_cfg = config.connectors.connectors.get(name)
+    if connector_cfg is None:
+        raise KeyError(name)
+    # Narrowed for the type checker by the guard above, which is also the validation: an unknown
+    # mode must not reach config, where it would silently read as `always`.
+    connector_cfg.attach = "mention" if attach == "mention" else "always"
+    save_config(config)
+    payload = webui_connectors_payload(workspace_path)
+    payload["requires_restart"] = True
+    return payload
 
 
 def _first_read_operation(entry: ActiveConnector) -> ConnectorOperation | None:

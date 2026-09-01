@@ -59,6 +59,7 @@ from nanoinfra.bus.queue import MessageBus
 from nanoinfra.bus.runtime_events import RuntimeEventBus
 from nanoinfra.command import CommandContext, CommandRouter, register_builtin_commands
 from nanoinfra.config.schema import AgentDefaults, ModelPresetConfig
+from nanoinfra.connectors import attachment as connector_attachment
 from nanoinfra.llm_usage.context import llm_usage_source, source_from_request
 from nanoinfra.providers.base import LLMProvider, LLMUsage, ProviderConversationState
 from nanoinfra.providers.factory import ProviderSnapshot
@@ -837,6 +838,7 @@ class AgentLoop:
             unified_session=self._unified_session,
             declared_skills=automation_declared_skills(ctx.msg.metadata),
             mcp_advertisement=mcp_tools.advertisement(self.tools),
+            connector_advertisement=connector_attachment.advertisement(self.tools),
         )
         ctx.prompt_manifest = self._prompt_manifest_for(ctx, messages)
         return messages

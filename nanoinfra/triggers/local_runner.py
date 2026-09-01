@@ -14,6 +14,7 @@ from nanoinfra.agent.turn_delivery import AUTOMATION_WITHHOLD_DELIVERY_META
 from nanoinfra.automations.delivery import normalize_policy, should_deliver
 from nanoinfra.automations.state import AutomationDeliveryLog, response_fingerprint
 from nanoinfra.bus.events import InboundMessage, OutboundMessage
+from nanoinfra.connectors.attachment import ATTACHED_CONNECTORS_META
 from nanoinfra.runtime_context import RUNTIME_CONTEXT_INPUT_META
 from nanoinfra.session.automation_turns import (
     AUTOMATION_PRESETS_META,
@@ -182,6 +183,8 @@ async def _deliver_delivery(
         # The same key a mention writes, so an unattended turn reaches a `mention` server the only
         # way it can: by having declared it in advance (#204).
         metadata[AUTOMATION_PRESETS_META] = list(trigger.mcp_presets)
+    if trigger.connectors:
+        metadata[ATTACHED_CONNECTORS_META] = list(trigger.connectors)
     if reference_context is not None:
         metadata[RUNTIME_CONTEXT_INPUT_META] = [reference_context]
     withholding = policy != "always" and publish is not None

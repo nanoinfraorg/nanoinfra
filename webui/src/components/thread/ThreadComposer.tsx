@@ -55,7 +55,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { ConnectorObject } from "@/lib/types";
+import type { ConnectorInfo, ConnectorObject } from "@/lib/types";
 import type { DiagramSummary } from "@/components/diagrams/diagramTypes";
 import type { ServerSummary } from "@/lib/api";
 
@@ -207,6 +207,8 @@ interface ThreadComposerProps {
   servers?: ServerSummary[];
   /** Mentionable objects of the active data connectors, from /api/settings/connectors/objects. */
   connectorObjects?: ConnectorObject[];
+  /** The active data connectors themselves, so `@<name>` can load one for a turn (#204). */
+  connectors?: ConnectorInfo[];
   diagrams?: DiagramSummary[];
   skills?: SkillSummary[];
   onStop?: () => void;
@@ -373,6 +375,11 @@ type MentionCandidate = {
       reference: ResourceMention;
       detail: string;
     }
+  /**
+   * The connector itself rather than one of its objects (#204): choosing it types `@<name>`, which
+   * loads that connector's operations for the turn without pinning a particular calendar.
+   */
+  | { kind: "connectorApp"; detail: string }
   /** A discoverability entry on a bare `@`: choosing it types the prefix. Nothing is referenced. */
   | { kind: "prefix"; prefix: MentionKind; detail: string }
 );
@@ -1005,6 +1012,7 @@ export function ThreadComposer({
   mcpPresets = [],
   servers = [],
   connectorObjects = [],
+  connectors = [],
   diagrams = [],
   sessions = [],
   skills = [],
@@ -1470,8 +1478,9 @@ export function ThreadComposer({
       mcpPresets,
       selectedSessionMentions,
       resourceTargets,
+      connectors,
     ),
-    [cliApps, mcpPresets, resourceTargets, selectedSessionMentions, value],
+    [cliApps, connectors, mcpPresets, resourceTargets, selectedSessionMentions, value],
   );
   const sessionDragInsertion = sessionDragPreview
     ? mentionInsertion(
@@ -1641,8 +1650,24 @@ export function ThreadComposer({
         logoUrl: preset.logo_url ?? null,
         initials: mcpPresetInitials(preset),
       }));
+    // The connector itself, beside its objects: `@calendar:<id>` pins one calendar, `@google-
+    // calendar` loads the operations without choosing one. Only the mention-only ones, because an
+    // `always` connector is already in the prompt and a row offering to load it would be noise.
+    const connectorAppCandidates: MentionCandidate[] = connectors
+      .filter((connector) => connector.state === "active" && connector.attach === "mention")
+      .filter((connector) => [connector.name, connector.display_name]
+        .join(" ").toLowerCase().includes(cliAppMention.query))
+      .map((connector) => ({
+        kind: "connectorApp",
+        name: connector.name,
+        displayName: connector.display_name || connector.name,
+        detail: t("thread.composer.mentions.connectorAppHint", {
+          defaultValue: "Load its operations for this turn",
+        }),
+      }));
     const groups = [
       { candidates: prefixCandidates, reserved: 2 },
+      { candidates: connectorAppCandidates, reserved: 2 },
       { candidates: cliCandidates, reserved: 2 },
       { candidates: mcpCandidates, reserved: 2 },
       { candidates: sessionCandidates, reserved: 4 },
@@ -1653,7 +1678,10 @@ export function ThreadComposer({
       remaining -= count;
       return count;
     });
-    for (const index of [3, 1, 2, 0]) {
+    // Sessions first for the spare slots, then the capability groups in order. Written as indices
+    // into `groups`, so adding a group means adding it here too -- a literal list of positions is
+    // what made the fifth group silently unreachable when it was inserted.
+    for (const index of [4, 2, 3, 1, 0]) {
       const extra = Math.min(remaining, groups[index].candidates.length - counts[index]);
       counts[index] += extra;
       remaining -= extra;
@@ -1664,9 +1692,13 @@ export function ThreadComposer({
     availableSessionMentions,
     cliAppMention,
     cliApps,
+    connectorKinds,
+    connectorObjects,
+    connectors,
     diagrams,
     mcpPresets,
     servers,
+    t,
   ]);
 
   const showCliAppMenu = filteredMentionCandidates.length > 0;
@@ -1680,6 +1712,14 @@ export function ThreadComposer({
       if (segment.kind !== "cli" || seen.has(segment.app.name)) return [];
       seen.add(segment.app.name);
       return [segment.app];
+    });
+  }, [mentionSegments]);
+  const activeConnectorMentions = useMemo(() => {
+    const seen = new Set<string>();
+    return mentionSegments.flatMap((segment) => {
+      if (segment.kind !== "connectorApp" || seen.has(segment.connector.name)) return [];
+      seen.add(segment.connector.name);
+      return [segment.connector.name];
     });
   }, [mentionSegments]);
   const activeMcpPresetMentions = useMemo(() => {
@@ -2271,12 +2311,16 @@ export function ThreadComposer({
     const options: SendOptions | undefined =
       attachedCliApps.length > 0
       || attachedMcpPresets.length > 0
+      || activeConnectorMentions.length > 0
       || activeSessionMentions.length > 0
       || liveResourceMentions.length > 0
       || normalizedQuotedContext
         ? {
             ...(attachedCliApps.length > 0 ? { cliApps: attachedCliApps } : {}),
             ...(attachedMcpPresets.length > 0 ? { mcpPresets: attachedMcpPresets } : {}),
+            ...(activeConnectorMentions.length > 0
+              ? { connectors: activeConnectorMentions }
+              : {}),
             ...(activeSessionMentions.length > 0
               ? { sessionMentions: activeSessionMentions }
               : {}),
@@ -2329,6 +2373,7 @@ export function ThreadComposer({
     onQuotedContextChange?.(null);
   }, [
     activeCliMentionApps,
+    activeConnectorMentions,
     activeMcpPresetMentions,
     activeSessionMentions,
     canSend,
@@ -3193,11 +3238,25 @@ function CliAppMentionPalette({
     layout.maxHeight - SLASH_PALETTE_CHROME_PX,
   );
   const listRef = useSelectedOptionScroll(selectedIndex);
-  const groupedCandidates = (["prefix", "cli", "mcp", "session", "server", "diagram", "connector"] as const)
+  // Every kind, and a kind missing from this list is *silently dropped* -- the candidate is built,
+  // budgeted and then rendered by nobody. That is how the connector row was invisible after the
+  // rest of it worked, so a new kind belongs here as well as in the group budget above.
+  const groupedCandidates = ([
+    "prefix",
+    "connectorApp",
+    "cli",
+    "mcp",
+    "session",
+    "server",
+    "diagram",
+    "connector",
+  ] as const)
     .map((kind) => ({
       kind,
       label: kind === "prefix"
         ? t("thread.composer.mentions.referenceGroup", { defaultValue: "Reference" })
+        : kind === "connectorApp"
+        ? t("thread.composer.mentions.connectorAppGroup", { defaultValue: "Data connectors" })
         : kind === "session"
         ? t("thread.composer.mentions.sessionGroup")
         : kind === "cli"
@@ -3237,11 +3296,16 @@ function CliAppMentionPalette({
               const selected = index === selectedIndex;
               const name = candidate.name;
               const resource = candidate.kind === "server" || candidate.kind === "diagram"
-                || candidate.kind === "connector" || candidate.kind === "prefix";
+                || candidate.kind === "connector" || candidate.kind === "prefix"
+                || candidate.kind === "connectorApp";
               const typeLabel = candidate.kind === "cli"
                 ? t("thread.composer.mentions.cliBadge")
                 : candidate.kind === "mcp"
                   ? t("thread.composer.mentions.mcpBadge")
+                  : candidate.kind === "connectorApp"
+                  ? t("thread.composer.mentions.connectorAppBadge", {
+                      defaultValue: "Connector",
+                    })
                   : candidate.kind === "prefix"
                     ? t("thread.composer.mentions.referenceBadge", { defaultValue: "Reference" })
                     : candidate.kind === "server"

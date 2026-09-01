@@ -88,6 +88,14 @@ class ConnectorConfig(Base):
     # the mismatch named, so a third-party connector capped at `read` offers no writes
     # however its manifest is written.
     max_class: ConnectorClass | None = None
+    # When this connector's tool schemas reach the prompt (#204). `always` is what every
+    # deployment did before the field existed. `mention` sends one advertised line instead, and
+    # the schemas only for a turn that names the connector -- either `@<name>` or a `@<kind>:<id>`
+    # object of one of its kinds, because pinning a calendar names the calendar connector.
+    #
+    # Not the same as removing it from `active`: a `mention` connector keeps its credential, its
+    # grants and its operation list, and is one word away.
+    attach: Literal["always", "mention"] = "always"
     settings: dict[str, str] = Field(default_factory=dict)
 
 

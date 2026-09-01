@@ -42,6 +42,10 @@ from nanoinfra.bus.queue import MessageBus
 from nanoinfra.channels.base import BaseChannel
 from nanoinfra.command.builtin import builtin_command_starts_agent_turn
 from nanoinfra.config.schema import Base
+from nanoinfra.connectors.attachment import (
+    ATTACHED_CONNECTORS_META,
+    normalize_connector_mentions,
+)
 from nanoinfra.diagrams.changes import DiagramChange, subscribe_diagram_changes
 from nanoinfra.providers.base import LLMUsage
 from nanoinfra.runtime_context import (
@@ -1379,6 +1383,12 @@ class WebSocketChannel(BaseChannel):
             mcp_presets = normalize_mcp_preset_mentions(envelope.get("mcp_presets"))
             if mcp_presets:
                 metadata["mcp_presets"] = mcp_presets
+            # The connectors this turn named (#204). Filtered against what is actually active, so a
+            # client cannot name one into existence -- whether a connector *may* be used stays
+            # config's answer, and this only records that the operator asked for it.
+            attached_connectors = normalize_connector_mentions(envelope.get("connectors"))
+            if attached_connectors:
+                metadata[ATTACHED_CONNECTORS_META] = attached_connectors
             session_mentions: list[SessionMention] = []
             if (
                 trusted_webui

@@ -144,6 +144,7 @@ import {
   runAutomationAction,
   runCliAppAction,
   runConnectorTest,
+  setConnectorAttach,
   runMcpPresetAction,
   saveCustomMcpServer,
   startApiService,
@@ -1103,6 +1104,31 @@ export function SettingsView({
         // row reads it back from the payload rather than from this component's state.
         const refreshed = await fetchConnectors(getToken());
         setConnectors(refreshed);
+      } catch (err) {
+        setConnectorTestResults((current) => ({
+          ...current,
+          [name]: { ok: false, message: (err as Error).message },
+        }));
+      } finally {
+        setConnectorAction(null);
+      }
+    },
+    [getToken],
+  );
+
+  const handleConnectorAttachChange = useCallback(
+    async (name: string, attach: "always" | "mention") => {
+      setConnectorAction(name);
+      try {
+        // The payload comes back from the write, so the row reads its new state from config
+        // rather than from this component guessing what the write did.
+        const payload = await setConnectorAttach(getToken(), name, attach);
+        setConnectors(payload);
+        if (payload.requires_restart) {
+          // The Apps banner reads the `runtime` section, which is the one the registry belongs to:
+          // `available()` answers from the modes recorded when the connector tools registered.
+          setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
+        }
       } catch (err) {
         setConnectorTestResults((current) => ({
           ...current,
@@ -2456,6 +2482,7 @@ export function SettingsView({
             connectorActionKey={connectorAction}
             connectorTestResults={connectorTestResults}
             onConnectorTest={handleConnectorTest}
+            onConnectorAttachChange={handleConnectorAttachChange}
             onConnectorReload={handleConnectorReload}
             onConnectorConnect={handleConnectorConnect}
             query={appsQuery}
@@ -8439,6 +8466,7 @@ function AppsCatalogSettings({
   connectorActionKey,
   connectorTestResults,
   onConnectorTest,
+  onConnectorAttachChange,
   onConnectorReload,
   onConnectorConnect,
   query,
@@ -8480,6 +8508,7 @@ function AppsCatalogSettings({
   connectorActionKey: string | null;
   connectorTestResults: Record<string, { ok: boolean; message: string }>;
   onConnectorTest: (name: string) => void;
+  onConnectorAttachChange: (name: string, attach: "always" | "mention") => void;
   onConnectorReload: () => void;
   onConnectorConnect: (
     name: string,
@@ -8677,6 +8706,7 @@ function AppsCatalogSettings({
                   busy={connectorActionKey === item.connector.name}
                   testResult={connectorTestResults?.[item.connector.name] ?? null}
                   onTest={onConnectorTest}
+                  onAttachChange={onConnectorAttachChange}
                   onConnect={onConnectorConnect}
                 />
               ) : item.kind === "cli" ? (

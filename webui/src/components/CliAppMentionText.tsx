@@ -7,7 +7,7 @@ import {
 } from "@/components/InlineTokenHighlight";
 import { useLogoFallback } from "@/hooks/useLogoFallback";
 import { logoFallbackUrls } from "@/lib/provider-brand";
-import type { CliAppInfo, McpPresetInfo, SessionMention } from "@/lib/types";
+import type { CliAppInfo, ConnectorInfo, McpPresetInfo, SessionMention } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type CliAppMentionSegment =
@@ -32,6 +32,7 @@ export interface ResourceMentionTarget {
 export type CapabilityMentionSegment =
   | CliAppMentionSegment
   | { kind: "mcp"; text: string; preset: McpPresetInfo }
+  | { kind: "connectorApp"; text: string; connector: ConnectorInfo }
   | { kind: "session"; text: string; mention: SessionMention }
   | { kind: "resource"; text: string; resource: ResourceMentionTarget };
 
@@ -74,6 +75,7 @@ export function splitCapabilityMentionSegments(
   mcpPresets: McpPresetInfo[] = [],
   sessionMentions: SessionMention[] = [],
   resources: ResourceMentionTarget[] = [],
+  connectors: ConnectorInfo[] = [],
 ): CapabilityMentionSegment[] {
   if (
     !value
@@ -82,6 +84,7 @@ export function splitCapabilityMentionSegments(
       && mcpPresets.length === 0
       && sessionMentions.length === 0
       && resources.length === 0
+      && connectors.length === 0
     )
   ) {
     return value ? [{ kind: "text", text: value }] : [];
@@ -92,9 +95,14 @@ export function splitCapabilityMentionSegments(
       .map((app) => [app.name.toLowerCase(), app]),
   );
   const mcpPresetsByName = new Map(
-    mcpPresets
-      .filter((preset) => preset.installed && preset.configured)
-      .map((preset) => [preset.name.toLowerCase(), preset]),
+    mcpPresets.filter(mentionableMcpPreset).map((preset) => [preset.name.toLowerCase(), preset]),
+  );
+  // Only the active ones. A connector that did not activate registers no tools, so naming it
+  // attaches nothing and the token would claim otherwise.
+  const connectorsByName = new Map(
+    connectors
+      .filter((connector) => connector.state === "active")
+      .map((connector) => [connector.name.toLowerCase(), connector]),
   );
   const sessionsByName = new Map(
     sessionMentions.map((mention) => [mention.name.toLowerCase(), mention]),
@@ -110,6 +118,7 @@ export function splitCapabilityMentionSegments(
     && mcpPresetsByName.size === 0
     && sessionsByName.size === 0
     && resourcesByToken.size === 0
+    && connectorsByName.size === 0
   ) {
     return [{ kind: "text", text: value }];
   }
@@ -152,8 +161,11 @@ export function splitCapabilityMentionSegments(
     const key = name.toLowerCase();
     const app = resource ? null : cliAppsByName.get(key);
     const preset = resource || app ? null : mcpPresetsByName.get(key);
-    const session = resource || app || preset ? null : sessionsByName.get(key);
-    if (!resource && !app && !preset && !session) continue;
+    const connector = resource || app || preset ? null : connectorsByName.get(key);
+    const session = resource || app || preset || connector
+      ? null
+      : sessionsByName.get(key);
+    if (!resource && !app && !preset && !connector && !session) continue;
 
     const mentionStart = match.index + prefix.length;
     const mentionEnd = mentionStart + name.length + 1;
@@ -170,6 +182,12 @@ export function splitCapabilityMentionSegments(
       segments.push({ kind: "cli", text: value.slice(mentionStart, mentionEnd), app });
     } else if (preset) {
       segments.push({ kind: "mcp", text: value.slice(mentionStart, mentionEnd), preset });
+    } else if (connector) {
+      segments.push({
+        kind: "connectorApp",
+        text: value.slice(mentionStart, mentionEnd),
+        connector,
+      });
     } else if (session) {
       segments.push({
         kind: "session",
@@ -254,7 +272,47 @@ export function CapabilityMentionToken({
       />
     );
   }
+  if (segment.kind === "connectorApp") {
+    return (
+      <ConnectorMentionToken
+        connector={segment.connector}
+        label={segment.text}
+        variant={variant}
+      />
+    );
+  }
   return <SessionMentionToken mention={segment.mention} label={segment.text} variant={variant} />;
+}
+
+/**
+ * `@google-calendar`: the connector itself, not one of its objects (#204).
+ *
+ * Plain rather than logo-bearing, unlike the MCP token: a connector's row carries a shield, not a
+ * brand mark, and inventing one here would be the only place in the UI that claimed to have it.
+ */
+export function ConnectorMentionToken({
+  connector,
+  label,
+  variant,
+}: {
+  connector: ConnectorInfo;
+  label: string;
+  variant: "composer" | "message";
+}) {
+  const { t } = useTranslation();
+  const testIdPrefix = variant === "composer" ? "composer" : "message";
+  return (
+    <InlineTokenHighlight
+      testId={`${testIdPrefix}-connector-app-mention-${connector.name}`}
+      title={t("thread.composer.mentions.connectorTitle", {
+        name: connector.display_name || connector.name,
+        defaultValue: "{{name}} — its operations load for this turn",
+      })}
+      color={INLINE_TOKEN_HIGHLIGHT_COLOR}
+    >
+      {label}
+    </InlineTokenHighlight>
+  );
 }
 
 /**

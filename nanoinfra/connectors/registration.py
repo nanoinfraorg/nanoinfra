@@ -16,6 +16,10 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from nanoinfra.config.connectors import ConnectorRuntimeConfig
+from nanoinfra.connectors.attachment import (
+    ConnectorAttachment,
+    set_connector_attachments,
+)
 from nanoinfra.connectors.setup import resolve_active, startup_summary
 from nanoinfra.connectors.tools import build_tools
 
@@ -61,6 +65,7 @@ def register_connector_tools(
         # stale record here is what made a payload say a reload was unnecessary when the
         # registry held nothing.
         _REGISTERED.clear()
+        set_connector_attachments({})
         return []
 
     from nanoinfra.agent.tools.server_execution import default_socket_path
@@ -74,6 +79,17 @@ def register_connector_tools(
     # the executor once.
     socket_path = getattr(ctx, "executor_socket", None) or default_socket_path()
     client = ExecutorClient(socket_path)
+
+    # Recorded from the same resolution that registers the tools, so `available()` cannot consult
+    # a mode for a connector that is not there (#204).
+    set_connector_attachments({
+        entry.name: ConnectorAttachment(
+            name=entry.name,
+            attach=getattr(cfg.connectors.get(entry.name), "attach", "always") or "always",
+            kinds=frozenset(mention.kind for mention in entry.plugin.mentions),
+        )
+        for entry in active
+    })
 
     names: list[str] = []
     for entry in active:

@@ -19,6 +19,7 @@ from nanoinfra.automations.commissioning import COMMISSIONING_TURN_META
 from nanoinfra.automations.delivery import normalize_policy, should_deliver
 from nanoinfra.automations.state import AutomationDeliveryLog, response_fingerprint
 from nanoinfra.bus.events import InboundMessage, OutboundMessage
+from nanoinfra.connectors.attachment import ATTACHED_CONNECTORS_META
 from nanoinfra.cron.service import CronJobTerminalError
 from nanoinfra.cron.session_delivery import origin_delivery_context
 from nanoinfra.cron.session_turns import CRON_DEFER_UNTIL_IDLE_META, CRON_TRIGGER_META
@@ -159,6 +160,8 @@ def build_bound_turn(
         # The same key a mention writes, so an unattended turn reaches a `mention` server the only
         # way it can: by having declared it in advance (#204).
         metadata[AUTOMATION_PRESETS_META] = list(job.mcp_presets)
+    if job.connectors:
+        metadata[ATTACHED_CONNECTORS_META] = list(job.connectors)
     if commissioning_id is not None:
         metadata[COMMISSIONING_TURN_META] = commissioning_id
     return BoundTurn(

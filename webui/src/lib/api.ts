@@ -1068,6 +1068,19 @@ export async function fetchConnectors(
   );
 }
 
+export async function setConnectorAttach(
+  token: string,
+  name: string,
+  attach: "always" | "mention",
+  base: string = "",
+): Promise<ConnectorsPayload> {
+  const query = new URLSearchParams({ name, attach });
+  return request<ConnectorsPayload>(
+    `${base}/api/settings/connectors/attach?${query}`,
+    token,
+  );
+}
+
 export async function fetchConnectorObjects(
   token: string,
   base: string = "",

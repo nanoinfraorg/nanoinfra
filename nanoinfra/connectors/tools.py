@@ -85,6 +85,17 @@ class ConnectorOperationTool(Tool):
         """`connector:<name>`, so the prompt manifest can attribute this schema (#203)."""
         return f"connector:{self._plugin.name}"
 
+    def available(self) -> bool:
+        """Whether this operation's schema goes in the current request (#204).
+
+        `always` -- the default and every deployment that predates the field -- answers yes. A
+        `mention` connector answers yes only for a turn that named it, and the system prompt carries
+        a line saying it exists so the model can ask rather than substitute something worse.
+        """
+        from nanoinfra.connectors.attachment import is_attached
+
+        return is_attached(self._plugin.name)
+
     @property
     def name(self) -> str:
         return self._name

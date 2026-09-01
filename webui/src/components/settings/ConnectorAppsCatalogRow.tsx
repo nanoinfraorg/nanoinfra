@@ -19,7 +19,7 @@
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, ChevronDown, Link2, PlayCircle, ShieldAlert, ShieldCheck } from "lucide-react";
+import { AtSign, Check, ChevronDown, Link2, PlayCircle, ShieldAlert, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +53,7 @@ export function ConnectorAppsCatalogRow({
   busy,
   testResult,
   onTest,
+  onAttachChange,
   onConnect,
   className,
 }: {
@@ -60,6 +61,8 @@ export function ConnectorAppsCatalogRow({
   busy: boolean;
   testResult: { ok: boolean; message: string } | null;
   onTest: (name: string) => void;
+  /** Set when this row may change when the connector's operations reach the prompt (#204). */
+  onAttachChange?: (name: string, attach: "always" | "mention") => void;
   onConnect?: (
     name: string,
     values: { clientId: string; clientSecret: string; account: string },
@@ -179,6 +182,28 @@ export function ConnectorAppsCatalogRow({
               {connector.acts_as
                 ? tx("settings.connectors.reconnect", "Re-authorise")
                 : tx("settings.connectors.connect", "Connect")}
+            </Button>
+          ) : null}
+          {/* The middle setting, the same one an MCP server has (#204): active, one word away, and
+              its operations in no prompt that did not ask for them. */}
+          {onAttachChange && active ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() =>
+                onAttachChange(
+                  connector.name,
+                  connector.attach === "mention" ? "always" : "mention",
+                )
+              }
+              className="h-8 rounded-full px-3 text-[12px] font-semibold"
+            >
+              <AtSign className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+              {connector.attach === "mention"
+                ? tx("settings.connectors.attachAlways", "Load every turn")
+                : tx("settings.connectors.attachOnMention", "Load on mention")}
             </Button>
           ) : null}
           {connector.testable ? (

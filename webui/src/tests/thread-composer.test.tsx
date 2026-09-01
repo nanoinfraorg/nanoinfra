@@ -1931,6 +1931,61 @@ const MENTION_CALENDARS = [
     expect(screen.getByTestId("composer-cli-mention-blender")).toHaveTextContent("@blender");
   });
 
+  it("offers a mention-only connector and sends its name with the turn", () => {
+    // The connector's *objects* were already mentionable. This is the connector itself, for the
+    // turn that needs its operations without pinning one calendar (#204).
+    const onSend = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={onSend}
+        placeholder="Type your message..."
+        connectors={[{
+          name: "google-calendar",
+          display_name: "Google Calendar",
+          description: "Read and write events.",
+          state: "active",
+          attach: "mention",
+        } as never]}
+      />,
+    );
+
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, { target: { value: "use @goo", selectionStart: 8 } });
+
+    expect(screen.getByRole("option", { name: /google-calendar/i })).toBeInTheDocument();
+
+    fireEvent.keyDown(input, { key: "Tab" });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSend).toHaveBeenCalledWith(
+      "use @google-calendar",
+      undefined,
+      expect.objectContaining({ connectors: ["google-calendar"] }),
+    );
+  });
+
+  it("does not offer a connector that already loads every turn", () => {
+    // Its operations are in the prompt already, so a row offering to load it is noise.
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        connectors={[{
+          name: "google-calendar",
+          display_name: "Google Calendar",
+          description: "Read and write events.",
+          state: "active",
+          attach: "always",
+        } as never]}
+      />,
+    );
+
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, { target: { value: "use @goo", selectionStart: 8 } });
+
+    expect(screen.queryByRole("option", { name: /google-calendar/i })).toBeNull();
+  });
+
   it("does not offer a paused MCP server, because mentioning it attaches nothing", () => {
     // The palette filtered on `installed && configured` and a paused server (#206) is both. So it
     // was offered, and picking it read as an attachment on a server nanoinfra never connected --

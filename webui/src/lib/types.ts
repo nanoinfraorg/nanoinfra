@@ -1460,6 +1460,14 @@ export interface ConnectorInfo {
   last_error_at: string;
   authorize_command: string;
   testable: boolean;
+  /**
+   * When this connector's operation schemas reach the prompt (#204).
+   *
+   * `mention` sends one advertised line instead, and the schemas only for a turn that names the
+   * connector -- `@<name>`, or a `@<kind>:<id>` object of one of its kinds, because pinning a
+   * calendar names the calendar connector.
+   */
+  attach?: "always" | "mention";
 }
 
 export interface ConnectorObject {
@@ -1497,6 +1505,8 @@ export interface ConnectorsPayload {
   missing_tools?: string[];
   stale_tools?: string[];
   reload?: { ok: boolean; message: string; requires_restart?: boolean };
+  /** True after a change the live registry only picks up at the next start (#204). */
+  requires_restart?: boolean;
 }
 
 export interface ConnectorTestResult {

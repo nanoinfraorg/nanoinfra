@@ -101,6 +101,58 @@ function renderRow(info: ConnectorInfo, onTest = vi.fn()) {
   return onTest;
 }
 
+describe("the attach control", () => {
+  it("offers to load on mention while the connector loads every turn", () => {
+    const onAttachChange = vi.fn();
+    render(
+      <ConnectorAppsCatalogRow
+        connector={connector()}
+        busy={false}
+        testResult={null}
+        onTest={vi.fn()}
+        onAttachChange={onAttachChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Load on mention" }));
+
+    expect(onAttachChange).toHaveBeenCalledWith("google-calendar", "mention");
+  });
+
+  it("offers the way back when it already waits to be named", () => {
+    const onAttachChange = vi.fn();
+    render(
+      <ConnectorAppsCatalogRow
+        connector={connector({ attach: "mention" })}
+        busy={false}
+        testResult={null}
+        onTest={vi.fn()}
+        onAttachChange={onAttachChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Load every turn" }));
+
+    expect(onAttachChange).toHaveBeenCalledWith("google-calendar", "always");
+  });
+
+  it("does not offer it on a connector that is not active", () => {
+    // Naming an inactive connector attaches nothing: it registered no operations. A control here
+    // would be a switch with no wire behind it.
+    render(
+      <ConnectorAppsCatalogRow
+        connector={connector({ state: "inactive" })}
+        busy={false}
+        testResult={null}
+        onTest={vi.fn()}
+        onAttachChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /Load on mention|Load every turn/ })).toBeNull();
+  });
+});
+
 describe("connector row", () => {
   it("keeps the connector's name, which is the one thing a row cannot lose", () => {
     // It lost it: the badge held `shrink-0` and the name held `truncate`, so in a half-width grid

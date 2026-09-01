@@ -53,6 +53,7 @@ from nanoinfra.webui.connector_consent import start_consent
 from nanoinfra.webui.connectors_api import (
     connector_objects,
     connector_test,
+    set_connector_attach,
     webui_connectors_payload,
 )
 from nanoinfra.webui.http_utils import case_insensitive_header
@@ -329,6 +330,9 @@ class WebUISettingsRouter:
             return await self._handle_settings_connector_test(request)
         if path == "/api/settings/connectors/objects":
             return await self._handle_settings_connector_objects(request)
+        # Connected, and its operations wait to be asked for (#204).
+        if path == "/api/settings/connectors/attach":
+            return await self._handle_settings_connector_attach(request)
         if path == "/api/settings/connectors/reload":
             return await self._handle_settings_connector_reload(request)
         if path == "/api/settings/connectors/connect":
@@ -1031,6 +1035,31 @@ class WebUISettingsRouter:
             webui_connectors_payload, self._deployment_workspace()
         )
         return self._json_response({**payload, "reload": result})
+
+    async def _handle_settings_connector_attach(self, request: WsRequest) -> Response:
+        """Set when a connector's operations reach the prompt (#204)."""
+        if not self._authorized(request):
+            return self._unauthorized()
+        query = self._query(request)
+        name = (_query_first(query, "name") or "").strip()
+        attach = (_query_first(query, "attach") or "").strip().lower()
+        if not name:
+            return self._error_response(400, "name is required")
+        if attach not in {"always", "mention"}:
+            return self._error_response(400, "attach must be 'always' or 'mention'")
+        try:
+            payload = await asyncio.to_thread(
+                set_connector_attach,
+                name,
+                attach,
+                workspace_path=self._deployment_workspace(),
+            )
+        except KeyError:
+            return self._error_response(404, "unknown connector")
+        except Exception:
+            self.logger.exception("failed to set connector attach mode")
+            return self._error_response(500, "failed to set connector attach mode")
+        return self._json_response(payload)
 
     async def _handle_settings_connector_objects(self, request: WsRequest) -> Response:
         """The objects a person may pin with a mention, for the composer's autocomplete.

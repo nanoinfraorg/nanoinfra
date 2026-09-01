@@ -903,6 +903,8 @@ export class NanoinfraClient {
     options?: {
       cliApps?: OutboundCliAppMention[];
       mcpPresets?: OutboundMcpPresetMention[];
+      /** Data connectors this turn named, by name (#204). */
+      connectors?: string[];
       sessionMentions?: SessionMention[];
       resourceMentions?: ResourceMention[];
       quotedContext?: string;
@@ -920,6 +922,7 @@ export class NanoinfraClient {
       ...(media && media.length > 0 ? { media } : {}),
       ...(options?.cliApps?.length ? { cli_apps: options.cliApps } : {}),
       ...(options?.mcpPresets?.length ? { mcp_presets: options.mcpPresets } : {}),
+      ...(options?.connectors?.length ? { connectors: options.connectors } : {}),
       ...(options?.sessionMentions?.length
         ? { session_mentions: options.sessionMentions }
         : {}),
