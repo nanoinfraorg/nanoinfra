@@ -11,6 +11,8 @@ not here.
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-09-01
+
 ### Added
 
 - OpenAI requests carry `prompt_cache_key`, one key per chat, so its automatic prefix cache is
