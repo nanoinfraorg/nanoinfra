@@ -288,8 +288,38 @@ def _build_reasoning_options(reasoning_effort: str | None) -> dict[str, str]:
     return options
 
 
+#: Namespace for deriving a stable `x-grok-conv-id` from a session key. A UUID5 rather than the key
+#: itself, so a chat id never travels in a request header.
+_CONV_NAMESPACE = uuid.UUID("6f9b1f4e-0d3a-5c1b-9f2e-7a4c8d1b6e30")
+
+#: The conversation id used when no turn is bound -- a background call, a probe. Per *process*, not
+#: per request: those calls still share a prefix with each other, and a fresh id each time is the
+#: bug this constant exists to avoid.
+_PROCESS_CONV_ID = str(uuid.uuid4())
+
+
+def _conversation_id() -> str:
+    """A conversation id that is stable for the length of a chat.
+
+    xAI caches the longest matching prefix automatically, and its docs are explicit that
+    `x-grok-conv-id` is what routes a request to the server holding that prefix. This function
+    existed as `str(uuid.uuid4())` inline, which made every single call a new conversation on a new
+    server with a cold cache: measured on a live deployment, `cached_tokens` never rose above 128
+    across four calls sharing an identical 17,300-token prefix, including two nine seconds apart.
+
+    Derived from the session key, so every turn of one chat lands on one server, and two different
+    chats do not fight over the same prefix.
+    """
+    from nanoinfra.agent.tools.context import current_request_session_key
+
+    session_key = current_request_session_key()
+    if not session_key:
+        return _PROCESS_CONV_ID
+    return str(uuid.uuid5(_CONV_NAMESPACE, session_key))
+
+
 def _build_headers(token: str, model: str) -> dict[str, str]:
-    conversation_id = str(uuid.uuid4())
+    conversation_id = _conversation_id()
     return {
         "Authorization": f"Bearer {token}",
         "X-XAI-Token-Auth": "xai-grok-cli",
