@@ -9,11 +9,19 @@ one of them.
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from nanoinfra.config.schema import Config, MCPServerConfig
 from nanoinfra.webui.mcp_presets_api import McpPresetError, mcp_presets_action
+
+
+def _stub_provider() -> Any:
+    """Enough provider for `from_config`, which builds a real one otherwise."""
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    return provider
 
 
 def _query(name: str) -> dict[str, list[str]]:
@@ -71,10 +79,10 @@ def test_resuming_puts_it_back(configured: Config) -> None:
     assert _row(payload, "github-nanoinfraorg")["paused"] is False
 
 
-def test_a_paused_server_is_not_merged_for_any_consumer(configured: Config) -> None:
-    """The filter lives in `merged_mcp_servers` because that is the one place the gateway, the
-    mcp-host and the registry already agree -- and a disabled server one of them still believed in
-    would be a host launching something the registry ignores."""
+def test_a_paused_server_is_dropped_by_the_shared_filter(configured: Config) -> None:
+    """The filter lives in `merged_mcp_servers` because the gateway, the mcp-host, the registry
+    reload and the loop all read it -- a disabled server one of them still believed in would be a
+    host launching something the registry ignores."""
     from nanoinfra.agent.plugins import merged_mcp_servers
 
     assert "github-nanoinfraorg" in merged_mcp_servers(configured)
@@ -82,6 +90,32 @@ def test_a_paused_server_is_not_merged_for_any_consumer(configured: Config) -> N
     mcp_presets_action("pause", _query("github-nanoinfraorg"))
 
     assert merged_mcp_servers(configured) == {}
+
+
+def test_the_loop_that_connects_does_not_get_a_paused_server(configured: Config) -> None:
+    """The test above passed while the feature did not work, which is the point of this one.
+
+    It asserted the helper and was *named* after a claim about consumers it never called. The
+    consumer that opens the connections is `AgentLoop.from_config`, and it was passing
+    `config.tools.mcp_servers` -- the raw dict -- so all three paused servers reconnected on the
+    next restart and the operator watched it happen in his own logs.
+    """
+    from nanoinfra.agent.loop import AgentLoop
+
+    mcp_presets_action("pause", _query("github-nanoinfraorg"))
+
+    loop = AgentLoop.from_config(configured, provider=_stub_provider())
+
+    assert loop._mcp_servers == {}  # pyright: ignore[reportPrivateUsage]
+
+
+def test_the_loop_still_gets_a_server_that_is_not_paused(configured: Config) -> None:
+    """The other half: the filter must not be an empty map for everybody."""
+    from nanoinfra.agent.loop import AgentLoop
+
+    loop = AgentLoop.from_config(configured, provider=_stub_provider())
+
+    assert list(loop._mcp_servers) == ["github-nanoinfraorg"]  # pyright: ignore[reportPrivateUsage]
 
 
 def test_pausing_something_that_is_not_configured_is_a_404(configured: Config) -> None:

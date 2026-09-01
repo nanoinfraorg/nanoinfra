@@ -538,6 +538,7 @@ class AgentLoop:
         allowing callers to override or extend the standard config-derived
         parameters (e.g. ``cron_service``, ``session_manager``).
         """
+        from nanoinfra.agent.plugins import merged_mcp_servers
         from nanoinfra.providers.factory import make_provider
 
         if bus is None:
@@ -566,7 +567,10 @@ class AgentLoop:
             provider_retry_mode=defaults.provider_retry_mode,
             tool_hint_max_length=defaults.tool_hint_max_length,
             restrict_to_workspace=config.tools.restrict_to_workspace,
-            mcp_servers=config.tools.mcp_servers,
+            # Merged, not raw: this is the map the loop actually connects from, so a paused
+            # server (#206) and a plugin-declared one (#140) both have to be resolved here rather
+            # than only on the next hot reload, which is what `reload_servers` already does.
+            mcp_servers=merged_mcp_servers(config),
             connectors_config=config.connectors,
             channels_config=config.channels,
             timezone=defaults.timezone,

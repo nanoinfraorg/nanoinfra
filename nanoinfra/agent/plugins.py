@@ -287,17 +287,19 @@ def agent_plugin_mcp_servers(
 def merged_mcp_servers(config: object) -> dict[str, MCPServerConfig]:
     """Return a config's MCP servers plus those of enabled plugins.
 
-    Three call sites need this same view and must agree: the gateway decides whether to start the
-    mcp-host at all, the mcp-host resolves what to launch, and the agent's tool registry lists what
-    exists. One of them disagreeing means either a server that never starts or a tool that cannot
-    connect, so the merge lives here rather than being written out three times.
+    Four call sites need this same view and must agree: the gateway decides whether to start the
+    mcp-host at all, the mcp-host resolves what to launch, `reload_servers` reconciles the live
+    connections, and `AgentLoop.from_config` seeds the map the loop actually connects from. One of
+    them disagreeing means either a server that never starts or a tool that cannot connect, so the
+    merge lives here rather than being written out four times.
 
     A plugin tree that cannot be read costs the operator nothing: their own servers are returned.
 
-    A server with ``enabled: false`` is dropped **here** rather than at each of those three sites
-    (#206). It is the one place they already agree, and a disabled server that one of them still
-    believed in would be either a host launching something the registry ignores or a tool that
-    cannot connect -- the exact failure this function was written to prevent.
+    A server with ``enabled: false`` is dropped **here** rather than at each of those four sites
+    (#206). A disabled server that one of them still believed in is either a host launching
+    something the registry ignores or a tool that cannot connect -- the exact failure this function
+    was written to prevent. It shipped that way once: `from_config` read `tools.mcp_servers`
+    directly, so every paused server reconnected on the next restart.
     """
     tools = getattr(config, "tools", None)
     configured = dict(getattr(tools, "mcp_servers", {}) or {})
