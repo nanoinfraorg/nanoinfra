@@ -71,6 +71,34 @@ Messages flow through an async `MessageBus` (`nanoinfra/bus/queue.py`) that deco
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for contribution flow and PR guidelines.
 
+## Changelog and releases
+
+`CHANGELOG.md` at the repo root is the single record of what changed, in
+[Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/) form. The spec and the reasoning are
+in [`proposals/formal-changelog.md`](../proposals/formal-changelog.md).
+
+**A change writes its own entry, in the same commit, under `## [Unreleased]`.** Not at release time
+from `git log` — that is how a changelog becomes a second, worse commit history.
+
+What a line is:
+
+- One line per change a user can observe. Not per commit, not per file.
+- It names the **effect**, not the mechanism. "A paused MCP server is no longer offered as a
+  mention", not "`mentionableMcpPreset` replaces the `installed && configured` test".
+- It carries a reference and nothing else. The why lives behind that link.
+- Two lines maximum. A change needing three needs an issue.
+- No measurements, no history of what was tried first. Those belong in the proposal or the issue.
+
+Categories, in this order, and only the ones a version needs: **Added**, **Changed**,
+**Deprecated**, **Removed**, **Fixed**, **Security**.
+
+**Do not bump the version, tag, publish a release or deploy unless asked.** Land the work, write the
+`Unreleased` entry, stop. A tag is a public artifact and a deploy; when one happens is the
+maintainer's call. Releasing means renaming `Unreleased` to the version with today's date, opening a
+fresh `Unreleased`, and quoting that section as the GitHub release body — one text, two places.
+
+A tag push whose version has no `## [X.Y.Z]` section fails CI, which is what keeps the file true.
+
 ## Code Style
 
 - Python 3.11+, asyncio throughout.

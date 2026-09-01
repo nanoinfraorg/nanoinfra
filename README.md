@@ -278,16 +278,17 @@ Browse the [repo docs](https://docs.nanoinfra.org/) for the latest features and 
 
 ## Releases
 
-The badge at the top of this page is the current release. What changed in it, and in every
-release before it, lives in one place:
+The badge at the top of this page is the current release. What changed in it:
 
-- **[Release archive](https://docs.nanoinfra.org/release-archive/)** — what each release changed
-  and why, including the faults found along the way.
-- **[GitHub releases](https://github.com/nanoinfraorg/nanoinfra/releases)** — per-release notes,
-  breaking changes, and tags.
+- **[CHANGELOG.md](./CHANGELOG.md)** — every version since 1.0.0, one line per change, in
+  [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) form. Start here.
+- **[Release archive](https://docs.nanoinfra.org/release-archive/)** — the 0.x history, and the
+  long-form account of each older release including the faults found along the way.
+- **[GitHub releases](https://github.com/nanoinfraorg/nanoinfra/releases)** — tags and downloads.
+  From 1.7.0 a release body is its changelog section, quoted.
 
-Versions are `MAJOR.MINOR.PATCH`. A breaking change is called out at the top of its release notes
-and marked `!` in the commit that made it.
+Versions are `MAJOR.MINOR.PATCH`. A breaking change is called out in its `### Changed` or
+`### Removed` entry and marked `!` in the commit that made it.
 
 ## 🤝 Contribute
 

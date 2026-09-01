@@ -23,6 +23,18 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
+      # A tag with no changelog section is what turns the file from a record into a habit nobody
+      # keeps. Before the build, because a published artifact whose changes are undocumented cannot
+      # be un-published.
+      - name: Require a changelog section for this version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if ! grep -q "^## \[${version}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [${version}]' section. See AGENTS.md → Changelog and releases."
+            exit 1
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
