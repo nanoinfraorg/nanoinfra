@@ -2236,12 +2236,16 @@ class GatewayHTTPHandler:
         params = _parse_query(request.path)
         query = _query_first(params, "q") or ""
         provider = _query_first(params, "provider") or "all"
+        # One of `skill`, `agent-plugin`, `connector` (#207). Only the nanoinfra catalog carries
+        # kinds, so naming one selects it.
+        kind = _query_first(params, "kind") or ""
         try:
             payload = await search_marketplace_skills(
                 query,
                 self.skills_workspace_path,
                 provider=provider,
                 nanoinfra_base_url=self.nanoinfra_skills_base_url,
+                kind=kind,
             )
         except SkillsMarketplaceError as exc:
             return _http_error(exc.status, exc.message)

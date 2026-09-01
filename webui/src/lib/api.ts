@@ -672,8 +672,11 @@ export async function searchMarketplaceSkills(
   query: string,
   provider: MarketplaceProvider = "all",
   base: string = "",
+  /** One of `skill`, `agent-plugin`, `connector`. Narrows to that kind (#207). */
+  kind: string = "",
 ): Promise<SkillsSearchPayload> {
   const params = new URLSearchParams({ q: query, provider });
+  if (kind) params.set("kind", kind);
   return request<SkillsSearchPayload>(
     `${base}/api/webui/skills/search?${params}`,
     token,

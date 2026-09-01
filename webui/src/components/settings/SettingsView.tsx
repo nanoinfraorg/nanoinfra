@@ -128,6 +128,7 @@ import {
   fetchAutomations,
   fetchCliApps,
   fetchConnectors,
+  installMarketplaceSkill,
   fetchMcpPresets,
   reloadConnectors,
   startConnectorConsent,
@@ -144,6 +145,7 @@ import {
   runAutomationAction,
   runCliAppAction,
   runConnectorTest,
+  searchMarketplaceSkills,
   setConnectorAttach,
   runMcpPresetAction,
   saveCustomMcpServer,
@@ -188,6 +190,10 @@ import {
 import { cn } from "@/lib/utils";
 import { shortWorkspacePath } from "@/lib/workspace";
 import { ConnectorAppsCatalogRow } from "@/components/settings/ConnectorAppsCatalogRow";
+import {
+  ConnectorCatalogPanel,
+  type ConnectorCatalogRow,
+} from "@/components/settings/ConnectorCatalogPanel";
 import {
   resourceMentionsInText,
   type ResourceMentionTarget,
@@ -1111,6 +1117,66 @@ export function SettingsView({
         }));
       } finally {
         setConnectorAction(null);
+      }
+    },
+    [getToken],
+  );
+
+  const [connectorCatalog, setConnectorCatalog] = useState<ConnectorCatalogRow[] | null>(null);
+  const [connectorCatalogLoading, setConnectorCatalogLoading] = useState(false);
+  const [connectorCatalogError, setConnectorCatalogError] = useState<string | null>(null);
+  const [connectorInstalling, setConnectorInstalling] = useState<string | null>(null);
+  const [connectorInstalled, setConnectorInstalled] = useState<
+    { name: string; next_step?: string } | null
+  >(null);
+
+  const searchConnectorCatalog = useCallback(
+    async (query: string) => {
+      setConnectorCatalogLoading(true);
+      setConnectorCatalogError(null);
+      try {
+        // `kind=connector` narrows at the catalog, and the rows come back carrying what each one
+        // would grant -- which is the content of this list, not a detail behind a click.
+        const payload = await searchMarketplaceSkills(
+          getToken(), query, "nanoinfra", "", "connector",
+        );
+        setConnectorCatalog(payload.skills as ConnectorCatalogRow[]);
+      } catch (err) {
+        setConnectorCatalogError((err as Error).message);
+        setConnectorCatalog([]);
+      } finally {
+        setConnectorCatalogLoading(false);
+      }
+    },
+    [getToken],
+  );
+
+  const installConnectorFromCatalog = useCallback(
+    async (row: ConnectorCatalogRow) => {
+      setConnectorInstalling(row.skill_id);
+      setConnectorCatalogError(null);
+      try {
+        const payload = await installMarketplaceSkill(
+          getToken(), "nanoinfra", row.source, row.skill_id,
+        );
+        // The package is on disk and does nothing yet: it has no credential and is not in
+        // `connectors.active`. The row says so rather than reading as finished.
+        setConnectorInstalled({
+          name: row.skill_id,
+          ...(payload.last_action.next_step
+            ? { next_step: payload.last_action.next_step }
+            : {}),
+        });
+        setConnectorCatalog((current) =>
+          current?.map((entry) =>
+            entry.skill_id === row.skill_id ? { ...entry, installed: true } : entry,
+          ) ?? current,
+        );
+        setConnectors(await fetchConnectors(getToken()));
+      } catch (err) {
+        setConnectorCatalogError((err as Error).message);
+      } finally {
+        setConnectorInstalling(null);
       }
     },
     [getToken],
@@ -2528,6 +2594,17 @@ export function SettingsView({
             isRestarting={isRestarting || hostEngineApplying}
             /* Read-only by design: activation lives in tools.agentPlugins (#141, #142). */
             agentPluginsPanel={<AgentPluginsSettings />}
+            connectorCatalogPanel={
+              <ConnectorCatalogPanel
+                rows={connectorCatalog}
+                loading={connectorCatalogLoading}
+                installing={connectorInstalling}
+                error={connectorCatalogError}
+                lastInstalled={connectorInstalled}
+                onSearch={searchConnectorCatalog}
+                onInstall={installConnectorFromCatalog}
+              />
+            }
           />
         );
       case "automations":
@@ -8498,6 +8575,7 @@ function AppsCatalogSettings({
   onRestart,
   isRestarting,
   agentPluginsPanel,
+  connectorCatalogPanel,
 }: {
   cliApps: CliAppsPayload | null;
   mcpPresets: McpPresetsPayload | null;
@@ -8548,6 +8626,8 @@ function AppsCatalogSettings({
   isRestarting?: boolean;
   /** Rendered as-is. Agent Plugins are read-only here, so this panel takes no handlers. */
   agentPluginsPanel?: ReactNode;
+  /** Rendered on the Connectors tab: browse and install from the catalog (#207). */
+  connectorCatalogPanel?: ReactNode;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -8737,6 +8817,8 @@ function AppsCatalogSettings({
           </div>
         )}
       </section>
+
+      {filter === "connector" ? connectorCatalogPanel : null}
 
       {filter === "mcp" ? (
         <McpCustomServerPanel

@@ -331,8 +331,23 @@ export interface SkillActionPayload extends SkillsPayload {
   };
 }
 
+/** What installing a package would allow, from the catalog's detail endpoint (#207). */
+export interface MarketplaceGrants {
+  kind: string;
+  operations?: Array<{ name: string; class: string; method: string; path: string }>;
+  classes?: string[];
+  hosts?: string[];
+  scopes?: string[];
+  mcp_servers?: string[];
+}
+
 export interface MarketplaceSkillSummary {
   id: string;
+  /**
+   * `skill`, `agent-plugin` or `connector`. Absent on a row published before the kinds existed,
+   * which reads as a plain skill -- that is what those rows are.
+   */
+  kind?: string;
   skill_id: string;
   name: string;
   source: string;
@@ -374,6 +389,16 @@ export interface SkillInstallPayload extends SkillsPayload {
     installed: boolean;
     already_installed: boolean;
     name: string;
+    kind?: string;
+    /** Where it was written, when that is not the skills directory (#207). */
+    directory?: string;
+    /**
+     * What is still missing. A skill is readable the moment it lands; a connector needs a
+     * credential and an entry in `connectors.active`, and a plugin needs `tools.agentPlugins`, so
+     * an install of either reports success for a package that does nothing yet.
+     */
+    next_step?: string;
+    grants?: MarketplaceGrants;
   };
 }
 

@@ -23,6 +23,37 @@ from nanoinfra.security.workspace_policy import WorkspaceBoundaryError, require_
 _PROVIDER_ALL = "all"
 _PROVIDER_SKILLS_SH = "skills_sh"
 _PROVIDER_NANOINFRA = "nanoinfra"
+
+#: What a catalog row is, in the skills-server's vocabulary. A row published before the kinds
+#: existed carries none, and reading that as a skill is correct: those rows are skills.
+KIND_SKILL = "skill"
+KIND_AGENT_PLUGIN = "agent-plugin"
+KIND_CONNECTOR = "connector"
+_KINDS = {KIND_SKILL, KIND_AGENT_PLUGIN, KIND_CONNECTOR}
+
+#: Where each kind is installed, relative to the workspace. Three directories because three
+#: subsystems read them: `SkillsLoader` reads prompt text, the executor reconciles Agent Plugins,
+#: and the connector registry looks for declarative packages. A connector unpacked into `skills/`
+#: is text nothing will ever activate, which is what happened before the kind was read at all.
+_KIND_DIRECTORIES = {
+    KIND_SKILL: "skills",
+    KIND_AGENT_PLUGIN: "plugins",
+    KIND_CONNECTOR: "connector-packages",
+}
+
+#: What is still missing after the package is on disk. A skill is readable the moment it lands; the
+#: other two are not, and an install that reported success without saying so would be an install
+#: that looked finished and did nothing.
+_NEXT_STEP_BY_KIND = {
+    KIND_AGENT_PLUGIN: (
+        "Declare it in tools.agentPlugins and restart. The executor activates plugins; "
+        "a chat turn cannot."
+    ),
+    KIND_CONNECTOR: (
+        "Give it a credential and add it to connectors.active, then restart. "
+        "Read what it grants first: its hosts are where a token of yours could go."
+    ),
+}
 _PROVIDERS = {_PROVIDER_ALL, _PROVIDER_SKILLS_SH, _PROVIDER_NANOINFRA}
 _SEARCH_URL = "https://skills.sh/api/search"
 _TRENDING_URL = "https://skills.sh/api/skills/trending/0"
@@ -166,17 +197,28 @@ async def search_marketplace_skills(
     limit: int = 20,
     provider: str = _PROVIDER_ALL,
     nanoinfra_base_url: str = _DEFAULT_NANOINFRA_BASE_URL,
+    kind: str = "",
 ) -> dict[str, Any]:
-    """Search one or all catalogs and annotate locally installed results."""
+    """Search one or all catalogs and annotate locally installed results.
+
+    ``kind`` narrows to one of the nanoinfra catalog's kinds. Only that catalog carries kinds, so
+    naming one selects it: skills.sh publishes skills, and returning its rows beside a request for
+    connectors would answer a different question than the one asked.
+    """
     normalized = " ".join(query.split())
     if len(normalized) < 2:
         raise SkillsMarketplaceError("search query must contain at least 2 characters")
     if len(normalized) > 100:
         raise SkillsMarketplaceError("search query is too long")
 
+    if kind and kind not in _KINDS:
+        raise SkillsMarketplaceError(f"unknown package kind {kind!r}")
+
     selected = _valid_provider(provider)
-    if selected == _PROVIDER_NANOINFRA:
-        return await _search_nanoinfra_skills(normalized, workspace_path, limit=limit, base_url=nanoinfra_base_url)
+    if kind or selected == _PROVIDER_NANOINFRA:
+        return await _search_nanoinfra_skills(
+            normalized, workspace_path, limit=limit, base_url=nanoinfra_base_url, kind=kind
+        )
     if selected == _PROVIDER_SKILLS_SH:
         return await _search_skills_sh_skills(normalized, workspace_path, limit=limit)
 
@@ -248,10 +290,16 @@ async def _search_nanoinfra_skills(
     *,
     limit: int,
     base_url: str,
+    kind: str = "",
 ) -> dict[str, Any]:
+    params: dict[str, str] = {"q": normalized}
+    if kind:
+        # Narrowed by the catalog rather than here, so a page showing connectors does not download
+        # the rest of the catalog to throw it away.
+        params["kind"] = kind
     try:
         async with _nanoinfra_client(base_url) as client:
-            response = await client.get("/api/v1/search", params={"q": normalized})
+            response = await client.get("/api/v1/search", params=params)
             response.raise_for_status()
             payload = _response_json_object(response) or {}
     except (httpx.HTTPError, ValueError) as exc:
@@ -260,7 +308,7 @@ async def _search_nanoinfra_skills(
             status=502,
         ) from exc
 
-    installed = _installed_skill_names(workspace_path)
+    installed = _installed_names_by_kind(workspace_path)
     rows = payload.get("skills", [])
     skills: list[dict[str, Any]] = []
     for row in rows:
@@ -271,12 +319,48 @@ async def _search_nanoinfra_skills(
             skills.append(skill)
         if len(skills) >= min(max(limit, 1), 50):
             break
+    if kind == KIND_CONNECTOR:
+        await _attach_connector_grants(skills, base_url=base_url)
     return {
         "query": normalized,
         "skills": skills,
         "provider": _PROVIDER_NANOINFRA,
         "install_supported": True,
+        **({"kind": kind} if kind else {}),
     }
+
+
+#: How many rows of a connector search get their grants fetched. Bounded because each one is a
+#: detail request that opens an archive server-side.
+_GRANTS_FANOUT = 8
+
+
+async def _attach_connector_grants(
+    skills: list[dict[str, Any]], *, base_url: str
+) -> None:
+    """Fill in what each connector would grant, for the rows a reader can see.
+
+    The catalog deliberately keeps grants off search: it would open every archive in the catalog to
+    answer a keystroke. A *connector* listing is different -- the grants are the content of the list,
+    because "what would this be allowed to do" is the question an operator answers before
+    installing -- so the client that needs them asks, for the rows it is about to show.
+
+    A row whose detail cannot be read keeps no `grants` key. Absent and "grants nothing" are
+    different statements, and the panel renders them differently.
+    """
+    targets = skills[:_GRANTS_FANOUT]
+    if not targets:
+        return
+    results = await asyncio.gather(
+        *(_nanoinfra_package_kind(row["skill_id"], base_url=base_url) for row in targets),
+        return_exceptions=True,
+    )
+    for row, result in zip(targets, results, strict=True):
+        if isinstance(result, BaseException):
+            continue
+        _, grants = result
+        if grants:
+            row["grants"] = grants
 
 
 async def _trending_nanoinfra_skills(
@@ -460,26 +544,35 @@ async def _install_nanoinfra_skill(
     if not _valid_skill_id(skill_id):
         raise SkillsMarketplaceError("invalid skill name")
 
-    loader = SkillsLoader(workspace_path)
-    existing = {entry["name"]: entry for entry in loader.list_skills(filter_unavailable=False)}
-    if skill_id in existing:
+    # Asked of the catalog rather than trusted from the client (#207): where the package lands is a
+    # security decision -- a connector is requests made with a live credential, a plugin is code the
+    # executor runs -- and a caller that could name the destination could put either in `skills/`,
+    # or a skill where the executor looks for plugins.
+    kind, grants = await _nanoinfra_package_kind(skill_id, base_url=base_url)
+    directory = _KIND_DIRECTORIES[kind]
+
+    workspace = workspace_path.expanduser().resolve()
+    workspace.mkdir(parents=True, exist_ok=True)
+    # Containment first, before anything reads that directory. Listing what is already installed
+    # walks it, and a symlinked `skills/` would have been read through before this ran.
+    try:
+        skills_root = require_path_within(
+            workspace / directory,
+            workspace,
+            message=f"{directory} directory must stay inside the workspace",
+        )
+    except WorkspaceBoundaryError as exc:
+        raise SkillsMarketplaceError(str(exc), status=403) from exc
+
+    if skill_id in _installed_names_by_kind(workspace_path).get(kind, set()):
         return {
             "installed": True,
             "already_installed": True,
             "name": skill_id,
+            "kind": kind,
             "provider": _PROVIDER_NANOINFRA,
         }
 
-    workspace = workspace_path.expanduser().resolve()
-    workspace.mkdir(parents=True, exist_ok=True)
-    try:
-        skills_root = require_path_within(
-            workspace / "skills",
-            workspace,
-            message="skills directory must stay inside the workspace",
-        )
-    except WorkspaceBoundaryError as exc:
-        raise SkillsMarketplaceError(str(exc), status=403) from exc
     skills_root.mkdir(parents=True, exist_ok=True)
     target = skills_root / skill_id
 
@@ -500,6 +593,7 @@ async def _install_nanoinfra_skill(
                         "installed": True,
                         "already_installed": True,
                         "name": skill_id,
+                        "kind": kind,
                         "provider": _PROVIDER_NANOINFRA,
                     }
                 os.replace(stage_path, target)
@@ -511,6 +605,22 @@ async def _install_nanoinfra_skill(
             status=502,
         ) from exc
 
+    if kind != KIND_SKILL:
+        # A connector or a plugin is on disk and does nothing yet, which is the whole point: the
+        # package is written, and giving it a credential or activating it stays a config decision an
+        # operator makes. Saying so here is the difference between "installed" and "working".
+        return {
+            "installed": True,
+            "already_installed": False,
+            "name": skill_id,
+            "kind": kind,
+            "provider": _PROVIDER_NANOINFRA,
+            "directory": directory,
+            "next_step": _NEXT_STEP_BY_KIND[kind],
+            **({"grants": grants} if grants else {}),
+        }
+
+    loader = SkillsLoader(workspace_path)
     installed = next(
         (
             entry
@@ -530,6 +640,41 @@ async def _install_nanoinfra_skill(
         "name": skill_id,
         "provider": _PROVIDER_NANOINFRA,
     }
+
+
+async def _nanoinfra_package_kind(
+    skill_id: str, *, base_url: str
+) -> tuple[str, dict[str, Any] | None]:
+    """Ask the catalog what this package is, and what installing it would allow.
+
+    The kind decides which directory the archive is unpacked into, so it is read from the catalog
+    rather than accepted from the caller. A row with no kind is a skill: those rows predate the
+    kinds, and that is what they are.
+
+    The grants ride along because they are in the same response and an install that cannot say what
+    it allowed is an install nobody can review afterwards.
+    """
+    try:
+        async with _nanoinfra_client(base_url) as client:
+            response = await client.get(f"/api/v1/skills/{quote(skill_id, safe='')}")
+            if response.status_code == 404:
+                raise SkillsMarketplaceError(
+                    "package not found on the nanoinfra catalog", status=404
+                )
+            response.raise_for_status()
+            payload = _response_json_object(response) or {}
+    except SkillsMarketplaceError:
+        raise
+    except (httpx.HTTPError, ValueError) as exc:
+        raise SkillsMarketplaceError(
+            "the nanoinfra skills catalog is temporarily unavailable",
+            status=502,
+        ) from exc
+
+    kind = payload.get("kind")
+    kind = kind if isinstance(kind, str) and kind in _KINDS else KIND_SKILL
+    grants = payload.get("grants")
+    return kind, cast("dict[str, Any] | None", grants if isinstance(grants, dict) else None)
 
 
 async def _download_nanoinfra_archive(
@@ -659,6 +804,29 @@ def _installed_skill_names(workspace_path: Path) -> set[str]:
     }
 
 
+def _installed_names_by_kind(workspace_path: Path) -> dict[str, set[str]]:
+    """What is already installed, per kind.
+
+    Asked of the directory each kind lives in rather than of `SkillsLoader` alone: a connector is
+    not a skill, so a catalog row for one was reported as *not installed* forever while its package
+    sat in `connector-packages/`, and every listing offered to install it again.
+    """
+    workspace = workspace_path.expanduser()
+    installed: dict[str, set[str]] = {KIND_SKILL: _installed_skill_names(workspace_path)}
+    for kind in (KIND_AGENT_PLUGIN, KIND_CONNECTOR):
+        directory = workspace / _KIND_DIRECTORIES[kind]
+        try:
+            installed[kind] = {
+                entry.name for entry in directory.iterdir() if entry.is_dir()
+            }
+        except OSError:
+            # No directory yet, or one this process cannot read. Either way nothing of this kind is
+            # installed as far as a catalog listing is concerned, and a listing must not fail over
+            # a missing directory.
+            installed[kind] = set()
+    return installed
+
+
 def _marketplace_skill(
     row: dict[str, Any],
     installed: set[str],
@@ -694,7 +862,7 @@ def _marketplace_skill(
 
 def _nanoinfra_skill(
     row: dict[str, Any],
-    installed: set[str],
+    installed: set[str] | dict[str, set[str]],
     *,
     rank: int | None = None,
     base_url: str,
@@ -718,8 +886,11 @@ def _nanoinfra_skill(
 
     downloads = row.get("downloads")
     version = row.get("current_version")
+    kind = row.get("kind")
+    kind = kind if isinstance(kind, str) and kind in _KINDS else KIND_SKILL
 
     skill: dict[str, Any] = {
+        "kind": kind,
         "id": f"{_PROVIDER_NANOINFRA}:{skill_id}",
         "skill_id": skill_id,
         "name": display_name.strip(),
@@ -727,7 +898,9 @@ def _nanoinfra_skill(
         "provider": _PROVIDER_NANOINFRA,
         "installs": downloads if isinstance(downloads, int) and downloads >= 0 else 0,
         "url": f"{base_url.rstrip('/')}/skills/{quote(skill_id, safe='')}",
-        "installed": skill_id in installed,
+        "installed": skill_id in (
+            installed.get(kind, set()) if isinstance(installed, dict) else installed
+        ),
         "install_supported": True,
         "metric": "installs_total",
         "version": str(version) if isinstance(version, int) else "",

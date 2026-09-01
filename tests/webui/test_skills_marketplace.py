@@ -155,6 +155,9 @@ async def test_search_nanoinfra_skills_normalizes_provider_metadata(
     assert payload["provider"] == "nanoinfra"
     assert payload["skills"] == [
         {
+            # A row published before the kinds existed carries none, and reading that as a skill
+            # is correct: those rows are skills (#207).
+            "kind": "skill",
             "id": "nanoinfra:linux-commands",
             "skill_id": "linux-commands",
             "name": "linux-commands",
@@ -400,12 +403,29 @@ async def test_install_nanoinfra_skill_downloads_and_extracts_safely(
             yield archive_bytes[:12]
             yield archive_bytes[12:]
 
+    class FakeDetail:
+        """The kind is asked of the catalog before anything is written (#207): where a package
+        lands is a security decision, so it is not taken from the caller."""
+
+        status_code = 200
+        headers: dict[str, str] = {}
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, object]:
+            return {"skill_id": "linux-commands", "kind": "skill"}
+
     class FakeClient:
         async def __aenter__(self) -> "FakeClient":
             return self
 
         async def __aexit__(self, *_args: object) -> None:
             pass
+
+        async def get(self, url: str) -> FakeDetail:
+            assert url == "/api/v1/skills/linux-commands"
+            return FakeDetail()
 
         def stream(self, method: str, url: str) -> FakeResponse:
             assert method == "GET"
@@ -431,6 +451,7 @@ async def test_install_nanoinfra_skill_downloads_and_extracts_safely(
         "name": "linux-commands",
         "provider": "nanoinfra",
     }
+    assert (tmp_path / "skills" / "linux-commands").is_dir(), "a skill still lands in skills/"
     assert (tmp_path / "skills" / "linux-commands" / "SKILL.md").read_bytes() == skill_content
 
 
@@ -472,6 +493,7 @@ async def test_install_marketplace_skill_is_idempotent(
 @pytest.mark.asyncio
 async def test_install_marketplace_skill_rejects_symlinked_skills_root(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = tmp_path / "workspace"
     outside = tmp_path / "outside"
@@ -481,6 +503,34 @@ async def test_install_marketplace_skill_rejects_symlinked_skills_root(
         (workspace / "skills").symlink_to(outside, target_is_directory=True)
     except OSError as exc:
         pytest.skip(f"directory symlink unavailable: {exc}")
+
+    # A fake catalog, because the install now asks what kind the package is before it can know
+    # which directory to check (#207). Without one this test reached the network and passed for the
+    # wrong reason -- it would have failed on DNS rather than on containment.
+    class FakeDetail:
+        status_code = 200
+        headers: dict[str, str] = {}
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, object]:
+            return {"skill_id": "ima-skills", "kind": "skill"}
+
+    class FakeClient:
+        async def __aenter__(self) -> "FakeClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            pass
+
+        async def get(self, url: str) -> FakeDetail:
+            return FakeDetail()
+
+    monkeypatch.setattr(
+        "nanoinfra.webui.skills_marketplace.httpx.AsyncClient",
+        lambda **_kwargs: FakeClient(),
+    )
 
     with pytest.raises(SkillsMarketplaceError) as exc_info:
         await install_marketplace_skill(
