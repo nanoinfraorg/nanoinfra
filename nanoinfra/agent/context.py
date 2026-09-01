@@ -180,6 +180,7 @@ class ContextBuilder:
         session_key: str | None = None,
         unified_session: bool = False,
         declared_skills: Sequence[str] | None = None,
+        mcp_advertisement: str = "",
     ) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills.
 
@@ -239,6 +240,13 @@ class ContextBuilder:
                 "Skills catalogue",
                 render_template("agent/skills_section.md", skills_summary=skills_summary),
             )
+
+        # One line per MCP server whose schemas are not in this prompt (#204), ~50 tokens each
+        # against the couple of thousand a schema set costs. It sits inside the stable block on
+        # purpose: it is derived from config, identical every turn, and the prefix cache depends on
+        # nothing per-turn appearing before it. The schemas themselves are a separate array, and
+        # `get_definitions` already keeps built-ins ahead of MCP tools there.
+        section("MCP servers advertised", mcp_advertisement)
 
         if include_memory_recent_history:
             entries = self.memory.read_recent_history_for_prompt(
@@ -364,6 +372,7 @@ class ContextBuilder:
         session_key: str | None = None,
         unified_session: bool = False,
         declared_skills: Sequence[str] | None = None,
+        mcp_advertisement: str = "",
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
         root = workspace or self.workspace
@@ -384,6 +393,7 @@ class ContextBuilder:
                     session_key=session_key,
                     unified_session=unified_session,
                     declared_skills=declared_skills,
+                    mcp_advertisement=mcp_advertisement,
                 ),
             },
             *history,

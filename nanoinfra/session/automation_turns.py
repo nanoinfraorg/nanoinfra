@@ -11,6 +11,9 @@ AUTOMATION_HISTORY_META = "_automation_turn"
 #: Skills the automation running this turn declared. Written by the runner, read when the prompt is
 #: built. Absent or empty means the full catalogue, which is what every automation had before.
 AUTOMATION_SKILLS_META = "_automation_skills"
+#: The MCP servers an automation declares (#204). Named for the key the composer already writes,
+#: because `attached_servers()` reads one key and a mention and a declaration must not diverge.
+AUTOMATION_PRESETS_META = "mcp_presets"
 
 
 @dataclass(frozen=True)
@@ -82,6 +85,21 @@ def automation_declared_skills(metadata: Mapping[str, Any] | None) -> list[str] 
     entries = list(cast("list[object] | tuple[object, ...]", raw))
     names = [str(name).strip() for name in entries if str(name).strip()]
     return names or None
+
+def automation_declared_presets(metadata: Mapping[str, Any] | None) -> list[str] | None:
+    """Return the MCP servers this automation declared, or ``None`` for none.
+
+    A cron job has no person to type `@server`, so a `mention` server would be unreachable from an
+    unattended turn -- which is the case that makes the advertisement useless rather than helpful.
+    Declaring it is the same act, written down in advance.
+    """
+    raw = cast(object, (metadata or {}).get(AUTOMATION_PRESETS_META))
+    if not isinstance(raw, (list, tuple)):
+        return None
+    entries = list(cast("list[object] | tuple[object, ...]", raw))
+    names = [str(name).strip() for name in entries if str(name).strip()]
+    return names or None
+
 
 def automation_identity(
     metadata: Mapping[str, Any] | None,

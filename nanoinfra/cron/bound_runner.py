@@ -25,7 +25,10 @@ from nanoinfra.cron.session_turns import CRON_DEFER_UNTIL_IDLE_META, CRON_TRIGGE
 from nanoinfra.cron.types import CronJob
 from nanoinfra.cron.webui_metadata import cron_proactive_delivery_metadata
 from nanoinfra.runtime_context import RUNTIME_CONTEXT_INPUT_META, RuntimeContextBlock
-from nanoinfra.session.automation_turns import AUTOMATION_SKILLS_META
+from nanoinfra.session.automation_turns import (
+    AUTOMATION_PRESETS_META,
+    AUTOMATION_SKILLS_META,
+)
 from nanoinfra.utils.prompt_templates import render_template
 from nanoinfra.webui.resource_mentions import (
     ResourceMentionResolver,
@@ -152,6 +155,10 @@ def build_bound_turn(
         metadata[RUNTIME_CONTEXT_INPUT_META] = [reference_context]
     if job.skills:
         metadata[AUTOMATION_SKILLS_META] = list(job.skills)
+    if job.mcp_presets:
+        # The same key a mention writes, so an unattended turn reaches a `mention` server the only
+        # way it can: by having declared it in advance (#204).
+        metadata[AUTOMATION_PRESETS_META] = list(job.mcp_presets)
     if commissioning_id is not None:
         metadata[COMMISSIONING_TURN_META] = commissioning_id
     return BoundTurn(

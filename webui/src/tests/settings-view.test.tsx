@@ -893,13 +893,20 @@ describe("SettingsView Apps catalog", () => {
     renderSettingsView({ initialSection: "apps" });
 
     expect(await screen.findByText("Add tools to nanoinfra, then @ them in chat.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ready" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("button", { name: "Apps" })).toHaveAttribute("aria-pressed", "true");
+    // Ready is the first tab and now the default one: opening on "Apps" made a page holding CLI
+    // apps, integrations and connectors look like it only had the first of those.
+    expect(screen.getByRole("button", { name: "Ready" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Apps" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Integrations" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Plugins" })).not.toBeInTheDocument();
     expect(screen.queryByText("Api")).not.toBeInTheDocument();
-    expect(screen.getByText("AnyGen")).toBeInTheDocument();
     expect(screen.getByText("0 ready")).toBeInTheDocument();
+
+    // AnyGen is a CLI app that is not ready, so the Ready tab is right to leave it out. This test
+    // is about the row itself, which lives on the Apps tab.
+    fireEvent.click(screen.getByRole("button", { name: "Apps" }));
+
+    expect(screen.getByText("AnyGen")).toBeInTheDocument();
   });
 
   it("shows nanoinfra optional features and enables one", async () => {

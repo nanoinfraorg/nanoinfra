@@ -15,7 +15,10 @@ from nanoinfra.automations.delivery import normalize_policy, should_deliver
 from nanoinfra.automations.state import AutomationDeliveryLog, response_fingerprint
 from nanoinfra.bus.events import InboundMessage, OutboundMessage
 from nanoinfra.runtime_context import RUNTIME_CONTEXT_INPUT_META
-from nanoinfra.session.automation_turns import AUTOMATION_SKILLS_META
+from nanoinfra.session.automation_turns import (
+    AUTOMATION_PRESETS_META,
+    AUTOMATION_SKILLS_META,
+)
 from nanoinfra.triggers.local_session_turns import LOCAL_TRIGGER_META
 from nanoinfra.triggers.local_store import LocalTriggerStore
 from nanoinfra.triggers.local_types import LocalTrigger, TriggerDelivery
@@ -175,6 +178,10 @@ async def _deliver_delivery(
     metadata = _delivery_metadata(trigger, delivery)
     if trigger.skills:
         metadata[AUTOMATION_SKILLS_META] = list(trigger.skills)
+    if trigger.mcp_presets:
+        # The same key a mention writes, so an unattended turn reaches a `mention` server the only
+        # way it can: by having declared it in advance (#204).
+        metadata[AUTOMATION_PRESETS_META] = list(trigger.mcp_presets)
     if reference_context is not None:
         metadata[RUNTIME_CONTEXT_INPUT_META] = [reference_context]
     withholding = policy != "always" and publish is not None

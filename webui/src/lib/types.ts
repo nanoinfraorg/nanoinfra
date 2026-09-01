@@ -866,6 +866,14 @@ export interface SettingsPayload {
     reasoning_effort: string | null;
     reasoning_effort_values?: string[];
   }>;
+  /**
+   * Config this deployment is ignoring (#205).
+   *
+   * A dead `agents.defaults.model` beside a `modelPreset` that overrides it, or a selected preset
+   * whose provider has no credential. Both fail silently, and a fallback that works is the worst
+   * kind of misconfiguration: it never hurts enough for anybody to look.
+   */
+  config_warnings?: string[];
   model_call_order: string[];
   model_call_order_editable: boolean;
   created_model_preset?: string;
@@ -1373,6 +1381,14 @@ export interface McpPresetInfo {
    * was missing between "in every prompt" and the trash icon.
    */
   paused?: boolean;
+  /**
+   * When this server's schemas reach the prompt (#204).
+   *
+   * `always` is what every deployment did before the field existed. `mention` sends one advertised
+   * line -- name, tool count, how to attach -- and the schemas only for a turn that names the
+   * server, which is where the ~23K of tool schemas per turn goes.
+   */
+  attach?: "always" | "mention";
   status: "not_installed" | "configured" | "missing_credentials" | "missing_dependency" | "coming_soon" | string;
   logo_url?: string | null;
   brand_color?: string | null;

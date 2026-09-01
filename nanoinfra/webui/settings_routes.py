@@ -175,6 +175,9 @@ _MCP_PRESET_ACTIONS_BY_PATH = {
     # Configured and out of every prompt, without losing the config (#206).
     "/api/settings/mcp-presets/pause": "pause",
     "/api/settings/mcp-presets/resume": "resume",
+    # Connected, and its schemas wait to be asked for (#204).
+    "/api/settings/mcp-presets/attach-on-mention": "attach_on_mention",
+    "/api/settings/mcp-presets/attach-always": "attach_always",
     "/api/settings/mcp-presets/custom": "custom",
     "/api/settings/mcp-presets/import": "import",
     "/api/settings/mcp-presets/import-cursor": "import-cursor",

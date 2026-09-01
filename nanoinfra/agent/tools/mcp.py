@@ -479,6 +479,22 @@ class _MCPWrapperBase(Tool):
     def source(self) -> str:
         return f"mcp:{getattr(self, '_server_name', '') or 'unknown'}"
 
+    def available(self) -> bool:
+        """Whether this tool's schema goes in the current request (#204).
+
+        An `always` server answers yes, which is every deployment that has not opted in. A
+        `mention` server answers yes only for a turn that named it, and the system prompt carries a
+        line saying it exists -- so the model can ask for it rather than guessing.
+
+        An unknown server is treated as `always`: a tool that is registered and connected but whose
+        mode was not recorded is a bug in our bookkeeping, and the safe reading of a bug here is the
+        behaviour that existed before this field.
+        """
+        name = getattr(self, "_server_name", "")
+        if _SERVER_ATTACH_MODE.get(name, "always") != "mention":
+            return True
+        return name in attached_servers()
+
     def _set_mcp_connection(self, session: "MCPSession", server_name: str) -> None:
         self._session = session
         self._server_name = server_name
@@ -967,6 +983,87 @@ class MCPPromptWrapper(_MCPWrapperBase):
                 return "\n".join(parts) or "(no output)"
 
 
+#: How each connected server's schemas reach the prompt (#204): ``always`` or ``mention``.
+#:
+#: Module level rather than a field on each wrapper, because a server's mode changes in config while
+#: forty wrapper instances are live and they must not disagree. `connect_mcp_servers` writes it from
+#: the same `MCPServerConfig` it connects with, so the map cannot describe a server that is not
+#: there.
+_SERVER_ATTACH_MODE: dict[str, str] = {}
+
+#: The metadata key the WebSocket composer already writes when a message says `@server`.
+ATTACHED_PRESETS_META = "mcp_presets"
+
+
+def set_server_attach_modes(servers: "Mapping[str, MCPServerConfig]") -> None:
+    """Record how each server's schemas reach the prompt, replacing what was there."""
+    _SERVER_ATTACH_MODE.clear()
+    for name, cfg in servers.items():
+        _SERVER_ATTACH_MODE[name] = getattr(cfg, "attach", "always") or "always"
+
+
+def mention_only_servers() -> list[str]:
+    """The connected servers whose schemas wait to be asked for, in a stable order."""
+    return sorted(name for name, mode in _SERVER_ATTACH_MODE.items() if mode == "mention")
+
+
+def attached_servers() -> frozenset[str]:
+    """The servers this turn named.
+
+    Read from the bound request metadata rather than from a contextvar of our own, because the
+    composer already writes `mcp_presets` there and an automation writes the same key. One source
+    means a mention and a declaration cannot diverge.
+    """
+    from nanoinfra.agent.tools.context import current_request_context
+
+    ctx = current_request_context()
+    if ctx is None:
+        return frozenset()
+    raw = cast(object, (ctx.metadata or {}).get(ATTACHED_PRESETS_META))
+    if not isinstance(raw, (list, tuple)):
+        return frozenset()
+    names: set[str] = set()
+    for entry in cast("list[object] | tuple[object, ...]", raw):
+        # The composer sends objects (`{"name": ...}`); an automation declares plain strings.
+        if isinstance(entry, Mapping):
+            value = cast(Mapping[str, object], entry).get("name")
+            if isinstance(value, str) and value.strip():
+                names.add(value.strip())
+        elif isinstance(entry, str) and entry.strip():
+            names.add(entry.strip())
+    return frozenset(names)
+
+
+def advertisement(registry: ToolRegistry) -> str:
+    """One line per mention-only server, for the system prompt (#204).
+
+    Roughly fifty tokens each in place of the couple of thousand its schemas cost. Built from the
+    live registry rather than from config, so a server that failed to connect is not advertised as
+    something the model can ask for.
+    """
+    names = mention_only_servers()
+    if not names:
+        return ""
+    counts = {
+        source.removeprefix("mcp:"): total
+        for source, total in registry.source_counts().items()
+        if source.startswith("mcp:")
+    }
+    lines = [
+        f"- `{name}` — {counts.get(name, 0)} tools, not loaded. Say `@{name}` to use them this turn."
+        for name in names
+        if name in counts
+    ]
+    if not lines:
+        return ""
+    return (
+        "# Available integrations\n\n"
+        "These MCP servers are connected and their tools are **not** in this prompt. You cannot "
+        "call them until the user names one. If a request needs one, say which and ask the user to "
+        "attach it -- do not substitute a different tool.\n\n" + "\n".join(lines)
+    )
+
+
 async def connect_mcp_servers(
     mcp_servers: "dict[str, MCPServerConfig]", registry: ToolRegistry
 ) -> dict[str, MCPConnection]:
@@ -1336,6 +1433,7 @@ async def reload_servers(state: Any, registry: ToolRegistry) -> dict[str, Any]:
             await _close_server(state, name)
 
         state._mcp_servers = next_servers
+        set_server_attach_modes(next_servers)
         retry_missing = sorted(
             name
             for name in next_names

@@ -1136,15 +1136,18 @@ export async function fetchProviderModels(
 
 export async function runMcpPresetAction(
   token: string,
-  action: "enable" | "remove" | "test" | "pause" | "resume",
+  action: "enable" | "remove" | "test" | "pause" | "resume" | "attach_always" | "attach_on_mention",
   name: string,
   values: Record<string, string> = {},
   base: string = "",
 ): Promise<McpPresetsPayload> {
   const query = new URLSearchParams();
   query.set("name", name);
+  // The action is the identifier the UI passes around; the route is its dashed form, the way
+  // `import-cursor` already is. Sending `attach_always` verbatim reached no route at all.
+  const path = action.replace(/_/g, "-");
   return request<McpPresetsPayload>(
-    `${base}/api/settings/mcp-presets/${action}?${query}`,
+    `${base}/api/settings/mcp-presets/${path}?${query}`,
     token,
     { headers: mcpValuesHeader(values) },
   );

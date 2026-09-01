@@ -81,6 +81,22 @@ describe("an installed MCP row", () => {
   });
 });
 
+describe("a mention-only MCP row", () => {
+  it("says the tools wait to be asked for", () => {
+    renderRow(preset({ attach: "mention" }));
+
+    expect(screen.getByText("3 tools · sent only when you say @github-bet0x")).toBeTruthy();
+  });
+
+  it("keeps the switch on, because the server is still connected", () => {
+    // Mention-only is not pausing: the server is live and one word away. A row that showed this as
+    // "off" would be claiming the config lost something it did not.
+    renderRow(preset({ attach: "mention" }));
+
+    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
+  });
+});
+
 describe("a paused MCP row", () => {
   it("shows the switch off", () => {
     renderRow(preset({ paused: true }));
@@ -109,6 +125,42 @@ describe("a paused MCP row", () => {
     // are the two different things this row has to keep apart.
     expect(screen.getByText("github-bet0x")).toBeTruthy();
     expect(screen.getByLabelText("Remove")).toBeTruthy();
+  });
+});
+
+describe("a paused server that never connected", () => {
+  it("counts its allowlist, because there is no live tool list to count", () => {
+    // It reported `0 tools` for a server holding fifteen: pausing means never connecting, so
+    // `tool_names` is empty and the allowlist is the only honest number left.
+    renderRow(preset({ paused: true, tool_names: [], enabled_tools: ["a", "b", "c", "d"] }));
+
+    expect(screen.getByText("4 tools · paused, not in any prompt")).toBeTruthy();
+  });
+
+  it("says nothing about a count it cannot know", () => {
+    renderRow(preset({ paused: true, tool_names: [], enabled_tools: ["*"] }));
+
+    expect(screen.getByText("Paused — not in any prompt")).toBeTruthy();
+  });
+});
+
+describe("the tool list", () => {
+  it("opens from the count, because the count alone does not say which", () => {
+    const onAction = renderRow(preset());
+
+    fireEvent.click(screen.getByText("3 tools · in every prompt"));
+
+    expect(screen.getByText("create_issue")).toBeTruthy();
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it("lists the allowlist when the server never connected", () => {
+    renderRow(preset({ paused: true, tool_names: [], enabled_tools: ["get_issue"] }));
+
+    fireEvent.click(screen.getByText("1 tools · paused, not in any prompt"));
+
+    expect(screen.getByText("get_issue")).toBeTruthy();
+    expect(screen.getByText(/not connected/)).toBeTruthy();
   });
 });
 

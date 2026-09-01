@@ -41,6 +41,18 @@ class ToolRegistry:
         """Get a tool by name."""
         return self._tools.get(name)
 
+    def source_counts(self) -> dict[str, int]:
+        """How many registered tools each `Tool.source` contributes.
+
+        Counted regardless of `available()`, unlike `schema_breakdown`: the caller for this is the
+        MCP advertisement (#204), which exists precisely to name tools the turn is *not* carrying.
+        """
+        counts: dict[str, int] = {}
+        for tool in self._tools.values():
+            source = tool.source
+            counts[source] = counts.get(source, 0) + 1
+        return counts
+
     def get_runtime_context_providers(self) -> list[RuntimeContextProvider]:
         """Return tool-owned providers in stable tool-name order."""
         providers: list[RuntimeContextProvider] = []

@@ -81,6 +81,7 @@ def _echo_gate_policy(config: Any, cron: Any) -> None:
     Wrapped so a reporting failure never stops the gateway. An operator loses one log line
     in that case, which is better than a boot that fails over a diagnostic.
     """
+    from nanoinfra.config.honesty import config_warnings
     from nanoinfra.gates.startup import (
         identity_posture_line,
         policy_summary,
@@ -98,6 +99,10 @@ def _echo_gate_policy(config: Any, cron: Any) -> None:
         warning = refused_automation_warning(config.gates, automation_names=names)
         if warning:
             logger.warning(warning)
+        # Config that is ignored says so (#205). Here rather than in its own reporter because the
+        # wrapper this sits in is the reason a diagnostic cannot take the boot with it.
+        for line in config_warnings(config):
+            logger.warning("config: {}", line)
     except Exception as exc:  # noqa: BLE001 -- a diagnostic must not break boot
         logger.debug("gates: could not report the effective policy: {}", exc)
 

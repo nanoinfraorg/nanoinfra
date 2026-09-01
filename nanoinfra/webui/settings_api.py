@@ -34,6 +34,7 @@ from nanoinfra.audio.transcription_registry import (
     transcription_provider_names,
 )
 from nanoinfra.config.gates import ContextPolicy, GatesConfig, ScopePolicy, StandingGrant
+from nanoinfra.config.honesty import config_warnings
 from nanoinfra.config.loader import (
     get_config_path,
     load_config,
@@ -1314,6 +1315,9 @@ def settings_payload(
             "max_concurrent_subagents": defaults.max_concurrent_subagents,
         },
         "model_presets": model_presets,
+        # The same lines the log carries at boot (#205). On the page too, because the log line is
+        # read once by whoever restarted and the contradiction outlives that person's session.
+        "config_warnings": config_warnings(config),
         "model_call_order": model_call_order,
         "model_call_order_editable": model_call_order_editable,
         "providers": providers,

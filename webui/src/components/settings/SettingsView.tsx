@@ -43,6 +43,8 @@ import {
   MessageCircle,
   Mic,
   Moon,
+  AlertTriangle,
+  AtSign,
   MoreHorizontal,
   PauseCircle,
   PlayCircle,
@@ -736,7 +738,9 @@ export function SettingsView({
   const [cliAppsError, setCliAppsError] = useState<string | null>(null);
   const [nanoinfraFeaturesError, setNanoinfraFeaturesError] = useState<string | null>(null);
   const [cliAppsFocusName, setCliAppsFocusName] = useState<string | null>(null);
-  const [appsKindFilter, setAppsKindFilter] = useState<AppsKindFilter>("cli");
+  // "ready" rather than "cli": the tab list reads Ready | Apps | Integrations | Connectors, and
+  // opening on the second one made the page look like it only had CLI apps.
+  const [appsKindFilter, setAppsKindFilter] = useState<AppsKindFilter>("ready");
   const [mcpMessage, setMcpMessage] = useState<string | null>(null);
   const [mcpError, setMcpError] = useState<string | null>(null);
   const [automationsError, setAutomationsError] = useState<string | null>(null);
@@ -2160,7 +2164,7 @@ export function SettingsView({
   };
 
   const handleMcpPresetAction = async (
-    action: "enable" | "remove" | "test" | "pause" | "resume",
+    action: "enable" | "remove" | "test" | "pause" | "resume" | "attach_always" | "attach_on_mention",
     name: string,
     values: Record<string, string> = {},
   ) => {
@@ -2288,6 +2292,10 @@ export function SettingsView({
       case "models":
         return (
           <div className="space-y-8">
+            {/* Config this deployment is ignoring (#205). Above the editor rather than beside a
+                field, because both warnings are about two settings contradicting each other and
+                neither field is wrong on its own. */}
+            <ConfigWarnings lines={settings.config_warnings ?? []} />
             <ModelsSettings
               token={token}
               form={form}
@@ -8495,7 +8503,7 @@ function AppsCatalogSettings({
   onFilterChange: (value: AppsKindFilter) => void;
   onCliAction: (action: "install" | "update" | "uninstall" | "test", name: string) => void;
   onMcpAction: (
-    action: "enable" | "remove" | "test" | "pause" | "resume",
+    action: "enable" | "remove" | "test" | "pause" | "resume" | "attach_always" | "attach_on_mention",
     name: string,
     values?: Record<string, string>,
   ) => void;
@@ -8833,7 +8841,7 @@ export function McpAppsCatalogRow({
   showBrandLogos: boolean;
   onFieldChange: (presetName: string, fieldName: string, value: string) => void;
   onAction: (
-    action: "enable" | "remove" | "test" | "pause" | "resume",
+    action: "enable" | "remove" | "test" | "pause" | "resume" | "attach_always" | "attach_on_mention",
     name: string,
     values?: Record<string, string>,
   ) => void;
@@ -8866,17 +8874,34 @@ export function McpAppsCatalogRow({
   // An installed row said "Custom MCP server from nanoinfra config", which is where it came from
   // rather than what it costs. The number that decides whether the switch should be on is the tool
   // count, because every one of those schemas is in every prompt on every turn (#206).
+  // A paused server is never connected, so there is no live tool list to count -- it reported
+  // `0 tools` for a server holding fifteen. The allowlist is the honest number in that state, and
+  // `["*"]` means "whatever it exposes", which is a count nobody has.
+  // The live list when the server is connected, the allowlist when it is not. A paused server never
+  // connects, so `tool_names` is empty and the allowlist is the only thing that can answer "which
+  // fifteen?" -- which is the question the count on its own invites.
+  const listedToolNames = toolNames.length ? toolNames : allowAllTools ? [] : enabledTools;
+  const listedToolCount = listedToolNames.length;
+  const toolNamesAreFromAllowlist = !toolNames.length && listedToolCount > 0;
   const costLine = !readyInstalled
     ? description
     : preset.paused
-      ? t("settings.mcp.costPaused", {
-          count: toolNames.length,
-          defaultValue: "{{count}} tools · paused, not in any prompt",
-        })
-      : t("settings.mcp.costActive", {
-          count: toolNames.length,
-          defaultValue: "{{count}} tools · in every prompt",
-        });
+      ? listedToolCount
+        ? t("settings.mcp.costPaused", {
+            count: listedToolCount,
+            defaultValue: "{{count}} tools · paused, not in any prompt",
+          })
+        : tx("settings.mcp.costPausedUnknown", "Paused — not in any prompt")
+      : preset.attach === "mention"
+        ? t("settings.mcp.costOnMention", {
+            count: listedToolCount,
+            name: preset.name,
+            defaultValue: "{{count}} tools · sent only when you say @{{name}}",
+          })
+        : t("settings.mcp.costActive", {
+            count: listedToolCount,
+            defaultValue: "{{count}} tools · in every prompt",
+          });
 
   useEffect(() => {
     if (preset.configured || !preset.install_supported) setSetupOpen(false);
@@ -8899,7 +8924,9 @@ export function McpAppsCatalogRow({
     if (next.has(toolName)) next.delete(toolName);
     else next.add(toolName);
     const nextValues = Array.from(next);
-    setTools(nextValues.length === toolNames.length ? ["*"] : nextValues);
+    // Collapse to `["*"]` only when the live list is known. Reachable while disconnected now, and
+    // there `toolNames` is empty -- so the old comparison read "nothing selected" as "all of them".
+    setTools(toolNames.length > 0 && nextValues.length === toolNames.length ? ["*"] : nextValues);
   };
 
   return (
@@ -8919,7 +8946,18 @@ export function McpAppsCatalogRow({
               <h3 className="truncate text-[14px] font-semibold leading-5 text-foreground">{preset.display_name}</h3>
               <AppsTypeBadge>{tx("settings.apps.mcpLabel", "Integration")}</AppsTypeBadge>
             </div>
+            {listedToolCount ? (
+            <button
+              type="button"
+              onClick={() => setToolsOpen((open) => !open)}
+              aria-expanded={toolsOpen}
+              className="mt-0.5 block max-w-full truncate text-left text-[12.5px] leading-5 text-muted-foreground underline decoration-dotted decoration-from-font underline-offset-2 transition-colors hover:text-foreground"
+            >
+              {costLine}
+            </button>
+          ) : (
             <p className="mt-0.5 truncate text-[12.5px] leading-5 text-muted-foreground">{costLine}</p>
+          )}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -8960,6 +8998,22 @@ export function McpAppsCatalogRow({
                       {tx("settings.mcp.toolScope", "Tools")}
                     </DropdownMenuItem>
                   ) : null}
+                  {/* The middle setting between "every prompt" and "paused" (#204): connected, one
+                      word away, and its schemas in no prompt that did not ask. */}
+                  <DropdownMenuItem
+                    disabled={busy || preset.paused}
+                    onClick={() =>
+                      onAction(
+                        preset.attach === "mention" ? "attach_always" : "attach_on_mention",
+                        preset.name,
+                      )
+                    }
+                  >
+                    <AtSign className="mr-2 h-3.5 w-3.5" aria-hidden />
+                    {preset.attach === "mention"
+                      ? tx("settings.mcp.attachAlways", "Send tools every turn")
+                      : tx("settings.mcp.attachOnMention", "Send tools only when mentioned")}
+                  </DropdownMenuItem>
                   <DropdownMenuItem disabled={busy} onClick={() => onAction("remove", preset.name)}>
                     <Trash2 className="mr-2 h-3.5 w-3.5" aria-hidden />
                     {tx("settings.mcp.remove", "Remove")}
@@ -9074,7 +9128,7 @@ export function McpAppsCatalogRow({
         </div>
       ) : null}
 
-      {toolsOpen && readyInstalled && toolNames.length ? (
+      {toolsOpen && readyInstalled && listedToolCount ? (
         <div className="mx-3 mb-3 rounded-[14px] bg-background/55 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-[11.5px] font-medium text-muted-foreground">
@@ -9103,8 +9157,16 @@ export function McpAppsCatalogRow({
               </Button>
             </div>
           </div>
+          {toolNamesAreFromAllowlist ? (
+            <p className="mt-1 text-[11px] leading-4 text-muted-foreground/70">
+              {tx(
+                "settings.mcp.toolsFromAllowlist",
+                "From the saved allowlist — the server is not connected, so this is what it will expose.",
+              )}
+            </p>
+          ) : null}
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {toolNames.map((toolName) => {
+            {listedToolNames.map((toolName) => {
               const selected = enabledSet.has(toolName);
               return (
                 <button
@@ -9127,6 +9189,28 @@ export function McpAppsCatalogRow({
         </div>
       ) : null}
     </article>
+  );
+}
+
+function ConfigWarnings({ lines }: { lines: string[] }) {
+  const { t } = useTranslation();
+  if (!lines.length) return null;
+  return (
+    <div className="rounded-[14px] border border-amber-500/35 bg-amber-500/[0.07] p-3">
+      <div className="flex items-center gap-2 text-[12.5px] font-semibold text-amber-500">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        {t("settings.models.ignoredConfig", {
+          defaultValue: "This config is partly ignored",
+        })}
+      </div>
+      <ul className="mt-1.5 space-y-1">
+        {lines.map((line) => (
+          <li key={line} className="text-[12px] leading-5 text-muted-foreground">
+            {line}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

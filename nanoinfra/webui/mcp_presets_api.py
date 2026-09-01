@@ -801,6 +801,9 @@ def _preset_payload(preset: McpPreset, configured_servers: dict[str, MCPServerCo
         # "not installed": the command, the env and the tool allowlist are all still here, so
         # a resume needs no credential and no re-entry of anything.
         "paused": cfg is not None and not getattr(cfg, "enabled", True),
+        # When its schemas reach the prompt (#204). `mention` sends one advertised line and the
+        # schemas only for a turn that names the server.
+        "attach": getattr(cfg, "attach", "always") if cfg is not None else "always",
         "source": "preset",
         "manifest": _preset_manifest(preset, logo_url=logo_url),
     }
@@ -840,6 +843,9 @@ def _custom_payload(
         # "not installed": the command, the env and the tool allowlist are all still here, so
         # a resume needs no credential and no re-entry of anything.
         "paused": not getattr(cfg, "enabled", True),
+        # When its schemas reach the prompt (#204). `mention` sends one advertised line and the
+        # schemas only for a turn that names the server.
+        "attach": getattr(cfg, "attach", "always"),
         "source": "custom",
         "manifest": _custom_manifest(name, cfg),
     }
@@ -902,6 +908,8 @@ def _server_action_message(action: str, name: str, *, ok: bool = True) -> dict[s
         "tools": "Updated tools for",
         "pause": "Paused",
         "resume": "Resumed",
+        "attach_on_mention": "Now sends schemas only on mention for",
+        "attach_always": "Now sends schemas every turn for",
         "remove": "Removed",
     }.get(action, "Updated")
     payload: dict[str, Any] = {
@@ -1299,6 +1307,20 @@ def mcp_presets_action(action: str, query: QueryParams) -> dict[str, Any]:
         payload = mcp_presets_payload(last_action=_server_action_message(action, name))
         # The registry is built at boot from `merged_mcp_servers`, which drops a paused server --
         # so the change lands on the next start rather than mid-turn.
+        payload["requires_restart"] = True
+        return payload
+
+    if action in {"attach_always", "attach_on_mention"}:
+        # A third state on the same row, and the one that pays without giving anything up: the
+        # server stays connected and one word away, and its schemas leave every prompt that did
+        # not ask for it (#204).
+        if existing is None:
+            raise McpPresetError("unknown MCP server", status=404)
+        existing.attach = "mention" if action == "attach_on_mention" else "always"
+        save_config(config)
+        payload = mcp_presets_payload(last_action=_server_action_message(action, name))
+        # The advertisement and the availability filter are both read from the map the loop seeds
+        # at boot, so this lands on the next start rather than mid-turn.
         payload["requires_restart"] = True
         return payload
 

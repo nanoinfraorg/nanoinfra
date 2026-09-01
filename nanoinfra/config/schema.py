@@ -381,6 +381,19 @@ class MCPServerConfig(Base):
     # Worth a deployment-wide flag on its own: three servers exposing the same fifteen tools is
     # ~15K tokens per turn to use one of them.
     enabled: bool = True
+    # When the schemas are sent (#204). `always` is what every deployment did before this field
+    # existed and stays the default: all of this server's tool schemas in every prompt.
+    #
+    # `mention` sends one *line* instead -- name, tool count, and how to attach -- and the schemas
+    # only when the turn names the server (`@server` in the composer, or `mcpPresets` on an
+    # automation). The line is the reason this is not simply "send nothing": a model that cannot see
+    # that a capability exists cannot say "I can do that if you attach it". It either fails or
+    # quietly substitutes something worse, and a silently worse answer is harder to notice than a
+    # large bill.
+    #
+    # Distinct from `enabled: false`, which does not connect the server at all: a `mention` server
+    # is connected and one word away.
+    attach: Literal["always", "mention"] = "always"
     type: Literal["stdio", "sse", "streamableHttp"] | None = None  # auto-detected if omitted
     command: str = ""  # Stdio: command to run (e.g. "npx")
     args: list[str] = Field(default_factory=list)  # Stdio: command arguments
