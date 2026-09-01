@@ -164,6 +164,7 @@ def test_a_ceiling_shows_the_operations_it_removed_as_not_enabled(
         "list_calendars": True,
         "get_event": True,
         "create_event": False,
+        "delete_event": False,
     }
     assert row["max_class"] == "read"
 

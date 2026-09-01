@@ -63,6 +63,7 @@ def test_a_configured_connector_activates_with_its_operations_and_defaults() -> 
         "list_calendars",
         "get_event",
         "create_event",
+        "delete_event",
     ]
     assert entry.defaults == {"calendarId": "primary"}
     assert entry.credential.name == "google-workspace"
@@ -215,6 +216,7 @@ def test_registration_adds_one_tool_per_enabled_operation(tmp_path: Any) -> None
         "google_calendar_list_calendars",
         "google_calendar_get_event",
         "google_calendar_create_event",
+        "google_calendar_delete_event",
     ]
     assert capability_class_of(registry.get("google_calendar_list_events")) == "read"
     assert capability_class_of(registry.get("google_calendar_create_event")) == "mutate.remote"

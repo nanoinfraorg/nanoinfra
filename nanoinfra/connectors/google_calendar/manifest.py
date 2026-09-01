@@ -149,5 +149,30 @@ PLUGIN = ConnectorPlugin(
                 "required": ["summary", "start", "end"],
             },
         ),
+        operation(
+            "delete_event",
+            "mutate.remote",
+            "DELETE",
+            "/calendar/v3/calendars/{calendarId}/events/{eventId}",
+            # A delete answers 204 with no body, which the engine reads as {} and this
+            # empty projection passes through unchanged: the tool result confirms the
+            # call returned, not what it removed. Read the event first if the model
+            # needs to name what it deleted.
+            description=(
+                "Delete an event by id. The removal notifies attendees per the calendar's "
+                "own settings; read the event first if you need to confirm what it was."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "calendarId": {
+                        "type": "string",
+                        "description": "Calendar id. Defaults to the configured one.",
+                    },
+                    "eventId": {"type": "string", "description": "Id of the event to delete."},
+                },
+                "required": ["eventId"],
+            },
+        ),
     ),
 )

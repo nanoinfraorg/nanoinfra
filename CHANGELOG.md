@@ -16,6 +16,9 @@ not here.
 - OpenAI requests carry `prompt_cache_key`, one key per chat, so its automatic prefix cache is
   reached instead of every session landing in the bucket its first 256 tokens hash to. Opt-in per
   provider: it is a body field, and a provider that rejects an unknown one answers 400.
+- `google_calendar_delete_event` removes an event by id. It carries `mutate.remote`, the same class
+  as creating one, so it asks a person in an interactive turn and needs a standing grant to run
+  unattended.
 
 ## [1.6.1] — 2026-09-01
 

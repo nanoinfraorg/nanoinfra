@@ -5,10 +5,11 @@ description: Read and write events on a Google Calendar through the google-calen
 
 # Google Calendar
 
-Tools: `google_calendar_list_events`, `google_calendar_get_event`, `google_calendar_create_event`.
+Tools: `google_calendar_list_events`, `google_calendar_list_calendars`,
+`google_calendar_get_event`, `google_calendar_create_event`, `google_calendar_delete_event`.
 
-Two of those read and one writes, and the difference is enforced rather than advisory:
-`create_event` carries the `mutate.remote` capability class, so it asks a person in an
+The reads and the writes are enforced apart, not merely labelled: `create_event` and
+`delete_event` carry the `mutate.remote` capability class, so each asks a person in an
 interactive turn and needs a standing grant naming this connector to run unattended. The
 reads carry `read` and simply run.
 
@@ -39,6 +40,19 @@ send mail to attendees. So:
 3. An all-day event uses `{"date": "2026-09-01"}` and never `dateTime`.
 4. If the call is refused, the refusal names what would permit it. Report that text — do not
    retry, and do not look for another route to the same write.
+
+## Deleting an event
+
+`google_calendar_delete_event` takes an `eventId` and carries the same `mutate.remote` class as
+creating one. It answers with nothing on success — a `204`, no body — so the result confirms the
+call returned, not what was removed.
+
+1. Find the id first. The user names an event ("cancel my 3pm"), not an id; list or read to
+   resolve it, and state the event's summary and time back to them before deleting.
+2. Deleting a meeting with attendees notifies them per the calendar's own settings. Treat it
+   like sending mail: confirm the specific event, then delete.
+3. There is no undo. If you deleted the wrong one, say so — you cannot restore it, only create
+   a new event, which is not the same event.
 
 ## Credentials
 

@@ -8,6 +8,7 @@ from the tool name instead of the manifest.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -91,6 +92,18 @@ def test_calendar_declares_two_classes(calendar: ConnectorPlugin) -> None:
     assert calendar.classes == ("read", "mutate.remote")
     assert calendar.operation("list_events") is not None
     assert calendar.operation("create_event") is not None
+
+
+def test_delete_event_is_a_write_by_id(calendar: ConnectorPlugin) -> None:
+    op = calendar.operation("delete_event")
+    assert op is not None
+    # A delete is a write, so it takes the fail-closed class and the events scope, not
+    # the read-only one -- the same class create carries.
+    assert op.capability_class == "mutate.remote"
+    assert op.method == "DELETE"
+    assert op.parameters["required"] == ["eventId"]
+    # Nothing to project: the API answers 204 with no body.
+    assert op.returns == ()
 
 
 def test_package_name_and_manifest_name_must_agree() -> None:
@@ -341,6 +354,54 @@ def test_a_get_puts_the_rest_in_the_query_and_a_post_in_the_body(
     write = prepare(calendar, creating, {"calendarId": "primary", "summary": "Standup"})
     assert write.body == {"summary": "Standup"}
     assert write.params == {}
+
+
+def test_a_delete_reads_a_204_as_an_empty_result_and_carries_the_token(
+    calendar: ConnectorPlugin, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The end-to-end shape of a delete: Google answers 204 with no body, the engine
+    reads that as {}, and the write scope's token rode on the request."""
+    op = calendar.operation("delete_event")
+    assert op is not None
+    seen: dict[str, Any] = {}
+
+    async def _request(
+        self: httpx.AsyncClient, method: str, url: str, **kwargs: Any
+    ) -> httpx.Response:
+        seen["method"] = method
+        seen["url"] = url
+        seen["headers"] = dict(kwargs.get("headers") or {})
+        return httpx.Response(204)
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", _request)
+    tokens = _FixedTokens()
+
+    payload = asyncio.run(
+        call(calendar, op, {"calendarId": "primary", "eventId": "evt-1"}, tokens=tokens)
+    )
+
+    assert payload == {}
+    assert seen["method"] == "DELETE"
+    assert seen["url"].endswith("/calendars/primary/events/evt-1")
+    # The write scope, not the read one: a delete cannot borrow calendar.readonly.
+    assert tokens.asked == [(CALENDAR, "mutate.remote", False)]
+    assert seen["headers"]["Authorization"] == "Bearer token-for-mutate.remote"
+
+
+def test_a_delete_consumes_both_ids_on_the_path_and_carries_no_body(
+    calendar: ConnectorPlugin,
+) -> None:
+    op = calendar.operation("delete_event")
+    assert op is not None
+
+    prepared = prepare(calendar, op, {"calendarId": "primary", "eventId": "evt-1"})
+
+    assert prepared.method == "DELETE"
+    assert prepared.url.endswith("/calendars/primary/events/evt-1")
+    # Both ids fill placeholders, so nothing is left to become a body -- and a delete
+    # takes no query params the engine could route anywhere else.
+    assert prepared.body == {}
+    assert prepared.params == {}
 
 
 def test_the_projection_keeps_declared_fields_and_the_paging_key(
