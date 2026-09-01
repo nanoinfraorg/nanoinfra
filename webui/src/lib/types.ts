@@ -138,6 +138,13 @@ export interface PromptManifest {
     detail?: string;
     /** How many things this row stands for: skills, tools, messages. */
     items?: number;
+    /**
+     * The individual tools behind an `items` count, largest first (#203).
+     *
+     * `×31` is a number that raises the question it cannot answer, and a reader deciding what to
+     * trim needs to know which of the thirty-one is the expensive one. Names and sizes only.
+     */
+    tools?: Array<{ name: string; chars: number; tokens: number }>;
   }>;
   groups: Record<string, number>;
   total_tokens: number;

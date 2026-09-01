@@ -139,17 +139,33 @@ class ToolRegistry:
         from nanoinfra.utils.helpers import count_text_tokens
 
         grouped: dict[str, dict[str, int]] = {}
+        per_tool: dict[str, list[dict[str, int | str]]] = {}
         for schema in self.get_definitions():
             name = self._schema_name(schema)
             tool = self._tools.get(name)
             source = tool.source if tool is not None else "builtin"
             serialised = json.dumps(schema, ensure_ascii=False)
+            chars = len(serialised)
+            tokens = count_text_tokens(serialised)
             entry = grouped.setdefault(source, {"chars": 0, "tokens": 0, "items": 0})
-            entry["chars"] += len(serialised)
-            entry["tokens"] += count_text_tokens(serialised)
+            entry["chars"] += chars
+            entry["tokens"] += tokens
             entry["items"] += 1
+            # Named, because "31 tools" is a number that raises the question it cannot answer, and
+            # a reader deciding what to trim needs to know *which* of the thirty-one is the
+            # expensive one. Names and sizes only: a schema is not carried anywhere.
+            per_tool.setdefault(source, []).append(
+                {"name": name, "chars": chars, "tokens": tokens}
+            )
         return [
-            {"source": source, **totals}
+            {
+                "source": source,
+                **totals,
+                "tools": sorted(
+                    per_tool.get(source, []),
+                    key=lambda row: (-int(row["tokens"]), str(row["name"])),
+                ),
+            }
             for source, totals in sorted(grouped.items(), key=lambda item: -item[1]["tokens"])
         ]
 

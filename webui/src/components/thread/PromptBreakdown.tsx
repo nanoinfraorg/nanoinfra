@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -62,12 +62,15 @@ export function PromptBreakdown({ manifest }: { manifest: PromptManifest }) {
           {sections.map((section) => (
             <PromptRow
               key={`${section.group}/${section.name}`}
-              label={section.name}
+              label={sourceLabel(section.name)}
+              kind={sourceKind(section.name)}
               group={groupLabel(section.group, tx)}
               items={section.items}
+              tools={section.tools}
               tokens={section.tokens}
               share={section.tokens / total}
               format={(value) => numbers.format(value)}
+              expandLabel={tx("message.prompt.whichTools", "which tools")}
             />
           ))}
           <dt className="pt-1 font-semibold text-foreground">
@@ -91,27 +94,60 @@ export function PromptBreakdown({ manifest }: { manifest: PromptManifest }) {
 
 function PromptRow({
   label,
+  kind,
   group,
   items,
+  tools,
   tokens,
   share,
   format,
+  expandLabel,
 }: {
   label: string;
+  /** `mcp` or `connector`, when the row is one server's or one connector's schemas. */
+  kind?: string;
   group: string;
   items?: number;
+  tools?: Array<{ name: string; chars: number; tokens: number }>;
   tokens: number;
   share: number;
   format: (value: number) => string;
+  expandLabel: string;
 }) {
+  const [open, setOpen] = useState(false);
+  // `×31` answers "how many" and invites "which ones?". The count itself opens the list, so the
+  // answer is where the question is.
+  const expandable = Boolean(tools?.length);
+
   return (
     <>
       <dt className="flex min-w-0 items-baseline gap-1.5 text-muted-foreground">
         <span className="truncate text-foreground">{label}</span>
+        {kind ? (
+          <span className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] leading-4 text-muted-foreground/80">
+            {kind}
+          </span>
+        ) : null}
         <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/60">
           {group}
         </span>
-        {items ? <span className="shrink-0 text-muted-foreground/60">×{items}</span> : null}
+        {items ? (
+          expandable ? (
+            <button
+              type="button"
+              onClick={() => setOpen((value) => !value)}
+              aria-expanded={open}
+              // Named per row: two tool sections both offering "which tools" is a label that
+              // identifies neither.
+              aria-label={`${expandLabel}: ${label}`}
+              className="shrink-0 text-muted-foreground/60 underline decoration-dotted decoration-from-font underline-offset-2 transition-colors hover:text-foreground"
+            >
+              ×{items}
+            </button>
+          ) : (
+            <span className="shrink-0 text-muted-foreground/60">×{items}</span>
+          )
+        ) : null}
       </dt>
       <dd className="text-right tabular-nums text-muted-foreground">
         {format(tokens)}
@@ -119,8 +155,37 @@ function PromptRow({
             that faster than a bar a reader has to compare against its neighbours. */}
         <span className="ml-2 text-muted-foreground/60">{Math.round(share * 100)}%</span>
       </dd>
+      {open && tools
+        ? tools.map((tool) => (
+            <Fragment key={tool.name}>
+              <dt className="truncate pl-3 font-mono text-[10.5px] leading-4 text-muted-foreground/80">
+                {tool.name}
+              </dt>
+              <dd className="text-right font-mono text-[10.5px] leading-4 tabular-nums text-muted-foreground/70">
+                {format(tool.tokens)}
+              </dd>
+            </Fragment>
+          ))
+        : null}
     </>
   );
+}
+
+/**
+ * A tool row's name, read from its `Tool.source`.
+ *
+ * The raw source went straight into the row, so an operator saw `connector:google-calendar` where
+ * the rest of the UI says "Google Calendar" -- and at the panel's size the colon was easy to miss,
+ * which read as one run-together word. The prefix is a chip and the name is the name.
+ */
+function sourceLabel(name: string): string {
+  const colon = name.indexOf(":");
+  return colon > 0 ? name.slice(colon + 1) : name;
+}
+
+function sourceKind(name: string): string | undefined {
+  const colon = name.indexOf(":");
+  return colon > 0 ? name.slice(0, colon) : undefined;
 }
 
 function groupLabel(

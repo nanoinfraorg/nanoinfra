@@ -870,6 +870,9 @@ class AgentLoop:
                     "tokens": row["tokens"],
                     "group": "tools",
                     "items": row["items"],
+                    # Which tools, largest first. The panel's `×31` was a count that raised the
+                    # question it could not answer (#203).
+                    "tools": row["tools"],
                 })
 
             conversation = [
