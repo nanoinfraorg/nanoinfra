@@ -43,6 +43,7 @@ import {
   MessageCircle,
   Mic,
   Moon,
+  MoreHorizontal,
   PauseCircle,
   PlayCircle,
   Plus,
@@ -8817,7 +8818,7 @@ function CliAppsCatalogRow({
   );
 }
 
-function McpAppsCatalogRow({
+export function McpAppsCatalogRow({
   preset,
   values,
   actionKey,
@@ -8862,6 +8863,20 @@ function McpAppsCatalogRow({
   const statusLabel = preset.paused
     ? tx("settings.mcp.pausedStatus", "Paused — not in any prompt")
     : mcpPresetStatusLabel(preset.status, tx);
+  // An installed row said "Custom MCP server from nanoinfra config", which is where it came from
+  // rather than what it costs. The number that decides whether the switch should be on is the tool
+  // count, because every one of those schemas is in every prompt on every turn (#206).
+  const costLine = !readyInstalled
+    ? description
+    : preset.paused
+      ? t("settings.mcp.costPaused", {
+          count: toolNames.length,
+          defaultValue: "{{count}} tools · paused, not in any prompt",
+        })
+      : t("settings.mcp.costActive", {
+          count: toolNames.length,
+          defaultValue: "{{count}} tools · in every prompt",
+        });
 
   useEffect(() => {
     if (preset.configured || !preset.install_supported) setSetupOpen(false);
@@ -8890,26 +8905,48 @@ function McpAppsCatalogRow({
   return (
     <article className="rounded-[14px] transition-colors hover:bg-muted/45">
       <div className="group flex min-w-0 items-center gap-3 px-3 py-3">
-        <McpPresetLogo preset={preset} showBrandLogos={showBrandLogos} />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-baseline gap-2">
-            <h3 className="truncate text-[14px] font-semibold leading-5 text-foreground">{preset.display_name}</h3>
-            <AppsTypeBadge>{tx("settings.apps.mcpLabel", "Integration")}</AppsTypeBadge>
+        {/* Dimmed rather than hidden: a paused server is still configured, and the row is where you
+            go to put it back. The switch keeps full contrast so it stays the obvious thing to click. */}
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-3 transition-opacity",
+            preset.paused && "opacity-55",
+          )}
+        >
+          <McpPresetLogo preset={preset} showBrandLogos={showBrandLogos} />
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-baseline gap-2">
+              <h3 className="truncate text-[14px] font-semibold leading-5 text-foreground">{preset.display_name}</h3>
+              <AppsTypeBadge>{tx("settings.apps.mcpLabel", "Integration")}</AppsTypeBadge>
+            </div>
+            <p className="mt-0.5 truncate text-[12.5px] leading-5 text-muted-foreground">{costLine}</p>
           </div>
-          <p className="mt-0.5 truncate text-[12.5px] leading-5 text-muted-foreground">{description}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {readyInstalled ? (
             <>
+              {/* The switch, not a menu item: "is this server in the prompt" is the state a reader
+                  came to the row to change, and a control that answers it has to be visible without
+                  a click. Pausing keeps the command, the env, the headers and the tool allowlist --
+                  the trash icon at the end of the row is the other thing. */}
+              <ToggleButton
+                checked={!preset.paused}
+                disabled={busy}
+                onChange={(next) => onAction(next ? "resume" : "pause", preset.name)}
+                label={t("settings.mcp.sendSchemas", {
+                  name: preset.display_name,
+                  defaultValue: "Send {{name}} tools to the model",
+                })}
+                ariaLabel={statusLabel}
+              />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <AppsActionButton
-                    ariaLabel={statusLabel}
+                    ariaLabel={tx("settings.mcp.moreActions", "More actions")}
                     busy={testBusy || toolsBusy}
                     disabled={busy}
-                    tone="installed"
                   >
-                    <Check className="h-4 w-4" aria-hidden />
+                    <MoreHorizontal className="h-4 w-4" aria-hidden />
                   </AppsActionButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -8923,23 +8960,6 @@ function McpAppsCatalogRow({
                       {tx("settings.mcp.toolScope", "Tools")}
                     </DropdownMenuItem>
                   ) : null}
-                  {/* Paused keeps the command, the env, the headers and the tool allowlist and
-                      takes the schemas out of every prompt (#206). The trash icon beside this menu
-                      is the other thing, and the distinction is the point: three servers exposing
-                      the same fifteen tools cost ~15K tokens a turn to use one of them. */}
-                  <DropdownMenuItem
-                    disabled={busy}
-                    onClick={() => onAction(preset.paused ? "resume" : "pause", preset.name)}
-                  >
-                    {preset.paused ? (
-                      <PlayCircle className="mr-2 h-3.5 w-3.5" aria-hidden />
-                    ) : (
-                      <PauseCircle className="mr-2 h-3.5 w-3.5" aria-hidden />
-                    )}
-                    {preset.paused
-                      ? tx("settings.mcp.resume", "Resume")
-                      : tx("settings.mcp.pause", "Pause (keep config)")}
-                  </DropdownMenuItem>
                   <DropdownMenuItem disabled={busy} onClick={() => onAction("remove", preset.name)}>
                     <Trash2 className="mr-2 h-3.5 w-3.5" aria-hidden />
                     {tx("settings.mcp.remove", "Remove")}
