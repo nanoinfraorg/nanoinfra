@@ -728,8 +728,14 @@ async def test_webui_skills_marketplace_routes_search_and_install(
         )
         assert search_response.status_code == 200
         assert search_response.json()["skills"][0]["skill_id"] == "react-testing"
+        # `kind=""` is the unnarrowed search (#207): naming a kind selects the nanoinfra catalog,
+        # and an empty one has to keep meaning "everything from every provider".
         search.assert_awaited_once_with(
-            "react", tmp_path, provider="all", nanoinfra_base_url="https://skills.nanoinfra.org"
+            "react",
+            tmp_path,
+            provider="all",
+            nanoinfra_base_url="https://skills.nanoinfra.org",
+            kind="",
         )
 
         trending_response = await _http_get(
