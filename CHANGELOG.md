@@ -16,6 +16,10 @@ not here.
 - OpenAI requests carry `prompt_cache_key`, one key per chat, so its automatic prefix cache is
   reached instead of every session landing in the bucket its first 256 tokens hash to. Opt-in per
   provider: it is a body field, and a provider that rejects an unknown one answers 400.
+- `google_calendar_freebusy` answers whether a calendar is busy in a range — busy blocks only,
+  no event detail — so availability and slot-finding no longer mean reading every event. A
+  connector operation can now declare `read_via_post` for a read whose query needs a POST body;
+  the invariant that a POST is a write otherwise still holds.
 - `google_calendar_update_event` changes an event by id. A partial PATCH, so an omitted field
   keeps its value — sending only `start`/`end` moves an event and keeps the rest. `mutate.remote`.
 - `google_calendar_delete_event` removes an event by id. It carries `mutate.remote`, the same class

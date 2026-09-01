@@ -163,6 +163,7 @@ def test_a_ceiling_shows_the_operations_it_removed_as_not_enabled(
         "list_events": True,
         "list_calendars": True,
         "get_event": True,
+        "freebusy": True,
         "create_event": False,
         "update_event": False,
         "delete_event": False,

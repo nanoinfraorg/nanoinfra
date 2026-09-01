@@ -6,8 +6,8 @@ description: Read and write events on a Google Calendar through the google-calen
 # Google Calendar
 
 Tools: `google_calendar_list_events`, `google_calendar_list_calendars`,
-`google_calendar_get_event`, `google_calendar_create_event`, `google_calendar_update_event`,
-`google_calendar_delete_event`.
+`google_calendar_get_event`, `google_calendar_freebusy`, `google_calendar_create_event`,
+`google_calendar_update_event`, `google_calendar_delete_event`.
 
 The reads and the writes are enforced apart, not merely labelled: `create_event`,
 `update_event` and `delete_event` carry the `mutate.remote` capability class, so each asks a
@@ -28,6 +28,21 @@ try to search: this API filters by time, and a listing with a window is the whol
 - `maxResults` defaults to 10. A user asking about a whole week needs it raised, and a listing
   that hit the cap returns `nextPageToken` — say the answer is partial rather than presenting
   ten rows as the week.
+
+## Answering "am I free" and finding a slot
+
+Prefer `google_calendar_freebusy` over reading events when the question is about
+availability. It returns busy time blocks and nothing else — no titles, no attendees — so
+it is both the smaller answer and the private one.
+
+- For the user's own calendar pass `items: [{"id": "primary"}]`. For someone else's, or a
+  shared one, resolve the id with `list_calendars` first.
+- To find a common slot, pass several calendars in `items` and read the union of their busy
+  blocks; the gaps are the candidates.
+- A calendar the account cannot see comes back under `errors` rather than as busy time. Say
+  you could not check it rather than treating silence as free.
+- Use `list_events` instead only when the user wants to know *what* an event is, not merely
+  whether the time is taken.
 
 ## Creating an event
 

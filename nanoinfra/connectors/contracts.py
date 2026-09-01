@@ -65,6 +65,11 @@ class ConnectorOperation:
     collection: str = ""
     description: str = ""
     parameters: dict[str, Any] = dataclass_field(default_factory=dict[str, Any])
+    # A read that must be a POST because its query does not fit a URL — Google's
+    # `freeBusy` takes a body of calendar ids and a range. Off by default, so the
+    # invariant below still reads "a POST is a write": the exception is one a manifest
+    # author states in the open, per operation, and it is greppable for a reviewer.
+    read_via_post: bool = False
 
     def __post_init__(self) -> None:
         if _NAME.fullmatch(self.name) is None:
@@ -80,11 +85,19 @@ class ConnectorOperation:
         if not self.path.startswith("/"):
             raise ValueError(f"operation {self.name!r} path must start with '/'")
         reads = self.capability_class.startswith("read")
-        if reads and self.method not in _READ_METHODS:
+        if reads and self.method not in _READ_METHODS and not self.read_via_post:
             raise ValueError(
                 f"operation {self.name!r} is classified {self.capability_class!r} and uses "
                 f"{self.method}. A read class on a writing method is the mismatch this "
-                "refuses: classify it as a mutate, or use GET."
+                "refuses: classify it as a mutate, use GET, or set read_via_post for an "
+                "endpoint that reads through a POST body (like freeBusy)."
+            )
+        # The opt-in is only meaningful for a POST read; anywhere else it is a
+        # misunderstanding, and a silent no-op is how a misunderstanding survives.
+        if self.read_via_post and not (reads and self.method == "POST"):
+            raise ValueError(
+                f"operation {self.name!r} sets read_via_post but is {self.capability_class!r} "
+                f"on {self.method}. The flag is only for a read that must POST its query."
             )
 
     @property
@@ -102,6 +115,7 @@ def operation(
     collection: str = "",
     description: str = "",
     parameters: dict[str, Any] | None = None,
+    read_via_post: bool = False,
 ) -> ConnectorOperation:
     """Declare one operation. Used by a connector's ``manifest.py``."""
     return ConnectorOperation(
@@ -113,6 +127,7 @@ def operation(
         collection=collection,
         description=description,
         parameters=dict(parameters or {}),
+        read_via_post=read_via_post,
     )
 
 

@@ -62,6 +62,7 @@ def test_a_configured_connector_activates_with_its_operations_and_defaults() -> 
         "list_events",
         "list_calendars",
         "get_event",
+        "freebusy",
         "create_event",
         "update_event",
         "delete_event",
@@ -159,6 +160,7 @@ def test_the_same_read_only_credential_activates_a_connector_capped_at_read() ->
         "list_events",
         "list_calendars",
         "get_event",
+        "freebusy",
     ]
     assert "read" in startup_summary(active, problems)
 
@@ -216,6 +218,7 @@ def test_registration_adds_one_tool_per_enabled_operation(tmp_path: Any) -> None
         "google_calendar_list_events",
         "google_calendar_list_calendars",
         "google_calendar_get_event",
+        "google_calendar_freebusy",
         "google_calendar_create_event",
         "google_calendar_update_event",
         "google_calendar_delete_event",

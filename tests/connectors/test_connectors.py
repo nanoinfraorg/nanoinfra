@@ -126,6 +126,24 @@ def test_a_read_class_on_a_writing_method_is_refused() -> None:
         operation("send_it", "read", "POST", "/v1/send")
 
 
+def test_read_via_post_allows_a_read_that_must_post_its_query() -> None:
+    """freeBusy reads through a POST body; the opt-in is how a manifest says so."""
+    op = operation("freebusy", "read", "POST", "/v1/freeBusy", read_via_post=True)
+    assert op.is_read
+    assert op.method == "POST"
+
+
+def test_read_via_post_is_refused_on_a_write() -> None:
+    """The flag is only for a read that must POST -- not a licence on any POST."""
+    with pytest.raises(ValueError, match="only for a read that must POST"):
+        operation("send_it", "mutate.remote", "POST", "/v1/send", read_via_post=True)
+
+
+def test_read_via_post_is_refused_on_a_get() -> None:
+    with pytest.raises(ValueError, match="only for a read that must POST"):
+        operation("get_it", "read", "GET", "/v1/thing", read_via_post=True)
+
+
 def test_an_unknown_capability_class_is_refused() -> None:
     with pytest.raises(ValueError, match="not one the gate knows"):
         operation("read_it", "google.read", "GET", "/v1/thing")
@@ -186,7 +204,7 @@ def test_enabled_operations_narrows_what_the_model_sees(calendar: ConnectorPlugi
 def test_a_read_ceiling_drops_the_writes(calendar: ConnectorPlugin) -> None:
     """`maxClass` is the operator's answer to a package declaring its own classes."""
     capped = capped_operations(calendar.operations, "read")
-    assert [op.name for op in capped] == ["list_events", "list_calendars", "get_event"]
+    assert [op.name for op in capped] == ["list_events", "list_calendars", "get_event", "freebusy"]
     assert len(capped_operations(calendar.operations, None)) == len(calendar.operations)
 
 
@@ -363,6 +381,48 @@ def test_a_get_puts_the_rest_in_the_query_and_a_post_in_the_body(
     write = prepare(calendar, creating, {"calendarId": "primary", "summary": "Standup"})
     assert write.body == {"summary": "Standup"}
     assert write.params == {}
+
+
+def test_freebusy_reads_through_a_post_body_and_stays_read_only(
+    calendar: ConnectorPlugin,
+) -> None:
+    op = calendar.operation("freebusy")
+    assert op is not None
+    assert op.is_read
+
+    prepared = prepare(
+        calendar,
+        op,
+        {"timeMin": "2026-09-01T00:00:00Z", "timeMax": "2026-09-02T00:00:00Z",
+         "items": [{"id": "primary"}]},
+    )
+
+    # POST, but the whole query is the body -- there is no path placeholder to fill.
+    assert prepared.method == "POST"
+    assert prepared.url.endswith("/freeBusy")
+    assert prepared.body == {
+        "timeMin": "2026-09-01T00:00:00Z",
+        "timeMax": "2026-09-02T00:00:00Z",
+        "items": [{"id": "primary"}],
+    }
+    assert prepared.params == {}
+
+
+def test_freebusy_is_a_read_only_tool_carrying_the_readonly_scope(
+    calendar: ConnectorPlugin,
+) -> None:
+    from nanoinfra.agent.tools.capabilities import capability_class_of
+    from nanoinfra.connectors.tools import build_tools
+
+    executor = _FakeExecutor()
+    tools = {
+        tool.name: tool
+        for tool in build_tools(calendar, calendar.operations, client=executor)
+    }
+    freebusy = tools["google_calendar_freebusy"]
+    # A POST that reads must still read as a read: no preview, and the read scope.
+    assert capability_class_of(freebusy) == "read"
+    assert freebusy.read_only is True
 
 
 def test_a_patch_puts_the_changed_fields_in_the_body(calendar: ConnectorPlugin) -> None:

@@ -127,6 +127,38 @@ PLUGIN = ConnectorPlugin(
             },
         ),
         operation(
+            "freebusy",
+            "read",
+            "POST",
+            "/calendar/v3/freeBusy",
+            # A read that must POST: the query is a list of calendars and a range, which
+            # does not fit a URL. `read_via_post` is the manifest saying so in the open.
+            read_via_post=True,
+            # The response nests busy blocks under each calendar id, not a flat list, so
+            # there is nothing to project by field: it is already only times, no titles.
+            # That is the point of asking freeBusy instead of reading the events -- it
+            # answers "when is this calendar busy" without carrying what it is busy with.
+            description=(
+                "Busy time on one or more calendars in a range, with no event detail. Use it to "
+                "answer whether someone is free or to find a slot across calendars, rather than "
+                "reading every event. Pass items as [{\"id\": \"primary\"}] for the user's own "
+                "calendar, or ids from list_calendars; timeMin and timeMax are RFC 3339."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "timeMin": {"type": "string", "description": "RFC 3339 lower bound."},
+                    "timeMax": {"type": "string", "description": "RFC 3339 upper bound."},
+                    "items": {
+                        "type": "array",
+                        "description": 'Calendars to query, each {"id": "<calendarId>"}.',
+                        "items": {"type": "object"},
+                    },
+                },
+                "required": ["timeMin", "timeMax", "items"],
+            },
+        ),
+        operation(
             "create_event",
             "mutate.remote",
             "POST",
