@@ -293,14 +293,24 @@ def merged_mcp_servers(config: object) -> dict[str, MCPServerConfig]:
     connect, so the merge lives here rather than being written out three times.
 
     A plugin tree that cannot be read costs the operator nothing: their own servers are returned.
+
+    A server with ``enabled: false`` is dropped **here** rather than at each of those three sites
+    (#206). It is the one place they already agree, and a disabled server that one of them still
+    believed in would be either a host launching something the registry ignores or a tool that
+    cannot connect -- the exact failure this function was written to prevent.
     """
     tools = getattr(config, "tools", None)
     configured = dict(getattr(tools, "mcp_servers", {}) or {})
     try:
-        return agent_plugin_mcp_servers(workspace_from_config(config), configured)
+        merged = agent_plugin_mcp_servers(workspace_from_config(config), configured)
     except (OSError, RuntimeError) as exc:
         logger.warning("Ignoring Agent Plugin MCP servers: {}", exc)
-        return configured
+        merged = configured
+    return {
+        name: server
+        for name, server in merged.items()
+        if getattr(server, "enabled", True)
+    }
 
 
 def workspace_from_config(config: object) -> Path:

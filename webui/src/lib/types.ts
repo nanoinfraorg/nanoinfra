@@ -1365,6 +1365,14 @@ export interface McpPresetInfo {
   installed: boolean;
   configured: boolean;
   available: boolean;
+  /**
+   * Configured and deliberately out of every prompt (#206).
+   *
+   * Distinct from `!installed`: the command, the env, the headers and the tool allowlist are all
+   * still there, so resuming needs no credential and no re-entry. It is the middle state the row
+   * was missing between "in every prompt" and the trash icon.
+   */
+  paused?: boolean;
   status: "not_installed" | "configured" | "missing_credentials" | "missing_dependency" | "coming_soon" | string;
   logo_url?: string | null;
   brand_color?: string | null;

@@ -172,6 +172,9 @@ _MCP_PRESET_ACTIONS_BY_PATH = {
     "/api/settings/mcp-presets/enable": "enable",
     "/api/settings/mcp-presets/remove": "remove",
     "/api/settings/mcp-presets/test": "test",
+    # Configured and out of every prompt, without losing the config (#206).
+    "/api/settings/mcp-presets/pause": "pause",
+    "/api/settings/mcp-presets/resume": "resume",
     "/api/settings/mcp-presets/custom": "custom",
     "/api/settings/mcp-presets/import": "import",
     "/api/settings/mcp-presets/import-cursor": "import-cursor",

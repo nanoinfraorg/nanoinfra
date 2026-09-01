@@ -797,6 +797,10 @@ def _preset_payload(preset: McpPreset, configured_servers: dict[str, MCPServerCo
         "required_fields": [_field_payload(field, cfg) for field in preset.fields],
         "connection_summary": _connection_summary(cfg),
         "enabled_tools": _tool_allowlist(cfg),
+        # Paused means configured and deliberately out of every prompt (#206). Distinct from
+        # "not installed": the command, the env and the tool allowlist are all still here, so
+        # a resume needs no credential and no re-entry of anything.
+        "paused": cfg is not None and not getattr(cfg, "enabled", True),
         "source": "preset",
         "manifest": _preset_manifest(preset, logo_url=logo_url),
     }
@@ -832,6 +836,10 @@ def _custom_payload(
         "connection_summary": _connection_summary(cfg),
         "enabled_tools": _tool_allowlist(cfg),
         "tool_names": tool_names or [],
+        # Paused means configured and deliberately out of every prompt (#206). Distinct from
+        # "not installed": the command, the env and the tool allowlist are all still here, so
+        # a resume needs no credential and no re-entry of anything.
+        "paused": not getattr(cfg, "enabled", True),
         "source": "custom",
         "manifest": _custom_manifest(name, cfg),
     }
@@ -892,6 +900,8 @@ def _server_action_message(action: str, name: str, *, ok: bool = True) -> dict[s
         "import": "Imported",
         "import-cursor": "Imported",
         "tools": "Updated tools for",
+        "pause": "Paused",
+        "resume": "Resumed",
         "remove": "Removed",
     }.get(action, "Updated")
     payload: dict[str, Any] = {
@@ -904,6 +914,9 @@ def _server_action_message(action: str, name: str, *, ok: bool = True) -> dict[s
     elif action == "remove":
         payload["removed"] = True
         payload["verification"] = ["config_absent"]
+    elif action in {"pause", "resume"}:
+        payload["paused"] = action == "pause"
+        payload["verification"] = ["config_present"]
     return payload
 
 
@@ -1272,6 +1285,20 @@ def mcp_presets_action(action: str, query: QueryParams) -> dict[str, Any]:
         config.tools.mcp_servers[preset.name] = _materialize_server(preset, query, existing)
         save_config(config)
         payload = mcp_presets_payload(last_action=_action_message(action, preset))
+        payload["requires_restart"] = True
+        return payload
+
+    if action in {"pause", "resume"}:
+        # Deliberately not folded into `enable`, which already means *install this preset*. A row
+        # using one verb for "configure it" and "put it back in the prompt" would make the button's
+        # meaning depend on state nobody can see.
+        if existing is None:
+            raise McpPresetError("unknown MCP server", status=404)
+        existing.enabled = action == "resume"
+        save_config(config)
+        payload = mcp_presets_payload(last_action=_server_action_message(action, name))
+        # The registry is built at boot from `merged_mcp_servers`, which drops a paused server --
+        # so the change lands on the next start rather than mid-turn.
         payload["requires_restart"] = True
         return payload
 

@@ -373,6 +373,14 @@ class GatewayConfig(Base):
 class MCPServerConfig(Base):
     """MCP server connection configuration (stdio or HTTP)."""
 
+    # The middle state the Apps page was missing (#206). A configured server was in every prompt,
+    # always, and the only way out was the trash icon -- which loses the command, the env, the
+    # headers and the `enabledTools` list with it. `false` keeps all of that and simply does not
+    # connect the server, so its schemas are in no prompt.
+    #
+    # Worth a deployment-wide flag on its own: three servers exposing the same fifteen tools is
+    # ~15K tokens per turn to use one of them.
+    enabled: bool = True
     type: Literal["stdio", "sse", "streamableHttp"] | None = None  # auto-detected if omitted
     command: str = ""  # Stdio: command to run (e.g. "npx")
     args: list[str] = Field(default_factory=list)  # Stdio: command arguments

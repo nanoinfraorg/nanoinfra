@@ -2159,7 +2159,7 @@ export function SettingsView({
   };
 
   const handleMcpPresetAction = async (
-    action: "enable" | "remove" | "test",
+    action: "enable" | "remove" | "test" | "pause" | "resume",
     name: string,
     values: Record<string, string> = {},
   ) => {
@@ -8493,7 +8493,11 @@ function AppsCatalogSettings({
   onQueryChange: (value: string) => void;
   onFilterChange: (value: AppsKindFilter) => void;
   onCliAction: (action: "install" | "update" | "uninstall" | "test", name: string) => void;
-  onMcpAction: (action: "enable" | "remove" | "test", name: string, values?: Record<string, string>) => void;
+  onMcpAction: (
+    action: "enable" | "remove" | "test" | "pause" | "resume",
+    name: string,
+    values?: Record<string, string>,
+  ) => void;
   onDismissStatus: () => void;
   onBackToChat: () => void;
   onMcpFieldChange: (presetName: string, fieldName: string, value: string) => void;
@@ -8827,7 +8831,11 @@ function McpAppsCatalogRow({
   actionKey: string | null;
   showBrandLogos: boolean;
   onFieldChange: (presetName: string, fieldName: string, value: string) => void;
-  onAction: (action: "enable" | "remove" | "test", name: string, values?: Record<string, string>) => void;
+  onAction: (
+    action: "enable" | "remove" | "test" | "pause" | "resume",
+    name: string,
+    values?: Record<string, string>,
+  ) => void;
   onToolsChange: (name: string, enabledTools: string[]) => void;
 }) {
   const { t } = useTranslation();
@@ -8851,7 +8859,9 @@ function McpAppsCatalogRow({
   const allowAllTools = enabledTools.includes("*");
   const enabledSet = new Set(allowAllTools ? toolNames : enabledTools);
   const description = preset.description || preset.note || preset.requires || preset.name;
-  const statusLabel = mcpPresetStatusLabel(preset.status, tx);
+  const statusLabel = preset.paused
+    ? tx("settings.mcp.pausedStatus", "Paused — not in any prompt")
+    : mcpPresetStatusLabel(preset.status, tx);
 
   useEffect(() => {
     if (preset.configured || !preset.install_supported) setSetupOpen(false);
@@ -8913,6 +8923,23 @@ function McpAppsCatalogRow({
                       {tx("settings.mcp.toolScope", "Tools")}
                     </DropdownMenuItem>
                   ) : null}
+                  {/* Paused keeps the command, the env, the headers and the tool allowlist and
+                      takes the schemas out of every prompt (#206). The trash icon beside this menu
+                      is the other thing, and the distinction is the point: three servers exposing
+                      the same fifteen tools cost ~15K tokens a turn to use one of them. */}
+                  <DropdownMenuItem
+                    disabled={busy}
+                    onClick={() => onAction(preset.paused ? "resume" : "pause", preset.name)}
+                  >
+                    {preset.paused ? (
+                      <PlayCircle className="mr-2 h-3.5 w-3.5" aria-hidden />
+                    ) : (
+                      <PauseCircle className="mr-2 h-3.5 w-3.5" aria-hidden />
+                    )}
+                    {preset.paused
+                      ? tx("settings.mcp.resume", "Resume")
+                      : tx("settings.mcp.pause", "Pause (keep config)")}
+                  </DropdownMenuItem>
                   <DropdownMenuItem disabled={busy} onClick={() => onAction("remove", preset.name)}>
                     <Trash2 className="mr-2 h-3.5 w-3.5" aria-hidden />
                     {tx("settings.mcp.remove", "Remove")}
