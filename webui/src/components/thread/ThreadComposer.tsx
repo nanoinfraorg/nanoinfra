@@ -14,6 +14,7 @@ import {
   CapabilityMentionToken,
   cliAppInitials,
   mcpPresetInitials,
+  mentionableMcpPreset,
   resourceMentionsInText,
   splitCapabilityMentionSegments,
   type CapabilityMentionSegment,
@@ -1416,7 +1417,7 @@ export function ThreadComposer({
       [
         ...cliApps.filter((app) => app.installed).map((app) => app.name),
         ...mcpPresets
-          .filter((preset) => preset.installed && preset.configured)
+          .filter(mentionableMcpPreset)
           .map((preset) => preset.name),
       ],
     ),
@@ -1621,7 +1622,7 @@ export function ThreadComposer({
         initials: cliAppInitials(app),
       }));
     const mcpCandidates: MentionCandidate[] = mcpPresets
-      .filter((preset) => preset.installed && preset.configured)
+      .filter(mentionableMcpPreset)
       .filter((preset) => {
         const haystack = [
           preset.name,

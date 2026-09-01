@@ -1931,6 +1931,29 @@ const MENTION_CALENDARS = [
     expect(screen.getByTestId("composer-cli-mention-blender")).toHaveTextContent("@blender");
   });
 
+  it("does not offer a paused MCP server, because mentioning it attaches nothing", () => {
+    // The palette filtered on `installed && configured` and a paused server (#206) is both. So it
+    // was offered, and picking it read as an attachment on a server nanoinfra never connected --
+    // the turn silently got no tools. Being in this list is a claim that saying it works.
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        cliApps={CLI_APPS}
+        mcpPresets={MCP_PRESETS.map((preset) =>
+          preset.name === "browserbase" ? { ...preset, paused: true } : preset,
+        )}
+      />,
+    );
+
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, {
+      target: { value: "use @bro", selectionStart: 8 },
+    });
+
+    expect(screen.queryByRole("option", { name: /@browserbase/i })).not.toBeInTheDocument();
+  });
+
   it("shows configured MCP presets in the mention palette and submits metadata", () => {
     const onSend = vi.fn();
     render(

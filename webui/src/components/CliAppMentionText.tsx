@@ -46,6 +46,17 @@ export function cliAppInitials(app: CliAppInfo): string {
       .join("") || app.name.slice(0, 2).toUpperCase()
   );
 }
+/**
+ * Whether `@name` on this server would do anything.
+ *
+ * `installed && configured` was the whole test, and it offered **paused** servers (#206): a mention
+ * that reads as an attachment, on a server nanoinfra never connected, so the turn silently gets no
+ * tools. Being offered in the menu is a claim that saying it works.
+ */
+export function mentionableMcpPreset(preset: McpPresetInfo): boolean {
+  return Boolean(preset.installed && preset.configured && !preset.paused);
+}
+
 export function mcpPresetInitials(preset: Pick<McpPresetInfo, "name" | "display_name">): string {
   const value = preset.display_name || preset.name;
   return (
