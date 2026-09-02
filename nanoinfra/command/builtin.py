@@ -96,6 +96,12 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
         accepts_args=True,
     ),
     BuiltinCommandSpec(
+        "/compact",
+        "Compact this conversation",
+        "Archive the history into a summary now, keeping the recent messages raw.",
+        "archive",
+    ),
+    BuiltinCommandSpec(
         "/history",
         "Show conversation history",
         "Print the last N persisted conversation messages.",
@@ -1088,6 +1094,71 @@ def build_help_text() -> str:
     return "\n".join(lines)
 
 
+async def cmd_compact(ctx: CommandContext) -> OutboundMessage:
+    """Archive this session's history now, rather than waiting for a threshold (#212).
+
+    Four mechanisms already compact a session and none of them took a request: idle auto-compact
+    fires after `session_ttl_minutes` of silence, `maybe_consolidate_by_tokens` runs twice a turn
+    but only acts near `consolidation_ratio` of the budget, and the in-flight governor acts only
+    once a request already overflows. So a prompt of 25K against a 200K window is a number nothing
+    will act on, and the operator watching it had no move.
+
+    The reply is a measurement, not a reassurance. A summary replaces history with a *description*
+    of history -- cheap in tokens and a loss of detail -- so saying how much was archived and how
+    much stays raw is the difference between a decision and a shrug.
+    """
+    from nanoinfra.session.manager import MIN_COMPACTED_REPLAY_MESSAGES
+
+    loop = ctx.loop
+    msg = ctx.msg
+    session = ctx.session or loop.sessions.get_or_create(ctx.key)
+
+    unarchived = len(session.messages) - session.last_consolidated
+    # Archiving fewer messages than the replay window keeps raw changes no prompt: the same
+    # messages come back verbatim, and the summary is paid for and never read.
+    if unarchived <= MIN_COMPACTED_REPLAY_MESSAGES:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=(
+                f"Nothing to compact: {unarchived} message(s) are unarchived and the replay window "
+                f"keeps {MIN_COMPACTED_REPLAY_MESSAGES} raw, so a summary would change no prompt."
+            ),
+        )
+
+    runtime = ctx.runtime or loop.runtime_for_session(session)
+    try:
+        summary = await loop.consolidator.compact_idle_session(ctx.key, runtime=runtime)
+    except Exception as exc:  # noqa: BLE001 -- a command that raises answers nobody
+        from loguru import logger
+
+        logger.exception("Manual compaction failed for {}", ctx.key)
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=f"Could not compact this session: {exc}",
+        )
+
+    if not summary or summary == "(nothing)":
+        # `archive` answers `(nothing)` when it has nothing to say. Reporting that as a compaction
+        # would tell the operator history was replaced when it was not.
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content="Nothing was archived: the summary came back empty, so history is unchanged.",
+        )
+
+    return OutboundMessage(
+        channel=msg.channel,
+        chat_id=msg.chat_id,
+        content=(
+            f"Archived {unarchived} message(s) into a summary; "
+            f"{MIN_COMPACTED_REPLAY_MESSAGES} stay raw. "
+            "The summary reaches the prompt on the next turn, so this turn is unchanged."
+        ),
+    )
+
+
 def register_builtin_commands(router: CommandRouter) -> None:
     """Register the default set of slash commands."""
     router.priority("/stop", cmd_stop)
@@ -1097,6 +1168,7 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.exact("/status", cmd_status)
     router.exact("/model", cmd_model)
     router.prefix("/model ", cmd_model)
+    router.exact("/compact", cmd_compact)
     router.exact("/history", cmd_history)
     router.prefix("/history ", cmd_history)
     router.exact("/goal", cmd_goal)

@@ -11,6 +11,12 @@ not here.
 
 ## [Unreleased]
 
+### Added
+
+- `/compact` archives a session's history on request instead of waiting for an idle timer or a
+  budget threshold, and reports how many messages it archived and how many stay raw.
+  ([#212](https://github.com/nanoinfraorg/nanoinfra/issues/212))
+
 ## [1.7.0] — 2026-09-01
 
 ### Added
