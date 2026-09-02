@@ -35,6 +35,7 @@ from nanoinfra.agent.memory import Consolidator
 from nanoinfra.agent.model_runtime import ModelRuntimeResolver
 from nanoinfra.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from nanoinfra.agent.subagent import SubagentManager
+from nanoinfra.agent.tools import groups as tool_groups
 from nanoinfra.agent.tools import mcp as mcp_tools
 from nanoinfra.agent.tools.context import (
     RequestContext,
@@ -495,6 +496,10 @@ class AgentLoop:
         # Which of them wait to be named (#204). Recorded from the same map the loop connects from,
         # so an `available()` check cannot consult a mode for a server that is not there.
         mcp_tools.set_server_attach_modes(self._mcp_servers)
+        # And which groups of built-in tools do (#210). Seeded from the same `ToolsConfig` the
+        # registry is built from, for the same reason: a mode for a group nobody declared would be
+        # a gate on nothing.
+        tool_groups.set_tool_groups(_tc.groups)
         # Data connectors (#connectors). None in an embedded construction, and no connector
         # then activates -- the same posture as an absent gates block: an omission widens
         # nothing.
@@ -868,6 +873,7 @@ class AgentLoop:
             declared_skills=automation_declared_skills(ctx.msg.metadata),
             mcp_advertisement=mcp_tools.advertisement(self.tools),
             connector_advertisement=connector_attachment.advertisement(self.tools),
+            group_advertisement=tool_groups.advertisement(self.tools),
         )
         ctx.prompt_manifest = self._prompt_manifest_for(ctx, messages)
         return messages

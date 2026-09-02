@@ -233,6 +233,9 @@ class CronJob:
     #: Data connectors this automation declares (#204). A `mention` connector sends only a
     #: one-line advertisement unless a turn names it, and an unattended turn types no `@`.
     connectors: list[str] = field(default_factory=list[str])
+    #: Built-in tool groups this automation declares (#210). Same reason as the two above: a
+    #: `mention` group is one advertised line until a turn names it, and nobody types `@` here.
+    tool_groups: list[str] = field(default_factory=list[str])
     #: Resources this job references, as ``{"kind": ..., "id": ...}``. Ids only: the name is
     #: re-read at run time, so a renamed server keeps resolving. Resolved *before* the turn is
     #: built, and an id that no longer resolves stops the run rather than letting the model fall
@@ -285,6 +288,7 @@ class CronJob:
             skills=_store_names(data.get("skills")),
             mcp_presets=_store_names(get_camel_snake(data, "mcpPresets", "mcp_presets", [])),
             connectors=_store_names(data.get("connectors")),
+            tool_groups=_store_names(get_camel_snake(data, "toolGroups", "tool_groups", [])),
             references=_store_references(data.get("references")),
             commissioning=CommissioningState.from_dict(data.get("commissioning")),
             created_at_ms=_store_int(get_camel_snake(data, "createdAtMs", "created_at_ms", 0)),

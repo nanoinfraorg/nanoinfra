@@ -19,6 +19,10 @@ not here.
 - `/compact` archives a session's history on request instead of waiting for an idle timer or a
   budget threshold, and reports how many messages it archived and how many stay raw.
   ([#212](https://github.com/nanoinfraorg/nanoinfra/issues/212))
+- `tools.groups` declares groups of built-in tools with the `always | mention` modes an MCP server
+  and a connector already had, so `@diagrams` can load 2,438 tokens of diagram schemas only for a
+  turn that asks for them. `diagrams` and `servers` are predefined; both default to `always`.
+  ([#210](https://github.com/nanoinfraorg/nanoinfra/issues/210))
 - `POST /v1/responses` answers the same agent over the Responses wire, so a client that defaults
   to that protocol no longer gets a 404. The caller's `tools` and `instructions` are ignored: the
   agent runs its own tools behind the capability gate.

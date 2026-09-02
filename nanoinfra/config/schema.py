@@ -417,6 +417,30 @@ class MCPServerConfig(Base):
     enabled_tools: list[str] = Field(default_factory=lambda: ["*"])  # Only register these tools; accepts raw MCP names or wrapped mcp_<server>_<tool> names; ["*"] = all capabilities (tools, resources, prompts); any restriction = only listed tools, no resources/prompts
 
 
+class ToolGroupConfig(Base):
+    """A named group of built-in tools, and when their schemas reach the prompt (#210).
+
+    `attach: "mention"` is the same trade an MCP server and a connector already get, for the
+    clusters that were measured as the expensive ones: the diagram tools cost 2,438 tokens and the
+    SSH server tools 1,419, on every turn, whether or not the turn is about either.
+
+    `tools` may be omitted for a group nanoinfra defines (`diagrams`, `servers`), which is what
+    lets a deployment write `{"diagrams": {"attach": "mention"}}` and mean the five diagram tools.
+    Naming tools explicitly is taken at its word, including a name from a plugin.
+    """
+
+    #: The built-in tool names in this group. Empty means "the group nanoinfra defines".
+    tools: list[str] = Field(default_factory=list)
+    # `always` is what every deployment did before this field existed and stays the default: all of
+    # these schemas in every prompt. `mention` sends one *line* instead -- the group, its tool
+    # count and how to attach -- and the schemas only for a turn that names it. The line is the
+    # reason this is not simply "send nothing": a model that cannot see a capability exists cannot
+    # say "I can do that if you attach it".
+    attach: Literal["always", "mention"] = "always"
+    #: What the group is for, in the advertised line. Defaults to nanoinfra's own wording.
+    description: str = ""
+
+
 def _lazy_default(module_path: str, class_name: str) -> Any:
     """Deferred import helper for ToolsConfig default factories."""
     import importlib
@@ -480,6 +504,9 @@ class ToolsConfig(Base):
         ),
     )  # allow non-local WebUI clients to install optional packages and agent skills
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+    # Declared groups of built-in tools (#210). Keyed by group name; `diagrams` and `servers` are
+    # defined by nanoinfra, so a deployment only writes the mode it wants.
+    groups: dict[str, ToolGroupConfig] = Field(default_factory=dict)
     # Agent Plugin identities the operator has activated (#141). This list is the authority: the
     # executor reconciles activation markers against it, and enabling a package that ships an
     # mcp.json grants a new stdio process, so the decision belongs in a git-reviewed file rather

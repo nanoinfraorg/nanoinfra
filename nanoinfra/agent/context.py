@@ -182,6 +182,7 @@ class ContextBuilder:
         declared_skills: Sequence[str] | None = None,
         mcp_advertisement: str = "",
         connector_advertisement: str = "",
+        group_advertisement: str = "",
     ) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills.
 
@@ -249,6 +250,7 @@ class ContextBuilder:
         # `get_definitions` already keeps built-ins ahead of MCP tools there.
         section("MCP servers advertised", mcp_advertisement)
         section("Connectors advertised", connector_advertisement)
+        section("Tool groups advertised", group_advertisement)
 
         if include_memory_recent_history:
             entries = self.memory.read_recent_history_for_prompt(
@@ -376,6 +378,7 @@ class ContextBuilder:
         declared_skills: Sequence[str] | None = None,
         mcp_advertisement: str = "",
         connector_advertisement: str = "",
+        group_advertisement: str = "",
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
         root = workspace or self.workspace
@@ -398,6 +401,7 @@ class ContextBuilder:
                     declared_skills=declared_skills,
                     mcp_advertisement=mcp_advertisement,
                     connector_advertisement=connector_advertisement,
+                    group_advertisement=group_advertisement,
                 ),
             },
             *history,

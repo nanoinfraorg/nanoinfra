@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from loguru import logger
 
 from nanoinfra.agent.tools.cron import CronTool
+from nanoinfra.agent.tools.groups import ATTACHED_GROUPS_META
 from nanoinfra.agent.turn_delivery import AUTOMATION_WITHHOLD_DELIVERY_META
 from nanoinfra.automations.commissioning import COMMISSIONING_TURN_META
 from nanoinfra.automations.delivery import normalize_policy, should_deliver
@@ -162,6 +163,8 @@ def build_bound_turn(
         metadata[AUTOMATION_PRESETS_META] = list(job.mcp_presets)
     if job.connectors:
         metadata[ATTACHED_CONNECTORS_META] = list(job.connectors)
+    if job.tool_groups:
+        metadata[ATTACHED_GROUPS_META] = list(job.tool_groups)
     if commissioning_id is not None:
         metadata[COMMISSIONING_TURN_META] = commissioning_id
     return BoundTurn(

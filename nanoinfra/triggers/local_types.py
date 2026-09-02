@@ -94,6 +94,8 @@ class LocalTrigger:
     #: Data connectors this automation declares (#204). A `mention` connector sends only a
     #: one-line advertisement unless a turn names it, and an unattended turn types no `@`.
     connectors: list[str] = field(default_factory=list[str])
+    #: Built-in tool groups this automation declares (#210), for the same reason.
+    tool_groups: list[str] = field(default_factory=list[str])
     #: Resources this trigger references, as ``{"kind": ..., "id": ...}``. See CronJob.references.
     references: list[dict[str, str]] = field(default_factory=list[dict[str, str]])
     #: SHA-256 of this trigger's key, or empty when it has none. The plaintext is shown once at
@@ -138,6 +140,7 @@ class LocalTrigger:
             skills=_names(data.get("skills")),
             mcp_presets=_names(_get(data, "mcpPresets", "mcp_presets", [])),
             connectors=_names(data.get("connectors")),
+            tool_groups=_names(data.get("toolGroups") or data.get("tool_groups")),
             references=_references(data.get("references")),
             commissioning=CommissioningState.from_dict(data.get("commissioning")),
             key_hash=str(_get(data, "keyHash", "key_hash", "") or ""),
@@ -165,6 +168,7 @@ class LocalTrigger:
             "skills": list(self.skills),
             "mcpPresets": list(self.mcp_presets),
             "connectors": list(self.connectors),
+            "toolGroups": list(self.tool_groups),
             "references": [dict(item) for item in self.references],
             "commissioning": self.commissioning.to_dict(),
             "keyHash": self.key_hash,

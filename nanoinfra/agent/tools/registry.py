@@ -121,8 +121,23 @@ class ToolRegistry:
         return [
             schema
             for schema in self._cached_definitions
-            if self._tools[self._schema_name(schema)].available()
+            if self._is_available(self._schema_name(schema))
         ]
+
+    def _is_available(self, name: str) -> bool:
+        """Whether this tool's schema belongs in the current request.
+
+        Two gates, and the group one lives here rather than in `Tool.available()` because a group
+        is declared by *tool name*: the registry is the only place that maps a name to a tool
+        without every tool class having to participate. It also means a group may name an MCP or
+        connector tool, which costs nothing and is occasionally what an operator wants.
+        """
+        from nanoinfra.agent.tools import groups
+
+        tool = self._tools.get(name)
+        if tool is None:
+            return False
+        return tool.available() and groups.is_attached(name)
 
     def schema_breakdown(self) -> list[dict[str, Any]]:
         """What the tool schemas cost, per source, for the prompt manifest (#203).

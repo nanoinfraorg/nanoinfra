@@ -10,6 +10,7 @@ from typing import Any
 from loguru import logger
 
 from nanoinfra.agent.automation_turns import AutomationTurnError
+from nanoinfra.agent.tools.groups import ATTACHED_GROUPS_META
 from nanoinfra.agent.turn_delivery import AUTOMATION_WITHHOLD_DELIVERY_META
 from nanoinfra.automations.delivery import normalize_policy, should_deliver
 from nanoinfra.automations.state import AutomationDeliveryLog, response_fingerprint
@@ -185,6 +186,8 @@ async def _deliver_delivery(
         metadata[AUTOMATION_PRESETS_META] = list(trigger.mcp_presets)
     if trigger.connectors:
         metadata[ATTACHED_CONNECTORS_META] = list(trigger.connectors)
+    if trigger.tool_groups:
+        metadata[ATTACHED_GROUPS_META] = list(trigger.tool_groups)
     if reference_context is not None:
         metadata[RUNTIME_CONTEXT_INPUT_META] = [reference_context]
     withholding = policy != "always" and publish is not None
