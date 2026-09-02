@@ -13,9 +13,18 @@ not here.
 
 ### Added
 
+- The prompt breakdown says which request it describes when a turn made more than one, and names
+  the largest request the turn reached.
+  ([#208](https://github.com/nanoinfraorg/nanoinfra/issues/208))
 - `/compact` archives a session's history on request instead of waiting for an idle timer or a
   budget threshold, and reports how many messages it archived and how many stay raw.
   ([#212](https://github.com/nanoinfraorg/nanoinfra/issues/212))
+
+### Fixed
+
+- Each activity cluster reports its own duration instead of the whole turn's, so eight consecutive
+  steps no longer all read the same figure.
+  ([#208](https://github.com/nanoinfraorg/nanoinfra/issues/208))
 
 ## [1.7.0] — 2026-09-01
 

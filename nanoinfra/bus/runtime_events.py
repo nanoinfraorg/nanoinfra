@@ -153,6 +153,40 @@ class RuntimeEventBus:
         loop.create_task(self.publish(event))
 
 
+def _manifest_scope(
+    manifest: dict[str, Any] | None, usage: "LLMUsage | None"
+) -> dict[str, Any] | None:
+    """Say which request the manifest describes, when the turn made more than one (#208).
+
+    The manifest is built in `_build_initial_messages` because that is the only place the section
+    attribution exists -- once a request reaches a provider the system prompt is one string in a
+    flat list. So it describes the *first* request and always will. On a real turn it read 23,725
+    while the same event carried `context_tokens: 48,874` over 23 requests, and a reader had two
+    true numbers presented as one.
+
+    Added rather than corrected: the sections and the total stay exactly as measured, because
+    recomputing them from the turn's accumulated messages would over-report -- that list is the
+    conversation, not any single request.
+    """
+    if not manifest or usage is None:
+        return manifest
+    requests = usage.request_count
+    if requests <= 1:
+        # One request and one manifest agree. Saying "1 request" on every turn is noise the panel
+        # would then have to decide not to show.
+        return manifest
+    scoped = dict(manifest)
+    scoped["requests"] = requests
+    peak = usage.context_tokens
+    total = manifest.get("total_tokens")
+    if isinstance(peak, int) and isinstance(total, int) and peak > total:
+        # Only when it exceeds our estimate. The manifest is this tokenizer's count and the peak is
+        # the provider's; a smaller peak means the two disagree, not that the turn shrank, and
+        # printing it would invite subtracting two numbers that were never comparable.
+        scoped["peak_context_tokens"] = peak
+    return scoped
+
+
 class RuntimeEventPublisher:
     """Convenience publisher for turn-scoped runtime events.
 
@@ -274,6 +308,9 @@ class RuntimeEventPublisher:
         session_key: str,
         metadata: dict[str, Any] | None,
     ) -> None:
+        # Popped before the event is built, because the manifest needs it: a manifest describes
+        # one request and a turn can make twenty-three (#208).
+        usage = self._turn_usage.pop(session_key, None)
         await self.bus.publish(
             TurnCompleted(
                 context=self._context(
@@ -284,8 +321,10 @@ class RuntimeEventPublisher:
                 ),
                 latency_ms=self._turn_latency_ms.pop(session_key, None),
                 runtime=self._turn_runtime.pop(session_key, None),
-                usage=self._turn_usage.pop(session_key, None),
-                prompt_manifest=self._turn_prompt.pop(session_key, None),
+                usage=usage,
+                prompt_manifest=_manifest_scope(
+                    self._turn_prompt.pop(session_key, None), usage
+                ),
             )
         )
 

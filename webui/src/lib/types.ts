@@ -149,6 +149,16 @@ export interface PromptManifest {
   groups: Record<string, number>;
   total_tokens: number;
   measured: boolean;
+  /**
+   * How many provider calls the turn made, present only when it made more than one (#208).
+   *
+   * The manifest describes the *first* request — the section attribution only exists while the
+   * prompt is being assembled. A 23-call turn whose panel read `23,725` while its footer read
+   * `53K in` had two true numbers presented as one.
+   */
+  requests?: number;
+  /** The largest request the turn made, when it exceeded this manifest's estimate. */
+  peak_context_tokens?: number;
 }
 
 export interface UICliAppAttachment {

@@ -105,6 +105,34 @@ describe("a tool row's name", () => {
   });
 });
 
+describe("a turn that made more than one request", () => {
+  it("says the total is the first request, not the turn", () => {
+    // Read on a real turn: the panel said 23,725 while the footer said 53K in. Both were true --
+    // the manifest describes the first request and the usage describes the turn (#208).
+    render(<PromptBreakdown manifest={{ ...manifest(), requests: 23 }} />);
+
+    expect(screen.getByText(/first of 23 requests/)).toBeTruthy();
+  });
+
+  it("names the largest request the turn reached", () => {
+    render(
+      <PromptBreakdown
+        manifest={{ ...manifest(), requests: 23, peak_context_tokens: 48_874 }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+    expect(screen.getByText(/largest request of this turn reached/)).toBeTruthy();
+  });
+
+  it("reads as one prompt when the turn made a single request", () => {
+    render(<PromptBreakdown manifest={manifest()} />);
+
+    expect(screen.getByText(/in prompt/)).toBeTruthy();
+    expect(screen.queryByText(/first of/)).toBeNull();
+  });
+});
+
 describe("the collapsed line", () => {
   it("reads as one line of group shares", () => {
     render(<PromptBreakdown manifest={manifest()} />);

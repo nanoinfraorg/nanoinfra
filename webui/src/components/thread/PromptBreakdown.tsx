@@ -45,9 +45,15 @@ export function PromptBreakdown({ manifest }: { manifest: PromptManifest }) {
           className={cn("h-3 w-3 transition-transform", open && "rotate-90")}
           aria-hidden
         />
-        {tx("message.prompt.summary", "{{total}} in prompt", {
-          total: numbers.format(total),
-        })}
+        {manifest.requests && manifest.requests > 1
+          ? t("message.prompt.summaryFirstOf", {
+              total: numbers.format(total),
+              count: manifest.requests,
+              defaultValue: "{{total}} in the first of {{count}} requests",
+            })
+          : tx("message.prompt.summary", "{{total}} in prompt", {
+              total: numbers.format(total),
+            })}
         <span className="text-muted-foreground/60">
           {groups
             .map(([name, tokens]) =>
@@ -81,6 +87,14 @@ export function PromptBreakdown({ manifest }: { manifest: PromptManifest }) {
           </dd>
           {/* Said once, at the bottom: the exact number is the provider's and it does not
               itemise, so every row above is this tokenizer's estimate. */}
+          {manifest.peak_context_tokens ? (
+            <dd className="col-span-2 pt-1 text-[10.5px] text-muted-foreground/70">
+              {t("message.prompt.peak", {
+                peak: numbers.format(manifest.peak_context_tokens),
+                defaultValue: "The largest request of this turn reached {{peak}}",
+              })}
+            </dd>
+          ) : null}
           {!manifest.measured ? (
             <dd className="col-span-2 pt-1 text-[10.5px] text-muted-foreground/70">
               {tx("message.prompt.estimated", "Estimated locally, per section")}

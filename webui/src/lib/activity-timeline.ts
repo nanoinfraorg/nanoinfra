@@ -202,15 +202,33 @@ function pushActivityUnits(
   let runMessages: UIMessage[] = [];
   let runBucket: "file" | "other" | undefined;
   let runSegmentId: string | undefined;
+  // Where the previous cluster ended, which is where the next one starts. Without this every
+  // cluster was handed the turn's own `latencyMs`, so eight consecutive clusters of one turn all
+  // read `Worked for 7m 57s` while their real spans ran from 4.4s to 71.5s (#208).
+  let previousEndMs = startedAtMs;
 
   const flushRun = () => {
     if (!runMessages.length) return;
+    const endMs = lastCreatedAtMs(runMessages);
+    // Measured from the boundary rather than from the cluster's own first message: the provider
+    // call happens before any trace arrives, so a self-measured cluster reports zero for the step
+    // that took most of the turn.
+    const ownSpanMs =
+      previousEndMs !== undefined && endMs !== undefined ? endMs - previousEndMs : undefined;
     units.push({
       type: "activity",
       messages: runMessages,
-      turnLatencyMs: activityTurnLatencyMs(runMessages, visibleMessages),
-      startedAtMs,
+      // A negative span is a clock artefact -- the server writes `created_at_ms` and the browser
+      // reorders by `turn_seq` -- so it falls back rather than rendering as a duration. With no
+      // turn start at all (a replayed transcript with no user message) the turn's own figure is
+      // the only honest answer left.
+      turnLatencyMs:
+        ownSpanMs !== undefined && ownSpanMs >= 0
+          ? ownSpanMs
+          : activityTurnLatencyMs(runMessages, visibleMessages),
+      startedAtMs: previousEndMs,
     });
+    if (endMs !== undefined) previousEndMs = endMs;
     runMessages = [];
     runBucket = undefined;
     runSegmentId = undefined;
@@ -278,6 +296,14 @@ function activityTurnLatencyMs(activityMessages: UIMessage[], visibleMessages: U
   for (let i = activityMessages.length - 1; i >= 0; i -= 1) {
     const latency = activityMessages[i].latencyMs;
     if (isValidLatency(latency)) return latency;
+  }
+  return undefined;
+}
+
+function lastCreatedAtMs(messages: UIMessage[]): number | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const value = validCreatedAtMs(messages[i].createdAt);
+    if (value !== undefined) return value;
   }
   return undefined;
 }
