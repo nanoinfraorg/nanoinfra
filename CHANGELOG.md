@@ -11,6 +11,8 @@ not here.
 
 ## [Unreleased]
 
+## [1.7.2] — 2026-09-02
+
 ### Added
 
 - The prompt breakdown says which request it describes when a turn made more than one, and names
@@ -19,9 +21,6 @@ not here.
 - An activity cluster names what the provider calls inside it cost — input, cache share and output
   — beside the duration it already showed. The cache share counts only the calls that reported
   one. ([#208](https://github.com/nanoinfraorg/nanoinfra/issues/208))
-- `/compact` archives a session's history on request instead of waiting for an idle timer or a
-  budget threshold, and reports how many messages it archived and how many stay raw.
-  ([#212](https://github.com/nanoinfraorg/nanoinfra/issues/212))
 - `tools.groups` declares groups of built-in tools with the `always | mention` modes an MCP server
   and a connector already had, so `@diagrams` can load 2,438 tokens of diagram schemas only for a
   turn that asks for them. `diagrams` and `servers` are predefined; both default to `always`.
@@ -46,6 +45,14 @@ not here.
 - Each activity cluster reports its own duration instead of the whole turn's, so eight consecutive
   steps no longer all read the same figure.
   ([#208](https://github.com/nanoinfraorg/nanoinfra/issues/208))
+
+## [1.7.1] — 2026-09-02
+
+### Added
+
+- `/compact` archives a session's history on request instead of waiting for an idle timer or a
+  budget threshold, and reports how many messages it archived and how many stay raw.
+  ([#212](https://github.com/nanoinfraorg/nanoinfra/issues/212))
 
 ## [1.7.0] — 2026-09-01
 
@@ -400,7 +407,10 @@ with upstream imports. That history lives in the
 [release archive](https://docs.nanoinfra.org/release-archive) and on the
 [releases page](https://github.com/nanoinfraorg/nanoinfra/releases).
 
-[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.2...HEAD
+[1.7.2]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.1...v1.7.2
+[1.7.1]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.0...v1.7.1
+[1.7.0]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.5.2...v1.6.0
 [1.5.2]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.5.1...v1.5.2
