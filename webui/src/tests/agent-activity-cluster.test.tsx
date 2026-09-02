@@ -394,6 +394,75 @@ describe("AgentActivityCluster", () => {
     expect(screen.getByText("Thought for 12s")).toBeInTheDocument();
   });
 
+  it("names what the provider calls in this cluster cost", () => {
+    // #208: the cluster reported the turn's one figure, so a 71-second step and a 4-second one
+    // rendered identically and neither said what it spent.
+    const rows = activityMessages();
+    rows[1] = {
+      ...rows[1],
+      stepUsage: {
+        prompt_tokens: 21_000,
+        completion_tokens: 1_500,
+        total_tokens: 22_500,
+        request_count: 1,
+        estimated_tokens: 0,
+        cached_tokens: 20_160,
+      },
+      stepModelMs: 47_300,
+    };
+
+    render(
+      <AgentActivityCluster
+        messages={rows}
+        isTurnStreaming={false}
+        hasBodyBelow
+        turnLatencyMs={12_400}
+      />,
+    );
+
+    expect(screen.getByText("Worked for 12s · 21K in · 96% cached · 1.5K out")).toBeInTheDocument();
+  });
+
+  it("omits a cache share the provider never reported", () => {
+    // Absent is not zero: 3 of the 23 calls on the measured turn reported no cache metric at all,
+    // sitting between neighbours at 99% and 93%.
+    const rows = activityMessages();
+    rows[1] = {
+      ...rows[1],
+      stepUsage: {
+        prompt_tokens: 21_000,
+        completion_tokens: 1_500,
+        total_tokens: 22_500,
+        request_count: 1,
+        estimated_tokens: 0,
+      },
+    };
+
+    render(
+      <AgentActivityCluster
+        messages={rows}
+        isTurnStreaming={false}
+        hasBodyBelow
+        turnLatencyMs={12_400}
+      />,
+    );
+
+    expect(screen.getByText("Worked for 12s · 21K in · 1.5K out")).toBeInTheDocument();
+  });
+
+  it("reads as it always did when no step reported usage", () => {
+    render(
+      <AgentActivityCluster
+        messages={activityMessages()}
+        isTurnStreaming={false}
+        hasBodyBelow
+        turnLatencyMs={12_400}
+      />,
+    );
+
+    expect(screen.getByText("Worked for 12s")).toBeInTheDocument();
+  });
+
   it("labels mixed tool activity as work instead of thought", () => {
     render(
       <AgentActivityCluster

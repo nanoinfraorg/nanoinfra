@@ -783,25 +783,47 @@ class ChannelManager:
             "stream_end": isinstance(event, StreamEndEvent),
             "resuming": event.resuming if isinstance(event, StreamEndEvent) else False,
         }
-        if isinstance(event, StreamEndEvent) and event.merge_next:
-            try:
-                signature = inspect.signature(channel.send_delta)
-                if (
-                    "merge_next" in signature.parameters
-                    or any(
-                        parameter.kind is inspect.Parameter.VAR_KEYWORD
-                        for parameter in signature.parameters.values()
-                    )
-                ):
-                    kwargs["merge_next"] = True
-            except (TypeError, ValueError):
-                pass
+        if isinstance(event, StreamEndEvent):
+            # Offered rather than passed: `send_delta` is a channel API and Telegram, Discord and
+            # the rest neither take nor want these. A channel that declares the parameter gets it.
+            offered: dict[str, Any] = {}
+            if event.merge_next:
+                offered["merge_next"] = True
+            if event.usage is not None:
+                offered["step_usage"] = event.usage
+            if event.request_ms is not None:
+                offered["step_ms"] = event.request_ms
+            if offered:
+                kwargs.update(ChannelManager._accepted_kwargs(channel.send_delta, offered))
         await channel.send_delta(
             msg.chat_id,
             msg.content,
             msg.metadata,
             **kwargs,
         )
+
+    @staticmethod
+    def _accepted_kwargs(
+        target: Callable[..., Any],
+        offered: "dict[str, Any]",
+    ) -> "dict[str, Any]":
+        """The subset of *offered* that *target* declares, or all of it if it takes `**kwargs`.
+
+        A channel is an extension point, so a new optional argument cannot be a breaking change to
+        every implementation that already exists -- including ones outside this tree.
+        """
+        try:
+            signature = inspect.signature(target)
+        except (TypeError, ValueError):
+            return {}
+        if any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        ):
+            return dict(offered)
+        return {
+            name: value for name, value in offered.items() if name in signature.parameters
+        }
 
     @staticmethod
     async def _send_once(channel: BaseChannel, msg: OutboundMessage) -> None:

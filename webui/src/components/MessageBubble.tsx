@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { fmtDateTime, formatMessageEndTime } from "@/lib/format";
+import { fmtDateTime, formatCompactTokens, formatMessageEndTime } from "@/lib/format";
 import { toMediaAttachment } from "@/lib/media";
 import { matchingSlashCommand } from "@/lib/slash-command";
 import { parseQuotedUserMessage } from "@/lib/user-message-quote";
@@ -541,12 +541,6 @@ function TurnUsageMeta({ usage, latencyMs }: { usage: TurnUsage; latencyMs?: num
       </TooltipContent>
     </Tooltip>
   );
-}
-
-function formatCompactTokens(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens >= 10_000_000 ? 0 : 1)}M`;
-  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(tokens >= 10_000 ? 0 : 1)}K`;
-  return String(tokens);
 }
 
 function formatUsageDuration(ms: number): string {

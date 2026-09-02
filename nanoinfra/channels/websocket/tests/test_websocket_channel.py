@@ -1662,6 +1662,74 @@ async def test_send_delta_emits_delta_and_stream_end() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_delta_stream_end_carries_the_step_usage(tmp_path) -> None:
+    """The call behind this segment, on the segment (#208).
+
+    All 23 `stream_end` records of the measured turn held no tokens and no duration, so a step
+    could only repeat the turn's single figures -- which is how eight clusters read `7m 57s`.
+    """
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-step-usage")
+
+    await channel.send_delta(
+        "chat-step-usage",
+        "",
+        stream_id="sid",
+        stream_end=True,
+        step_usage=LLMUsage.reported(
+            input_tokens=21_000, output_tokens=1_500, cache_read_tokens=20_160
+        ),
+        step_ms=47_300,
+    )
+
+    body = json.loads(mock_ws.send.call_args_list[0][0][0])
+    assert body["event"] == "stream_end"
+    assert body["usage"]["prompt_tokens"] == 21_000
+    assert body["usage"]["cached_tokens"] == 20_160
+    assert body["duration_ms"] == 47_300
+    # Persisted with the frame, so a reload shows what the live turn showed.
+    assert read_transcript_lines("websocket:chat-step-usage")[-1]["duration_ms"] == 47_300
+
+
+@pytest.mark.asyncio
+async def test_send_delta_stream_end_omits_an_unreported_cache_metric() -> None:
+    """xAI omitted `cached_tokens` on 3 of 23 calls, between neighbours at 99% and 93%. A zero
+    would render a cold cache the provider never reported."""
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-step-silent")
+
+    await channel.send_delta(
+        "chat-step-silent",
+        "",
+        stream_id="sid",
+        stream_end=True,
+        step_usage=LLMUsage.reported(input_tokens=21_000, output_tokens=1_500),
+    )
+
+    body = json.loads(mock_ws.send.call_args_list[0][0][0])
+    assert "cached_tokens" not in body["usage"]
+    assert "duration_ms" not in body
+
+
+@pytest.mark.asyncio
+async def test_send_delta_without_step_usage_is_unchanged() -> None:
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-step-none")
+
+    await channel.send_delta("chat-step-none", "", stream_id="sid", stream_end=True)
+
+    body = json.loads(mock_ws.send.call_args_list[0][0][0])
+    assert "usage" not in body
+    assert "duration_ms" not in body
+
+
+@pytest.mark.asyncio
 async def test_send_delta_preserves_webui_source_metadata() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"], "streaming": True}, bus, gateway=_basic_handler(bus))

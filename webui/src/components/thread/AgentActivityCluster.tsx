@@ -43,6 +43,8 @@ import {
 import { useFileEditDisplayMode } from "@/hooks/useFileEditDisplayMode";
 import { useLogoFallback } from "@/hooks/useLogoFallback";
 import { logoFallbackUrls } from "@/lib/provider-brand";
+import { formatCompactTokens } from "@/lib/format";
+import { clusterStepUsage } from "@/lib/step-usage";
 import { canonicalToolTrace, formatToolCallTrace } from "@/lib/tool-traces";
 import { cn } from "@/lib/utils";
 import { usePageVisibility } from "@/hooks/usePageVisibility";
@@ -196,6 +198,31 @@ export function AgentActivityCluster({
     startedAtMs,
   );
   const activityDuration = formatActivityDuration(durationMs);
+  // What the provider calls inside this cluster cost (#208). Absent on an old transcript, and on
+  // a cluster whose calls reported nothing -- in both cases the header reads as it did before.
+  const stepUsage = clusterStepUsage(activityMessages);
+  const stepUsageLabel = ((): string => {
+    if (!stepUsage || stepUsage.steps === 0) return "";
+    const parts = [
+      t("message.usage.in", {
+        tokens: formatCompactTokens(stepUsage.inputTokens),
+        defaultValue: "{{tokens}} in",
+      }),
+    ];
+    if (stepUsage.cachedTokens !== null && stepUsage.cachedOverInputTokens > 0) {
+      parts.push(t("message.usage.cached", {
+        percent: Math.round(
+          Math.min(1, stepUsage.cachedTokens / stepUsage.cachedOverInputTokens) * 100,
+        ),
+        defaultValue: "{{percent}}% cached",
+      }));
+    }
+    parts.push(t("message.usage.out", {
+      tokens: formatCompactTokens(stepUsage.outputTokens),
+      defaultValue: "{{tokens}} out",
+    }));
+    return parts.join(" · ");
+  })();
   const thoughtLabel = hasNonReasoningActivity
     ? isTurnStreaming
       ? t("message.activityWorkingFor", {
@@ -319,7 +346,7 @@ export function AgentActivityCluster({
       <ThinkingReasoningShell
         active={isTurnStreaming}
         expanded={outerExpanded}
-        label={thoughtLabel}
+        label={stepUsageLabel ? `${thoughtLabel} · ${stepUsageLabel}` : thoughtLabel}
         viewportRef={activityScrollRef}
         contentRef={activityContentRef}
         onToggle={toggleOuter}

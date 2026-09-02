@@ -9,6 +9,7 @@ import {
   toolTraceLinesFromEvents,
 } from "@/lib/tool-traces";
 import { hasPendingAgentActivity } from "@/lib/activity-timeline";
+import { stampStepUsage } from "@/lib/step-usage";
 import type { StreamError } from "@/lib/nanoinfra-client";
 import { formatQuotedUserMessage } from "@/lib/user-message-quote";
 import type {
@@ -1084,6 +1085,15 @@ export function useNanoinfraStream(
           source: ev.source,
         });
         if (suppressStreamUntilTurnEndRef.current) return;
+        // What the one call behind this segment cost (#208). Stamped before the turn is
+        // finalized, so the row it lands on is still the row that call produced.
+        if (ev.usage || typeof ev.duration_ms === "number") {
+          setMessages((prev) => stampStepUsage(prev, {
+            turnId: turn.turnId,
+            ...(ev.usage ? { usage: ev.usage } : {}),
+            ...(typeof ev.duration_ms === "number" ? { durationMs: ev.duration_ms } : {}),
+          }));
+        }
         if (ev.resuming) {
           cancelStreamEndTimer();
           setIsStreaming(true);

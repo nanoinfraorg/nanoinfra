@@ -16,6 +16,9 @@ not here.
 - The prompt breakdown says which request it describes when a turn made more than one, and names
   the largest request the turn reached.
   ([#208](https://github.com/nanoinfraorg/nanoinfra/issues/208))
+- An activity cluster names what the provider calls inside it cost — input, cache share and output
+  — beside the duration it already showed. The cache share counts only the calls that reported
+  one. ([#208](https://github.com/nanoinfraorg/nanoinfra/issues/208))
 - `/compact` archives a session's history on request instead of waiting for an idle timer or a
   budget threshold, and reports how many messages it archived and how many stay raw.
   ([#212](https://github.com/nanoinfraorg/nanoinfra/issues/212))

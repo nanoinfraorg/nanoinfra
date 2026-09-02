@@ -48,6 +48,11 @@ class StreamEndEvent(OutboundEvent):
     stream_id: str | None = None
     resuming: bool = False
     merge_next: bool = False
+    #: What the provider call that produced this segment cost, and how long it took (#208). A turn
+    #: making 23 calls has one `latency_ms` and one usage total; without these a step can only
+    #: repeat them, which is how eight consecutive steps came to read `7m 57s`.
+    usage: LLMUsage | None = None
+    request_ms: int | None = None
 
 
 @dataclass(frozen=True)

@@ -22,6 +22,11 @@ class AgentHookContext:
     #: What this iteration's provider call cost, or `None` when there was nothing to measure --
     #: an error response, or a provider that reported none (#175).
     usage: LLMUsage | None = None
+    #: How long this iteration's provider call took, wall clock. Zero means not measured. The
+    #: turn's own `latency_ms` covers all of them plus the tool work between, so a step that
+    #: reported it would repeat one figure per step -- which is the bug this measures instead
+    #: (#208).
+    request_ms: int = 0
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
     tool_results: list[Any] = field(default_factory=list)
     tool_events: list[dict[str, str]] = field(default_factory=list)

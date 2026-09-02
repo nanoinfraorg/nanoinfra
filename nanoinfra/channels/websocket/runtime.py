@@ -1834,7 +1834,15 @@ class WebSocketChannel(BaseChannel):
         stream_end: bool = False,
         resuming: bool = False,
         merge_next: bool = False,
+        step_usage: LLMUsage | None = None,
+        step_ms: int | None = None,
     ) -> None:
+        """Send one streaming segment.
+
+        `step_usage` and `step_ms` describe the single provider call this segment came from (#208).
+        They are declared here and nowhere else because this is the channel with a surface that can
+        show them; the manager passes them only to a channel that asks.
+        """
         conns = list(self._subs.get(chat_id, ()))
         meta = metadata or {}
         stream_key = (chat_id, str(stream_id or ""))
@@ -1864,6 +1872,13 @@ class WebSocketChannel(BaseChannel):
             body["resuming"] = True
         if stream_end and merge_next:
             body["merge_next"] = True
+        if stream_end and step_usage is not None:
+            # The same projection the turn's usage takes, so one reader parses both. A key is
+            # absent when its number means nothing -- which is what keeps a `cache_read_tokens`
+            # the provider never reported from rendering as 0% cached.
+            body["usage"] = step_usage.to_turn_dict()
+        if stream_end and step_ms is not None:
+            body["duration_ms"] = int(step_ms)
         self._persist_turn_transcript_event(
             chat_id,
             body,

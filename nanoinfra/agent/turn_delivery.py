@@ -19,6 +19,7 @@ from nanoinfra.bus.outbound_events import (
 from nanoinfra.bus.progress import build_bus_progress_callback
 from nanoinfra.bus.queue import MessageBus
 from nanoinfra.bus.runtime_events import RuntimeEventBus, RuntimeEventPublisher
+from nanoinfra.providers.base import LLMUsage
 
 if TYPE_CHECKING:
     from nanoinfra.utils.llm_runtime import LLMRuntime
@@ -306,6 +307,8 @@ class TurnDelivery:
         *,
         resuming: bool = False,
         merge_next: bool = False,
+        usage: LLMUsage | None = None,
+        request_ms: int | None = None,
     ) -> None:
         await self.bus.publish_outbound(
             outbound_message_for_event(
@@ -315,6 +318,8 @@ class TurnDelivery:
                     stream_id=self._stream_id(),
                     resuming=resuming,
                     merge_next=merge_next,
+                    usage=usage,
+                    request_ms=request_ms,
                 ),
                 metadata=self.delivery_message.metadata,
             )

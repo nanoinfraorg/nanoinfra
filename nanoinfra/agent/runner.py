@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import os
+import time
 from collections.abc import Awaitable, Callable, Iterable
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -509,6 +510,7 @@ class AgentRunner:
                 context_window_tokens=spec.runtime.context_window_tokens,
                 model_messages=messages_for_model,
             )
+            request_started_ns = time.monotonic_ns()
             response = await self._request_model(
                 spec,
                 messages_for_model,
@@ -517,6 +519,9 @@ class AgentRunner:
                 conversation_state=conversation_state,
                 provider_context=provider_context,
             )
+            # Wall clock around the call itself, including retries inside it -- what a reader of a
+            # step wants, and what the turn's single `latency_ms` could never say per step (#208).
+            context.request_ms = max(0, (time.monotonic_ns() - request_started_ns) // 1_000_000)
             conversation_state.observe_response(response, messages)
             context.response = response
             context.tool_calls = self._tool_calls_for_context(response.tool_calls, spec.tools)

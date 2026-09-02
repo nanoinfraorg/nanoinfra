@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { SettingsPayload } from "@/lib/types";
+import { formatCompactTokens } from "@/lib/format";
 
 type TokenUsagePayload = NonNullable<SettingsPayload["usage"]>;
 type TokenUsageDay = TokenUsagePayload["days"][number];
@@ -129,12 +130,6 @@ function tokenUsageSourceBreakdown(
       return `${label} ${tokens}`;
     })
     .join(" · ");
-}
-
-function formatCompactTokens(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens >= 10_000_000 ? 0 : 1)}M`;
-  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(tokens >= 10_000 ? 0 : 1)}K`;
-  return String(tokens);
 }
 
 function tokenUsageLevel(tokens: number, max: number): number {

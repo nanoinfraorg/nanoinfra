@@ -78,6 +78,17 @@ export interface UIMessage {
   latencyMs?: number;
   /** What this turn cost, summed across every provider call it made (``turn_end``). */
   usage?: TurnUsage;
+  /**
+   * What the single provider call that produced this row cost (``stream_end``, #208).
+   *
+   * Distinct from `usage`, and the distinction is the bug it fixes: a turn that made 23 calls has
+   * one `usage` and one `latencyMs`, so a step could only repeat them. This is that step's own
+   * share -- and its keys follow the same rule, so an absent `cached_tokens` means the provider
+   * reported no cache metric rather than a cold cache.
+   */
+  stepUsage?: TurnUsage;
+  /** Wall time of that one provider call, which is a part of the cluster's own span. */
+  stepModelMs?: number;
   /** What this turn's prompt was made of, by section (``turn_end``). */
   prompt?: PromptManifest;
   /** Client epoch milliseconds when the definitive ``turn_end`` was received. */
@@ -1797,6 +1808,10 @@ export type InboundEvent =
       resuming?: boolean;
       /** The next answer segment continues this same assistant message. */
       merge_next?: boolean;
+      /** What the one provider call behind this segment cost (#208). */
+      usage?: TurnUsage;
+      /** How long that call took, wall clock. */
+      duration_ms?: number;
     } & InboundTurnMetadata)
   | ({
       event: "reasoning_delta";

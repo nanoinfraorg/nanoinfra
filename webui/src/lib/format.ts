@@ -185,3 +185,15 @@ export function formatTurnLatency(ms: number, locale?: string): string {
   }).format(remSec);
   return `${minStr}\u00a0${secStr}`;
 }
+
+/**
+ * `18.2K`, `1.4M`, `912` — a token count short enough for a meta line.
+ *
+ * One copy: it was written twice, in `MessageBubble` and in `TokenUsageHeatmap`, and the third
+ * caller (a cluster header, #208) is what made a shared one worth the move.
+ */
+export function formatCompactTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens >= 10_000_000 ? 0 : 1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(tokens >= 10_000 ? 0 : 1)}K`;
+  return String(tokens);
+}

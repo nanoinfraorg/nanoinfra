@@ -1952,6 +1952,85 @@ def replay_transcript_to_ui_messages(
                 messages[i] = {**messages[i], "prompt": manifest}
                 return
 
+    def merge_step_fields(
+        message: dict[str, Any],
+        fields: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Add one more call's cost to a row that already holds one.
+
+        Consecutive tool hints replay as a single row, so a row can be the anchor for more than
+        one call. Refusing the second would make a reloaded cluster cheaper than the live one it
+        has to match; the cluster sums its rows, so summing here keeps the two equal.
+
+        `cached_tokens` survives only when **both** calls reported it. 3 of the 23 calls on the
+        measured turn reported none, and mixing a known figure with an unknown one would print a
+        cache share for input nobody measured.
+        """
+        existing = message.get("stepUsage")
+        incoming = fields.get("stepUsage")
+        merged: dict[str, Any] = dict(fields)
+        if isinstance(existing, dict) and isinstance(incoming, dict):
+            existing_usage = cast(dict[str, Any], existing)
+            incoming_usage = cast(dict[str, Any], incoming)
+            summed: dict[str, Any] = {
+                key: int(existing_usage.get(key, 0) or 0) + int(incoming_usage.get(key, 0) or 0)
+                for key in (
+                    "prompt_tokens",
+                    "completion_tokens",
+                    "total_tokens",
+                    "request_count",
+                    "estimated_tokens",
+                )
+            }
+            if "cached_tokens" in existing_usage and "cached_tokens" in incoming_usage:
+                summed["cached_tokens"] = (
+                    int(existing_usage["cached_tokens"]) + int(incoming_usage["cached_tokens"])
+                )
+            merged["stepUsage"] = summed
+        elif isinstance(existing, dict) and incoming is None:
+            merged["stepUsage"] = existing
+        existing_ms = message.get("stepModelMs")
+        if isinstance(existing_ms, int):
+            merged["stepModelMs"] = existing_ms + int(fields.get("stepModelMs", 0) or 0)
+        return merged
+
+    def stamp_step_usage(rec: dict[str, Any]) -> None:
+        """Attach one call's usage to the row that call produced (#208).
+
+        The most recent trace row of this turn that carries none yet, else the turn's answer row.
+        A call streams its reasoning and tool hints before its `stream_end`, so that row is its
+        own; a call that streamed only text has no trace row, and stamping the previous call's
+        would attribute one step's cost to another.
+        """
+        usage = rec.get("usage")
+        duration = rec.get("duration_ms")
+        fields: dict[str, Any] = {}
+        if isinstance(usage, dict):
+            fields["stepUsage"] = cast(dict[str, Any], usage)
+        if isinstance(duration, int) and duration >= 0:
+            fields["stepModelMs"] = duration
+        if not fields:
+            return
+        turn_id = rec.get("turn_id")
+        answer_index = -1
+        for i in range(len(messages) - 1, -1, -1):
+            message = messages[i]
+            if turn_id and message.get("turnId") != turn_id:
+                continue
+            # An activity row -- a tool trace, or an assistant row holding only reasoning. Both
+            # are what the call produced, and a trace row carries `role: "tool"` rather than
+            # `assistant`, which is the detail that makes this a membership test and not a role
+            # test.
+            if message.get("kind") == "trace" or is_reasoning_only_placeholder(message):
+                messages[i] = {**message, **merge_step_fields(message, fields)}
+                return
+            if message.get("role") == "assistant" and answer_index < 0:
+                answer_index = i
+        if answer_index < 0:
+            return
+        answer = messages[answer_index]
+        messages[answer_index] = {**answer, **merge_step_fields(answer, fields)}
+
     def stamp_usage(usage: dict[str, Any]) -> None:
         """Put the turn's cost on the same row the latency lands on (#202).
 
@@ -2285,6 +2364,10 @@ def replay_transcript_to_ui_messages(
                             **source_fields,
                         }
                         break
+            # What the one provider call behind this segment cost (#208). After the segment's own
+            # row exists, so a call that answered in text reaches its answer -- the same order the
+            # live client applies, and a reload has to agree with it.
+            stamp_step_usage(rec)
             if not merge_next:
                 buffer_message_id = None
                 buffer_parts = []

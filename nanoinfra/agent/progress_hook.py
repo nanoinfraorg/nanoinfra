@@ -85,12 +85,23 @@ class AgentProgressHook(AgentHook):
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
         await self.emit_reasoning_end()
         if self._on_stream_end:
-            kwargs: dict[str, bool] = {"resuming": resuming}
+            kwargs: dict[str, Any] = {"resuming": resuming}
             if (
                 context.stream_continues_current_message
                 and self._on_progress_accepts(self._on_stream_end, "merge_next")
             ):
                 kwargs["merge_next"] = True
+            # What the call that just ended cost, so a step can say `+21K in - 96% cached - 47s`
+            # instead of repeating the turn's one figure (#208). Offered rather than assumed: a
+            # channel that does not take it keeps the old two-argument callback.
+            if context.usage is not None and self._on_progress_accepts(
+                self._on_stream_end, "usage"
+            ):
+                kwargs["usage"] = context.usage
+            if context.request_ms and self._on_progress_accepts(
+                self._on_stream_end, "request_ms"
+            ):
+                kwargs["request_ms"] = context.request_ms
             await self._on_stream_end(**kwargs)
         self._stream_buf = ""
         self._think_extractor.reset()
