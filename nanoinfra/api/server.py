@@ -14,11 +14,12 @@ import time
 import uuid
 from collections import OrderedDict
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, cast
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, NamedTuple, cast
 
 from aiohttp import web
 from loguru import logger
 
+from nanoinfra.api.responses import ResponseSessions, handle_responses
 from nanoinfra.config.paths import get_media_dir
 from nanoinfra.providers.base import LLMUsage
 from nanoinfra.utils.helpers import safe_filename
@@ -40,8 +41,10 @@ __all__ = (
     "MAX_FILE_SIZE",
     "_FileSizeExceeded",
     "_save_base64_data_url",
+    "api_request_state",
     "create_app",
     "handle_chat_completions",
+    "handle_responses",
 )
 
 
@@ -51,6 +54,7 @@ _AGENT_LOOP_KEY = web.AppKey[Any]("agent_loop")
 _MODEL_NAME_KEY = web.AppKey[str]("model_name")
 _REQUEST_TIMEOUT_KEY = web.AppKey[float]("request_timeout")
 _SESSION_LOCKS_KEY = web.AppKey["SessionLocks"]("session_locks")
+_RESPONSE_SESSIONS_KEY = web.AppKey[Any]("response_sessions")
 
 class SessionLocks:
     """Per-session locks with a bound on how many are kept.
@@ -132,12 +136,45 @@ def _app_value(
         return app.get(legacy_key, default)
 
 
+class ApiState(NamedTuple):
+    """What every API route needs from the app, read in one place (#211)."""
+
+    agent_loop: Any
+    model_name: str
+    request_timeout: float
+    session_locks: "SessionLocks"
+    response_sessions: Any
+
+
+def api_request_state(app: Any) -> ApiState:
+    """Read this app's API state, accepting the dict test doubles `_app_value` accepts."""
+    return ApiState(
+        agent_loop=_app_value(app, _AGENT_LOOP_KEY, "agent_loop"),
+        model_name=_app_value(app, _MODEL_NAME_KEY, "model_name", "nanoinfra"),
+        request_timeout=_app_value(app, _REQUEST_TIMEOUT_KEY, "request_timeout", 120.0),
+        session_locks=_app_value(app, _SESSION_LOCKS_KEY, "session_locks"),
+        response_sessions=_response_sessions(app),
+    )
+
+
+def _response_sessions(app: Any) -> "ResponseSessions":
+    """This app's response index, or a throwaway for a test double that has none.
+
+    Checked against `None` rather than for truthiness: an empty index is falsy, and `or` here
+    handed every request a fresh one, so `previous_response_id` never resolved.
+    """
+    existing = _app_value(app, _RESPONSE_SESSIONS_KEY, "response_sessions", None)
+    if existing is None:
+        return ResponseSessions()
+    return cast("ResponseSessions", existing)
+
+
 # ---------------------------------------------------------------------------
 # Response helpers
 # ---------------------------------------------------------------------------
 
 
-def _error_json(status: int, message: str, err_type: str = "invalid_request_error") -> web.Response:
+def error_json(status: int, message: str, err_type: str = "invalid_request_error") -> web.Response:
     return web.json_response(
         {"error": {"message": message, "type": err_type, "code": status}},
         status=status,
@@ -174,13 +211,18 @@ def _chat_completion_response(
     }
 
 
-def _response_text(value: Any) -> str:
+def response_text(value: Any) -> str:
     """Normalize process_direct output to plain assistant text."""
     if value is None:
         return ""
     if hasattr(value, "content"):
         return str(getattr(value, "content") or "")
     return str(value)
+
+
+#: The private spellings predate a second route sharing them (#211).
+_error_json = error_json
+_response_text = response_text
 
 
 def _as_str(value: object) -> str:
@@ -533,6 +575,16 @@ def create_app(
     app[_MODEL_NAME_KEY] = model_name
     app[_REQUEST_TIMEOUT_KEY] = request_timeout
     app[_SESSION_LOCKS_KEY] = SessionLocks()  # per-session locks, bounded (#4883)
+    app[_RESPONSE_SESSIONS_KEY] = ResponseSessions()  # previous_response_id -> session (#211)
+
+    if not api_key:
+        # Both start paths already refuse a non-loopback bind without a key, so reaching here
+        # normally means loopback. An embedder calling this factory directly has no such check,
+        # and an agent API that answers anybody is worth one line in the log either way.
+        logger.warning(
+            "API server has no api_key configured: every request is served unauthenticated. "
+            "Set api.api_key before exposing this beyond loopback."
+        )
 
     @web.middleware
     async def auth_middleware(
@@ -554,6 +606,7 @@ def create_app(
     app.middlewares.append(auth_middleware)
 
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
+    app.router.add_post("/v1/responses", handle_responses)
     app.router.add_get("/v1/models", handle_models)
     app.router.add_get("/health", handle_health)
     return app

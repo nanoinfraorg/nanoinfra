@@ -19,6 +19,10 @@ not here.
 - `/compact` archives a session's history on request instead of waiting for an idle timer or a
   budget threshold, and reports how many messages it archived and how many stay raw.
   ([#212](https://github.com/nanoinfraorg/nanoinfra/issues/212))
+- `POST /v1/responses` answers the same agent over the Responses wire, so a client that defaults
+  to that protocol no longer gets a 404. The caller's `tools` and `instructions` are ignored: the
+  agent runs its own tools behind the capability gate.
+  ([#211](https://github.com/nanoinfraorg/nanoinfra/issues/211))
 - `agents.defaults.midTurnMessages` decides what happens to a message that arrives while a turn is
   running. The new default, `queue`, gives it a turn of its own with its own answer; `inject` keeps
   the previous behaviour of folding it into the turn in flight.
