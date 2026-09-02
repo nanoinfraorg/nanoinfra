@@ -19,6 +19,16 @@ not here.
 - `/compact` archives a session's history on request instead of waiting for an idle timer or a
   budget threshold, and reports how many messages it archived and how many stay raw.
   ([#212](https://github.com/nanoinfraorg/nanoinfra/issues/212))
+- `agents.defaults.midTurnMessages` decides what happens to a message that arrives while a turn is
+  running. The new default, `queue`, gives it a turn of its own with its own answer; `inject` keeps
+  the previous behaviour of folding it into the turn in flight.
+  ([#209](https://github.com/nanoinfraorg/nanoinfra/issues/209))
+
+### Changed
+
+- A message sent while the agent is still working now gets its own turn and its own reply, instead
+  of being folded into the turn already running and answered only as part of it.
+  ([#209](https://github.com/nanoinfraorg/nanoinfra/issues/209))
 
 ### Fixed
 

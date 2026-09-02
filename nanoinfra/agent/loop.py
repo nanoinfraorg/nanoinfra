@@ -240,6 +240,32 @@ def _redacted_checkpoint(
     return TranscriptRedactor.for_workspace(workspace).checkpoint(payload)
 
 
+def mid_turn_route(
+    raw: str,
+    *,
+    turn_active: bool,
+    mode: str,
+    commands: Any,
+) -> str:
+    """Where a message goes when a turn is already running for its session (#209).
+
+    Three answers. `command` dispatches inline, because `/status` behind a seven-minute turn is a
+    command nobody can use. `inject` folds the message into the running turn, which is what this
+    did unconditionally before -- three corrections arriving in 47 seconds became one turn with one
+    `turn_id`, and the agent worked seven more minutes on the plan it had already made. `dispatch`
+    creates a task that takes the session lock, so the message waits and then gets a turn of its
+    own.
+
+    A mode this function does not recognise dispatches. The schema refuses a bad value, so that
+    only fires if one arrives another way, and a message routed nowhere is a message dropped.
+    """
+    if turn_active and commands.is_dispatchable_command(raw):
+        return "command"
+    if turn_active and mode == "inject":
+        return "inject"
+    return "dispatch"
+
+
 class AgentLoop:
     """
     The agent loop is the core processing engine.
@@ -354,6 +380,7 @@ class AgentLoop:
         restart_mode: str = "auto",
         local_trigger_store: LocalTriggerStore | None = None,
         idle_compact_check_interval_seconds: int = 0,
+        mid_turn_messages: str = "queue",
         gate: Any = None,
     ):
         from nanoinfra.config.schema import ToolsConfig
@@ -521,6 +548,7 @@ class AgentLoop:
             session_ttl_minutes=session_ttl_minutes,
         )
         self._idle_compact_check_interval_s = idle_compact_check_interval_seconds
+        self._mid_turn_messages = mid_turn_messages
         self._next_idle_compact_check_at = time.monotonic()
         if model_preset:
             self.set_model_preset(model_preset, publish_update=False)
@@ -583,6 +611,7 @@ class AgentLoop:
             disabled_skills=defaults.disabled_skills,
             session_ttl_minutes=defaults.session_ttl_minutes,
             idle_compact_check_interval_seconds=defaults.idle_compact_check_interval_seconds,
+            mid_turn_messages=defaults.mid_turn_messages,
             consolidation_ratio=defaults.consolidation_ratio,
             tools_config=config.tools,
             model_presets=preset_helpers.configured_model_presets(config),
@@ -1397,18 +1426,25 @@ class AgentLoop:
                         break
                 if deferred:
                     continue
-                # If this session already has an active pending queue (i.e. a task
-                # is processing this session), route the message there for mid-turn
-                # injection instead of creating a competing task.
-                if effective_key in self._pending_queues:
+                # Where this goes when a turn is already running for the session (#209).
+                # `mid_turn_messages` decides: fold into the turn in flight, or wait for one of
+                # its own. `dispatch` falls through to the task below, which takes the session
+                # lock and therefore queues behind the turn already holding it.
+                route = mid_turn_route(
+                    raw,
+                    turn_active=effective_key in self._pending_queues,
+                    mode=self._mid_turn_messages,
+                    commands=self.commands,
+                )
+                if route == "command":
                     # Non-priority commands must not be queued for injection;
                     # dispatch them directly (same pattern as priority commands).
-                    if self.commands.is_dispatchable_command(raw):
-                        await self._dispatch_command_inline(
-                            msg, effective_key, raw,
-                            self.commands.dispatch,
-                        )
-                        continue
+                    await self._dispatch_command_inline(
+                        msg, effective_key, raw,
+                        self.commands.dispatch,
+                    )
+                    continue
+                if route == "inject":
                     pending_msg = msg
                     if effective_key != msg.session_key:
                         pending_msg = dataclasses.replace(

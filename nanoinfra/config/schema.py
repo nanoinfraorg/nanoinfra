@@ -160,6 +160,18 @@ class AgentDefaults(Base):
         validation_alias=AliasChoices("idleCompactAfterMinutes", "sessionTtlMinutes"),
         serialization_alias="idleCompactAfterMinutes",
     )  # Auto-compact idle threshold in minutes (0 = disabled)
+    #: What happens to a message that arrives while a turn is already running (#209).
+    #:
+    #: `queue` is the request→response shape of the API: the message becomes its own turn and waits
+    #: behind the one in flight, keeping its own `turn_id` and its own answer. `inject` folds it
+    #: into the running turn, which is what every deployment did before this field -- a correction
+    #: reaches the work in progress, and in exchange it has no response of its own and the record
+    #: says whoever started the turn asked for it.
+    mid_turn_messages: Literal["queue", "inject"] = Field(
+        default="queue",
+        validation_alias=AliasChoices("midTurnMessages", "mid_turn_messages"),
+        serialization_alias="midTurnMessages",
+    )
     idle_compact_check_interval_seconds: int = Field(
         default=60,
         ge=0,

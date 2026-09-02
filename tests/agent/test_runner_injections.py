@@ -947,6 +947,9 @@ async def test_followup_routed_to_pending_queue(tmp_path):
 
     loop = _make_loop(tmp_path)
     loop._unified_session = True
+    # The injection path is what this test is about, and it is no longer the default: since #209 a
+    # mid-turn message becomes its own turn unless the deployment asks for folding.
+    loop._mid_turn_messages = "inject"
     loop._dispatch = AsyncMock()  # type: ignore[method-assign]
 
     pending = asyncio.Queue(maxsize=20)
@@ -967,11 +970,43 @@ async def test_followup_routed_to_pending_queue(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_a_followup_becomes_its_own_turn_by_default(tmp_path):
+    """The default since #209: a message arriving mid-turn waits for a turn of its own rather than
+    joining somebody else's. `_dispatch` takes the session lock, so it queues behind the turn in
+    flight instead of competing with it."""
+    from nanoinfra.bus.events import InboundMessage
+
+    loop = _make_loop(tmp_path)
+    loop._dispatch = AsyncMock()  # type: ignore[method-assign]
+
+    session_key = "websocket:chat-1"
+    pending = asyncio.Queue(maxsize=20)
+    loop._pending_queues[session_key] = pending
+
+    run_task = asyncio.create_task(loop.run())
+    msg = InboundMessage(
+        channel="websocket", sender_id="u", chat_id="chat-1", content="correction"
+    )
+    await loop.bus.publish_inbound(msg)
+
+    for _ in range(50):
+        if loop._dispatch.await_count:
+            break
+        await asyncio.sleep(0.02)
+
+    loop.stop()
+    await asyncio.wait_for(run_task, timeout=2)
+
+    assert loop._dispatch.await_count == 1
+    assert pending.empty(), "the message got a turn rather than joining the running one"
+
+
 async def test_mid_turn_subagent_result_does_not_resolve_a_new_turn_route(tmp_path):
     """Injected results stay inside the active turn instead of opening a side turn."""
     from nanoinfra.bus.events import InboundMessage
 
     loop = _make_loop(tmp_path)
+    loop._mid_turn_messages = "inject"
     loop._dispatch = AsyncMock()  # type: ignore[method-assign]
     route_policy = MagicMock(side_effect=lambda _msg, _key, route: route)
     loop.turn_delivery_factory.route_policy = route_policy
