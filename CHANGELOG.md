@@ -11,8 +11,6 @@ not here.
 
 ## [Unreleased]
 
-## [1.7.1] — 2026-09-02
-
 ### Added
 
 - `/compact` archives a session's history on request instead of waiting for an idle timer or a
@@ -372,8 +370,7 @@ with upstream imports. That history lives in the
 [release archive](https://docs.nanoinfra.org/release-archive) and on the
 [releases page](https://github.com/nanoinfraorg/nanoinfra/releases).
 
-[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.1...HEAD
-[1.7.1]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.0...v1.7.1
+[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.6.1...HEAD
 [1.6.1]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.5.2...v1.6.0
 [1.5.2]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.5.1...v1.5.2
