@@ -11,6 +11,8 @@ not here.
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-09-03
+
 ### Added
 
 - A conversation held over the API — or from a chat channel, or by an automation — appears in the
@@ -447,7 +449,8 @@ with upstream imports. That history lives in the
 [release archive](https://docs.nanoinfra.org/release-archive) and on the
 [releases page](https://github.com/nanoinfraorg/nanoinfra/releases).
 
-[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.4...v1.8.0
 [1.7.4]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.3...v1.7.4
 [1.7.3]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.2...v1.7.3
