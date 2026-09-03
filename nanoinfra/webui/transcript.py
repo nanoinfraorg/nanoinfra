@@ -849,7 +849,14 @@ class WebUITranscriptRecorder:
 
 
 def _chat_id_from_session_key(session_key: str) -> str | None:
-    if not session_key.startswith("websocket:"):
+    """The chat id a transcript row is grouped by.
+
+    Any channel, not just websocket: a rendered view of an `api:` or `cron:` session needs a chat
+    id to group its rows, and the part after the colon is the one the session itself uses. The
+    websocket-only reading belonged to the *writing* path, where a non-websocket key meant a bug;
+    it is `_persist_turn_transcript_event` that stays the websocket channel's own.
+    """
+    if ":" not in session_key:
         return None
     chat_id = session_key.split(":", 1)[1].strip()
     return chat_id or None
@@ -917,6 +924,25 @@ def write_session_messages_as_transcript(
     messages: list[dict[str, Any]],
 ) -> None:
     """Write a minimal WebUI transcript from already-truncated session messages."""
+    _write_transcript_lines(target_key, session_messages_as_transcript_rows(target_key, messages))
+
+
+def session_messages_as_transcript_rows(
+    target_key: str,
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Render session history into transcript rows, without writing them anywhere (#216).
+
+    A conversation held over the API -- or by a cron job, or over Telegram -- has session history
+    and no transcript, because only the websocket channel writes one. So the UI listed nothing and
+    showed nothing, which is half the reason to drive this agent from an external client: the
+    deployment keeps the record and the operator could not read it.
+
+    Rendered on read rather than persisted, and that is the decision worth stating. Writing a
+    transcript for an `api:` session would freeze it: the next turn arrives through the API, which
+    writes no transcript, so the file would answer with an old conversation and look authoritative
+    doing it. The session history is the record; this is a view of it.
+    """
     target_chat_id = _chat_id_from_session_key(target_key)
     rows: list[dict[str, Any]] = []
     for msg in messages:
@@ -947,7 +973,7 @@ def write_session_messages_as_transcript(
         else:
             continue
         rows.append(row)
-    _write_transcript_lines(target_key, rows)
+    return rows
 
 
 def delete_webui_transcript(session_key: str) -> bool:
@@ -2644,6 +2670,17 @@ def build_webui_thread_response(
         lines, page = _select_transcript_page(session_key, limit=limit, before=before)
     else:
         lines = _annotate_replay_identities(read_transcript_lines(session_key))
+    if not lines:
+        # No transcript: a conversation that arrived over the API, a cron job, a chat channel --
+        # anything but the websocket, which is the only writer of one. Rendered from the session
+        # history instead, so the operator can read what the deployment already recorded (#216).
+        history = session_messages
+        if history is None and session_messages_loader is not None:
+            history = session_messages_loader()
+        if history:
+            lines = _annotate_replay_identities(
+                session_messages_as_transcript_rows(session_key, history)
+            )
     if not lines and active_turn_started_at is None:
         return None
     needs_user_backfill = _needs_user_event_backfill(lines)

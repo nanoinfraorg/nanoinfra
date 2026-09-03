@@ -11,6 +11,14 @@ not here.
 
 ## [Unreleased]
 
+### Added
+
+- A conversation held over the API — or from a chat channel, or by an automation — appears in the
+  WebUI sidebar with its channel badged, and opens as a readable thread built from the session
+  history. Read-only: the composer still refuses a session it does not own, and delete,
+  file-preview and automations stay closed to other channels.
+  ([#216](https://github.com/nanoinfraorg/nanoinfra/issues/216))
+
 ## [1.8.0] — 2026-09-03
 
 ### Added

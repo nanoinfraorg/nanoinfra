@@ -884,7 +884,13 @@ class GatewayHTTPHandler:
         default_scope: WorkspaceScope | None = None
         for s in sessions:
             key = s.get("key")
-            if not (isinstance(key, str) and key.startswith("websocket:")):
+            if not isinstance(key, str) or ":" not in key:
+                continue
+            # Every channel somebody held a conversation on (#216), so a turn driven from the API
+            # or from Telegram is readable here rather than only in a JSONL. `dream:` stays out:
+            # memory consolidation is machinery talking to itself, and ten of those rows would
+            # bury the chats in the sidebar.
+            if key.split(":", 1)[0] in _NON_CONVERSATION_SESSION_CHANNELS:
                 continue
             # Whose row this is. A caller with no identity sees the rows with none --
             # every deployment that has no proxy -- and a caller with one sees theirs.
@@ -899,9 +905,12 @@ class GatewayHTTPHandler:
                 if k != "path" and k not in WEBUI_SESSION_INDEX_INTERNAL_FIELDS
             }
             chat_id = key.split(":", 1)[1]
-            started_at = websocket_turn_wall_started_at(chat_id)
-            if started_at is not None:
-                row["run_started_at"] = started_at
+            # Websocket-only: it reads the live turn registry the WebUI's own channel writes, and
+            # another channel's chat id is not a key in it.
+            if key.startswith("websocket:"):
+                started_at = websocket_turn_wall_started_at(chat_id)
+                if started_at is not None:
+                    row["run_started_at"] = started_at
             if default_scope is None:
                 default_scope = self.workspaces.default_scope()
             scope_present, raw_scope = indexed_workspace_scope(s)
@@ -922,7 +931,7 @@ class GatewayHTTPHandler:
         decoded_key = _decode_api_key(key)
         if decoded_key is None:
             return _http_error(400, "invalid session key")
-        if not _is_websocket_channel_session_key(decoded_key):
+        if not _is_readable_session_key(decoded_key):
             return _http_error(404, "session not found")
         data = self.session_manager.read_session_file(decoded_key)
         if data is None:
@@ -948,7 +957,7 @@ class GatewayHTTPHandler:
         decoded_key = _decode_api_key(key)
         if decoded_key is None:
             return _http_error(400, "invalid session key")
-        if not _is_websocket_channel_session_key(decoded_key):
+        if not _is_readable_session_key(decoded_key):
             return _http_error(404, "session not found")
         scope = self.workspaces.scope_for_session_key(decoded_key)
 
@@ -985,10 +994,15 @@ class GatewayHTTPHandler:
         )
 
         chat_id = decoded_key.split(":", 1)[1]
-        active_turn_started_at = websocket_turn_wall_started_at(chat_id)
-        active_turn_id = websocket_turn_id(chat_id)
+        # The live-turn registry is the websocket channel's own; another channel's chat id is not
+        # a key in it, and asking would report somebody else's turn as this one's.
+        websocket_session = _is_websocket_channel_session_key(decoded_key)
+        active_turn_started_at = (
+            websocket_turn_wall_started_at(chat_id) if websocket_session else None
+        )
+        active_turn_id = websocket_turn_id(chat_id) if websocket_session else None
         active_turn_transcript_persistence_failed = (
-            websocket_turn_transcript_persistence_failed(chat_id)
+            websocket_turn_transcript_persistence_failed(chat_id) if websocket_session else False
         )
         data = build_webui_thread_response(
             decoded_key,
@@ -2795,5 +2809,21 @@ def _positive_int(value: Any) -> int | None:
     return value if value > 0 else None
 
 
+#: Session channels that are not a conversation with anybody, and so are not listed as threads.
+_NON_CONVERSATION_SESSION_CHANNELS = frozenset({"dream"})
+
+
 def _is_websocket_channel_session_key(key: str) -> bool:
     return key.startswith("websocket:")
+
+
+def _is_readable_session_key(key: str) -> bool:
+    """Whether this session may be read back through the WebUI (#216).
+
+    Identity is not what this decides: the sessions directory is already the caller's own, so a
+    key belonging to somebody else does not resolve. This is about *which channels* have a thread
+    worth rendering.
+    """
+    if ":" not in key:
+        return False
+    return key.split(":", 1)[0] not in _NON_CONVERSATION_SESSION_CHANNELS

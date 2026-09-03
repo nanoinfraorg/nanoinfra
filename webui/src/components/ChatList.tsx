@@ -299,6 +299,11 @@ export const ChatList = memo(function ChatList({
                       ? relativeTime(s.updatedAt ?? s.createdAt)
                       : "";
                     const projectMode = group.kind === "project";
+                    // A session this browser did not create: held over the API, or arriving from
+                    // Telegram, or run by a cron job (#216). Labelled rather than hidden -- the
+                    // record is the deployment's either way -- and read-only, because the
+                    // composer refuses a non-websocket key.
+                    const foreignChannel = s.channel !== "websocket" ? s.channel : "";
                     const activityState = running.has(s.chatId)
                       ? "running"
                       : updated.has(s.chatId) && !active
@@ -392,6 +397,19 @@ export const ChatList = memo(function ChatList({
                                 <span className="min-w-0 flex-1 truncate font-medium leading-5">
                                   {title}
                                 </span>
+                                {foreignChannel ? (
+                                  <span
+                                    data-session-channel={foreignChannel}
+                                    title={t("chat.channelBadgeHint", {
+                                      channel: foreignChannel,
+                                      defaultValue:
+                                        "Held over {{channel}}; read-only here",
+                                    })}
+                                    className="shrink-0 rounded border border-border/60 px-1 text-[10px] font-medium uppercase leading-4 text-muted-foreground/70"
+                                  >
+                                    {foreignChannel}
+                                  </span>
+                                ) : null}
                                 {isPinned ? <PinnedChatIndicator label={labels.pinned} /> : null}
                               </span>
                             )}

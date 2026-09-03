@@ -48,6 +48,35 @@ describe("ChatList", () => {
     vi.unstubAllGlobals();
   });
 
+  it("labels a conversation this browser did not hold", () => {
+    // #216: an API or Telegram session is listed now, and the badge is what stops it reading as
+    // a chat somebody typed here. Read-only is the composer's job, not the list's.
+    render(
+      <ChatList
+        sessions={[
+          session({ chatId: "alberto", title: "Uptime question" }),
+          session({
+            key: "api:alberto",
+            channel: "api",
+            chatId: "alberto",
+            title: "Held over the API",
+          }),
+        ]}
+        activeKey="websocket:alberto"
+        onSelect={vi.fn()}
+        onRequestDelete={vi.fn()}
+        onTogglePin={vi.fn()}
+        onRequestRename={vi.fn()}
+        onToggleArchive={vi.fn()}
+      />,
+    );
+
+    const badges = document.querySelectorAll("[data-session-channel]");
+    expect(badges.length).toBe(1);
+    expect(badges[0].getAttribute("data-session-channel")).toBe("api");
+    expect(badges[0].textContent).toBe("api");
+  });
+
   it("exposes chats as drag sources", () => {
     const dataTransfer = {
       effectAllowed: "",

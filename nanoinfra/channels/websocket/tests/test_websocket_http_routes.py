@@ -2014,7 +2014,7 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
 
 
 @pytest.mark.asyncio
-async def test_sessions_list_only_returns_websocket_sessions_by_default(
+async def test_sessions_list_returns_every_conversation_channel(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Seed a realistic multi-channel disk state: CLI, Slack, Signal and
@@ -2054,9 +2054,14 @@ async def test_sessions_list_only_returns_websocket_sessions_by_default(
         assert listing.status_code == 200
         sessions = listing.json()["sessions"]
         keys = {s["key"] for s in sessions}
-        # Only websocket-channel sessions are part of the webui surface; CLI /
-        # Slack / Lark rows would be non-resumable from the browser.
-        assert keys == {"websocket:alpha", "websocket:beta"}
+        # Every channel somebody held a conversation on (#216). A turn driven over the API or
+        # arriving from Slack is a conversation this deployment recorded, and listing only the
+        # browser's own left it readable exclusively as a JSONL on disk. They stay non-resumable
+        # from here -- the composer refuses a non-websocket key -- which is a separate question
+        # from whether the operator may read them.
+        assert keys == {
+            "cli:direct", "slack:C123", "signal:sig_abc", "websocket:alpha", "websocket:beta",
+        }
         rows = {row["key"]: row for row in sessions}
         assert rows["websocket:beta"]["workspace_scope"]["project_path"] == str(
             project.resolve()
@@ -3060,7 +3065,7 @@ async def test_webui_thread_negotiates_gzip_for_large_payloads(
 
 
 @pytest.mark.asyncio
-async def test_session_routes_reject_non_websocket_keys(
+async def test_non_websocket_sessions_are_readable_but_not_deletable(
     bus: MagicMock, tmp_path: Path
 ) -> None:
     sm = _seed_many(
@@ -3077,13 +3082,14 @@ async def test_session_routes_reject_non_websocket_keys(
         token = channel.gateway.tokens.issue_api_token(300)
         auth = {"Authorization": f"Bearer {token}"}
 
-        # The webui list already hides non-websocket sessions; handcrafted URLs
-        # should hit the same boundary rather than exposing or deleting them.
+        # Reading is open since #216: the record exists and the operator should be able to see
+        # it. Note what did *not* move -- delete, file-preview and automations still refuse a
+        # non-websocket key, so widening the read surface did not widen the write one.
         msgs = await _http_get(
             "http://127.0.0.1:29909/api/sessions/cli:direct/messages",
             headers=auth,
         )
-        assert msgs.status_code == 404
+        assert msgs.status_code == 200
 
         doomed = sm._get_session_path("slack:C123")
         assert doomed.exists()
