@@ -164,6 +164,46 @@ async def test_no_user_message_returns_400(aiohttp_client, app) -> None:
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
+async def test_a_system_message_beside_the_prompt_is_accepted(aiohttp_client, app, mock_agent) -> None:
+    """What a `wire_api = "chat"` client sends on its first request. Demanding exactly one `user`
+    message rejected it before it could ask anything."""
+    client = await aiohttp_client(app)
+    resp = await client.post(
+        "/v1/chat/completions",
+        headers=AUTH_HEADERS,
+        json={"messages": [
+            {"role": "system", "content": "be terse"},
+            {"role": "user", "content": "hola"},
+        ]},
+    )
+
+    assert resp.status == 200
+    assert mock_agent.process_direct.await_args.kwargs["content"] == "be terse\n\nhola"
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_only_the_turn_after_the_last_reply_reaches_the_agent(
+    aiohttp_client, app, mock_agent
+) -> None:
+    """The session already holds the earlier turns, so replaying them would count each twice."""
+    client = await aiohttp_client(app)
+    resp = await client.post(
+        "/v1/chat/completions",
+        headers=AUTH_HEADERS,
+        json={"messages": [
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "q2"},
+        ]},
+    )
+
+    assert resp.status == 200
+    assert mock_agent.process_direct.await_args.kwargs["content"] == "q2"
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
 async def test_stream_true_returns_sse(aiohttp_client, app) -> None:
     client = await aiohttp_client(app)
     resp = await client.post(
@@ -198,7 +238,9 @@ async def test_model_mismatch_returns_400() -> None:
 
 
 @pytest.mark.asyncio
-async def test_single_user_message_required() -> None:
+async def test_a_request_ending_in_our_own_reply_is_refused() -> None:
+    """Since `proposals/client-transcript-input.md` a client may resend its transcript: what
+    follows our last reply is the turn. Here nothing follows it, so there is nothing to answer."""
     request = MagicMock()
     request.json = AsyncMock(
         return_value={
@@ -218,11 +260,13 @@ async def test_single_user_message_required() -> None:
     resp = await handle_chat_completions(request)
     assert resp.status == 400
     body = json.loads(resp.body)
-    assert "single user message" in body["error"]["message"].lower()
+    assert "no new turn to answer" in body["error"]["message"].lower()
 
 
 @pytest.mark.asyncio
-async def test_single_user_message_must_have_user_role() -> None:
+async def test_instructions_without_a_question_are_refused() -> None:
+    """A `system` message frames a turn without being one. Answering the instruction as if it were
+    the question would be worse than saying so."""
     request = MagicMock()
     request.json = AsyncMock(
         return_value={
@@ -239,7 +283,7 @@ async def test_single_user_message_must_have_user_role() -> None:
     resp = await handle_chat_completions(request)
     assert resp.status == 400
     body = json.loads(resp.body)
-    assert "single user message" in body["error"]["message"].lower()
+    assert "no user message to answer" in body["error"]["message"].lower()
 
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")

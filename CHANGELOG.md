@@ -11,6 +11,16 @@ not here.
 
 ## [Unreleased]
 
+## [1.7.3] — 2026-09-02
+
+### Fixed
+
+- Both API routes accept a client that resends its own transcript: what follows the last assistant
+  message is the turn, and earlier messages are dropped as the client's copy of a history the
+  server already keeps. A `system` message beside the prompt is joined into the turn rather than
+  refused, so a Responses or Chat Completions client no longer gets a 400 on its first request.
+  ([#211](https://github.com/nanoinfraorg/nanoinfra/issues/211))
+
 ## [1.7.2] — 2026-09-02
 
 ### Added
@@ -407,7 +417,8 @@ with upstream imports. That history lives in the
 [release archive](https://docs.nanoinfra.org/release-archive) and on the
 [releases page](https://github.com/nanoinfraorg/nanoinfra/releases).
 
-[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.2...HEAD
+[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.3...HEAD
+[1.7.3]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.6.1...v1.7.0

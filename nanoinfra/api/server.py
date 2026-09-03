@@ -274,63 +274,109 @@ _SSE_DONE = b"data: [DONE]\n\n"
 # ---------------------------------------------------------------------------
 
 
+#: Roles that carry prompt text rather than a past answer, on this wire's spelling.
+_TURN_ROLES = frozenset({"user", "system", "developer"})
+
+
 def _parse_json_content(body: dict[str, Any]) -> tuple[str, list[str]]:
-    """Parse JSON request body. Returns (text, media_paths)."""
+    """Parse JSON request body. Returns (text, media_paths).
+
+    The same tail rule `/v1/responses` applies (#211, and
+    `proposals/client-transcript-input.md`): items up to and including the last `assistant` message
+    are the client's copy of what we already said and are dropped, and what follows is this turn.
+    This route needed it for the same reason -- a client with `wire_api = "chat"` sends its
+    instructions as a `system` message beside the prompt, so demanding exactly one `user` message
+    rejected its first request.
+    """
     messages_value = cast(object, body.get("messages"))
     if not isinstance(messages_value, list):
-        raise ValueError("Only a single user message is supported")
-    messages = cast(list[object], messages_value)
-    if len(messages) != 1:
-        raise ValueError("Only a single user message is supported")
-    message_value: object = messages[0]
-    if not isinstance(message_value, dict):
-        raise ValueError("Only a single user message is supported")
-    message = cast(dict[str, Any], message_value)
-    if message.get("role") != "user":
-        raise ValueError("Only a single user message is supported")
+        raise ValueError("messages must be an array")
+    raw_messages = cast(list[object], messages_value)
+    if not raw_messages:
+        raise ValueError("messages must not be empty")
 
-    user_content = message.get("content", "")
+    messages: list[dict[str, Any]] = []
+    for entry in raw_messages:
+        if not isinstance(entry, dict):
+            raise ValueError("each message must be an object")
+        messages.append(cast(dict[str, Any], entry))
+
+    last_answer = -1
+    for index, message in enumerate(messages):
+        if message.get("role") == "assistant":
+            last_answer = index
+    tail = messages[last_answer + 1 :]
+    if not tail:
+        raise ValueError(
+            "messages end with an assistant reply, so they carry no new turn to answer"
+        )
+    # A `system` message frames a turn without being one. See the note in `responses.py`.
+    if not any(message.get("role", "user") == "user" for message in tail):
+        raise ValueError("messages carry no user message to answer")
+    for message in tail:
+        role = message.get("role", "user")
+        if role not in _TURN_ROLES:
+            raise ValueError(f"unsupported role after the last reply: {role}")
+
     media_dir = get_media_dir("api")
     media_paths: list[str] = []
+    joined: list[str] = []
+    for message in tail:
+        text, paths = _message_content(cast(object, message.get("content", "")), media_dir)
+        if text.strip():
+            joined.append(text)
+        media_paths.extend(paths)
 
-    if isinstance(user_content, list):
-        text_parts: list[str] = []
-        for part_value in cast(list[object], user_content):
-            if not isinstance(part_value, dict):
-                continue
-            part = cast(dict[str, Any], part_value)
-            if part.get("type") == "text":
-                text_parts.append(
-                    _require_json_string(
-                        cast(object, part.get("text", "")),
-                        "messages[0].content[].text",
-                    )
-                )
-            elif part.get("type") == "image_url":
-                image_url = _require_json_object(
-                    cast(object, part.get("image_url", {})),
-                    "messages[0].content[].image_url",
-                )
-                url = _require_json_string(
-                    cast(object, image_url.get("url", "")),
-                    "messages[0].content[].image_url.url",
-                )
-                if url.startswith("data:"):
-                    saved = _save_base64_data_url(url, media_dir)
-                    if saved:
-                        media_paths.append(saved)
-                elif url:
-                    raise ValueError(
-                        "Remote image URLs are not supported. "
-                        "Use base64 data URLs or upload files via multipart/form-data."
-                    )
-        text = " ".join(text_parts)
-    elif isinstance(user_content, str):
-        text = user_content
-    else:
+    # Blank line between parts: an instruction block and a question are two things to read, and
+    # running them together changes where one ends.
+    return "\n\n".join(joined), media_paths
+
+
+def _message_content(content: object, media_dir: Any) -> tuple[str, list[str]]:
+    """Read one message's content into (text, media_paths).
+
+    Its own function rather than a recursive call into `_parse_json_content`: the first attempt at
+    this reused that entry point for each message ahead of the turn, which re-applied the "there
+    must be a user message" rule to a lone `system` item and rejected the very shape it was meant
+    to accept.
+    """
+    media_paths: list[str] = []
+    if isinstance(content, str):
+        return content, media_paths
+    if not isinstance(content, list):
         raise ValueError("Invalid content format")
 
-    return text, media_paths
+    text_parts: list[str] = []
+    for part_value in cast(list[object], content):
+        if not isinstance(part_value, dict):
+            continue
+        part = cast(dict[str, Any], part_value)
+        if part.get("type") == "text":
+            text_parts.append(
+                _require_json_string(
+                    cast(object, part.get("text", "")),
+                    "messages[].content[].text",
+                )
+            )
+        elif part.get("type") == "image_url":
+            image_url = _require_json_object(
+                cast(object, part.get("image_url", {})),
+                "messages[].content[].image_url",
+            )
+            url = _require_json_string(
+                cast(object, image_url.get("url", "")),
+                "messages[].content[].image_url.url",
+            )
+            if url.startswith("data:"):
+                saved = _save_base64_data_url(url, media_dir)
+                if saved:
+                    media_paths.append(saved)
+            elif url:
+                raise ValueError(
+                    "Remote image URLs are not supported. "
+                    "Use base64 data URLs or upload files via multipart/form-data."
+                )
+    return " ".join(text_parts), media_paths
 
 
 async def _parse_multipart(request: web.Request) -> tuple[str, list[str], str | None, str | None]:

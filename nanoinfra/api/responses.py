@@ -49,10 +49,6 @@ __all__ = (
     "response_object",
 )
 
-_UNSUPPORTED_MULTI_INPUT = (
-    "Only a single user message is supported. nanoinfra keeps the conversation history; "
-    "use previous_response_id or session_id to continue one."
-)
 _REMOTE_IMAGE = (
     "Remote image URLs are not supported. Use base64 data URLs, or the multipart form of "
     "/v1/chat/completions to upload files."
@@ -143,10 +139,22 @@ def _content_parts(content: object, media_dir: Any) -> tuple[str, list[str]]:
 def parse_responses_input(body: dict[str, Any]) -> tuple[str, list[str]]:
     """Read the `input` field into (text, media_paths).
 
-    Accepts a bare string, a single message item, or that message's content parts at the top level
-    -- the three shapes clients actually send for one turn. More than one message is refused rather
-    than concatenated: two messages mean the caller believes it owns the history, and answering as
-    if it did would replay the session on top of itself.
+    **The turn is everything after the last thing this server said.** A client that keeps its own
+    transcript resends it on every request, and the first version of this parser refused any
+    multi-item input to stop that transcript being replayed on top of the session that already
+    holds it. It refused too much: the very first request the Codex CLI makes carries its
+    environment block *and* the user's prompt as two `user` items, and that is one prompt in
+    pieces, not a history.
+
+    So the tail rule. Items up to and including the last `assistant` are the client's copy of what
+    we already said and are dropped; the `user` items after it are joined into this turn. With no
+    `assistant` at all, every message is joined -- a first turn arriving in pieces.
+
+    The trade is that when the two copies of the history disagree, ours wins: a client that pruned
+    its transcript gets an answer informed by what this server kept. That is inherent to holding
+    the session here, and it is recorded in `proposals/client-transcript-input.md`.
+
+    Tool-call items are refused exactly as before. Nothing here changes what the caller may run.
     """
     raw_input = cast(object, body.get("input"))
     media_dir = get_media_dir("api")
@@ -180,18 +188,57 @@ def parse_responses_input(body: dict[str, Any]) -> tuple[str, list[str]]:
             loose_parts.append(item)
 
     if messages and loose_parts:
+        # Still ambiguous: it could be one message or two, and guessing would sometimes drop text.
         raise ValueError("input mixes message items with bare content parts")
-    if len(messages) > 1:
-        raise ValueError(_UNSUPPORTED_MULTI_INPUT)
 
     if loose_parts:
         return _content_parts(loose_parts, media_dir)
 
-    message = messages[0]
-    role = message.get("role", "user")
-    if role != "user":
-        raise ValueError(_UNSUPPORTED_MULTI_INPUT)
-    return _content_parts(cast(object, message.get("content", "")), media_dir)
+    return _join_turn_messages(messages, media_dir)
+
+
+#: Roles that carry prompt text rather than a past answer. `developer` is the Responses spelling of
+#: a system message; both are the caller's framing of the same turn, so both join it.
+_TURN_ROLES = frozenset({"user", "system", "developer"})
+
+
+def _join_turn_messages(
+    messages: list[dict[str, Any]],
+    media_dir: Any,
+) -> tuple[str, list[str]]:
+    """Apply the tail rule to a list of message items."""
+    last_answer = -1
+    for index, message in enumerate(messages):
+        if message.get("role") == "assistant":
+            last_answer = index
+    tail = messages[last_answer + 1 :]
+
+    if not tail:
+        raise ValueError(
+            "input ends with an assistant message, so it carries no new turn to answer"
+        )
+    # Instructions frame a turn, they are not one: a request carrying only a `system` or
+    # `developer` item has nobody asking anything, and answering the instruction as if it were the
+    # question is worse than saying so.
+    if not any(message.get("role", "user") == "user" for message in tail):
+        raise ValueError("input carries no user message to answer")
+
+    texts: list[str] = []
+    media: list[str] = []
+    for message in tail:
+        role = message.get("role", "user")
+        if role not in _TURN_ROLES:
+            raise ValueError(f"input carries an unsupported role after the last answer: {role}")
+        text, paths = _content_parts(cast(object, message.get("content", "")), media_dir)
+        if text.strip():
+            texts.append(text)
+        media.extend(paths)
+
+    if not texts and not media:
+        raise ValueError("input must not be empty")
+    # Blank line between parts: a context block and a question are two things to read, and running
+    # them together changes where one ends.
+    return "\n\n".join(texts), media
 
 
 _IGNORED_FIELDS_WARNED: set[str] = set()

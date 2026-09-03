@@ -98,17 +98,72 @@ def test_content_parts_at_the_top_level_are_one_message() -> None:
     assert parse_responses_input(body) == ("hola", [])
 
 
-def test_a_transcript_is_refused_rather_than_replayed() -> None:
-    """Two messages mean the caller believes it owns the history. It does not: this server kept
-    it, and answering as if the caller had it would run the conversation twice."""
+def test_the_first_codex_request_is_one_prompt_in_two_pieces() -> None:
+    """What actually arrived from the Codex CLI, and what the first version of this parser refused:
+    its environment block and the user's prompt, as two `user` items. That is a prompt split in
+    two, not a transcript, so the two are joined."""
     body = {
         "input": [
-            {"role": "user", "content": "first"},
-            {"role": "assistant", "content": "answer"},
+            {"role": "user", "content": [{"type": "input_text", "text": "<env>cwd=/x</env>"}]},
+            {"role": "user", "content": "what is this project"},
         ]
     }
 
-    with pytest.raises(ValueError, match="single user message"):
+    text, media = parse_responses_input(body)
+
+    assert text == "<env>cwd=/x</env>\n\nwhat is this project"
+    assert media == []
+
+
+def test_only_the_tail_after_our_last_answer_becomes_the_turn() -> None:
+    """The client's copy of the history is dropped because the session holds ours. Replaying it
+    would count every earlier turn twice."""
+    body = {
+        "input": [
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": [{"type": "output_text", "text": "a1"}]},
+            {"role": "user", "content": "q2"},
+        ]
+    }
+
+    assert parse_responses_input(body) == ("q2", [])
+
+
+def test_several_messages_after_the_last_answer_are_all_joined() -> None:
+    body = {
+        "input": [
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "<env>cwd=/x</env>"},
+            {"role": "user", "content": "q2"},
+        ]
+    }
+
+    assert parse_responses_input(body) == ("<env>cwd=/x</env>\n\nq2", [])
+
+
+def test_a_developer_or_system_item_joins_the_turn() -> None:
+    """`developer` is the Responses spelling of a system message. It frames this turn rather than
+    recording a past one, so it is content, not history."""
+    body = {
+        "input": [
+            {"role": "developer", "content": "be terse"},
+            {"role": "user", "content": "hola"},
+        ]
+    }
+
+    assert parse_responses_input(body) == ("be terse\n\nhola", [])
+
+
+def test_an_input_that_ends_with_our_answer_carries_no_turn() -> None:
+    body = {
+        "input": [
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "a1"},
+        ]
+    }
+
+    with pytest.raises(ValueError, match="no new turn"):
         parse_responses_input(body)
 
 
