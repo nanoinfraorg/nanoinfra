@@ -11,6 +11,15 @@ not here.
 
 ## [Unreleased]
 
+## [1.9.1] — 2026-09-03
+
+### Removed
+
+- The sidebar no longer lists conversations from other channels, reverting 1.9.0. Sessions that
+  never held a conversation — an empty WhatsApp session, `cli:direct` — showed up as `New topic`
+  rows and buried the chats, which is worse than the problem it set out to fix.
+  ([#216](https://github.com/nanoinfraorg/nanoinfra/issues/216))
+
 ## [1.9.0] — 2026-09-03
 
 ### Added
@@ -449,7 +458,8 @@ with upstream imports. That history lives in the
 [release archive](https://docs.nanoinfra.org/release-archive) and on the
 [releases page](https://github.com/nanoinfraorg/nanoinfra/releases).
 
-[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.9.1...HEAD
+[1.9.1]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.4...v1.8.0
 [1.7.4]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.3...v1.7.4

@@ -4332,11 +4332,6 @@ def test_sessions_list_includes_active_run_started_at(monkeypatch) -> None:
 
     assert resp.status_code == 200
     body = json.loads(resp.body.decode())
-    # The `cli:` row is listed too since #216, and carries no `run_started_at`: the live-turn
-    # registry is the websocket channel's own, and another channel's chat id is not a key in it.
-    cli_row = next(row for row in body["sessions"] if row["key"] == "cli:chat-2")
-    assert "run_started_at" not in cli_row
-    body["sessions"] = [row for row in body["sessions"] if row["key"] != "cli:chat-2"]
     workspace_scope = body["sessions"][0].pop("workspace_scope")
     assert workspace_scope["project_path"] == str(channel.gateway.media.workspace_path)
     assert workspace_scope["access_mode"] in {"restricted", "full"}
