@@ -3,6 +3,7 @@
 # pyright: reportConstantRedefinition=false, reportMissingTypeStubs=false, reportPrivateUsage=false, reportUnusedFunction=false, reportUnusedImport=false
 
 import asyncio
+import contextlib
 import json
 import os
 import sys
@@ -346,7 +347,7 @@ def serve(
         console.print("[red]aiohttp is required. Install with: nanoinfra plugins enable api[/red]")
         raise typer.Exit(1)
 
-    from nanoinfra.api.server import create_app
+    from nanoinfra.api.server import create_app, drain_outbound
     from nanoinfra.bus.queue import MessageBus
     from nanoinfra.providers.image_generation import image_gen_provider_configs
     from nanoinfra.session.manager import SessionManager
@@ -397,10 +398,20 @@ def serve(
         api_key=api_key,
     )
 
+    drain: dict[str, Any] = {}
+
     async def on_startup(_app: Any) -> None:
         await agent_loop._connect_mcp()
+        # Nothing else here consumes the outbound bus, and `publish_outbound` blocks on a full
+        # queue: without this a turn stalls after a thousand events and its request hangs.
+        drain["task"] = asyncio.create_task(drain_outbound(bus))
 
     async def on_cleanup(_app: Any) -> None:
+        task = drain.pop("task", None)
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
         await agent_loop.close_mcp()
 
     api_app.on_startup.append(on_startup)

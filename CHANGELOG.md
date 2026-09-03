@@ -11,6 +11,15 @@ not here.
 
 ## [Unreleased]
 
+## [1.7.4] — 2026-09-03
+
+### Fixed
+
+- `nanoinfra serve` drains the agent's outbound event bus, so a turn that emits more than a
+  thousand progress or stream events finishes instead of stalling mid-flight and leaving its HTTP
+  request unanswered. `gateway` and `nanoinfra agent` already drained; the API server did not.
+  ([#211](https://github.com/nanoinfraorg/nanoinfra/issues/211))
+
 ## [1.7.3] — 2026-09-02
 
 ### Fixed
@@ -417,7 +426,8 @@ with upstream imports. That history lives in the
 [release archive](https://docs.nanoinfra.org/release-archive) and on the
 [releases page](https://github.com/nanoinfraorg/nanoinfra/releases).
 
-[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.3...HEAD
+[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.4...HEAD
+[1.7.4]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.3...v1.7.4
 [1.7.3]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.0...v1.7.1

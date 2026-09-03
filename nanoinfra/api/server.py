@@ -43,6 +43,7 @@ __all__ = (
     "_save_base64_data_url",
     "api_request_state",
     "create_app",
+    "drain_outbound",
     "handle_chat_completions",
     "handle_responses",
 )
@@ -595,6 +596,34 @@ async def handle_models(request: web.Request) -> web.Response:
 async def handle_health(request: web.Request) -> web.Response:
     """GET /health"""
     return web.json_response({"status": "ok"})
+
+
+async def drain_outbound(bus: Any) -> None:
+    """Consume and discard the agent's outbound events for the lifetime of the API server.
+
+    `bus.outbound` is bounded at 1000 and `publish_outbound` *awaits* a full queue -- safe, says
+    its docstring, "because the consumer is the channel manager, a different task". Under `serve`
+    there is no channel manager: `gateway` drains through `ChannelManager` and `nanoinfra agent`
+    runs its own consumer, and this entry point did neither. So a turn that emitted more than a
+    thousand progress, stream or trace events stopped mid-flight and its HTTP request hung until
+    the timeout. Short answers never reached the bound, which is why it stayed hidden.
+
+    Discarding is the right handling rather than a shortcut: this route's answer comes from
+    `process_direct`'s return value and its `on_stream` callback, so the bus copy is already
+    delivered. And an event addressed to another channel could not be delivered anyway -- `serve`
+    starts no channels, which is what the documented "the `message` tool does not deliver from an
+    API session" already says.
+    """
+    discarded = 0
+    try:
+        while True:
+            await bus.consume_outbound()
+            discarded += 1
+            if discarded % 1000 == 0:
+                logger.debug("API server discarded {} outbound events", discarded)
+    except asyncio.CancelledError:
+        logger.debug("API server outbound drain stopped after {} events", discarded)
+        raise
 
 
 # ---------------------------------------------------------------------------
