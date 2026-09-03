@@ -470,8 +470,8 @@ async def handle_chat_completions(request: web.Request) -> web.Response | web.St
     )
 
     logger.info(
-        "API request session_key={} media={} text={} stream={}",
-        session_key, len(media_paths), text[:80], stream,
+        "api /v1/chat/completions session={} media={} chars={} stream={}",
+        session_key, len(media_paths), len(text), stream,
     )
     # -- streaming path --
     if stream:
@@ -662,6 +662,60 @@ def create_app(
         )
 
     @web.middleware
+    async def access_log_middleware(
+        request: web.Request,
+        handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
+    ) -> web.StreamResponse:
+        """One line per request (#215).
+
+        The hang that became 1.7.4 was diagnosed with a packet capture and a stand-in server on
+        loopback, because this log held nothing: the handler's own line sits after parsing, so a
+        400 never reached it, and the level `serve` runs at did not emit it anyway.
+
+        A middleware rather than a line per handler, because the requests worth seeing most are the
+        ones refused before a handler runs.
+
+        Never the body and never the `Authorization` header: a request carries the conversation, so
+        a log holding it would be a second copy of the transcript somewhere nobody expects one. The
+        session id is a name the caller chose and is safe; what was said is not.
+        """
+        started = time.monotonic()
+        try:
+            response = await handler(request)
+        except web.HTTPException as exc:
+            logger.info(
+                "api {} {} -> {} in {}ms",
+                request.method, request.path, exc.status,
+                int((time.monotonic() - started) * 1000),
+            )
+            raise
+        except Exception:
+            logger.exception(
+                "api {} {} -> unhandled in {}ms",
+                request.method, request.path, int((time.monotonic() - started) * 1000),
+            )
+            raise
+        detail = ""
+        if response.status >= 400:
+            # The refusal reason, which is the single most useful line here and was the invisible
+            # one. Read from the body we just built rather than threaded back from the handler.
+            body = getattr(response, "body", None)
+            if isinstance(body, bytes) and len(body) <= 2048:
+                try:
+                    payload = cast(dict[str, Any], _json.loads(body))
+                    message = cast(dict[str, Any], payload.get("error") or {}).get("message")
+                    if isinstance(message, str):
+                        detail = f" — {message[:160]}"
+                except Exception:
+                    detail = ""
+        logger.info(
+            "api {} {} -> {} in {}ms{}",
+            request.method, request.path, response.status,
+            int((time.monotonic() - started) * 1000), detail,
+        )
+        return response
+
+    @web.middleware
     async def auth_middleware(
         request: web.Request,
         handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
@@ -678,6 +732,8 @@ def create_app(
             return _error_json(401, "Invalid API key")
         return await handler(request)
 
+    # Outermost first: the access log has to see a request the auth layer refuses.
+    app.middlewares.append(access_log_middleware)
     app.middlewares.append(auth_middleware)
 
     app.router.add_post("/v1/chat/completions", handle_chat_completions)

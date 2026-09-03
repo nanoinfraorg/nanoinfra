@@ -432,9 +432,12 @@ async def handle_responses(request: web.Request) -> web.Response | web.StreamRes
     if store:
         response_sessions.remember(response_id, session_key)
 
+    # The session and the shape, not the text: the access log already carries method, path,
+    # status and duration, and what the user said belongs in the transcript rather than here
+    # (#215).
     logger.info(
-        "Responses API request session_key={} media={} text={} stream={}",
-        session_key, len(media_paths), text[:80], stream,
+        "api /v1/responses session={} media={} chars={} stream={}",
+        session_key, len(media_paths), len(text), stream,
     )
 
     def _shape(status: str, out: list[dict[str, Any]] | None, usage: Any, err: Any = None) -> Any:

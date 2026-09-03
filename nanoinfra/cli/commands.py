@@ -352,7 +352,9 @@ def serve(
     from nanoinfra.providers.image_generation import image_gen_provider_configs
     from nanoinfra.session.manager import SessionManager
 
-    _set_nanoinfra_logs(verbose)
+    # The API's own lines stay audible without `--verbose`: an access log and a traceback are the
+    # two things a server must never swallow (#215).
+    _set_nanoinfra_logs(verbose, always_on=("nanoinfra.api",))
 
     runtime_config = _load_runtime_config(config, workspace)
     api_cfg = runtime_config.api

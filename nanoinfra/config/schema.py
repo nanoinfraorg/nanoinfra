@@ -356,6 +356,15 @@ class SkillsMarketplaceConfig(Base):
 class ApiConfig(Base):
     """OpenAI-compatible API server configuration."""
 
+    # Whether the *gateway* also serves `/v1` on `port` (#214). Default false, so no deployment
+    # gains an open port by upgrading; `nanoinfra serve` is unaffected and stays the entry point
+    # for an API-only deployment.
+    #
+    # Worth the flag rather than always-on: serving it from the gateway is one process and one
+    # agent loop instead of two, which is the point -- every piece of runtime the gateway
+    # assembles is a piece a second process has to remember to assemble too, and the missing one
+    # last time was the outbound drain.
+    enabled: bool = False
     host: str = "127.0.0.1"  # Safer default: local-only bind.
     port: int = 8900
     timeout: float = 120.0  # Per-request timeout in seconds.

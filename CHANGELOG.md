@@ -11,6 +11,19 @@ not here.
 
 ## [Unreleased]
 
+## [1.8.0] — 2026-09-03
+
+### Added
+
+- `api.enabled` lets the gateway serve `/v1` on `api.port` itself: one process and one agent loop
+  instead of two, sharing the MCP and connector hosts it already booted. Default `false`, so
+  upgrading opens no port. `nanoinfra serve` is unchanged.
+  ([#214](https://github.com/nanoinfraorg/nanoinfra/issues/214))
+- The API server logs one line per request — method, path, status, duration, and why a request was
+  refused — and its own logger stays audible without `--verbose`. Never the body or the
+  `Authorization` header.
+  ([#215](https://github.com/nanoinfraorg/nanoinfra/issues/215))
+
 ## [1.7.4] — 2026-09-03
 
 ### Fixed
@@ -426,7 +439,8 @@ with upstream imports. That history lives in the
 [release archive](https://docs.nanoinfra.org/release-archive) and on the
 [releases page](https://github.com/nanoinfraorg/nanoinfra/releases).
 
-[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.4...HEAD
+[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.4...v1.8.0
 [1.7.4]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.3...v1.7.4
 [1.7.3]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/nanoinfraorg/nanoinfra/compare/v1.7.1...v1.7.2

@@ -17,7 +17,7 @@ from nanoinfra import __logo__, __version__
 from nanoinfra.agent.hooks import create_file_edit_activity_hook
 from nanoinfra.agent.loop import AgentLoop
 from nanoinfra.cli import terminal as cli_terminal
-from nanoinfra.cli.runtime_config import _migrate_cron_store
+from nanoinfra.cli.runtime_config import _migrate_cron_store, _model_display
 from nanoinfra.cli.webui_support import (
     _gateway_health_bind_note,
     _gateway_health_url,
@@ -1326,6 +1326,50 @@ def _run_gateway(
     else:
         console.print("[yellow]✗[/yellow] Heartbeat: disabled")
 
+    async def _openai_api_server(api_cfg: Any) -> None:
+        """Serve `/v1` from this process, on the gateway's own loop (#214).
+
+        The same app `nanoinfra serve` builds, mounted as one more task here. What it does *not*
+        need is the machinery that process had to reassemble: this loop already drains
+        `bus.outbound` through the channel manager, already holds one agent loop, and already
+        booted one MCP host and one connector host. The sidecar it replaces cost ~285 MiB and three
+        duplicate host processes for the same workspace -- and it was the missing drain there that
+        hung a real client in production.
+        """
+        try:
+            from aiohttp import web as _web
+        except ImportError:
+            console.print(
+                "[yellow]api.enabled is set but aiohttp is missing. "
+                "Install it with: nanoinfra plugins enable api[/yellow]"
+            )
+            # Carried on rather than refused: a gateway that will not boot because an optional
+            # extra is absent takes the channels and the schedules down with it.
+            return
+
+        from nanoinfra.api.server import create_app
+
+        model_name, _preset = _model_display(config)
+        app = create_app(
+            agent,
+            model_name=model_name,
+            request_timeout=api_cfg.timeout,
+            api_key=api_cfg.api_key.strip() if api_cfg.api_key else "",
+        )
+        runner = _web.AppRunner(app)
+        await runner.setup()
+        site = _web.TCPSite(runner, api_cfg.host, api_cfg.port)
+        await site.start()
+        console.print(
+            f"[green]✓[/green] OpenAI-compatible API: "
+            f"http://{api_cfg.host}:{api_cfg.port}/v1"
+            + ("" if api_cfg.api_key else " [yellow](no api_key: unauthenticated)[/yellow]")
+        )
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await runner.cleanup()
+
     async def _health_server(host: str, health_port: int) -> None:
         """Lightweight HTTP health endpoint on the gateway port."""
         import json as _json
@@ -1483,6 +1527,11 @@ def _run_gateway(
                 tasks.append(asyncio.create_task(
                     _health_server(config.gateway.host, port),
                     name="nanoinfra-health-server",
+                ))
+            if config.api.enabled:
+                tasks.append(asyncio.create_task(
+                    _openai_api_server(config.api),
+                    name="nanoinfra-openai-api",
                 ))
             if open_browser_url:
                 tasks.append(asyncio.create_task(
