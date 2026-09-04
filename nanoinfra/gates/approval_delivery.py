@@ -283,6 +283,17 @@ class ApprovalDeliveryWatcher:
             key = (request_id, target.channel, target.chat_id)
             if key in self._delivered:
                 continue
+            # The WebUI inbox is a **pull** surface, so there is nothing to deliver to it and
+            # its absence from the enabled *chat* channels is not a gap.
+            #
+            # This warned instead, on every poll, that "an approver sits on webui, and that
+            # channel is not enabled. A suspended action reaches nobody there." The claim was
+            # false -- the inbox had the request and an operator approved it -- and the file
+            # already knew: `_startup_line` excludes this same path and says a suspended action
+            # then "reaches an operator through the WebUI inbox only". One function held the
+            # rule and the other did not.
+            if target.channel == _WEBUI_PATH:
+                continue
             if not self._is_channel_enabled(target.channel):
                 self._warn_absent_channel(target.channel)
                 continue

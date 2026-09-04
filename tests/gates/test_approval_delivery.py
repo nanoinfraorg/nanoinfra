@@ -75,7 +75,12 @@ class _Deployment:
         self.socket_path = socket_path
         self.store = store
         self.sent: list[OutboundMessage] = []
-        self.enabled: set[str] = {"telegram", "websocket", "webui"}
+        # Chat channels only, which is the deployment this watcher actually runs in. `webui`
+        # was in here and it is **not** a channel: it is the pull surface the #27 inbox answers
+        # on, and `_is_channel_enabled` says so on every real install. Having it here described a
+        # world the product does not have, and it is why a false warning shipped -- the delivery
+        # loop treated the WebUI path as a chat channel that happened to be enabled.
+        self.enabled: set[str] = {"telegram", "websocket"}
 
     async def publish(self, msg: OutboundMessage) -> None:
         self.sent.append(msg)
@@ -234,14 +239,19 @@ def test_the_delivery_fences_the_payload(deployment: Any) -> None:
 # -- the poll ----------------------------------------------------------------------------
 
 
-async def test_one_poll_delivers_one_request_to_each_target(deployment: Any) -> None:
-    """The acceptance path: a WebSocket action reaches an approver on Telegram."""
+async def test_one_poll_delivers_one_request_to_each_chat_target(deployment: Any) -> None:
+    """The acceptance path: a WebSocket action reaches an approver on Telegram.
+
+    **One, not two.** The roster names a Telegram approver and a WebUI one, and only the first is
+    a push: the #27 inbox is a pull surface, so there is nothing to deliver to it and a count that
+    included it was counting a message nobody sent.
+    """
     running = deployment()
     approval = running.suspend()
 
     delivered = await running.watcher().deliver_pending()
 
-    assert delivered == 2
+    assert delivered == 1
     telegram = [msg for msg in running.sent if msg.channel == "telegram"]
     assert len(telegram) == 1
     assert telegram[0].chat_id == _APPROVER
@@ -257,20 +267,25 @@ async def test_a_second_poll_does_not_repeat_a_request(deployment: Any) -> None:
     first = await watcher.deliver_pending()
     second = await watcher.deliver_pending()
 
-    assert (first, second) == (2, 0)
-    assert len(running.sent) == 2
+    assert (first, second) == (1, 0)
+    assert len(running.sent) == 1
 
 
 async def test_a_request_that_arrived_on_telegram_reaches_no_telegram_approver(
     deployment: Any,
 ) -> None:
-    """Path independence holds by construction, and it holds on the delivery half too."""
+    """Path independence holds by construction, and it holds on the delivery half too.
+
+    Nothing is sent at all here, and that is the whole point: the request arrived on Telegram, so
+    the Telegram approver may not answer it, and the only other approver sits on the WebUI inbox
+    -- which is read rather than sent to. The operator still finds it there.
+    """
     running = deployment()
     running.suspend(origin_path="telegram")
 
     await running.watcher().deliver_pending()
 
-    assert [msg.channel for msg in running.sent] == ["webui"]
+    assert running.sent == []
 
 
 async def test_a_channel_that_is_not_enabled_receives_nothing(deployment: Any) -> None:
@@ -333,8 +348,10 @@ async def test_a_send_failure_leaves_the_request_for_the_next_poll(deployment: A
 
     assert await watcher.deliver_pending() == 0
     refuse = False
-    assert await watcher.deliver_pending() == 2
-    assert len(failures) == 2
+    # One: the WebUI approver is a pull surface and was never a send that could fail.
+    assert await watcher.deliver_pending() == 1
+    # One refusal, not two: only the Telegram send was ever attempted.
+    assert failures == ["telegram"]
 
 
 async def test_the_run_loop_polls_until_it_is_cancelled(deployment: Any) -> None:
@@ -353,7 +370,7 @@ async def test_the_run_loop_polls_until_it_is_cancelled(deployment: Any) -> None
         with pytest.raises(asyncio.CancelledError):
             await task
 
-    assert [msg.channel for msg in running.sent] == ["telegram", "webui"]
+    assert [msg.channel for msg in running.sent] == ["telegram"]
 
 
 def test_the_poll_interval_is_a_few_seconds() -> None:

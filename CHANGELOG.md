@@ -11,6 +11,12 @@ not here.
 
 ## [Unreleased]
 
+### Fixed
+
+- The WebUI inbox is no longer warned about as an unreachable chat channel. A deployment whose
+  approver sits there was told on every poll that a suspended action reaches nobody, while the
+  inbox had the request. ([#267](https://github.com/nanoinfraorg/nanoinfra/issues/267))
+
 ## [2.0.2] — 2026-09-04
 
 ### Fixed
