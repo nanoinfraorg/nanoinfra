@@ -1,0 +1,89 @@
+# The gate a publish passes before it publishes.
+#
+# `release.yml` and `publish-image.yml` trigger on a tag push; `ci.yml` triggers on a branch push.
+# Nothing connected them, so pushing a commit and its tag together started all three at once --
+# and the publishing jobs are the *fast* ones. v2.0.0 reached PyPI and GHCR while the Test Suite
+# was still running on the same commit, and that suite then failed on the minimum supported
+# Python with an import-time error, so the wheel could not be imported there at all
+# (nanoinfraorg/nanoinfra#270).
+#
+# The convention that avoids it -- push the commit, wait for green, then push the tag -- works
+# only while somebody remembers. This makes it the platform's job.
+#
+# It costs no wall clock that should not have been spent: the publish jobs are quicker than the
+# tests, so the wait here is the wait that was supposed to happen anyway.
+name: Require green tests
+
+on:
+  workflow_call:
+    inputs:
+      sha:
+        description: "The commit whose Test Suite must be green."
+        required: true
+        type: string
+      timeout_minutes:
+        description: "How long to wait for a run to appear and finish."
+        required: false
+        type: number
+        default: 45
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  require:
+    name: Test Suite is green for this commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Wait for the Test Suite on ${{ inputs.sha }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ inputs.sha }}
+          TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + TIMEOUT_MINUTES * 60 ))
+
+          # The newest Test Suite run for this exact commit. `sort_by(.created_at) | last` matters:
+          # a re-run adds a row rather than replacing one, and the answer is the latest attempt.
+          query() {
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=100" \
+              --jq '[.workflow_runs[] | select(.name == "Test Suite")]
+                    | sort_by(.created_at) | last
+                    | "\(.status)|\(.conclusion // "")|\(.html_url)"' 2>/dev/null || true
+          }
+
+          while :; do
+            row="$(query)"
+            status="${row%%|*}"
+            rest="${row#*|}"
+            conclusion="${rest%%|*}"
+            url="${rest#*|}"
+
+            if [ "$status" = "completed" ]; then
+              if [ "$conclusion" = "success" ]; then
+                echo "Test Suite is green for ${SHA}: ${url}"
+                exit 0
+              fi
+              # A failure, a cancellation or a skip. None of them is permission to publish, and
+              # the reason is one click away rather than described here.
+              echo "::error::The Test Suite for ${SHA} concluded '${conclusion}'. Nothing was published. ${url}"
+              exit 1
+            fi
+
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              if [ -z "${row}" ] || [ "${row}" = "null|" ] || [ "${status}" = "null" ]; then
+                # No run exists for this commit at all. The usual cause is a tag on a commit that
+                # was never pushed to a branch, so `ci.yml` never fired for it.
+                echo "::error::No Test Suite run exists for ${SHA} after ${TIMEOUT_MINUTES} minutes. Push the commit to main first, or re-run this workflow from the Actions tab, which skips this gate deliberately."
+              else
+                echo "::error::The Test Suite for ${SHA} is still '${status}' after ${TIMEOUT_MINUTES} minutes. ${url}"
+              fi
+              exit 1
+            fi
+
+            echo "Test Suite for ${SHA}: ${status:-not started yet}. Waiting."
+            sleep 20
+          done

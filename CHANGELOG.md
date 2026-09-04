@@ -11,6 +11,18 @@ not here.
 
 ## [Unreleased]
 
+### Fixed
+
+- A tag no longer publishes to PyPI or GHCR before the Test Suite has finished on that commit.
+  v2.0.0 shipped a wheel that could not be imported on the minimum supported Python because the
+  publish jobs are quicker than the tests and nothing connected them.
+  ([#270](https://github.com/nanoinfraorg/nanoinfra/issues/270))
+
+### Changed
+
+- CI builds the image with Buildx and the Actions cache, the way the publish workflow already
+  did. ([#271](https://github.com/nanoinfraorg/nanoinfra/issues/271))
+
 ## [2.0.4] — 2026-09-04
 
 ### Fixed

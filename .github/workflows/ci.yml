@@ -216,8 +216,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Buildx with the Actions cache, which `publish-image.yml` already uses -- so this adds no
+      # dependency, only the caching that job had and this one did not. A plain `docker build`
+      # rebuilt every layer on every push, including the apt and uv steps, and this job swung
+      # between 1.6 and 6.1 minutes doing it (#271).
+      #
+      # It matters more than its own minutes: once the test job is parallel, a six-minute image
+      # build is what the release waits for.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build image with default channel dependencies
-        run: docker build -t nanoinfra:test .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # Into the local daemon, because the steps below `docker run` it.
+          load: true
+          tags: nanoinfra:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Verify default WhatsApp dependencies
         run: docker run --rm --entrypoint python nanoinfra:test -c "import neonize, segno"

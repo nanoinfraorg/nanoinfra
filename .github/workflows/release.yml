@@ -14,8 +14,17 @@ permissions:
   contents: read
 
 jobs:
+  require-tests:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/require-green-tests.yml
+    with:
+      sha: ${{ github.sha }}
+
   build-and-publish:
     name: Build and publish to PyPI
+    needs: require-tests
+    # `always()` so a manual dispatch, where the gate is skipped rather than run, still publishes.
+    if: always() && (needs.require-tests.result == 'success' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     environment: pypi
     steps:

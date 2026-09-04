@@ -29,8 +29,17 @@ permissions:
   packages: write
 
 jobs:
+  require-tests:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/require-green-tests.yml
+    with:
+      sha: ${{ github.sha }}
+
   publish:
     name: Build and push to GHCR
+    needs: require-tests
+    # `always()` so a manual dispatch, where the gate is skipped rather than run, still publishes.
+    if: always() && (needs.require-tests.result == 'success' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
