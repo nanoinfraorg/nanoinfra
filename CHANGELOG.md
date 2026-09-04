@@ -11,6 +11,20 @@ not here.
 
 ## [Unreleased]
 
+## [2.0.2] — 2026-09-04
+
+### Fixed
+
+- The `Agents` destination is in the sidebar whether or not the deployment names an agent. It was
+  gated on the roster, so on a fresh install nothing led to the page that configures the agent
+  answering every turn. ([#266](https://github.com/nanoinfraorg/nanoinfra/issues/266))
+
+### Changed
+
+- `Abilities` is no longer gated on the roster either, and it opens expanded — one sidebar shape
+  whatever the deployment holds, with Apps and Skills still one click away.
+  ([#253](https://github.com/nanoinfraorg/nanoinfra/issues/253))
+
 ## [2.0.1] — 2026-09-04
 
 ### Fixed
