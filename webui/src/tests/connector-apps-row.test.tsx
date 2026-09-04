@@ -102,7 +102,9 @@ function renderRow(info: ConnectorInfo, onTest = vi.fn()) {
 }
 
 describe("the attach control", () => {
-  it("offers to load on mention while the connector loads every turn", () => {
+  it("shows the mode in force and cycles to the next when clicked", () => {
+    // Three states, so the button names the one in force and a click advances it:
+    // always -> mention -> search -> always. The label is the current mode, not the target.
     const onAttachChange = vi.fn();
     render(
       <ConnectorAppsCatalogRow
@@ -114,12 +116,12 @@ describe("the attach control", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Load on mention" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load every turn" }));
 
     expect(onAttachChange).toHaveBeenCalledWith("google-calendar", "mention");
   });
 
-  it("offers the way back when it already waits to be named", () => {
+  it("advances from mention to search", () => {
     const onAttachChange = vi.fn();
     render(
       <ConnectorAppsCatalogRow
@@ -131,7 +133,24 @@ describe("the attach control", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Load every turn" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load on mention" }));
+
+    expect(onAttachChange).toHaveBeenCalledWith("google-calendar", "search");
+  });
+
+  it("wraps from search back to loading every turn", () => {
+    const onAttachChange = vi.fn();
+    render(
+      <ConnectorAppsCatalogRow
+        connector={connector({ attach: "search" })}
+        busy={false}
+        testResult={null}
+        onTest={vi.fn()}
+        onAttachChange={onAttachChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Load on search" }));
 
     expect(onAttachChange).toHaveBeenCalledWith("google-calendar", "always");
   });

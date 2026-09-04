@@ -27,6 +27,10 @@ concurrency:
 permissions:
   contents: read
   packages: write
+  # The `require-tests` reusable queries this repo's workflow runs, so it declares `actions: read`.
+  # A called workflow's permissions must be a subset of the caller's, so the caller has to grant it
+  # too — without this line the whole run is rejected at startup (nanoinfraorg/nanoinfra#270).
+  actions: read
 
 jobs:
   require-tests:

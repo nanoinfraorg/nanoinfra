@@ -19,7 +19,6 @@ not here.
   prompt and the model loads them itself by calling the new `tool_search` tool, with one shared
   pointer in place of a per-item advertised line. `mention` stays the user-driven deferral; both
   respect the acting agent's ceiling, which neither can widen past.
-  ([proposals/tool-search.md](proposals/tool-search.md))
 
 ### Fixed
 

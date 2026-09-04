@@ -188,32 +188,32 @@ export function ConnectorAppsCatalogRow({
               active, one word away, and its operations in no prompt that did not ask. Three states,
               so the button cycles always -> mention -> search and shows the one in force: `mention`
               waits for the user to say @connector, `search` for the model to call tool_search. */}
-          {onAttachChange && active ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={() =>
-                onAttachChange(
-                  connector.name,
-                  connector.attach === "always"
-                    ? "mention"
-                    : connector.attach === "mention"
-                      ? "search"
-                      : "always",
-                )
-              }
-              className="h-8 rounded-full px-3 text-[12px] font-semibold"
-            >
-              <AtSign className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-              {connector.attach === "mention"
-                ? tx("settings.connectors.attachOnMention", "Load on mention")
-                : connector.attach === "search"
-                  ? tx("settings.connectors.attachOnSearch", "Load on search")
-                  : tx("settings.connectors.attachAlways", "Load every turn")}
-            </Button>
-          ) : null}
+          {onAttachChange && active
+            ? (() => {
+                // Absent reads as `always`, which is what every connector did before the field
+                // existed. The button names the mode in force and a click advances the cycle.
+                const mode = connector.attach ?? "always";
+                const next =
+                  mode === "always" ? "mention" : mode === "mention" ? "search" : "always";
+                return (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => onAttachChange(connector.name, next)}
+                    className="h-8 rounded-full px-3 text-[12px] font-semibold"
+                  >
+                    <AtSign className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                    {mode === "mention"
+                      ? tx("settings.connectors.attachOnMention", "Load on mention")
+                      : mode === "search"
+                        ? tx("settings.connectors.attachOnSearch", "Load on search")
+                        : tx("settings.connectors.attachAlways", "Load every turn")}
+                  </Button>
+                );
+              })()
+            : null}
           {connector.testable ? (
             <Button
               type="button"
