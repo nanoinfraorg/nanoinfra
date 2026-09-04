@@ -259,15 +259,21 @@ def set_connector_attach(
     registration, so the change lands on the next start -- the payload says so rather than letting
     a row look applied while every prompt still carries the schemas.
     """
-    if attach not in {"always", "mention"}:
+    if attach not in {"always", "mention", "search"}:
         raise ValueError(f"unknown attach mode {attach!r}")
     config = load_config()
     connector_cfg = config.connectors.connectors.get(name)
     if connector_cfg is None:
         raise KeyError(name)
     # Narrowed for the type checker by the guard above, which is also the validation: an unknown
-    # mode must not reach config, where it would silently read as `always`.
-    connector_cfg.attach = "mention" if attach == "mention" else "always"
+    # mode must not reach config, where it would silently read as `always`. `search` is the
+    # model-driven deferral (proposals/tool-search.md); `mention` the user-driven one.
+    if attach == "mention":
+        connector_cfg.attach = "mention"
+    elif attach == "search":
+        connector_cfg.attach = "search"
+    else:
+        connector_cfg.attach = "always"
     save_config(config)
     payload = webui_connectors_payload(workspace_path)
     payload["requires_restart"] = True

@@ -608,7 +608,10 @@ class MCPServerConfig(Base):
     #
     # Distinct from `enabled: false`, which does not connect the server at all: a `mention` server
     # is connected and one word away.
-    attach: Literal["always", "mention"] = "always"
+    # `search` (proposals/tool-search.md) hides the schemas like `mention`, but the model loads them
+    # itself by calling `tool_search`, and a single shared pointer replaces the per-server line --
+    # the flat cost that scales when many servers are deferred. `mention` stays user-driven.
+    attach: Literal["always", "mention", "search"] = "always"
     type: Literal["stdio", "sse", "streamableHttp"] | None = None  # auto-detected if omitted
     command: str = ""  # Stdio: command to run (e.g. "npx")
     args: list[str] = Field(default_factory=list)  # Stdio: command arguments
@@ -701,7 +704,12 @@ class ToolGroupConfig(Base):
     # count and how to attach -- and the schemas only for a turn that names it. The line is the
     # reason this is not simply "send nothing": a model that cannot see a capability exists cannot
     # say "I can do that if you attach it".
-    attach: Literal["always", "mention"] = "always"
+    # `search` (#210 follow-up, proposals/tool-search.md) is the third mode: the schemas are hidden
+    # like `mention`, but the model widens the turn itself by calling `tool_search`, and a single
+    # pointer replaces the per-group advertised line -- the flat cost that lets a deployment defer
+    # far more than two clusters. `mention` stays user-driven, `search` is model-driven; both
+    # respect the acting agent's ceiling, which neither can widen past.
+    attach: Literal["always", "mention", "search"] = "always"
     #: What the group is for, in the advertised line. Defaults to nanoinfra's own wording.
     description: str = ""
 

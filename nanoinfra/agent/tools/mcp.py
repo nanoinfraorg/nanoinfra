@@ -495,8 +495,10 @@ class _MCPWrapperBase(Tool):
         # list this agent declared is absent, because the point of the list is what it costs.
         if not within_agent_mcp_ceiling(name):
             return False
-        if _SERVER_ATTACH_MODE.get(name, "always") != "mention":
+        if _SERVER_ATTACH_MODE.get(name, "always") not in _DEFERRED_SERVER_MODES:
             return True
+        # `mention` (the user names `@server`) and `search` (the model calls `tool_search`) both
+        # land in `attached_servers` -- one gate, two ways of naming into it.
         return name in attached_servers()
 
     def _set_mcp_connection(self, session: "MCPSession", server_name: str) -> None:
@@ -995,6 +997,15 @@ class MCPPromptWrapper(_MCPWrapperBase):
 #: there.
 _SERVER_ATTACH_MODE: dict[str, str] = {}
 
+#: The attach modes that hide a server's schemas until the turn asks for them: `mention` waits for
+#: the user, `search` for the model (proposals/tool-search.md). Same gate, different asker.
+_DEFERRED_SERVER_MODES = frozenset({"mention", "search"})
+
+#: turn id -> the `search`-mode servers the model attached this turn via `tool_search`. Keyed by
+#: `turn_id` for the reason the tool-groups store is: a frozen context the tool cannot mutate, a
+#: turn that crosses the bus, and no attach may outlive its turn.
+_SEARCH_ATTACHED_SERVERS: dict[str, set[str]] = {}
+
 #: The metadata key the WebSocket composer already writes when a message says `@server`.
 ATTACHED_PRESETS_META = "mcp_presets"
 
@@ -1007,8 +1018,45 @@ def set_server_attach_modes(servers: "Mapping[str, MCPServerConfig]") -> None:
 
 
 def mention_only_servers() -> list[str]:
-    """The connected servers whose schemas wait to be asked for, in a stable order."""
+    """The connected servers a *user* widens by naming `@server`, in a stable order."""
     return sorted(name for name, mode in _SERVER_ATTACH_MODE.items() if mode == "mention")
+
+
+def search_mode_servers() -> list[str]:
+    """The connected servers the *model* widens by calling `tool_search`, in a stable order."""
+    return sorted(name for name, mode in _SERVER_ATTACH_MODE.items() if mode == "search")
+
+
+def attach_server_for_turn(turn_id: str | None, name: str) -> None:
+    """Record that the model attached a `search`-mode server this turn."""
+    if turn_id:
+        _SEARCH_ATTACHED_SERVERS.setdefault(turn_id, set()).add(name)
+
+
+def reset_search_attached_servers(turn_id: str | None) -> None:
+    """Drop this turn's model-driven server attachments. Called by the loop when the turn ends."""
+    if turn_id:
+        _SEARCH_ATTACHED_SERVERS.pop(turn_id, None)
+
+
+def search_servers(query: str) -> list[dict[str, object]]:
+    """The `search`-mode servers matching a topic, ceiling-filtered.
+
+    Matched on the server name, which for an MCP server *is* the service (`github`, `slack`), so a
+    query naming the service finds it. The ceiling is asked here, not just in `available`, so a
+    server outside the acting agent's contract is never a search result. Two-letter query words are
+    dropped as noise; an empty query lists everything searchable.
+    """
+    raw = (query or "").lower().split()
+    words = [w for w in raw if len(w) >= 3]
+    out: list[dict[str, object]] = []
+    for name in search_mode_servers():
+        if not within_agent_mcp_ceiling(name):
+            continue
+        if raw and not any(w in name.lower() for w in words):
+            continue
+        out.append({"name": name})
+    return out
 
 
 def within_agent_mcp_ceiling(server_name: str) -> bool:
@@ -1045,18 +1093,21 @@ def attached_servers() -> frozenset[str]:
     ctx = current_request_context()
     if ctx is None:
         return frozenset()
-    raw = cast(object, (ctx.metadata or {}).get(ATTACHED_PRESETS_META))
-    if not isinstance(raw, (list, tuple)):
-        return frozenset()
     names: set[str] = set()
-    for entry in cast("list[object] | tuple[object, ...]", raw):
-        # The composer sends objects (`{"name": ...}`); an automation declares plain strings.
-        if isinstance(entry, Mapping):
-            value = cast(Mapping[str, object], entry).get("name")
-            if isinstance(value, str) and value.strip():
-                names.add(value.strip())
-        elif isinstance(entry, str) and entry.strip():
-            names.add(entry.strip())
+    raw = cast(object, (ctx.metadata or {}).get(ATTACHED_PRESETS_META))
+    if isinstance(raw, (list, tuple)):
+        for entry in cast("list[object] | tuple[object, ...]", raw):
+            # The composer sends objects (`{"name": ...}`); an automation declares plain strings.
+            if isinstance(entry, Mapping):
+                value = cast(Mapping[str, object], entry).get("name")
+                if isinstance(value, str) and value.strip():
+                    names.add(value.strip())
+            elif isinstance(entry, str) and entry.strip():
+                names.add(entry.strip())
+    # The model's own attachments this turn, via `tool_search`, unioned so `available` treats a
+    # `search` server the model found exactly like a `mention` server the user named.
+    if ctx.turn_id:
+        names |= _SEARCH_ATTACHED_SERVERS.get(ctx.turn_id, set())
     return frozenset(names)
 
 

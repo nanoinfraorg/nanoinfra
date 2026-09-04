@@ -256,6 +256,7 @@ class ContextBuilder:
         mcp_advertisement: str = "",
         connector_advertisement: str = "",
         group_advertisement: str = "",
+        group_search_pointer: str = "",
         section_overrides: Mapping[str, str] | None = None,
         agent_addendum: str = "",
         agent_name: str = "",
@@ -390,6 +391,10 @@ class ContextBuilder:
         section("MCP servers advertised", mcp_advertisement)
         section("Connectors advertised", connector_advertisement)
         section("Tool groups advertised", group_advertisement)
+        # One pointer for every `search`-mode group at once (proposals/tool-search.md), where the
+        # advertised block above is one line per `mention` group. Same stable-block placement and
+        # the same prefix-cache reasoning: derived from config, identical every turn.
+        section("Tool groups searchable", group_search_pointer)
 
         # The agent's own instructions, appended after the platform's sections and never in place
         # of one. Inside the stable block rather than at the very end: it is per-agent but not
@@ -525,6 +530,7 @@ class ContextBuilder:
         mcp_advertisement: str = "",
         connector_advertisement: str = "",
         group_advertisement: str = "",
+        group_search_pointer: str = "",
         section_overrides: Mapping[str, str] | None = None,
         agent_addendum: str = "",
         agent_name: str = "",
@@ -562,6 +568,7 @@ class ContextBuilder:
                     mcp_advertisement=mcp_advertisement,
                     connector_advertisement=connector_advertisement,
                     group_advertisement=group_advertisement,
+                    group_search_pointer=group_search_pointer,
                     section_overrides=section_overrides,
                     agent_addendum=agent_addendum,
                     agent_name=agent_name,

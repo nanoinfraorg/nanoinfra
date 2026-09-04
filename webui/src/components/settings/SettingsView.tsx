@@ -1200,7 +1200,7 @@ export function SettingsView({
   );
 
   const handleConnectorAttachChange = useCallback(
-    async (name: string, attach: "always" | "mention") => {
+    async (name: string, attach: "always" | "mention" | "search") => {
       setConnectorAction(name);
       try {
         // The payload comes back from the write, so the row reads its new state from config
@@ -2273,7 +2273,7 @@ export function SettingsView({
   };
 
   const handleMcpPresetAction = async (
-    action: "enable" | "remove" | "test" | "pause" | "resume" | "attach_always" | "attach_on_mention",
+    action: "enable" | "remove" | "test" | "pause" | "resume" | "attach_always" | "attach_on_mention" | "attach_on_search",
     name: string,
     values: Record<string, string> = {},
   ) => {
@@ -8658,7 +8658,7 @@ function AppsCatalogSettings({
   connectorActionKey: string | null;
   connectorTestResults: Record<string, { ok: boolean; message: string }>;
   onConnectorTest: (name: string) => void;
-  onConnectorAttachChange: (name: string, attach: "always" | "mention") => void;
+  onConnectorAttachChange: (name: string, attach: "always" | "mention" | "search") => void;
   onConnectorReload: () => void;
   onConnectorConnect: (
     name: string,
@@ -8682,7 +8682,7 @@ function AppsCatalogSettings({
   onFilterChange: (value: AppsKindFilter) => void;
   onCliAction: (action: "install" | "update" | "uninstall" | "test", name: string) => void;
   onMcpAction: (
-    action: "enable" | "remove" | "test" | "pause" | "resume" | "attach_always" | "attach_on_mention",
+    action: "enable" | "remove" | "test" | "pause" | "resume" | "attach_always" | "attach_on_mention" | "attach_on_search",
     name: string,
     values?: Record<string, string>,
   ) => void;
@@ -9025,7 +9025,7 @@ export function McpAppsCatalogRow({
   showBrandLogos: boolean;
   onFieldChange: (presetName: string, fieldName: string, value: string) => void;
   onAction: (
-    action: "enable" | "remove" | "test" | "pause" | "resume" | "attach_always" | "attach_on_mention",
+    action: "enable" | "remove" | "test" | "pause" | "resume" | "attach_always" | "attach_on_mention" | "attach_on_search",
     name: string,
     values?: Record<string, string>,
   ) => void;
@@ -9182,22 +9182,43 @@ export function McpAppsCatalogRow({
                       {tx("settings.mcp.toolScope", "Tools")}
                     </DropdownMenuItem>
                   ) : null}
-                  {/* The middle setting between "every prompt" and "paused" (#204): connected, one
-                      word away, and its schemas in no prompt that did not ask. */}
-                  <DropdownMenuItem
-                    disabled={busy || preset.paused}
-                    onClick={() =>
-                      onAction(
-                        preset.attach === "mention" ? "attach_always" : "attach_on_mention",
-                        preset.name,
-                      )
-                    }
-                  >
-                    <AtSign className="mr-2 h-3.5 w-3.5" aria-hidden />
-                    {preset.attach === "mention"
-                      ? tx("settings.mcp.attachAlways", "Send tools every turn")
-                      : tx("settings.mcp.attachOnMention", "Send tools only when mentioned")}
-                  </DropdownMenuItem>
+                  {/* The settings between "every prompt" and "paused" (#204, proposals/tool-search.md):
+                      the server stays connected and one word away, and its schemas leave every prompt
+                      that did not ask. Each other mode is its own item, so a three-way choice reads as
+                      three items rather than a button that cycles. `mention` waits for the user to say
+                      @server; `search` waits for the model to call tool_search. */}
+                  {(
+                    [
+                      ["attach_always", tx("settings.mcp.attachAlways", "Send tools every turn")],
+                      [
+                        "attach_on_mention",
+                        tx("settings.mcp.attachOnMention", "Send tools only when mentioned"),
+                      ],
+                      [
+                        "attach_on_search",
+                        tx("settings.mcp.attachOnSearch", "Send tools only when searched"),
+                      ],
+                    ] as const
+                  )
+                    .filter(([action]) => {
+                      const current =
+                        preset.attach === "mention"
+                          ? "attach_on_mention"
+                          : preset.attach === "search"
+                            ? "attach_on_search"
+                            : "attach_always";
+                      return action !== current;
+                    })
+                    .map(([action, label]) => (
+                      <DropdownMenuItem
+                        key={action}
+                        disabled={busy || preset.paused}
+                        onClick={() => onAction(action, preset.name)}
+                      >
+                        <AtSign className="mr-2 h-3.5 w-3.5" aria-hidden />
+                        {label}
+                      </DropdownMenuItem>
+                    ))}
                   <DropdownMenuItem disabled={busy} onClick={() => onAction("remove", preset.name)}>
                     <Trash2 className="mr-2 h-3.5 w-3.5" aria-hidden />
                     {tx("settings.mcp.remove", "Remove")}

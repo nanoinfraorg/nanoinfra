@@ -42,6 +42,10 @@ if TYPE_CHECKING:
 #: and `connectors`: `@servers` must not attach an MCP server that happens to be called servers.
 ATTACHED_GROUPS_META = "tool_groups"
 
+#: The discovery tool's name. It can never be deferred -- a search tool a search must first find
+#: cannot be found -- so `is_attached` short-circuits it even if a config names it into a group.
+TOOL_SEARCH_TOOL_NAME = "tool_search"
+
 #: The groups nanoinfra defines, so config carries a mode rather than a list of tool names. Both
 #: were measured; the token figures are in the module docstring.
 BUILTIN_GROUPS: dict[str, tuple[str, tuple[str, ...]]] = {
@@ -89,6 +93,14 @@ _MEMBERSHIP: dict[str, set[str]] = {}
 #: Emptied by `set_tool_groups`, the only thing that can change it. Empty therefore means "not
 #: built yet": a real answer always holds the `BUILTIN_GROUPS` members, which are never none.
 _FULL_MEMBERSHIP: dict[str, frozenset[str]] = {}
+#: turn id -> the `search`-mode groups the model attached this turn via `tool_search`.
+#:
+#: Module state keyed by `turn_id` rather than a field on `RequestContext`, for the reason the
+#: commissioning collector is (AGENTS.md): the context is a frozen per-turn snapshot the tool
+#: cannot mutate, and the turn crosses the bus into another task. The loop clears the turn's
+#: entry when the turn ends (`reset_search_attached`); an entry that outlived its turn would leak
+#: an attach into the next turn, which open question 2 in the proposal says it must not.
+_SEARCH_ATTACHED: dict[str, set[str]] = {}
 
 
 def set_tool_groups(groups: "Mapping[str, ToolGroupConfig] | None") -> None:
@@ -121,17 +133,53 @@ def set_tool_groups(groups: "Mapping[str, ToolGroupConfig] | None") -> None:
             _MEMBERSHIP.setdefault(tool_name, set()).add(name)
 
 
+#: The attach modes that hide a group's schemas until the turn asks for them. `mention` waits for
+#: the user to name `@group`; `search` waits for the model to call `tool_search`. Both are gated by
+#: the same predicate in `is_attached` -- the only difference is who does the naming.
+_DEFERRED_MODES = frozenset({"mention", "search"})
+
+
 def mention_only_groups() -> list[str]:
-    """The declared groups whose schemas wait to be asked for, in a stable order."""
+    """The declared groups a *user* widens by naming `@group`, in a stable order."""
     return sorted(name for name, group in _GROUPS.items() if group.attach == "mention")
 
 
+def search_mode_groups() -> list[str]:
+    """The declared groups the *model* widens by calling `tool_search`, in a stable order."""
+    return sorted(name for name, group in _GROUPS.items() if group.attach == "search")
+
+
 def group_of(tool_name: str) -> str | None:
-    """The mention-mode group gating this tool, for a caller reporting why it is absent."""
+    """The deferred group gating this tool, for a caller reporting why it is absent."""
     for name in sorted(_MEMBERSHIP.get(tool_name, ())):
-        if _GROUPS[name].attach == "mention":
+        if _GROUPS[name].attach in _DEFERRED_MODES:
             return name
     return None
+
+
+def attach_group_for_turn(turn_id: str | None, name: str) -> None:
+    """Record that the model attached a `search` group this turn.
+
+    Keyed by `turn_id` so a concurrent turn's attach never widens this one; a `None` turn id (a
+    fallback context that carries none) is ignored rather than pooled under a shared key, because
+    pooling would be the cross-turn leak this store exists to prevent.
+    """
+    if not turn_id:
+        return
+    _SEARCH_ATTACHED.setdefault(turn_id, set()).add(name)
+
+
+def search_attached(turn_id: str | None) -> frozenset[str]:
+    """The `search` groups the model attached on this turn."""
+    if not turn_id:
+        return frozenset()
+    return frozenset(_SEARCH_ATTACHED.get(turn_id, ()))
+
+
+def reset_search_attached(turn_id: str | None) -> None:
+    """Drop this turn's model-driven attachments. Called by the loop when the turn ends."""
+    if turn_id:
+        _SEARCH_ATTACHED.pop(turn_id, None)
 
 
 def mentions_in_text(text: str | None) -> frozenset[str]:
@@ -178,6 +226,10 @@ def attached_groups() -> frozenset[str]:
                     names.add(value.strip())
             elif isinstance(entry, str) and entry.strip():
                 names.add(entry.strip())
+    # The model's own attachments this turn, via `tool_search`. Unioned here so `is_attached`
+    # treats a `search` group the model found exactly like a `mention` group the user named --
+    # one gate, two ways of naming into it.
+    names |= search_attached(ctx.turn_id)
     return frozenset(names)
 
 
@@ -298,21 +350,26 @@ def is_attached(tool_name: str) -> bool:
     The acting agent's ceiling is asked first, and it is not negotiable: a tool outside the
     groups that agent declared is absent whatever the turn mentions.
 
-    Then the mention gate, with three answers, and the middle one is the one worth stating:
+    Then the deferral gate, with three answers, and the middle one is the one worth stating:
 
-    - A tool in no group, or in no group set to `mention`, is always available. That is every tool
-      in a default deployment.
-    - A tool that is in an `always` group *and* a `mention` group is available. Both are explicit
+    - A tool in no group, or in no group set to a deferred mode (`mention`/`search`), is always
+      available. That is every tool in a default deployment.
+    - A tool that is in an `always` group *and* a deferred group is available. Both are explicit
       operator statements, and the one that widens is the one that was written down last in a file
       where the alternative -- a capability silently withdrawn -- is the worse failure.
-    - Otherwise it needs one of its groups named this turn.
+    - Otherwise it needs one of its groups named this turn -- by the user (`mention`, via `@group`)
+      or by the model (`search`, via `tool_search`). Both land in `attached_groups`.
     """
+    if tool_name == TOOL_SEARCH_TOOL_NAME:
+        # Never group-gated: the tool that surfaces deferred tools must itself stay loaded, or the
+        # model has no way to search. A misconfiguration that grouped it is overridden here.
+        return True
     if not within_agent_ceiling(tool_name):
         return False
     groups = _MEMBERSHIP.get(tool_name)
     if not groups:
         return True
-    gating = {name for name in groups if _GROUPS[name].attach == "mention"}
+    gating = {name for name in groups if _GROUPS[name].attach in _DEFERRED_MODES}
     if len(gating) != len(groups):
         return True
     return bool(gating & attached_groups())
@@ -376,6 +433,91 @@ def advertisement(registry: "ToolRegistry") -> str:
     )
 
 
+def _present_searchable_tools(group: ToolGroup, registry: "ToolRegistry | None") -> list[str]:
+    """A `search` group's tools that are installed *and* within the acting agent's ceiling.
+
+    The ceiling is asked here, not just in `is_attached`, because the whole point of the ceiling
+    is that a tool outside it can never be reached -- so it must never be a search *result* either,
+    or the model would learn a name it is then refused. Presence uses the live registry when we
+    have one, and the recorded `registered_tools()` otherwise (the WebUI has no registry to hand).
+    """
+    known = set(registered_tools())
+    out: list[str] = []
+    for tool in sorted(group.tools):
+        present = registry.has(tool) if registry is not None else (tool in known)
+        if present and within_agent_ceiling(tool):
+            out.append(tool)
+    return out
+
+
+def search_groups(query: str, registry: "ToolRegistry | None" = None) -> list[dict[str, object]]:
+    """The `search`-mode groups matching a topic, each with the tools it would load.
+
+    Matching is case-insensitive substring of any query word against the group's name, its
+    description and its tool names -- a small closed corpus, so nothing heavier than this is
+    warranted (proposals/tool-search.md: no embedding index, no service). A group with no query,
+    or with no present-and-permitted tools, is not a match. Ceiling-filtered via
+    `_present_searchable_tools`, so a group outside the acting agent's contract never surfaces.
+    """
+    # Two-letter words ("at", "no", "of") are substrings of half the English language and match
+    # noise ("at" is inside "update"); drop them. An **empty** query is still a real request --
+    # `searchable_groups` uses it to list everything -- so distinguish "no words at all" (list all)
+    # from "only short words" (match nothing) by keying the guard on the raw split, not the filter.
+    raw = (query or "").lower().split()
+    words = [w for w in raw if len(w) >= 3]
+    matches: list[dict[str, object]] = []
+    for name in search_mode_groups():
+        group = _GROUPS[name]
+        tools = _present_searchable_tools(group, registry)
+        if not tools:
+            continue
+        haystack = " ".join([name.lower(), group.description.lower(), *(t.lower() for t in tools)])
+        if raw and not any(w in haystack for w in words):
+            continue
+        matches.append({"name": name, "description": group.description, "tools": tools})
+    return matches
+
+
+def searchable_groups(registry: "ToolRegistry | None" = None) -> list[dict[str, object]]:
+    """Every `search`-mode group with present, permitted tools -- what the model *could* find.
+
+    A search with no words returns this whole set, and `tool_search` uses it to tell the model
+    which topics were considered when a query matched nothing, so it can say "there is no tool for
+    that" rather than invent one.
+    """
+    return search_groups("", registry)
+
+
+#: The one pointer that stands in for every `search`-mode surface at once (groups, MCP servers,
+#: connectors). Deliberately not one line per item: that per-item enumeration is what `mention`
+#: pays, and the flat cost here is what lets a deployment defer far more than two clusters
+#: (proposals/tool-search.md). The loop emits it when *any* surface has something searchable, so it
+#: lives here as a constant the loop can reach without re-deriving the wording.
+SEARCH_POINTER_TEXT = (
+    "# Searchable tools\n\n"
+    "Some installed tools are not loaded into this prompt. If a request needs a capability you "
+    "have no tool for, call `tool_search` with the topic (for example the service or the "
+    "action) to load the matching tools for this turn, then use them. Do not tell the user to "
+    "attach anything, and do not substitute a different tool -- search first."
+)
+
+
+def has_searchable_groups(registry: "ToolRegistry") -> bool:
+    """Whether any `search`-mode group has a present, permitted tool this deployment could load."""
+    return any(
+        _present_searchable_tools(_GROUPS[name], registry) for name in search_mode_groups()
+    )
+
+
+def search_advertisement(registry: "ToolRegistry") -> str:
+    """The shared pointer, emitted when a `search`-mode group has a present, permitted tool.
+
+    Kept for callers that only gate on groups; the loop ORs this with the MCP and connector
+    surfaces so the pointer appears when *any* of the three defers by search.
+    """
+    return SEARCH_POINTER_TEXT if has_searchable_groups(registry) else ""
+
+
 def declared_groups() -> dict[str, ToolGroup]:
     """The declared groups, for the WebUI surface that offers them as mentions."""
     return dict(_GROUPS)
@@ -384,10 +526,14 @@ def declared_groups() -> dict[str, ToolGroup]:
 __all__ = [
     "ATTACHED_GROUPS_META",
     "BUILTIN_GROUPS",
+    "SEARCH_POINTER_TEXT",
+    "TOOL_SEARCH_TOOL_NAME",
     "ToolGroup",
     "advertisement",
     "agent_ceiling_refusal",
     "agent_tool_group_ceiling",
+    "attach_group_for_turn",
+    "has_searchable_groups",
     "attached_groups",
     "declared_groups",
     "group_membership",
@@ -396,6 +542,12 @@ __all__ = [
     "mention_only_groups",
     "mentions_in_text",
     "normalize_group_mentions",
+    "reset_search_attached",
+    "search_advertisement",
+    "search_attached",
+    "search_groups",
+    "search_mode_groups",
+    "searchable_groups",
     "set_tool_groups",
     "within_agent_ceiling",
 ]

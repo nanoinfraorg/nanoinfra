@@ -11,6 +11,16 @@ not here.
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-09-04
+
+### Added
+
+- A tool group, MCP server or connector can be set to `attach: "search"`: its schemas leave every
+  prompt and the model loads them itself by calling the new `tool_search` tool, with one shared
+  pointer in place of a per-item advertised line. `mention` stays the user-driven deferral; both
+  respect the acting agent's ceiling, which neither can widen past.
+  ([proposals/tool-search.md](proposals/tool-search.md))
+
 ### Fixed
 
 - A tag no longer publishes to PyPI or GHCR before the Test Suite has finished on that commit.

@@ -95,7 +95,9 @@ class ConnectorConfig(Base):
     #
     # Not the same as removing it from `active`: a `mention` connector keeps its credential, its
     # grants and its operation list, and is one word away.
-    attach: Literal["always", "mention"] = "always"
+    # `search` (proposals/tool-search.md) hides the schemas like `mention`, but the model loads
+    # them itself via `tool_search` and one shared pointer replaces the per-connector line.
+    attach: Literal["always", "mention", "search"] = "always"
     settings: dict[str, str] = Field(default_factory=dict)
 
 

@@ -1103,7 +1103,7 @@ export async function fetchConnectors(
 export async function setConnectorAttach(
   token: string,
   name: string,
-  attach: "always" | "mention",
+  attach: "always" | "mention" | "search",
   base: string = "",
 ): Promise<ConnectorsPayload> {
   const query = new URLSearchParams({ name, attach });
@@ -1186,7 +1186,7 @@ export async function fetchProviderModels(
 
 export async function runMcpPresetAction(
   token: string,
-  action: "enable" | "remove" | "test" | "pause" | "resume" | "attach_always" | "attach_on_mention",
+  action: "enable" | "remove" | "test" | "pause" | "resume" | "attach_always" | "attach_on_mention" | "attach_on_search",
   name: string,
   values: Record<string, string> = {},
   base: string = "",

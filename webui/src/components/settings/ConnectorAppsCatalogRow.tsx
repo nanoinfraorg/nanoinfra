@@ -62,7 +62,7 @@ export function ConnectorAppsCatalogRow({
   testResult: { ok: boolean; message: string } | null;
   onTest: (name: string) => void;
   /** Set when this row may change when the connector's operations reach the prompt (#204). */
-  onAttachChange?: (name: string, attach: "always" | "mention") => void;
+  onAttachChange?: (name: string, attach: "always" | "mention" | "search") => void;
   onConnect?: (
     name: string,
     values: { clientId: string; clientSecret: string; account: string },
@@ -184,8 +184,10 @@ export function ConnectorAppsCatalogRow({
                 : tx("settings.connectors.connect", "Connect")}
             </Button>
           ) : null}
-          {/* The middle setting, the same one an MCP server has (#204): active, one word away, and
-              its operations in no prompt that did not ask for them. */}
+          {/* The deferral setting, the same one an MCP server has (#204, proposals/tool-search.md):
+              active, one word away, and its operations in no prompt that did not ask. Three states,
+              so the button cycles always -> mention -> search and shows the one in force: `mention`
+              waits for the user to say @connector, `search` for the model to call tool_search. */}
           {onAttachChange && active ? (
             <Button
               type="button"
@@ -195,15 +197,21 @@ export function ConnectorAppsCatalogRow({
               onClick={() =>
                 onAttachChange(
                   connector.name,
-                  connector.attach === "mention" ? "always" : "mention",
+                  connector.attach === "always"
+                    ? "mention"
+                    : connector.attach === "mention"
+                      ? "search"
+                      : "always",
                 )
               }
               className="h-8 rounded-full px-3 text-[12px] font-semibold"
             >
               <AtSign className="mr-1.5 h-3.5 w-3.5" aria-hidden />
               {connector.attach === "mention"
-                ? tx("settings.connectors.attachAlways", "Load every turn")
-                : tx("settings.connectors.attachOnMention", "Load on mention")}
+                ? tx("settings.connectors.attachOnMention", "Load on mention")
+                : connector.attach === "search"
+                  ? tx("settings.connectors.attachOnSearch", "Load on search")
+                  : tx("settings.connectors.attachAlways", "Load every turn")}
             </Button>
           ) : null}
           {connector.testable ? (

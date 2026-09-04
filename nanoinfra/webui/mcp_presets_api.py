@@ -909,6 +909,7 @@ def _server_action_message(action: str, name: str, *, ok: bool = True) -> dict[s
         "pause": "Paused",
         "resume": "Resumed",
         "attach_on_mention": "Now sends schemas only on mention for",
+        "attach_on_search": "Now sends schemas only when searched for",
         "attach_always": "Now sends schemas every turn for",
         "remove": "Removed",
     }.get(action, "Updated")
@@ -1310,13 +1311,19 @@ def mcp_presets_action(action: str, query: QueryParams) -> dict[str, Any]:
         payload["requires_restart"] = True
         return payload
 
-    if action in {"attach_always", "attach_on_mention"}:
-        # A third state on the same row, and the one that pays without giving anything up: the
-        # server stays connected and one word away, and its schemas leave every prompt that did
-        # not ask for it (#204).
+    if action in {"attach_always", "attach_on_mention", "attach_on_search"}:
+        # Three deferred/loaded states on the same row (#204, proposals/tool-search.md): `always`
+        # keeps the schemas in every prompt, `mention` waits for the user to say `@server`, and
+        # `search` waits for the model to call `tool_search`. In every case the server stays
+        # connected and one word away.
         if existing is None:
             raise McpPresetError("unknown MCP server", status=404)
-        existing.attach = "mention" if action == "attach_on_mention" else "always"
+        if action == "attach_on_mention":
+            existing.attach = "mention"
+        elif action == "attach_on_search":
+            existing.attach = "search"
+        else:
+            existing.attach = "always"
         save_config(config)
         payload = mcp_presets_payload(last_action=_server_action_message(action, name))
         # The advertisement and the availability filter are both read from the map the loop seeds

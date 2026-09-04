@@ -44,6 +44,14 @@ class ConnectorAttachment:
 
 _ATTACHMENTS: dict[str, ConnectorAttachment] = {}
 
+#: The attach modes that hide a connector's schemas until the turn asks: `mention` waits for the
+#: user, `search` for the model calling `tool_search` (proposals/tool-search.md).
+_DEFERRED_CONNECTOR_MODES = frozenset({"mention", "search"})
+
+#: turn id -> the `search`-mode connectors the model attached this turn. Keyed by `turn_id` for the
+#: reason the tool-groups and MCP stores are: a frozen context, a bus-crossing turn, no leak.
+_SEARCH_ATTACHED_CONNECTORS: dict[str, set[str]] = {}
+
 
 def set_connector_attachments(attachments: "Mapping[str, ConnectorAttachment]") -> None:
     """Record the modes of every active connector, replacing what was there."""
@@ -52,8 +60,46 @@ def set_connector_attachments(attachments: "Mapping[str, ConnectorAttachment]") 
 
 
 def mention_only_connectors() -> list[str]:
-    """The active connectors whose schemas wait to be asked for, in a stable order."""
+    """The active connectors a *user* widens by naming `@connector`, in a stable order."""
     return sorted(name for name, entry in _ATTACHMENTS.items() if entry.attach == "mention")
+
+
+def search_mode_connectors() -> list[str]:
+    """The active connectors the *model* widens by calling `tool_search`, in a stable order."""
+    return sorted(name for name, entry in _ATTACHMENTS.items() if entry.attach == "search")
+
+
+def attach_connector_for_turn(turn_id: str | None, name: str) -> None:
+    """Record that the model attached a `search`-mode connector this turn."""
+    if turn_id:
+        _SEARCH_ATTACHED_CONNECTORS.setdefault(turn_id, set()).add(name)
+
+
+def reset_search_attached_connectors(turn_id: str | None) -> None:
+    """Drop this turn's model-driven connector attachments. Called by the loop at turn end."""
+    if turn_id:
+        _SEARCH_ATTACHED_CONNECTORS.pop(turn_id, None)
+
+
+def search_connectors(query: str) -> list[dict[str, object]]:
+    """The `search`-mode connectors matching a topic, ceiling-filtered.
+
+    Matched on the connector name and its declared object kinds -- both are the service word a
+    query would use (`calendar`). The ceiling is asked here so a connector off the acting agent's
+    contract is never a result. Short words are dropped; an empty query lists everything.
+    """
+    raw = (query or "").lower().split()
+    words = [w for w in raw if len(w) >= 3]
+    out: list[dict[str, object]] = []
+    for name in search_mode_connectors():
+        if not within_agent_connector_ceiling(name):
+            continue
+        entry = _ATTACHMENTS[name]
+        haystack = " ".join([name.lower(), *(k.lower() for k in entry.kinds)])
+        if raw and not any(w in haystack for w in words):
+            continue
+        out.append({"name": name})
+    return out
 
 
 def _named_this_turn() -> tuple[frozenset[str], frozenset[str]]:
@@ -115,9 +161,15 @@ def is_attached(name: str) -> bool:
     if not within_agent_connector_ceiling(name):
         return False
     entry = _ATTACHMENTS.get(name)
-    if entry is None or entry.attach != "mention":
+    if entry is None or entry.attach not in _DEFERRED_CONNECTOR_MODES:
         return True
     names, kinds = _named_this_turn()
+    # The model's own attachments this turn, via `tool_search`, treated like a user naming it.
+    from nanoinfra.agent.tools.context import current_request_context
+
+    ctx = current_request_context()
+    if ctx is not None and ctx.turn_id and name in _SEARCH_ATTACHED_CONNECTORS.get(ctx.turn_id, ()):
+        return True
     return name in names or bool(entry.kinds & kinds)
 
 
@@ -193,9 +245,13 @@ __all__ = [
     "RESOURCE_MENTIONS_META",
     "ConnectorAttachment",
     "advertisement",
+    "attach_connector_for_turn",
     "is_attached",
     "within_agent_connector_ceiling",
     "mention_only_connectors",
     "normalize_connector_mentions",
+    "reset_search_attached_connectors",
+    "search_connectors",
+    "search_mode_connectors",
     "set_connector_attachments",
 ]

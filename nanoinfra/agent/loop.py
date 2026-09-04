@@ -913,6 +913,18 @@ class AgentLoop:
             mcp_advertisement=mcp_tools.advertisement(self.tools),
             connector_advertisement=connector_attachment.advertisement(self.tools),
             group_advertisement=tool_groups.advertisement(self.tools),
+            # One pointer for every `search`-mode surface at once -- built-in groups, MCP servers,
+            # connectors (proposals/tool-search.md). Emitted when any of the three has something
+            # searchable; the wording is shared so the three cannot drift.
+            group_search_pointer=(
+                tool_groups.SEARCH_POINTER_TEXT
+                if (
+                    tool_groups.has_searchable_groups(self.tools)
+                    or mcp_tools.search_mode_servers()
+                    or connector_attachment.search_mode_connectors()
+                )
+                else ""
+            ),
             # The acting agent's own prompt. Resolved here because this is the only place that
             # knows which agent answers this turn.
             **self._agent_prompt_for(ctx),
@@ -1542,6 +1554,12 @@ class AgentLoop:
             ))
         finally:
             turn_scope_stack.close()
+            # Drop everything the model attached via `tool_search` this turn -- groups, MCP servers,
+            # connectors (proposals/tool-search.md). The next turn re-derives what it can see, so an
+            # attach must not outlive its turn.
+            tool_groups.reset_search_attached(request_ctx.turn_id)
+            mcp_tools.reset_search_attached_servers(request_ctx.turn_id)
+            connector_attachment.reset_search_attached_connectors(request_ctx.turn_id)
             reset_workspace_scope(workspace_token)
             reset_request_context(request_token)
             reset_file_states(file_state_token)

@@ -1763,7 +1763,7 @@ export interface McpPresetInfo {
    * line -- name, tool count, how to attach -- and the schemas only for a turn that names the
    * server, which is where the ~23K of tool schemas per turn goes.
    */
-  attach?: "always" | "mention";
+  attach?: "always" | "mention" | "search";
   status: "not_installed" | "configured" | "missing_credentials" | "missing_dependency" | "coming_soon" | string;
   logo_url?: string | null;
   brand_color?: string | null;
@@ -1842,7 +1842,7 @@ export interface ConnectorInfo {
    * connector -- `@<name>`, or a `@<kind>:<id>` object of one of its kinds, because pinning a
    * calendar names the calendar connector.
    */
-  attach?: "always" | "mention";
+  attach?: "always" | "mention" | "search";
 }
 
 export interface ConnectorObject {

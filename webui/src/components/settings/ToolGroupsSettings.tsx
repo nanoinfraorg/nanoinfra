@@ -49,7 +49,7 @@ import { cn } from "@/lib/utils";
 /* files are owned elsewhere this session; the manager's report carries the exact additions.      */
 /* ------------------------------------------------------------------------------------------- */
 
-export type ToolGroupAttach = "always" | "mention";
+export type ToolGroupAttach = "always" | "mention" | "search";
 
 /**
  * One group's entry in `settings.tool_groups`: what config says about it, and what nanoinfra ships
@@ -140,7 +140,12 @@ export function toolGroupRows(raw: Record<string, unknown> | null | undefined): 
       const effective = asStringArray(info.effective_tools);
       return {
         name,
-        attach: info.attach === "mention" ? "mention" : "always",
+        attach:
+          info.attach === "mention"
+            ? "mention"
+            : info.attach === "search"
+              ? "search"
+              : "always",
         declared: info.declared !== false,
         builtin: info.builtin === true || builtinTools.length > 0,
         description: asString(info.description),
@@ -398,19 +403,22 @@ export function ToolGroupsSettings({
       tools: row.tools,
       description: row.description,
     });
-    void commit(
-      map,
-      `attach:${row.name}`,
+    const status =
       attach === "mention"
         ? tx(
           "settings.toolGroups.status.savedMention",
           "Saved. These schemas leave every prompt after a restart; say @group to attach them for one turn.",
         )
-        : tx(
-          "settings.toolGroups.status.savedAlways",
-          "Saved. These schemas are in every prompt again after a restart.",
-        ),
-    );
+        : attach === "search"
+          ? tx(
+            "settings.toolGroups.status.savedSearch",
+            "Saved. These schemas leave every prompt after a restart; the assistant loads them by calling tool_search when a turn needs them.",
+          )
+          : tx(
+            "settings.toolGroups.status.savedAlways",
+            "Saved. These schemas are in every prompt again after a restart.",
+          );
+    void commit(map, `attach:${row.name}`, status);
   };
 
   const startCreate = () =>
@@ -510,6 +518,10 @@ export function ToolGroupsSettings({
               mention={tx(
                 "settings.toolGroups.cost.mention",
                 "Only when mentioned: the schemas leave every prompt and cost nothing until somebody types @group in the message. One advertised line keeps the group visible, so the model can say it needs attaching instead of failing quietly. This is the mode that saves tokens.",
+              )}
+              search={tx(
+                "settings.toolGroups.cost.search",
+                "Only when searched: the schemas leave every prompt too, but the assistant loads them itself by searching when a request needs them — no @group to type. One shared pointer covers every searched group at once, so this is the mode that scales when you defer many groups.",
               )}
               always={tx(
                 "settings.toolGroups.cost.always",
@@ -720,10 +732,12 @@ function GroupRowView({
             <code className="rounded-full bg-muted px-2.5 py-0.5 text-[12.5px] font-medium text-foreground">
               @{row.name}
             </code>
-            <Badge tone={row.attach === "mention" ? "saving" : "neutral"}>
+            <Badge tone={row.attach === "always" ? "neutral" : "saving"}>
               {row.attach === "mention"
                 ? tx("settings.toolGroups.badge.mention", "Not in the prompt · saves tokens")
-                : tx("settings.toolGroups.badge.always", "In every prompt")}
+                : row.attach === "search"
+                  ? tx("settings.toolGroups.badge.search", "Not in the prompt · searched")
+                  : tx("settings.toolGroups.badge.always", "In every prompt")}
             </Badge>
             {row.builtin ? (
               <Badge tone="neutral">
@@ -778,6 +792,10 @@ function GroupRowView({
                   {
                     value: "mention",
                     label: tx("settings.toolGroups.attach.mention", "Only when mentioned"),
+                  },
+                  {
+                    value: "search",
+                    label: tx("settings.toolGroups.attach.search", "Only when searched"),
                   },
                 ]}
                 onChange={(value) => onAttach(value as ToolGroupAttach)}
@@ -953,6 +971,10 @@ function GroupEditor({
                 value: "mention",
                 label: tx("settings.toolGroups.attach.mention", "Only when mentioned"),
               },
+              {
+                value: "search",
+                label: tx("settings.toolGroups.attach.search", "Only when searched"),
+              },
             ]}
             onChange={(value) => onChange({ ...draft, attach: value as ToolGroupAttach })}
           />
@@ -1103,11 +1125,13 @@ function GroupEditor({
 function ModeCost({
   mention,
   always,
+  search,
   measured,
   highlight,
 }: {
   mention: string;
   always: string;
+  search?: string;
   measured?: string;
   highlight?: ToolGroupAttach;
 }) {
@@ -1121,6 +1145,18 @@ function ModeCost({
       >
         {mention}
       </div>
+      {search ? (
+        <div
+          className={cn(
+            "rounded-[12px] px-3 py-2",
+            highlight === "search"
+              ? "bg-emerald-500/10 text-foreground"
+              : "text-muted-foreground",
+          )}
+        >
+          {search}
+        </div>
+      ) : null}
       <div
         className={cn(
           "rounded-[12px] px-3 py-2",
