@@ -11,6 +11,15 @@ not here.
 
 ## [Unreleased]
 
+## [2.0.1] — 2026-09-04
+
+### Fixed
+
+- nanoinfra imports on Python 3.11 again. A dataclass field on `RequestContext` defaulted to a
+  `mappingproxy`, which 3.11 refuses for any default whose type is unhashable — so 2.0.0 failed at
+  import on the minimum supported version.
+  ([#266](https://github.com/nanoinfraorg/nanoinfra/issues/266))
+
 ## [2.0.0] — 2026-09-04
 
 ### Added

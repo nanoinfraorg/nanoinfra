@@ -23,7 +23,19 @@ if TYPE_CHECKING:
 
 #: The empty roster, as a default a dataclass may share: read-only, so no context can mutate
 #: the one every other context is holding.
+#:
+#: Handed out by a ``default_factory`` rather than used as a field default, and the reason is a
+#: Python version: **3.11 rejects any dataclass default whose type is unhashable**, and
+#: `mappingproxy` is one. It became `list`/`dict`/`set` only in 3.12, so on 3.11 this raised
+#: ``mutable default <class 'mappingproxy'> ... use default_factory`` at *import* time -- which
+#: broke every install on the minimum supported version, in a module every tool imports.
+#:
+#: One shared object either way: the factory returns this same proxy rather than building one.
 _NO_NAMED_AGENTS: "Mapping[str, NamedAgentConfig]" = MappingProxyType({})
+
+
+def _no_named_agents() -> "Mapping[str, NamedAgentConfig]":
+    return _NO_NAMED_AGENTS
 
 _CURRENT_REQUEST_CONTEXT: ContextVar["RequestContext | None"] = ContextVar(
     "nanoinfra_tool_request_context",
@@ -170,7 +182,7 @@ class ToolContext:
     #: built once at boot, so this answers "does this deployment delegate at all"; *which* peer a
     #: given turn may reach is re-read from here when the tool runs, because that depends on who
     #: is answering and a tool call is not evidence of authority.
-    named_agents: "Mapping[str, NamedAgentConfig]" = _NO_NAMED_AGENTS
+    named_agents: "Mapping[str, NamedAgentConfig]" = field(default_factory=_no_named_agents)
     #: The deployment's own agent, so a turn that names none can still read its roster (#265).
     #: Typed loosely for the same reason ``gate`` is: importing the config schema here would pull
     #: a heavier tree into a module every tool imports.
