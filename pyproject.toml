@@ -1,6 +1,6 @@
 [project]
 name = "nanoinfra"
-version = "2.0.3"
+version = "2.0.4"
 description = "A lightweight self-hosted AI agent for infrastructure"
 readme = { file = "README_PYPI.md", content-type = "text/markdown" }
 requires-python = ">=3.11"

@@ -11,6 +11,14 @@ not here.
 
 ## [Unreleased]
 
+## [2.0.4] — 2026-09-04
+
+### Fixed
+
+- `@agent:<name>` in a message answers as that agent. The composer offered the token, completed
+  it, and then ignored it: the turn ran as the deployment default, so naming an agent looked like
+  it did nothing. ([#269](https://github.com/nanoinfraorg/nanoinfra/issues/269))
+
 ## [2.0.3] — 2026-09-04
 
 ### Fixed

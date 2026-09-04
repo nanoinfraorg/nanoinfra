@@ -9,6 +9,7 @@ import dataclasses
 import inspect
 import json
 import os
+import re
 import time
 import weakref
 from collections.abc import Coroutine, Iterable, Mapping
@@ -111,6 +112,14 @@ from nanoinfra.utils.llm_runtime import LLMRuntime
 from nanoinfra.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
 )
+
+#: How a person addresses a named agent in the text of a message -- `@agent:<name>` (#269).
+#:
+#: `\S+` rather than the schema's own `[\w.-]+`, deliberately: this captures the whole run and
+#: `_agent_from_mention` resolves it against the roster, so a name config accepts is matched here
+#: without this pattern having to be kept in step with that one. A run that resolves to no agent
+#: is simply not a mention.
+_AGENT_MENTION_RE = re.compile(r"@agent:(\S+)")
 
 if TYPE_CHECKING:
     from nanoinfra.agent.tools.mcp import MCPConnection
@@ -1027,18 +1036,50 @@ class AgentLoop:
             lambda name: classes[name],
         )
 
-    def _acting_agent_for(self, metadata: dict[str, Any] | None) -> str | None:
+    def _acting_agent_for(
+        self, metadata: dict[str, Any] | None, text: str | None = None
+    ) -> str | None:
         """Which named agent answers this turn, from what the client asked for.
 
-        Validated against config rather than trusted, and an unknown name falls back to the default
-        agent rather than raising. A name is a *request*; the authority to act as an agent is the
-        roster in config, so a client that invents a name gets the deployment default -- which
-        grants nothing -- instead of an error that would tell it which names exist.
+        Two sources, and the explicit one wins. A client that chose an agent -- the composer's
+        picker, an automation's binding -- says so in ``metadata``. Otherwise the **text** is
+        read for `@agent:<name>`, which is how a person addresses one mid-sentence (#269).
+
+        Validated against config rather than trusted, and an unknown name falls back to the
+        default agent rather than raising. A name is a *request*; the authority to act as an
+        agent is the roster in config, so a client that invents a name gets the deployment
+        default -- which grants nothing -- instead of an error that would tell it which names
+        exist.
         """
         requested = (metadata or {}).get("agent")
-        if not isinstance(requested, str) or not requested:
+        if isinstance(requested, str) and requested:
+            return requested if requested in self.named_agents else None
+        return self._agent_from_mention(text)
+
+    def _agent_from_mention(self, text: str | None) -> str | None:
+        """The agent a message addressed as `@agent:<name>`, or ``None`` (#269).
+
+        This token was offered by the composer, completed for the operator, and then ignored: it
+        did not route the turn, no template told the model what it meant, and the only way to act
+        on it -- delegation -- needed a peer the answering agent usually did not hold. So a person
+        typed the name of an agent and the deployment default answered, which is what made a
+        narrowed default look broken rather than narrowed.
+
+        **The roster settles the trailing punctuation**, and it has to: `.` is a legal character
+        in a name (`net.core`), so `@agent:sre.` cannot be resolved by stripping dots blindly. The
+        whole run is tried first and the stripped form only after, which is why `@agent:dbx` never
+        becomes `db` -- nothing in that set is stripped from it.
+
+        The first name that resolves wins. A sentence naming two agents is asking one question of
+        one agent, and picking the first is the reading a person expects from left to right.
+        """
+        if not text:
             return None
-        return requested if requested in self.named_agents else None
+        for raw in _AGENT_MENTION_RE.findall(text):
+            for candidate in (raw, raw.rstrip(".,;:!?)]}\"\'")):
+                if candidate in self.named_agents:
+                    return candidate
+        return None
 
     def _prompt_manifest_for(
         self, ctx: TurnContext, messages: list[dict[str, Any]]
@@ -1953,7 +1994,7 @@ class AgentLoop:
         # Resolved once, here, so the request context a tool reads and the record the transcript
         # keeps can never disagree about who answered (#248) -- and so the ceilings that agent
         # declared are on the turn before any tool asks what it may reach (#266).
-        acting_agent = self._acting_agent_for(msg.metadata)
+        acting_agent = self._acting_agent_for(msg.metadata, msg.content)
         self._record_acting_agent_binding(msg, acting_agent)
         ctx = TurnContext(
             msg=msg,

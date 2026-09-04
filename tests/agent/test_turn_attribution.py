@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from typing import Any
 
+# --- config decides, the client only asks ----------------------------------------------------
+from nanoinfra.agent.loop import AgentLoop
 from nanoinfra.bus.runtime_events import RuntimeEventPublisher
 from nanoinfra.webui.transcript import replay_transcript_to_ui_messages
-
-# --- config decides, the client only asks ----------------------------------------------------
 
 
 class _Loop:
@@ -30,11 +30,13 @@ class _Loop:
         self.named_agents = named
 
     resolve = None
+    # The text half of the resolver (#269). Borrowed rather than stubbed, so these tests keep
+    # covering the metadata rule while the mention rule is covered next door in
+    # `test_agent_mention_routing.py`.
+    _agent_from_mention = AgentLoop._agent_from_mention
 
 
 def _resolve(named: dict[str, object], metadata: dict[str, Any] | None) -> str | None:
-    from nanoinfra.agent.loop import AgentLoop
-
     loop = _Loop(named)
     return AgentLoop._acting_agent_for(loop, metadata)  # type: ignore[arg-type]
 
