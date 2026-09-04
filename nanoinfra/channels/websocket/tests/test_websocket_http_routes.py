@@ -30,7 +30,7 @@ from nanoinfra.session.manager import Session, SessionManager
 from nanoinfra.triggers.local_store import LocalTriggerStore
 from nanoinfra.webui.gateway_services import GatewayServices, build_gateway_services
 
-from .ws_test_client import InProcessHttpChannel
+from .ws_test_client import InProcessHttpChannel, ws_test_port
 from .ws_test_client import http_get as _http_get
 
 _PORT = 29900
@@ -1806,20 +1806,21 @@ async def test_cli_apps_catalog_does_not_block_other_webui_http_routes(
         return {"apps": [], "installed_count": 0, "catalog_updated_at": None}
 
     monkeypatch.setattr("nanoinfra.webui.settings_routes.cli_apps_payload", slow_payload)
-    channel = _ch(bus, session_manager=_seed_session(tmp_path), port=29935)
+    port = ws_test_port(35)
+    channel = _ch(bus, session_manager=_seed_session(tmp_path), port=port)
     server_task = asyncio.create_task(channel.start())
     try:
         token = channel.gateway.tokens.issue_api_token(300)
         auth = {"Authorization": f"Bearer {token}"}
 
         catalog_task = asyncio.create_task(
-            _http_get("http://127.0.0.1:29935/api/settings/cli-apps", headers=auth)
+            _http_get(f"http://127.0.0.1:{port}/api/settings/cli-apps", headers=auth)
         )
         assert await asyncio.wait_for(entered.wait(), 2.0)
         assert not catalog_task.done()
 
         workspaces_started = time.perf_counter()
-        workspaces = await _http_get("http://127.0.0.1:29935/api/workspaces", headers=auth)
+        workspaces = await _http_get(f"http://127.0.0.1:{port}/api/workspaces", headers=auth)
         assert time.perf_counter() - workspaces_started < 1.0
         assert workspaces.status_code == 200
 
@@ -1846,14 +1847,15 @@ async def test_cli_apps_route_supports_installed_only_payload(
         return {"apps": [], "installed_count": 0, "catalog_updated_at": None}
 
     monkeypatch.setattr("nanoinfra.webui.settings_routes.cli_apps_payload", payload)
-    channel = _ch(bus, session_manager=_seed_session(tmp_path), port=29936)
+    port = ws_test_port(36)
+    channel = _ch(bus, session_manager=_seed_session(tmp_path), port=port)
     server_task = asyncio.create_task(channel.start())
     try:
         token = channel.gateway.tokens.issue_api_token(300)
         auth = {"Authorization": f"Bearer {token}"}
 
         resp = await _http_get(
-            "http://127.0.0.1:29936/api/settings/cli-apps?installed_only=1",
+            f"http://127.0.0.1:{port}/api/settings/cli-apps?installed_only=1",
             headers=auth,
         )
 

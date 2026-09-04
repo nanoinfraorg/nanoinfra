@@ -19,7 +19,7 @@ from nanoinfra.bus.outbound_events import ProgressEvent
 from nanoinfra.channels.websocket.runtime import WebSocketChannel, WebSocketConfig
 from nanoinfra.webui.gateway_services import build_gateway_services
 
-from .ws_test_client import WsTestClient, issue_token, issue_token_ok
+from .ws_test_client import WsTestClient, issue_token, issue_token_ok, ws_test_port
 
 
 def _ch(bus: Any, port: int, **kw: Any) -> WebSocketChannel:
@@ -125,10 +125,11 @@ async def test_the_chosen_agent_reaches_the_turn_metadata(bus: MagicMock) -> Non
     Whether the name means anything is `agents.named`'s answer, resolved in the loop -- the same
     posture a named connector has. This layer only carries what the operator asked for.
     """
-    ch = _ch(bus, 29931)
+    port = ws_test_port(31)
+    ch = _ch(bus, port)
     t = asyncio.create_task(ch.start())
     try:
-        async with WsTestClient("ws://127.0.0.1:29931/", client_id="a") as c:
+        async with WsTestClient(f"ws://127.0.0.1:{port}/", client_id="a") as c:
             ready = await c.recv_ready()
             await c.send_json({
                 "type": "message",
@@ -148,10 +149,11 @@ async def test_the_chosen_agent_reaches_the_turn_metadata(bus: MagicMock) -> Non
 async def test_a_turn_that_names_no_agent_carries_no_agent_key(bus: MagicMock) -> None:
     """Which is every turn today. An empty or non-string value is the same as absent, so a client
     cannot put a blank name where the loop expects either a name or nothing."""
-    ch = _ch(bus, 29932)
+    port = ws_test_port(32)
+    ch = _ch(bus, port)
     t = asyncio.create_task(ch.start())
     try:
-        async with WsTestClient("ws://127.0.0.1:29932/", client_id="b") as c:
+        async with WsTestClient(f"ws://127.0.0.1:{port}/", client_id="b") as c:
             ready = await c.recv_ready()
             for junk in (None, "", "   ", 7, ["sre-prod"]):
                 await c.send_json({

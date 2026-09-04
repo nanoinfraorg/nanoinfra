@@ -72,6 +72,7 @@ from nanoinfra.webui.transcript import (
 )
 
 from .ws_test_client import http_get as _http_get
+from .ws_test_client import ws_test_port
 
 # -- Shared helpers (aligned with test_websocket_integration.py) ---------------
 
@@ -3397,7 +3398,7 @@ async def test_image_settings_hot_reload_without_restart(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    port = 29935
+    port = ws_test_port(35)
     config_path = tmp_path / "config.json"
     config = Config()
     config.providers.openrouter.api_key = "image-key"
@@ -3441,7 +3442,7 @@ async def test_image_settings_fall_back_to_restart_when_hot_reload_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    port = 29936
+    port = ws_test_port(36)
     config_path = tmp_path / "config.json"
     config = Config()
     config.providers.openrouter.api_key = "image-key"
@@ -4002,7 +4003,7 @@ async def test_websocket_requires_token_without_issue_path(bus: MagicMock) -> No
 
 @pytest.mark.asyncio
 async def test_multiplex_legacy_still_works(bus: MagicMock) -> None:
-    port = 29930
+    port = ws_test_port(30)
     channel = _ch(bus, port=port)
     server_task = asyncio.create_task(channel.start())
     await asyncio.sleep(0.3)
@@ -4040,7 +4041,7 @@ async def test_multiplex_legacy_still_works(bus: MagicMock) -> None:
 
 @pytest.mark.asyncio
 async def test_multiplex_new_chat_roundtrip(bus: MagicMock) -> None:
-    port = 29931
+    port = ws_test_port(31)
     channel = _ch(bus, port=port)
     server_task = asyncio.create_task(channel.start())
     await asyncio.sleep(0.3)
@@ -4176,7 +4177,7 @@ async def test_webui_message_envelope_appends_user_transcript(
 
 @pytest.mark.asyncio
 async def test_multiplex_two_chats_isolated(bus: MagicMock) -> None:
-    port = 29932
+    port = ws_test_port(32)
     channel = _ch(bus, port=port)
     server_task = asyncio.create_task(channel.start())
     await asyncio.sleep(0.3)
@@ -4213,7 +4214,7 @@ async def test_multiplex_two_chats_isolated(bus: MagicMock) -> None:
 
 @pytest.mark.asyncio
 async def test_multiplex_invalid_frames_return_error(bus: MagicMock) -> None:
-    port = 29933
+    port = ws_test_port(33)
     channel = _ch(bus, port=port)
     server_task = asyncio.create_task(channel.start())
     await asyncio.sleep(0.3)
@@ -4249,7 +4250,7 @@ async def test_multiplex_invalid_frames_return_error(bus: MagicMock) -> None:
 
 @pytest.mark.asyncio
 async def test_multiplex_cleanup_on_disconnect(bus: MagicMock) -> None:
-    port = 29934
+    port = ws_test_port(34)
     channel = _ch(bus, port=port)
     server_task = asyncio.create_task(channel.start())
     await asyncio.sleep(0.3)

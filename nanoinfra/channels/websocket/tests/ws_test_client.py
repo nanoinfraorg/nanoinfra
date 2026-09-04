@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -26,6 +27,22 @@ from websockets.http11 import Request as WsRequest
 
 from nanoinfra.channels.websocket.runtime import WebSocketChannel
 from nanoinfra.webui.http_utils import http_response
+
+
+def ws_test_port(slot: int) -> int:
+    """A test port unique to this xdist worker, so parallel workers never collide (#271).
+
+    These tests bind real ports (`29931`, ...). Serially that is fine; under ``pytest -n auto`` two
+    files that hardcode the same literal race to bind it on different workers, and the loser retries
+    the one fixed port forever while the winner holds it. Giving each worker a disjoint 100-port
+    block fixes it at the root: within a worker pytest runs tests one at a time, so a fixed ``slot``
+    per test never collides with itself, and no two workers share a block. ``PYTEST_XDIST_WORKER`` is
+    ``gw0``, ``gw1``, ... under xdist and unset when running serially, where block 0 is used.
+    """
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "")
+    index = int(worker[2:]) if worker.startswith("gw") and worker[2:].isdigit() else 0
+    return 29000 + index * 100 + slot
+
 
 _IN_PROCESS_HTTP_CHANNELS: dict[int, InProcessHttpChannel] = {}
 

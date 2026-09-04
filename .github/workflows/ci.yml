@@ -151,6 +151,7 @@ jobs:
           NANOINFRA_TEST_POSTGRES_DSN: postgresql://nanoinfra:nanoinfra@localhost:5432/nanoinfra_test
         run: >-
           uv run --no-sync python -m pytest
+          -n auto
           --cov=nanoinfra --cov-report=term-missing:skip-covered
           --durations=25 --durations-min=1.0
 
@@ -174,6 +175,7 @@ jobs:
         if: ${{ !matrix.coverage }}
         run: >-
           uv run --no-sync python -m pytest
+          -n auto
           ${{ matrix.pytest_args }}
           --durations=25 --durations-min=1.0
 
