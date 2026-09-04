@@ -16,7 +16,7 @@
   <p>
     <a href="./COMMUNICATION.md">GitHub / Email</a>
     <a href="https://discord.gg/fntcEF8RrD">Discord</a>
-    <a href="https://img.shields.io/discord/1495251138294055002"><img src="https://img.shields.io/discord/:serverId" alt="Latest release"></a>
+    <a href="https://discord.gg/fntcEF8RrD"><img src="https://img.shields.io/discord/1495251138294055002" alt="Latest release"></a>
   </p>
 </div>
 
