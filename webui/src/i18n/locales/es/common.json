@@ -107,7 +107,9 @@
       "automations": "Automatizaciones",
       "skills": "Habilidades",
       "agents": "Agentes",
-      "knowledge": "Conocimiento"
+      "knowledge": "Conocimiento",
+      "toolGroups": "Grupos de herramientas",
+      "prompts": "Prompts"
     },
     "sections": {
       "interface": "Interfaz",
@@ -1226,6 +1228,39 @@
       "clientSecret": "OAuth client secret",
       "account": "Account to consent as (optional)",
       "consent": "Open the consent screen"
+    },
+    "prompts": {
+      "title": "Prompts",
+      "subtitle": "Estos dos prompts se ejecutan sin que nadie los vigile, y ninguno es el prompt del agente con el que hablas.",
+      "loading": "Leyendo los prompts en vigor…",
+      "unavailable": "Esta pasarela no ha servido el panel de prompts, así que aquí no se ha leído nada. Los dos prompts siguen siendo los que eran: edita sus archivos en disco, porque ningún texto escrito aquí se habría guardado.",
+      "name": {
+        "dream": "Dream — consolidación de la memoria",
+        "evaluator": "Evaluator — la puerta de notificación del heartbeat"
+      },
+      "controlsLabel": "Decide",
+      "requirementLabel": "Un reemplazo debe conservar esto",
+      "source": {
+        "workspace": "El texto propio de este espacio de trabajo",
+        "platform": "El texto de la plataforma"
+      },
+      "editorLabel": "Texto del prompt {{name}}",
+      "charCount": "{{chars}} de {{max}} caracteres",
+      "tooLong": "Este texto supera los {{max}} caracteres que puede tener un prompt del espacio de trabajo.",
+      "matchesPlatform": "Este es el texto propio de la plataforma. Al guardarlo se elimina el archivo de reemplazo en lugar de almacenar una copia: una copia seguiría ganando mañana, y este espacio de trabajo dejaría de recibir cada mejora posterior sin decirlo.",
+      "pathLabel": "Archivo",
+      "pathHelp": "Guardar escribe ese archivo y restaurar lo elimina. Un editor escribe el mismo.",
+      "actions": {
+        "save": "Guardar",
+        "discard": "Descartar",
+        "restore": "Restaurar el predeterminado"
+      },
+      "status": {
+        "unsaved": "Cambios sin guardar.",
+        "saved": "Guardado. El texto propio de este espacio de trabajo está en vigor desde la próxima ejecución.",
+        "removed": "El archivo de reemplazo ya no está. El prompt de la plataforma vuelve a estar en vigor y seguirá mejorando con ella.",
+        "failed": "No se ha guardado: {{reason}}"
+      }
     }
   },
   "chat": {
@@ -1797,10 +1832,10 @@
       "add7d": "Aprobar y añadir — caduca en 7 días",
       "addNever": "Aprobar y añadir — sin caducidad",
       "permanentTitle": "¿Añadir una concesión sin caducidad?",
-      "permanentBody": "Este comando se ejecutará en estos hosts desde ahora, sin preguntar a nadie. Nada retira la concesión después: para quitarla editas gates.standingGrants en config.json.",
+      "permanentBody": "Este comando se ejecuta en estos hosts a partir de ahora, sin preguntar a nadie. El permiso permanece hasta que lo quites en Ajustes → Seguridad.",
       "permanentConfirm": "Sí, sin caducidad",
       "saved": "Concesión permanente {{id}} añadida. Caduca el {{when}}.",
-      "savedPermanent": "Concesión permanente {{id}} añadida, y no caduca. Edita gates.standingGrants para retirarla.",
+      "savedPermanent": "Permiso permanente {{id}} añadido, y no expira. Quítalo en Ajustes → Seguridad.",
       "notSaved": "La acción se aprobó. La concesión no se guardó: {{reason}}"
     },
     "deny": "Denegar",
@@ -1822,7 +1857,9 @@
       "unknownRequest": "El ejecutor no tiene esta solicitud. Caducó o alguien ya la respondió."
     },
     "agentDelegated": "{{agent}} — delegado por {{delegatedBy}}",
-    "agentAsserted": "El agente se ha nombrado a sí mismo. Es una afirmación de la solicitud, no una identidad que este despliegue haya autenticado, y el resumen de arriba no la cubre."
+    "agentAsserted": "El agente se ha nombrado a sí mismo. Es una afirmación de la solicitud, no una identidad que este despliegue haya autenticado, y el resumen de arriba no la cubre.",
+    "agentDefault": "Agente predeterminado",
+    "agentDefaultNote": "Ningún agente se ha nombrado, así que lo ejecuta el agente predeterminado de este despliegue. Eso también es lo que la solicitud dice de sí misma, no una identidad autenticada, y el resumen de arriba no lo cubre."
   },
   "serverNotes": {
     "title": "Notas del dispositivo",
@@ -1846,26 +1883,63 @@
   },
   "agents": {
     "roster": {
-      "title": "Agentes con nombre",
-      "help": "Cada agente responde con su propio modelo y sus propias herramientas. Los agentes se declaran en la configuración, así que esta página los lee y no los modifica.",
       "toolGroups": "Grupos de herramientas",
       "skills": "Habilidades",
       "delegates": "Delegados",
-      "addendum": "Anexo"
+      "new": "Nuevo agente",
+      "emptyHelp": "Todavía no hay ningún agente con nombre, así que cada mensaje lo responde el agente de arriba. Nombra uno para darle su propio modelo, sus propias herramientas y sus propias instrucciones, y dirigirte a él como @agent:<nombre>.",
+      "deleteAgent": "Eliminar {{name}}",
+      "deleteTitle": "¿Eliminar {{name}}?",
+      "deleteDescription": "El agente deja de existir y deja de poder ser invocado. Los mensajes anteriores permanecen en sus sesiones.",
+      "deleteDependents": "{{agents}} delegan en este agente. La configuración rechaza una lista cuyo delegado no existe, así que quítalo de ellos primero.",
+      "deleteConfirm": "Eliminar",
+      "deleteCancel": "Cancelar",
+      "chip": {
+        "all": "todos",
+        "delegates": "delegados",
+        "mcp": "mcp",
+        "skills": "habilidades",
+        "toolGroups": "grupos de herramientas",
+        "none": "ninguno",
+        "connectors": "conectores"
+      },
+      "chipAllHelp": "Nada declarado, que son todos.",
+      "defaultBadge": "Propio de esta instalación",
+      "defaultExpand": "Qué es el agente predeterminado",
+      "defaultHelp": "Lo que responde cuando no se elige ningún agente, y de lo que hereda cada agente con nombre.",
+      "defaultModelFact": "El preajuste que esta instalación activa. Cambiarlo cambia todos los agentes que no nombran uno propio.",
+      "defaultNotEditable": "Este agente no se puede añadir, renombrar ni eliminar: es lo que una instalación tiene antes de nombrar nada. Esta página solo escribe agentes con nombre, y los ajustes propios del agente predeterminado viven en los demás paneles de Ajustes.",
+      "defaultPromptFact": "Las secciones propias de la plataforma, sin nada añadido ni reemplazado.",
+      "defaultToolGroupsFact": "Todos los grupos de herramientas, porque no declarar ninguno es la forma que tiene la configuración de decir todos.",
+      "editAgent": "Editar {{name}}",
+      "openModels": "Abrir Modelos",
+      "openSkills": "Abrir Habilidades",
+      "promptCustom": "Prompt propio",
+      "promptCustomHelp": "Este agente añade al prompt de la plataforma o reemplaza parte de él. La pestaña Prompt muestra qué secciones.",
+      "promptDefault": "Prompt por defecto",
+      "promptDefaultHelp": "A este agente se le dice lo que dice la plataforma, sin añadir ni reemplazar nada.",
+      "subtitle": "Gestiona los agentes de IA",
+      "editDefault": "Editar el agente predeterminado",
+      "chipNoneHelp": "Declarado y vacío: este agente no alcanza ninguno.",
+      "noModel": "Sin modelo configurado"
     },
     "detail": {
       "tabs": "Ajustes del agente",
-      "prompt": "Prompt"
+      "prompt": "Prompt",
+      "tools": "Herramientas",
+      "skills": "Habilidades",
+      "delegates": "Delegados",
+      "back": "Todos los agentes",
+      "createTitle": "Nuevo agente",
+      "unsaved": "Cambios sin guardar",
+      "basic": "Básico"
     },
     "prompt": {
       "loading": "Leyendo la composición del prompt…",
       "unavailable": "Esta pasarela no informa de la composición del prompt.",
       "replaced": "Reemplazada",
       "replacedHelp": "Este despliegue reemplazó el texto de la plataforma para esta sección. La sección sigue apareciendo aquí, porque un registro que ocultara el reemplazo haría que dos prompts distintos parecieran idénticos.",
-      "perTurn": "el tamaño varía por turno",
       "tokens": "{{tokens}} tokens",
-      "addendumTitle": "Anexo",
-      "addendumHelp": "El anexo se añade después de las secciones anteriores y no puede reemplazar ninguna. Edítalo en el archivo de configuración, donde se declara el agente.",
       "addendumEmpty": "Este agente no declara ningún anexo.",
       "estimateNote": "Las cifras de tokens son estimaciones para las secciones que cuestan lo mismo en cada turno. Lo que llevó un turno concreto está en el turno.",
       "permission": {
@@ -1881,7 +1955,78 @@
         "derived": "Se calcula desde la configuración, así que ahí es donde cambia.",
         "appendOnly": "Se añade después de las secciones de la plataforma; no puede reemplazar ninguna.",
         "fixed": "El contrato de herramientas y las notas de seguridad. Borrarlas dejaría a la puerta de capacidades rechazando acciones cuyas reglas el modelo ya no conoce."
-      }
+      },
+      "tokensPending": "se cuenta al guardar",
+      "sectionEditorLabel": "Tu texto para {{section}}",
+      "addendumPlaceholder": "Prefiere comprobaciones de solo lectura y di qué no comprobaste.",
+      "unsaved": "Las secciones del prompt aparecen cuando se guarda este agente.",
+      "addendumElsewhere": "El anexo se edita en la pestaña Básico.",
+      "editSection": "Editar {{section}}",
+      "emptyIsDefault": "Una sección vacía no es algo que la configuración pueda guardar, así que guardar esto restaura el texto propio de la plataforma.",
+      "introHelp": "Todas las secciones del prompt del sistema, en el orden en que la plataforma las ensambla. El lápiz abre el texto de una sección para editarlo, y editar es la única manera de quitar algo que dice la plataforma: un anexo puede añadir, pero nunca retirar. Las secciones sin lápiz se construyen desde tu configuración o desde el espacio de trabajo, así que cambian allí.",
+      "introTitle": "Qué se le dice a este agente",
+      "noDefaultText": "La plataforma ensambla esta sección en cada turno, así que no hay un texto predeterminado del que partir. Lo que escribas aquí ocupa su lugar.",
+      "perTurnBody": "La plataforma ensambla esta sección en cada turno, a partir del espacio de trabajo y de la sesión, así que aquí no hay un texto fijo que mostrar.",
+      "placeholders": "Mantén estos marcadores en tu texto:",
+      "restoreDefault": "Restaurar el predeterminado",
+      "sectionEmpty": "Esta sección no lleva nada para este agente."
+    },
+    "editor": {
+      "save": "Guardar",
+      "fields": {
+        "name": "Nombre",
+        "description": "Descripción",
+        "modelPreset": "Modelo",
+        "toolGroups": "Grupos de herramientas",
+        "connectors": "Conectores",
+        "mcpServers": "Servidores MCP",
+        "skills": "Habilidades a cargar",
+        "delegates": "Delegados",
+        "addendum": "Anexo del agente",
+        "provider": "Proveedor"
+      },
+      "namePlaceholder": "sre",
+      "nameHelp": "Cómo se invoca al agente en un mensaje, como @agent:<nombre>. Letras, dígitos, '-', '_' y '.'.",
+      "nameFixedHelp": "Un agente conserva el nombre con el que se creó: las automatizaciones y las conversaciones lo invocan por ese nombre.",
+      "descriptionPlaceholder": "comprobaciones directas en un solo host",
+      "descriptionHelp": "La línea que explica este agente donde sea que se ofrezca, incluido otro agente que decide si delegar.",
+      "presetDefault": "Predeterminado de la instalación",
+      "toolGroupsHelp": "Todo significa sin techo. Solo estos limita el agente a los grupos que elijas — y no elegir ninguno es decirle que debe pedirle a un par cualquier cosa agrupada.",
+      "toolGroupsEmpty": "Esta instalación todavía no tiene grupos de herramientas.",
+      "toolGroupsLink": "Abrir Grupos de herramientas",
+      "connectorsEmpty": "Esta instalación no activa ningún conector.",
+      "mcpServersEmpty": "Esta instalación no tiene servidores MCP instalados.",
+      "bindingHelp": "Todo es lo que active este despliegue. Solo estos limita el agente a lo que elijas, y nunca lo amplía — no elegir nada es un agente que no carga ninguno, que es en lo que se gasta el presupuesto de esquemas.",
+      "skillsHelp": "Todo resume el catálogo completo, como antes. Solo estas carga en pleno lo que elijas y no resume nada más — que es lo que evita que una conversación pague por cada skill instalada.",
+      "skillsEmpty": "No hay habilidades instaladas",
+      "delegatesHelp": "Los agentes a los que este puede pasar trabajo. Pertenecer a esta lista es la autorización: un agente solo alcanza a los compañeros nombrados aquí.",
+      "delegatesEmpty": "Todavía no hay otro agente en quien delegar.",
+      "duplicate": "{{name}} ya existe. Guardar lo reemplazaría, así que abre ese agente en su lugar.",
+      "staleGateway": "Esta pasarela indica cuántos grupos de herramientas, habilidades y delegados tiene {{name}}, pero no cuáles, así que guardar los reemplazaría por nada. Edita este agente en el archivo de configuración o actualiza la pasarela.",
+      "addendumHelp": "Se añade después de las secciones de la plataforma. Solo puede añadir: una frase con la que no estés de acuerdo no se deshace añadiendo una corrección, porque el modelo recibe las dos. Para quitarla, edita esa sección en la pestaña Prompt.",
+      "modelPresetHelp": "Cuál de los preajustes de modelo de esta instalación responde por este agente. Un preajuste lleva juntos el modelo, el proveedor y los límites, así que no hay nada que mantener sincronizado a mano.",
+      "presetDefaultNamed": "Predeterminado de la instalación ({{name}})",
+      "providerHelp": "Lo decide el preajuste, no se elige aquí: un preajuste nombra el modelo y el proveedor que lo sirve a la vez.",
+      "bindingAll": "Todo",
+      "bindingOnly": "Solo estos",
+      "bindingAllNote": "Nada declarado: este agente alcanza todos los que tiene este despliegue, y los que agregues después.",
+      "bindingNoneNote": "Declarado y vacío: este agente no alcanza ninguno."
+    },
+    "create": {
+      "submit": "Crear"
+    },
+    "defaults": {
+      "reachesEveryTurn": "Lo que escribas aquí se añade al prompt del sistema de cada turno que no nombra ningún agente — es decir, de todos los turnos en una instalación que no nombra ninguno.",
+      "scope": "Este agente no se puede agregar, renombrar ni eliminar: es lo que tiene un despliegue antes de nombrar nada. Todo lo demás se edita aquí, como en cualquier otro agente. Sus ajustes de despliegue — la zona horaria, el tope de iteraciones de herramientas, el límite de subagentes — viven en los paneles que los gobiernan.",
+      "staleGateway": "Este gateway no reporta el addendum, las secciones reemplazadas ni los enlaces del agente por defecto, así que guardar los reemplazaría con lo que este formulario nunca leyó. Actualiza el gateway para editarlos aquí.",
+      "toolGroupsHelp": "Todo es lo que tiene un despliegue antes de limitar nada. Solo estos capa cada turno que no nombra agente — las herramientas fuera de los grupos que elijas no se ofrecen y una llamada a una se rechaza.",
+      "mcpHelp": "Este es el que más cuesta. Los esquemas de cada servidor instalado se cargan en el primer mensaje de cada conversación, así que Solo estos es cómo un despliegue con una docena deja de pagar por once.",
+      "connectorsHelp": "Todo es lo que active este despliegue. Solo estos limita el turno a los conectores que elijas, y nunca lo amplía.",
+      "skillsHelp": "Todo resume el catálogo completo, como antes. Solo estas carga en pleno lo que elijas y no resume nada más — el catálogo mismo es lo que gasta una lista larga de skills.",
+      "skillsNoneNote": "Declarado y vacío: no se carga ninguna skill ni se resume ningún catálogo.",
+      "skillsVsDisabled": "Distinto de las skills que este despliegue desactiva, en Ajustes → Skills. Esa lista quita una skill de todos los agentes; esta elige cuáles de las que quedan carga en pleno este agente.",
+      "delegatesHelp": "Los agentes a los que este puede pasar trabajo. Aquí importa más: este es el agente con el que hablas, así que sin un par nombrado la única forma de llegar a uno es dejar de hablarle.",
+      "delegatesEmpty": "Este despliegue todavía no nombra otro agente."
     }
   }
 }

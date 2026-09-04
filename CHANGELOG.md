@@ -11,7 +11,7 @@ not here.
 
 ## [Unreleased]
 
-## [2.0.0] — 2026-09-03
+## [2.0.0] — 2026-09-04
 
 ### Added
 
@@ -51,6 +51,21 @@ not here.
   the turn and its skills bound the job's own picker. ([#257](https://github.com/nanoinfraorg/nanoinfra/issues/257))
 - The approvals inbox names the agent that will act, and the agent that delegated to it.
   ([#258](https://github.com/nanoinfraorg/nanoinfra/issues/258))
+- Agents are created, edited and deleted in the browser. Each one gets a page with tabs — model,
+  tools, skills, delegates, prompt — and every binding is picked from what this deployment has.
+  ([#262](https://github.com/nanoinfraorg/nanoinfra/issues/262))
+- The deployment's own agent is one more agent: same page, same tabs, editable down to its skills,
+  MCP servers and delegates. It still cannot be deleted.
+  ([#265](https://github.com/nanoinfraorg/nanoinfra/issues/265),
+  [#266](https://github.com/nanoinfraorg/nanoinfra/issues/266))
+- The Prompt tab edits the prompt. The three sections that are prose can be replaced, each with the
+  text in force shown and what replacing it costs said before you do.
+  ([#256](https://github.com/nanoinfraorg/nanoinfra/issues/256))
+- Settings → Prompts reads and writes the two prompts that run unattended, `dream` and
+  `evaluator`. ([#264](https://github.com/nanoinfraorg/nanoinfra/issues/264))
+- An agent's tool groups, skills, MCP servers and connectors now narrow **every** turn it answers,
+  not only a scheduled one — so choosing an agent is how a conversation stops paying for every
+  server and skill installed. ([#266](https://github.com/nanoinfraorg/nanoinfra/issues/266))
 
 ### Changed
 
@@ -64,6 +79,41 @@ not here.
   ([#256](https://github.com/nanoinfraorg/nanoinfra/issues/256))
 - The executor protocol is version 7, carrying the delegation chain. A deployment running the
   executor as a separate process must restart it alongside the gateway. ([#251](https://github.com/nanoinfraorg/nanoinfra/issues/251))
+- **Nothing ships a model.** `agents.defaults.model` was `anthropic/claude-opus-4-5`, so an
+  unconfigured deployment looked configured on a provider it had no credential for. The first
+  model configuration a deployment adds is now the primary one, and it answers until something
+  else is chosen. ([#266](https://github.com/nanoinfraorg/nanoinfra/issues/266))
+- An agent's empty binding list means *none of them*, not *all of them*. Declaring nothing is what
+  means everything, and the two are now separate answers everywhere: config, the tool filter and
+  the picker. ([#266](https://github.com/nanoinfraorg/nanoinfra/issues/266))
+- A persona can write `{{ agent_name }}`, `{{ agent_role }}` or `{{ agent_description }}` in
+  `SOUL.md` and each agent fills it in. Any other `{{ }}` survives verbatim.
+  ([#265](https://github.com/nanoinfraorg/nanoinfra/issues/265))
+
+### Removed
+
+- The config warning about a dead `agents.defaults.model`. The turn fell back to the primary preset
+  either way, so the line reported a difference nothing acts on — and the field ships empty now.
+  ([#205](https://github.com/nanoinfraorg/nanoinfra/issues/205))
+
+### Fixed
+
+- A system job kept its state across a restart. `dream` and `evaluator` were re-registered as
+  brand new on every boot, so on a deployment that restarts they never ran.
+  ([#263](https://github.com/nanoinfraorg/nanoinfra/issues/263))
+- An agent's addendum and its replaced prompt sections reach the model. Both were stored, shown,
+  editable — and never passed to the prompt builder by its only call site.
+  ([#265](https://github.com/nanoinfraorg/nanoinfra/issues/265))
+- A tool refused for want of a secret says when the encryption key is the wrong one, instead of
+  failing silently. ([#217](https://github.com/nanoinfraorg/nanoinfra/issues/217))
+- A trigger whose agent declared no tool groups is no longer capped to the ungrouped tools.
+  ([#266](https://github.com/nanoinfraorg/nanoinfra/issues/266))
+- The default agent has a card on a fresh install. It hid until the deployment named an agent, so
+  the agent that answers every turn was reachable only after naming one you did not want.
+  ([#266](https://github.com/nanoinfraorg/nanoinfra/issues/266))
+- A deployment with no model at all says so at boot and on the settings page, instead of failing
+  a turn with `No provider is configured for model ''`.
+  ([#266](https://github.com/nanoinfraorg/nanoinfra/issues/266))
 
 ### Security
 

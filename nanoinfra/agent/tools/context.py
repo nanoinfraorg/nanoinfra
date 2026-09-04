@@ -171,6 +171,10 @@ class ToolContext:
     #: given turn may reach is re-read from here when the tool runs, because that depends on who
     #: is answering and a tool call is not evidence of authority.
     named_agents: "Mapping[str, NamedAgentConfig]" = _NO_NAMED_AGENTS
+    #: The deployment's own agent, so a turn that names none can still read its roster (#265).
+    #: Typed loosely for the same reason ``gate`` is: importing the config schema here would pull
+    #: a heavier tree into a module every tool imports.
+    agent_defaults: Any = None
     # The gate runtime from nanoinfra/gates/runtime.py (#33). Typed loosely on purpose:
     # that module imports the agent tree, so a real annotation here would close a cycle.
     # It carries the gate half only, so nothing reached through a tool can clear a latch.

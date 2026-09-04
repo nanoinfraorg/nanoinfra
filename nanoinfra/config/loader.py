@@ -11,7 +11,7 @@ from pydantic import BaseModel, ValidationError
 from pydantic_settings import SettingsError
 
 from nanoinfra.config.errors import ConfigIssue, ConfigLoadError, validation_issues
-from nanoinfra.config.schema import Config, ensure_tool_config_refs
+from nanoinfra.config.schema import AgentDefaults, Config, ensure_tool_config_refs
 from nanoinfra.utils.helpers import _write_text_atomic  # pyright: ignore[reportPrivateUsage]
 
 # Global variable to store current config path (for multi-instance support)
@@ -165,8 +165,45 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
         if settings:
             data.setdefault("providers", {})[alias] = settings
 
+    _drop_dead_model_choice(data, config)
+
     # Temp + replace so a crash mid-write cannot leave a truncated config.json.
     _write_text_atomic(path, json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def _drop_dead_model_choice(data: dict[str, Any], config: Config) -> None:
+    """Do not write ``agents.defaults.model`` while a preset makes it dead and nobody chose it.
+
+    The field is not dead in general -- it *is* the implicit ``default`` preset, and a deployment
+    with no ``modelPresets`` runs on it (see ``Config.resolve_default_preset``). It is dead only
+    while ``modelPreset`` names a preset that exists, because then every one of these values comes
+    from that preset instead.
+
+    Two conditions, and both are needed. **Dead**, so omitting it cannot change which model
+    answers. And **still the packaged value**, so this can never drop a model somebody picked --
+    a chosen one differs from the default, and is written as it always was.
+
+    Why bother, when the loader fills an absent key back in from the schema and the runtime is
+    identical either way: this is the line that caused a real misdiagnosis. `config.json` read
+    ``"model": "anthropic/claude-opus-4-5"`` on a deployment running a Kimi preset, and the
+    conclusion drawn from reading it was that the deployment had silently fallen back. It had
+    not. The product carried a boot warning about this for a while, and a warning about a value
+    nothing acts on is noise -- so the fix is to stop writing the value.
+
+    Only the two fields that name the model. `maxTokens` and the rest of the implicit preset are
+    equally overridden, and equally harmless: nobody reads ``maxTokens: 8192`` and concludes
+    something false about which model is answering.
+    """
+    preset = config.agents.defaults.model_preset
+    if not preset or preset == "default" or preset not in config.model_presets:
+        return
+    defaults = cast(
+        "dict[str, Any]", cast("dict[str, Any]", data.get("agents", {})).get("defaults", {})
+    )
+    for alias, field in (("model", "model"), ("provider", "provider")):
+        packaged = AgentDefaults.model_fields[field].default
+        if defaults.get(alias) == packaged:
+            defaults.pop(alias, None)
 
 
 def merge_missing_defaults(existing: object, defaults: object) -> object:

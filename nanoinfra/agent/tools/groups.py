@@ -32,7 +32,7 @@ disagreeing about it is the failure this file exists to prevent.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Mapping, cast
+from typing import TYPE_CHECKING, Iterable, Mapping, cast
 
 if TYPE_CHECKING:
     from nanoinfra.agent.tools.registry import ToolRegistry
@@ -209,8 +209,8 @@ def group_membership() -> "Mapping[str, frozenset[str]]":
     return _FULL_MEMBERSHIP
 
 
-def agent_tool_group_ceiling() -> tuple[str, ...]:
-    """The groups the agent answering this turn declared, empty when it declared none.
+def agent_tool_group_ceiling() -> tuple[str, ...] | None:
+    """The groups the agent answering this turn declared, ``None`` when it declared no ceiling.
 
     Read from the turn rather than from config, because the agent was resolved when the turn was
     built and the answer travels with it (``AUTOMATION_AGENT_META``). Empty is unrestricted, which
@@ -221,7 +221,7 @@ def agent_tool_group_ceiling() -> tuple[str, ...]:
 
     ctx = current_request_context()
     if ctx is None:
-        return ()
+        return None
     return automation_agent_tool_groups(ctx.metadata)
 
 
@@ -234,7 +234,9 @@ def within_agent_ceiling(tool_name: str) -> bool:
     delegated agent are capped by one implementation.
     """
     allowed = agent_tool_group_ceiling()
-    if not allowed:
+    # `None` is "no ceiling declared" and an empty tuple is "declared, and it is empty" -- the
+    # second caps the turn to the ungrouped tools rather than lifting the cap.
+    if allowed is None:
         return True
     from nanoinfra.agent.delegation import tools_for_groups
 
@@ -260,9 +262,34 @@ def agent_ceiling_refusal(tool_name: str) -> str | None:
     who = f"`{agent}`" if agent else "this agent"
     return (
         f"Error: Tool '{tool_name}' is outside {who}'s tool groups "
-        f"({', '.join(agent_tool_group_ceiling())}). It is not available on this turn, and "
+        f"({', '.join(agent_tool_group_ceiling() or ()) or 'no tool groups at all'}). It is "
+        "not available on this turn, and "
         "nothing in the request can widen it -- the agent's configuration is the ceiling."
     )
+
+
+#: The tool names this gateway registered, recorded by the thing that registered them.
+#:
+#: The Settings panel that declares a group needs the tools a member list may name, and no route
+#: from a settings request reaches the live registry: the payload is a pure function over config.
+#: Recorded here rather than rediscovered, because a tool's name is an instance property and
+#: re-deriving it would mean constructing every tool a second time to ask.
+_REGISTERED_TOOLS: list[str] = []
+
+
+def set_registered_tools(names: "Iterable[str]") -> None:
+    """Record what this gateway registered. Called once, after the tools are built."""
+    _REGISTERED_TOOLS.clear()
+    _REGISTERED_TOOLS.extend(sorted({str(name) for name in names if str(name).strip()}))
+
+
+def registered_tools() -> tuple[str, ...]:
+    """The registered tool names, empty before the gateway has built any.
+
+    Empty means *not yet known*, never *none exist* -- a caller that treated it as the whole truth
+    would tell an operator their deployment has no tools.
+    """
+    return tuple(_REGISTERED_TOOLS)
 
 
 def is_attached(tool_name: str) -> bool:

@@ -79,7 +79,7 @@ def job_agent_refusal(
             "Agents are declared in `agents.named` in config, because which agents exist and "
             "what each may reach is authority and lives in a file a human reviews."
         )
-    allowed = list(entry.skills)
+    allowed = list(entry.skills or [])
     if not allowed:
         # The agent declared no skills, so it summarises the whole catalogue and the job's own
         # picker is the narrowing it always was. Nothing to check.
@@ -189,9 +189,13 @@ def job_agent_binding(
     return DelegateBinding(
         name=name,
         delegated_by=asked_by,
-        tool_groups=tuple(entry.tool_groups),
+        # `None` means the agent declared no ceiling, and a binding says that with an empty
+        # tuple plus `declared_tool_groups=False`. Collapsing them would turn "unrestricted" into
+        # "no grouped tools at all" for every job whose agent narrows nothing.
+        tool_groups=tuple(entry.tool_groups or ()),
+        declared_tool_groups=entry.tool_groups is not None,
         # The job's own picker narrows; an empty picker means the agent's whole list. Both are
         # already inside the ceiling, because the refusal above is what got us here.
-        skills=tuple(skills) if skills else tuple(entry.skills),
+        skills=tuple(skills) if skills else tuple(entry.skills or ()),
         addendum=entry.addendum,
     )

@@ -35,9 +35,13 @@ class DelegateBinding:
     #: The human whose turn this ultimately serves, when there is one. ``None`` on an unattended
     #: chain, where a standing grant is the only thing that can authorise the peer's actions.
     actor: str | None = None
-    #: The `tools.groups` the peer may reach. Empty means every group, which is the reading a
-    #: single-agent deployment already has.
+    #: The `tools.groups` the peer may reach, paired with whether it declared any at all.
+    #:
+    #: Two fields because a tuple cannot hold three states and there are three: nothing declared
+    #: (unrestricted), declared and empty (no grouped surface, which is how a coordinator is
+    #: expressed), and declared with names. `declared_tool_groups=False` is the first.
     tool_groups: tuple[str, ...] = ()
+    declared_tool_groups: bool = False
     #: Skills loaded in full for the peer. Empty means the catalogue is summarised, as today.
     skills: tuple[str, ...] = ()
     #: Appended after the platform's own prompt sections. It specialises the peer and cannot
@@ -116,7 +120,7 @@ def allowed_delegates(
 
 def acting_capabilities(
     tool_names: Iterable[str],
-    allowed_groups: Iterable[str],
+    allowed_groups: Iterable[str] | None,
     membership: Mapping[str, Iterable[str]],
     class_of: Callable[[str], str],
 ) -> frozenset[str]:
@@ -137,22 +141,30 @@ def acting_capabilities(
 
 def tools_for_groups(
     tool_names: Iterable[str],
-    allowed_groups: Iterable[str],
+    allowed_groups: Iterable[str] | None,
     membership: Mapping[str, Iterable[str]],
 ) -> frozenset[str]:
     """The tools a peer keeps, given the groups it was declared with.
 
     Three rules, and the second is the one worth writing down:
 
-    1. An empty ``allowed_groups`` keeps everything. A two-line agent has to be meaningful.
+    1. ``allowed_groups=None`` keeps everything: no ceiling was declared, which is every
+       deployment that has not narrowed an agent. An **empty list** keeps only the ungrouped
+       tools, because a declared-and-empty ceiling is a real choice -- it is how a coordinator
+       says it may reach no grouped surface and must therefore ask a peer.
     2. A tool in **no** group is kept. Groups cover surfaces -- servers, diagrams -- not the whole
        tool set, so treating "ungrouped" as "denied" would leave a peer unable to read a file.
        What an agent may do to the filesystem is `tools.file`, which it already inherits.
     3. A tool in one or more groups is kept only if one of them was declared.
     """
-    allowed = frozenset(allowed_groups)
-    if not allowed:
+    # `None` and `[]` are different answers, and conflating them is what made a coordinator
+    # impossible to configure: `None` is "no ceiling declared", and an empty list is "declared,
+    # and it is empty" -- an agent that may reach no grouped surface at all. While empty meant
+    # *every* group, a deployment could not take `servers` away from its own agent, so that agent
+    # always ran a host command itself and never had a reason to delegate.
+    if allowed_groups is None:
         return frozenset(tool_names)
+    allowed = frozenset(allowed_groups)
     kept: set[str] = set()
     for name in tool_names:
         groups = frozenset(membership.get(name, ()))

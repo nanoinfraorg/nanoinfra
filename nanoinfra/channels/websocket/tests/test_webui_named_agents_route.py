@@ -241,17 +241,18 @@ async def test_the_prompt_route_answers_404_for_an_agent_that_does_not_exist(
 
 
 @pytest.mark.asyncio
-async def test_a_config_replacing_a_fixed_section_is_refused_here_too(
+async def test_a_config_replacing_a_section_it_may_not_replace_is_refused_here_too(
     bus: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The tool contract and the safety notes cannot be replaced. Surfacing it on this read means
-    an operator learns it from the Prompt tab rather than from a turn that fails to assemble."""
+    """The prose sections became replaceable-with-a-warning, but a *derived* one did not: an
+    agent's identity is what config says it is. Surfacing it on this read means an operator learns
+    it from the Prompt tab rather than from a turn that fails to assemble."""
     from nanoinfra.agent.prompt_sections import SECTION_PERMISSIONS, SectionPermission
 
     fixed = next(
         name
         for name, permission in SECTION_PERMISSIONS.items()
-        if permission is SectionPermission.FIXED
+        if permission is SectionPermission.DERIVED
     )
     monkeypatch.setattr(
         "nanoinfra.webui.ws_http.load_config",

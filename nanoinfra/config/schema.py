@@ -118,14 +118,90 @@ class ModelPresetConfig(Base):
 
 
 class AgentDefaults(Base):
-    """Default agent configuration."""
+    """Default agent configuration.
+
+    This is the deployment's own agent: the one that answers when no named agent is chosen, which
+    is every turn in a deployment that names none. The agent-shaped fields below are the ones a
+    named agent has and this did not, so the default agent could be *read* on the Agents page and
+    not edited (#265, completed in #266). Everything else here is a deployment setting rather than
+    an agent's, and lives in its own Settings panel.
+
+    **It is one more agent; the only thing that makes it different is that it cannot be deleted.**
+    That is not tidiness. It is the agent that answers when nobody chooses, so it is the agent
+    that answers most -- and while it was the one agent that could not be narrowed, a deployment
+    with a dozen MCP servers and thirty skills installed paid for all of them on every turn it
+    took, with no control anywhere that said otherwise.
+
+    Deliberately absent: ``description``, because it needs no line explaining it to a peer --
+    nothing delegates *to* it.
+    """
+
+    #: Appended after the platform's own prompt sections, exactly as a named agent's is. It
+    #: specialises the deployment's agent and cannot replace the tool contract or the safety notes.
+    addendum: str = ""
+    #: Prompt sections this deployment replaces for the default agent, by section name. Which
+    #: sections may be replaced is `agent/prompt_sections.py`'s answer, not this schema's.
+    prompt_sections: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("promptSections", "prompt_sections"),
+        serialization_alias="promptSections",
+    )
+    #: The `tools.groups` the default agent may use. **Absent means every group; an empty list
+    #: means none** -- which is how a deployment turns its own agent into a coordinator that has
+    #: to ask a peer for anything grouped. See `NamedAgentConfig.tool_groups`.
+    tool_groups: list[str] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("toolGroups", "tool_groups"),
+        serialization_alias="toolGroups",
+    )
+    #: Skills loaded in full for the default agent. Absent means the catalogue is summarised as
+    #: today; an empty list means none. Distinct from ``disabled_skills`` beside it, which removes
+    #: a skill from the whole deployment: this chooses which of the rest are loaded whole here.
+    skills: list[str] | None = None
+    #: Connectors and MCP servers the default agent may reach, with the same three states its
+    #: `tool_groups` has: absent is *no ceiling*, an empty list is *declared, and empty*.
+    #:
+    #: The second is why they are nullable (#266). Twelve installed MCP servers is twelve schema
+    #: sets in the first message of every conversation, and while empty meant *all of them* there
+    #: was no way to write down "this agent loads none" -- so the largest recurring cost in a
+    #: deployment had no control at all.
+    connectors: list[str] | None = None
+    mcp_servers: list[str] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("mcpServers", "mcp_servers"),
+        serialization_alias="mcpServers",
+    )
+    #: The peers the default agent may delegate to. Membership is the authorization, exactly as it
+    #: is for a named agent.
+    #:
+    #: This began as "the default agent can never delegate", and the consequence was a trap: a
+    #: composer whose agent choice did not survive a reload fell back to the default agent, which
+    #: held no roster, so delegation became impossible without the operator being told why. The
+    #: deployment's own agent is one more agent, and whether it delegates is config's answer.
+    delegates: list[str] = Field(default_factory=list)
 
     #: A fresh install gets ``default`` inside ``tools.workspacesRoot``. An install
     #: that predates the root keeps what its own config.json says; see
     #: ``config.paths.default_workspace_path`` for why that is not migrated for them.
     workspace: str = "~/.nanoinfra/workspaces/default"
     model_preset: str | None = None  # Active preset name — takes precedence over fields below
-    model: str = "anthropic/claude-opus-4-5"
+    #: Empty, and deliberately: **nothing ships a model**.
+    #:
+    #: This used to be `anthropic/claude-opus-4-5`, and the cost was a deployment appearing to run
+    #: on a model it had no credential for. `config.json` said so in writing, the Models panel
+    #: showed it as a row called `Default`, and the conclusion a reader drew from that -- that the
+    #: deployment had silently fallen back to Opus -- was wrong. A packaged model is a decision
+    #: nobody made, presented as one they did.
+    #:
+    #: What is primary instead is the **first preset this deployment adds**, and it stays primary
+    #: until something else is chosen: `resolve_default_preset` falls to the first entry of
+    #: `model_presets`, and creating a preset while none is active makes that one active. So the
+    #: answer to "which model answers" is always a preset somebody wrote down.
+    #:
+    #: Still a real field, not removed: an operator who sets a model inline -- `nanoinfra` with a
+    #: `--model`, or the provider CLI -- has chosen one, and that choice is the implicit `default`
+    #: preset exactly as it always was.
+    model: str = ""
     provider: str = (
         "auto"  # Provider name (e.g. "anthropic", "openrouter") or "auto" for auto-detection
     )
@@ -217,20 +293,27 @@ class NamedAgentConfig(Base):
         validation_alias=AliasChoices("modelPreset", "model_preset"),
         serialization_alias="modelPreset",
     )
-    #: The `tools.groups` this agent may use. Empty means every group -- the same reading
-    #: `tool_capabilities` has upstream, and what a deployment with one agent already gets.
-    tool_groups: list[str] = Field(
-        default_factory=list,
+    #: The `tools.groups` this agent may use.
+    #:
+    #: **Absent means every group; an empty list means none.** Two different answers, and they
+    #: were one until a coordinator turned out to be unconfigurable: while `[]` meant *all*, a
+    #: deployment could not take `servers` away from an agent, so that agent always ran a host
+    #: command itself and never had a reason to ask a peer. Absent is what every deployment that
+    #: has narrowed nothing carries, so nothing changes for them.
+    tool_groups: list[str] | None = Field(
+        default=None,
         validation_alias=AliasChoices("toolGroups", "tool_groups"),
         serialization_alias="toolGroups",
     )
-    #: Skills loaded in full for this agent. Empty means the catalogue is summarised, as today.
-    skills: list[str] = Field(default_factory=list)
-    #: Connectors and MCP servers this agent may reach. Empty means whatever config activates
-    #: globally; naming them narrows, never widens.
-    connectors: list[str] = Field(default_factory=list)
-    mcp_servers: list[str] = Field(
-        default_factory=list,
+    #: Skills loaded in full for this agent. Absent means the catalogue is summarised as today;
+    #: an empty list means none are loaded in full. Same distinction as `tool_groups`.
+    skills: list[str] | None = None
+    #: Connectors and MCP servers this agent may reach, with the same three states `tool_groups`
+    #: has: absent is *no ceiling*, an empty list is *declared, and empty*. See `AgentDefaults`
+    #: for why the empty case had to become expressible.
+    connectors: list[str] | None = None
+    mcp_servers: list[str] | None = Field(
+        default=None,
         validation_alias=AliasChoices("mcpServers", "mcp_servers"),
         serialization_alias="mcpServers",
     )
@@ -302,6 +385,15 @@ class AgentsConfig(Base):
                     raise ValueError(
                         f"agents.named[{name!r}] lists itself as a delegate"
                     )
+        # The deployment's own agent is subject to the same rule, because it is one more agent
+        # (#266) and a mistyped peer there fails exactly the same way: a manager that cannot find
+        # who it was told to ask. It cannot list *itself*, and there is nothing to spell that
+        # with -- `agents.defaults` has no name in the roster.
+        for peer in self.defaults.delegates:
+            if peer not in self.named:
+                raise ValueError(
+                    f"agents.defaults.delegates names {peer!r}, which is not a configured agent"
+                )
         return self
 
 
@@ -753,8 +845,20 @@ class Config(BaseSettings):
         return self
 
     def resolve_default_preset(self) -> ModelPresetConfig:
-        """Return the implicit `default` preset from agents.defaults fields."""
+        """Return the implicit `default` preset from agents.defaults fields.
+
+        With no inline model -- which is every deployment that has not set one, since nothing
+        ships a model any more -- this is **the first preset**. That is the rule stated plainly:
+        the first model configuration a deployment adds is the primary one, and it answers until
+        something else is chosen. Insertion order is the order they were added, because
+        `model_presets` is a dict and config preserves the order the file was written in.
+
+        The numbers still come from `agents.defaults` when a preset does not override them, so a
+        deployment's token caps and temperature stay where its other settings are.
+        """
         d = self.agents.defaults
+        if not d.model.strip() and self.model_presets:
+            return next(iter(self.model_presets.values()))
         return ModelPresetConfig(
             model=d.model, provider=d.provider, max_tokens=d.max_tokens,
             context_window_tokens=d.context_window_tokens,

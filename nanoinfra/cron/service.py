@@ -837,11 +837,38 @@ class CronService:
         return job
 
     def register_system_job(self, job: CronJob) -> CronJob:
-        """Register an internal system job (idempotent on restart)."""
+        """Register an internal system job, keeping what a previous run already knew.
+
+        Re-registered on every gateway start, so this has to be idempotent in the sense that
+        matters: not merely "does not duplicate the row", which is all it used to be.
+
+        It replaced ``state`` wholesale, which had three consequences, all of them wrong and all
+        of them visible on the Automations page:
+
+        - **The next run was pushed a full interval on every boot.** A gateway restarted more
+          often than every two hours therefore never ran Dream at all -- the reason a workspace
+          could show a two-week-old memory cursor while the job read "every 2 hours".
+        - The run history was erased, so a job that had run for months read "no runs recorded".
+        - ``created_at_ms`` was moved to now, so a long-standing job claimed to be new.
+
+        A stored next run in the *past* is kept in the past deliberately: it means a slot was
+        missed while the process was down, and the timer firing it immediately is what "every two
+        hours" should mean. Only a schedule that has actually changed is recomputed.
+        """
         store = self._require_store()
         now = _now_ms()
-        job.state = CronJobState(next_run_at_ms=_compute_next_run(job.schedule, now))
-        job.created_at_ms = now
+        existing = next((j for j in store.jobs if j.id == job.id), None)
+        if existing is None:
+            job.state = CronJobState(next_run_at_ms=_compute_next_run(job.schedule, now))
+            job.created_at_ms = now
+        else:
+            job.state = existing.state
+            job.created_at_ms = existing.created_at_ms
+            # A changed schedule invalidates the stored slot; an unchanged one keeps it, including
+            # a pending retry, which is the state `retry_pending` exists to protect.
+            if existing.schedule != job.schedule or job.state.next_run_at_ms is None:
+                job.state.next_run_at_ms = _compute_next_run(job.schedule, now)
+                job.state.retry_pending = False
         job.updated_at_ms = now
         store.jobs = [j for j in store.jobs if j.id != job.id]
         store.jobs.append(job)

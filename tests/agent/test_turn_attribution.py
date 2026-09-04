@@ -201,3 +201,108 @@ def test_a_junk_agent_in_a_persisted_record_is_ignored() -> None:
             m for m in messages if m.get("role") == "assistant" and m.get("kind") != "trace"
         ]
         assert "agent" not in answers[-1], junk
+
+
+# --- the acting agent's prompt reaches the turn -----------------------------------------------
+
+
+def _prompt_kwargs(
+    named: dict[str, object], agent: str | None, bot_name: str = "nanobot"
+) -> dict[str, object]:
+    """What the loop hands the context builder for a turn answered by *agent*."""
+    from nanoinfra.agent.loop import AgentLoop, TurnContext
+    from nanoinfra.config.schema import AgentDefaults
+
+    loop = _Loop(named)
+    loop._agent_defaults = AgentDefaults(bot_name=bot_name)  # type: ignore[attr-defined]
+    ctx = object.__new__(TurnContext)
+    ctx.agent = agent
+    return AgentLoop._agent_prompt_for(loop, ctx)  # type: ignore[arg-type]
+
+
+def test_the_acting_agents_addendum_and_sections_reach_the_prompt() -> None:
+    """`build_system_prompt` accepted both from the start and **nothing passed them**, so a named
+    agent's addendum and its replaced sections were stored, shown, editable — and inert. This is
+    the test that would have caught an editor over config that reached no turn."""
+    from nanoinfra.config.schema import AgentsConfig
+
+    named = AgentsConfig.model_validate({
+        "named": {"sre": {
+            "description": "hands-on checks",
+            "addendum": "Prefer read-only checks.",
+            "promptSections": {"Memory": "The database is on db-01."},
+        }}
+    }).named
+
+    kwargs = _prompt_kwargs(named, "sre")
+
+    assert kwargs["agent_addendum"] == "Prefer read-only checks."
+    assert kwargs["section_overrides"] == {"Memory": "The database is on db-01."}
+
+
+def test_a_named_agent_is_told_who_it_is() -> None:
+    """Found by asking one: with `sre` selected, "quién eres" answered "I am nanobot" -- the
+    deployment's persona from `SOUL.md`, which every agent shares. A roster of specialists was
+    five badges over one identity, so the name and the purpose now travel with the turn."""
+    from nanoinfra.config.schema import AgentsConfig
+
+    named = AgentsConfig.model_validate(
+        {"named": {"sre": {"description": "hands-on checks on your hosts"}}}
+    ).named
+
+    kwargs = _prompt_kwargs(named, "sre")
+
+    assert kwargs["agent_name"] == "sre"
+    assert kwargs["agent_description"] == "hands-on checks on your hosts"
+
+
+def test_the_default_agent_is_named_by_nobody_and_adds_no_section() -> None:
+    """The identity *parameters* always travel, because a persona that writes `{{ agent_name }}`
+    has to read sensibly on a default-agent turn too. What is empty is the agent name, and an
+    empty name renders no section at all -- so a deployment that names nothing sees the prompt it
+    had before any of this."""
+    from nanoinfra.agent.context import _agent_identity_text
+
+    kwargs = _prompt_kwargs({}, None)
+
+    assert kwargs["agent_name"] == ""
+    assert kwargs["agent_description"] == ""
+    assert "section_overrides" not in kwargs
+    assert "agent_addendum" not in kwargs
+    assert _agent_identity_text("", "") == ""
+
+
+def test_the_deployments_bot_name_fills_a_persona_placeholder() -> None:
+    """`agents.defaults.botName` reaches the CLI banner and a device note's signature and, until
+    this, no prompt at all. It is the fallback for `{{ agent_name }}` so a `SOUL.md` written once
+    reads on every turn."""
+    assert _prompt_kwargs({}, None, bot_name="nanobot")["bot_name"] == "nanobot"
+
+
+def test_an_agent_that_declares_neither_overrides_nothing_but_is_still_named() -> None:
+    """Two different absences. It has no addendum and replaces no section, so those keys are not
+    passed at all -- passing empty ones would be an override set that means "replace with
+    nothing". Its *name* still travels, because it is still that agent answering."""
+    from nanoinfra.config.schema import AgentsConfig
+
+    named = AgentsConfig.model_validate({"named": {"sre": {}}}).named
+
+    kwargs = _prompt_kwargs(named, "sre")
+
+    assert "section_overrides" not in kwargs
+    assert "agent_addendum" not in kwargs
+    assert kwargs["agent_name"] == "sre"
+
+
+def test_a_name_the_roster_does_not_hold_falls_back_to_the_deployments_own_agent() -> None:
+    """The loop resolves an unknown name to the default agent before this, so reaching here with
+    one means something bypassed that -- and the safe answer is the deployment's own prompt, not
+    another agent's."""
+    from nanoinfra.config.schema import AgentsConfig
+
+    named = AgentsConfig.model_validate({"named": {"sre": {"addendum": "mine"}}}).named
+
+    kwargs = _prompt_kwargs(named, "ghost")
+
+    assert kwargs.get("agent_addendum", "") == ""
+    assert kwargs["agent_name"] == "ghost"

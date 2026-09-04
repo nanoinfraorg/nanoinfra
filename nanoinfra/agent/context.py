@@ -9,6 +9,7 @@ from typing import Any, Mapping, Sequence, cast
 from loguru import logger
 
 from nanoinfra.agent.memory import MemoryStore
+from nanoinfra.agent.prompt_layers import rendered_section
 from nanoinfra.agent.prompt_manifest import PromptManifest
 from nanoinfra.agent.prompt_sections import (
     ADDENDUM_SECTION,
@@ -67,6 +68,74 @@ async def handle_runtime_control(state: Any, msg: InboundMessage, tools: ToolReg
         if await handler(state, msg, tools):
             return True
     return False
+
+
+#: What a bootstrap file may ask for, so a persona can name the agent that is wearing it.
+#:
+#: `SOUL.md` says "I am nanobot, a personal AI assistant" and is one file per workspace, shared by
+#: every agent. Appending a correction after it left two sentences arguing; letting the persona
+#: *say* it instead gives one voice: "I am nanobot, acting as the `sre` agent".
+#:
+#: A targeted replace and deliberately **not** a template render. These files are prose an
+#: operator wrote, and running them through a template engine turns a stray brace in an example
+#: into an error nobody asked for. Only these three names are substituted; every other `{{ ... }}`
+#: is left exactly as written.
+AGENT_PLACEHOLDERS = ("agent_name", "agent_role", "agent_description")
+
+
+def substitute_agent_placeholders(text: str, *, name: str, description: str, bot_name: str) -> str:
+    """Fill the agent placeholders a bootstrap file used, if it used any.
+
+    Each has a reading for a default-agent turn too, so a workspace that writes one does not have
+    to know whether an agent was named: `agent_name` falls back to the deployment's own bot name,
+    and `agent_role` to a phrase that completes "acting as ..." without naming anybody.
+    """
+    named = name.strip()
+    values = {
+        "agent_name": named or bot_name,
+        "agent_role": (
+            (f"the `{named}` agent" + (f" -- {description.strip()}" if description.strip() else ""))
+            if named
+            else "this deployment's own agent"
+        ),
+        "agent_description": description.strip(),
+    }
+    for key in AGENT_PLACEHOLDERS:
+        for spelling in (f"{{{{{key}}}}}", f"{{{{ {key} }}}}"):
+            text = text.replace(spelling, values[key])
+    return text
+
+
+def used_agent_placeholder(text: str) -> bool:
+    """Whether a bootstrap file named the agent itself.
+
+    When it did, the separate identity section is redundant -- and worse than redundant, because
+    the persona has already said it in its own voice.
+    """
+    return any(
+        spelling in text
+        for key in AGENT_PLACEHOLDERS
+        for spelling in (f"{{{{{key}}}}}", f"{{{{ {key} }}}}")
+    )
+
+
+def _agent_identity_text(name: str, description: str) -> str:
+    """The lines that tell a named agent who it is, or "" for the default agent.
+
+    Two facts and no instruction: the name it is addressed by, and the line config gives as its
+    purpose. An agent that does not know its own name answers "who are you" with the deployment's
+    bot name -- which is what made a roster of specialists read as one agent in five costumes.
+    """
+    if not name.strip():
+        return ""
+    lines = [f"You are the `{name.strip()}` agent of this nanoinfra deployment."]
+    if description.strip():
+        lines.append(f"What you are for: {description.strip()}")
+    lines.append(
+        "Answer as that agent. The deployment's own name and persona describe the deployment, "
+        "not you."
+    )
+    return "\n".join(lines)
 
 
 class ContextBuilder:
@@ -189,6 +258,9 @@ class ContextBuilder:
         group_advertisement: str = "",
         section_overrides: Mapping[str, str] | None = None,
         agent_addendum: str = "",
+        agent_name: str = "",
+        agent_description: str = "",
+        bot_name: str = "",
     ) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills.
 
@@ -234,9 +306,36 @@ class ContextBuilder:
         # Its own section, and fixed, because the identity above it is the one section a
         # deployment is most likely to replace. While these rules lived inside that text a persona
         # swap took the prompt-injection defence with it and nothing said so.
-        section("Safety notes", render_template("agent/safety_notes.md"))
-        section("Bootstrap files", self._load_bootstrap_files(root))
-        section("Tool usage notes", render_template("agent/tool_contract.md"))
+        # Through the layer resolver, so `<workspace>/prompts/safety_notes.md` overrides ours --
+        # the mechanism `dream.md` and `evaluator.md` have used since before named agents existed.
+        section("Safety notes", rendered_section(root, "Safety notes"))
+        bootstrap = self._load_bootstrap_files(root)
+        persona_names_the_agent = used_agent_placeholder(bootstrap)
+        section(
+            "Bootstrap files",
+            substitute_agent_placeholders(
+                bootstrap,
+                name=agent_name,
+                description=agent_description,
+                bot_name=bot_name,
+            ),
+        )
+        # **After** the bootstrap files, and that ordering is the whole point. `SOUL.md` is the
+        # deployment's persona -- "I am nanobot, a personal AI assistant" -- and it is one file per
+        # workspace, shared by every agent. Placed before it, this section told the model it was
+        # `sre` and the persona then told it it was nanobot; the agent introduced itself as the
+        # deployment. Order is meaning in a prompt, so who is answering comes last.
+        #
+        # Empty on a default-agent turn, so the section does not appear at all and the prompt
+        # reads exactly as it did before named agents existed.
+        # Suppressed when the persona already named the agent through a placeholder: two
+        # statements of who is answering is one more than the model needs, and the operator's own
+        # sentence is the better of the two.
+        section(
+            "Agent identity",
+            "" if persona_names_the_agent else _agent_identity_text(agent_name, agent_description),
+        )
+        section("Tool usage notes", rendered_section(root, "Tool usage notes"))
 
         memory = self.memory.read_memory()
         # Built as a value and handed to `section` even when it is empty, rather than guarded by an
@@ -267,9 +366,13 @@ class ContextBuilder:
                     items=len(active_skills),
                 )
 
-        if declared_skills:
+        if declared_skills is not None:
             # Declared skills are already loaded in full above, so there is nothing left to
             # summarise: the whole point is that this turn sees these and not the catalogue.
+            #
+            # `is not None` rather than truthiness, because an **empty** declaration is a real
+            # one: an agent narrowed to no skills at all should not be handed the catalogue of
+            # every skill installed, which is the largest thing this list exists to remove.
             skills_summary = ""
         else:
             skills_summary = self.skills.build_skills_summary(exclude=set(active_skills))
@@ -334,8 +437,9 @@ class ContextBuilder:
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
 
-        return render_template(
-            "agent/identity.md",
+        return rendered_section(
+            root,
+            "Runtime",
             workspace_path=workspace_path,
             agent_workspace_path=agent_workspace_path,
             runtime=runtime,
@@ -421,8 +525,22 @@ class ContextBuilder:
         mcp_advertisement: str = "",
         connector_advertisement: str = "",
         group_advertisement: str = "",
+        section_overrides: Mapping[str, str] | None = None,
+        agent_addendum: str = "",
+        agent_name: str = "",
+        agent_description: str = "",
+        bot_name: str = "",
     ) -> list[dict[str, Any]]:
-        """Build the complete message list for an LLM call."""
+        """Build the complete message list for an LLM call.
+
+        ``section_overrides`` and ``agent_addendum`` belong to the agent answering this turn.
+        They are parameters rather than something read here, because this builder does not know
+        the roster and must not: which agent is acting is the loop's answer.
+
+        They were accepted by ``build_system_prompt`` before this and never passed by anything,
+        so a named agent's addendum and its replaced sections were stored, shown, editable -- and
+        inert. An editor over config that reaches no turn is worse than no editor.
+        """
         root = workspace or self.workspace
         active_skill_names = (
             self.skills.get_explicitly_invoked_skills(current_message)
@@ -444,6 +562,11 @@ class ContextBuilder:
                     mcp_advertisement=mcp_advertisement,
                     connector_advertisement=connector_advertisement,
                     group_advertisement=group_advertisement,
+                    section_overrides=section_overrides,
+                    agent_addendum=agent_addendum,
+                    agent_name=agent_name,
+                    agent_description=agent_description,
+                    bot_name=bot_name,
                 ),
             },
             *history,

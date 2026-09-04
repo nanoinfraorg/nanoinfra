@@ -31,6 +31,8 @@ import type {
   NanoinfraFeaturesPayload,
   ModelConfigurationCreate,
   ModelConfigurationUpdate,
+  NamedAgentsSaveRequest,
+  AgentDefaultsSaveRequest,
   NetworkSafetySettingsUpdate,
   PairingPayload,
   ProviderCreationUpdate,
@@ -106,40 +108,47 @@ const DIAGRAM_CHUNK_COUNT_HEADER = "X-Nanoinfra-Diagram-Chunks";
  */
 const DIAGRAM_CHUNK_BYTES = 6000;
 
-function diagramValuesHeaders(diagram: Diagram): Record<string, string> {
-  const encoded = encodeURIComponent(JSON.stringify(diagram));
-  const chunks: string[] = [];
-  for (let index = 0; index < encoded.length; index += DIAGRAM_CHUNK_BYTES) {
-    chunks.push(encoded.slice(index, index + DIAGRAM_CHUNK_BYTES));
-  }
-  if (chunks.length === 0) chunks.push("");
-  const headers: Record<string, string> = {
-    [DIAGRAM_CHUNK_COUNT_HEADER]: String(chunks.length),
-  };
-  chunks.forEach((chunk, index) => {
-    headers[`${DIAGRAM_VALUES_HEADER}-${index}`] = chunk;
-  });
-  return headers;
-}
-const SERVER_NOTES_HEADER = "X-Nanoinfra-Server-Notes";
-const SERVER_NOTES_CHUNK_COUNT_HEADER = "X-Nanoinfra-Server-Notes-Chunks";
-
-/** Same split as a diagram body, and for the same transport reason (#229). */
-function serverNotesHeaders(payload: unknown): Record<string, string> {
+/**
+ * One JSON payload as numbered header chunks -- the mirror of `_chunked_headers` in
+ * `nanoinfra/webui/ws_http.py`, which the diagram body, a server's notes and the agent roster all
+ * travel through.
+ *
+ * One function rather than one per payload, for the reason the Python side gives for its own
+ * extraction: three copies of a split cannot be kept in step with the reader, and the failure mode
+ * of drifting is a dropped connection with no status code.
+ */
+function chunkedValuesHeaders(
+  header: string,
+  countHeader: string,
+  payload: unknown,
+): Record<string, string> {
   const encoded = encodeURIComponent(JSON.stringify(payload));
   const chunks: string[] = [];
   for (let index = 0; index < encoded.length; index += DIAGRAM_CHUNK_BYTES) {
     chunks.push(encoded.slice(index, index + DIAGRAM_CHUNK_BYTES));
   }
   if (chunks.length === 0) chunks.push("");
-  const headers: Record<string, string> = {
-    [SERVER_NOTES_CHUNK_COUNT_HEADER]: String(chunks.length),
-  };
+  const headers: Record<string, string> = { [countHeader]: String(chunks.length) };
   chunks.forEach((chunk, index) => {
-    headers[`${SERVER_NOTES_HEADER}-${index}`] = chunk;
+    headers[`${header}-${index}`] = chunk;
   });
   return headers;
 }
+
+function diagramValuesHeaders(diagram: Diagram): Record<string, string> {
+  return chunkedValuesHeaders(DIAGRAM_VALUES_HEADER, DIAGRAM_CHUNK_COUNT_HEADER, diagram);
+}
+const SERVER_NOTES_HEADER = "X-Nanoinfra-Server-Notes";
+const SERVER_NOTES_CHUNK_COUNT_HEADER = "X-Nanoinfra-Server-Notes-Chunks";
+
+/** Same split as a diagram body, and for the same transport reason (#229). */
+function serverNotesHeaders(payload: unknown): Record<string, string> {
+  return chunkedValuesHeaders(SERVER_NOTES_HEADER, SERVER_NOTES_CHUNK_COUNT_HEADER, payload);
+}
+const AGENTS_HEADER = "X-Nanoinfra-Agents";
+const WORKSPACE_PROMPT_HEADER = "X-Nanoinfra-Workspace-Prompt";
+const WORKSPACE_PROMPT_CHUNK_COUNT_HEADER = "X-Nanoinfra-Workspace-Prompt-Chunks";
+const AGENTS_CHUNK_COUNT_HEADER = "X-Nanoinfra-Agents-Chunks";
 const SECRET_VALUES_HEADER = "X-Nanoinfra-Secret-Values";
 const WORKSPACE_VALUES_HEADER = "X-Nanoinfra-Workspace-Values";
 const SERVER_VALUES_HEADER = "X-Nanoinfra-Server-Values";
@@ -1731,6 +1740,90 @@ export async function fetchNamedAgents(
 }
 
 /**
+ * Write the whole roster: `agents.named`, replaced (#262).
+ *
+ * **The whole map, never a diff.** A roster is one object that has to stay internally consistent:
+ * `delegates` names other agents, so a server asked to validate one agent against a roster this
+ * client had not sent would accept a pair config refuses. Deleting an agent is therefore sending
+ * the roster without it, and there is no delete route to get out of step with this one.
+ *
+ * **No `method`.** Every settings write in this file is a path with a header, because
+ * `websockets`' `process_request` exposes the request line and the headers and never a body -- and
+ * over that transport a `POST` reaches no route at all: the connection closes with no response.
+ * The route reads the header, which is what decides a write from a read here.
+ *
+ * The reply is the whole fresh `SettingsPayload`, the way every other settings write answers, so a
+ * caller hands it straight to `applyPayload` rather than refetching.
+ */
+export async function saveNamedAgents(
+  token: string,
+  request_: NamedAgentsSaveRequest,
+  base: string = "",
+): Promise<SettingsPayload> {
+  return request<SettingsPayload>(
+    `${base}/api/settings/agents`,
+    token,
+    {
+      headers: chunkedValuesHeaders(AGENTS_HEADER, AGENTS_CHUNK_COUNT_HEADER, request_),
+    },
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+/**
+ * Write the deployment's own agent -- the fields of `agents.defaults` that are an agent's (#265,
+ * completed in #266).
+ *
+ * **A partial write, by design.** `agents.defaults` holds twenty-six fields -- the timezone, the
+ * tool-iteration cap, the subagent limit -- and this form shows the seven that are an *agent's*
+ * rather than a deployment's: the addendum, the replaced prompt sections, and the tool groups,
+ * skills, MCP servers, connectors and delegates it narrows itself to. The route writes the keys the payload carries and leaves the rest
+ * alone, so a caller must send only what was edited: a full snapshot of the form's state would
+ * reset nineteen settings to whatever this client last read. `agentDefaultsPatch` in
+ * `components/agents/agentValues.ts` is what builds that diff.
+ *
+ * The transport is the roster write's: a GET, because `websockets`' `read_request` refuses a POST
+ * before a route sees it, and the payload in chunked headers because prompt text has no size a
+ * header line can be assumed to survive. Same header pair, so the two writes cannot drift.
+ */
+export async function saveAgentDefaults(
+  token: string,
+  request_: AgentDefaultsSaveRequest,
+  base: string = "",
+): Promise<SettingsPayload> {
+  return request<SettingsPayload>(
+    `${base}/api/settings/agents/defaults`,
+    token,
+    {
+      headers: chunkedValuesHeaders(AGENTS_HEADER, AGENTS_CHUNK_COUNT_HEADER, request_),
+    },
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+/**
+ * The gateway's own words for a refusal, unparaphrased.
+ *
+ * The refusals that matter here come from the config schema -- an unknown delegate, an agent
+ * listing itself, a name that could not be typed as `@agent:<name>` -- and they name the offending
+ * value. A UI that replaced them with "could not save" would throw away the only part an operator
+ * can act on. Text or `{"error": "..."}` are both unwrapped, so the reason survives the gateway
+ * changing its mind about which it sends.
+ */
+export function serverReason(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error ?? "");
+  const text = raw.trim();
+  if (!text.startsWith("{")) return text;
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
+    const reason = parsed.error ?? parsed.message;
+    return typeof reason === "string" && reason.trim() ? reason.trim() : text;
+  } catch {
+    return text;
+  }
+}
+
+/**
  * What a deployment may change about one prompt section (#256).
  *
  * `replaceable` is the persona and what it remembers; `workspace` is already yours by another
@@ -1756,6 +1849,22 @@ export interface AgentPromptSection {
   static: boolean;
   /** Null for a per-turn section, whose size the turn's own manifest reports instead. */
   tokens: number | null;
+  /**
+   * The text in force: this deployment's replacement when it made one, otherwise the platform's
+   * own. `null` for a section a turn assembles -- the memory block, the bootstrap files, the
+   * history -- where there is no text outside a turn to show.
+   *
+   * Optional here, and on the three below, only so a gateway older than #262's prompt editor
+   * still renders a section list. A panel that reads a name and a permission and cannot read the
+   * text is a map of the prompt rather than the prompt, which is the thing this field ends.
+   */
+  text?: string | null;
+  /** The platform's own text, so the editor can hand it back after a replacement. */
+  platform_text?: string | null;
+  /** The `{{ }}` names a replacement has to keep, in the order they appear in the template. */
+  placeholders?: string[];
+  /** What replacing this section costs, in the platform's words. Empty for most sections. */
+  warning?: string;
 }
 
 export interface AgentPromptPayload {
@@ -1768,15 +1877,88 @@ export interface AgentPromptPayload {
 }
 
 export async function fetchAgentPrompt(
-  agent: string,
+  /**
+   * The named agent, or `null` for the deployment's own -- `agents.defaults` (#265).
+   *
+   * `null` sends no `agent` parameter, which is how the route spells *the agent that answers when
+   * nobody picks one*. A gateway that does not serve that yet answers 400 and the panel says it
+   * does not report the composition, which is true and is the same thing it says for every other
+   * gateway too old for a read: the alternative was a second code path that would need deleting
+   * the day the route lands.
+   */
+  agent: string | null,
   token: string,
   base: string = "",
 ): Promise<AgentPromptPayload> {
+  const query = agent === null ? "" : `?agent=${encodeURIComponent(agent)}`;
   return request<AgentPromptPayload>(
-    `${base}/api/webui/agents/prompt?agent=${encodeURIComponent(agent)}`,
+    `${base}/api/webui/agents/prompt${query}`,
     token,
     undefined,
     API_READ_TIMEOUT_MS,
+  );
+}
+
+/**
+ * One prompt this workspace may replace (#264).
+ *
+ * `text` is the text in force -- this workspace's own when it has one, the platform's when it has
+ * not. `platform_text` travels either way, because "restore the default" has to put back
+ * something the panel can show first.
+ */
+export interface WorkspacePrompt {
+  name: string;
+  /** What the prompt decides, in the platform's own words. */
+  controls: string;
+  /** What a replacement must keep. Non-empty for `evaluator`; empty for `dream`. */
+  requirement: string;
+  text: string;
+  platform_text: string;
+  source: "workspace" | "platform";
+  /** Where the override file lives, so an operator can edit it in an editor too. */
+  path: string;
+  max_chars: number;
+}
+
+export interface WorkspacePromptsPayload {
+  prompts: WorkspacePrompt[];
+}
+
+export async function fetchWorkspacePrompts(
+  token: string,
+  base: string = "",
+): Promise<WorkspacePromptsPayload> {
+  return request<WorkspacePromptsPayload>(
+    `${base}/api/settings/workspace-prompts`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+/**
+ * Write one override, or remove it -- a GET that writes, because this transport rejects any other
+ * method before a route is reached, and a prompt is 8 KB so the body travels in chunked headers.
+ *
+ * Whether this stores a file or deletes one is the server's decision: text equal to the packaged
+ * prompt, and empty text, both delete. The response is the read payload either way, so the panel
+ * reads `source` back rather than predicting which happened.
+ */
+export async function saveWorkspacePrompt(
+  token: string,
+  values: { name: string; text: string },
+  base: string = "",
+): Promise<WorkspacePromptsPayload> {
+  return request<WorkspacePromptsPayload>(
+    `${base}/api/settings/workspace-prompts/save`,
+    token,
+    {
+      headers: chunkedValuesHeaders(
+        WORKSPACE_PROMPT_HEADER,
+        WORKSPACE_PROMPT_CHUNK_COUNT_HEADER,
+        values,
+      ),
+    },
   );
 }
 

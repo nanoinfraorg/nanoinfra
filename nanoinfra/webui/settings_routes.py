@@ -78,6 +78,7 @@ from nanoinfra.webui.settings_api import (
     provider_models_payload,
     settings_payload,
     settings_usage_payload,
+    update_agent_defaults,
     update_agent_settings,
     update_api_settings,
     update_gates_settings,
@@ -85,12 +86,18 @@ from nanoinfra.webui.settings_api import (
     update_knowledge_settings,
     update_model_call_order,
     update_model_configuration,
+    update_named_agents,
     update_network_safety_settings,
     update_provider_settings,
+    update_tool_groups,
     update_transcription_settings,
     update_web_search_settings,
 )
 from nanoinfra.webui.version_check import check_for_update
+from nanoinfra.webui.workspace_prompts_api import (
+    save_workspace_prompt,
+    workspace_prompts_payload,
+)
 
 QueryParams = dict[str, list[str]]
 
@@ -309,6 +316,16 @@ class WebUISettingsRouter:
             return self._handle_settings_gates_update(request)
         if path == "/api/settings/knowledge/update":
             return self._handle_settings_knowledge_update(request)
+        if path == "/api/settings/agents":
+            return self._handle_settings_agents_update(request)
+        if path == "/api/settings/agents/defaults":
+            return self._handle_settings_agent_defaults_update(request)
+        if path == "/api/settings/tool-groups":
+            return self._handle_settings_tool_groups_update(request)
+        if path == "/api/settings/workspace-prompts":
+            return self._handle_workspace_prompts(request)
+        if path == "/api/settings/workspace-prompts/save":
+            return self._handle_workspace_prompt_save(request)
         # No install/update/uninstall counterpart on purpose: tools.agentPlugins is the authority
         # and the panel is read-only (#141, #142).
         if path == "/api/settings/agent-plugins":
@@ -905,6 +922,118 @@ class WebUISettingsRouter:
             return self._error_response(e.status, e.message)
         # The `runtime` section, because the indexing job and the search tool are both built
         # once at gateway start.
+        return self._json_response(self._with_restart_state(payload, request, section="runtime"))
+
+    def _handle_workspace_prompts(self, request: WsRequest) -> Response:
+        """``GET /api/settings/workspace-prompts`` -- the two prompts that run unattended (#264).
+
+        Dream, which decides how memory is organised, and the heartbeat's notification gate. The
+        text in force travels with the packaged one beside it, so the panel can show what it would
+        replace before it replaces it -- which the slash-command-and-a-text-file path never could.
+        """
+        if not self._authorized(request):
+            return self._unauthorized()
+        return self._json_response(workspace_prompts_payload(load_config().workspace_path))
+
+    def _handle_workspace_prompt_save(self, request: WsRequest) -> Response:
+        """``GET /api/settings/workspace-prompts/save`` -- write one override, or remove it.
+
+        A GET that writes, for the transport reason on the roster handler. Text equal to the
+        packaged prompt **deletes** the file rather than storing a copy: a copy still wins over
+        the platform's own text tomorrow, so keeping it would freeze this workspace at today's
+        version without saying so.
+        """
+        if not self._authorized(request):
+            return self._unauthorized()
+        from nanoinfra.webui.ws_http import workspace_prompt_values_from_request
+
+        values = workspace_prompt_values_from_request(request)
+        if values is None:
+            return self._error_response(400, "invalid workspace prompt payload")
+        name = str(values.get("name") or "").strip()
+        text = values.get("text")
+        if not name or not isinstance(text, str):
+            return self._error_response(400, "name and text are required")
+        try:
+            payload = save_workspace_prompt(load_config().workspace_path, name, text)
+        except KeyError:
+            return self._error_response(404, f"there is no workspace prompt called {name!r}")
+        except ValueError as exc:
+            return self._error_response(400, str(exc))
+        except OSError as exc:
+            return self._error_response(400, f"the prompt was not saved: {exc}")
+        # Both are read when the thing that uses them next runs -- Dream on its schedule, the gate
+        # on the next heartbeat -- so no restart is needed and none is claimed.
+        return self._json_response(payload)
+
+    def _handle_settings_agent_defaults_update(self, request: WsRequest) -> Response:
+        """``GET /api/settings/agents/defaults`` -- the deployment's own agent (#265).
+
+        Its addendum, its replaced prompt sections and its tool groups, and nothing else in
+        ``agents.defaults``: the other nineteen fields are deployment settings with their own
+        panels, and a write that carried them would reset whatever this form did not show.
+
+        A GET that writes, and the payload in chunked headers, for the transport reason on the
+        roster handler above.
+        """
+        from nanoinfra.webui.ws_http import agents_values_from_request
+
+        if not self._authorized(request):
+            return self._unauthorized()
+        values = agents_values_from_request(request)
+        if values is None:
+            return self._error_response(400, "invalid agent defaults payload")
+        try:
+            payload = update_agent_defaults(values)
+        except WebUISettingsError as e:
+            return self._error_response(e.status, e.message)
+        return self._json_response(self._with_restart_state(payload, request))
+
+    def _handle_settings_agents_update(self, request: WsRequest) -> Response:
+        """``GET /api/settings/agents`` -- the whole roster, replaced (#262).
+
+        A **GET** that writes, which looks wrong and is forced: ``websockets``'
+        ``http11.read_request`` raises ``unsupported HTTP method; expected GET`` before
+        ``process_request`` runs, so a POST never reaches a route on this transport -- the browser
+        just sees a closed connection. That is also why the payload arrives in headers rather than
+        a body, and chunked, because an agent carries prompt text rather than identifiers.
+
+        A refusal from the schema is returned in the schema's own words: it names the agent and
+        the value, which is what the operator needs in order to fix it.
+        """
+        # Imported here rather than at module level: `ws_http` imports this module, so a
+        # top-level import would close the cycle.
+        from nanoinfra.webui.ws_http import agents_values_from_request
+
+        if not self._authorized(request):
+            return self._unauthorized()
+        values = agents_values_from_request(request)
+        if values is None:
+            return self._error_response(400, "invalid agents payload")
+        try:
+            payload = update_named_agents(values)
+        except WebUISettingsError as e:
+            return self._error_response(e.status, e.message)
+        # The tools an agent may reach and the prompt it answers with are assembled when a turn is
+        # built, and the delegation tools are registered once at start.
+        return self._json_response(self._with_restart_state(payload, request, section="runtime"))
+
+    def _handle_settings_tool_groups_update(self, request: WsRequest) -> Response:
+        """``GET /api/settings/tool-groups`` -- the whole `tools.groups` map, replaced.
+
+        A GET that writes, for the transport reason spelled out on the roster handler above.
+        """
+        from nanoinfra.webui.ws_http import tool_groups_values_from_request
+
+        if not self._authorized(request):
+            return self._unauthorized()
+        values = tool_groups_values_from_request(request)
+        if values is None:
+            return self._error_response(400, "invalid tool groups payload")
+        try:
+            payload = update_tool_groups(values)
+        except WebUISettingsError as e:
+            return self._error_response(e.status, e.message)
         return self._json_response(self._with_restart_state(payload, request, section="runtime"))
 
     def _handle_settings_gates_update(self, request: WsRequest) -> Response:

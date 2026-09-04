@@ -102,7 +102,9 @@ def test_a_job_that_names_no_agent_behaves_exactly_as_it_did_before(tmp_path: Pa
     assert turn.metadata[AUTOMATION_SKILLS_META] == ["github"]
     assert "You are" not in turn.prompt
     assert turn_agent(turn.metadata) is None
-    assert automation_agent_tool_groups(turn.metadata) == ()
+    # `None`, not `()`: no ceiling was declared. An empty tuple now means "declared, and it is
+    # empty" -- a real narrowing, and the opposite of what this job wants.
+    assert automation_agent_tool_groups(turn.metadata) is None
 
 
 def test_a_named_agent_survives_a_round_trip_through_the_store(tmp_path: Path) -> None:

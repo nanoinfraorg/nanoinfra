@@ -882,6 +882,16 @@ export interface GatesPendingApproval {
    */
   actingAgent?: string | null;
   delegatedBy?: string | null;
+  /**
+   * Whether this deployment names any agents at all (#258).
+   *
+   * Why an absent `actingAgent` is not simply blank: on a deployment with a roster, an action
+   * from the *default* agent is a known fact rather than a missing one, and leaving the row out
+   * is what left two similar requests to be told apart by a session uuid. No roster, no row; a
+   * roster, and the row is always there. Optional, because a gateway older than the field sends
+   * none and the card then renders what it rendered before.
+   */
+  agentsConfigured?: boolean;
   executionContext: string;
   capabilityClass: string;
   scope: string;
@@ -1017,16 +1027,136 @@ export interface KnowledgeSettingsUpdate {
   maxResults: number;
 }
 
-/** One row of the agent roster: a name, a line explaining it, and the size of its bindings. */
+/**
+ * One row of the agent roster: a name, a line explaining it, and the size of its bindings.
+ *
+ * The counts are what the **row** shows, and that has not changed (#253). What is new is that the
+ * row also carries the bindings themselves, because an agent is now created and edited here rather
+ * than by hand-editing `config.json` (#262) -- and an editor that could not read the current value
+ * of a field would either render it empty or, worse, save a whole roster with the fields it could
+ * not read left blank. The row still renders counts; the editor is where the lists are seen.
+ *
+ * Every binding field is optional so an older gateway, which sends counts alone, still renders a
+ * roster. The editor refuses to save an agent whose counts and lists disagree, rather than writing
+ * a roster it could not read.
+ */
 export interface NamedAgentRosterEntry {
   name: string;
   description: string;
+  /** The preset that answers for this agent, which is the deployment's when it chose none. */
   model_preset: string;
+  /**
+   * What the agent itself declared, and `null` when it declared nothing.
+   *
+   * The distinction `model_preset` cannot make: an agent that chose nothing and an agent that chose
+   * the preset the deployment happens to use look identical there, and an editor prefilled from it
+   * would turn the first into the second on the next save -- pinning a choice nobody made, which
+   * then survives the deployment changing its default.
+   */
+  model_preset_declared?: string | null;
   tool_group_count: number;
   skill_count: number;
   delegate_count: number;
   has_addendum: boolean;
+  /**
+   * The bindings themselves. **`undefined` and `null` mean different things here**, which is why
+   * both are in the type: `undefined` is a gateway that does not report this list at all, and
+   * `null` is a gateway saying this agent declared no ceiling. The first blocks the save; the
+   * second is a value the editor shows as *everything*.
+   */
+  tool_groups?: string[] | null;
+  skills?: string[] | null;
+  connectors?: string[] | null;
+  mcp_servers?: string[] | null;
+  delegates?: string[];
+  addendum?: string;
+  prompt_sections?: Record<string, string>;
 }
+
+/**
+ * One agent as the editor holds it, and as the write path takes it: exactly the config keys of
+ * `agents.named[<name>]`, in the camelCase spelling the schema's serialization aliases use.
+ *
+ * Not `Partial`: the write replaces the whole roster, so a key this client omits is a key config
+ * stores as empty. The editor therefore always sends every field, including the ones its form did
+ * not touch.
+ */
+export interface NamedAgentValues {
+  description: string;
+  modelPreset: string | null;
+  /**
+   * The four narrowing lists, and each one holds **three** states rather than two.
+   *
+   * `null` is *nothing declared*: this agent reaches everything the deployment has, which is
+   * every agent nobody has narrowed. `[]` is *declared, and empty*: it reaches none of them.
+   *
+   * Two states was the bug. An empty list meant "all", so a deployment could not say "this agent
+   * loads no MCP server" or "this agent may reach no tool group and must ask a peer" -- the one
+   * sentence a coordinator is made of, and the one sentence that buys back the context twelve
+   * installed servers spend on every first message.
+   */
+  toolGroups: string[] | null;
+  skills: string[] | null;
+  connectors: string[] | null;
+  mcpServers: string[] | null;
+  /** A plain list: membership is the grant, so empty is unambiguous and needs no third state. */
+  delegates: string[];
+  addendum: string;
+  /** A section the deployment has not replaced is absent from the map, never `""`. */
+  promptSections: Record<string, string>;
+}
+
+/**
+ * The whole roster, keyed by agent name -- the shape `POST /api/settings/agents` takes.
+ *
+ * The whole map rather than one agent, because the roster is one object that has to stay
+ * internally consistent: `delegates` names other agents, so a server validating one agent against
+ * a roster this client had not seen would accept a pair that config refuses.
+ */
+export interface NamedAgentsSaveRequest {
+  agents: Record<string, NamedAgentValues>;
+}
+
+/**
+ * The deployment's own agent as its editor holds it -- `agents.defaults` (#265, completed in
+ * #266).
+ *
+ * **Every field a named agent has, bar the two it cannot have.** No `description`, because
+ * nothing delegates *to* the default agent and a description exists to explain an agent to a
+ * peer. Otherwise this is an agent: it narrows its tool groups, its skills, its MCP servers and
+ * its connectors, and it can hold a roster of its own. The one thing that makes it different is
+ * that it cannot be deleted.
+ *
+ * That parity is the point rather than a tidiness. A deployment with a dozen MCP servers and
+ * thirty skills installed pays for all of them in the first message of every conversation, and
+ * before this the only agent that could be narrowed was one you had to *choose* -- so the agent
+ * that answers when nobody chooses, which is most turns, was the one agent that could not be.
+ */
+export interface AgentDefaultsValues {
+  addendum: string;
+  /** A section the deployment has not replaced is absent from the map, never `""`. */
+  promptSections: Record<string, string>;
+  /** `null` is *nothing declared*, which is every group. `[]` is declared, and empty. */
+  toolGroups: string[] | null;
+  skills: string[] | null;
+  connectors: string[] | null;
+  mcpServers: string[] | null;
+  /** A plain list: membership is the grant, so empty is unambiguous and needs no third state. */
+  delegates: string[];
+}
+
+/**
+ * One write to `agents.defaults` -- **only the fields the operator touched**.
+ *
+ * Every key optional, and that is the contract rather than a convenience: the route writes the
+ * fields the payload carries and leaves the rest alone, because `agents.defaults` holds twenty-six
+ * fields and this form shows the seven that are an agent's. A request carrying a full snapshot of
+ * the form's local state would be a request to reset the timezone, the iteration cap and the
+ * subagent limit to whatever this client last happened to read. An absent key is *not* a cleared
+ * key -- and for the narrowing lists a **`null`** key is not an empty one either: `null` is *no
+ * ceiling*, `[]` is *a ceiling that admits nothing*.
+ */
+export type AgentDefaultsSaveRequest = Partial<AgentDefaultsValues>;
 
 export interface SettingsPayload {
   surface?: RuntimeSurface;
@@ -1050,6 +1180,26 @@ export interface SettingsPayload {
     timezone: string;
     tool_hint_max_length: number;
     max_concurrent_subagents: number;
+    /**
+     * The fields `agents.defaults` holds as an **agent** rather than as a deployment setting
+     * (#265, #266) -- the only ones of its twenty-six this editor writes: the rest have panels of
+     * their own.
+     *
+     * **Optional, and absence is the test.** A gateway that does not report them is one whose
+     * editor cannot prefill, and a write built from an unprefilled form would replace an addendum
+     * and a tool-group ceiling it never read -- silently, and reporting success. So the panel says
+     * the gateway needs updating rather than offering a save it cannot make safe. An *empty*
+     * addendum and an *empty* list are real values that edit normally.
+     *
+     * `null` on a narrowing list is *nothing declared*; `[]` is *declared, and empty*.
+     */
+    addendum?: string;
+    prompt_sections?: Record<string, string>;
+    tool_groups?: string[] | null;
+    skills?: string[] | null;
+    connectors?: string[] | null;
+    mcp_servers?: string[] | null;
+    delegates?: string[];
   };
   model_presets: Array<{
     name: string;
@@ -1078,6 +1228,18 @@ export interface SettingsPayload {
    * the shape that leaves the navigation exactly as it is.
    */
   named_agents?: NamedAgentRosterEntry[];
+  /**
+   * The `tools.groups` this deployment declares, keyed by group name (#262).
+   *
+   * Only the keys are read here: the agent editor needs the *vocabulary* of group names so it can
+   * offer them instead of asking an operator to retype one, and what each group contains is the
+   * Tool groups panel's business. Typed as the enclosing object rather than the group's own shape
+   * for that reason -- this consumer would not notice the shape changing, and should not.
+   *
+   * Absent on a gateway that does not report them, which is what makes the picker fall back to the
+   * names already in use across the roster.
+   */
+  tool_groups?: Record<string, unknown>;
   /**
    * Config this deployment is ignoring (#205).
    *

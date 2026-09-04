@@ -35,27 +35,49 @@ if TYPE_CHECKING:
     from nanoinfra.providers.factory import ProviderSnapshot
 
 
+#: What the deployment's own agent is called in a record. It has no name in config -- it is the
+#: absence of one -- and an audit chain reading `alberto -> -> db` says nothing.
+DEFAULT_AGENT_NAME = "default"
+
+
 def _delegating_deployment(ctx: ToolContext) -> bool:
-    """True when at least one configured agent has a roster.
+    """True when at least one configured agent has a roster, the default agent included.
 
     The registry is built once at boot, so this is the only question available here. *Which* peer a
     given turn may reach depends on who is answering, and that is re-read when the tool runs.
     """
+    if getattr(ctx.agent_defaults, "delegates", ()):
+        return True
     return any(getattr(agent, "delegates", ()) for agent in ctx.named_agents.values())
 
 
 class _RosterMixin:
     """Shared roster access. The config mapping, not a copy taken at registration."""
 
-    def __init__(self, named_agents: dict[str, NamedAgentConfig]) -> None:
+    def __init__(
+        self,
+        named_agents: dict[str, NamedAgentConfig],
+        agent_defaults: Any = None,
+    ) -> None:
         self._named_agents = named_agents
+        self._agent_defaults = agent_defaults
 
     def _acting_agent(self) -> str | None:
         request_ctx = current_request_context()
         return request_ctx.agent if request_ctx else None
 
     def _peers(self) -> tuple[str, ...]:
-        return allowed_delegates(self._acting_agent(), self._named_agents)
+        """The peers this turn may reach, whoever is answering.
+
+        A turn that names no agent is answered by the deployment's own, and that agent has a
+        roster of its own (#265). Reading only `named_agents` here meant a default-agent turn
+        found no peers however config was written -- and since a composer choice that did not
+        survive a reload fell back to the default agent, delegation quietly became impossible.
+        """
+        acting = self._acting_agent()
+        if acting is None:
+            return tuple(getattr(self._agent_defaults, "delegates", ()) or ())
+        return allowed_delegates(acting, self._named_agents)
 
 
 @tool_parameters(
@@ -79,7 +101,7 @@ class ListDelegatesTool(_RosterMixin, Tool):
 
     @classmethod
     def create(cls, ctx: ToolContext) -> Tool:
-        return cls(named_agents=dict(ctx.named_agents))
+        return cls(named_agents=dict(ctx.named_agents), agent_defaults=ctx.agent_defaults)
 
     @property
     def name(self) -> str:
@@ -103,8 +125,8 @@ class ListDelegatesTool(_RosterMixin, Tool):
             acting = self._acting_agent()
             if acting is None:
                 return (
-                    "This turn is answered by the deployment's default agent, which has no "
-                    "roster. Nothing can be delegated; do the work or say what is missing."
+                    "This turn is answered by the deployment's own agent, and it lists no "
+                    "delegates. Nothing can be delegated; do the work or say what is missing."
                 )
             return f"`{acting}` has no delegates configured. Do the work or say what is missing."
         needle = (query or "").strip().lower()
@@ -149,8 +171,9 @@ class DelegateToAgentTool(_RosterMixin, Tool):
         named_agents: dict[str, NamedAgentConfig],
         manager: SubagentManager,
         snapshot_loader: Callable[..., ProviderSnapshot] | None = None,
+        agent_defaults: Any = None,
     ) -> None:
-        super().__init__(named_agents=named_agents)
+        super().__init__(named_agents=named_agents, agent_defaults=agent_defaults)
         self._manager = manager
         self._snapshot_loader = snapshot_loader
 
@@ -165,6 +188,7 @@ class DelegateToAgentTool(_RosterMixin, Tool):
             raise RuntimeError("DelegateToAgentTool requires an initialized subagent manager")
         return cls(
             named_agents=dict(ctx.named_agents),
+            agent_defaults=ctx.agent_defaults,
             manager=manager,
             snapshot_loader=ctx.provider_snapshot_loader,
         )
@@ -219,8 +243,9 @@ class DelegateToAgentTool(_RosterMixin, Tool):
         if not peers:
             if acting is None:
                 return ToolResult.error(
-                    "Error: this turn is answered by the deployment's default agent, which has "
-                    "no roster. Nothing can be delegated."
+                    "Error: this turn is answered by the deployment's own agent, and it lists no "
+                    "delegates. Add them to agents.defaults.delegates, or choose an agent that "
+                    "has some."
                 )
             return ToolResult.error(f"Error: `{acting}` has no delegates configured.")
 
@@ -237,7 +262,7 @@ class DelegateToAgentTool(_RosterMixin, Tool):
         entry = self._named_agents.get(agent)
         binding = DelegateBinding(
             name=agent,
-            delegated_by=acting or "manager",
+            delegated_by=acting or DEFAULT_AGENT_NAME,
             # The originating human, when there is one. On an unattended turn this stays None and
             # a standing grant is the only thing that can authorise the peer's actions -- which is
             # what "a delegated turn never holds more authority than the turn that spawned it"

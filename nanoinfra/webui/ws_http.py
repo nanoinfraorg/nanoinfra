@@ -24,6 +24,7 @@ from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
 from nanoinfra.agent.prompt_sections import PromptSectionRefusedError
+from nanoinfra.automations.commissioning_runner import CommissioningNotApplicableError
 from nanoinfra.automations.delivery import DELIVERY_POLICIES
 from nanoinfra.automations.state import AutomationStateError, AutomationStateStore
 from nanoinfra.command.builtin import builtin_command_palette
@@ -261,6 +262,18 @@ _SERVER_VALUES_HEADER = "X-Nanoinfra-Server-Values"
 #: One server's NOTES.md, or one entry going into it (#229). Chunked like the diagram body and for
 #: the same reason: a whole notes file is longer than one header line allows, and this transport
 #: exposes no body. The reader below reuses ``_chunked_header_value``.
+#: One roster write (#262). Chunked for the same transport reason as the diagram body, and because
+#: an agent carries prompt-section text and an addendum: those are paragraphs, not identifiers, and
+#: a single header line caps at 8192 bytes.
+_AGENTS_HEADER = "X-Nanoinfra-Agents"
+_AGENTS_CHUNK_COUNT_HEADER = "X-Nanoinfra-Agents-Chunks"
+#: One `tools.groups` write. Short enough for one line -- a group is a name, a mode and a list of
+#: tool names -- but read through the same chunk-aware reader so both write paths behave alike.
+#: One workspace prompt override (#264). Chunked because `dream.md` is 8 KB of prose.
+_WORKSPACE_PROMPT_HEADER = "X-Nanoinfra-Workspace-Prompt"
+_WORKSPACE_PROMPT_CHUNK_COUNT_HEADER = "X-Nanoinfra-Workspace-Prompt-Chunks"
+_TOOL_GROUPS_HEADER = "X-Nanoinfra-Tool-Groups"
+_TOOL_GROUPS_CHUNK_COUNT_HEADER = "X-Nanoinfra-Tool-Groups-Chunks"
 _SERVER_NOTES_HEADER = "X-Nanoinfra-Server-Notes"
 _SERVER_NOTES_CHUNK_COUNT_HEADER = "X-Nanoinfra-Server-Notes-Chunks"
 #: One trigger's message, sent by whatever fired it. A header rather than a body because this
@@ -1270,6 +1283,16 @@ class GatewayHTTPHandler:
             result = await self.commissioning.commission(automation_id)
         except PromotionRefusedError as exc:
             return _http_error(409, str(exc))
+        except CommissioningNotApplicableError as exc:
+            # 400 rather than a traceback. Uncaught, this escaped the handler and failed the
+            # websocket handshake: the operator saw a dead request and the log a full stack for
+            # what is really "this job has nothing to rehearse".
+            return _http_error(400, str(exc))
+        except ValueError as exc:
+            # A malformed record, which is a different thing from an inapplicable one. Also a 400,
+            # because whatever else it is, it is not a crash of the request that asked.
+            logger.warning("Commissioning {} failed: {}", automation_id, exc)
+            return _http_error(400, str(exc))
         return _http_json_response(result)
 
     def _handle_automation_grant(self, request: WsRequest, automation_id: str) -> Response:
@@ -1631,9 +1654,10 @@ class GatewayHTTPHandler:
         """
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
+        # An omitted `agent` is the deployment's own agent, not a malformed request: it is the
+        # one agent every deployment has, and 400 for it meant the Prompt tab had no section list
+        # for the agent answering most turns.
         name = (_query_first(_parse_query(request.path), "agent") or "").strip()
-        if not name:
-            return _http_error(400, "agent is required")
         try:
             payload = webui_agent_prompt_payload(load_config(), name)
         except PromptSectionRefusedError as exc:
@@ -2757,6 +2781,97 @@ def server_notes_headers(payload: dict[str, Any]) -> dict[str, str]:
     for index, chunk in enumerate(chunks):
         headers[f"{_SERVER_NOTES_HEADER}-{index}"] = chunk
     return headers
+
+
+def _chunked_header_payload(
+    request: WsRequest,
+    header: str,
+    count_header: str,
+) -> dict[str, Any] | None:
+    """Read one JSON object from a header, whether it arrived whole or in numbered chunks.
+
+    Extracted so the roster and the tool-group writes cannot drift from the notes and diagram
+    readers they copy. A missing or a partial payload is invalid and never a partial write: half a
+    roster saved as the whole one would delete agents nobody asked to remove.
+    """
+    count_raw = _case_insensitive_header(request.headers, count_header)
+    if not count_raw:
+        raw = _case_insensitive_header(request.headers, header) or ""
+    else:
+        try:
+            count = int(count_raw)
+        except ValueError:
+            return None
+        if count < 1 or count > 512:
+            return None
+        parts: list[str] = []
+        for index in range(count):
+            part = _case_insensitive_header(request.headers, f"{header}-{index}")
+            if not part:
+                return None
+            parts.append(part)
+        raw = "".join(parts)
+    if not raw:
+        return None
+    for candidate in (raw, unquote(raw)):
+        try:
+            values = json.loads(candidate)
+        except ValueError:
+            continue
+        return cast(dict[str, Any], values) if isinstance(values, dict) else None
+    return None
+
+
+def agents_values_headers(payload: dict[str, Any]) -> dict[str, str]:
+    """The headers that carry one roster write, split so no line exceeds the limit (#262).
+
+    Kept beside the reader so the two cannot drift, and exported for the WebUI's own client to
+    mirror -- the arrangement ``diagram_values_headers`` and ``server_notes_headers`` already have.
+    """
+    return _chunked_headers(payload, _AGENTS_HEADER, _AGENTS_CHUNK_COUNT_HEADER)
+
+
+def tool_groups_values_headers(payload: dict[str, Any]) -> dict[str, str]:
+    """The headers that carry one ``tools.groups`` write."""
+    return _chunked_headers(payload, _TOOL_GROUPS_HEADER, _TOOL_GROUPS_CHUNK_COUNT_HEADER)
+
+
+def _chunked_headers(payload: dict[str, Any], header: str, count_header: str) -> dict[str, str]:
+    encoded = quote(json.dumps(payload, ensure_ascii=False), safe="")
+    chunks = [
+        encoded[index : index + _DIAGRAM_CHUNK_BYTES]
+        for index in range(0, len(encoded), _DIAGRAM_CHUNK_BYTES)
+    ] or [""]
+    headers = {count_header: str(len(chunks))}
+    for index, chunk in enumerate(chunks):
+        headers[f"{header}-{index}"] = chunk
+    return headers
+
+
+def agents_values_from_request(request: WsRequest) -> dict[str, Any] | None:
+    """One roster write, read from its headers."""
+    return _chunked_header_payload(request, _AGENTS_HEADER, _AGENTS_CHUNK_COUNT_HEADER)
+
+
+def tool_groups_values_from_request(request: WsRequest) -> dict[str, Any] | None:
+    """One ``tools.groups`` write, read from its headers."""
+    return _chunked_header_payload(
+        request, _TOOL_GROUPS_HEADER, _TOOL_GROUPS_CHUNK_COUNT_HEADER
+    )
+
+
+def workspace_prompt_values_headers(payload: dict[str, Any]) -> dict[str, str]:
+    """The headers that carry one workspace prompt override."""
+    return _chunked_headers(
+        payload, _WORKSPACE_PROMPT_HEADER, _WORKSPACE_PROMPT_CHUNK_COUNT_HEADER
+    )
+
+
+def workspace_prompt_values_from_request(request: WsRequest) -> dict[str, Any] | None:
+    """One workspace prompt write, read from its headers."""
+    return _chunked_header_payload(
+        request, _WORKSPACE_PROMPT_HEADER, _WORKSPACE_PROMPT_CHUNK_COUNT_HEADER
+    )
 
 
 def _server_notes_values_from_request(request: WsRequest) -> dict[str, Any] | None:

@@ -80,6 +80,8 @@ from nanoinfra.security.workspace_access import (
 )
 from nanoinfra.session import turn_continuation
 from nanoinfra.session.automation_turns import (
+    AUTOMATION_AGENT_META,
+    acting_agent_binding_metadata,
     automation_declared_skills,
     automation_history_overrides,
 )
@@ -369,6 +371,7 @@ class AgentLoop:
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
         named_agents: Mapping[str, NamedAgentConfig] | None = None,
+        agent_defaults: AgentDefaults | None = None,
         tools_config: ToolsConfig | None = None,
         image_generation_provider_config: ProviderConfig | None = None,
         image_generation_provider_configs: dict[str, ProviderConfig] | None = None,
@@ -450,6 +453,16 @@ class AgentLoop:
         # The roster, for the tools that offer delegation (#247). Empty is every deployment that
         # names no agent, and there the delegation tools do not exist.
         self.named_agents: Mapping[str, NamedAgentConfig] = dict(named_agents or {})
+        #: The deployment's own agent, for a turn that names none (#265). `AgentDefaults` carries
+        #: the same `addendum`, `prompt_sections`, `tool_groups`, `skills`, `mcp_servers`,
+        #: `connectors` and `delegates` a named agent does: it is one more agent, and the only
+        #: thing that makes it different is that it cannot be deleted.
+        #:
+        #: The caller's, not the `AgentDefaults()` built above: that one exists to supply
+        #: parameter defaults and holds an empty addendum whatever config says, which would have
+        #: left every one of those fields inert -- the exact failure this change is fixing
+        #: elsewhere.
+        self._agent_defaults = agent_defaults
         self.web_config = _tc.web
         self.exec_config = _tc.exec
         self._image_generation_provider_configs = dict(image_generation_provider_configs or {})
@@ -625,6 +638,7 @@ class AgentLoop:
             unified_session=defaults.unified_session,
             disabled_skills=defaults.disabled_skills,
             named_agents=config.agents.named,
+            agent_defaults=config.agents.defaults,
             session_ttl_minutes=defaults.session_ttl_minutes,
             idle_compact_check_interval_seconds=defaults.idle_compact_check_interval_seconds,
             mid_turn_messages=defaults.mid_turn_messages,
@@ -754,6 +768,7 @@ class AgentLoop:
             timezone=self.context.timezone or "UTC",
             disabled_skills=frozenset(self.context.skills.disabled_skills),
             named_agents=self.named_agents,
+            agent_defaults=self._agent_defaults,
             workspace_sandbox=self.workspace_scopes.sandbox_status,
             runtime_events=self.runtime_events,
         )
@@ -769,6 +784,9 @@ class AgentLoop:
         ctx = self.build_tool_context(provider_snapshot_loader=provider_snapshot_loader)
         loader = ToolLoader()
         registered = loader.load(ctx, self.tools)
+        # Recorded for the Settings panel that declares a tool group: it needs the names a member
+        # list may pick from, and a settings request has no route to this registry.
+        tool_groups.set_registered_tools(self.tools.tool_names)
 
         # One tool per enabled operation of every active connector, each carrying the class
         # its manifest declared. Registered here rather than discovered by the loader scan,
@@ -882,13 +900,109 @@ class AgentLoop:
             include_memory_recent_history=not ctx.ephemeral,
             session_key=ctx.session.key,
             unified_session=self._unified_session,
-            declared_skills=automation_declared_skills(ctx.msg.metadata),
+            declared_skills=self._declared_skills_for(ctx),
             mcp_advertisement=mcp_tools.advertisement(self.tools),
             connector_advertisement=connector_attachment.advertisement(self.tools),
             group_advertisement=tool_groups.advertisement(self.tools),
+            # The acting agent's own prompt. Resolved here because this is the only place that
+            # knows which agent answers this turn.
+            **self._agent_prompt_for(ctx),
         )
         ctx.prompt_manifest = self._prompt_manifest_for(ctx, messages)
         return messages
+
+    def _agent_prompt_for(self, ctx: TurnContext) -> dict[str, Any]:
+        """The addendum and the replaced sections of the agent answering this turn.
+
+        Empty for the deployment's default agent, which is every turn in a deployment that names
+        none -- and there the prompt is assembled exactly as it was before named agents existed.
+        """
+        agent = self.named_agents.get(ctx.agent) if ctx.agent else None
+        if agent is None:
+            # The deployment's own agent (#265). Its addendum and replaced sections are empty on
+            # every deployment that has not set them, and empty here means the prompt is
+            # assembled exactly as it was before either field existed.
+            agent = self._agent_defaults
+        if agent is None:
+            return {}
+        sections = dict(getattr(agent, "prompt_sections", {}) or {})
+        addendum = getattr(agent, "addendum", "") or ""
+        bot_name = getattr(self._agent_defaults, "bot_name", "") or ""
+        # The name and the line come from the roster, so a named agent is told who it is; the
+        # deployment's bot name travels too, because a persona that writes `{{ agent_name }}` has
+        # to read sensibly on a default-agent turn as well.
+        identity = {
+            "agent_name": ctx.agent or "",
+            "agent_description": getattr(agent, "description", "") or "",
+            "bot_name": bot_name,
+        }
+        if not sections and not addendum:
+            return identity
+        return {"section_overrides": sections, "agent_addendum": addendum, **identity}
+
+    def _acting_agent_config(
+        self, agent_name: str | None
+    ) -> NamedAgentConfig | AgentDefaults | None:
+        """The config of the agent answering this turn -- the roster's, or the deployment's own.
+
+        One resolver for every per-agent decision, so "which agent answers" is asked once and the
+        prompt, the skills and the ceilings cannot disagree about the answer.
+        """
+        named = self.named_agents.get(agent_name) if agent_name else None
+        return named if named is not None else self._agent_defaults
+
+    def _declared_skills_for(self, ctx: TurnContext) -> list[str] | None:
+        """Which skills load in full this turn, and whether the catalogue is summarised at all.
+
+        An automation's own declaration wins where there is one: it was written for that job, and
+        a job that narrowed itself should not be re-widened by the agent it happens to run as.
+
+        Otherwise the acting agent's list, which is the change (#266). It was read from metadata
+        alone before, so an agent's `skills` narrowed an unattended run and did nothing at all for
+        a person -- and a person is who has the problem, because loading every installed skill in
+        one conversation is what spends the context.
+
+        `None` is *nothing declared* and keeps the catalogue exactly as it was before agents had
+        skills. An empty list is *declared, and empty*: no skill loads and no catalogue is
+        summarised either.
+        """
+        declared = automation_declared_skills(ctx.msg.metadata)
+        if declared is not None:
+            return declared
+        agent = self._acting_agent_config(ctx.agent)
+        allowed = getattr(agent, "skills", None) if agent is not None else None
+        return None if allowed is None else list(allowed)
+
+    def _record_acting_agent_binding(
+        self, msg: InboundMessage, agent_name: str | None
+    ) -> None:
+        """Put the acting agent's ceilings on the turn, unless a runner already did (#266).
+
+        The tool filter, the MCP wrapper and the connector gate all read the ceiling from the
+        turn's own metadata, because they run inside a tool call and have no route to config. Only
+        the automation runners ever wrote it, and the consequence was an agent whose tool groups,
+        MCP servers and connectors bound a scheduled job and bound nothing a person asked for.
+
+        A runner's write is left alone. It carries the binding that was resolved when the job was
+        commissioned, which is the authority for that run; re-deriving it here from config could
+        cap a running job differently from the one that was approved.
+        """
+        if AUTOMATION_AGENT_META in msg.metadata:
+            return
+        agent = self._acting_agent_config(agent_name)
+        if agent is None:
+            return
+        # Each field passed through as it is, never `or None`: that would fold a declared-empty
+        # list back into "nothing declared" and lose the state this whole change exists to add.
+        binding = acting_agent_binding_metadata(
+            tool_groups=getattr(agent, "tool_groups", None),
+            mcp_servers=getattr(agent, "mcp_servers", None),
+            connectors=getattr(agent, "connectors", None),
+        )
+        # Nothing declared is nothing written: an empty mapping under the key would read as a
+        # ceiling to every reader that only checks whether the key is there.
+        if binding[AUTOMATION_AGENT_META]:
+            msg.metadata.update(binding)
 
     def _acting_capabilities_for(self, ctx: TurnContext) -> frozenset[str]:
         """What this turn can reach, as capability classes, for anything it delegates (#251).
@@ -1836,13 +1950,16 @@ class AgentLoop:
         if on_stream_end is None:
             on_stream_end = delivery.on_stream_end
         t0 = time.time()
+        # Resolved once, here, so the request context a tool reads and the record the transcript
+        # keeps can never disagree about who answered (#248) -- and so the ceilings that agent
+        # declared are on the turn before any tool asks what it may reach (#266).
+        acting_agent = self._acting_agent_for(msg.metadata)
+        self._record_acting_agent_binding(msg, acting_agent)
         ctx = TurnContext(
             msg=msg,
             session=None,
             session_key=key,
-            # Resolved once, here, so the request context a tool reads and the record the
-            # transcript keeps can never disagree about who answered (#248).
-            agent=self._acting_agent_for(msg.metadata),
+            agent=acting_agent,
             turn_id=f"{key}:{time.time_ns()}",
             runtime=runtime,
             kind=kind,

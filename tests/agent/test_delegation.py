@@ -107,8 +107,20 @@ ALL_TOOLS = ["read_file", "shell", "execute_on_server", "device_notes", "create_
 
 
 def test_no_declared_groups_keeps_every_tool() -> None:
-    """A two-line agent has to be meaningful, so an omitted list means *the default*."""
-    assert tools_for_groups(ALL_TOOLS, (), MEMBERSHIP) == frozenset(ALL_TOOLS)
+    """`None` is "nothing declared", which is every agent a deployment has not narrowed."""
+    assert tools_for_groups(ALL_TOOLS, None, MEMBERSHIP) == frozenset(ALL_TOOLS)
+
+
+def test_a_declared_but_empty_ceiling_keeps_only_the_ungrouped_tools() -> None:
+    """The third state, and the reason it exists: while an empty list meant *every* group, a
+    deployment could not take `servers` away from its own agent -- so that agent always ran a host
+    command itself and never had a reason to ask a peer. This is how a coordinator is expressed.
+    """
+    kept = tools_for_groups(ALL_TOOLS, [], MEMBERSHIP)
+
+    assert "read_file" in kept and "shell" in kept
+    assert "execute_on_server" not in kept
+    assert "create_diagram" not in kept
 
 
 def test_an_ungrouped_tool_survives_a_narrowed_agent() -> None:
@@ -175,14 +187,85 @@ async def test_list_delegates_narrows_on_the_problem_rather_than_the_name() -> N
         assert "sre-prod" not in answer
 
 
-async def test_list_delegates_says_plainly_that_the_default_agent_has_no_roster() -> None:
+async def test_the_deployments_own_agent_with_no_delegates_says_so() -> None:
+    """It is one more agent (#265): it can hold a roster. What it cannot do is delegate when
+    config lists nobody, and the message names the field to add them to rather than implying the
+    default agent is barred from delegating at all."""
     with turn():
         tool = ListDelegatesTool.create(_ctx())
 
         answer = await tool.execute()
 
-        assert "default agent" in answer
+        assert "lists no delegates" in answer
         assert "Nothing can be delegated" in answer
+
+
+async def test_the_deployments_own_agent_can_hold_a_roster() -> None:
+    """The trap this closes: a composer choice that did not survive a reload fell back to the
+    default agent, and while that agent could hold no delegates, delegation became impossible
+    without anybody being told why."""
+    from nanoinfra.config.schema import AgentDefaults
+
+    with turn():
+        tool = ListDelegatesTool.create(
+            _ctx(agent_defaults=AgentDefaults(delegates=["sre-prod", "db-oncall"]))
+        )
+
+        answer = await tool.execute()
+
+        assert "sre-prod" in answer
+        assert "db-oncall" in answer
+
+
+async def test_a_default_agent_turn_delegates_and_the_chain_names_it() -> None:
+    """`delegated_by` cannot be blank: an audit chain reading "alberto -> -> db" says nothing. The
+    deployment's own agent has no name in config -- it is the absence of one -- so the record uses
+    a stable token for it."""
+    from nanoinfra.config.schema import AgentDefaults
+
+    manager = _FakeManager()
+    with turn(runtime=object()):
+        tool = DelegateToAgentTool.create(_ctx(
+            subagent_manager=manager,
+            agent_defaults=AgentDefaults(delegates=["sre-prod"]),
+        ))
+
+        answer = await tool.execute(agent="sre-prod", task="check disk")
+
+    assert answer == "peer answered"
+    binding = manager.calls[0]["binding"]
+    assert binding.name == "sre-prod"
+    assert binding.delegated_by == "default"
+
+
+async def test_a_default_agent_turn_still_cannot_reach_a_peer_outside_its_roster() -> None:
+    from nanoinfra.config.schema import AgentDefaults
+
+    manager = _FakeManager()
+    with turn(runtime=object()):
+        tool = DelegateToAgentTool.create(_ctx(
+            subagent_manager=manager,
+            agent_defaults=AgentDefaults(delegates=["sre-prod"]),
+        ))
+
+        refused = await tool.execute(agent="db-oncall", task="check replication")
+
+    assert "not one of your delegates" in refused
+    assert manager.calls == []
+
+
+def test_the_delegation_tools_appear_when_only_the_default_agent_delegates() -> None:
+    """`enabled` is asked once at boot and used to look only at the named roster, so a deployment
+    that gave its own agent peers and named none got no delegation tools at all."""
+    from nanoinfra.config.schema import AgentDefaults
+
+    ctx = ToolContext(
+        config=ToolsConfig(),
+        workspace="/tmp",
+        agent_defaults=AgentDefaults(delegates=["sre-prod"]),
+    )
+
+    assert ListDelegatesTool.enabled(ctx) is True
 
 
 async def test_delegating_to_a_peer_outside_the_roster_is_refused() -> None:
@@ -601,7 +684,7 @@ def test_the_ceiling_is_what_the_acting_turn_can_actually_reach() -> None:
     assert narrowed == frozenset({"read", "mutate.remote"})
 
     # An unrestricted manager reaches everything its registry holds.
-    everything = acting_capabilities(classes, (), MEMBERSHIP, classes.__getitem__)
+    everything = acting_capabilities(classes, None, MEMBERSHIP, classes.__getitem__)
     assert everything == frozenset(classes.values())
 
 

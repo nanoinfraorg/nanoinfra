@@ -22,12 +22,28 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { displayTitle } from "@/lib/chat-groups";
 import type {
+  ChatSummary,
   GatesApprovalAnswer,
   GatesApprovalAnswerValues,
   GatesPendingApprovalView,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+/**
+ * One suspended action, plus the roster flag the gateway now sends (#258).
+ *
+ * `agentsConfigured` belongs on `GatesPendingApproval` in `lib/types.ts` and the insertion is
+ * reported with this change; it is declared here as an optional widening so this screen reads the
+ * field the executor already sends without editing a file another change owns. Optional in both
+ * places for the same reason: a gateway older than the field sends no roster flag, and the card
+ * then renders exactly what it rendered before -- a named agent names itself, and nothing else
+ * appears.
+ */
+export type PendingApprovalEntry = GatesPendingApprovalView & {
+  agentsConfigured?: boolean;
+};
 
 /** How often the countdown redraws. One second, because an operator reads seconds. */
 const TICK_MS = 1_000;
@@ -81,13 +97,21 @@ const REFUSAL_KEYS: Record<string, { key: string; fallback: string }> = {
 };
 
 export interface ApprovalsViewProps {
-  pending: GatesPendingApprovalView[];
+  pending: PendingApprovalEntry[];
   degraded: boolean;
   unavailable: boolean;
   loading: boolean;
   answering: string | null;
   outcome: GatesApprovalAnswer | null;
   onAnswer: (values: GatesApprovalAnswerValues) => void;
+  /**
+   * The session list the shell already holds, so the Session row can carry the conversation's
+   * title rather than a uuid. Optional, and this screen never fetches it: a title is a nicety,
+   * the session key is the fact, and the key is on the payload either way.
+   */
+  sessions?: ChatSummary[];
+  /** The names an operator gave those conversations, which outrank the generated title. */
+  sessionTitleOverrides?: Record<string, string>;
 }
 
 /**
@@ -114,9 +138,19 @@ export interface ApprovalsViewProps {
  * a command otherwise reads the request without knowing whether the manager or one of its peers
  * runs it, and with delegation those are different blast radii. The row names the peer and the
  * agent that delegated to it, it sits below the divider because the digest does not cover it,
- * and it says the name is the agent's own claim. Where no agent is named the row is absent
- * altogether: absent attribution renders nothing rather than a guess, and that is the case in
- * every deployment that does not delegate.
+ * and it says the name is the agent's own claim.
+ *
+ * On a deployment that **names agents**, that row is always there. It used to appear only when a
+ * named agent asked, so a request from the default agent removed it -- and two similar requests
+ * were then told apart by a session uuid, which is not something a person compares. Where a
+ * roster exists, "the default agent" is a known fact rather than a missing one, so it is stated.
+ * Where no roster exists the row stays absent, and the screen is byte for byte what it is today.
+ *
+ * The Session row is a **link to the conversation that asked**. The session key is that thread's
+ * own address, so the answer to "which of these two requests is which" is a conversation to open
+ * rather than a name to read. It shows the conversation's title where the shell already knows one
+ * and keeps the raw key one hover away, because the key is what the audit record holds. It stays
+ * below the divider: a link is context, not something the executor signed.
  */
 export function ApprovalsView({
   answering,
@@ -125,6 +159,8 @@ export function ApprovalsView({
   onAnswer,
   outcome,
   pending,
+  sessionTitleOverrides,
+  sessions,
   unavailable,
 }: ApprovalsViewProps) {
   const { t } = useTranslation();
@@ -175,6 +211,7 @@ export function ApprovalsView({
             key={entry.requestId}
             now={now}
             onAnswer={onAnswer}
+            sessionTitle={sessionTitle(entry.sessionId, sessions, sessionTitleOverrides)}
           />
         ))}
         {!pending.length && !degraded && !unavailable && !loading ? (
@@ -196,11 +233,13 @@ function ApprovalCard({
   entry,
   now,
   onAnswer,
+  sessionTitle,
 }: {
   busy: boolean;
-  entry: GatesPendingApprovalView;
+  entry: PendingApprovalEntry;
   now: number;
   onAnswer: (values: GatesApprovalAnswerValues) => void;
+  sessionTitle: string;
 }) {
   const { t } = useTranslation();
   // The confirmation for the one option a click makes permanent. It lives per card, because two
@@ -210,6 +249,18 @@ function ApprovalCard({
   // three at the two places that read it.
   const actingAgent = entry.actingAgent?.trim() ?? "";
   const delegatedBy = entry.delegatedBy?.trim() ?? "";
+  /*
+   * Whether this deployment names any agents at all, and therefore whether "which agent" is a
+   * question this card must answer. `=== true` and not truthiness: a gateway that sends no flag
+   * is not a gateway saying "no roster", and the fallback for silence is today's behaviour.
+   *
+   * A named agent still names itself when the flag is absent, which is exactly what this screen
+   * did before the flag existed. The flag only adds the row an unnamed *default* agent needs.
+   */
+  const agentsConfigured = entry.agentsConfigured === true;
+  const namesActingAgent = agentsConfigured || actingAgent !== "";
+  const actingAgentLabel = actingAgent
+    || t("approvals.agentDefault", { defaultValue: "Default agent" });
   const remainingMs = entry.expiresAt - now;
   const expired = remainingMs <= 0;
   const approvable = !busy && !expired && !entry.samePath;
@@ -293,23 +344,37 @@ function ApprovalCard({
         />
         <ContextRow
           label={t("approvals.context.session", { defaultValue: "Session" })}
-          value={entry.sessionId}
+          value={
+            /*
+             * The conversation, not a string to compare. The title is what a person recognises
+             * and the key is what the audit record holds, so the title is the text and the key is
+             * the tooltip; with no title known the key is the text and nothing is hidden.
+             */
+            <a
+              className="rounded-sm underline decoration-dotted underline-offset-2 hover:decoration-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+              data-testid="approval-session-link"
+              href={`#/chat/${encodeURIComponent(entry.sessionId)}`}
+              title={entry.sessionId}
+            >
+              {sessionTitle || entry.sessionId}
+            </a>
+          }
         />
         <ContextRow
           label={t("approvals.context.class", { defaultValue: "Capability class" })}
           value={`${entry.capabilityClass} · ${entry.scope} · ${entry.executionContext}`}
         />
-        {actingAgent ? (
+        {namesActingAgent ? (
           <ContextRow
             label={t("approvals.context.agent", { defaultValue: "Acting agent" })}
             value={
               delegatedBy
                 ? t("approvals.agentDelegated", {
-                  agent: actingAgent,
+                  agent: actingAgentLabel,
                   defaultValue: "{{agent}} — delegated by {{delegatedBy}}",
                   delegatedBy,
                 })
-                : actingAgent
+                : actingAgentLabel
             }
           />
         ) : null}
@@ -319,13 +384,20 @@ function ApprovalCard({
         />
       </dl>
 
-      {actingAgent ? (
+      {namesActingAgent ? (
         <p className="mt-1 text-[11px] text-muted-foreground">
-          {t("approvals.agentAsserted", {
-            defaultValue:
-              "The agent named itself. That is a claim of the request, not an identity this "
-              + "deployment authenticated, and the digest above does not cover it.",
-          })}
+          {actingAgent
+            ? t("approvals.agentAsserted", {
+              defaultValue:
+                "The agent named itself. That is a claim of the request, not an identity this "
+                + "deployment authenticated, and the digest above does not cover it.",
+            })
+            : t("approvals.agentDefaultNote", {
+              defaultValue:
+                "No agent named itself, so this deployment's default agent runs it. That too is "
+                + "the request's own account of itself rather than an authenticated identity, "
+                + "and the digest above does not cover it.",
+            })}
         </p>
       ) : null}
 
@@ -480,13 +552,33 @@ function PermanentGrantConfirm({
   );
 }
 
-function ContextRow({ label, value }: { label: string; value: string }) {
+function ContextRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <>
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="min-w-0 break-all font-mono text-[11px] text-foreground">{value}</dd>
     </>
   );
+}
+
+/**
+ * The name of the conversation one request came from, or `""` when the shell knows none.
+ *
+ * The lookup is against the list the sidebar already holds -- no request of this screen's own,
+ * because a title is a convenience and the session key it decorates is already on the payload.
+ * A session the shell has not loaded, or one it has since deleted, yields the empty string and
+ * the card falls back to the key.
+ */
+function sessionTitle(
+  sessionId: string,
+  sessions: ChatSummary[] | undefined,
+  overrides: Record<string, string> | undefined,
+): string {
+  const session = sessions?.find((candidate) => candidate.key === sessionId);
+  if (!session) return "";
+  // An empty fallback rather than "New chat": a placeholder title would replace the one string
+  // that actually identifies the thread with one that identifies nothing.
+  return displayTitle(session, overrides ?? {}, "").trim();
 }
 
 function Outcome({ outcome }: { outcome: GatesApprovalAnswer }) {

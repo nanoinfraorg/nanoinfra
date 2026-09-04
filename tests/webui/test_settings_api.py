@@ -273,7 +273,10 @@ def test_create_model_configuration_accepts_dynamic_custom_provider(
         }
     )
 
-    assert payload["agent"]["model_preset"] == "default"
+    # The first configuration a deployment with no model adds becomes the primary one (#266):
+    # nothing ships a model, so leaving it unselected would leave the deployment unable to answer
+    # after the one action that was supposed to fix that.
+    assert payload["agent"]["model_preset"] == "tenant-model"
     assert payload["created_model_preset"] == "tenant-model"
     saved = load_config(config_path)
     assert saved.model_presets["tenant-model"].provider == DYNAMIC_PROVIDER_NAME
@@ -357,7 +360,11 @@ def test_update_model_configuration_edits_named_preset_without_selecting(
     )
 
     assert payload["agent"]["model_preset"] == "default"
-    assert payload["agent"]["model"] == "anthropic/claude-opus-4-5"
+    # The preset's own model, not a packaged one: nothing ships a model, so the implicit `default`
+    # preset falls to the first configuration this deployment has. Editing still does not
+    # *select* it -- `model_preset` stays unset below -- and it answers anyway because it is the
+    # only model there is.
+    assert payload["agent"]["model"] == "openai-codex/gpt-5.5"
     saved = load_config(config_path)
     assert saved.agents.defaults.model_preset is None
     assert saved.model_presets["codex"].label == "Codex"
@@ -524,7 +531,10 @@ def test_delete_model_configuration_requires_removing_it_from_call_order(
     assert referenced.value.status == 409
 
     payload = delete_model_configuration({"name": ["spare"]})
-    assert {row["name"] for row in payload["model_presets"]} == {"default", "primary"}
+    # No `default` row: this deployment sets no inline model, so a row called `Default` would
+    # advertise a model nobody chose. It reappears only for a deployment that set one, or one
+    # that has no configurations at all.
+    assert {row["name"] for row in payload["model_presets"]} == {"primary"}
     assert "spare" not in load_config(config_path).model_presets
 
 
@@ -1989,7 +1999,8 @@ def test_create_model_configuration_accepts_configured_oauth_provider(
         }
     )
 
-    assert payload["agent"]["model_preset"] == "default"
+    # The first configuration on a deployment with no model becomes primary (#266).
+    assert payload["agent"]["model_preset"] == "codex"
     assert payload["created_model_preset"] == "codex"
     saved = load_config(config_path)
     assert saved.model_presets["codex"].provider == "openai_codex"
@@ -2077,7 +2088,8 @@ def test_create_model_configuration_accepts_azure_openai_aad_mode(
         }
     )
 
-    assert payload["agent"]["model_preset"] == "default"
+    # The first configuration on a deployment with no model becomes primary (#266).
+    assert payload["agent"]["model_preset"] == "azure-aad"
     assert payload["created_model_preset"] == "azure-aad"
     saved = load_config(config_path)
     assert saved.model_presets["azure-aad"].provider == "azure_openai"
@@ -2111,14 +2123,20 @@ def test_azure_openai_spec_no_longer_requires_api_key() -> None:
     assert spec is not None
     assert _provider_requires_api_key(spec) is False
 
-def test_settings_payload_offers_named_agents_as_counts(
+def test_settings_payload_carries_each_agents_bindings_and_its_counts(
     tmp_path, monkeypatch
 ) -> None:
-    """A browser needs the roster it may offer, not the bindings behind it (#247).
+    """The panel that edits an agent needs the bindings, not a count of them (#262).
 
-    Counts rather than lists, for the same reason the delegate tool's own description carries
-    counts: an agent may cover hundreds of hosts, and a payload that named them would grow with the
-    inventory every time somebody opened the page.
+    This payload carried counts only at first, on the reasoning that what an agent may reach is
+    the authorization model and a browser should not enumerate it. That holds for the *mention*
+    endpoint, which any thread reads. Here it was wrong, and the failure was concrete: the editor
+    could not prefill a list it never received, so a save would have replaced it with nothing --
+    and the form told the operator to go and edit `config.json` instead, which is the entire
+    problem this work exists to remove.
+
+    The reader of this payload is authenticated and is the person who decides these bindings. The
+    counts stay because a roster row reads better with one than with a list.
     """
     config_path = tmp_path / "config.json"
     config = Config.model_validate({
@@ -2145,8 +2163,29 @@ def test_settings_payload_offers_named_agents_as_counts(
     assert sre["skill_count"] == 2
     assert sre["has_addendum"] is True
     assert next(a for a in agents if a["name"] == "manager")["delegate_count"] == 1
-    # The bindings themselves never travel.
-    assert "tool_groups" not in sre and "skills" not in sre and "addendum" not in sre
+    # And the bindings themselves, so an edit is a change to what is there rather than a replace
+    # of what the form could not see.
+    assert sre["tool_groups"] == ["servers"]
+    assert sre["skills"] == ["servers", "cron"]
+    assert sre["addendum"] == "prefer read-only checks"
+    assert next(a for a in agents if a["name"] == "manager")["delegates"] == ["sre"]
+    # An agent that chose no preset says so, rather than reporting the deployment's current one
+    # as if the agent had picked it.
+    assert sre["model_preset_declared"] is None
+
+
+def test_the_mention_endpoint_still_carries_no_bindings(tmp_path, monkeypatch) -> None:
+    """The distinction that survived: every thread reads the mention roster, and it stays a name
+    and a line. Only the settings payload, which needs a token, carries the bindings."""
+    from nanoinfra.webui.named_agents_api import webui_named_agents_payload
+
+    config = Config.model_validate({
+        "agents": {"named": {"sre": {"description": "hands-on", "toolGroups": ["servers"]}}}
+    })
+
+    payload = webui_named_agents_payload(config)
+
+    assert payload == {"agents": [{"name": "sre", "description": "hands-on"}]}
 
 
 def test_settings_payload_names_no_agents_when_none_are_configured(

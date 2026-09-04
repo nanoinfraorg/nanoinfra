@@ -125,6 +125,18 @@ def compose_finding(
     return "\n".join(lines)[:MAX_FINDING_CHARS], grants
 
 
+class CommissioningNotApplicableError(RuntimeError):
+    """This automation has nothing to rehearse, which is not the same as a rehearsal failing.
+
+    Raised for a system job: Dream, the heartbeat and the knowledge index call nanoinfra's own
+    code on a schedule rather than running a message through the agent, so there is no turn to
+    preview and no gated action to collect. The caller answers 400 with this sentence; before it
+    existed the runner raised a bare `ValueError` about a missing field, which escaped the HTTP
+    handler, failed the websocket handshake and logged a stack trace for a button that simply
+    does not apply.
+    """
+
+
 async def commission_cron_job(
     job: CronJob,
     *,
@@ -139,6 +151,15 @@ async def commission_cron_job(
     the caller owns the store, and a rehearsal must not be able to disable an automation without
     the caller that asked for it knowing.
     """
+    # A system job -- Dream, the heartbeat, the knowledge index -- carries no session and no
+    # message: it calls internal code rather than running a turn through the agent. There is
+    # nothing to rehearse, and the old message named a missing field, which read as a corrupt
+    # record rather than as a job this does not apply to.
+    if job.payload.kind == "system_event":
+        raise CommissioningNotApplicableError(
+            f"'{job.name}' is a system job: it runs nanoinfra's own code rather than a turn, so "
+            "there is no message to rehearse and no gated action to preview."
+        )
     session_key = job.payload.session_key or ""
     if not session_key:
         raise ValueError(f"cron job {job.id} is missing payload.session_key")

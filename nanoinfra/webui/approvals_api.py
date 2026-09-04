@@ -273,18 +273,29 @@ def _for_operator(view: PendingView) -> dict[str, Any]:
     condition here, so the screen can state the refusal before the operator clicks.
 
     ``actingAgent`` and ``delegatedBy`` name which agent will run the action and which one asked
-    for it (#258). Both are ``None`` where no agent named itself, which is every deployment that
-    does not delegate, and the screen then renders exactly what it rendered before these fields
-    existed. ``None`` rather than ``""``: the client tests one value for absence, and an empty
-    string in a name field is the kind of thing a renderer prints. The executor normalised both
-    names before they reached this record, so neither can carry a sentence onto that screen.
+    for it (#258). Both are ``None`` where no agent named itself. ``None`` rather than ``""``: the
+    client tests one value for absence, and an empty string in a name field is the kind of thing a
+    renderer prints. The executor normalised both names before they reached this record, so neither
+    can carry a sentence onto that screen.
+
+    ``agentsConfigured`` is why a ``None`` is not simply blank. On a deployment that names agents,
+    an action from the *default* agent is a known fact rather than a missing one, and leaving the
+    row out is what makes two similar requests indistinguishable -- the operator is left comparing
+    session uuids. So: no roster, no row, exactly as before; a roster, and the row is always there,
+    naming the agent or naming the default one.
     """
+    from nanoinfra.config.loader import load_config
+
+    # Read here rather than carried on the record: the roster is a property of the deployment at
+    # the moment somebody looks, not of the action when it was suspended.
+    agents_configured = bool(load_config().agents.named)
     return {
         "requestId": view["request_id"],
         "sessionId": view["session_id"],
         "originPath": view["origin_path"],
         "actingAgent": _named_or_none(view["acting_agent"]),
         "delegatedBy": _named_or_none(view["delegated_by"]),
+        "agentsConfigured": agents_configured,
         "executionContext": view["execution_context"],
         "capabilityClass": view["capability_class"],
         "scope": view["scope"],

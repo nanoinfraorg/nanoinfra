@@ -491,6 +491,10 @@ class _MCPWrapperBase(Tool):
         behaviour that existed before this field.
         """
         name = getattr(self, "_server_name", "")
+        # The acting agent's ceiling, and it is not negotiable: an `always` server outside the
+        # list this agent declared is absent, because the point of the list is what it costs.
+        if not within_agent_mcp_ceiling(name):
+            return False
         if _SERVER_ATTACH_MODE.get(name, "always") != "mention":
             return True
         return name in attached_servers()
@@ -1007,6 +1011,28 @@ def mention_only_servers() -> list[str]:
     return sorted(name for name, mode in _SERVER_ATTACH_MODE.items() if mode == "mention")
 
 
+def within_agent_mcp_ceiling(server_name: str) -> bool:
+    """Whether the agent answering this turn may load this server's schemas at all (#266).
+
+    A different question from the mention gate below, and it has to be asked first: a mention
+    *widens* a `mention` server into the turn on request, and this **caps** whatever the server's
+    attach mode is. `None` -- the acting agent declared no list -- is every deployment that has
+    narrowed nobody, and there this answers yes for every server.
+
+    This is the control a deployment reaches for when the honest problem is context: twelve
+    installed servers is twelve schema sets in the first message of every conversation, and an
+    agent that needs one of them should carry one of them.
+    """
+    from nanoinfra.agent.tools.context import current_request_context
+    from nanoinfra.session.automation_turns import acting_agent_mcp_servers
+
+    ctx = current_request_context()
+    if ctx is None:
+        return True
+    allowed = acting_agent_mcp_servers(ctx.metadata)
+    return True if allowed is None else server_name in allowed
+
+
 def attached_servers() -> frozenset[str]:
     """The servers this turn named.
 
@@ -1041,7 +1067,8 @@ def advertisement(registry: ToolRegistry) -> str:
     live registry rather than from config, so a server that failed to connect is not advertised as
     something the model can ask for.
     """
-    names = mention_only_servers()
+    # A server this agent may not reach is not advertised as something it can ask for.
+    names = [name for name in mention_only_servers() if within_agent_mcp_ceiling(name)]
     if not names:
         return ""
     counts = {

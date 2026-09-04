@@ -71,10 +71,26 @@ SECTION_PERMISSIONS: Mapping[str, SectionPermission] = {
     # deployment that replaced it would leave the model without the location of its own memory.
     # The persona reaches the prompt through `Bootstrap files` -- `SOUL.md` is a workspace file,
     # which is why that row reads *already yours* rather than *replaceable*.
-    "Runtime": SectionPermission.DERIVED,
-    "Safety notes": SectionPermission.FIXED,
+    # The three sections that are *prose* rather than assembled data, and therefore the three an
+    # operator can actually write. They were `derived` and `fixed` here first, on the reasoning
+    # below, and that reasoning is now a **warning** rather than a refusal: the person editing a
+    # deployment's prompt is the person who owns that deployment's behaviour, and a control that
+    # explains the cost is worth more than one that forbids and sends them to a text editor.
+    #
+    # `Runtime` carries the platform line and the paths to the agent's own `SOUL.md`, `MEMORY.md`
+    # and history log, as `{{ }}` placeholders. A replacement that drops them leaves the model
+    # without the location of its own memory, so the editor shows them and says so.
+    "Runtime": SectionPermission.REPLACEABLE,
+    "Safety notes": SectionPermission.REPLACEABLE,
     "Bootstrap files": SectionPermission.WORKSPACE,
-    "Tool usage notes": SectionPermission.FIXED,
+    # Who is answering, when a named agent is, and **after** the bootstrap files: `SOUL.md` is the
+    # deployment's persona and is shared by every agent, so this comes last or the agent
+    # introduces itself as the deployment. Absent on a default-agent turn.
+    #
+    # `derived`, not replaceable: an agent's name and description are what config says they are,
+    # and a deployment able to overwrite this could make one agent introduce itself as another.
+    "Agent identity": SectionPermission.DERIVED,
+    "Tool usage notes": SectionPermission.REPLACEABLE,
     "Memory": SectionPermission.REPLACEABLE,
     "Active skills": SectionPermission.DERIVED,
     "Skills catalogue": SectionPermission.DERIVED,
@@ -84,6 +100,29 @@ SECTION_PERMISSIONS: Mapping[str, SectionPermission] = {
     ADDENDUM_SECTION: SectionPermission.APPEND_ONLY,
     "Recent history": SectionPermission.DERIVED,
     "Session summary": SectionPermission.DERIVED,
+}
+
+#: Replacing one of these is allowed and costs something specific, so the editor says what.
+#:
+#: Not a refusal: an operator who wants a different tool contract or different safety notes is
+#: making a deployment-wide behavioural decision, which is theirs. What they should not have is a
+#: surprise -- the gate keeps refusing actions whether or not the model still knows the rules, and
+#: an agent that no longer knows them retries blindly instead of explaining.
+REPLACEMENT_WARNINGS: Mapping[str, str] = {
+    "Tool usage notes": (
+        "This is the tool contract: how a tool is called, what a refusal means, and when to stop. "
+        "The capability gate refuses the same actions either way, so an agent without these rules "
+        "retries a refused action instead of explaining it."
+    ),
+    "Safety notes": (
+        "These are the prompt-injection rules: that content fetched from the web, a file or a "
+        "ticket is data and not instructions. Replacing them removes the only place the agent is "
+        "told so."
+    ),
+    "Runtime": (
+        "This section carries the paths to the agent's own memory, history and workspace as "
+        "placeholders. Keep them in your text, or the agent no longer knows where its memory is."
+    ),
 }
 
 #: The sections whose size is the same on every turn of a deployment, so a panel can state their

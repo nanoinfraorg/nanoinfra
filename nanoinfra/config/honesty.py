@@ -1,9 +1,13 @@
 """Config that is ignored should say so (#205).
 
-Both warnings here come from one afternoon of misdiagnosis. `agents.defaults.model` read
+These warnings come from one afternoon of misdiagnosis. `agents.defaults.model` read
 `anthropic/claude-opus-4-5` on a deployment whose `model_preset` pointed at a Kimi preset, so the
 field was dead and nothing said so; reading only that field led to telling the operator his
 deployment was silently running on a fallback. It was not.
+
+The eventual fix was to stop shipping a model at all, which turned a *dead* field into an *empty*
+one -- and an empty one needs its own line, because a deployment with no model cannot answer
+anything and should hear that at boot rather than from a refused turn.
 
 The second is the same shape from the other side: a preset whose provider has no credential fails
 over quietly, and a fallback that *works* is the worst kind of misconfiguration -- it never hurts
@@ -24,36 +28,6 @@ if TYPE_CHECKING:
 #: What the packaged default config ships as. A field nobody has touched is not a stale field, so
 #: it is not worth a line at every boot.
 DEFAULT_MODEL_HINTS = ("", "default")
-
-
-def dead_model_field_warning(config: Config) -> str:
-    """One line when ``agents.defaults.model`` is set and something else decides the model.
-
-    Empty when the two agree, when no preset is selected, or when the field was never set: the
-    warning is about a *contradiction*, and a config that merely repeats itself is not one.
-    """
-    defaults = getattr(getattr(config, "agents", None), "defaults", None)
-    if defaults is None:
-        return ""
-    preset_name = str(getattr(defaults, "model_preset", "") or "")
-    model = str(getattr(defaults, "model", "") or "")
-    if not preset_name or preset_name in DEFAULT_MODEL_HINTS:
-        return ""
-    if not model or model in DEFAULT_MODEL_HINTS:
-        return ""
-    try:
-        effective = str(config.resolve_preset().model or "")
-    except KeyError:
-        # A preset name that resolves to nothing is a louder problem than a dead field, and it has
-        # its own error at the point of use. Saying both here would bury it.
-        return ""
-    if not effective or effective == model:
-        return ""
-    return (
-        f"agents.defaults.model is {model!r} and is ignored: "
-        f"agents.defaults.modelPreset={preset_name!r} resolves to {effective!r}. "
-        "Remove the field or clear the preset, so the file names one model."
-    )
 
 
 def credential_warning(config: Config) -> str:
@@ -106,14 +80,38 @@ def _provider_needs_no_key(spec_name: str) -> bool:
     )
 
 
+def no_model_warning(config: Config) -> str:
+    """One line when this deployment has no model at all, which is what a fresh install is.
+
+    Nothing ships a model any more: a packaged `anthropic/claude-opus-4-5` made an unconfigured
+    deployment look configured, on a provider it had no credential for. The honest version of that
+    state is *there is no model*, and the honest way to say it is this line -- once, at boot, and
+    on the settings page -- rather than a failed turn whose reason is `No provider is configured
+    for model ''`.
+
+    Says what to do, because "no model" has exactly one next step.
+    """
+    defaults = getattr(getattr(config, "agents", None), "defaults", None)
+    if defaults is None:
+        return ""
+    if str(getattr(defaults, "model", "") or "").strip():
+        return ""
+    if getattr(config, "model_presets", None):
+        return ""
+    return (
+        "No model is configured, so no turn can be answered. Add a model configuration in "
+        "Settings > Models -- the first one you add becomes the primary."
+    )
+
+
 def config_warnings(config: Config) -> list[str]:
     """Every line worth saying about this config, in a stable order."""
-    lines = [dead_model_field_warning(config), credential_warning(config)]
+    lines = [no_model_warning(config), credential_warning(config)]
     return [line for line in lines if line]
 
 
 __all__ = [
     "config_warnings",
     "credential_warning",
-    "dead_model_field_warning",
+    "no_model_warning",
 ]

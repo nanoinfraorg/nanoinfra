@@ -107,7 +107,9 @@
       "automations": "Otomasi",
       "skills": "Keterampilan",
       "agents": "Agen",
-      "knowledge": "Pengetahuan"
+      "knowledge": "Pengetahuan",
+      "toolGroups": "Grup alat",
+      "prompts": "Prompt"
     },
     "sections": {
       "interface": "Antarmuka",
@@ -1226,6 +1228,39 @@
       "clientSecret": "OAuth client secret",
       "account": "Account to consent as (optional)",
       "consent": "Open the consent screen"
+    },
+    "prompts": {
+      "title": "Prompt",
+      "subtitle": "Kedua prompt ini berjalan tanpa ada yang mengawasi, dan tidak satu pun merupakan prompt agen yang Anda ajak bicara.",
+      "loading": "Membaca prompt yang berlaku…",
+      "unavailable": "Gateway ini tidak menyajikan panel prompt, jadi tidak ada yang dibaca di sini. Kedua prompt tetap seperti sebelumnya: edit filenya di disk, karena teks yang ditulis di sini tidak akan tersimpan.",
+      "name": {
+        "dream": "Dream — konsolidasi memori",
+        "evaluator": "Evaluator — gerbang notifikasi heartbeat"
+      },
+      "controlsLabel": "Menentukan",
+      "requirementLabel": "Pengganti harus tetap memuat ini",
+      "source": {
+        "workspace": "Teks milik workspace ini",
+        "platform": "Teks platform"
+      },
+      "editorLabel": "Teks prompt {{name}}",
+      "charCount": "{{chars}} dari {{max}} karakter",
+      "tooLong": "Teks ini melebihi {{max}} karakter yang boleh dimuat sebuah prompt workspace.",
+      "matchesPlatform": "Ini teks platform itu sendiri. Menyimpannya menghapus file pengganti alih-alih menyimpan salinan: salinan tetap akan menang besok, dan workspace ini berhenti menerima setiap perbaikan berikutnya tanpa memberi tahu.",
+      "pathLabel": "File",
+      "pathHelp": "Menyimpan menulis file itu dan memulihkan menghapusnya. Editor menulis file yang sama.",
+      "actions": {
+        "save": "Simpan",
+        "discard": "Buang",
+        "restore": "Pulihkan bawaan"
+      },
+      "status": {
+        "unsaved": "Ada perubahan yang belum disimpan.",
+        "saved": "Tersimpan. Teks milik workspace ini berlaku mulai proses berikutnya.",
+        "removed": "File pengganti sudah hilang. Prompt platform berlaku kembali dan akan terus membaik bersama platform.",
+        "failed": "Tidak tersimpan: {{reason}}"
+      }
     }
   },
   "chat": {
@@ -1797,10 +1832,10 @@
       "add7d": "Setujui dan tambahkan — berakhir dalam 7 hari",
       "addNever": "Setujui dan tambahkan — tidak pernah berakhir",
       "permanentTitle": "Tambahkan izin yang tidak pernah berakhir?",
-      "permanentBody": "Mulai sekarang perintah ini berjalan di host ini tanpa menanyakan siapa pun. Tidak ada yang menghapus izin itu nanti: Anda menyunting gates.standingGrants di config.json untuk menariknya kembali.",
+      "permanentBody": "Perintah ini berjalan di host-host ini mulai sekarang, tanpa menanyai siapa pun. Izinnya tetap ada sampai Anda menghapusnya di Pengaturan → Keamanan.",
       "permanentConfirm": "Ya, tanpa batas waktu",
       "saved": "Izin tetap {{id}} ditambahkan. Berakhir pada {{when}}.",
-      "savedPermanent": "Izin tetap {{id}} ditambahkan, dan tidak pernah berakhir. Sunting gates.standingGrants untuk menariknya kembali.",
+      "savedPermanent": "Izin tetap {{id}} ditambahkan dan tidak kedaluwarsa. Hapus di Pengaturan → Keamanan.",
       "notSaved": "Tindakan disetujui. Izin tetap tidak tersimpan: {{reason}}"
     },
     "deny": "Tolak",
@@ -1822,7 +1857,9 @@
       "unknownRequest": "Eksekutor tidak memegang permintaan ini. Sudah kedaluwarsa, atau sudah dijawab."
     },
     "agentDelegated": "{{agent}} — didelegasikan oleh {{delegatedBy}}",
-    "agentAsserted": "Agen menamai dirinya sendiri. Itu klaim dari permintaan, bukan identitas yang diautentikasi oleh deployment ini, dan digest di atas tidak mencakupnya."
+    "agentAsserted": "Agen menamai dirinya sendiri. Itu klaim dari permintaan, bukan identitas yang diautentikasi oleh deployment ini, dan digest di atas tidak mencakupnya.",
+    "agentDefault": "Agen bawaan",
+    "agentDefaultNote": "Tidak ada agen yang menamai dirinya, jadi agen bawaan deployment ini yang menjalankannya. Itu pun keterangan permintaan tentang dirinya sendiri, bukan identitas yang diautentikasi, dan digest di atas tidak mencakupnya."
   },
   "serverNotes": {
     "title": "Catatan perangkat",
@@ -1846,26 +1883,63 @@
   },
   "agents": {
     "roster": {
-      "title": "Agen bernama",
-      "help": "Setiap agen menjawab dengan model dan alatnya sendiri. Agen dideklarasikan di konfigurasi, jadi halaman ini membacanya dan tidak mengubahnya.",
       "toolGroups": "Grup alat",
       "skills": "Keterampilan",
       "delegates": "Delegasi",
-      "addendum": "Adendum"
+      "new": "Agen baru",
+      "emptyHelp": "Belum ada agen yang dinamai, jadi setiap pesan dijawab oleh agen di atas. Beri nama satu agar punya model, alat, dan instruksinya sendiri, dan disebut sebagai @agent:<nama>.",
+      "deleteAgent": "Hapus {{name}}",
+      "deleteTitle": "Hapus {{name}}?",
+      "deleteDescription": "Agen berhenti ada dan tidak bisa dipanggil lagi. Pesan sebelumnya tetap ada di sesinya.",
+      "deleteDependents": "{{agents}} mendelegasikan ke agen ini. Konfigurasi menolak daftar yang delegasinya tidak ada, jadi hapus dulu dari agen tersebut.",
+      "deleteConfirm": "Hapus",
+      "deleteCancel": "Batal",
+      "chip": {
+        "all": "semua",
+        "delegates": "delegasi",
+        "mcp": "mcp",
+        "skills": "keahlian",
+        "toolGroups": "grup alat",
+        "none": "tidak ada",
+        "connectors": "konektor"
+      },
+      "chipAllHelp": "Tidak ada yang dideklarasikan, artinya semuanya.",
+      "defaultBadge": "Milik instalasi ini",
+      "defaultExpand": "Apa itu agen bawaan",
+      "defaultHelp": "Yang menjawab ketika tidak ada agen yang dipilih, dan yang diwarisi setiap agen bernama.",
+      "defaultModelFact": "Prasetel yang diaktifkan instalasi ini. Mengubahnya mengubah setiap agen yang tidak menyebut prasetelnya sendiri.",
+      "defaultNotEditable": "Agen ini tidak bisa ditambahkan, diganti nama, atau dihapus: inilah yang dimiliki sebuah instalasi sebelum menamai apa pun. Halaman ini hanya menulis agen bernama, dan pengaturan milik agen bawaan berada di panel Pengaturan lainnya.",
+      "defaultPromptFact": "Bagian milik platform sendiri, tanpa tambahan dan tanpa penggantian.",
+      "defaultToolGroupsFact": "Semua grup alat, karena tidak mendeklarasikan apa pun adalah cara konfigurasi menyebut semuanya.",
+      "editAgent": "Ubah {{name}}",
+      "openModels": "Buka Model",
+      "openSkills": "Buka Keterampilan",
+      "promptCustom": "Prompt sendiri",
+      "promptCustomHelp": "Agen ini menambah atau menggantikan sebagian prompt milik platform. Tab Prompt menunjukkan bagian mana.",
+      "promptDefault": "Prompt bawaan",
+      "promptDefaultHelp": "Agen ini diberi apa yang dikatakan platform, tanpa tambahan atau penggantian.",
+      "subtitle": "Kelola agen AI",
+      "editDefault": "Ubah agen bawaan",
+      "chipNoneHelp": "Dideklarasikan dan kosong: agen ini tidak menjangkau satu pun.",
+      "noModel": "Belum ada model yang dikonfigurasi"
     },
     "detail": {
       "tabs": "Pengaturan agen",
-      "prompt": "Prompt"
+      "prompt": "Prompt",
+      "tools": "Alat",
+      "skills": "Keterampilan",
+      "delegates": "Delegasi",
+      "back": "Semua agen",
+      "createTitle": "Agen baru",
+      "unsaved": "Perubahan belum disimpan",
+      "basic": "Dasar"
     },
     "prompt": {
       "loading": "Membaca komposisi prompt…",
       "unavailable": "Gateway ini tidak melaporkan komposisi prompt.",
       "replaced": "Diganti",
       "replacedHelp": "Deployment ini mengganti teks platform untuk bagian ini. Bagian tersebut tetap disebut di sini, karena catatan yang menyembunyikan penggantian akan membuat dua prompt berbeda terlihat sama.",
-      "perTurn": "ukuran berubah tiap giliran",
       "tokens": "{{tokens}} token",
-      "addendumTitle": "Adendum",
-      "addendumHelp": "Adendum ditambahkan setelah bagian di atas dan tidak dapat menggantikan satu pun. Ubah di berkas konfigurasi, tempat agen dideklarasikan.",
       "addendumEmpty": "Agen ini tidak mendeklarasikan adendum.",
       "estimateNote": "Angka token adalah perkiraan untuk bagian yang biayanya sama di setiap giliran. Apa yang benar-benar dibawa satu giliran ada pada giliran itu.",
       "permission": {
@@ -1881,7 +1955,78 @@
         "derived": "Dihitung dari konfigurasi, jadi konfigurasi adalah tempat mengubahnya.",
         "appendOnly": "Ditambahkan setelah bagian platform; tidak menggantikan apa pun.",
         "fixed": "Kontrak alat dan catatan keselamatan. Menghapusnya membuat gerbang tetap menolak tindakan yang aturannya tidak lagi diketahui model."
-      }
+      },
+      "tokensPending": "dihitung setelah disimpan",
+      "sectionEditorLabel": "Teks Anda untuk {{section}}",
+      "addendumPlaceholder": "Utamakan pemeriksaan hanya-baca, dan sebutkan apa yang belum diperiksa.",
+      "unsaved": "Bagian-bagian prompt muncul setelah agen ini disimpan.",
+      "addendumElsewhere": "Adendum diubah di tab Dasar.",
+      "editSection": "Ubah {{section}}",
+      "emptyIsDefault": "Bagian kosong bukan sesuatu yang bisa disimpan konfigurasi, jadi menyimpan ini memulihkan teks milik platform.",
+      "introHelp": "Setiap bagian dari prompt sistem, dalam urutan platform merangkainya. Ikon pensil membuka teks sebuah bagian untuk diubah, dan mengubahnya adalah satu-satunya cara menghapus sesuatu yang dikatakan platform: adendum bisa menambah, tetapi tidak pernah menarik kembali. Bagian tanpa pensil dibangun dari konfigurasi Anda atau dari ruang kerja, jadi di sanalah bagian itu berubah.",
+      "introTitle": "Apa yang disampaikan kepada agen ini",
+      "noDefaultText": "Platform merangkai bagian ini pada setiap giliran, jadi tidak ada teks bawaan sebagai titik awal. Apa yang Anda tulis di sini menggantikannya.",
+      "perTurnBody": "Platform merangkai bagian ini pada setiap giliran, dari ruang kerja dan sesi, jadi tidak ada teks tetap untuk ditampilkan di sini.",
+      "placeholders": "Pertahankan placeholder ini di teks Anda:",
+      "restoreDefault": "Pulihkan bawaan",
+      "sectionEmpty": "Bagian ini tidak membawa apa pun untuk agen ini."
+    },
+    "editor": {
+      "save": "Simpan",
+      "fields": {
+        "name": "Nama",
+        "description": "Deskripsi",
+        "modelPreset": "Model",
+        "toolGroups": "Grup alat",
+        "connectors": "Konektor",
+        "mcpServers": "Server MCP",
+        "skills": "Keterampilan yang dimuat",
+        "delegates": "Delegasi",
+        "addendum": "Adendum agen",
+        "provider": "Penyedia"
+      },
+      "namePlaceholder": "sre",
+      "nameHelp": "Cara agen dipanggil dalam pesan, sebagai @agent:<nama>. Huruf, angka, '-', '_' dan '.'.",
+      "nameFixedHelp": "Agen mempertahankan nama saat dibuat: otomasi dan percakapan memanggilnya dengan nama itu.",
+      "descriptionPlaceholder": "pemeriksaan langsung di satu host",
+      "descriptionHelp": "Baris yang menjelaskan agen ini di mana pun ia ditawarkan, termasuk kepada agen lain yang memutuskan akan mendelegasikan atau tidak.",
+      "presetDefault": "Bawaan instalasi",
+      "toolGroupsHelp": "Semua berarti tanpa batas atas. Hanya ini mempersempit agen ke grup yang Anda pilih — dan tidak memilih apa pun berarti agen harus meminta rekan untuk apa pun yang bergrup.",
+      "toolGroupsEmpty": "Instalasi ini belum punya grup alat.",
+      "toolGroupsLink": "Buka Grup alat",
+      "connectorsEmpty": "Instalasi ini tidak mengaktifkan konektor apa pun.",
+      "mcpServersEmpty": "Instalasi ini tidak memasang server MCP.",
+      "bindingHelp": "Semua berarti apa pun yang diaktifkan deployment ini. Hanya ini mempersempit agen ke pilihan Anda dan tidak pernah memperluasnya — tanpa memilih apa pun, agen tidak memuat satu pun, dan di situlah anggaran skema terpakai.",
+      "skillsHelp": "Semua merangkum seluruh katalog, seperti sebelumnya. Hanya ini memuat pilihan Anda secara penuh dan tidak merangkum yang lain — itulah yang membuat satu percakapan tidak membayar setiap skill yang terpasang.",
+      "skillsEmpty": "Tidak ada keterampilan terpasang",
+      "delegatesHelp": "Agen yang boleh diberi pekerjaan oleh agen ini. Keanggotaan adalah otorisasinya, jadi agen hanya menjangkau rekan yang disebut di sini.",
+      "delegatesEmpty": "Belum ada agen lain untuk didelegasikan.",
+      "duplicate": "{{name}} sudah ada. Menyimpan akan menggantinya, jadi buka agen itu saja.",
+      "staleGateway": "Gateway ini melaporkan berapa banyak grup alat, keterampilan, dan delegasi yang dimiliki {{name}}, tetapi bukan yang mana, jadi menyimpan akan menggantinya dengan kosong. Perbarui gateway untuk mengubah agen ini di sini.",
+      "addendumHelp": "Ditambahkan setelah bagian milik platform. Hanya bisa menambah: kalimat yang tidak Anda setujui tidak bisa dibatalkan dengan menambahkan koreksi, karena model menerima keduanya. Untuk menghapusnya, ubah bagian itu di tab Prompt.",
+      "modelPresetHelp": "Prasetel model mana dari instalasi ini yang menjawab untuk agen ini. Satu prasetel membawa model, penyedia dan batasnya sekaligus, jadi tidak ada yang perlu disamakan manual.",
+      "presetDefaultNamed": "Bawaan instalasi ({{name}})",
+      "providerHelp": "Ditentukan oleh prasetel, bukan dipilih di sini: satu prasetel menyebut model dan penyedia yang melayaninya sekaligus.",
+      "bindingAll": "Semua",
+      "bindingOnly": "Hanya ini",
+      "bindingAllNote": "Tidak ada yang dideklarasikan: agen ini menjangkau semua yang dimiliki deployment ini, termasuk yang Anda tambahkan nanti.",
+      "bindingNoneNote": "Dideklarasikan dan kosong: agen ini tidak menjangkau satu pun."
+    },
+    "create": {
+      "submit": "Buat"
+    },
+    "defaults": {
+      "reachesEveryTurn": "Apa yang Anda tulis di sini ditambahkan ke prompt sistem pada setiap giliran yang tidak menyebut agen — yaitu setiap giliran, pada instalasi yang tidak menamai satu pun.",
+      "scope": "Agen ini tidak bisa ditambahkan, diganti nama, atau dihapus: ini yang dimiliki deployment sebelum menyebut apa pun. Semua hal lain tentangnya disunting di sini, seperti agen lain. Pengaturan deployment-nya — zona waktu, batas iterasi alat, batas subagen — berada di panel yang memilikinya.",
+      "staleGateway": "Gateway ini tidak melaporkan addendum, bagian yang digantikan, atau binding agen default, jadi menyimpan akan menggantinya dengan yang belum pernah dibaca formulir ini. Perbarui gateway untuk menyuntingnya di sini.",
+      "toolGroupsHelp": "Semua adalah keadaan deployment sebelum dipersempit. Hanya ini membatasi setiap turn yang tidak menyebut agen — alat di luar grup pilihan Anda tidak ditawarkan dan panggilan ke salah satunya ditolak.",
+      "mcpHelp": "Ini yang paling mahal. Skema setiap server terpasang dimuat pada pesan pertama setiap percakapan, jadi Hanya ini adalah cara deployment dengan selusin server berhenti membayar sebelas.",
+      "connectorsHelp": "Semua berarti apa pun yang diaktifkan deployment ini. Hanya ini mempersempit turn ke konektor pilihan Anda dan tidak pernah memperluasnya.",
+      "skillsHelp": "Semua merangkum seluruh katalog, seperti sebelumnya. Hanya ini memuat pilihan Anda secara penuh dan tidak merangkum yang lain — katalog itu sendirilah yang dihabiskan oleh daftar skill yang panjang.",
+      "skillsNoneNote": "Dideklarasikan dan kosong: tidak ada skill yang dimuat dan tidak ada katalog yang dirangkum.",
+      "skillsVsDisabled": "Berbeda dari skill yang dinonaktifkan deployment ini, di Pengaturan → Skills. Daftar itu menghapus skill dari setiap agen; yang ini memilih mana dari sisanya yang dimuat penuh oleh agen ini.",
+      "delegatesHelp": "Agen yang boleh diberi pekerjaan oleh agen ini. Di sini paling penting: ini agen yang Anda ajak bicara, jadi tanpa rekan yang disebut, satu-satunya cara menjangkau rekan adalah berhenti bicara dengannya.",
+      "delegatesEmpty": "Deployment ini belum menyebut agen lain."
     }
   }
 }

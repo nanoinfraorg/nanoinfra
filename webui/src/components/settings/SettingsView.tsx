@@ -16,6 +16,7 @@ import {
   ArrowUpDown,
   BookOpen,
   Bot,
+  Boxes,
   Brain,
   Check,
   CircleAlert,
@@ -84,6 +85,8 @@ import {
   useNamedAgents,
 } from "@/components/settings/AutomationAgentField";
 import { KnowledgeSettings } from "@/components/settings/KnowledgeSettings";
+import { ToolGroupsSettings } from "@/components/settings/ToolGroupsSettings";
+import { WorkspacePromptsSettings } from "@/components/settings/WorkspacePromptsSettings";
 import { SkillsCatalogSettings } from "@/components/settings/SkillsCatalogSettings";
 import { TokenUsageHeatmap } from "@/components/settings/TokenUsageHeatmap";
 import { TokenUsageSummary } from "@/components/settings/TokenUsageSummary";
@@ -250,7 +253,9 @@ export type SettingsSectionKey =
   | "automations"
   | "skills"
   | "knowledge"
+  | "prompts"
   | "agents"
+  | "toolGroups"
   | "runtime"
   | "advanced";
 
@@ -2658,6 +2663,13 @@ export function SettingsView({
             requiresRestartPending={pendingRestartSections.agents}
             isNativeHost={(settings.surface ?? settings.runtime_surface) === "native"}
             namedAgents={settings.named_agents ?? []}
+            modelPresets={settings.model_presets}
+            declaredToolGroups={settings.tool_groups}
+            onRosterSaved={applyPayload}
+            onNavigateToToolGroups={() => selectSection("toolGroups")}
+            defaultAgent={settings.agent}
+            onNavigateToModels={() => selectSection("models")}
+            onNavigateToSkills={() => selectSection("skills")}
             token={token}
           />
         );
@@ -2687,6 +2699,14 @@ export function SettingsView({
         );
       case "knowledge":
         return <KnowledgeSettings token={token} settings={settings} onSaved={applyPayload} />;
+      // The two prompts that run unattended, and the only surface that shows the text they are
+      // about to replace (#264).
+      case "prompts":
+        return <WorkspacePromptsSettings token={token} />;
+      // The one setting that takes tool schemas out of a prompt (#210), and the one the named
+      // agents' per-agent picker has nothing to offer until a group is declared.
+      case "toolGroups":
+        return <ToolGroupsSettings token={token} settings={settings} onSaved={applyPayload} />;
       case "advanced":
         return (
           <div className="space-y-7">
@@ -2870,7 +2890,9 @@ const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fal
   { key: "browser", icon: Globe2, fallback: "Web" },
   { key: "channels", icon: MessageCircle, fallback: "Channels" },
   { key: "agents", icon: Bot, fallback: "Agents" },
+  { key: "toolGroups", icon: Boxes, fallback: "Tool groups" },
   { key: "knowledge", icon: BookOpen, fallback: "Knowledge" },
+  { key: "prompts", icon: Brain, fallback: "Prompts" },
   { key: "runtime", icon: Server, fallback: "System" },
   { key: "advanced", icon: ShieldCheck, fallback: "Security" },
 ];
@@ -9901,8 +9923,8 @@ function CliAppLogo({ app, showBrandLogos }: { app: CliAppInfo; showBrandLogos: 
  * parallelism inside one agent rather than about agents at all. The roster takes the name over and
  * the row becomes what it always was: one setting inside the area, rather than the whole of it.
  *
- * A deployment that names no agent renders exactly what it rendered before, because `AgentRoster`
- * returns nothing for an empty roster.
+ * A deployment that names no agent gets the roster's empty state -- an invitation to name one, and
+ * the concurrency row below it exactly where it has always been (#262).
  */
 function AgentsSettings({
   form,
@@ -9915,6 +9937,13 @@ function AgentsSettings({
   requiresRestartPending,
   isNativeHost,
   namedAgents,
+  modelPresets,
+  declaredToolGroups,
+  onRosterSaved,
+  onNavigateToToolGroups,
+  defaultAgent,
+  onNavigateToModels,
+  onNavigateToSkills,
   token,
 }: {
   form: AgentSettingsDraft;
@@ -9927,15 +9956,49 @@ function AgentsSettings({
   requiresRestartPending: boolean;
   isNativeHost: boolean;
   namedAgents: NamedAgentRosterEntry[];
+  modelPresets: SettingsPayload["model_presets"];
+  declaredToolGroups?: Record<string, unknown>;
+  /** A roster write answers with the whole fresh payload, the way every settings write does. */
+  onRosterSaved: (payload: SettingsPayload) => void;
+  /** Where a tool group is made, for the picker that has none to offer. */
+  onNavigateToToolGroups: () => void;
+  /**
+   * `agents.defaults`, so the roster can carry a row for the agent that answers when nobody
+   * picks one -- the agent the composer offers by name and this page never mentioned (#262).
+   */
+  defaultAgent: SettingsPayload["agent"];
+  /** Where the default agent's model actually lives, rather than duplicating that control. */
+  onNavigateToModels: () => void;
+  /** Where a skill is installed or disabled. */
+  onNavigateToSkills: () => void;
   token: string;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
     t(key, { defaultValue: fallback, ...(values ?? {}) });
+  /*
+   * True while one agent's own page is open. The Subagents row below is **deployment-wide** -- how
+   * many subagents may run at once anywhere -- and leaving it under that page's tabs reads as a
+   * property of the agent being edited, which is the exact confusion named agents exist to end
+   * (#262).
+   */
+  const [agentOpen, setAgentOpen] = useState(false);
 
   return (
     <div className="space-y-7">
-      <AgentRoster agents={namedAgents} token={token} />
+      <AgentRoster
+        agents={namedAgents}
+        token={token}
+        modelPresets={modelPresets}
+        declaredToolGroups={declaredToolGroups}
+        onSaved={onRosterSaved}
+        onNavigateToToolGroups={onNavigateToToolGroups}
+        defaultAgent={defaultAgent}
+        onNavigateToModels={onNavigateToModels}
+        onNavigateToSkills={onNavigateToSkills}
+        onDetailOpenChange={setAgentOpen}
+      />
+      {agentOpen ? null : (
       <section>
         <SettingsSectionTitle>
           {tx("settings.sections.subagents", "Subagents")}
@@ -9987,6 +10050,7 @@ function AgentsSettings({
           />
         </SettingsGroup>
       </section>
+      )}
     </div>
   );
 }

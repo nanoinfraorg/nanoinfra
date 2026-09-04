@@ -107,7 +107,9 @@
       "automations": "Automations",
       "skills": "Skills",
       "agents": "Agents",
-      "knowledge": "Knowledge"
+      "knowledge": "Knowledge",
+      "toolGroups": "Tool groups",
+      "prompts": "Prompts"
     },
     "sections": {
       "interface": "Interface",
@@ -1226,6 +1228,39 @@
       "clientSecret": "OAuth client secret",
       "account": "Account to consent as (optional)",
       "consent": "Open the consent screen"
+    },
+    "prompts": {
+      "title": "Prompts",
+      "subtitle": "These two prompts run with nobody watching, and neither is the prompt of the agent you talk to.",
+      "loading": "Reading the prompts in force…",
+      "unavailable": "This gateway did not serve the prompts panel, so nothing here was read. The two prompts are still whatever they were: edit their files on disk, and no text typed here would have been saved.",
+      "name": {
+        "dream": "Dream — memory consolidation",
+        "evaluator": "Evaluator — the heartbeat's notification gate"
+      },
+      "controlsLabel": "Decides",
+      "requirementLabel": "A replacement must keep this",
+      "source": {
+        "workspace": "This workspace's own text",
+        "platform": "The platform's text"
+      },
+      "editorLabel": "{{name}} prompt text",
+      "charCount": "{{chars}} of {{max}} characters",
+      "tooLong": "This text is longer than the {{max}} characters a workspace prompt may hold.",
+      "matchesPlatform": "This is the platform's own text. Saving it removes the override file rather than storing a copy: a copy would still win tomorrow, and this workspace would stop receiving every later improvement without saying so.",
+      "pathLabel": "File",
+      "pathHelp": "Saving writes that file and restoring deletes it. An editor writes the same one.",
+      "actions": {
+        "save": "Save",
+        "discard": "Discard",
+        "restore": "Restore default"
+      },
+      "status": {
+        "unsaved": "Unsaved changes.",
+        "saved": "Saved. This workspace's own text is in force from the next run.",
+        "removed": "The override file is gone. The platform's prompt is in force again, and it will keep improving with the platform.",
+        "failed": "Not saved: {{reason}}"
+      }
     }
   },
   "chat": {
@@ -1797,10 +1832,10 @@
       "add7d": "Approve and add — expires in 7 days",
       "addNever": "Approve and add — never expires",
       "permanentTitle": "Add a grant that never expires?",
-      "permanentBody": "This command runs on these hosts from now on, with nobody asked. Nothing removes the grant later: you edit gates.standingGrants in config.json to take it back.",
+      "permanentBody": "This command runs on these hosts from now on, with nobody asked. The grant stays until you remove it in Settings → Security.",
       "permanentConfirm": "Yes, never expires",
       "saved": "Standing grant {{id}} added. It expires {{when}}.",
-      "savedPermanent": "Standing grant {{id}} added, and it never expires. Edit gates.standingGrants to take it back.",
+      "savedPermanent": "Standing grant {{id}} added, and it never expires. Remove it in Settings → Security.",
       "notSaved": "The action was approved. The grant was not saved: {{reason}}"
     },
     "deny": "Deny",
@@ -1822,7 +1857,9 @@
       "unknownRequest": "The executor does not hold this request. It expired, or somebody answered it."
     },
     "agentDelegated": "{{agent}} — delegated by {{delegatedBy}}",
-    "agentAsserted": "The agent named itself. That is a claim of the request, not an identity this deployment authenticated, and the digest above does not cover it."
+    "agentAsserted": "The agent named itself. That is a claim of the request, not an identity this deployment authenticated, and the digest above does not cover it.",
+    "agentDefault": "Default agent",
+    "agentDefaultNote": "No agent named itself, so this deployment's default agent runs it. That too is the request's own account of itself rather than an authenticated identity, and the digest above does not cover it."
   },
   "serverNotes": {
     "title": "Device notes",
@@ -1846,26 +1883,63 @@
   },
   "agents": {
     "roster": {
-      "title": "Named agents",
-      "help": "Each agent answers with its own model and its own tools. Agents are declared in config, so this page reads them and does not change them.",
       "toolGroups": "Tool groups",
       "skills": "Skills",
       "delegates": "Delegates",
-      "addendum": "Addendum"
+      "new": "New agent",
+      "emptyHelp": "No agent is named yet, so every message is answered by the agent above. Name one to give it its own model, its own tools and its own instructions, addressed as @agent:<name>.",
+      "deleteAgent": "Delete {{name}}",
+      "deleteTitle": "Delete {{name}}?",
+      "deleteDescription": "The agent stops existing and stops being addressable. Past messages stay in their sessions.",
+      "deleteDependents": "{{agents}} delegate to this agent. Config refuses a roster whose delegate does not exist, so remove it from them first.",
+      "deleteConfirm": "Delete",
+      "deleteCancel": "Cancel",
+      "chip": {
+        "all": "all",
+        "delegates": "delegates",
+        "mcp": "mcp",
+        "skills": "skills",
+        "toolGroups": "tool groups",
+        "none": "none",
+        "connectors": "connectors"
+      },
+      "chipAllHelp": "Nothing declared, which is every one of them.",
+      "defaultBadge": "This deployment's own",
+      "defaultExpand": "What the default agent is",
+      "defaultHelp": "What answers when no agent is chosen, and what every named agent inherits from.",
+      "defaultModelFact": "The preset this deployment activates. Changing it changes every agent that names none of its own.",
+      "defaultNotEditable": "This agent cannot be added, renamed or removed: it is what a deployment has before it names anything. This page writes named agents only, and the default agent's own settings live in the other Settings panels.",
+      "defaultPromptFact": "The platform's own sections, with nothing added and nothing replaced.",
+      "defaultToolGroupsFact": "Every tool group, because declaring none is how config says all of them.",
+      "editAgent": "Edit {{name}}",
+      "openModels": "Open Models",
+      "openSkills": "Open Skills",
+      "promptCustom": "Custom prompt",
+      "promptCustomHelp": "This agent adds to or replaces the platform's own prompt. The Prompt tab shows which sections.",
+      "promptDefault": "Default prompt",
+      "promptDefaultHelp": "This agent is told what the platform says, with nothing added or replaced.",
+      "subtitle": "Manage AI agents",
+      "editDefault": "Edit the default agent",
+      "chipNoneHelp": "Declared, and empty: this agent reaches none of them.",
+      "noModel": "No model configured"
     },
     "detail": {
       "tabs": "Agent settings",
-      "prompt": "Prompt"
+      "prompt": "Prompt",
+      "tools": "Tools",
+      "skills": "Skills",
+      "delegates": "Delegates",
+      "back": "All agents",
+      "createTitle": "New agent",
+      "unsaved": "Unsaved changes",
+      "basic": "Basic"
     },
     "prompt": {
       "loading": "Reading the prompt composition…",
       "unavailable": "This gateway does not report the prompt composition.",
       "replaced": "Replaced",
       "replacedHelp": "This deployment replaced the platform's text for this section. The section is still named here, because a record that hid the replacement would make two different prompts look identical.",
-      "perTurn": "size varies per turn",
       "tokens": "{{tokens}} tokens",
-      "addendumTitle": "Addendum",
-      "addendumHelp": "The addendum is appended after the sections above and can replace none of them. Edit it in the config file, where an agent is declared.",
       "addendumEmpty": "This agent declares no addendum.",
       "estimateNote": "Token figures are estimates for the sections that cost the same on every turn. What one turn actually carried is on the turn itself.",
       "permission": {
@@ -1881,7 +1955,78 @@
         "derived": "Computed from config, so config is where it changes.",
         "appendOnly": "Added after the platform's sections; it can replace none of them.",
         "fixed": "The tool contract and the safety notes. Deleting them would leave the gate refusing actions the model no longer knows the rules for."
-      }
+      },
+      "tokensPending": "counted after saving",
+      "sectionEditorLabel": "Your text for {{section}}",
+      "addendumPlaceholder": "Prefer read-only checks, and say what you did not check.",
+      "unsaved": "The prompt sections appear once this agent is saved.",
+      "addendumElsewhere": "The addendum is edited on the Basic tab.",
+      "editSection": "Edit {{section}}",
+      "emptyIsDefault": "An empty section is not something config can store, so saving this restores the platform's own text.",
+      "introHelp": "Every section of the system prompt, in the order the platform assembles it. The pencil opens a section's text for editing, and editing is the only way to remove something the platform says -- an addendum can add to it but never take it back. The sections without a pencil are built from your config or from the workspace, so they change there.",
+      "introTitle": "What this agent is told",
+      "noDefaultText": "The platform assembles this section on every turn, so there is no default text to start from. What you write here stands in its place.",
+      "perTurnBody": "The platform assembles this section on every turn, from the workspace and the session, so there is no fixed text to show here.",
+      "placeholders": "Keep these placeholders in your text:",
+      "restoreDefault": "Restore default",
+      "sectionEmpty": "This section carries nothing for this agent."
+    },
+    "editor": {
+      "save": "Save",
+      "fields": {
+        "name": "Name",
+        "description": "Description",
+        "modelPreset": "Model",
+        "toolGroups": "Tool groups",
+        "connectors": "Connectors",
+        "mcpServers": "MCP servers",
+        "skills": "Skills to load",
+        "delegates": "Delegates",
+        "addendum": "Agent addendum",
+        "provider": "Provider"
+      },
+      "namePlaceholder": "sre",
+      "nameHelp": "How the agent is addressed in a message, as @agent:<name>. Letters, digits, '-', '_' and '.'.",
+      "nameFixedHelp": "An agent keeps the name it was created with: automations and threads address it by that name.",
+      "descriptionPlaceholder": "hands-on checks on one host",
+      "descriptionHelp": "The line that explains this agent wherever it is offered, including to another agent deciding whether to delegate.",
+      "presetDefault": "Deployment default",
+      "toolGroupsHelp": "Everything means no ceiling. Only these narrows the agent to the groups you pick — and picking none is how an agent is told it must ask a peer for anything grouped.",
+      "toolGroupsEmpty": "This deployment has no tool groups yet.",
+      "toolGroupsLink": "Open Tool groups",
+      "connectorsEmpty": "This deployment activates no connectors.",
+      "mcpServersEmpty": "This deployment installs no MCP servers.",
+      "bindingHelp": "Everything is whatever this deployment activates. Only these narrows this agent to what you pick, and never widens it — an empty pick is an agent that loads none of them, which is what a schema budget is spent on.",
+      "skillsHelp": "Everything summarises the whole catalogue, as before. Only these loads what you pick in full and summarises nothing else — which is what keeps a conversation from paying for every skill installed.",
+      "skillsEmpty": "No skills installed",
+      "delegatesHelp": "The agents this one may hand work to. Membership is the authorization, so an agent reaches only the peers named here.",
+      "delegatesEmpty": "There is no other agent to delegate to yet.",
+      "duplicate": "{{name}} already exists. Saving would replace it, so open that agent instead.",
+      "staleGateway": "This gateway reports how many tool groups, skills and delegates {{name}} has but not which ones, so saving would replace them with nothing. Update the gateway to edit this agent here.",
+      "addendumHelp": "Appended after the platform's own sections. It can only add: a sentence you disagree with cannot be undone by appending a correction, because the model is handed both. To remove one, edit that section on the Prompt tab.",
+      "modelPresetHelp": "Which of this deployment's model presets answers for this agent. A preset carries the model, the provider and the limits together, so there is nothing to keep in step by hand.",
+      "presetDefaultNamed": "Deployment default ({{name}})",
+      "providerHelp": "Decided by the preset, not chosen here: a preset names the model and the provider that serves it together.",
+      "bindingAll": "Everything",
+      "bindingOnly": "Only these",
+      "bindingAllNote": "Nothing declared: this agent reaches every one this deployment has, and gains any you add later.",
+      "bindingNoneNote": "Declared and empty: this agent reaches none of them."
+    },
+    "create": {
+      "submit": "Create"
+    },
+    "defaults": {
+      "reachesEveryTurn": "What you write here is added to the system prompt of every turn that names no agent — which is every turn, in a deployment that names none.",
+      "scope": "This agent cannot be added, renamed or removed: it is what a deployment has before it names anything. Everything else about it is edited here, like any other agent. Its deployment settings — the timezone, the tool-iteration cap, the subagent limit — live in the panels that own them.",
+      "staleGateway": "This gateway does not report the default agent's addendum, replaced sections or bindings, so saving would replace them with what this form never read. Update the gateway to edit them here.",
+      "toolGroupsHelp": "Everything is what a deployment has before it narrows anything. Only these caps every turn that names no agent — the tools outside the groups you pick are not offered and a call to one is refused.",
+      "mcpHelp": "This is the one that costs the most. Every installed server's schemas load in the first message of every conversation, so Only these is how a deployment with a dozen of them stops paying for eleven.",
+      "connectorsHelp": "Everything is whatever this deployment activates. Only these narrows the turn to the connectors you pick, and never widens it.",
+      "skillsHelp": "Everything summarises the whole catalogue, as before. Only these loads what you pick in full and summarises nothing else — the catalogue itself is what a long list of skills spends.",
+      "skillsNoneNote": "Declared and empty: no skill loads and no catalogue is summarised either.",
+      "skillsVsDisabled": "Separate from the skills this deployment disables, in Settings → Skills. That list removes a skill from every agent; this one chooses which of what remains this agent loads in full.",
+      "delegatesHelp": "The agents this one may hand work to. It matters most here: this is the agent you talk to, so without a peer named the only way to reach one is to stop talking to it.",
+      "delegatesEmpty": "This deployment names no other agent yet."
     }
   }
 }

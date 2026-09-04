@@ -17,7 +17,8 @@ def test_save_config_round_trips(tmp_path: Path) -> None:
     path = tmp_path / "config.json"
     save_config(Config(), path)
     loaded = load_config(path)
-    assert loaded.agents.defaults.model
+    assert loaded.agents.defaults.timezone == "UTC"
+    assert loaded.agents.defaults.model == ""
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows does not expose POSIX file modes")

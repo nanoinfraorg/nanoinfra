@@ -22,11 +22,16 @@ AUTOMATION_PRESETS_META = "mcp_presets"
 #: Absent, never blank, when no agent is named: absent and "the deployment's default agent" have
 #: to be one state, or a reader would have two ways to spell the same thing.
 TURN_AGENT_META = "agent"
-#: The tool groups the acting agent declared, as ``{"tool_groups": [str, ...]}`` (#257).
+#: What the acting agent declared it may reach -- ``{"tool_groups": [...], "mcp_servers": [...],
+#: "connectors": [...]}`` (#257, widened past tool groups in #266).
 #:
 #: Beside the name rather than derived from it, for the reason ``DelegateBinding`` is carried: the
 #: turn crosses the bus, and by the time it runs the config lookup that resolved it is over. What
 #: it caps is read by the tool-availability filter, which has no route to config.
+#:
+#: **A key is present only when that list was declared.** Absent means no ceiling, and an empty
+#: list means a ceiling that admits nothing -- two different agents, and a reader that conflated
+#: them would cap an agent nobody capped.
 AUTOMATION_AGENT_META = "_automation_agent"
 
 
@@ -115,9 +120,38 @@ def automation_declared_presets(metadata: Mapping[str, Any] | None) -> list[str]
     return names or None
 
 
+def acting_agent_binding_metadata(
+    tool_groups: Iterable[str] | None = None,
+    mcp_servers: Iterable[str] | None = None,
+    connectors: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    """The ceilings the agent answering this turn declared, as the turn carries them (#266).
+
+    One key holding one mapping, and a list inside it **only when it was declared**: that is what
+    lets a reader tell "this agent declared no MCP ceiling" from "this agent declared it may
+    reach no MCP server". Both are real agents, and the second is the one a deployment reaches
+    for when every installed server in one conversation is more context than it wants to pay for.
+
+    Written for an interactive turn as well as an unattended one, which is the change: an agent
+    whose bindings only bound an automation was an agent whose bindings a person never got.
+    """
+    binding: dict[str, list[str]] = {}
+    for key, declared in (
+        ("tool_groups", tool_groups),
+        ("mcp_servers", mcp_servers),
+        ("connectors", connectors),
+    ):
+        if declared is None:
+            continue
+        binding[key] = [str(entry).strip() for entry in declared if str(entry).strip()]
+    return {AUTOMATION_AGENT_META: binding}
+
+
 def automation_agent_metadata(
     name: str,
-    tool_groups: Iterable[str],
+    tool_groups: Iterable[str] | None = None,
+    mcp_servers: Iterable[str] | None = None,
+    connectors: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Both keys an automation writes for the agent it runs as, written together.
 
@@ -127,7 +161,7 @@ def automation_agent_metadata(
     """
     return {
         TURN_AGENT_META: name,
-        AUTOMATION_AGENT_META: {"tool_groups": [str(group) for group in tool_groups]},
+        **acting_agent_binding_metadata(tool_groups, mcp_servers, connectors),
     }
 
 
@@ -144,21 +178,47 @@ def turn_agent(metadata: Mapping[str, Any] | None) -> str | None:
     return raw.strip()
 
 
-def automation_agent_tool_groups(metadata: Mapping[str, Any] | None) -> tuple[str, ...]:
-    """The tool groups the acting agent declared.
+def _acting_agent_ceiling(
+    metadata: Mapping[str, Any] | None, key: str
+) -> tuple[str, ...] | None:
+    """One of the acting agent's declared ceilings, or ``None`` when it declared that one at all.
 
-    Empty means every group, which is both the reading ``DelegateBinding.tool_groups`` has and
-    the reading a deployment with one agent already gets. It is *not* "no groups": an agent that
-    declared nothing is unrestricted, and an agent that declared something is capped by it.
+    Three states, not two, and the third is the point: **no key** means no ceiling was declared
+    and the turn is unrestricted; an **empty list** means the agent declared it may reach nothing
+    of that kind; a list means it is capped by that list.
+
+    Empty used to mean *everything*, and the cost was a coordinator nobody could configure: a
+    deployment could not take `servers` away from an agent, so that agent always ran a host
+    command itself and never had a reason to ask a peer.
     """
     raw = cast(object, (metadata or {}).get(AUTOMATION_AGENT_META))
     if not isinstance(raw, Mapping):
-        return ()
-    groups = cast(object, cast(Mapping[str, object], raw).get("tool_groups"))
-    if not isinstance(groups, (list, tuple)):
-        return ()
-    entries = list(cast("list[object] | tuple[object, ...]", groups))
+        return None
+    declared = cast(object, cast(Mapping[str, object], raw).get(key))
+    if not isinstance(declared, (list, tuple)):
+        return None
+    entries = list(cast("list[object] | tuple[object, ...]", declared))
     return tuple(str(name).strip() for name in entries if str(name).strip())
+
+
+def automation_agent_tool_groups(metadata: Mapping[str, Any] | None) -> tuple[str, ...] | None:
+    """The `tools.groups` the acting agent declared, or ``None`` when it declared none."""
+    return _acting_agent_ceiling(metadata, "tool_groups")
+
+
+def acting_agent_mcp_servers(metadata: Mapping[str, Any] | None) -> tuple[str, ...] | None:
+    """The MCP servers the acting agent declared, or ``None`` when it declared none (#266).
+
+    A **cap**, unlike the `mcp_presets` key beside it: that one is a mention and widens a
+    `mention` server into the turn on request, and this one decides which servers the turn may
+    load schemas from at all. An agent narrowed to one server does not carry the other eleven.
+    """
+    return _acting_agent_ceiling(metadata, "mcp_servers")
+
+
+def acting_agent_connectors(metadata: Mapping[str, Any] | None) -> tuple[str, ...] | None:
+    """The connectors the acting agent declared, or ``None`` when it declared none (#266)."""
+    return _acting_agent_ceiling(metadata, "connectors")
 
 
 def automation_identity(

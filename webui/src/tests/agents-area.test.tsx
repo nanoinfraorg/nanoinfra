@@ -10,7 +10,7 @@
  * names no agents sees the section exactly where it has always been, because for them nothing has
  * changed.
  */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsView } from "@/components/settings/SettingsView";
@@ -177,17 +177,63 @@ describe("the Agents area", () => {
       expect(screen.getByTestId("agent-roster")).toBeInTheDocument();
     });
     const text = container.textContent ?? "";
-    expect(text.indexOf("Named agents")).toBeLessThan(text.indexOf("Subagents"));
+    // The roster's own subtitle rather than its old heading: `indexOf` returns -1 for a string
+    // that is not there, so asserting on a heading this panel no longer renders would pass
+    // whatever the order was.
+    expect(text).toContain("Manage AI agents");
+    expect(text.indexOf("Manage AI agents")).toBeLessThan(text.indexOf("Subagents"));
   });
 
-  it("is the same panel it has always been when no agent is named", async () => {
+  it("keeps the concurrency row and offers a first agent when none is named", async () => {
+    /*
+     * The panel used to render only the row for this deployment, because the roster returned
+     * nothing for an empty list. It now offers to name one (#262) -- and the row it has always had
+     * is still there, below it, which is the half of this that must not change.
+     */
     renderAgentsArea([]);
 
     await waitFor(() => {
       expect(screen.getByText("Subagents at once")).toBeInTheDocument();
     });
-    // No roster, no empty-state paragraph, no heading for a list of nothing.
-    expect(screen.queryByTestId("agent-roster")).toBeNull();
+    expect(screen.getByTestId("agent-roster-empty")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /new agent/i })).toBeInTheDocument();
+  });
+
+  it("carries a row for the agent the composer offers and this page never mentioned", async () => {
+    /*
+     * `agents.defaults` reaches the roster from the settings payload this area already holds, so
+     * the mount point is the whole of the wiring: the composer names a `Default agent`, and until
+     * this row existed the Agents page listed only `agents.named`.
+     */
+    renderAgentsArea([rosterEntry()]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("agent-default-row")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("agent-default-model-line").textContent).toBe(
+      "openai/gpt-4o · openai",
+    );
+  });
+
+  it("takes the deployment-wide row off one agent's own page", async () => {
+    /*
+     * `Subagents at once` is how many subagents may run at once **anywhere** in the deployment.
+     * Rendered under one agent's tabs it reads as a property of that agent, which is the exact
+     * confusion named agents exist to end -- so it is beside the roster, and not inside an agent.
+     */
+    renderAgentsArea([rosterEntry()]);
+
+    await waitFor(() => {
+      expect(screen.getByText("Subagents at once")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("agent-open-sre"));
+
+    expect(screen.getByTestId("agent-detail")).toBeInTheDocument();
+    expect(screen.queryByText("Subagents at once")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("agent-detail-back"));
+
+    expect(screen.getByText("Subagents at once")).toBeInTheDocument();
   });
 });
 

@@ -363,6 +363,46 @@ async def test_an_unset_key_says_so_instead_of_blaming_a_deleted_secret(
 
 
 @pytest.mark.asyncio
+async def test_a_key_that_does_not_match_the_secret_says_which_of_the_three_it_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The third fact, and the only one that used to be silent.
+
+    Found in the field: a rotated `NANOINFRA_SECRETS_KEY` left one server's credential encrypted
+    under the old key while newer secrets used the new one. The key was set and valid, the secret
+    was on disk and intact, and they simply did not match — so `InvalidToken` escaped this
+    handler, the approved action ended with **no output at all**, and the only trace was a
+    `WARNING` on the scrub path. The operator's agent was left guessing at SSH.
+    """
+    from cryptography.fernet import Fernet
+
+    secret = SecretStore(tmp_path).create(
+        {"name": "prod-key", "kind": "token", "providerId": "local", "value": "k"}
+    )
+    _server(tmp_path, secret_ref=secret.id)
+    # A different, perfectly valid key: what a rotation leaves behind.
+    monkeypatch.setenv("NANOINFRA_SECRETS_KEY", Fernet.generate_key().decode())
+
+    with patch(_BACKEND, new=AsyncMock()) as run:
+        response = await _executor(tmp_path, _granted_with_credential()).handle(
+            _request(command=_GRANTED_COMMAND)
+        )
+
+    assert not response.ok
+    text = str(response.error or response.output)
+    # It names the actual state: both halves are fine and they do not match.
+    assert "cannot be decrypted" in text
+    assert "intact" in text
+    assert "NANOINFRA_SECRETS_KEY" in text
+    # And it is none of the other two stories.
+    assert "no longer exists" not in text
+    assert "is not set" not in text
+    # Nothing ran, and nothing was recorded as having run.
+    run.assert_not_called()
+    assert JobStore(tmp_path).list_jobs() == []
+
+
+@pytest.mark.asyncio
 async def test_a_genuinely_missing_secret_still_says_that(tmp_path: Path) -> None:
     """The other half of the distinction: this one really is gone."""
     _server(tmp_path, secret_ref="deadbeefdeadbeefdeadbeefdeadbeef")

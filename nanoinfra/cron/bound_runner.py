@@ -36,6 +36,7 @@ from nanoinfra.runtime_context import RUNTIME_CONTEXT_INPUT_META, RuntimeContext
 from nanoinfra.session.automation_turns import (
     AUTOMATION_PRESETS_META,
     AUTOMATION_SKILLS_META,
+    TURN_AGENT_META,
     automation_agent_metadata,
 )
 from nanoinfra.utils.prompt_templates import render_template
@@ -209,7 +210,12 @@ def build_bound_turn(
         # record says which agent answered -- an unattributed run of a narrowed job would be the
         # misattribution #248 exists to stop. Nothing is written when no agent is named: absent
         # and "the default agent" have to be one state.
-        metadata.update(automation_agent_metadata(binding.name, binding.tool_groups))
+        if binding.declared_tool_groups:
+            metadata.update(automation_agent_metadata(binding.name, binding.tool_groups))
+        else:
+            # No ceiling declared, so no ceiling key: the reader distinguishes an absent key
+            # from a declared-empty list, and writing one here would cap a job nobody capped.
+            metadata[TURN_AGENT_META] = binding.name
     declared_skills = list(binding.skills) if binding is not None else list(job.skills)
     if declared_skills:
         metadata[AUTOMATION_SKILLS_META] = declared_skills

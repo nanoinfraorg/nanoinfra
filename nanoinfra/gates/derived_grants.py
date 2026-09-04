@@ -226,6 +226,18 @@ def write_derived_grant(
         logger.warning("gates: the grant request for {} was refused: {}", view["request_id"], exc)
         return GrantWriteResult(ok=False, reason=f"The grant was not saved: {exc}")
 
+    covered = _already_covered(grant)
+    if covered is not None:
+        # Nothing written, and not a failure: the action is approved and a grant that covers it
+        # already exists. Reported so the inbox says which one, because "added" for a row that
+        # was not added is the kind of message that makes an operator click again.
+        logger.info("gates: {} already covers this action; no grant added", covered)
+        return GrantWriteResult(
+            ok=True,
+            grant_id=covered,
+            reason=f"{covered} already covers this action, so no second grant was added.",
+        )
+
     try:
         _append_to_config(grant)
     except Exception as exc:  # noqa: BLE001 -- a convenience feature must not fail an approval
@@ -249,6 +261,43 @@ def write_derived_grant(
         audit=audit,
     )
     return GrantWriteResult(ok=True, grant_id=grant.id, expires_at=grant.expires_at)
+
+
+def _already_covered(grant: StandingGrant) -> str | None:
+    """The id of an existing grant that covers this one exactly, or ``None``.
+
+    **Not** a merge and not an edit: nothing an operator wrote is touched. This only declines to
+    append a row whose meaning is already on file, which is a different act from rewriting one --
+    and the difference matters, because without it every approval of a slightly different command
+    leaves another permanent row and the list grows without bound.
+
+    Coverage has to be *at least as broad*, not merely equal, in one respect: an operator who held
+    a grant until tomorrow and has now chosen "never" is asking for something the old row does not
+    give, so that one is still written. The reverse -- an unexpiring row already on file -- covers
+    a narrower request completely.
+    """
+    from nanoinfra.config.loader import load_config
+
+    try:
+        grants = load_config().gates.standing_grants
+    except Exception as exc:  # noqa: BLE001 -- a convenience check may not fail an approval
+        # An unreadable config is reported by the append below, which is the path that owns that
+        # failure. Answering "not covered" here keeps this check out of that story entirely.
+        logger.warning("gates: could not check existing grants: {}", exc)
+        return None
+
+    for existing in grants:
+        if sorted(existing.commands) != sorted(grant.commands):
+            continue
+        if sorted(existing.hosts) != sorted(grant.hosts):
+            continue
+        if sorted(existing.contexts) != sorted(grant.contexts):
+            continue
+        if existing.expires_at is None:
+            return existing.id
+        if grant.expires_at is not None and existing.expires_at >= grant.expires_at:
+            return existing.id
+    return None
 
 
 def _append_to_config(grant: StandingGrant) -> None:

@@ -45,7 +45,10 @@ def test_an_unset_field_inherits_rather_than_meaning_nothing() -> None:
     agent = AgentsConfig.model_validate({"named": {"minimal": {}}}).named["minimal"]
 
     assert agent.model_preset is None
-    assert agent.tool_groups == []
+    # `None`, not `[]`: nothing declared. An empty list is a *declared* narrowing to no groups at
+    # all, which is a different agent -- one that must ask a peer for anything grouped.
+    assert agent.tool_groups is None
+    assert agent.skills is None
     assert agent.delegates == []
 
 

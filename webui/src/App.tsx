@@ -188,6 +188,11 @@ const SETTINGS_SECTION_KEYS: SettingsSectionKey[] = [
   "apps",
   "automations",
   "skills",
+  // Both were reachable by writing the hash and rejected when reading it back, so a reload or a
+  // pasted link landed on Overview. `knowledge` had the same gap before this.
+  "knowledge",
+  "prompts",
+  "toolGroups",
   "runtime",
   "advanced",
 ];
@@ -2418,6 +2423,10 @@ function Shell({
                     onAnswer={(values) => void approvals.answer(values)}
                     outcome={approvals.outcome}
                     pending={approvals.pending}
+                    // The list the sidebar already holds, so an approval names the conversation
+                    // that asked instead of only its uuid. No fetch of the inbox's own.
+                    sessionTitleOverrides={sidebarState.title_overrides}
+                    sessions={sessions}
                     unavailable={approvals.unavailable}
                   />
                 </Suspense>

@@ -10,7 +10,10 @@ from nanoinfra.config.schema import ApiConfig
 def test_load_config_missing_file_uses_defaults(tmp_path) -> None:
     config = load_config(tmp_path / "missing.json")
 
-    assert config.agents.defaults.model
+    assert config.agents.defaults.timezone == "UTC"
+    # And **no model**: nothing ships one, so an unconfigured deployment does not look configured.
+    # The first model configuration it adds is what becomes primary.
+    assert config.agents.defaults.model == ""
 
 
 def test_load_config_reports_malformed_environment_safely(

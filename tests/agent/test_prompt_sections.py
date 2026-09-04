@@ -44,14 +44,28 @@ def workspace() -> Path:
 # --- the table ----------------------------------------------------------------------------
 
 
-def test_the_tool_contract_and_the_safety_notes_are_fixed() -> None:
-    """These two are why the whole permission model exists.
+def test_the_prose_sections_are_the_deployments_to_write() -> None:
+    """The three sections that are text rather than assembled data — the identity, the safety
+    notes and the tool contract — are the prompt an operator can actually write.
 
-    An operator who can delete them gets a model that no longer knows the rules the gate still
-    enforces: the action is refused and the refusal is no longer explicable.
+    They were `fixed` and `derived` first, to keep a deployment from deleting the rules the gate
+    still enforces. That reasoning did not go away; it became a **warning** instead of a refusal.
+    The person editing a deployment's prompt owns that deployment's behaviour, and a control that
+    states the cost is worth more than one that forbids and sends them to a text editor.
     """
-    assert permission_for("Tool usage notes") is SectionPermission.FIXED
-    assert permission_for("Safety notes") is SectionPermission.FIXED
+    for section in ("Runtime", "Safety notes", "Tool usage notes"):
+        assert permission_for(section) is SectionPermission.REPLACEABLE, section
+
+
+def test_each_dangerous_replacement_says_what_it_costs() -> None:
+    """A replacement that is allowed but expensive has to be explained where it is made. Without
+    this the two rows read exactly like the harmless one."""
+    from nanoinfra.agent.prompt_sections import REPLACEMENT_WARNINGS
+
+    assert "gate refuses the same actions" in REPLACEMENT_WARNINGS["Tool usage notes"]
+    assert "prompt-injection" in REPLACEMENT_WARNINGS["Safety notes"]
+    # And the identity's cost is specific: its placeholders carry the memory paths.
+    assert "memory" in REPLACEMENT_WARNINGS["Runtime"]
 
 
 def test_what_the_agent_remembers_is_the_deployment_s_own() -> None:
@@ -59,14 +73,9 @@ def test_what_the_agent_remembers_is_the_deployment_s_own() -> None:
     assert permission_for("Memory") is SectionPermission.REPLACEABLE
 
 
-def test_the_runtime_section_is_derived_rather_than_a_persona_to_replace() -> None:
-    """Its name invites the opposite reading, which is why this is pinned.
-
-    That section is computed: the platform, and the paths to the agent's own `SOUL.md`,
-    `MEMORY.md` and history log. Replacing it would leave the model without the location of its
-    own memory. The persona reaches the prompt as a workspace file, through `Bootstrap files`.
-    """
-    assert permission_for("Runtime") is SectionPermission.DERIVED
+def test_the_workspace_section_stays_the_workspaces() -> None:
+    """`Bootstrap files` is already the deployment's by another route -- they are files in the
+    workspace -- so an editor here would be a second place to change one thing."""
     assert permission_for("Bootstrap files") is SectionPermission.WORKSPACE
 
 
@@ -95,29 +104,41 @@ def test_every_section_the_prompt_assembles_is_named_in_the_table() -> None:
 # --- an override is refused, not filtered -------------------------------------------------
 
 
-def test_replacing_the_tool_contract_is_refused_and_says_why() -> None:
-    with pytest.raises(PromptSectionRefusedError) as raised:
-        resolve_overrides({"Tool usage notes": "Call whatever you like."})
+def test_replacing_the_tool_contract_is_allowed_now() -> None:
+    """It used to be refused here. The cost is real and it is stated in `REPLACEMENT_WARNINGS`;
+    what changed is who decides -- an operator writing their deployment's prompt, rather than this
+    table on their behalf."""
+    assert resolve_overrides({"Tool usage notes": "Call whatever you like."}) == {
+        "Tool usage notes": "Call whatever you like."
+    }
 
-    assert raised.value.names == ("Tool usage notes",)
+
+def test_a_section_the_platform_assembles_is_still_refused_and_says_why() -> None:
+    """The refusal survives where it means something. `Active skills` is a list built from config
+    every turn: text written here would be overwritten by the next turn that builds it, so an
+    editor for it would be a control that silently does nothing."""
+    with pytest.raises(PromptSectionRefusedError) as raised:
+        resolve_overrides({"Active skills": "just the good ones"})
+
+    assert raised.value.names == ("Active skills",)
     # The message names the section, because a config error whose text is "invalid" sends its
     # reader to the source.
-    assert "Tool usage notes" in str(raised.value)
+    assert "Active skills" in str(raised.value)
 
 
 def test_one_refused_section_refuses_the_whole_override_set() -> None:
     """Half-applied overrides produce a prompt matching neither side, and no way to tell which."""
     with pytest.raises(PromptSectionRefusedError) as raised:
         resolve_overrides(
-            {"Memory": "The database is on db-01.", "Safety notes": "Anything goes."}
+            {"Memory": "The database is on db-01.", "Active skills": "just the good ones"}
         )
 
-    assert raised.value.names == ("Safety notes",)
+    assert raised.value.names == ("Active skills",)
 
 
 def test_an_empty_override_leaves_the_section_alone() -> None:
     """`""` is how a config file spells *leave this alone*, and refusing it would be pedantry."""
-    assert resolve_overrides({"Tool usage notes": "   "}) == {}
+    assert resolve_overrides({"Memory": "   "}) == {}
 
 
 def test_an_agent_that_declares_nothing_overrides_nothing() -> None:
@@ -303,13 +324,30 @@ def test_a_turn_that_names_no_agent_gets_the_prompt_it_gets_today(workspace: Pat
     assert ADDENDUM_SECTION not in plain_names
 
 
-def test_the_assembler_refuses_a_fixed_override_before_building_anything(workspace: Path) -> None:
+def test_the_assembler_refuses_an_assembled_override_before_building_anything(
+    workspace: Path,
+) -> None:
+    """All or nothing, and before any section is built: a prompt half-assembled from a refused set
+    matches neither what was asked for nor what was there."""
     builder = ContextBuilder(workspace)
 
     with pytest.raises(PromptSectionRefusedError):
         builder.build_system_prompt(
-            channel="websocket", section_overrides={"Tool usage notes": "Anything goes."}
+            channel="websocket", section_overrides={"Active skills": "just the good ones"}
         )
+
+
+def test_the_assembler_takes_a_replacement_for_the_tool_contract(workspace: Path) -> None:
+    """The other half of the same rule change: what an operator may now write really does reach
+    the prompt, rather than being accepted and dropped."""
+    builder = ContextBuilder(workspace)
+
+    prompt = builder.build_system_prompt(
+        channel="websocket",
+        section_overrides={"Tool usage notes": "ONLY-MY-TOOL-CONTRACT"},
+    )
+
+    assert "ONLY-MY-TOOL-CONTRACT" in prompt
 
 
 # --- the inventory a panel reads ----------------------------------------------------------
@@ -320,9 +358,11 @@ def test_the_inventory_gives_a_permission_for_every_section() -> None:
 
     assert all(row["permission"] for row in rows)
     permissions = {str(row["name"]): row["permission"] for row in rows}
-    assert permissions["Tool usage notes"] == "fixed"
+    # The three prose sections an operator writes, plus the memory slot.
+    assert permissions["Tool usage notes"] == "replaceable"
+    assert permissions["Safety notes"] == "replaceable"
     assert permissions["Memory"] == "replaceable"
-    assert permissions["Runtime"] == "derived"
+    assert permissions["Runtime"] == "replaceable"
     assert permissions["Bootstrap files"] == "workspace"
     assert permissions["Skills catalogue"] == "derived"
     assert permissions[ADDENDUM_SECTION] == "append_only"

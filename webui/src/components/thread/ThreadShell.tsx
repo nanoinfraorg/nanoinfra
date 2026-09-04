@@ -835,6 +835,29 @@ export function ThreadShell({
   }, []);
 
   const displayMessages = useMemo(() => projectWebuiThreadMessages(messages), [messages]);
+
+  // A conversation keeps the agent that has been answering it (#254).
+  //
+  // The choice used to live only in the state above, so leaving a thread and coming back reset it
+  // to the default agent -- and that is not a cosmetic reset: the default agent has no delegates,
+  // so a turn that silently fell back to it could not delegate at all. What a thread was answered
+  // by is already on the record (#248), so this reads it rather than storing it a second place:
+  // one fact, and the picker cannot disagree with the transcript.
+  useEffect(() => {
+    const key = chatId ?? "";
+    if (!key || !messagesReady) return;
+    setAgentByChatId((prev) => {
+      // An explicit choice for this chat wins: the operator may have just switched agents for a
+      // thread whose last turn a different one answered.
+      if (key in prev) return prev;
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const agent = messages[index]?.agent;
+        if (agent) return { ...prev, [key]: agent };
+      }
+      return prev;
+    });
+  }, [chatId, messages, messagesReady]);
+
   const currentRunStartedAt = messagesReady ? runStartedAt : null;
   const currentGoalState = messagesReady ? goalState : undefined;
   const turnActive = messagesReady && (isStreaming || currentRunStartedAt !== null);

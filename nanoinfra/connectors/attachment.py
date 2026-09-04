@@ -88,12 +88,32 @@ def _named_this_turn() -> tuple[frozenset[str], frozenset[str]]:
     return frozenset(names), frozenset(kinds)
 
 
+def within_agent_connector_ceiling(name: str) -> bool:
+    """Whether the agent answering this turn may load this connector's schemas at all (#266).
+
+    The mention gate below widens on request; this caps regardless. `None` -- no list declared --
+    is every deployment that has narrowed nobody.
+    """
+    from nanoinfra.agent.tools.context import current_request_context
+    from nanoinfra.session.automation_turns import acting_agent_connectors
+
+    ctx = current_request_context()
+    if ctx is None:
+        return True
+    allowed = acting_agent_connectors(ctx.metadata)
+    return True if allowed is None else name in allowed
+
+
 def is_attached(name: str) -> bool:
     """Whether this connector's schemas belong in the current request.
+
+    The acting agent's ceiling is asked first and is not negotiable. Then the mention rule.
 
     An unknown connector answers yes: a registered tool whose mode was never recorded is a bug in
     our bookkeeping, and the safe reading of a bug here is the behaviour that predates the field.
     """
+    if not within_agent_connector_ceiling(name):
+        return False
     entry = _ATTACHMENTS.get(name)
     if entry is None or entry.attach != "mention":
         return True
@@ -136,7 +156,8 @@ def advertisement(registry: "ToolRegistry") -> str:
     something the model can ask for -- telling an operator to say `@calendar` when the attachment
     would do nothing is worse than silence.
     """
-    names = mention_only_connectors()
+    # A connector this agent may not reach is not advertised as something it can ask for.
+    names = [name for name in mention_only_connectors() if within_agent_connector_ceiling(name)]
     if not names:
         return ""
     counts = {
@@ -173,6 +194,7 @@ __all__ = [
     "ConnectorAttachment",
     "advertisement",
     "is_attached",
+    "within_agent_connector_ceiling",
     "mention_only_connectors",
     "normalize_connector_mentions",
     "set_connector_attachments",

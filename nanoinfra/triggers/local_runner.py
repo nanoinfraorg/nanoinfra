@@ -21,6 +21,7 @@ from nanoinfra.runtime_context import RUNTIME_CONTEXT_INPUT_META
 from nanoinfra.session.automation_turns import (
     AUTOMATION_PRESETS_META,
     AUTOMATION_SKILLS_META,
+    TURN_AGENT_META,
     automation_agent_metadata,
 )
 from nanoinfra.triggers.local_session_turns import LOCAL_TRIGGER_META
@@ -201,7 +202,12 @@ async def _deliver_delivery(
         # person's chosen agent uses, so `AgentLoop` resolves it against the roster and the turn
         # record says which agent answered. Nothing is written when no agent is named: absent and
         # "the default agent" have to be one state.
-        metadata.update(automation_agent_metadata(binding.name, binding.tool_groups))
+        if binding.declared_tool_groups:
+            metadata.update(automation_agent_metadata(binding.name, binding.tool_groups))
+        else:
+            # No ceiling declared, so no ceiling key: an empty tuple is what a binding holds in
+            # both states, and writing it would cap a trigger nobody capped.
+            metadata[TURN_AGENT_META] = binding.name
     declared_skills = list(binding.skills) if binding is not None else list(trigger.skills)
     if declared_skills:
         metadata[AUTOMATION_SKILLS_META] = declared_skills

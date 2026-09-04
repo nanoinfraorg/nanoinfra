@@ -56,6 +56,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from cryptography.fernet import InvalidToken
 from loguru import logger
 
 from nanoinfra.agent.tools.capabilities import (
@@ -858,6 +859,20 @@ class Executor:
                     f"decrypt one: {detail or 'NANOINFRA_SECRETS_KEY is not set'}. The secret "
                     "itself is untouched -- set the key in the environment that runs the gateway "
                     "and try again."
+                )
+            except InvalidToken:
+                # The key is set and it is not the one that encrypted this secret -- a rotated
+                # key, or a store written under two of them. A third fact, distinct from "no key"
+                # and from "no secret", and the only one of the three that used to be silent: the
+                # exception escaped, the action ended with no output, and the reason lived in a
+                # WARNING on the scrub path that nobody reads. An operator was left guessing at
+                # SSH while the credential was simply unreadable.
+                return _error(
+                    f"Server {server.name!r} has a stored credential that cannot be decrypted "
+                    f"with the configured key. The secret ({server.secret_ref!r}) is intact and "
+                    "the key is valid -- they do not match, which is what a rotated "
+                    "NANOINFRA_SECRETS_KEY leaves behind. Re-enter this server's credential, or "
+                    "restore the key that encrypted it."
                 )
             if secret_value is None:
                 return _error(

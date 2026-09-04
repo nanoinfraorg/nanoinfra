@@ -17,7 +17,7 @@ import re
 import secrets
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from contextlib import suppress
 from typing import Any, Literal, cast, get_args
 from urllib.parse import unquote
@@ -42,11 +42,13 @@ from nanoinfra.config.loader import (
     save_config,
 )
 from nanoinfra.config.schema import (
+    AgentsConfig,
     Config,
     FallbackCandidate,
     KnowledgeConfig,
     ModelPresetConfig,
     ProviderConfig,
+    ToolGroupConfig,
 )
 from nanoinfra.knowledge import HYBRID_INSTALL_HINT, hybrid_available, status_payload
 from nanoinfra.llm_usage import llm_usage_payload
@@ -1258,6 +1260,17 @@ def settings_payload(
         ),
         None,
     )
+    # The implicit `default` preset, and **only when it is a real choice**.
+    #
+    # It is built from `agents.defaults.model`, which nothing ships any more: a deployment that
+    # never set one has no inline model, so a row called `Default` would advertise either an
+    # empty model or -- as it did -- a packaged `anthropic/claude-opus-4-5` that the deployment
+    # had no credential for and never chose. That row was read as evidence of a silent fallback.
+    #
+    # It stays in two cases, both honest. When somebody *did* set a model inline, which is a
+    # choice and is what answers. And when this deployment has no configurations at all, so the
+    # panel shows its own unconfigured state rather than an empty list with nothing to explain it.
+    show_implicit_default = bool(defaults.model.strip()) or not config.model_presets
     model_presets = [
         {
             "name": "default",
@@ -1283,7 +1296,7 @@ def settings_payload(
                 defaults.model,
             ),
         }
-    ]
+    ] if show_implicit_default else []
     for name, preset in config.model_presets.items():
         resolved_preset_provider = (
             config.get_provider_name(
@@ -1331,21 +1344,60 @@ def settings_payload(
             "timezone": defaults.timezone,
             "tool_hint_max_length": defaults.tool_hint_max_length,
             "max_concurrent_subagents": defaults.max_concurrent_subagents,
+            # The deployment's own agent, as an *agent* (#265, #266): every field a named agent
+            # has and this block did not. Without them the editor could write these and not read
+            # them, so a save would have replaced a paragraph it never saw with nothing -- the
+            # same failure the roster had when this payload carried counts only.
+            "addendum": defaults.addendum,
+            "prompt_sections": dict(defaults.prompt_sections),
+            "connectors": _declared_list(defaults.connectors),
+            "mcp_servers": _declared_list(defaults.mcp_servers),
+            "delegates": list(defaults.delegates),
+            # `null` when nothing was declared, `[]` when the deployment declared none: the
+            # editor has to tell those apart or it cannot offer "no groups at all", and the
+            # runtime has to tell them apart or it caps an agent nobody capped.
+            "tool_groups": _declared_list(defaults.tool_groups),
+            "skills": _declared_list(defaults.skills),
         },
         "model_presets": model_presets,
-        # The named agents, so a browser can offer them (#247). Read-only here: an agent is
-        # authority -- its tool groups and its delegation roster decide what it may do -- so it is
-        # edited in the git-reviewed config file, not through a settings write. What the UI needs
+        # The named agents, so a browser can offer them (#247). Editable through
+        # `POST /api/settings/agents`, which is a reversal worth recording: this said "edited in
+        # the git-reviewed config file, not through a settings write", and the consequence was a
+        # product whose main object could not be created in it. The roster is still authority and
+        # the schema still refuses a bad one; what changed is that the panel may ask. What the UI
+        # needs
         # is the roster it may *offer*, and counts rather than the bindings themselves, for the
         # same reason the delegate tool's own description carries counts: a list of every host an
         # agent covers would bloat every payload that mentions it.
+        # The roster, with each agent's bindings in full (#262).
+        #
+        # This began as counts only, on the reasoning that what an agent may reach is the
+        # authorization model and a browser should not be able to enumerate it. That is right for
+        # the *mention* endpoint, which any thread reads, and wrong here: the person holding this
+        # payload is authenticated with an API token and is exactly who decides these bindings.
+        # Hiding them from the panel that edits them is not a boundary, it is a form that cannot
+        # prefill -- so a save would replace a list it never saw with nothing, and the editor had
+        # to send the operator to a text editor instead. Every neighbouring panel already shows
+        # its own config to this same reader: a standing grant lists its hosts and its commands.
+        #
+        # The counts stay, because the roster rows read better with a count than with a list.
         "named_agents": [
             {
                 "name": name,
                 "description": agent.description,
                 "model_preset": agent.model_preset or active_preset_name,
-                "tool_group_count": len(agent.tool_groups),
-                "skill_count": len(agent.skills),
+                # `None` rather than the deployment default, so the editor can tell "this agent
+                # chose nothing" from "this agent chose what the deployment happens to use".
+                "model_preset_declared": agent.model_preset,
+                "tool_groups": _declared_list(agent.tool_groups),
+                "skills": _declared_list(agent.skills),
+                "connectors": _declared_list(agent.connectors),
+                "mcp_servers": _declared_list(agent.mcp_servers),
+                "delegates": list(agent.delegates),
+                "addendum": agent.addendum,
+                "prompt_sections": dict(agent.prompt_sections),
+                "tool_group_count": len(agent.tool_groups or []),
+                "skill_count": len(agent.skills or []),
                 "delegate_count": len(agent.delegates),
                 "has_addendum": bool(agent.addendum.strip()),
             }
@@ -1378,6 +1430,11 @@ def settings_payload(
             },
         },
         "knowledge": _knowledge_payload(config),
+        # Declared groups and the built-ins nobody declared, in one map: the Tool groups panel
+        # edits it and the agent editor's picker reads it, and two sources would let those two
+        # surfaces disagree about which groups exist (#210, #262).
+        "tool_groups": tool_groups_payload(config),
+        "registered_tools": registered_tools_payload(),
         "api": {
             "host": config.api.host,
             "port": config.api.port,
@@ -1614,10 +1671,33 @@ def create_model_configuration(query: QueryParams) -> dict[str, Any]:
         temperature=temperature if temperature is not None else base.temperature,
         reasoning_effort=reasoning_effort,
     )
+    # The first configuration a deployment adds becomes the primary one, and says so.
+    #
+    # Nothing ships a model, so on a fresh deployment there is no model at all before this -- and
+    # a product that made you add a configuration and *then* go and activate it would be a product
+    # where the first thing you did had no effect. `resolve_default_preset` already falls to the
+    # first preset, so this is not what makes it answer; it is what makes the panel agree.
+    #
+    # **Both conditions.** A deployment with a model set inline has already chosen one, and adding
+    # a second configuration must not quietly change which model answers -- the surprise this
+    # whole area exists to remove.
+    if not defaults_have_active_preset(config) and not config.agents.defaults.model.strip():
+        config.agents.defaults.model_preset = name
     save_config(config)
     payload = settings_payload()
     payload["created_model_preset"] = name
     return payload
+
+
+def defaults_have_active_preset(config: Config) -> bool:
+    """Whether a named preset is the one answering, rather than the implicit `default`.
+
+    ``"default"`` is spelled two ways for historical reasons -- absent, and the literal string --
+    and both mean *the implicit preset built from ``agents.defaults``*. One reader so a caller
+    cannot get that wrong.
+    """
+    name = config.agents.defaults.model_preset
+    return bool(name) and name != "default" and name in config.model_presets
 
 
 def update_model_configuration(query: QueryParams) -> dict[str, Any]:
@@ -2246,6 +2326,278 @@ def update_knowledge_settings(query: QueryParams) -> dict[str, Any]:
     save_config(config)
     # The indexing job is registered and the search tool is built once at start, so a change
     # here needs a restart before it is the behaviour of the running gateway.
+    return settings_payload(requires_restart=True)
+
+
+def _declared_list(value: list[str] | None) -> list[str] | None:
+    """A declared narrowing as the wire carries it: ``None`` for absent, a list for declared.
+
+    Copied rather than passed through, so a caller cannot mutate config through the payload.
+    """
+    return None if value is None else list(value)
+
+
+def tool_groups_payload(config: Config) -> dict[str, Any]:
+    """Every tool group this deployment has, declared or built in (#210).
+
+    The built-ins a deployment never declared are in here on purpose. Without them the panel is
+    empty on a fresh install, and an operator cannot see that `servers` and `diagrams` exist
+    before deciding whether to change one -- which is the decision the panel exists for.
+
+    `tools` is config's list verbatim and `[]` means **inherit**: a declared group that names no
+    members takes the built-in ones for its name (see ``groups.set_tool_groups``). The inherited
+    list is carried separately rather than merged, because a panel that showed the merge could not
+    tell an operator whether they had chosen those members or received them.
+    """
+    from nanoinfra.agent.tools.groups import BUILTIN_GROUPS, registered_tools
+
+    live = set(registered_tools())
+    rows: dict[str, Any] = {}
+    for name in sorted({*config.tools.groups, *BUILTIN_GROUPS}):
+        declared = config.tools.groups.get(name)
+        builtin_description, builtin_tools = BUILTIN_GROUPS.get(name, ("", ()))
+        tools = [str(tool) for tool in (declared.tools if declared else ())]
+        effective = tools or [str(tool) for tool in builtin_tools]
+        rows[name] = {
+            "attach": (declared.attach if declared else "always"),
+            "declared": declared is not None,
+            "builtin": name in BUILTIN_GROUPS,
+            "description": (declared.description if declared else "") or "",
+            "builtin_description": builtin_description,
+            "tools": tools,
+            "builtin_tools": [str(tool) for tool in builtin_tools],
+            "effective_tools": effective,
+            # A member the running gateway did not register: a plugin that is gone, or a typo in a
+            # hand-edited file. Named rather than filtered, because a group silently missing a
+            # tool is how an operator concludes the gate is broken.
+            "missing_tools": sorted(tool for tool in effective if live and tool not in live),
+        }
+    return rows
+
+
+def registered_tools_payload() -> list[dict[str, Any]]:
+    """The tools a member list may name, for the group editor's picker.
+
+    Empty before the gateway has built its registry -- an embedded construction, or a settings
+    read that somehow precedes the agent loop. The panel says so rather than showing an empty
+    catalogue as if this deployment had no tools.
+    """
+    from nanoinfra.agent.tools.groups import group_membership, registered_tools
+
+    membership = group_membership()
+    return [
+        {
+            "name": name,
+            # What kind of tool it is, as far as its name can say. The registry does not record a
+            # provenance, and inventing a precise one here would be a guess with a confident face.
+            "source": "builtin",
+            "groups": sorted(membership.get(name, ())),
+        }
+        for name in registered_tools()
+    ]
+
+
+def update_named_agents(values: dict[str, Any]) -> dict[str, Any]:
+    """Write ``agents.named`` after a full round trip through its schema.
+
+    The **whole roster** is replaced rather than one agent patched, because a roster is one object
+    that has to stay internally consistent: `delegates` names other agents, so validating one
+    agent against a roster the caller has not seen would accept a pair that config refuses.
+
+    Validated by ``AgentsConfig`` rather than by this function, so the rules an operator meets in
+    the panel are the rules a hand-edited ``config.json`` meets. Its refusals name the offending
+    value -- an unknown delegate, an agent listing itself, a name that could not be typed as
+    ``@agent:<name>`` -- and they are passed through unchanged, because a reason the operator can
+    act on is worth more than a tidy sentence.
+    """
+    raw = values.get("agents")
+    if not isinstance(raw, dict):
+        raise WebUISettingsError("agents must be an object keyed by agent name")
+
+    config = load_config()
+    try:
+        agents = AgentsConfig.model_validate({
+            "defaults": config.agents.defaults.model_dump(mode="json", by_alias=True),
+            "named": cast("dict[str, Any]", raw),
+        })
+    except ValidationError as exc:
+        raise WebUISettingsError(_named_agent_error_message(exc)) from exc
+
+    # The prompt-section permissions, checked here and not only when a turn is assembled.
+    #
+    # `AgentsConfig` accepts any `promptSections` map -- which sections may be replaced is
+    # `agent/prompt_sections.py`'s question, not the schema's. Without this the write succeeded
+    # and the *read* failed: a saved config that replaced the tool contract broke
+    # `GET /api/webui/agents/prompt` afterwards, so the operator met the refusal one screen away
+    # from the form that caused it.
+    from nanoinfra.agent.prompt_sections import PromptSectionRefusedError, resolve_overrides
+
+    for name, agent in agents.named.items():
+        if not agent.prompt_sections:
+            continue
+        try:
+            resolve_overrides(agent.prompt_sections)
+        except PromptSectionRefusedError as exc:
+            raise WebUISettingsError(f"{name}: {exc}") from exc
+
+    config.agents = agents
+    save_config(config)
+    # The roster is read per request by the composer's picker, but the tools an agent may reach
+    # and the prompt it answers with are assembled when a turn is built -- and the delegation
+    # tools are registered once at start.
+    return settings_payload(requires_restart=True)
+
+
+def _named_agent_error_message(exc: ValidationError) -> str:
+    """The first refusal, in the words the schema used.
+
+    A validator's own sentence names the agent and the value; a generic "invalid agents" would
+    send the operator back to guessing which of six fields was wrong.
+    """
+    for error in exc.errors():
+        message = str(error.get("msg", "")).removeprefix("Value error, ").strip()
+        if message:
+            return message
+    return "the roster is not valid"
+
+
+#: The narrowing lists ``agents.defaults`` holds as an *agent*, wire name to config attribute.
+#:
+#: The flag is whether ``None`` is a value the field can hold. ``delegates`` is the one that
+#: cannot: membership is the grant, so an empty list is already unambiguous and ``None`` has
+#: nothing left to mean -- a carried ``null`` there is read as ``[]``.
+_AGENT_DEFAULT_LISTS: "Mapping[str, tuple[str, bool]]" = {
+    "toolGroups": ("tool_groups", True),
+    "skills": ("skills", True),
+    "connectors": ("connectors", True),
+    "mcpServers": ("mcp_servers", True),
+    "delegates": ("delegates", False),
+}
+
+
+def _agent_default_list(
+    values: dict[str, Any], wire_name: str, snake_name: str, nullable: bool
+) -> tuple[bool, list[str] | None]:
+    """One narrowing list off the wire, with the three states kept.
+
+    Returns ``(present, value)``. ``present`` is false when the request does not carry the key at
+    all, which is the partial-write contract: absent means *leave this alone*. A carried ``null``
+    is a value -- *declare no ceiling* -- and is how a save removes one.
+    """
+    if wire_name not in values and snake_name not in values:
+        return False, None
+    raw = values.get(wire_name, values.get(snake_name))
+    if raw is None:
+        if not nullable:
+            # `connectors`, `mcpServers` and `delegates` are plain lists on the schema. `null`
+            # there would become `None` on a `list` field, so it is read as the empty list -- the
+            # same answer, and one the schema can hold.
+            return True, []
+        return True, None
+    if not isinstance(raw, list):
+        raise WebUISettingsError(f"{wire_name} must be an array of names, or null")
+    entries = cast("list[object]", raw)
+    if not all(isinstance(item, str) for item in entries):
+        raise WebUISettingsError(f"{wire_name} must be an array of names, or null")
+    return True, [item.strip() for item in cast("list[str]", entries) if item.strip()]
+
+
+def update_agent_defaults(values: dict[str, Any]) -> dict[str, Any]:
+    """Write the deployment's own agent -- ``agents.defaults`` (#265, completed in #266).
+
+    Seven fields: the addendum, the replaced prompt sections, and the five lists that narrow what
+    the agent reaches -- tool groups, skills, MCP servers, connectors and delegates. They are the
+    ones a named agent has, which is the whole claim: the deployment's own agent is one more
+    agent, and the only thing that makes it different is that it cannot be deleted.
+
+    Everything else in ``agents.defaults`` is a deployment setting with its own panel -- the
+    timezone, the iteration cap, the subagent limit -- and this route deliberately cannot touch
+    them: a partial write of a 26-field block is how an editor for seven of them silently resets
+    the other nineteen.
+
+    A **carried ``null``** on a narrowing list is a value, not an omission: it declares no ceiling,
+    which is how a save takes one away. Only an absent key means *leave this alone*.
+    """
+    config = load_config()
+    defaults = config.agents.defaults
+
+    if "addendum" in values:
+        addendum = values.get("addendum")
+        if not isinstance(addendum, str):
+            raise WebUISettingsError("addendum must be a string")
+        defaults.addendum = addendum
+    for wire_name, (snake_name, nullable) in _AGENT_DEFAULT_LISTS.items():
+        present, declared = _agent_default_list(values, wire_name, snake_name, nullable)
+        if not present:
+            continue
+        setattr(defaults, snake_name, declared)
+    if "promptSections" in values or "prompt_sections" in values:
+        raw_sections = values.get("promptSections", values.get("prompt_sections"))
+        if not isinstance(raw_sections, dict):
+            raise WebUISettingsError("promptSections must be an object keyed by section name")
+        sections = {
+            str(name): text
+            for name, text in cast("dict[str, Any]", raw_sections).items()
+            if isinstance(text, str)
+        }
+        # The same check the roster write makes, and for the same reason: the schema accepts any
+        # map, and which sections may be replaced is the prompt module's answer. Refused here
+        # rather than when a turn is assembled, so the operator meets it in the form.
+        from nanoinfra.agent.prompt_sections import PromptSectionRefusedError, resolve_overrides
+
+        try:
+            resolve_overrides(sections)
+        except PromptSectionRefusedError as exc:
+            raise WebUISettingsError(str(exc)) from exc
+        defaults.prompt_sections = sections
+
+    # Validated by the schema before it is written, so a delegate naming an agent that does not
+    # exist is refused here rather than stored and hit on the next turn. The default agent is
+    # subject to the same roster rule every named agent is.
+    try:
+        config.agents = AgentsConfig.model_validate(
+            config.agents.model_dump(mode="json", by_alias=True)
+        )
+    except ValidationError as exc:
+        raise WebUISettingsError(_named_agent_error_message(exc)) from exc
+
+    save_config(config)
+    # The prompt is assembled when a turn is built, so an addendum lands on the next turn. Every
+    # ceiling here is read per call as well. Nothing needs a restart.
+    return settings_payload()
+
+
+def update_tool_groups(values: dict[str, Any]) -> dict[str, Any]:
+    """Write ``tools.groups`` after a full round trip through its schema.
+
+    Replaced whole, for the same reason the roster is: a group an agent names has to exist, and a
+    partial write cannot see the rest of the map.
+    """
+    raw = values.get("groups")
+    if not isinstance(raw, dict):
+        raise WebUISettingsError("groups must be an object keyed by group name")
+
+    config = load_config()
+    current = {
+        name: group.model_dump(mode="json", by_alias=True)
+        for name, group in config.tools.groups.items()
+    }
+    try:
+        groups = {
+            str(name): ToolGroupConfig.model_validate(entry)
+            for name, entry in cast("dict[str, Any]", raw).items()
+        }
+    except ValidationError as exc:
+        raise WebUISettingsError(_named_agent_error_message(exc)) from exc
+
+    if current == {
+        name: group.model_dump(mode="json", by_alias=True) for name, group in groups.items()
+    }:
+        return settings_payload()
+    config.tools.groups = groups
+    save_config(config)
+    # `set_tool_groups` runs at start and the schemas a group governs are chosen when the prompt
+    # is assembled, so a change here is the running gateway's behaviour only after a restart.
     return settings_payload(requires_restart=True)
 
 
