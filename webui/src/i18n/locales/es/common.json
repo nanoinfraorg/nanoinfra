@@ -78,7 +78,9 @@
     "website": "Sitio de nanoinfra",
     "documentation": "Documentación",
     "docs": "docs",
-    "signOut": "Cerrar sesión"
+    "signOut": "Cerrar sesión",
+    "agents": "Agentes",
+    "abilities": "Capacidades"
   },
   "settings": {
     "backToChat": "Volver al chat",
@@ -104,7 +106,8 @@
       "apps": "Aplicaciones",
       "automations": "Automatizaciones",
       "skills": "Habilidades",
-      "agents": "Agentes"
+      "agents": "Agentes",
+      "knowledge": "Conocimiento"
     },
     "sections": {
       "interface": "Interfaz",
@@ -812,6 +815,7 @@
         "timezone": "Zona horaria",
         "runAt": "Ejecutar a las",
         "delivery": "Cuándo avisarme",
+        "agent": "Se ejecuta como",
         "skills": "Skills a cargar"
       },
       "scheduleTypes": {
@@ -863,6 +867,8 @@
       },
       "skillsHelp": "Sin elegir ninguna se resumen todas, como antes. Al elegir algunas se cargan completas y el resto queda fuera del prompt de esta automatización.",
       "skillsEmpty": "No hay skills instaladas",
+      "agentDefault": "Agente predeterminado",
+      "agentHelp": "El agente marca el techo de esta ejecución: sus grupos de herramientas y sus propias instrucciones. La tarea puede reducirlo, nunca ampliarlo.",
       "referencePicker": "Referenciar un recurso",
       "referenceMissing": "el {{kind}} ya no existe",
       "referenceBrokenHint": "Esta automatización se negará a ejecutarse hasta que quites la referencia faltante.",
@@ -1087,6 +1093,8 @@
         "empty": "Sin concesiones. Ninguna automatización puede ejecutar un comando remoto.",
         "hosts": "Hosts",
         "commands": "Comandos",
+        "expires": "Caduca el {{when}}",
+        "expired": "Caducó el {{when}}. La puerta ya no la aplica, y nada quitó la fila.",
         "add": "Añadir una concesión",
         "remove": "Quitar concesión",
         "note": "Una concesión permite un comando remoto y nada más. No puede permitir una escritura en el inventario."
@@ -1562,6 +1570,10 @@
         "referenceGroup": "Referencia",
         "referenceBadge": "Referencia",
         "serverPrefixHint": "Referenciar uno de {{count}} servidores",
+        "agentPrefixHint": "Pide uno de {{count}} agentes",
+        "agentGroup": "Agentes",
+        "agentBadge": "Agente",
+        "agentNoDescription": "Pide al manager que prefiera este agente",
         "diagramPrefixHint": "Referenciar uno de {{count}} diagramas",
         "serverGroup": "Servidores",
         "diagramGroup": "Diagramas",
@@ -1671,7 +1683,26 @@
     "cliRunRan": "Usado",
     "cliRunFailed": "Falló",
     "automationSourceFallback": "Automatización",
-    "automationTriggered": "Activada automáticamente"
+    "automationTriggered": "Activada automáticamente",
+    "plan": {
+      "title": "Plan",
+      "answered": "{{count}} respondidos",
+      "failed": "{{count}} fallidos",
+      "running": "{{count}} en curso",
+      "total": "delegado {{usage}}",
+      "totalPartial": "{{reported}} de {{total}} informados",
+      "totalTitle": "El coste propio de las delegaciones, sumado. Un turno delegado es su propio turno, así que esto no forma parte del uso del agente que responde.",
+      "unknownAgent": "un par",
+      "step": {
+        "running": "Delegando en {{agent}}",
+        "done": "{{agent}} respondió",
+        "failed": "{{agent}} falló",
+        "noAnswer": "{{agent}} no informó"
+      }
+    },
+    "prompt": {
+      "replaced": "reemplazada"
+    }
   },
   "lightbox": {
     "title": "Vista previa de imagen",
@@ -1753,11 +1784,25 @@
       "approve": "Aprobar desde",
       "session": "Sesión",
       "class": "Clase de capacidad",
-      "digest": "Resumen vinculante"
+      "digest": "Resumen vinculante",
+      "agent": "Agente que actúa"
     },
     "approveFromValue": "webui (esta sesión, autenticada)",
     "approve": "Aprobar",
     "approveUnavailable": "Aprobar (no disponible)",
+    "grant": {
+      "menuLabel": "Aprobar y añadir una concesión permanente",
+      "menuNote": "Añade una concesión permanente para este comando exacto en estos hosts. Un comando que cambia en una sola opción es otro comando.",
+      "add24h": "Aprobar y añadir — caduca en 24 horas",
+      "add7d": "Aprobar y añadir — caduca en 7 días",
+      "addNever": "Aprobar y añadir — sin caducidad",
+      "permanentTitle": "¿Añadir una concesión sin caducidad?",
+      "permanentBody": "Este comando se ejecutará en estos hosts desde ahora, sin preguntar a nadie. Nada retira la concesión después: para quitarla editas gates.standingGrants en config.json.",
+      "permanentConfirm": "Sí, sin caducidad",
+      "saved": "Concesión permanente {{id}} añadida. Caduca el {{when}}.",
+      "savedPermanent": "Concesión permanente {{id}} añadida, y no caduca. Edita gates.standingGrants para retirarla.",
+      "notSaved": "La acción se aprobó. La concesión no se guardó: {{reason}}"
+    },
     "deny": "Denegar",
     "samePath": "Esta solicitud llegó por la vía en la que estás. Apruébala desde otra vía autenticada. Una cuenta comprometida no debe aportar las dos mitades.",
     "denyTerminal": "Una denegación es definitiva para esta sesión. El agente no puede volver a pedirlo hasta que un operador libere el bloqueo.",
@@ -1775,6 +1820,68 @@
       "unauthenticatedPath": "gates.approvalPaths no incluye webui, así que esta vía no autentica a ningún aprobador.",
       "unknownOriginPath": "La solicitud no nombra ninguna vía de origen. El ejecutor no puede probar la independencia de vías.",
       "unknownRequest": "El ejecutor no tiene esta solicitud. Caducó o alguien ya la respondió."
+    },
+    "agentDelegated": "{{agent}} — delegado por {{delegatedBy}}",
+    "agentAsserted": "El agente se ha nombrado a sí mismo. Es una afirmación de la solicitud, no una identidad que este despliegue haya autenticado, y el resumen de arriba no la cubre."
+  },
+  "serverNotes": {
+    "title": "Notas del dispositivo",
+    "hint": "Lo que necesita saber quien visite esta máquina en el futuro. Una nota no caduca: si contradice lo que ves, es prueba de que la infraestructura cambió.",
+    "add": "Añadir nota",
+    "edit": "Editar",
+    "cancelEdit": "Cancelar",
+    "append": "Añadir",
+    "saveRaw": "Guardar notas",
+    "empty": "Aún no hay notas: el agente escribe aquí cuando aprende algo.",
+    "operator": "operador",
+    "titleLabel": "Título de la nota",
+    "bodyLabel": "Cuerpo de la nota",
+    "rawLabel": "Notas en Markdown",
+    "titlePlaceholder": "p. ej. journald es intencional",
+    "bodyPlaceholder": "La conclusión, y qué no hay que «arreglar».",
+    "authorNote": "Se firma como operador, con tu identidad verificada.",
+    "showArchive": "Ver entradas archivadas",
+    "archive": "Archivo",
+    "lastNote": "Notas {{when}}"
+  },
+  "agents": {
+    "roster": {
+      "title": "Agentes con nombre",
+      "help": "Cada agente responde con su propio modelo y sus propias herramientas. Los agentes se declaran en la configuración, así que esta página los lee y no los modifica.",
+      "toolGroups": "Grupos de herramientas",
+      "skills": "Habilidades",
+      "delegates": "Delegados",
+      "addendum": "Anexo"
+    },
+    "detail": {
+      "tabs": "Ajustes del agente",
+      "prompt": "Prompt"
+    },
+    "prompt": {
+      "loading": "Leyendo la composición del prompt…",
+      "unavailable": "Esta pasarela no informa de la composición del prompt.",
+      "replaced": "Reemplazada",
+      "replacedHelp": "Este despliegue reemplazó el texto de la plataforma para esta sección. La sección sigue apareciendo aquí, porque un registro que ocultara el reemplazo haría que dos prompts distintos parecieran idénticos.",
+      "perTurn": "el tamaño varía por turno",
+      "tokens": "{{tokens}} tokens",
+      "addendumTitle": "Anexo",
+      "addendumHelp": "El anexo se añade después de las secciones anteriores y no puede reemplazar ninguna. Edítalo en el archivo de configuración, donde se declara el agente.",
+      "addendumEmpty": "Este agente no declara ningún anexo.",
+      "estimateNote": "Las cifras de tokens son estimaciones para las secciones que cuestan lo mismo en cada turno. Lo que llevó un turno concreto está en el turno.",
+      "permission": {
+        "replaceable": "Tuya",
+        "workspace": "Espacio de trabajo",
+        "derived": "De la configuración",
+        "appendOnly": "Añadida",
+        "fixed": "Fija"
+      },
+      "permissionHelp": {
+        "replaceable": "Esta sección es texto propio del despliegue.",
+        "workspace": "Ya es tuya por otra vía: los archivos de instrucciones del espacio de trabajo.",
+        "derived": "Se calcula desde la configuración, así que ahí es donde cambia.",
+        "appendOnly": "Se añade después de las secciones de la plataforma; no puede reemplazar ninguna.",
+        "fixed": "El contrato de herramientas y las notas de seguridad. Borrarlas dejaría a la puerta de capacidades rechazando acciones cuyas reglas el modelo ya no conoce."
+      }
     }
   }
 }

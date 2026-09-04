@@ -23,10 +23,12 @@ from loguru import logger
 from websockets.http11 import Request as WsRequest
 from websockets.http11 import Response
 
+from nanoinfra.agent.prompt_sections import PromptSectionRefusedError
 from nanoinfra.automations.delivery import DELIVERY_POLICIES
 from nanoinfra.automations.state import AutomationStateError, AutomationStateStore
 from nanoinfra.command.builtin import builtin_command_palette
 from nanoinfra.config.loader import load_config
+from nanoinfra.cron.agent_binding import parse_automation_agent
 from nanoinfra.cron.session_turns import is_bound_cron_job
 from nanoinfra.cron.types import CronJob, CronSchedule
 from nanoinfra.diagrams.normalize import DiagramValidationError
@@ -40,10 +42,12 @@ from nanoinfra.secrets.store import SecretsStoreUnreadableError, SecretStore
 from nanoinfra.security.workspace_access import WorkspaceScope, build_workspace_scope
 from nanoinfra.servers.job_store import JobStore
 from nanoinfra.servers.normalize import ServerValidationError
+from nanoinfra.servers.notes import ServerNotesError, ServerNotesStore
 from nanoinfra.servers.store import ServerStore
 from nanoinfra.triggers.local_store import TriggerDisabledError, TriggerNotFoundError
 from nanoinfra.triggers.local_types import LocalTrigger
 from nanoinfra.utils.subagent_channel_display import scrub_subagent_messages_for_channel
+from nanoinfra.webui.agent_prompt_api import webui_agent_prompt_payload
 from nanoinfra.webui.approvals_api import (
     APPROVALS_ANSWER_PATH,
     APPROVALS_READ_PATH,
@@ -152,6 +156,7 @@ from nanoinfra.webui.latch_api import (
     operator_actor,
 )
 from nanoinfra.webui.media_gateway import WebUIMediaGateway
+from nanoinfra.webui.named_agents_api import webui_named_agents_payload
 from nanoinfra.webui.resource_mentions import normalize_resource_mentions
 from nanoinfra.webui.secrets_api import (
     create_webui_secret,
@@ -161,10 +166,14 @@ from nanoinfra.webui.secrets_api import (
     webui_secrets_payload,
 )
 from nanoinfra.webui.servers_api import (
+    append_webui_server_note,
     create_webui_server,
     delete_webui_server,
+    save_webui_server_notes,
     update_webui_server,
     webui_server_detail_payload,
+    webui_server_notes_archive_payload,
+    webui_server_notes_payload,
     webui_servers_payload,
 )
 from nanoinfra.webui.session_automations import (
@@ -249,6 +258,11 @@ def diagram_values_headers(payload: dict[str, Any]) -> dict[str, str]:
 _WORKSPACE_VALUES_HEADER = "X-Nanoinfra-Workspace-Values"
 _SECRET_VALUES_HEADER = "X-Nanoinfra-Secret-Values"
 _SERVER_VALUES_HEADER = "X-Nanoinfra-Server-Values"
+#: One server's NOTES.md, or one entry going into it (#229). Chunked like the diagram body and for
+#: the same reason: a whole notes file is longer than one header line allows, and this transport
+#: exposes no body. The reader below reuses ``_chunked_header_value``.
+_SERVER_NOTES_HEADER = "X-Nanoinfra-Server-Notes"
+_SERVER_NOTES_CHUNK_COUNT_HEADER = "X-Nanoinfra-Server-Notes-Chunks"
 #: One trigger's message, sent by whatever fired it. A header rather than a body because this
 #: transport never exposes one (see the note above), and a header rather than the query string
 #: because a query string is logged by every proxy it passes and this content becomes a prompt.
@@ -431,6 +445,9 @@ class GatewayHTTPHandler:
         seed_example_diagram_if_new_workspace(self.diagrams)
         self.secrets = SecretStore(skills_workspace_path)
         self.servers = ServerStore(skills_workspace_path)
+        # Device memory (#223). A sibling of the records, so the same workspace path and no second
+        # naming scheme.
+        self.server_notes = ServerNotesStore(skills_workspace_path)
         self.jobs = JobStore(skills_workspace_path)
         reconciled = self.jobs.reconcile_interrupted_jobs()
         if reconciled:
@@ -606,6 +623,11 @@ class GatewayHTTPHandler:
 
         # Automation routes
         response = await self._dispatch_automation_routes(request, got)
+        if response is not None:
+            return response
+
+        # Named agent routes
+        response = self._dispatch_named_agent_routes(request, got)
         if response is not None:
             return response
 
@@ -1554,7 +1576,14 @@ class GatewayHTTPHandler:
             if isinstance(parsed, str):
                 return _http_error(400, parsed)
             if parsed:
-                if self.local_trigger_store.update(trigger.id, **parsed) is None:
+                # `update` refuses an agent that is not configured, the way the cron branch
+                # does. Without this hop a mistyped agent name is a 500 rather than a 400 that
+                # says which name was wrong.
+                try:
+                    updated = self.local_trigger_store.update(trigger.id, **parsed)
+                except ValueError as exc:
+                    return _http_error(400, str(exc))
+                if updated is None:
                     return _http_error(404, "automation not found")
         else:
             return _http_error(404, "unknown automation action")
@@ -1572,6 +1601,46 @@ class GatewayHTTPHandler:
             logger.warning("WebUI automation run-now task did not execute")
 
     # -- Diagram routes -------------------------------------------------------
+
+    def _dispatch_named_agent_routes(self, request: WsRequest, got: str) -> Response | None:
+        if got == "/api/webui/agents/named":
+            return self._handle_webui_named_agents(request)
+        if got == "/api/webui/agents/prompt":
+            return self._handle_webui_agent_prompt(request)
+        return None
+
+    def _handle_webui_named_agents(self, request: WsRequest) -> Response:
+        """The mentionable agents, for the composer's picker (#255).
+
+        Config is read per request rather than held on the router, because the roster is
+        authority: a deployment that edits `agents.named` should see it on the next request and
+        not on the next restart. The payload is names and descriptions only -- what an agent may
+        *reach* is the authorization model, and a mention menu is not where a browser should be
+        able to read it.
+        """
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        return _http_json_response(webui_named_agents_payload(load_config()))
+
+    def _handle_webui_agent_prompt(self, request: WsRequest) -> Response:
+        """What one agent's prompt is made of, and what of it is the deployment's (#256).
+
+        Config per request, for the same reason the roster reads it per request: an edit should be
+        visible on the next request and not on the next restart. A config asking to replace a
+        *fixed* section answers 400 here rather than failing when a turn is assembled.
+        """
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        name = (_query_first(_parse_query(request.path), "agent") or "").strip()
+        if not name:
+            return _http_error(400, "agent is required")
+        try:
+            payload = webui_agent_prompt_payload(load_config(), name)
+        except PromptSectionRefusedError as exc:
+            return _http_error(400, str(exc))
+        if payload is None:
+            return _http_error(404, "agent not found")
+        return _http_json_response(payload)
 
     def _dispatch_diagram_routes(self, request: WsRequest, got: str) -> Response | None:
         if got == "/api/webui/diagrams":
@@ -1999,6 +2068,18 @@ class GatewayHTTPHandler:
         m = re.match(r"^/api/webui/servers/([^/]+)/delete$", got)
         if m:
             return self._handle_webui_server_delete(request, m.group(1))
+        m = re.match(r"^/api/webui/servers/([^/]+)/notes$", got)
+        if m:
+            return self._handle_webui_server_notes(request, m.group(1))
+        m = re.match(r"^/api/webui/servers/([^/]+)/notes/archive$", got)
+        if m:
+            return self._handle_webui_server_notes_archive(request, m.group(1))
+        m = re.match(r"^/api/webui/servers/([^/]+)/notes/append$", got)
+        if m:
+            return self._handle_webui_server_note_append(request, m.group(1))
+        m = re.match(r"^/api/webui/servers/([^/]+)/notes/save$", got)
+        if m:
+            return self._handle_webui_server_notes_save(request, m.group(1))
         m = re.match(r"^/api/webui/servers/([^/]+)$", got)
         if m:
             return self._handle_webui_server_detail(request, m.group(1))
@@ -2049,6 +2130,64 @@ class GatewayHTTPHandler:
         if not delete_webui_server(self.servers, server_id):
             return _http_error(404, "server not found")
         return _http_json_response({"deleted": True})
+
+    # -- Server notes routes (#229) -------------------------------------------
+
+    def _handle_webui_server_notes(self, request: WsRequest, server_id: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        payload = webui_server_notes_payload(self.servers, self.server_notes, server_id)
+        if payload is None:
+            return _http_error(404, "server not found")
+        return _http_json_response(payload)
+
+    def _handle_webui_server_notes_archive(self, request: WsRequest, server_id: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        payload = webui_server_notes_archive_payload(self.servers, self.server_notes, server_id)
+        if payload is None:
+            return _http_error(404, "server not found")
+        return _http_json_response(payload)
+
+    def _handle_webui_server_note_append(self, request: WsRequest, server_id: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        values = _server_notes_values_from_request(request)
+        if values is None:
+            return _http_error(400, "invalid note payload")
+        try:
+            payload = append_webui_server_note(
+                self.servers,
+                self.server_notes,
+                server_id,
+                values,
+                # Never from the payload (#228): the author is the identity this path verified.
+                author=operator_actor(request),
+            )
+        except ServerNotesError as exc:
+            return _http_error(400, str(exc))
+        if payload is None:
+            return _http_error(404, "server not found")
+        return _http_json_response(payload)
+
+    def _handle_webui_server_notes_save(self, request: WsRequest, server_id: str) -> Response:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        values = _server_notes_values_from_request(request)
+        if values is None or not isinstance(values.get("text"), str):
+            return _http_error(400, "invalid note payload")
+        try:
+            payload = save_webui_server_notes(
+                self.servers,
+                self.server_notes,
+                server_id,
+                cast(str, values["text"]),
+            )
+        except ServerNotesError as exc:
+            return _http_error(400, str(exc))
+        if payload is None:
+            return _http_error(404, "server not found")
+        return _http_json_response(payload)
 
     # -- Latch routes -------------------------------------------------------
 
@@ -2603,6 +2742,58 @@ def _server_values_from_request(request: WsRequest) -> dict[str, Any] | None:
     return cast(dict[str, Any], values) if isinstance(values, dict) else None
 
 
+def server_notes_headers(payload: dict[str, Any]) -> dict[str, str]:
+    """The headers that carry one notes body, split so no line exceeds the limit (#229).
+
+    Kept beside the reader so the two cannot drift, and exported for the WebUI's own client to
+    mirror -- the same arrangement ``diagram_values_headers`` has, for the same transport reason.
+    """
+    encoded = quote(json.dumps(payload, ensure_ascii=False), safe="")
+    chunks = [
+        encoded[index : index + _DIAGRAM_CHUNK_BYTES]
+        for index in range(0, len(encoded), _DIAGRAM_CHUNK_BYTES)
+    ] or [""]
+    headers = {_SERVER_NOTES_CHUNK_COUNT_HEADER: str(len(chunks))}
+    for index, chunk in enumerate(chunks):
+        headers[f"{_SERVER_NOTES_HEADER}-{index}"] = chunk
+    return headers
+
+
+def _server_notes_values_from_request(request: WsRequest) -> dict[str, Any] | None:
+    """Read one notes write from its chunk headers.
+
+    A missing or a partial body is an invalid payload and never a partial write: half a notes file
+    saved as the whole one would delete a human's entries, which is the one thing this surface must
+    not do.
+    """
+    count_raw = _case_insensitive_header(request.headers, _SERVER_NOTES_CHUNK_COUNT_HEADER)
+    if not count_raw:
+        raw = _case_insensitive_header(request.headers, _SERVER_NOTES_HEADER) or ""
+    else:
+        try:
+            count = int(count_raw)
+        except ValueError:
+            return None
+        if count < 1 or count > 512:
+            return None
+        parts: list[str] = []
+        for index in range(count):
+            part = _case_insensitive_header(request.headers, f"{_SERVER_NOTES_HEADER}-{index}")
+            if not part:
+                return None
+            parts.append(part)
+        raw = "".join(parts)
+    if not raw:
+        return None
+    for candidate in (raw, unquote(raw)):
+        try:
+            values = json.loads(candidate)
+        except ValueError:
+            continue
+        return cast(dict[str, Any], values) if isinstance(values, dict) else None
+    return None
+
+
 def _parse_automation_update(
     values: dict[str, Any],
     *,
@@ -2672,6 +2863,12 @@ def _parse_automation_update(
                 return schedule_error
             update["schedule"] = parsed_schedule
             update["delete_after_run"] = parsed_schedule.kind == "at"
+    # Which agent runs the job (#257). Parsed here and validated by the service, because whether
+    # a name means anything is `agents.named`'s answer and not this parser's.
+    agent_update = parse_automation_agent(values)
+    if isinstance(agent_update, str):
+        return agent_update
+    update.update(agent_update)
     return update
 
 
@@ -2716,9 +2913,16 @@ def _parse_local_trigger_update(values: dict[str, Any]) -> dict[str, Any] | str:
         update["references"] = [
             {"kind": kind, "id": ident} for kind, ident in parsed_references
         ]
+    # Which agent runs the trigger (#257), on the same rule as a cron job's.
+    agent_update = parse_automation_agent(values)
+    if isinstance(agent_update, str):
+        return agent_update
+    update.update(agent_update)
     forbidden = [key for key in ("message", "schedule") if key in values]
     if forbidden:
-        return "local trigger updates only support name, delivery, skills and references"
+        return (
+            "local trigger updates only support name, agent, delivery, skills and references"
+        )
     return update
 
 

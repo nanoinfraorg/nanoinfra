@@ -10,6 +10,10 @@ from loguru import logger
 
 from nanoinfra.agent.memory import MemoryStore
 from nanoinfra.agent.prompt_manifest import PromptManifest
+from nanoinfra.agent.prompt_sections import (
+    ADDENDUM_SECTION,
+    resolve_overrides,
+)
 from nanoinfra.agent.skills import SkillsLoader
 from nanoinfra.agent.tools import image_generation as image_generation_tools
 from nanoinfra.agent.tools import mcp as mcp_tools
@@ -183,16 +187,28 @@ class ContextBuilder:
         mcp_advertisement: str = "",
         connector_advertisement: str = "",
         group_advertisement: str = "",
+        section_overrides: Mapping[str, str] | None = None,
+        agent_addendum: str = "",
     ) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills.
 
         ``declared_skills`` narrows the catalogue for one turn: the named skills load in full and
         nothing else is even summarised. It is focus, not a boundary -- a skill is prompt content,
         so this changes what the model is told about, not what it can reach.
+
+        ``section_overrides`` is a named agent's own text for the sections it is allowed to
+        replace, and ``agent_addendum`` is its specialisation (#256). They are separate parameters
+        because they do separate things: an override is checked against the permission table in
+        `agent/prompt_sections.py` and refused for anything fixed, while an addendum is a bare
+        string with nowhere to put a section name -- so it can be added and can displace nothing.
+        Both default to "nothing", which is every turn of a deployment that names no agent.
         """
         root = workspace or self.workspace
         manifest = PromptManifest()
         parts: list[str] = []
+        # Refused here, before a single section is built: a prompt half-assembled from an override
+        # set that turns out to be illegal is a prompt nobody asked for.
+        overrides = resolve_overrides(section_overrides)
 
         def section(name: str, text: str, *, items: int = 0) -> None:
             """Append one section and record it. The single path both halves take.
@@ -200,19 +216,39 @@ class ContextBuilder:
             A separate list of names would drift from the prompt the first time somebody added a
             section and forgot the bookkeeping -- which is the failure this module exists to
             prevent, so it is not one to reintroduce here.
+
+            An override is applied here for the same reason: one path means a replaced section is
+            recorded as replaced without the caller having to remember to say so.
             """
+            replacement = overrides.get(name)
+            if replacement is not None:
+                text = replacement
             if not text:
                 return
             parts.append(text)
-            manifest.add(name, text, group="system", items=items)
+            manifest.add(
+                name, text, group="system", items=items, overridden=replacement is not None
+            )
 
         section("Runtime", self._get_identity(channel=channel, workspace=root))
+        # Its own section, and fixed, because the identity above it is the one section a
+        # deployment is most likely to replace. While these rules lived inside that text a persona
+        # swap took the prompt-injection defence with it and nothing said so.
+        section("Safety notes", render_template("agent/safety_notes.md"))
         section("Bootstrap files", self._load_bootstrap_files(root))
         section("Tool usage notes", render_template("agent/tool_contract.md"))
 
         memory = self.memory.read_memory()
-        if memory and not self._is_template_content(memory, "memory/MEMORY.md"):
-            section("Memory", f"# Memory\n\n{self._bounded_long_term_memory(memory)}")
+        # Built as a value and handed to `section` even when it is empty, rather than guarded by an
+        # `if`. A guard here would mean a deployment's replacement text for this section silently
+        # did nothing whenever the file it replaces happens to be absent, which is the reading
+        # nobody expects from "replaceable".
+        memory_text = (
+            f"# Memory\n\n{self._bounded_long_term_memory(memory)}"
+            if memory and not self._is_template_content(memory, "memory/MEMORY.md")
+            else ""
+        )
+        section("Memory", memory_text)
 
         # Always-skills survive a declaration. The operator set those globally, and an automation
         # narrowing its own catalogue should not quietly override a global decision.
@@ -251,6 +287,12 @@ class ContextBuilder:
         section("MCP servers advertised", mcp_advertisement)
         section("Connectors advertised", connector_advertisement)
         section("Tool groups advertised", group_advertisement)
+
+        # The agent's own instructions, appended after the platform's sections and never in place
+        # of one. Inside the stable block rather than at the very end: it is per-agent but not
+        # per-turn, and anything placed after the history is behind the prefix-cache break and
+        # paid for in full on every turn.
+        section(ADDENDUM_SECTION, agent_addendum.strip())
 
         if include_memory_recent_history:
             entries = self.memory.read_recent_history_for_prompt(

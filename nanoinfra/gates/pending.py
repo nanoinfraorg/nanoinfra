@@ -88,6 +88,14 @@ class PendingApproval:
     channel authenticated nobody. ``gates.identityIndependence`` reads it when an answer arrives
     (#47, item 11). The field sits last because a dataclass takes its defaults last, and every
     caller passes it by keyword.
+
+    ``acting_agent`` and ``delegated_by`` name the peer that will run this action and the agent
+    that asked for it (#251). Both are blank on every deployment that names no agent, and the
+    approvals inbox then renders exactly what it rendered before they existed. An operator who
+    approves a command has to know whether the manager or a peer runs it, which is why the two
+    names travel with the suspended action rather than being looked up beside it. Both are the
+    agent's assertion about itself, and ``nanoinfra/gates/delegation.py`` normalises them before
+    they reach here, so no operator surface can be handed a sentence in a name field.
     """
 
     request_id: str
@@ -103,6 +111,8 @@ class PendingApproval:
     created_at: float
     expires_at: float
     origin_actor: str = ""
+    acting_agent: str = ""
+    delegated_by: str = ""
 
     @property
     def host_count(self) -> int:
@@ -162,6 +172,8 @@ class PendingApprovalStore:
         target_digest: str,
         timeout_s: float,
         origin_actor: str = "",
+        acting_agent: str = "",
+        delegated_by: str = "",
     ) -> PendingApproval:
         """Register one suspended action and return its record.
 
@@ -170,6 +182,9 @@ class PendingApprovalStore:
 
         ``origin_actor`` defaults to blank, which reads as "the channel authenticated nobody".
         That is the fail-closed value: #13 then judges the answer by the path rule alone.
+
+        ``acting_agent`` and ``delegated_by`` default to blank, which reads as "no agent named
+        itself" -- and an operator surface then shows nothing rather than a guess (#251).
         """
         if timeout_s <= 0.0:
             raise ValueError("a pending approval needs a positive timeout")
@@ -179,6 +194,8 @@ class PendingApprovalStore:
             session_id=session_id,
             origin_path=origin_path,
             origin_actor=origin_actor,
+            acting_agent=acting_agent,
+            delegated_by=delegated_by,
             execution_context=execution_context,
             capability_class=capability_class,
             scope=scope,

@@ -1,9 +1,27 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { TFunction } from "i18next";
-import { AlertTriangle, CheckCircle2, ShieldQuestion, Timer } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ShieldQuestion, Timer } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type {
   GatesApprovalAnswer,
   GatesApprovalAnswerValues,
@@ -85,6 +103,20 @@ export interface ApprovalsViewProps {
  *
  * Deny costs one click, the same as approve. A deny that cost more steps would make the human
  * the rate limiter of a brute-force loop.
+ *
+ * Approve is a split button (nanoinfraorg/nanoinfra#220). The bare click stays plain **Approve**,
+ * because the default action of a split button is the one people press without reading, so it is
+ * the one that grants nothing. Behind the caret, the same click also writes the standing grant
+ * this action implies. Nothing here describes that grant: the duration is the only choice, and
+ * the command and hosts come from the payload the executor rendered.
+ *
+ * The context rows name the **acting agent** (nanoinfraorg/nanoinfra#258). An operator approving
+ * a command otherwise reads the request without knowing whether the manager or one of its peers
+ * runs it, and with delegation those are different blast radii. The row names the peer and the
+ * agent that delegated to it, it sits below the divider because the digest does not cover it,
+ * and it says the name is the agent's own claim. Where no agent is named the row is absent
+ * altogether: absent attribution renders nothing rather than a guess, and that is the case in
+ * every deployment that does not delegate.
  */
 export function ApprovalsView({
   answering,
@@ -171,8 +203,24 @@ function ApprovalCard({
   onAnswer: (values: GatesApprovalAnswerValues) => void;
 }) {
   const { t } = useTranslation();
+  // The confirmation for the one option a click makes permanent. It lives per card, because two
+  // waiting actions are two separate decisions.
+  const [confirmPermanent, setConfirmPermanent] = useState(false);
+  // Absent, blank and whitespace all mean "no agent named itself". One test here rather than
+  // three at the two places that read it.
+  const actingAgent = entry.actingAgent?.trim() ?? "";
+  const delegatedBy = entry.delegatedBy?.trim() ?? "";
   const remainingMs = entry.expiresAt - now;
   const expired = remainingMs <= 0;
+  const approvable = !busy && !expired && !entry.samePath;
+
+  const approve = (grant?: GatesApprovalAnswerValues["grant"]) =>
+    onAnswer({
+      decision: "approve",
+      requestId: entry.requestId,
+      targetDigest: entry.targetDigest,
+      ...(grant ? { grant } : {}),
+    });
 
   return (
     <section className="rounded-[14px] border border-border/45 bg-settings-surface p-4">
@@ -251,11 +299,35 @@ function ApprovalCard({
           label={t("approvals.context.class", { defaultValue: "Capability class" })}
           value={`${entry.capabilityClass} · ${entry.scope} · ${entry.executionContext}`}
         />
+        {actingAgent ? (
+          <ContextRow
+            label={t("approvals.context.agent", { defaultValue: "Acting agent" })}
+            value={
+              delegatedBy
+                ? t("approvals.agentDelegated", {
+                  agent: actingAgent,
+                  defaultValue: "{{agent}} — delegated by {{delegatedBy}}",
+                  delegatedBy,
+                })
+                : actingAgent
+            }
+          />
+        ) : null}
         <ContextRow
           label={t("approvals.context.digest", { defaultValue: "Binding digest" })}
           value={entry.targetDigest}
         />
       </dl>
+
+      {actingAgent ? (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          {t("approvals.agentAsserted", {
+            defaultValue:
+              "The agent named itself. That is a claim of the request, not an identity this "
+              + "deployment authenticated, and the digest above does not cover it.",
+          })}
+        </p>
+      ) : null}
 
       {entry.samePath ? (
         <Notice tone="warning">
@@ -282,7 +354,7 @@ function ApprovalCard({
         </p>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap justify-end gap-2">
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
         <Button
           className="h-8 px-3 text-[12px]"
           disabled={busy || expired}
@@ -292,24 +364,119 @@ function ApprovalCard({
         >
           {t("approvals.deny", { defaultValue: "Deny" })}
         </Button>
-        <Button
-          className="h-8 px-3 text-[12px]"
-          disabled={busy || expired || entry.samePath}
-          onClick={() =>
-            onAnswer({
-              decision: "approve",
-              requestId: entry.requestId,
-              targetDigest: entry.targetDigest,
-            })}
-          size="sm"
-          variant="outline"
-        >
-          {entry.samePath
-            ? t("approvals.approveUnavailable", { defaultValue: "Approve (unavailable)" })
-            : t("approvals.approve", { defaultValue: "Approve" })}
-        </Button>
+        <div className="flex items-stretch overflow-hidden rounded-md border border-input">
+          <Button
+            className="h-8 rounded-none border-0 px-3 text-[12px]"
+            disabled={busy || expired || entry.samePath}
+            onClick={() => approve()}
+            size="sm"
+            variant="ghost"
+          >
+            {entry.samePath
+              ? t("approvals.approveUnavailable", { defaultValue: "Approve (unavailable)" })
+              : t("approvals.approve", { defaultValue: "Approve" })}
+          </Button>
+          {approvable ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  aria-label={t("approvals.grant.menuLabel", {
+                    defaultValue: "Approve and add a standing grant",
+                  })}
+                  className="h-8 w-7 rounded-none border-0 border-l border-input px-0"
+                  size="sm"
+                  variant="ghost"
+                >
+                  <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-w-[22rem]">
+                <DropdownMenuLabel className="whitespace-normal text-[11px] font-normal text-muted-foreground">
+                  {t("approvals.grant.menuNote", {
+                    defaultValue:
+                      "Adds a standing grant for this exact command on these hosts. A command "
+                      + "that differs by one flag is a different command.",
+                  })}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => approve({ expires: "24h" })}>
+                  {t("approvals.grant.add24h", {
+                    defaultValue: "Approve and add — expires in 24 hours",
+                  })}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => approve({ expires: "7d" })}>
+                  {t("approvals.grant.add7d", {
+                    defaultValue: "Approve and add — expires in 7 days",
+                  })}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setConfirmPermanent(true)}>
+                  {t("approvals.grant.addNever", {
+                    defaultValue: "Approve and add — never expires",
+                  })}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>
       </div>
+
+      <PermanentGrantConfirm
+        onCancel={() => setConfirmPermanent(false)}
+        onConfirm={() => {
+          setConfirmPermanent(false);
+          approve({ expires: "never", permanentAcknowledged: true });
+        }}
+        open={confirmPermanent}
+      />
     </section>
+  );
+}
+
+/**
+ * The second click behind "never expires".
+ *
+ * Not because permanent is wrong -- an operator may legitimately want it -- but because it is the
+ * only option a click makes permanent, and this dialog is where the audit record gets an explicit
+ * "yes, permanent" instead of inferring it from a duration string. A second click, and not a
+ * second approver: a second approver is easy to add later and impossible to retrofit into records
+ * already written without one.
+ */
+function PermanentGrantConfirm({
+  onCancel,
+  onConfirm,
+  open,
+}: {
+  onCancel: () => void;
+  onConfirm: () => void;
+  open: boolean;
+}) {
+  const { t } = useTranslation();
+  return (
+    <AlertDialog onOpenChange={(next) => (next ? undefined : onCancel())} open={open}>
+      <AlertDialogContent className="w-[min(calc(100vw-2rem),28rem)]">
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {t("approvals.grant.permanentTitle", { defaultValue: "Add a grant that never expires?" })}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {t("approvals.grant.permanentBody", {
+              defaultValue:
+                "This command runs on these hosts from now on, with nobody asked. Nothing "
+                + "removes the grant later: you edit gates.standingGrants in config.json to take "
+                + "it back.",
+            })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={onCancel}>
+            {t("common.cancel", { defaultValue: "Cancel" })}
+          </AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>
+            {t("approvals.grant.permanentConfirm", { defaultValue: "Yes, never expires" })}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -326,18 +493,61 @@ function Outcome({ outcome }: { outcome: GatesApprovalAnswer }) {
   const { t } = useTranslation();
   if (outcome.ok) {
     return (
-      <Notice tone={outcome.decision === "deny" ? "warning" : "done"}>
-        {outcome.decision === "deny"
-          ? t("approvals.denied", {
-            defaultValue: "You denied this action. The denial is terminal for this session.",
-          })
-          : t("approvals.approved", {
-            defaultValue: "You approved this action. The executor runs it now.",
-          })}
-      </Notice>
+      <>
+        <Notice tone={outcome.decision === "deny" ? "warning" : "done"}>
+          {outcome.decision === "deny"
+            ? t("approvals.denied", {
+              defaultValue: "You denied this action. The denial is terminal for this session.",
+            })
+            : t("approvals.approved", {
+              defaultValue: "You approved this action. The executor runs it now.",
+            })}
+        </Notice>
+        <GrantOutcome outcome={outcome} />
+      </>
     );
   }
   return <Notice tone="warning">{refusalSentence(t, outcome)}</Notice>;
+}
+
+/**
+ * What became of the grant, beside an approval that already went through.
+ *
+ * The two are reported separately because they happened in two processes and either one can fail
+ * alone. A failed grant write must read as a failed grant write: an operator who saw "approved"
+ * and assumed the grant landed would find out at 03:00, when the automation waits for a human
+ * nobody is there to be.
+ */
+function GrantOutcome({ outcome }: { outcome: GatesApprovalAnswer }) {
+  const { t } = useTranslation();
+  const grant = outcome.grant;
+  if (!grant) return null;
+  if (!grant.ok) {
+    return (
+      <Notice tone="warning">
+        {t("approvals.grant.notSaved", {
+          defaultValue: "The action was approved. The grant was not saved: {{reason}}",
+          reason: grant.reason ?? "",
+        })}
+      </Notice>
+    );
+  }
+  return (
+    <Notice tone="done">
+      {grant.expiresAt
+        ? t("approvals.grant.saved", {
+          defaultValue: "Standing grant {{id}} added. It expires {{when}}.",
+          id: grant.id ?? "",
+          when: expiryLabel(grant.expiresAt),
+        })
+        : t("approvals.grant.savedPermanent", {
+          defaultValue:
+            "Standing grant {{id}} added, and it never expires. Edit gates.standingGrants to "
+            + "take it back.",
+          id: grant.id ?? "",
+        })}
+    </Notice>
+  );
 }
 
 function Notice({
@@ -377,6 +587,17 @@ function refusalSentence(t: TFunction, outcome: GatesApprovalAnswer): string {
     defaultValue: "The executor refused this answer: {{error}}",
     error: outcome.error ?? outcome.refusal ?? "",
   });
+}
+
+/**
+ * The date a grant stops, as the reader's own locale writes it.
+ *
+ * An absolute date and not "in 24 hours": a file somebody reads six months later needs a date,
+ * not a subtraction. A value that is not a date renders as itself rather than as "Invalid Date".
+ */
+function expiryLabel(iso: string): string {
+  const moment = new Date(iso);
+  return Number.isNaN(moment.getTime()) ? iso : moment.toLocaleString();
 }
 
 /** ``m:ss`` for a remaining time. An operator reads minutes and seconds, and never a float. */

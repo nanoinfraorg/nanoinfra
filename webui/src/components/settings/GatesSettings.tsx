@@ -101,6 +101,24 @@ function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+/**
+ * Whether one grant's expiry has passed (nanoinfraorg/nanoinfra#218).
+ *
+ * The row stays in the list once it has. Nothing prunes an expired grant, because a file the
+ * application edits is not the authority the design says config is, so the panel marks it rather
+ * than hiding it. A timestamp this browser cannot parse counts as live: the gate reads the file,
+ * and a display that guessed "expired" would say the opposite of what the gate does.
+ */
+function grantExpired(expiresAt: string): boolean {
+  const moment = new Date(expiresAt);
+  return !Number.isNaN(moment.getTime()) && moment.getTime() <= Date.now();
+}
+
+function grantExpiryLabel(expiresAt: string): string {
+  const moment = new Date(expiresAt);
+  return Number.isNaN(moment.getTime()) ? expiresAt : moment.toLocaleString();
+}
+
 export function GatesSettings({
   token,
   settings,
@@ -625,6 +643,28 @@ export function GatesSettings({
                       {grant.commands.join(" | ")}
                     </code>
                   </div>
+                  {grant.expiresAt ? (
+                    <div
+                      className={cn(
+                        "text-[12px] leading-5",
+                        grantExpired(grant.expiresAt)
+                          ? "text-destructive-text"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {grantExpired(grant.expiresAt)
+                        ? t("settings.gates.grants.expired", {
+                          defaultValue:
+                            "Expired {{when}}. The gate no longer matches it, and nothing "
+                            + "removed the row.",
+                          when: grantExpiryLabel(grant.expiresAt),
+                        })
+                        : t("settings.gates.grants.expires", {
+                          defaultValue: "Expires {{when}}",
+                          when: grantExpiryLabel(grant.expiresAt),
+                        })}
+                    </div>
+                  ) : null}
                 </div>
                 <RemoveButton
                   label={`${tx("settings.gates.grants.remove", "Remove grant")} ${index + 1}`}

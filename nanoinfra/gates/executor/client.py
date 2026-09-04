@@ -20,6 +20,11 @@ context, and for the same reason. The channel adapter authenticated the sender, 
 is the only honest source. A keyword on ``execute`` would also break the SDK stand-in of #21,
 which mirrors this signature.
 
+**The delegation is not a parameter either (#251).** Which agent acts, which agent asked, and
+what the asking turn was allowed to do all come from the bound context and from the ceiling the
+runner declared around the delegated turn. A keyword would let the tool that asks describe its
+own authority, and the whole point of the rule is that it is decided where the gate decides.
+
 The call also blocks for as long as an operator takes to answer. The executor holds the
 deadline, so this side sets no read timeout past the connect. See
 ``nanoinfra/gates/pending.py`` for the four reasons the wait blocks rather than polls.
@@ -91,6 +96,9 @@ class ExecutorClient:
                 token_nonce=token_nonce,
                 origin_path=_origin_path(),
                 origin_actor=_origin_actor(),
+                acting_agent=_acting_agent(),
+                delegated_by=_delegated_by(),
+                inherited_capabilities=_inherited_capabilities(),
             )
         )
 
@@ -125,6 +133,9 @@ class ExecutorClient:
                 token_nonce=None,
                 origin_path=_origin_path(),
                 origin_actor=_origin_actor(),
+                acting_agent=_acting_agent(),
+                delegated_by=_delegated_by(),
+                inherited_capabilities=_inherited_capabilities(),
             )
         )
 
@@ -179,6 +190,50 @@ def _origin_actor() -> str | None:
         return None
     sender = (context.sender_id or "").strip()
     return sender or None
+
+
+def _inherited_capabilities() -> list[str]:
+    """Return the capability classes the delegating turn held, sorted.
+
+    Empty on every turn nothing delegated, and empty on a delegation whose spawning turn declared
+    no ceiling. ``nanoinfra/gates/delegation.py`` says why the second case binds nothing.
+
+    The import stays inside the function for the reason the two above do: that module reads the
+    capability vocabulary from the agent tree, and this file must not tie the two trees together
+    at import time.
+    """
+    from nanoinfra.gates.delegation import current_inherited_capabilities
+
+    return sorted(current_inherited_capabilities())
+
+
+def _acting_agent() -> str | None:
+    """Return the named agent answering this turn, or None when no agent is named.
+
+    ``None`` on every turn of a deployment with one agent, which is what keeps the record and the
+    approval prompt unchanged there. The name is normalised on arrival rather than here, because
+    the executor must not trust this side to have done it.
+    """
+    from nanoinfra.agent.tools.context import current_request_context
+
+    context = current_request_context()
+    if context is None:
+        return None
+    return (context.agent or "").strip() or None
+
+
+def _delegated_by() -> str | None:
+    """Return the agent that delegated this turn, or None when nothing delegated it.
+
+    Its presence is what makes the turn a delegation rather than a named agent answering
+    directly, and the gate reads the pair. See ``nanoinfra/gates/delegation.py``.
+    """
+    from nanoinfra.agent.tools.context import current_request_context
+
+    context = current_request_context()
+    if context is None:
+        return None
+    return (context.delegated_by or "").strip() or None
 
 
 __all__ = ["DEFAULT_CONNECT_TIMEOUT_S", "ExecutorClient", "ExecutorUnavailableError"]

@@ -15,6 +15,15 @@ Two orderings carry the security properties:
   and a fresh prompt is the brute-force oracle #15 removes.
 - A refusal records before it returns. #16 raises on a write failure, so an action that nothing
   recorded refuses rather than runs.
+
+**Who is acting is read here, never passed (#251).** A refusal this runtime records is the record
+an operator reads first, and for a delegated turn it has to name the peer that acted, the agent
+that asked, and the human behind them -- the same three names the executor writes on the far side
+of the socket. So this module reads them off the bound request rather than take them as keywords:
+a parameter would let one call site name a different agent from the one that ran, and the two
+records of one action would then disagree. The execution context is normalised the same way and
+for the same reason, so a delegated turn that the executor decided as attended is not recorded
+here as unattended.
 """
 
 from __future__ import annotations
@@ -24,6 +33,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from nanoinfra.gates.audit import AuditStore
+from nanoinfra.gates.delegation import Delegation, agent_name
 from nanoinfra.gates.latch import DenialLatch, LatchController, LatchEvent, new_denial_latch
 from nanoinfra.gates.latch_restore import restore_latches
 from nanoinfra.gates.policy import Outcome
@@ -142,10 +152,13 @@ class GateRuntime:
         The failure is not caught here. #16 raises so the caller can fail closed, and an
         action that nothing recorded must not run.
         """
+        acting = _acting_now()
         self.audit.record(
             decision=_DECISION_NAMES[outcome],
             capability_class=capability_class,
-            execution_context=execution_context,
+            execution_context=acting.effective_execution_context(execution_context),
+            acting_agent=acting.acting_agent or None,
+            delegated_by=acting.delegated_by or None,
             session_id=session_id,
             tool=tool,
             scope=scope,
@@ -160,6 +173,28 @@ class GateRuntime:
             exit_code=exit_code,
             duration_ms=duration_ms,
         )
+
+
+def _acting_now() -> Delegation:
+    """Who is acting on the turn this call belongs to, read from the bound request.
+
+    Empty outside a request, and empty on every turn that names no agent -- which is every turn
+    of a deployment with one agent, so the record it writes there is byte for byte the record it
+    wrote before this existed. The names are normalised, because everything downstream of here
+    renders them.
+    """
+    from nanoinfra.agent.tools.context import current_request_context
+
+    context = current_request_context()
+    if context is None:
+        return Delegation()
+    return Delegation(
+        acting_agent=agent_name(context.agent),
+        delegated_by=agent_name(context.delegated_by),
+        # The human the spawning turn authenticated. A delegated turn carries the originating
+        # person here, and carries nothing when there was none.
+        origin_actor=(context.sender_id or "").strip(),
+    )
 
 
 def build_gate_runtime(

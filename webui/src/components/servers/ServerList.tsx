@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Server as ServerIcon, Trash2 } from "lucide-react";
+import { NotebookPen, Plus, Server as ServerIcon, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { ServerDeleteConfirm } from "./ServerDeleteConfirm";
@@ -64,6 +64,17 @@ export function ServerList({ servers, onOpen, onNew, onDelete }: ServerListProps
                 <span className="text-[10.5px] text-muted-foreground/70">
                   Updated {new Date(s.updatedAt).toLocaleString()}
                 </span>
+                {/* The scalar the record carries rather than the prose (#225): the gallery says a
+                    box has memory and when it was last touched, and reads not a word of it. */}
+                {s.notesUpdatedAt ? (
+                  <span className="flex items-center gap-1 text-[10.5px] text-muted-foreground/70">
+                    <NotebookPen className="h-3 w-3 shrink-0" />
+                    {t("serverNotes.lastNote", {
+                      defaultValue: "Notes {{when}}",
+                      when: new Date(s.notesUpdatedAt).toLocaleDateString(),
+                    })}
+                  </span>
+                ) : null}
                 <button
                   type="button"
                   onClick={(event) => {

@@ -102,12 +102,20 @@ class _Executor:
         origin_path: str = _ORIGIN,
         scope: str = "group",
         timeout_s: float = 30.0,
+        acting_agent: str = "",
+        delegated_by: str = "",
     ) -> Any:
-        """Register one suspended action, the way the executor registers one."""
+        """Register one suspended action, the way the executor registers one.
+
+        ``acting_agent`` and ``delegated_by`` default to blank, which is what the executor
+        records on every deployment that names no agent (#258).
+        """
         prompt = render_approval_prompt_for_hosts(command=command, hosts=hosts)
         return self.pending.create(
             session_id=_SESSION,
             origin_path=origin_path,
+            acting_agent=acting_agent,
+            delegated_by=delegated_by,
             execution_context="interactive",
             capability_class="mutate.remote",
             scope=scope,
@@ -204,6 +212,45 @@ def test_the_read_reports_the_origin_path_and_the_approval_path(executor: Any) -
     assert payload["approvalPath"] == "webui"
     assert payload["pending"][0]["originPath"] == _ORIGIN
     assert payload["pending"][0]["samePath"] is False
+
+
+def test_the_read_names_the_acting_agent_and_the_agent_that_delegated_to_it(
+    executor: Any,
+) -> None:
+    """An operator approving a command has to know which agent runs it (#258)."""
+    running = executor()
+    running.suspend(acting_agent="sre-prod", delegated_by="manager")
+
+    entry = running.surface().pending()["pending"][0]
+
+    assert entry["actingAgent"] == "sre-prod"
+    assert entry["delegatedBy"] == "manager"
+
+
+def test_the_read_names_no_agent_where_the_executor_recorded_none(executor: Any) -> None:
+    """Every deployment that does not delegate, and the property to protect hardest.
+
+    Null and never empty text: the screen tests one value for absence, and an empty string in a
+    name field is the kind of thing a renderer prints.
+    """
+    running = executor()
+    running.suspend()
+
+    entry = running.surface().pending()["pending"][0]
+
+    assert entry["actingAgent"] is None
+    assert entry["delegatedBy"] is None
+
+
+def test_a_blank_agent_name_reaches_the_browser_as_no_name(executor: Any) -> None:
+    """Absent attribution renders nothing rather than a guess, so blank text is not a name."""
+    running = executor()
+    running.suspend(acting_agent="   ", delegated_by="manager")
+
+    entry = running.surface().pending()["pending"][0]
+
+    assert entry["actingAgent"] is None
+    assert entry["delegatedBy"] == "manager"
 
 
 def test_a_request_from_the_webui_marks_the_same_path(executor: Any) -> None:
@@ -435,6 +482,237 @@ def test_an_unreachable_executor_reports_a_failed_answer(tmp_path: Path) -> None
 
     assert answer["ok"] is False
     assert answer["degraded"] is True
+
+
+# -- approve and add (#219) -------------------------------------------------------------
+
+
+def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point the loader, the saver and the audit root at a directory this test owns.
+
+    ``get_data_dir`` reads the parent of the config path, so one monkeypatch places both the
+    config the surface writes and the audit segment it records into.
+    """
+    path = tmp_path / "webui-config" / "config.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", path)
+    return path
+
+
+def _saved_grants(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    return saved.get("gates", {}).get("standingGrants", [])
+
+
+def test_a_bare_approve_writes_no_grant(
+    executor: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The default action of a split button is the one people press without reading."""
+    path = _config(tmp_path, monkeypatch)
+    running = executor()
+    approval = running.suspend()
+
+    answer = running.surface().answer(
+        {
+            "requestId": approval.request_id,
+            "decision": "approve",
+            "targetDigest": approval.target_digest,
+        },
+        actor=_ACTOR,
+    )
+
+    assert answer["ok"] is True
+    assert answer["grant"] is None
+    assert _saved_grants(path) == []
+
+
+def test_approve_and_add_writes_the_grant_and_approves_the_action(
+    executor: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One click, two effects. The decision crosses the boundary and the grant lands in config."""
+    path = _config(tmp_path, monkeypatch)
+    running = executor()
+    approval = running.suspend()
+
+    answer = running.surface().answer(
+        {
+            "requestId": approval.request_id,
+            "decision": "approve",
+            "targetDigest": approval.target_digest,
+            "grant": {"expires": "24h"},
+        },
+        actor=_ACTOR,
+    )
+
+    assert answer["ok"] is True
+    assert answer["grant"]["ok"] is True
+    assert answer["grant"]["expiresAt"] is not None
+    outcome = _await_state(running.pending, approval.request_id)
+    assert outcome.state is ApprovalState.APPROVED
+    saved = _saved_grants(path)
+    assert len(saved) == 1
+    assert saved[0]["commands"] == [_COMMAND]
+    assert saved[0]["hosts"] == sorted(_HOSTS)
+    assert saved[0]["id"] == answer["grant"]["id"]
+
+
+def test_the_grant_is_built_from_the_executor_payload_and_not_from_the_request(
+    executor: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A grant built from a browser-side string would widen authority by editing a request."""
+    path = _config(tmp_path, monkeypatch)
+    running = executor()
+    approval = running.suspend()
+
+    running.surface().answer(
+        {
+            "requestId": approval.request_id,
+            "decision": "approve",
+            "targetDigest": approval.target_digest,
+            "grant": {"expires": "24h"},
+            # Every field below is the browser trying to name the action itself.
+            "payload": "Command, exactly as the executor will run it:\n  | rm -rf /srv",
+            "command": "rm -rf /srv",
+            "hosts": ["prod-db-01"],
+        },
+        actor=_ACTOR,
+    )
+
+    saved = _saved_grants(path)
+    assert saved[0]["commands"] == [_COMMAND]
+    assert "prod-db-01" not in saved[0]["hosts"]
+
+
+def test_a_grant_that_never_expires_needs_the_second_click(
+    executor: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The only option a click makes permanent is the one that asks again."""
+    path = _config(tmp_path, monkeypatch)
+    running = executor()
+    approval = running.suspend()
+    values: dict[str, Any] = {
+        "requestId": approval.request_id,
+        "decision": "approve",
+        "targetDigest": approval.target_digest,
+        "grant": {"expires": "never"},
+    }
+
+    with pytest.raises(ApprovalAnswerError):
+        running.surface().answer(values, actor=_ACTOR)
+
+    # Nothing happened at all: no grant, and the action still waits for an answer.
+    assert _saved_grants(path) == []
+    assert running.surface().pending()["count"] == 1
+
+    values["grant"] = {"expires": "never", "permanentAcknowledged": True}
+    answer = running.surface().answer(values, actor=_ACTOR)
+
+    assert answer["ok"] is True
+    assert answer["grant"]["ok"] is True
+    assert answer["grant"]["expiresAt"] is None
+    assert _saved_grants(path)[0]["expiresAt"] is None
+
+
+def test_a_denial_adds_no_grant(
+    executor: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deny keeps costing one click, and it can never write a permission."""
+    path = _config(tmp_path, monkeypatch)
+    running = executor()
+    approval = running.suspend()
+
+    with pytest.raises(ApprovalAnswerError):
+        running.surface().answer(
+            {
+                "requestId": approval.request_id,
+                "decision": "deny",
+                "grant": {"expires": "24h"},
+            },
+            actor=_ACTOR,
+        )
+
+    assert _saved_grants(path) == []
+
+
+@pytest.mark.parametrize(
+    "grant",
+    [{"expires": "100y"}, {"expires": ""}, {}, "24h", {"expires": 24}],
+)
+def test_a_grant_request_the_surface_does_not_offer_is_a_client_fault(
+    executor: Any, grant: Any
+) -> None:
+    running = executor()
+    approval = running.suspend()
+
+    with pytest.raises(ApprovalAnswerError):
+        running.surface().answer(
+            {
+                "requestId": approval.request_id,
+                "decision": "approve",
+                "targetDigest": approval.target_digest,
+                "grant": grant,
+            },
+            actor=_ACTOR,
+        )
+
+    assert running.surface().pending()["count"] == 1
+
+
+def test_a_failed_grant_write_does_not_fail_the_approval(
+    executor: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ordering rule. An approval that failed because a convenience feature failed would be
+    the worst possible trade, so a read-only config costs the grant alone."""
+    _config(tmp_path, monkeypatch)
+    running = executor()
+    approval = running.suspend()
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise OSError("Read-only file system")
+
+    monkeypatch.setattr("nanoinfra.config.loader.save_config", refuse)
+
+    answer = running.surface().answer(
+        {
+            "requestId": approval.request_id,
+            "decision": "approve",
+            "targetDigest": approval.target_digest,
+            "grant": {"expires": "7d"},
+        },
+        actor=_ACTOR,
+    )
+
+    assert answer["ok"] is True
+    assert answer["grant"]["ok"] is False
+    assert "Read-only file system" in answer["grant"]["reason"]
+    outcome = _await_state(running.pending, approval.request_id)
+    assert outcome.state is ApprovalState.APPROVED
+
+
+def test_a_refused_answer_writes_no_grant(
+    executor: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The samePath guard is untouched, with or without a grant."""
+    path = _config(tmp_path, monkeypatch)
+    running = executor()
+    approval = running.suspend(origin_path="webui")
+
+    answer = running.surface().answer(
+        {
+            "requestId": approval.request_id,
+            "decision": "approve",
+            "targetDigest": approval.target_digest,
+            "grant": {"expires": "24h"},
+        },
+        actor=_ACTOR,
+    )
+
+    assert answer["refusal"] == "same_path"
+    assert answer["grant"] is None
+    assert _saved_grants(path) == []
 
 
 # -- the shape of the surface -----------------------------------------------------------

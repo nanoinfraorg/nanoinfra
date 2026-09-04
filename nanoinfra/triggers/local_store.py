@@ -12,17 +12,23 @@ import time
 import uuid
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from filelock import FileLock
 from loguru import logger
 
 from nanoinfra.automations.commissioning_state import CommissioningState
 from nanoinfra.automations.delivery import normalize_policy
+from nanoinfra.cron.agent_binding import enforce_agent_binding, roster_from_config
 from nanoinfra.triggers.local_types import LocalTrigger, TriggerDelivery, TriggerRunRecord
 from nanoinfra.utils.backoff import BackoffPolicy, next_attempt_at_ms
 from nanoinfra.utils.helpers import truncate_text
 from nanoinfra.utils.run_records import write_run_record as write_automation_run_record
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
+    from nanoinfra.config.schema import NamedAgentConfig
 
 _TRIGGER_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _MAX_RUN_HISTORY = 20
@@ -46,7 +52,16 @@ class TriggerDisabledError(TriggerStoreError):
 class LocalTriggerStore:
     """Persistent local triggers for one workspace."""
 
-    def __init__(self, workspace_path: Path, *, backoff: BackoffPolicy | None = None):
+    def __init__(
+        self,
+        workspace_path: Path,
+        *,
+        backoff: BackoffPolicy | None = None,
+        named_agents: "Mapping[str, NamedAgentConfig] | None" = None,
+    ):
+        # The roster a trigger's `agent` is checked against (#257). ``None`` means "read config
+        # when a trigger names one", so a store of triggers naming nothing never touches config.
+        self._named_agents = named_agents
         self.workspace_path = Path(workspace_path)
         self.root = self.workspace_path / "triggers"
         self.store_path = self.root / "triggers.json"
@@ -142,12 +157,31 @@ class LocalTriggerStore:
             self._save_triggers_unlocked(triggers)
             return trigger
 
+    @property
+    def named_agents(self) -> "Mapping[str, NamedAgentConfig]":
+        """The roster this store validates against, and the runner binds a turn with.
+
+        Read from config when none was injected, so the write path and the run path cannot end up
+        checking a trigger's agent against two different rosters.
+        """
+        return self._named_agents if self._named_agents is not None else roster_from_config()
+
+    def _refuse_agent_binding(self, agent: str, skills: "Sequence[str]") -> None:
+        """Refuse a trigger that names an agent it may not have, naming the agent (#257).
+
+        The same call the cron store makes, deliberately: an automation's agent is one rule, and a
+        trigger that could name an agent the roster does not have would be a second answer to a
+        question config has already answered.
+        """
+        enforce_agent_binding(agent=agent, skills=skills, roster=self._named_agents)
+
     def update(
         self,
         trigger_id: str,
         *,
         name: str | None = None,
         delivery: str | None = None,
+        agent: str | None = None,
         skills: list[str] | None = None,
         references: list[dict[str, str]] | None = None,
         commissioning: CommissioningState | None = None,
@@ -160,6 +194,16 @@ class LocalTriggerStore:
             trigger = self._find_unlocked(triggers, trigger_id)
             if trigger is None:
                 return None
+            # Checked against what the trigger *would become*, and before a field is assigned: the
+            # record is live in this list and the save below writes all of them, so a refusal
+            # raised half way through would persist an edit nobody accepted. It also catches the
+            # other direction -- adding a skill the trigger's agent does not carry.
+            self._refuse_agent_binding(
+                trigger.agent if agent is None else agent.strip(),
+                trigger.skills if skills is None else skills,
+            )
+            if agent is not None:
+                trigger.agent = agent.strip()
             if name is not None:
                 trigger.name = _clean_name(name)
             if delivery is not None:

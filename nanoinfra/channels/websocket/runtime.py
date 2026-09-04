@@ -1389,6 +1389,12 @@ class WebSocketChannel(BaseChannel):
             attached_connectors = normalize_connector_mentions(envelope.get("connectors"))
             if attached_connectors:
                 metadata[ATTACHED_CONNECTORS_META] = attached_connectors
+            # Which agent the operator chose for this turn (#254). Recorded, not honoured: the
+            # loop resolves it against `agents.named` and falls back to the default agent, so a
+            # client cannot name authority into existence any more than it can a connector.
+            chosen_agent = envelope.get("agent")
+            if isinstance(chosen_agent, str) and chosen_agent.strip():
+                metadata["agent"] = chosen_agent.strip()
             session_mentions: list[SessionMention] = []
             if (
                 trusted_webui
@@ -1669,6 +1675,7 @@ class WebSocketChannel(BaseChannel):
                 goal_state=event.goal_state,
                 usage=event.usage,
                 prompt_manifest=event.prompt_manifest,
+                agent=event.agent,
                 metadata=msg.metadata,
                 turn_owner=turn_owner if isinstance(turn_owner, str) else None,
             )
@@ -1900,6 +1907,7 @@ class WebSocketChannel(BaseChannel):
         goal_state: dict[str, Any] | None = None,
         usage: LLMUsage | None = None,
         prompt_manifest: dict[str, Any] | None = None,
+        agent: str | None = None,
         metadata: dict[str, Any] | None = None,
         turn_owner: str | None = None,
     ) -> None:
@@ -1918,6 +1926,11 @@ class WebSocketChannel(BaseChannel):
             # Names and sizes. A manifest that carried the prompt's text would be a second copy of
             # the conversation persisted where nobody expects one (#203).
             body["prompt"] = prompt_manifest
+        if agent:
+            # Persisted with the rest of this body, so a reloaded thread says which agent answered
+            # each turn (#248). Omitted for the default agent: a name the deployment never
+            # configured would be a guess, and every turn today is the default one.
+            body["agent"] = agent
         canonical_webui_turn = (metadata or {}).get("webui") is True
         prior_persistence_failure = (
             canonical_webui_turn

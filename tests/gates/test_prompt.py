@@ -31,6 +31,7 @@ from nanoinfra.gates import prompt as prompt_module
 from nanoinfra.gates.prompt import (
     ApprovalPrompt,
     PromptRenderError,
+    action_from_rendered_prompt,
     digest_rendered_prompt,
     render_approval_prompt,
     render_approval_prompt_for_hosts,
@@ -202,6 +203,21 @@ def test_the_approved_digest_equals_the_digest_of_the_rendered_payload() -> None
         target_digest=digest_rendered_prompt(payload.text),
     )
     assert outcome.ok
+
+
+def test_the_rendered_payload_gives_back_the_command_and_the_hosts() -> None:
+    """#219 derives a standing grant from these two values, and from nothing else.
+
+    They come back out of the bytes the digest covers, so a grant built from them cannot be
+    wider than the action a human read. Anything the request body claimed is not consulted.
+    """
+    payload = render_approval_prompt_for_hosts(command=_COMMAND, hosts=_WEBSERVERS)
+
+    recovered = action_from_rendered_prompt(payload.text)
+
+    assert recovered.command == _COMMAND
+    assert recovered.hosts == tuple(sorted(_WEBSERVERS))
+    assert recovered.target_digest == payload.target_digest
 
 
 @pytest.mark.parametrize(

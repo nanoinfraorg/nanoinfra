@@ -29,6 +29,16 @@ gateway process the import closure is the whole protection, and
 module. A tool that runs arbitrary code in this process defeats that closure, and the approver
 match is then the last rule that holds.
 
+**One click, two effects, in two processes (#219).** An approval may also ask for the standing
+grant its action implies. The decision still crosses into the executor, which owns it. The grant
+is *config*, and the confined executor holds a read-only rule on ``config.json``, because config
+is the operator's authority and the executor is the thing being constrained by it. So this
+process writes it, through ``nanoinfra/gates/derived_grants.py``, and after the answer landed.
+The ordering carries the value: **the grant write must never block the approved action.** A
+read-only config costs the grant and never the action, and the answer says so. The grant also
+derives from the payload the executor rendered rather than from ``values``, for the same reason
+this module renders no summary of its own.
+
 **Why a failed read reports degraded rather than an empty queue.** An empty list must not read as
 "no action waits". The socket may be down instead, and an operator who reads an empty inbox during
 an outage learns the wrong fact. So the payload carries ``degraded`` and the caller renders the
@@ -43,6 +53,12 @@ from urllib.parse import unquote
 
 from loguru import logger
 
+from nanoinfra.gates.derived_grants import (
+    GRANT_EXPIRY_CHOICES,
+    PERMANENT_CHOICE,
+    GrantWriteResult,
+    write_derived_grant,
+)
 from nanoinfra.gates.executor.operator_socket import (
     OperatorClient,
     OperatorUnavailableError,
@@ -69,13 +85,18 @@ APPROVAL_PATH = "webui"
 DECISION_APPROVE = "approve"
 DECISION_DENY = "deny"
 
+# The field that asks for a standing grant beside the approval (#219). It is absent for the bare
+# ``Approve`` click, which is the click that grants nothing, and it is never legal on a denial: a
+# deny must keep costing exactly one click and adding nothing.
+GRANT_FIELD = "grant"
+
 # The reason a free-text field reaches the audit log. A record is one line, and an operator has
 # to be able to read it.
 _MAX_REASON_CHARS = 500
 
 
 class ApprovalAnswerError(ValueError):
-    """The answer named no request, no decision, or no digest.
+    """The answer named no request, no decision, no digest, or an impossible grant.
 
     A separate type, because the route answers 400 for this case and 200 for an answer the
     executor refused. A client fault and an operator refusal are two different events.
@@ -135,6 +156,13 @@ class ApprovalsOperatorSurface:
         An approval carries the digest of the payload the operator read. A denial carries none,
         because a denial stops an action and authorizes no bytes. A deny therefore needs one
         field fewer than an approve, and it can never cost more steps.
+
+        An approval may also ask for a standing grant (#219). That is one click with two effects
+        in two processes: the decision crosses into the executor exactly as before, and the grant
+        is written afterwards by this process, which is the one that owns config writes. The
+        order is not an implementation detail. **The grant write must never block the approved
+        action**, so it runs after the answer landed, it derives from the executor's own payload
+        rather than from ``values``, and every failure of it becomes a line the screen renders.
         """
         request_id = _required_text(values, "requestId")
         decision = _required_text(values, "decision")
@@ -145,6 +173,12 @@ class ApprovalsOperatorSurface:
         target_digest = (
             _required_text(values, "targetDigest") if decision == DECISION_APPROVE else ""
         )
+        # Read before the answer, for two reasons. A malformed grant request must fail before any
+        # decision crosses the boundary, because half of one click is worse than none of it. And
+        # the executor stops listing an action the moment it is answered, so the payload the grant
+        # derives from has to be read while the action still waits.
+        grant_request = _grant_request(values, decision=decision)
+        view = self._pending_view(request_id) if grant_request is not None else None
 
         try:
             if decision == DECISION_APPROVE:
@@ -183,7 +217,53 @@ class ApprovalsOperatorSurface:
             refusal=response.refusal,
             error=response.error,
             degraded=False,
+            grant=(
+                self._grant(view, grant_request, actor=actor)
+                if grant_request is not None and response.ok
+                else None
+            ),
         )
+
+    def _pending_view(self, request_id: str) -> PendingView | None:
+        """The executor's own record of one waiting action, or ``None``.
+
+        A failed read is not an error on this path. The approval is what matters, and a grant
+        that cannot be derived is reported as unsaved a moment later.
+        """
+        try:
+            views = self._client.pending()
+        except OperatorUnavailableError as exc:
+            logger.warning("gates: no payload to derive a grant from: {}", exc)
+            return None
+        for view in views:
+            if view["request_id"] == request_id:
+                return view
+        return None
+
+    def _grant(
+        self, view: PendingView | None, request: dict[str, Any], *, actor: str
+    ) -> dict[str, Any]:
+        """Write the grant this approval implies, and never raise.
+
+        The action is already approved and already running by the time this runs. So a missing
+        payload, a read-only config, and a failed record all produce the same shape: an answer
+        that says the grant was not saved, beside an approval that stands.
+        """
+        if view is None:
+            return GrantWriteResult(
+                ok=False,
+                reason=(
+                    "The executor no longer lists this action, so no grant was derived from it. "
+                    "The approval itself went through."
+                ),
+            ).as_payload()
+        return write_derived_grant(
+            view,
+            expires=str(request["expires"]),
+            permanent_acknowledged=bool(request["permanentAcknowledged"]),
+            actor=actor,
+            approval_path=APPROVAL_PATH,
+        ).as_payload()
 
 
 def _for_operator(view: PendingView) -> dict[str, Any]:
@@ -191,11 +271,20 @@ def _for_operator(view: PendingView) -> dict[str, Any]:
 
     ``payload`` and ``targetDigest`` travel unchanged. ``samePath`` applies #13's third
     condition here, so the screen can state the refusal before the operator clicks.
+
+    ``actingAgent`` and ``delegatedBy`` name which agent will run the action and which one asked
+    for it (#258). Both are ``None`` where no agent named itself, which is every deployment that
+    does not delegate, and the screen then renders exactly what it rendered before these fields
+    existed. ``None`` rather than ``""``: the client tests one value for absence, and an empty
+    string in a name field is the kind of thing a renderer prints. The executor normalised both
+    names before they reached this record, so neither can carry a sentence onto that screen.
     """
     return {
         "requestId": view["request_id"],
         "sessionId": view["session_id"],
         "originPath": view["origin_path"],
+        "actingAgent": _named_or_none(view["acting_agent"]),
+        "delegatedBy": _named_or_none(view["delegated_by"]),
         "executionContext": view["execution_context"],
         "capabilityClass": view["capability_class"],
         "scope": view["scope"],
@@ -208,6 +297,49 @@ def _for_operator(view: PendingView) -> dict[str, Any]:
     }
 
 
+def _named_or_none(value: str) -> str | None:
+    """The name the executor recorded, or ``None`` when it recorded none (#258).
+
+    The rule ``nanoinfra/gates/audit.py`` applies to the log, applied to the wire: blank text is
+    never a name, so absent attribution reaches the browser as ``null`` and renders nothing. A
+    guess would be worse than nothing here -- an operator would read it as a fact.
+    """
+    named = (value or "").strip()
+    return named or None
+
+
+def _grant_request(values: Mapping[str, Any], *, decision: str) -> dict[str, Any] | None:
+    """Read the "and add a grant" half of one answer, or ``None`` when it asked for none.
+
+    Every fault here is a client fault and raises, so the route answers 400 and nothing happens:
+    no decision and no grant. That is deliberate. The "never blocks the approval" rule covers a
+    *write* that fails, and dropping a malformed grant request silently would instead lose the
+    operator's intent behind a successful-looking approval.
+    """
+    raw = values.get(GRANT_FIELD)
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ApprovalAnswerError(f"{GRANT_FIELD} must be an object")
+    request = cast("dict[str, Any]", raw)
+    if decision != DECISION_APPROVE:
+        raise ApprovalAnswerError("a denial adds no standing grant")
+    expires = request.get("expires")
+    if not isinstance(expires, str) or expires not in GRANT_EXPIRY_CHOICES:
+        raise ApprovalAnswerError(
+            f"{GRANT_FIELD}.expires must be one of {sorted(GRANT_EXPIRY_CHOICES)}"
+        )
+    # The second click of #220, carried as a fact rather than inferred from the duration. The one
+    # option a click makes permanent is the one that asks again, and the acknowledgement is where
+    # the record gets its "yes, permanent" instead of guessing it from a default.
+    acknowledged = request.get("permanentAcknowledged") is True
+    if expires == PERMANENT_CHOICE and not acknowledged:
+        raise ApprovalAnswerError(
+            f"{GRANT_FIELD}.expires {PERMANENT_CHOICE!r} needs permanentAcknowledged"
+        )
+    return {"expires": expires, "permanentAcknowledged": acknowledged}
+
+
 def _answered(
     *,
     request_id: str,
@@ -217,11 +349,16 @@ def _answered(
     refusal: str | None,
     error: str | None,
     degraded: bool,
+    grant: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One answer, as the route reports it.
 
     ``refusal`` names the rule for the caller to render. ``error`` is the executor's own
     sentence, and it stays as the fallback for a refusal the caller does not know.
+
+    ``grant`` is ``None`` when the answer asked for none, which is every deny and every bare
+    approve. It carries ``ok: false`` and a sentence when a grant was asked for and not written,
+    and the approval beside it still stands.
     """
     return {
         "ok": ok,
@@ -231,6 +368,7 @@ def _answered(
         "refusal": refusal,
         "error": error,
         "degraded": degraded,
+        "grant": grant,
     }
 
 

@@ -19,7 +19,9 @@ from nanoinfra.agent.context_governance import (
     ContextGovernor,
 )
 from nanoinfra.agent.hook import AgentHook, AgentHookContext, AgentRunHookContext
+from nanoinfra.agent.tools.capabilities import capability_class_of
 from nanoinfra.agent.tools.registry import ToolRegistry, is_tool_error_result
+from nanoinfra.llm_usage.tool_calls import classify_tool_error, tool_call_record
 from nanoinfra.providers.base import (
     LLMProvider,
     LLMResponse,
@@ -1456,7 +1458,7 @@ class AgentRunner:
         for batch in batches:
             if spec.concurrent_tools and len(batch) > 1:
                 batch_results = await asyncio.gather(*(
-                    self._run_tool(
+                    self._run_tool_recorded(
                         spec,
                         tool_call,
                         external_lookup_counts,
@@ -1470,7 +1472,7 @@ class AgentRunner:
             else:
                 batch_results: list[tuple[Any, dict[str, str], BaseException | None]] = []
                 for tool_call in batch:
-                    result = await self._run_tool(
+                    result = await self._run_tool_recorded(
                         spec,
                         tool_call,
                         external_lookup_counts,
@@ -1490,6 +1492,57 @@ class AgentRunner:
             if error is not None and fatal_error is None:
                 fatal_error = error
         return results, events, fatal_error
+
+    async def _run_tool_recorded(
+        self,
+        spec: AgentRunSpec,
+        tool_call: ToolCallRequest,
+        external_lookup_counts: dict[str, int],
+        workspace_violation_counts: dict[str, int],
+        hook: AgentHook | None = None,
+        context: AgentHookContext | None = None,
+    ) -> tuple[Any, dict[str, str], BaseException | None]:
+        """Write one tool-call row around one call (#232).
+
+        Here rather than in `ToolRegistry.execute`, because `_run_tool` below resolves the tool
+        through `prepare_call` and then awaits it directly -- so the registry's own `execute` is
+        reached only by a caller that holds no registry, and a row written there alone would have
+        missed every call the agent actually makes. The registry keeps its scope for those
+        callers, and the two nest without doubling: see `llm_usage/tool_calls.py`.
+
+        The row is telemetry and takes no decisions: whatever `_run_tool` returned is returned
+        untouched, and a failure to record is swallowed on the other side of this call.
+        """
+        with tool_call_record(
+            tool=tool_call.name,
+            capability_class=self._capability_class_for(spec, tool_call.name),
+        ) as row:
+            result, event, error = await self._run_tool(
+                spec,
+                tool_call,
+                external_lookup_counts,
+                workspace_violation_counts,
+                hook,
+                context,
+            )
+            if event.get("status") == "error":
+                # A gate denial still overrides this to `denied` when the gate answered, because
+                # a refusal is the deployment working rather than a tool that broke (#233).
+                row.failed(classify_tool_error(result))
+            return result, event, error
+
+    @staticmethod
+    def _capability_class_for(spec: AgentRunSpec, name: str) -> str | None:
+        """The class the gate would key on, or None for a tool this holder does not have.
+
+        `capability_class_of` fails closed to `mutate.remote` for a tool that declares nothing,
+        which is right for a policy question and wrong for a record: a call that never resolved
+        to a tool has no class at all, and writing the fail-closed value would put a remote
+        mutation in the history of a name that does not exist.
+        """
+        getter = cast(Callable[[str], Any] | None, getattr(spec.tools, "get", None))
+        tool = getter(name) if callable(getter) else None
+        return capability_class_of(tool) if tool is not None else None
 
     async def _run_tool(
         self,

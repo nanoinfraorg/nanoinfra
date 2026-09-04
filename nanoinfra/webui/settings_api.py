@@ -41,7 +41,14 @@ from nanoinfra.config.loader import (
     resolve_config_env_vars,
     save_config,
 )
-from nanoinfra.config.schema import Config, FallbackCandidate, ModelPresetConfig, ProviderConfig
+from nanoinfra.config.schema import (
+    Config,
+    FallbackCandidate,
+    KnowledgeConfig,
+    ModelPresetConfig,
+    ProviderConfig,
+)
+from nanoinfra.knowledge import HYBRID_INSTALL_HINT, hybrid_available, status_payload
 from nanoinfra.llm_usage import llm_usage_payload
 from nanoinfra.providers.image_generation import (
     get_image_gen_provider,
@@ -1186,6 +1193,17 @@ def _gates_payload(gates: GatesConfig) -> dict[str, Any]:
     }
 
 
+def _knowledge_payload(config: Config) -> dict[str, Any]:
+    """The knowledge base panel: the mode, the caps, and what the last run did (#243).
+
+    The status half is read from the index manifest rather than recomputed, so opening Settings
+    costs a small JSON read and never a directory walk. ``hybrid_available`` is what greys the
+    hybrid option out: an option offered and then failing is worse than one that says what to
+    install.
+    """
+    return status_payload(config.workspace_path, config.tools.knowledge)
+
+
 def settings_payload(
     *,
     requires_restart: bool = False,
@@ -1315,6 +1333,24 @@ def settings_payload(
             "max_concurrent_subagents": defaults.max_concurrent_subagents,
         },
         "model_presets": model_presets,
+        # The named agents, so a browser can offer them (#247). Read-only here: an agent is
+        # authority -- its tool groups and its delegation roster decide what it may do -- so it is
+        # edited in the git-reviewed config file, not through a settings write. What the UI needs
+        # is the roster it may *offer*, and counts rather than the bindings themselves, for the
+        # same reason the delegate tool's own description carries counts: a list of every host an
+        # agent covers would bloat every payload that mentions it.
+        "named_agents": [
+            {
+                "name": name,
+                "description": agent.description,
+                "model_preset": agent.model_preset or active_preset_name,
+                "tool_group_count": len(agent.tool_groups),
+                "skill_count": len(agent.skills),
+                "delegate_count": len(agent.delegates),
+                "has_addendum": bool(agent.addendum.strip()),
+            }
+            for name, agent in sorted(config.agents.named.items())
+        ],
         # The same lines the log carries at boot (#205). On the page too, because the log line is
         # read once by whoever restarted and the contradiction outlives that person's session.
         "config_warnings": config_warnings(config),
@@ -1341,6 +1377,7 @@ def settings_payload(
                 "use_jina_reader": config.tools.web.fetch.use_jina_reader,
             },
         },
+        "knowledge": _knowledge_payload(config),
         "api": {
             "host": config.api.host,
             "port": config.api.port,
@@ -2152,6 +2189,95 @@ def update_network_safety_settings(query: QueryParams) -> dict[str, Any]:
         except ValueError as exc:
             raise WebUISettingsError(str(exc)) from exc
     return settings_payload(requires_restart=changed)
+
+
+def update_knowledge_settings(query: QueryParams) -> dict[str, Any]:
+    """Write ``tools.knowledge`` after a full round trip through its schema.
+
+    Validated by the schema rather than by this function, so the bounds an operator meets in the
+    panel are the same ones a hand-edited ``config.json`` meets -- one set of rules, in the file
+    that owns them.
+    """
+    config = load_config()
+    current = config.tools.knowledge.model_dump(mode="json", by_alias=True)
+    draft = dict(current)
+
+    raw_enabled = _query_first(query, "enabled")
+    if raw_enabled is not None:
+        draft["enabled"] = _parse_bool(raw_enabled, "enabled")
+    raw_mode = _query_first(query, "mode")
+    if raw_mode is not None:
+        mode = raw_mode.strip().lower()
+        if mode not in {"lexical", "hybrid"}:
+            raise WebUISettingsError("mode must be lexical or hybrid")
+        if mode == "hybrid" and not hybrid_available():
+            # The panel greys this out, and the save refuses it as well. The panel is a
+            # convenience; config is the authority, and a mode that cannot search is not a
+            # setting worth persisting.
+            raise WebUISettingsError(
+                f"hybrid mode needs semlix's semantic extra: {HYBRID_INSTALL_HINT}"
+            )
+        draft["mode"] = mode
+    for key, alias in (
+        ("reindexIntervalS", "reindex_interval_s"),
+        ("maxFileBytes", "max_file_bytes"),
+        ("maxTotalBytes", "max_total_bytes"),
+        ("maxResults", "max_results"),
+    ):
+        raw = _query_first_alias(query, alias, key)
+        if raw is None:
+            continue
+        try:
+            draft[key] = int(raw)
+        except ValueError:
+            raise WebUISettingsError(f"{alias} must be an integer") from None
+    raw_exclude = _query_first(query, "exclude")
+    if raw_exclude is not None:
+        draft["exclude"] = _knowledge_exclude_list(raw_exclude)
+
+    try:
+        knowledge = KnowledgeConfig.model_validate(draft)
+    except ValidationError as exc:
+        raise WebUISettingsError(_knowledge_error_message(exc)) from exc
+
+    if draft == current:
+        return settings_payload()
+    config.tools.knowledge = knowledge
+    save_config(config)
+    # The indexing job is registered and the search tool is built once at start, so a change
+    # here needs a restart before it is the behaviour of the running gateway.
+    return settings_payload(requires_restart=True)
+
+
+def _knowledge_exclude_list(raw: str) -> list[str]:
+    """Read the exclude globs, which arrive as a JSON array because a glob may hold a comma."""
+    try:
+        parsed: object = json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            parsed = json.loads(unquote(raw))
+        except json.JSONDecodeError:
+            raise WebUISettingsError("exclude must be a JSON array of globs") from None
+    if not isinstance(parsed, list):
+        raise WebUISettingsError("exclude must be a JSON array of globs")
+    patterns: list[str] = []
+    for item in cast(list[Any], parsed):
+        if not isinstance(item, str):
+            raise WebUISettingsError("exclude must be a JSON array of globs")
+        text = item.strip()
+        if text and text not in patterns:
+            patterns.append(text)
+    return patterns
+
+
+def _knowledge_error_message(exc: ValidationError) -> str:
+    errors = exc.errors()
+    if not errors:
+        return "knowledge: the settings are invalid"
+    first = errors[0]
+    path = ".".join(str(part) for part in (first.get("loc") or ()))
+    detail = str(first.get("msg") or "the value is invalid")
+    return f"knowledge.{path}: {detail}" if path else f"knowledge: {detail}"
 
 
 def _gates_error_path(location: Iterable[Any]) -> str:

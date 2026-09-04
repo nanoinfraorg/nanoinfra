@@ -78,7 +78,9 @@
     "website": "Site de nanoinfra",
     "documentation": "Documentation",
     "docs": "docs",
-    "signOut": "Se déconnecter"
+    "signOut": "Se déconnecter",
+    "agents": "Agents",
+    "abilities": "Capacités"
   },
   "settings": {
     "backToChat": "Retour au chat",
@@ -104,7 +106,8 @@
       "apps": "Applications",
       "automations": "Automatisations",
       "skills": "Compétences",
-      "agents": "Agents"
+      "agents": "Agents",
+      "knowledge": "Connaissances"
     },
     "sections": {
       "interface": "Interface utilisateur",
@@ -812,6 +815,7 @@
         "timezone": "Fuseau horaire",
         "runAt": "Exécuter à",
         "delivery": "Quand me prévenir",
+        "agent": "Exécuté en tant que",
         "skills": "Compétences à charger"
       },
       "scheduleTypes": {
@@ -863,6 +867,8 @@
       },
       "skillsHelp": "Sans sélection, toutes sont résumées, comme avant. En sélectionner charge celles-ci intégralement et exclut les autres du prompt de cette automatisation.",
       "skillsEmpty": "Aucune compétence installée",
+      "agentDefault": "Agent par défaut",
+      "agentHelp": "L'agent fixe le plafond de cette exécution : ses groupes d'outils et ses propres instructions. L'automatisation peut le restreindre, jamais l'élargir.",
       "referencePicker": "Référencer une ressource",
       "referenceMissing": "ce {{kind}} n'existe plus",
       "referenceBrokenHint": "Cette automatisation refusera de s'exécuter tant que la référence manquante n'est pas retirée.",
@@ -1087,6 +1093,8 @@
         "empty": "Aucune concession. Aucune automatisation ne peut exécuter une commande distante.",
         "hosts": "Hôtes",
         "commands": "Commandes",
+        "expires": "Expire le {{when}}",
+        "expired": "A expiré le {{when}}. Le contrôle ne l’applique plus, et rien n’a supprimé la ligne.",
         "add": "Ajouter une concession",
         "remove": "Supprimer la concession",
         "note": "Une concession autorise une commande distante et rien d’autre. Elle ne peut pas autoriser une écriture d’inventaire."
@@ -1562,6 +1570,10 @@
         "referenceGroup": "Référence",
         "referenceBadge": "Référence",
         "serverPrefixHint": "Référencer l'un des {{count}} serveurs",
+        "agentPrefixHint": "Demander l'un des {{count}} agents",
+        "agentGroup": "Agents",
+        "agentBadge": "Agent",
+        "agentNoDescription": "Demander au manager de préférer cet agent",
         "diagramPrefixHint": "Référencer l'un des {{count}} diagrammes",
         "serverGroup": "Serveurs",
         "diagramGroup": "Diagrammes",
@@ -1671,7 +1683,26 @@
     "cliRunRan": "Utilisé",
     "cliRunFailed": "Échec",
     "automationSourceFallback": "Automatisation",
-    "automationTriggered": "Déclenché automatiquement"
+    "automationTriggered": "Déclenché automatiquement",
+    "plan": {
+      "title": "Plan",
+      "answered": "{{count}} ont répondu",
+      "failed": "{{count}} en échec",
+      "running": "{{count}} en cours",
+      "total": "délégué {{usage}}",
+      "totalPartial": "{{reported}} sur {{total}} rapportés",
+      "totalTitle": "Le coût propre des délégations, cumulé. Un tour délégué est son propre tour : ceci ne fait donc pas partie de la consommation de l'agent qui répond.",
+      "unknownAgent": "un pair",
+      "step": {
+        "running": "Délégation à {{agent}}",
+        "done": "{{agent}} a répondu",
+        "failed": "{{agent}} a échoué",
+        "noAnswer": "{{agent}} n'a rien rapporté"
+      }
+    },
+    "prompt": {
+      "replaced": "remplacée"
+    }
   },
   "lightbox": {
     "title": "Aperçu de l’image",
@@ -1753,11 +1784,25 @@
       "approve": "Approuver depuis",
       "session": "Session",
       "class": "Classe de capacité",
-      "digest": "Empreinte de liaison"
+      "digest": "Empreinte de liaison",
+      "agent": "Agent qui agit"
     },
     "approveFromValue": "webui (cette session, authentifiée)",
     "approve": "Approuver",
     "approveUnavailable": "Approuver (indisponible)",
+    "grant": {
+      "menuLabel": "Approuver et ajouter une concession permanente",
+      "menuNote": "Ajoute une concession permanente pour cette commande exacte sur ces hôtes. Une commande qui diffère d’une seule option est une autre commande.",
+      "add24h": "Approuver et ajouter — expire dans 24 heures",
+      "add7d": "Approuver et ajouter — expire dans 7 jours",
+      "addNever": "Approuver et ajouter — sans expiration",
+      "permanentTitle": "Ajouter une concession sans expiration ?",
+      "permanentBody": "Cette commande s’exécutera désormais sur ces hôtes sans demander à personne. Rien ne retire la concession ensuite : vous modifiez gates.standingGrants dans config.json pour la reprendre.",
+      "permanentConfirm": "Oui, sans expiration",
+      "saved": "Concession permanente {{id}} ajoutée. Elle expire le {{when}}.",
+      "savedPermanent": "Concession permanente {{id}} ajoutée, et elle n’expire jamais. Modifiez gates.standingGrants pour la reprendre.",
+      "notSaved": "L’action a été approuvée. La concession n’a pas été enregistrée : {{reason}}"
+    },
     "deny": "Refuser",
     "samePath": "Cette demande vient du canal que vous utilisez. Approuvez-la depuis un autre canal authentifié. Un seul compte compromis ne doit pas fournir les deux moitiés.",
     "denyTerminal": "Un refus est définitif pour cette session. L'agent ne peut plus demander avant qu'un opérateur lève le verrou.",
@@ -1775,6 +1820,68 @@
       "unauthenticatedPath": "gates.approvalPaths ne contient pas webui, donc ce canal n'authentifie aucun approbateur.",
       "unknownOriginPath": "La demande ne nomme aucun canal d'origine. L'exécuteur ne peut pas prouver l'indépendance des canaux.",
       "unknownRequest": "L'exécuteur n'a pas cette demande. Elle a expiré, ou quelqu'un y a répondu."
+    },
+    "agentDelegated": "{{agent}} — délégué par {{delegatedBy}}",
+    "agentAsserted": "L'agent s'est nommé lui-même. C'est une affirmation de la requête, pas une identité authentifiée par ce déploiement, et l'empreinte ci-dessus ne la couvre pas."
+  },
+  "serverNotes": {
+    "title": "Notes de la machine",
+    "hint": "Ce qu'un prochain intervenant doit savoir sur cette machine. Une note n'expire pas : si elle contredit ce que vous observez, c'est la preuve que l'infrastructure a changé.",
+    "add": "Ajouter une note",
+    "edit": "Modifier",
+    "cancelEdit": "Annuler",
+    "append": "Ajouter",
+    "saveRaw": "Enregistrer les notes",
+    "empty": "Aucune note pour l'instant : l'agent écrit ici lorsqu'il apprend quelque chose.",
+    "operator": "opérateur",
+    "titleLabel": "Titre de la note",
+    "bodyLabel": "Corps de la note",
+    "rawLabel": "Notes en Markdown",
+    "titlePlaceholder": "ex. journald est intentionnel",
+    "bodyPlaceholder": "La conclusion, et ce qu'il ne faut pas « corriger ».",
+    "authorNote": "Signée comme opérateur, avec votre identité vérifiée.",
+    "showArchive": "Afficher les entrées archivées",
+    "archive": "Archive",
+    "lastNote": "Notes {{when}}"
+  },
+  "agents": {
+    "roster": {
+      "title": "Agents nommés",
+      "help": "Chaque agent répond avec son propre modèle et ses propres outils. Les agents sont déclarés dans la configuration : cette page les lit et ne les modifie pas.",
+      "toolGroups": "Groupes d'outils",
+      "skills": "Compétences",
+      "delegates": "Délégués",
+      "addendum": "Addendum"
+    },
+    "detail": {
+      "tabs": "Réglages de l'agent",
+      "prompt": "Prompt"
+    },
+    "prompt": {
+      "loading": "Lecture de la composition du prompt…",
+      "unavailable": "Cette passerelle ne rapporte pas la composition du prompt.",
+      "replaced": "Remplacée",
+      "replacedHelp": "Ce déploiement a remplacé le texte de la plateforme pour cette section. La section reste nommée ici, car un relevé qui masquerait le remplacement ferait passer deux prompts différents pour identiques.",
+      "perTurn": "la taille varie selon le tour",
+      "tokens": "{{tokens}} jetons",
+      "addendumTitle": "Addendum",
+      "addendumHelp": "L'addendum est ajouté après les sections ci-dessus et ne peut en remplacer aucune. Modifiez-le dans le fichier de configuration, là où l'agent est déclaré.",
+      "addendumEmpty": "Cet agent ne déclare aucun addendum.",
+      "estimateNote": "Les chiffres de jetons sont des estimations pour les sections dont le coût est identique à chaque tour. Ce qu'un tour a réellement porté figure sur le tour.",
+      "permission": {
+        "replaceable": "À vous",
+        "workspace": "Espace de travail",
+        "derived": "Depuis la configuration",
+        "appendOnly": "Ajoutée",
+        "fixed": "Fixe"
+      },
+      "permissionHelp": {
+        "replaceable": "Cette section est le texte propre du déploiement.",
+        "workspace": "Déjà à vous par une autre voie : les fichiers d'instructions de l'espace de travail.",
+        "derived": "Calculée depuis la configuration, c'est donc là qu'elle change.",
+        "appendOnly": "Ajoutée après les sections de la plateforme ; elle n'en remplace aucune.",
+        "fixed": "Le contrat d'outils et les notes de sécurité. Les supprimer laisserait la barrière refuser des actions dont le modèle ne connaît plus les règles."
+      }
     }
   }
 }

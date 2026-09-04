@@ -104,6 +104,38 @@ def test_a_grant_defaults_to_unattended_only() -> None:
     assert gates.standing_grants[0].contexts == ["unattended"]
 
 
+def test_a_grant_with_no_expiry_never_expires() -> None:
+    """#218. Absent has to keep meaning never, because every grant written until now omits it."""
+    gates = GatesConfig.model_validate(
+        {"standingGrants": [{"hosts": ["web-01"], "commands": ["uptime"]}]}
+    )
+
+    assert gates.standing_grants[0].expires_at is None
+
+
+def test_an_expiry_and_a_note_survive_a_save_and_a_reload() -> None:
+    """"Approve and add" writes both, and the settings panel round-trips the whole policy."""
+    raw = {
+        "standingGrants": [
+            {
+                "hosts": ["web-01"],
+                "commands": ["uptime"],
+                "expiresAt": "2026-12-01T09:00:00+00:00",
+                "note": "Added by approve and add on 2026-09-03.",
+            }
+        ]
+    }
+
+    reloaded = GatesConfig.model_validate(
+        GatesConfig.model_validate(raw).model_dump(mode="json", by_alias=True)
+    )
+
+    grant = reloaded.standing_grants[0]
+    assert grant.expires_at is not None
+    assert grant.expires_at.isoformat() == "2026-12-01T09:00:00+00:00"
+    assert grant.note == "Added by approve and add on 2026-09-03."
+
+
 def test_audit_defaults_to_digest_only_retention() -> None:
     """Resolved commands routinely embed secrets, so full text is an explicit opt-in."""
     gates = GatesConfig()

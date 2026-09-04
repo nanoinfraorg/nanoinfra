@@ -147,6 +147,7 @@ async def commission_cron_job(
         message=job.payload.message,
         references=job.references,
         skills=job.skills,
+        agent=job.agent,
     )
     latched = tuple(sorted(latches.latched_classes(session_key))) if latches else ()
 
@@ -171,7 +172,7 @@ async def commission_cron_job(
                 checked_at_ms=int(time.time() * 1000),
                 finding=(
                     f"This automation cannot run as written: {exc} No standing grant changes "
-                    "that -- the reference has to be repointed or removed."
+                    "that -- what the automation names has to be repointed or removed."
                 ),
                 fingerprint=fingerprint,
             ),

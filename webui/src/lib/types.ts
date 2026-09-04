@@ -91,6 +91,12 @@ export interface UIMessage {
   stepModelMs?: number;
   /** What this turn's prompt was made of, by section (``turn_end``). */
   prompt?: PromptManifest;
+  /**
+   * Which named agent answered this turn (``turn_end``). Absent for the deployment's default
+   * agent, which is every turn in a deployment that names none. Recorded per turn because a
+   * thread may switch agents, and nothing else in the row distinguishes them.
+   */
+  agent?: string;
   /** Client epoch milliseconds when the definitive ``turn_end`` was received. */
   completedAt?: number;
   /** Lightweight provenance for proactive assistant messages. */
@@ -156,6 +162,15 @@ export interface PromptManifest {
      * trim needs to know which of the thirty-one is the expensive one. Names and sizes only.
      */
     tools?: Array<{ name: string; chars: number; tokens: number }>;
+    /**
+     * True when this deployment replaced the section's text instead of taking the platform's
+     * (#256). Absent means the platform's own.
+     *
+     * A manifest is a measurement, and one that hid a replacement would make two different
+     * prompts look identical: same name, same group, a plausible size, and nothing saying the
+     * persona was swapped.
+     */
+    overridden?: boolean;
   }>;
   groups: Record<string, number>;
   total_tokens: number;
@@ -242,6 +257,12 @@ export interface SessionAutomationJob {
     }>;
   };
   delivery?: AutomationDeliveryPolicy | string;
+  /**
+   * The named agent this job runs as (#257). Empty or absent is the deployment's default agent,
+   * which is what every job is today. The agent is a ceiling: `skills` below may only narrow the
+   * list that agent carries.
+   */
+  agent?: string;
   skills?: string[];
   references?: ResourceMention[];
   commissioning?: AutomationCommissioning;
@@ -302,6 +323,8 @@ export interface AutomationUpdatePayload {
   name?: string;
   message?: string;
   delivery?: AutomationDeliveryPolicy;
+  /** Empty clears the choice, which means the deployment's default agent (#257). */
+  agent?: string;
   skills?: string[];
   references?: ResourceMention[];
   schedule?: {
@@ -453,6 +476,15 @@ export interface ToolProgressEvent {
   error?: unknown;
   files?: unknown[];
   embeds?: unknown[];
+  /**
+   * What the turn *behind* this call cost, when the call ran a turn of its own (#252).
+   *
+   * Only a delegation has one: the peer runs as its own turn with its own usage (#209), and that
+   * figure belongs to the delegation rather than to the manager's call that asked for it. Absent
+   * on every other tool, and absent on a delegation whose producer reported nothing -- in which
+   * case the plan row prints no cost rather than borrowing the manager's.
+   */
+  usage?: TurnUsage;
 }
 
 export interface UIFileDiff {
@@ -669,6 +701,16 @@ export interface GatesStandingGrant {
   contexts: string[];
   hosts: string[];
   commands: string[];
+  /**
+   * When this grant stops matching (nanoinfraorg/nanoinfra#218). Absent or null means never.
+   *
+   * Nothing prunes an expired grant. The gate stops matching it and the row stays in config,
+   * shown as expired, because an application that deleted lines from the operator's file would
+   * make that file something other than the authority.
+   */
+  expiresAt?: string | null;
+  /** Free text a human reads. "Approve and add" writes the duration it was given here. */
+  note?: string | null;
 }
 
 export interface GatesAuditPolicy {
@@ -828,6 +870,18 @@ export interface GatesPendingApproval {
   requestId: string;
   sessionId: string;
   originPath: string;
+  /**
+   * Which agent will run this action, and which one asked for it
+   * (nanoinfraorg/nanoinfra#258).
+   *
+   * Both are absent on every deployment that names no agent, and the inbox then renders exactly
+   * what it rendered before these fields existed. The server sends `null` rather than empty text
+   * for the same reason the audit log does: an empty name reads as a name. Neither value is a
+   * verified identity -- it is the agent's own claim about itself -- so the inbox says so beside
+   * it and keeps it out of the bytes the digest covers.
+   */
+  actingAgent?: string | null;
+  delegatedBy?: string | null;
   executionContext: string;
   capabilityClass: string;
   scope: string;
@@ -853,12 +907,41 @@ export interface GatesApprovalsPayload {
 
 export type GatesApprovalDecision = "approve" | "deny";
 
+/** How long a grant derived from one approval lives. `never` is the absent expiry. */
+export type GatesGrantExpiry = "24h" | "7d" | "never";
+
+/**
+ * The "and add a standing grant" half of one approval (nanoinfraorg/nanoinfra#219).
+ *
+ * It names a duration and nothing else. The command, the hosts and the context all come from the
+ * payload the executor rendered, so there is no scope here to get wrong: a grant the browser
+ * could describe would be a way to widen authority by editing a request.
+ */
+export interface GatesApprovalGrantRequest {
+  expires: GatesGrantExpiry;
+  /**
+   * The second click for `never`. The server refuses a permanent grant without it, so the record
+   * says the operator chose permanent rather than inheriting it from a default.
+   */
+  permanentAcknowledged?: boolean;
+}
+
+/** What became of that grant. `ok: false` sits beside an approval that still went through. */
+export interface GatesApprovalGrantResult {
+  ok: boolean;
+  id: string | null;
+  expiresAt: string | null;
+  reason: string | null;
+}
+
 export interface GatesApprovalAnswerValues {
   requestId: string;
   decision: GatesApprovalDecision;
   /** The digest of the payload the operator read. An approval carries it, a denial does not. */
   targetDigest?: string;
   reason?: string;
+  /** Absent for the bare Approve click, which is the click that grants nothing. */
+  grant?: GatesApprovalGrantRequest;
 }
 
 export interface GatesApprovalAnswer {
@@ -870,6 +953,8 @@ export interface GatesApprovalAnswer {
   refusal: string | null;
   error: string | null;
   degraded: boolean;
+  /** Null when the answer asked for no grant, which is every deny and every bare approve. */
+  grant?: GatesApprovalGrantResult | null;
 }
 
 /** Audit filters. The route reads them from the query string. */
@@ -880,6 +965,67 @@ export interface GatesAuditQuery {
   /** One person, to read every action they raised. It is free text and not a choice. */
   originActor?: string;
   since?: string | null;
+}
+
+/**
+ * The knowledge base panel -- nanoinfraorg/nanoinfra#243.
+ *
+ * The settings half is config; the rest is what the last indexing pass did. `hybrid_available`
+ * is what greys the hybrid option out: an option offered and then failing is worse than one that
+ * says what to install.
+ */
+export interface KnowledgePayload {
+  enabled: boolean;
+  mode: "lexical" | "hybrid";
+  /** The mode the stored index was built in. A difference means the next pass rebuilds. */
+  indexed_mode: string;
+  reindex_interval_s: number;
+  exclude: string[];
+  max_file_bytes: number;
+  max_total_bytes: number;
+  max_results: number;
+  path: string;
+  exists: boolean;
+  documents: number;
+  fragments: number;
+  indexed_bytes: number;
+  hybrid_available: boolean;
+  hybrid_install_hint: string | null;
+  /** Refused by policy, with the reason. A silent drop is the failure this list prevents. */
+  skipped: Array<{ path: string; reason: string; detail: string }>;
+  /** Refused by the filesystem. A different problem, so a different list. */
+  errors: string[];
+  last_run: {
+    trigger: string;
+    finished_at_ms: number;
+    added: number;
+    updated: number;
+    removed: number;
+    skipped: number;
+    errors: number;
+    duration_ms: number;
+  } | null;
+}
+
+export interface KnowledgeSettingsUpdate {
+  enabled: boolean;
+  mode: "lexical" | "hybrid";
+  reindexIntervalS: number;
+  exclude: string[];
+  maxFileBytes: number;
+  maxTotalBytes: number;
+  maxResults: number;
+}
+
+/** One row of the agent roster: a name, a line explaining it, and the size of its bindings. */
+export interface NamedAgentRosterEntry {
+  name: string;
+  description: string;
+  model_preset: string;
+  tool_group_count: number;
+  skill_count: number;
+  delegate_count: number;
+  has_addendum: boolean;
 }
 
 export interface SettingsPayload {
@@ -919,6 +1065,19 @@ export interface SettingsPayload {
     reasoning_effort: string | null;
     reasoning_effort_values?: string[];
   }>;
+  /**
+   * The agents this deployment names, with **counts** of their bindings and never the bindings
+   * themselves (#253).
+   *
+   * An agent's tool groups, skills and delegates are its authority, decided in a config file a
+   * human reviews. A browser that could enumerate them would be reading the authorization model
+   * out of a settings payload, so what arrives here is what a roster has to show: who exists,
+   * what they are for, and how much each one carries.
+   *
+   * Absent on an older gateway, and empty for every deployment that names no agent -- which is
+   * the shape that leaves the navigation exactly as it is.
+   */
+  named_agents?: NamedAgentRosterEntry[];
   /**
    * Config this deployment is ignoring (#205).
    *
@@ -989,6 +1148,7 @@ export interface SettingsPayload {
       use_jina_reader: boolean;
     };
   };
+  knowledge?: KnowledgePayload;
   api?: {
     host: string;
     port: number;
@@ -1842,6 +2002,8 @@ export type InboundEvent =
       usage?: TurnUsage;
       /** What the turn's prompt was made of, by section. */
       prompt?: PromptManifest;
+      /** Which named agent answered. Absent means the deployment's default agent. */
+      agent?: string;
       /** Authoritative sustained-goal snapshot for this chat (same shape as ``goal_state`` events). */
       goal_state?: GoalStateWsPayload;
     } & InboundTurnMetadata)

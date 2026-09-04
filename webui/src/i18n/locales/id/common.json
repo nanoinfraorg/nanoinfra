@@ -78,7 +78,9 @@
     "website": "Situs nanoinfra",
     "documentation": "Dokumentasi",
     "docs": "dokumen",
-    "signOut": "Keluar"
+    "signOut": "Keluar",
+    "agents": "Agen",
+    "abilities": "Kemampuan"
   },
   "settings": {
     "backToChat": "Kembali ke chat",
@@ -104,7 +106,8 @@
       "apps": "Aplikasi",
       "automations": "Otomasi",
       "skills": "Keterampilan",
-      "agents": "Agen"
+      "agents": "Agen",
+      "knowledge": "Pengetahuan"
     },
     "sections": {
       "interface": "Antarmuka",
@@ -812,6 +815,7 @@
         "timezone": "Zona waktu",
         "runAt": "Jalankan pada",
         "delivery": "Kapan memberi tahu saya",
+        "agent": "Dijalankan sebagai",
         "skills": "Skill yang dimuat"
       },
       "scheduleTypes": {
@@ -863,6 +867,8 @@
       },
       "skillsHelp": "Tanpa memilih, semua skill diringkas seperti sebelumnya. Memilih beberapa akan memuatnya penuh dan mengeluarkan sisanya dari prompt otomasi ini.",
       "skillsEmpty": "Belum ada skill terpasang",
+      "agentDefault": "Agen bawaan",
+      "agentHelp": "Agen menetapkan batas atas untuk jalannya tugas ini: grup alatnya dan instruksinya sendiri. Otomasi hanya boleh mempersempit, tidak pernah memperluas.",
       "referencePicker": "Rujuk sebuah sumber daya",
       "referenceMissing": "{{kind}} sudah tidak ada",
       "referenceBrokenHint": "Otomasi ini akan menolak berjalan sampai rujukan yang hilang dihapus.",
@@ -1087,6 +1093,8 @@
         "empty": "Tidak ada izin tetap. Tidak ada otomatisasi yang boleh menjalankan perintah jarak jauh.",
         "hosts": "Host",
         "commands": "Perintah",
+        "expires": "Berakhir pada {{when}}",
+        "expired": "Berakhir pada {{when}}. Gate tidak lagi mencocokkannya, dan tidak ada yang menghapus barisnya.",
         "add": "Tambahkan izin tetap",
         "remove": "Hapus izin tetap",
         "note": "Satu izin tetap mengizinkan perintah jarak jauh dan tidak lebih. Izin itu tidak bisa mengizinkan penulisan inventaris."
@@ -1562,6 +1570,10 @@
         "referenceGroup": "Rujukan",
         "referenceBadge": "Rujukan",
         "serverPrefixHint": "Rujuk salah satu dari {{count}} server",
+        "agentPrefixHint": "Minta salah satu dari {{count}} agen",
+        "agentGroup": "Agen",
+        "agentBadge": "Agen",
+        "agentNoDescription": "Minta manajer untuk memilih agen ini",
         "diagramPrefixHint": "Rujuk salah satu dari {{count}} diagram",
         "serverGroup": "Server",
         "diagramGroup": "Diagram",
@@ -1671,7 +1683,26 @@
     "cliRunRan": "Digunakan",
     "cliRunFailed": "Gagal",
     "automationSourceFallback": "Otomatisasi",
-    "automationTriggered": "Dipicu otomatis"
+    "automationTriggered": "Dipicu otomatis",
+    "plan": {
+      "title": "Rencana",
+      "answered": "{{count}} menjawab",
+      "failed": "{{count}} gagal",
+      "running": "{{count}} berjalan",
+      "total": "didelegasikan {{usage}}",
+      "totalPartial": "{{reported}} dari {{total}} dilaporkan",
+      "totalTitle": "Biaya milik delegasi, dijumlahkan. Giliran yang didelegasikan adalah giliran tersendiri, jadi ini bukan bagian dari penggunaan agen yang menjawab.",
+      "unknownAgent": "rekan",
+      "step": {
+        "running": "Mendelegasikan ke {{agent}}",
+        "done": "{{agent}} menjawab",
+        "failed": "{{agent}} gagal",
+        "noAnswer": "{{agent}} tidak melaporkan"
+      }
+    },
+    "prompt": {
+      "replaced": "diganti"
+    }
   },
   "lightbox": {
     "title": "Pratinjau gambar",
@@ -1753,11 +1784,25 @@
       "approve": "Setujui dari",
       "session": "Sesi",
       "class": "Kelas kemampuan",
-      "digest": "Ringkasan pengikat"
+      "digest": "Ringkasan pengikat",
+      "agent": "Agen yang bertindak"
     },
     "approveFromValue": "webui (sesi ini, terautentikasi)",
     "approve": "Setujui",
     "approveUnavailable": "Setujui (tidak tersedia)",
+    "grant": {
+      "menuLabel": "Setujui dan tambahkan izin tetap",
+      "menuNote": "Menambahkan izin tetap untuk perintah persis ini pada host ini. Perintah yang berbeda satu opsi adalah perintah lain.",
+      "add24h": "Setujui dan tambahkan — berakhir dalam 24 jam",
+      "add7d": "Setujui dan tambahkan — berakhir dalam 7 hari",
+      "addNever": "Setujui dan tambahkan — tidak pernah berakhir",
+      "permanentTitle": "Tambahkan izin yang tidak pernah berakhir?",
+      "permanentBody": "Mulai sekarang perintah ini berjalan di host ini tanpa menanyakan siapa pun. Tidak ada yang menghapus izin itu nanti: Anda menyunting gates.standingGrants di config.json untuk menariknya kembali.",
+      "permanentConfirm": "Ya, tanpa batas waktu",
+      "saved": "Izin tetap {{id}} ditambahkan. Berakhir pada {{when}}.",
+      "savedPermanent": "Izin tetap {{id}} ditambahkan, dan tidak pernah berakhir. Sunting gates.standingGrants untuk menariknya kembali.",
+      "notSaved": "Tindakan disetujui. Izin tetap tidak tersimpan: {{reason}}"
+    },
     "deny": "Tolak",
     "samePath": "Permintaan ini datang dari jalur yang Anda pakai. Setujui dari jalur terautentikasi lain. Satu akun yang jebol tidak boleh memberi kedua bagian.",
     "denyTerminal": "Penolakan bersifat akhir untuk sesi ini. Agen tidak dapat bertanya lagi sampai operator membuka kuncinya.",
@@ -1775,6 +1820,68 @@
       "unauthenticatedPath": "gates.approvalPaths tidak memuat webui, jadi jalur ini tidak mengautentikasi penyetuju.",
       "unknownOriginPath": "Permintaan tidak menyebut jalur asal. Eksekutor tidak dapat membuktikan kemandirian jalur.",
       "unknownRequest": "Eksekutor tidak memegang permintaan ini. Sudah kedaluwarsa, atau sudah dijawab."
+    },
+    "agentDelegated": "{{agent}} — didelegasikan oleh {{delegatedBy}}",
+    "agentAsserted": "Agen menamai dirinya sendiri. Itu klaim dari permintaan, bukan identitas yang diautentikasi oleh deployment ini, dan digest di atas tidak mencakupnya."
+  },
+  "serverNotes": {
+    "title": "Catatan perangkat",
+    "hint": "Hal yang perlu diketahui oleh orang berikutnya yang menangani mesin ini. Catatan tidak kedaluwarsa — jika bertentangan dengan yang Anda lihat, itu bukti infrastruktur telah berubah.",
+    "add": "Tambah catatan",
+    "edit": "Ubah",
+    "cancelEdit": "Batal",
+    "append": "Tambahkan",
+    "saveRaw": "Simpan catatan",
+    "empty": "Belum ada catatan — agen menulis di sini saat mempelajari sesuatu.",
+    "operator": "operator",
+    "titleLabel": "Judul catatan",
+    "bodyLabel": "Isi catatan",
+    "rawLabel": "Catatan Markdown",
+    "titlePlaceholder": "mis. journald memang disengaja",
+    "bodyPlaceholder": "Kesimpulannya, dan apa yang tidak boleh \"diperbaiki\".",
+    "authorNote": "Ditandatangani sebagai operator, dengan identitas Anda yang terverifikasi.",
+    "showArchive": "Tampilkan entri yang diarsipkan",
+    "archive": "Arsip",
+    "lastNote": "Catatan {{when}}"
+  },
+  "agents": {
+    "roster": {
+      "title": "Agen bernama",
+      "help": "Setiap agen menjawab dengan model dan alatnya sendiri. Agen dideklarasikan di konfigurasi, jadi halaman ini membacanya dan tidak mengubahnya.",
+      "toolGroups": "Grup alat",
+      "skills": "Keterampilan",
+      "delegates": "Delegasi",
+      "addendum": "Adendum"
+    },
+    "detail": {
+      "tabs": "Pengaturan agen",
+      "prompt": "Prompt"
+    },
+    "prompt": {
+      "loading": "Membaca komposisi prompt…",
+      "unavailable": "Gateway ini tidak melaporkan komposisi prompt.",
+      "replaced": "Diganti",
+      "replacedHelp": "Deployment ini mengganti teks platform untuk bagian ini. Bagian tersebut tetap disebut di sini, karena catatan yang menyembunyikan penggantian akan membuat dua prompt berbeda terlihat sama.",
+      "perTurn": "ukuran berubah tiap giliran",
+      "tokens": "{{tokens}} token",
+      "addendumTitle": "Adendum",
+      "addendumHelp": "Adendum ditambahkan setelah bagian di atas dan tidak dapat menggantikan satu pun. Ubah di berkas konfigurasi, tempat agen dideklarasikan.",
+      "addendumEmpty": "Agen ini tidak mendeklarasikan adendum.",
+      "estimateNote": "Angka token adalah perkiraan untuk bagian yang biayanya sama di setiap giliran. Apa yang benar-benar dibawa satu giliran ada pada giliran itu.",
+      "permission": {
+        "replaceable": "Milik Anda",
+        "workspace": "Ruang kerja",
+        "derived": "Dari konfigurasi",
+        "appendOnly": "Ditambahkan",
+        "fixed": "Tetap"
+      },
+      "permissionHelp": {
+        "replaceable": "Bagian ini adalah teks milik deployment sendiri.",
+        "workspace": "Sudah milik Anda melalui jalur lain: berkas instruksi ruang kerja.",
+        "derived": "Dihitung dari konfigurasi, jadi konfigurasi adalah tempat mengubahnya.",
+        "appendOnly": "Ditambahkan setelah bagian platform; tidak menggantikan apa pun.",
+        "fixed": "Kontrak alat dan catatan keselamatan. Menghapusnya membuat gerbang tetap menolak tindakan yang aturannya tidak lagi diketahui model."
+      }
     }
   }
 }

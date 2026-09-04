@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, cast
@@ -50,6 +50,7 @@ from nanoinfra.gates.connector_host.client import (
     ConnectorHostClient,
     ConnectorHostUnavailableError,
 )
+from nanoinfra.gates.delegation import delegation_of
 from nanoinfra.gates.executor.connector_credentials import (
     RefreshTokenSource,
     token_source_for,
@@ -196,13 +197,19 @@ class ConnectorActionRunner:
         return entry, op
 
     async def handle(self, request: ConnectorRequest) -> ExecuteResponse:
-        """Answer one connector request. Never raises for a refusal: a refusal is a response."""
+        """Answer one connector request. Never raises for a refusal: a refusal is a response.
+
+        The delegation is read at the door, exactly as a command's is (#251): a peer can call a
+        connector, and neither the ceiling nor the actor rule may depend on which surface the
+        peer reached for.
+        """
         if request.token_nonce:
             return _refusal(
                 "This request carries an approval nonce. The executor issues every nonce and "
                 "gives none to the agent, so no caller on this socket can hold one."
             )
 
+        request = _as_decided(request)
         resolved = self._resolve(request)
         if isinstance(resolved, ExecuteResponse):
             return resolved
@@ -240,6 +247,7 @@ class ConnectorActionRunner:
             execution_context=request.execution_context,
             connector=entry.name,
             operation=op.name,
+            delegation=delegation_of(request),
         )
 
         if decision.outcome is Outcome.APPROVE:
@@ -293,6 +301,7 @@ class ConnectorActionRunner:
             execution_context=request.execution_context,
             connector=entry.name,
             operation=op.name,
+            delegation=delegation_of(request),
         )
         return ExecuteResponse(
             ok=True,
@@ -377,6 +386,7 @@ class ConnectorActionRunner:
                 f"{request.origin_path!r}. The request waits for {gates.approval_timeout_s}s."
             ),
         )
+        acting = delegation_of(request)
         approval = pending.create(
             session_id=session_id,
             origin_path=(request.origin_path or "").strip(),
@@ -389,6 +399,8 @@ class ConnectorActionRunner:
             payload=prompt.text,
             target_digest=prompt.target_digest,
             timeout_s=float(gates.approval_timeout_s),
+            acting_agent=acting.acting_agent,
+            delegated_by=acting.delegated_by,
         )
         logger.info(
             "gates: {} waits for an approval on a second path (session {})",
@@ -622,12 +634,26 @@ class ConnectorActionRunner:
                 actor=actor,
                 origin_path=request.origin_path,
                 origin_actor=request.origin_actor,
+                acting_agent=request.acting_agent,
+                delegated_by=request.delegated_by,
                 approval_path=approval_path,
                 grant_id=grant_id,
                 approval_id=approval_id,
             )
         except OSError as exc:
             logger.error("the audit record for {} failed to write: {}", tool, exc)
+
+
+def _as_decided(request: ConnectorRequest) -> ConnectorRequest:
+    """The frame as the gate decides it, with the delegation's own context applied (#251).
+
+    The command path's ``_as_decided`` states the rule; this is the same one on the kind that
+    carries a connector call, and a frame that names no delegation comes back unchanged.
+    """
+    decided = delegation_of(request).effective_execution_context(request.execution_context)
+    if decided == request.execution_context:
+        return request
+    return replace(request, execution_context=decided)
 
 
 __all__ = ["ConnectorActionRunner"]

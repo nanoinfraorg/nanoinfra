@@ -45,6 +45,13 @@ class PromptSection:
     #: How many things this section stands for -- skills, tools, messages. Zero means "not a count",
     #: which is different from "none": a section is one thing unless it says otherwise.
     items: int = 0
+    #: True when a deployment replaced this section's text instead of taking the platform's.
+    #:
+    #: A manifest is a measurement, and one that hides a replacement makes two different prompts
+    #: look identical -- same name, same group, a plausible size, and no way to tell that the
+    #: persona was swapped. So a replaced section is still named here and carries this flag
+    #: (#256). It costs a boolean; leaving it out costs an operator the one fact they came for.
+    overridden: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -57,6 +64,11 @@ class PromptSection:
             payload["detail"] = self.detail
         if self.items:
             payload["items"] = self.items
+        if self.overridden:
+            # Only when true, the way `detail` and `items` are: the flag is the exception a reader
+            # is looking for, and every unreplaced section in every turn would otherwise carry a
+            # false. The reading is the same either way -- absent means the platform's own text.
+            payload["overridden"] = True
         return payload
 
 
@@ -81,6 +93,7 @@ class PromptManifest:
         group: str = "system",
         detail: str = "",
         items: int = 0,
+        overridden: bool = False,
     ) -> None:
         """Record one section. An empty one is skipped rather than listed as zero."""
         if not text:
@@ -90,7 +103,14 @@ class PromptManifest:
             # Folded, not dropped: the total still counts it. A three-token section is noise in a
             # list whose point is finding the twenty-thousand-token one.
             self.sections.append(
-                PromptSection(name=name, chars=len(text), tokens=tokens, group=group, items=items)
+                PromptSection(
+                    name=name,
+                    chars=len(text),
+                    tokens=tokens,
+                    group=group,
+                    items=items,
+                    overridden=overridden,
+                )
             )
             return
         self.sections.append(
@@ -101,18 +121,33 @@ class PromptManifest:
                 group=group,
                 detail=detail,
                 items=items,
+                overridden=overridden,
             )
         )
 
     def add_counted(
-        self, name: str, *, chars: int, tokens: int, group: str, detail: str = "", items: int = 0
+        self,
+        name: str,
+        *,
+        chars: int,
+        tokens: int,
+        group: str,
+        detail: str = "",
+        items: int = 0,
+        overridden: bool = False,
     ) -> None:
         """Record a section whose size is already known, for a caller that measured it itself."""
         if tokens <= 0 and chars <= 0:
             return
         self.sections.append(
             PromptSection(
-                name=name, chars=chars, tokens=tokens, group=group, detail=detail, items=items
+                name=name,
+                chars=chars,
+                tokens=tokens,
+                group=group,
+                detail=detail,
+                items=items,
+                overridden=overridden,
             )
         )
 

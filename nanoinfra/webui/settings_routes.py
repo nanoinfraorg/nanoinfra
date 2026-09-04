@@ -82,6 +82,7 @@ from nanoinfra.webui.settings_api import (
     update_api_settings,
     update_gates_settings,
     update_image_generation_settings,
+    update_knowledge_settings,
     update_model_call_order,
     update_model_configuration,
     update_network_safety_settings,
@@ -306,6 +307,8 @@ class WebUISettingsRouter:
             return self._handle_settings_network_safety_update(request)
         if path == "/api/settings/gates/update":
             return self._handle_settings_gates_update(request)
+        if path == "/api/settings/knowledge/update":
+            return self._handle_settings_knowledge_update(request)
         # No install/update/uninstall counterpart on purpose: tools.agentPlugins is the authority
         # and the panel is read-only (#141, #142).
         if path == "/api/settings/agent-plugins":
@@ -892,6 +895,17 @@ class WebUISettingsRouter:
         merged = {key: list(values) for key, values in query.items()}
         merged["policy"] = [raw]
         return merged
+
+    def _handle_settings_knowledge_update(self, request: WsRequest) -> Response:
+        if not self._authorized(request):
+            return self._unauthorized()
+        try:
+            payload = update_knowledge_settings(self._query(request))
+        except WebUISettingsError as e:
+            return self._error_response(e.status, e.message)
+        # The `runtime` section, because the indexing job and the search tool are both built
+        # once at gateway start.
+        return self._json_response(self._with_restart_state(payload, request, section="runtime"))
 
     def _handle_settings_gates_update(self, request: WsRequest) -> Response:
         if not self._authorized(request):

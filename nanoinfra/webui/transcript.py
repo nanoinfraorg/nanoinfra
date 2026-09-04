@@ -1487,6 +1487,16 @@ _PHASE_RANK = {"start": 1, "end": 2, "error": 3}
 
 
 def _normalize_tool_events(events: Any) -> list[dict[str, Any]]:
+    """Keep the tool events a row can render, whole.
+
+    Whole, and that is a rule rather than an implementation detail (#252). A turn's *plan* is read
+    back off these events: the manager's ``delegate_to_agent`` calls, each with the peer it named,
+    what became of it, and -- when the delegation reported one -- the peer's own turn usage. A
+    filter that kept only the keys this module happens to know about would drop that cost, and a
+    reloaded plan would come to a different total than the live one it has to match. So an event
+    keeps every key it arrived with; the phase and the name are gates on *whether* it renders, not
+    on what it carries.
+    """
     if not isinstance(events, list):
         return []
     out: list[dict[str, Any]] = []
@@ -1950,6 +1960,18 @@ def replay_transcript_to_ui_messages(
         for i in range(len(messages) - 1, -1, -1):
             if messages[i].get("role") == "assistant" and messages[i].get("kind") != "trace":
                 messages[i] = {**messages[i], "prompt": manifest}
+                return
+
+    def stamp_agent(agent: str) -> None:
+        """Say which agent answered this turn, on the row that shows the turn (#248).
+
+        A thread may contain turns from two agents, and nothing else in the record distinguishes
+        them -- so a reader without this is inferring from the model or the tools, which is a guess
+        that is sometimes wrong and cannot be corrected afterwards.
+        """
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "assistant" and messages[i].get("kind") != "trace":
+                messages[i] = {**messages[i], "agent": agent}
                 return
 
     def merge_step_fields(
@@ -2527,6 +2549,9 @@ def replay_transcript_to_ui_messages(
             turn_prompt = rec.get("prompt")
             if isinstance(turn_prompt, dict):
                 stamp_prompt(cast(dict[str, Any], turn_prompt))
+            turn_agent = rec.get("agent")
+            if isinstance(turn_agent, str) and turn_agent:
+                stamp_agent(turn_agent)
             buffer_message_id = None
             buffer_parts = []
             continue

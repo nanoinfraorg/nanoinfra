@@ -334,6 +334,95 @@ describe("GatesSettings", () => {
     );
   });
 
+  it("sends an existing grant's expiry back unchanged", async () => {
+    // The hole this closes: a panel that dropped `expiresAt` on save would turn a 24-hour grant
+    // into a permanent one, and nobody would have chosen that.
+    const savedPayload = settingsWith(gatesPayload());
+    const fetchMock = vi.fn(async () => jsonResponse(savedPayload));
+    vi.stubGlobal("fetch", fetchMock);
+    const policy = shippedPolicy();
+    policy.standingGrants = [
+      {
+        commands: ["systemctl reload nginx"],
+        contexts: ["unattended"],
+        expiresAt: "2099-01-01T00:00:00Z",
+        hosts: ["staging-web-01"],
+        id: "approval-2026-09-03-systemctl-1a2b3c",
+        note: "Added by approve and add on 2026-09-03.",
+      },
+    ];
+    renderPanel(gatesPayload(policy));
+
+    fireEvent.change(
+      screen.getByLabelText("Read a secret, Unattended"),
+      { target: { value: "approve" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save policy" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    const sent = JSON.parse(
+      decodeURIComponent(headers["X-Nanoinfra-Gates-Values"]),
+    ) as GatesPolicy;
+    expect(sent.standingGrants[0].expiresAt).toBe("2099-01-01T00:00:00Z");
+    expect(sent.standingGrants[0].note).toBe("Added by approve and add on 2026-09-03.");
+  });
+
+  it("marks an expired grant and keeps the row (nanoinfraorg/nanoinfra#218)", () => {
+    const policy = shippedPolicy();
+    policy.standingGrants = [
+      {
+        commands: ["systemctl reload nginx"],
+        contexts: ["unattended"],
+        expiresAt: "2020-01-01T00:00:00Z",
+        hosts: ["staging-web-01"],
+        id: "approval-2020-01-01-systemctl-1a2b3c",
+      },
+    ];
+
+    renderPanel(gatesPayload(policy));
+
+    // Nothing prunes it. A file the application edits is not the authority config is.
+    const row = screen.getByTestId("gates-grant-row-0");
+    expect(within(row).getByText(/Expired/)).toBeInTheDocument();
+    expect(within(row).getByText(/nothing removed the row/)).toBeInTheDocument();
+  });
+
+  it("shows the date a live grant stops", () => {
+    const policy = shippedPolicy();
+    policy.standingGrants = [
+      {
+        commands: ["systemctl reload nginx"],
+        contexts: ["unattended"],
+        expiresAt: "2099-01-01T00:00:00Z",
+        hosts: ["staging-web-01"],
+      },
+    ];
+
+    renderPanel(gatesPayload(policy));
+
+    const row = screen.getByTestId("gates-grant-row-0");
+    expect(within(row).getByText(/Expires/)).toBeInTheDocument();
+    expect(within(row).queryByText(/Expired/)).not.toBeInTheDocument();
+  });
+
+  it("says nothing about expiry for a grant that never expires", () => {
+    const policy = shippedPolicy();
+    policy.standingGrants = [
+      {
+        commands: ["systemctl reload nginx"],
+        contexts: ["unattended"],
+        hosts: ["staging-web-01"],
+      },
+    ];
+
+    renderPanel(gatesPayload(policy));
+
+    const row = screen.getByTestId("gates-grant-row-0");
+    expect(within(row).queryByText(/Expire/)).not.toBeInTheDocument();
+  });
+
   it("discards a draft policy back to the saved policy", async () => {
     renderPanel(gatesPayload());
 

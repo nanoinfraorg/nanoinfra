@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any, cast
@@ -14,6 +14,20 @@ AUTOMATION_SKILLS_META = "_automation_skills"
 #: The MCP servers an automation declares (#204). Named for the key the composer already writes,
 #: because `attached_servers()` reads one key and a mention and a declaration must not diverge.
 AUTOMATION_PRESETS_META = "mcp_presets"
+#: Which agent a turn asks to be answered by. The seam ``AgentLoop._acting_agent_for`` resolves
+#: against ``agents.named``, and the composer writes the same key for a chosen agent (#254) -- so
+#: an automation names its agent the same way a person does, and the loop decides in one place
+#: who actually answered. A name here is a *request*; the roster in config is the authority.
+#:
+#: Absent, never blank, when no agent is named: absent and "the deployment's default agent" have
+#: to be one state, or a reader would have two ways to spell the same thing.
+TURN_AGENT_META = "agent"
+#: The tool groups the acting agent declared, as ``{"tool_groups": [str, ...]}`` (#257).
+#:
+#: Beside the name rather than derived from it, for the reason ``DelegateBinding`` is carried: the
+#: turn crosses the bus, and by the time it runs the config lookup that resolved it is over. What
+#: it caps is read by the tool-availability filter, which has no route to config.
+AUTOMATION_AGENT_META = "_automation_agent"
 
 
 @dataclass(frozen=True)
@@ -99,6 +113,52 @@ def automation_declared_presets(metadata: Mapping[str, Any] | None) -> list[str]
     entries = list(cast("list[object] | tuple[object, ...]", raw))
     names = [str(name).strip() for name in entries if str(name).strip()]
     return names or None
+
+
+def automation_agent_metadata(
+    name: str,
+    tool_groups: Iterable[str],
+) -> dict[str, Any]:
+    """Both keys an automation writes for the agent it runs as, written together.
+
+    One constructor rather than two literals per runner, so the name the loop resolves and the
+    ceiling the tool filter reads cannot come apart -- a turn capped by an agent's groups while
+    the record says the default agent answered would be the misattribution #248 exists to stop.
+    """
+    return {
+        TURN_AGENT_META: name,
+        AUTOMATION_AGENT_META: {"tool_groups": [str(group) for group in tool_groups]},
+    }
+
+
+def turn_agent(metadata: Mapping[str, Any] | None) -> str | None:
+    """The agent this turn asked for, or ``None`` for the deployment's default agent.
+
+    The request, not the verdict: ``AgentLoop`` is what checks the name against the roster, and
+    ``RequestContext.agent`` is where the answer lands. This reads the key for the callers that
+    only need to name the agent in a message, and have no route to config to validate it.
+    """
+    raw = cast(object, (metadata or {}).get(TURN_AGENT_META))
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    return raw.strip()
+
+
+def automation_agent_tool_groups(metadata: Mapping[str, Any] | None) -> tuple[str, ...]:
+    """The tool groups the acting agent declared.
+
+    Empty means every group, which is both the reading ``DelegateBinding.tool_groups`` has and
+    the reading a deployment with one agent already gets. It is *not* "no groups": an agent that
+    declared nothing is unrestricted, and an agent that declared something is capped by it.
+    """
+    raw = cast(object, (metadata or {}).get(AUTOMATION_AGENT_META))
+    if not isinstance(raw, Mapping):
+        return ()
+    groups = cast(object, cast(Mapping[str, object], raw).get("tool_groups"))
+    if not isinstance(groups, (list, tuple)):
+        return ()
+    entries = list(cast("list[object] | tuple[object, ...]", groups))
+    return tuple(str(name).strip() for name in entries if str(name).strip())
 
 
 def automation_identity(

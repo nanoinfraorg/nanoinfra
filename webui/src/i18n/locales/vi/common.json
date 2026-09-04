@@ -78,7 +78,9 @@
     "website": "Trang web nanoinfra",
     "documentation": "Tài liệu",
     "docs": "tài liệu",
-    "signOut": "Đăng xuất"
+    "signOut": "Đăng xuất",
+    "agents": "Tác nhân",
+    "abilities": "Năng lực"
   },
   "settings": {
     "backToChat": "Quay lại chat",
@@ -104,7 +106,8 @@
       "apps": "Ứng dụng",
       "automations": "Tự động hóa",
       "skills": "Kỹ năng",
-      "agents": "Agent"
+      "agents": "Agent",
+      "knowledge": "Kiến thức"
     },
     "sections": {
       "interface": "Giao diện",
@@ -812,6 +815,7 @@
         "timezone": "Múi giờ",
         "runAt": "Chạy lúc",
         "delivery": "Khi nào thông báo cho tôi",
+        "agent": "Chạy với tư cách",
         "skills": "Kỹ năng cần tải"
       },
       "scheduleTypes": {
@@ -863,6 +867,8 @@
       },
       "skillsHelp": "Không chọn gì thì mọi kỹ năng được tóm tắt như trước. Chọn một số sẽ tải đầy đủ chúng và loại phần còn lại khỏi prompt của tự động hóa này.",
       "skillsEmpty": "Chưa cài kỹ năng nào",
+      "agentDefault": "Tác nhân mặc định",
+      "agentHelp": "Tác nhân đặt mức trần cho lần chạy này: các nhóm công cụ và chỉ dẫn riêng của nó. Tự động hóa chỉ có thể thu hẹp, không bao giờ mở rộng.",
       "referencePicker": "Tham chiếu một tài nguyên",
       "referenceMissing": "{{kind}} không còn tồn tại",
       "referenceBrokenHint": "Tự động hóa này sẽ từ chối chạy cho đến khi tham chiếu bị thiếu được xóa.",
@@ -1087,6 +1093,8 @@
         "empty": "Không có quyền cấp sẵn. Không tự động hóa nào được chạy lệnh từ xa.",
         "hosts": "Máy chủ",
         "commands": "Lệnh",
+        "expires": "Hết hạn vào {{when}}",
+        "expired": "Đã hết hạn vào {{when}}. Cổng không còn khớp với nó, và không có gì xóa dòng này.",
         "add": "Thêm quyền cấp sẵn",
         "remove": "Xóa quyền cấp sẵn",
         "note": "Một quyền cấp sẵn chỉ cho phép lệnh từ xa. Nó không thể cho phép ghi vào danh mục."
@@ -1562,6 +1570,10 @@
         "referenceGroup": "Tham chiếu",
         "referenceBadge": "Tham chiếu",
         "serverPrefixHint": "Tham chiếu một trong {{count}} máy chủ",
+        "agentPrefixHint": "Yêu cầu một trong {{count}} tác nhân",
+        "agentGroup": "Tác nhân",
+        "agentBadge": "Tác nhân",
+        "agentNoDescription": "Yêu cầu manager ưu tiên tác nhân này",
         "diagramPrefixHint": "Tham chiếu một trong {{count}} sơ đồ",
         "serverGroup": "Máy chủ",
         "diagramGroup": "Sơ đồ",
@@ -1671,7 +1683,26 @@
     "cliRunRan": "Đã dùng",
     "cliRunFailed": "Thất bại",
     "automationSourceFallback": "Tự động hóa",
-    "automationTriggered": "Tự động kích hoạt"
+    "automationTriggered": "Tự động kích hoạt",
+    "plan": {
+      "title": "Kế hoạch",
+      "answered": "{{count}} đã trả lời",
+      "failed": "{{count}} thất bại",
+      "running": "{{count}} đang chạy",
+      "total": "đã uỷ quyền {{usage}}",
+      "totalPartial": "{{reported}} trong {{total}} có báo cáo",
+      "totalTitle": "Chi phí riêng của các lượt uỷ quyền, cộng lại. Một lượt được uỷ quyền là lượt riêng của nó, nên phần này không thuộc mức sử dụng của tác nhân đã trả lời.",
+      "unknownAgent": "một tác nhân ngang hàng",
+      "step": {
+        "running": "Đang uỷ quyền cho {{agent}}",
+        "done": "{{agent}} đã trả lời",
+        "failed": "{{agent}} thất bại",
+        "noAnswer": "{{agent}} không báo cáo"
+      }
+    },
+    "prompt": {
+      "replaced": "đã thay"
+    }
   },
   "lightbox": {
     "title": "Xem trước ảnh",
@@ -1753,11 +1784,25 @@
       "approve": "Phê duyệt qua",
       "session": "Phiên",
       "class": "Lớp năng lực",
-      "digest": "Bản tóm lược ràng buộc"
+      "digest": "Bản tóm lược ràng buộc",
+      "agent": "Tác nhân thực thi"
     },
     "approveFromValue": "webui (phiên này, đã xác thực)",
     "approve": "Phê duyệt",
     "approveUnavailable": "Phê duyệt (không khả dụng)",
+    "grant": {
+      "menuLabel": "Phê duyệt và thêm quyền cấp sẵn",
+      "menuNote": "Thêm một quyền cấp sẵn cho đúng lệnh này trên các máy chủ này. Một lệnh khác nhau một tham số là một lệnh khác.",
+      "add24h": "Phê duyệt và thêm — hết hạn sau 24 giờ",
+      "add7d": "Phê duyệt và thêm — hết hạn sau 7 ngày",
+      "addNever": "Phê duyệt và thêm — không hết hạn",
+      "permanentTitle": "Thêm quyền không bao giờ hết hạn?",
+      "permanentBody": "Từ nay lệnh này chạy trên các máy chủ này mà không hỏi ai. Không có gì xóa quyền đó sau này: bạn sửa gates.standingGrants trong config.json để thu hồi.",
+      "permanentConfirm": "Có, không hết hạn",
+      "saved": "Đã thêm quyền cấp sẵn {{id}}. Hết hạn vào {{when}}.",
+      "savedPermanent": "Đã thêm quyền cấp sẵn {{id}}, và nó không hết hạn. Sửa gates.standingGrants để thu hồi.",
+      "notSaved": "Hành động đã được phê duyệt. Quyền cấp sẵn chưa được lưu: {{reason}}"
+    },
     "deny": "Từ chối",
     "samePath": "Yêu cầu này đến từ đường bạn đang dùng. Hãy phê duyệt qua một đường đã xác thực khác. Một tài khoản bị chiếm không được cấp cả hai nửa.",
     "denyTerminal": "Một lần từ chối là quyết định cuối cho phiên này. Tác nhân không thể hỏi lại cho tới khi người vận hành mở chốt.",
@@ -1775,6 +1820,68 @@
       "unauthenticatedPath": "gates.approvalPaths không liệt kê webui, nên đường này không xác thực người phê duyệt nào.",
       "unknownOriginPath": "Yêu cầu không nêu đường gốc. Bộ thực thi không thể chứng minh tính độc lập của đường.",
       "unknownRequest": "Bộ thực thi không giữ yêu cầu này. Nó đã hết hạn, hoặc có người đã trả lời."
+    },
+    "agentDelegated": "{{agent}} — được {{delegatedBy}} uỷ quyền",
+    "agentAsserted": "Tác nhân tự đặt tên cho mình. Đây là tuyên bố của yêu cầu, không phải danh tính mà triển khai này đã xác thực, và digest ở trên không bao gồm nó."
+  },
+  "serverNotes": {
+    "title": "Ghi chú thiết bị",
+    "hint": "Điều mà người tiếp theo làm việc trên máy này cần biết. Ghi chú không hết hạn — một ghi chú trái với điều bạn thấy là bằng chứng hạ tầng đã thay đổi.",
+    "add": "Thêm ghi chú",
+    "edit": "Sửa",
+    "cancelEdit": "Hủy",
+    "append": "Thêm vào",
+    "saveRaw": "Lưu ghi chú",
+    "empty": "Chưa có ghi chú — tác nhân sẽ ghi vào đây khi học được điều gì.",
+    "operator": "người vận hành",
+    "titleLabel": "Tiêu đề ghi chú",
+    "bodyLabel": "Nội dung ghi chú",
+    "rawLabel": "Ghi chú dạng Markdown",
+    "titlePlaceholder": "vd. journald là cố ý",
+    "bodyPlaceholder": "Kết luận, và điều không nên “sửa”.",
+    "authorNote": "Được ký với tư cách người vận hành, bằng danh tính đã xác minh của bạn.",
+    "showArchive": "Xem các mục đã lưu trữ",
+    "archive": "Lưu trữ",
+    "lastNote": "Ghi chú {{when}}"
+  },
+  "agents": {
+    "roster": {
+      "title": "Tác nhân được đặt tên",
+      "help": "Mỗi tác nhân trả lời bằng mô hình và công cụ riêng. Tác nhân được khai báo trong cấu hình, nên trang này chỉ đọc và không thay đổi chúng.",
+      "toolGroups": "Nhóm công cụ",
+      "skills": "Kỹ năng",
+      "delegates": "Được uỷ quyền",
+      "addendum": "Phụ lục"
+    },
+    "detail": {
+      "tabs": "Cài đặt tác nhân",
+      "prompt": "Prompt"
+    },
+    "prompt": {
+      "loading": "Đang đọc thành phần của prompt…",
+      "unavailable": "Cổng này không báo cáo thành phần của prompt.",
+      "replaced": "Đã thay",
+      "replacedHelp": "Bản triển khai này đã thay văn bản của nền tảng cho mục này. Mục đó vẫn được nêu tên ở đây, vì một bản ghi che đi việc thay thế sẽ làm hai prompt khác nhau trông y như nhau.",
+      "perTurn": "kích thước thay đổi theo lượt",
+      "tokens": "{{tokens}} token",
+      "addendumTitle": "Phụ lục",
+      "addendumHelp": "Phụ lục được thêm sau các mục ở trên và không thể thay thế mục nào. Hãy sửa nó trong tệp cấu hình, nơi tác nhân được khai báo.",
+      "addendumEmpty": "Tác nhân này không khai báo phụ lục.",
+      "estimateNote": "Số token là ước lượng cho những mục có chi phí như nhau ở mọi lượt. Lượt cụ thể đã mang gì thì xem ngay trên lượt đó.",
+      "permission": {
+        "replaceable": "Của bạn",
+        "workspace": "Không gian làm việc",
+        "derived": "Từ cấu hình",
+        "appendOnly": "Thêm vào",
+        "fixed": "Cố định"
+      },
+      "permissionHelp": {
+        "replaceable": "Mục này là văn bản của chính bản triển khai.",
+        "workspace": "Đã là của bạn theo đường khác: các tệp chỉ dẫn của không gian làm việc.",
+        "derived": "Được tính từ cấu hình, nên cấu hình là nơi để thay đổi.",
+        "appendOnly": "Thêm sau các mục của nền tảng; không thay thế mục nào.",
+        "fixed": "Hợp đồng công cụ và các ghi chú an toàn. Xoá chúng sẽ khiến cổng vẫn từ chối hành động mà mô hình không còn biết quy tắc."
+      }
     }
   }
 }

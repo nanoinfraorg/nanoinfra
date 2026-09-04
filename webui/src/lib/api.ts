@@ -25,6 +25,7 @@ import type {
   GatesLatchPayload,
   GatesPolicy,
   ImageGenerationSettingsUpdate,
+  KnowledgeSettingsUpdate,
   McpPresetsPayload,
   MarketplaceProvider,
   NanoinfraFeaturesPayload,
@@ -117,6 +118,25 @@ function diagramValuesHeaders(diagram: Diagram): Record<string, string> {
   };
   chunks.forEach((chunk, index) => {
     headers[`${DIAGRAM_VALUES_HEADER}-${index}`] = chunk;
+  });
+  return headers;
+}
+const SERVER_NOTES_HEADER = "X-Nanoinfra-Server-Notes";
+const SERVER_NOTES_CHUNK_COUNT_HEADER = "X-Nanoinfra-Server-Notes-Chunks";
+
+/** Same split as a diagram body, and for the same transport reason (#229). */
+function serverNotesHeaders(payload: unknown): Record<string, string> {
+  const encoded = encodeURIComponent(JSON.stringify(payload));
+  const chunks: string[] = [];
+  for (let index = 0; index < encoded.length; index += DIAGRAM_CHUNK_BYTES) {
+    chunks.push(encoded.slice(index, index + DIAGRAM_CHUNK_BYTES));
+  }
+  if (chunks.length === 0) chunks.push("");
+  const headers: Record<string, string> = {
+    [SERVER_NOTES_CHUNK_COUNT_HEADER]: String(chunks.length),
+  };
+  chunks.forEach((chunk, index) => {
+    headers[`${SERVER_NOTES_HEADER}-${index}`] = chunk;
   });
   return headers;
 }
@@ -1545,6 +1565,23 @@ export async function updateTranscriptionSettings(
  * Each gate call keeps an explicit timeout. An operator must read a refusal, so a gate request
  * must not wait for the gateway without a limit.
  */
+export async function updateKnowledgeSettings(
+  token: string,
+  update: KnowledgeSettingsUpdate,
+  base: string = "",
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  query.set("enabled", String(update.enabled));
+  query.set("mode", update.mode);
+  query.set("reindex_interval_s", String(update.reindexIntervalS));
+  // A JSON array, because a glob may hold a comma and a comma-joined list would split it.
+  query.set("exclude", JSON.stringify(update.exclude));
+  query.set("max_file_bytes", String(update.maxFileBytes));
+  query.set("max_total_bytes", String(update.maxTotalBytes));
+  query.set("max_results", String(update.maxResults));
+  return request<SettingsPayload>(`${base}/api/settings/knowledge/update?${query}`, token);
+}
+
 export async function updateGatesPolicy(
   token: string,
   policy: GatesPolicy,
@@ -1665,6 +1702,82 @@ export async function fetchDiagramCatalog(
 
 export interface DiagramsPayload {
   diagrams: DiagramSummary[];
+}
+
+/**
+ * One mentionable agent. Name and description only: what an agent may *reach* is the
+ * authorization model, and the mention menu is not where a browser should be able to read it.
+ * The Agents page shows counts of those bindings, from the settings payload.
+ */
+export interface NamedAgentSummary {
+  name: string;
+  description: string;
+}
+
+export interface NamedAgentsPayload {
+  agents: NamedAgentSummary[];
+}
+
+export async function fetchNamedAgents(
+  token: string,
+  base: string = "",
+): Promise<NamedAgentsPayload> {
+  return request<NamedAgentsPayload>(
+    `${base}/api/webui/agents/named`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+/**
+ * What a deployment may change about one prompt section (#256).
+ *
+ * `replaceable` is the persona and what it remembers; `workspace` is already yours by another
+ * route (`AGENTS.md` and friends); `fixed` is the tool contract and the safety notes, which have
+ * no override path at all; `derived` is computed from config, so config is where it changes; and
+ * `append_only` is the addendum, which is added and displaces nothing.
+ */
+export type AgentPromptPermission =
+  | "replaceable"
+  | "workspace"
+  | "fixed"
+  | "derived"
+  | "append_only";
+
+export interface AgentPromptSection {
+  name: string;
+  permission: AgentPromptPermission;
+  /** True when this deployment replaced the section's text instead of taking the platform's. */
+  overridden: boolean;
+  /** False for a section this agent does not have -- an addendum it never declared. */
+  present: boolean;
+  /** True when the size is a property of the deployment rather than of a turn. */
+  static: boolean;
+  /** Null for a per-turn section, whose size the turn's own manifest reports instead. */
+  tokens: number | null;
+}
+
+export interface AgentPromptPayload {
+  agent: string;
+  description: string;
+  sections: AgentPromptSection[];
+  /** The addendum's own text. Prompt content, read-only: an agent is edited in config. */
+  addendum: string;
+  measured: boolean;
+}
+
+export async function fetchAgentPrompt(
+  agent: string,
+  token: string,
+  base: string = "",
+): Promise<AgentPromptPayload> {
+  return request<AgentPromptPayload>(
+    `${base}/api/webui/agents/prompt?agent=${encodeURIComponent(agent)}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
 }
 
 export interface DiagramDetailPayload {
@@ -1800,6 +1913,8 @@ export interface ServerSummary {
   providerId: string;
   tags: string[];
   updatedAt: string;
+  /** When this box's NOTES.md was last written; null means it has no memory yet (#225). */
+  notesUpdatedAt: string | null;
 }
 
 export interface ServersPayload {
@@ -1874,5 +1989,81 @@ export async function deleteServerApi(
   return request<{ deleted: boolean }>(
     `${base}/api/webui/servers/${encodeURIComponent(id)}/delete`,
     token,
+  );
+}
+
+export interface ServerNoteEntry {
+  when: string;
+  author: string;
+  title: string;
+  body: string;
+  /** Written by a person. Outranks an agent's entry, and no agent may edit it (#228). */
+  isOperator: boolean;
+}
+
+export interface ServerNotesPayload {
+  serverId: string;
+  name: string;
+  notesUpdatedAt: string | null;
+  text: string;
+  entries: ServerNoteEntry[];
+  hasArchive: boolean;
+}
+
+export interface ServerNotesArchivePayload {
+  serverId: string;
+  text: string;
+  entries: ServerNoteEntry[];
+}
+
+export async function fetchServerNotes(
+  token: string,
+  id: string,
+  base: string = "",
+): Promise<ServerNotesPayload> {
+  return request<ServerNotesPayload>(
+    `${base}/api/webui/servers/${encodeURIComponent(id)}/notes`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchServerNotesArchive(
+  token: string,
+  id: string,
+  base: string = "",
+): Promise<ServerNotesArchivePayload> {
+  return request<ServerNotesArchivePayload>(
+    `${base}/api/webui/servers/${encodeURIComponent(id)}/notes/archive`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function appendServerNote(
+  token: string,
+  id: string,
+  values: { title: string; body: string },
+  base: string = "",
+): Promise<ServerNotesPayload> {
+  return request<ServerNotesPayload>(
+    `${base}/api/webui/servers/${encodeURIComponent(id)}/notes/append`,
+    token,
+    { headers: serverNotesHeaders(values) },
+  );
+}
+
+export async function saveServerNotes(
+  token: string,
+  id: string,
+  text: string,
+  base: string = "",
+): Promise<ServerNotesPayload> {
+  return request<ServerNotesPayload>(
+    `${base}/api/webui/servers/${encodeURIComponent(id)}/notes/save`,
+    token,
+    { headers: serverNotesHeaders({ text }) },
   );
 }

@@ -64,6 +64,9 @@ BUILTIN_GROUPS: dict[str, tuple[str, tuple[str, ...]]] = {
             "get_server",
             "list_servers",
             "execute_on_server",
+            # A server's NOTES.md is part of the same cluster (#223), so one operator switch
+            # governs the whole Servers surface rather than leaving its memory half-attached.
+            "device_notes",
         ),
     ),
 }
@@ -82,6 +85,10 @@ class ToolGroup:
 _GROUPS: dict[str, ToolGroup] = {}
 #: tool name -> the groups holding it. A tool may sit in more than one; see `is_attached`.
 _MEMBERSHIP: dict[str, set[str]] = {}
+#: `group_membership()`'s answer, which the agent ceiling asks once per tool per provider call.
+#: Emptied by `set_tool_groups`, the only thing that can change it. Empty therefore means "not
+#: built yet": a real answer always holds the `BUILTIN_GROUPS` members, which are never none.
+_FULL_MEMBERSHIP: dict[str, frozenset[str]] = {}
 
 
 def set_tool_groups(groups: "Mapping[str, ToolGroupConfig] | None") -> None:
@@ -94,6 +101,7 @@ def set_tool_groups(groups: "Mapping[str, ToolGroupConfig] | None") -> None:
     """
     _GROUPS.clear()
     _MEMBERSHIP.clear()
+    _FULL_MEMBERSHIP.clear()
     for name, cfg in (groups or {}).items():
         declared = tuple(getattr(cfg, "tools", ()) or ())
         members = declared or BUILTIN_GROUPS.get(name, ("", ()))[1]
@@ -173,10 +181,97 @@ def attached_groups() -> frozenset[str]:
     return frozenset(names)
 
 
+def group_membership() -> "Mapping[str, frozenset[str]]":
+    """tool name -> the groups holding it, from config first and the built-ins for the rest.
+
+    Config first because a group a deployment declared is the one that governs; ``BUILTIN_GROUPS``
+    only answers for a group config never mentioned. Both halves are needed: a deployment that
+    declares no groups at all still has diagram tools and server tools, and a ceiling computed
+    against an empty membership would cap nothing.
+
+    Cached, because the ceiling asks this once per tool per provider call and the answer only
+    changes when ``set_tool_groups`` replaces the declarations.
+    """
+    if _FULL_MEMBERSHIP:
+        return _FULL_MEMBERSHIP
+    membership: dict[str, set[str]] = {}
+    for name, group in _GROUPS.items():
+        for tool_name in group.tools:
+            membership.setdefault(tool_name, set()).add(name)
+    for name, (_description, tools) in BUILTIN_GROUPS.items():
+        if name in _GROUPS:
+            continue
+        for tool_name in tools:
+            membership.setdefault(tool_name, set()).add(name)
+    _FULL_MEMBERSHIP.update(
+        {name: frozenset(groups) for name, groups in membership.items()}
+    )
+    return _FULL_MEMBERSHIP
+
+
+def agent_tool_group_ceiling() -> tuple[str, ...]:
+    """The groups the agent answering this turn declared, empty when it declared none.
+
+    Read from the turn rather than from config, because the agent was resolved when the turn was
+    built and the answer travels with it (``AUTOMATION_AGENT_META``). Empty is unrestricted, which
+    is what every turn in a deployment that names no agent gets.
+    """
+    from nanoinfra.agent.tools.context import current_request_context
+    from nanoinfra.session.automation_turns import automation_agent_tool_groups
+
+    ctx = current_request_context()
+    if ctx is None:
+        return ()
+    return automation_agent_tool_groups(ctx.metadata)
+
+
+def within_agent_ceiling(tool_name: str) -> bool:
+    """Whether the agent answering this turn may reach this tool at all.
+
+    A different question from the mention gate below, and it has to be asked separately: a
+    mention *widens* on request, and this **caps** regardless of what the turn asks for. The rule
+    itself is ``tools_for_groups``, imported rather than restated so an automation's agent and a
+    delegated agent are capped by one implementation.
+    """
+    allowed = agent_tool_group_ceiling()
+    if not allowed:
+        return True
+    from nanoinfra.agent.delegation import tools_for_groups
+
+    return tool_name in tools_for_groups([tool_name], allowed, group_membership())
+
+
+def agent_ceiling_refusal(tool_name: str) -> str | None:
+    """The reason this tool is outside the acting agent's contract, or ``None``.
+
+    Hiding the schema is not enough on its own. A model that names a tool it never saw would
+    otherwise reach it, and "the agent is a ceiling" has to mean the call is refused and not
+    merely undocumented. The text names the agent, because the reader is the model and a refusal
+    it can explain to a person is worth more than a bare denial.
+    """
+    if within_agent_ceiling(tool_name):
+        return None
+    from nanoinfra.agent.tools.context import current_request_context
+
+    ctx = current_request_context()
+    # `RequestContext.agent` is the resolved answer -- the loop already checked the name against
+    # the roster -- so the message names who is acting rather than who was asked for.
+    agent = ctx.agent if ctx is not None else None
+    who = f"`{agent}`" if agent else "this agent"
+    return (
+        f"Error: Tool '{tool_name}' is outside {who}'s tool groups "
+        f"({', '.join(agent_tool_group_ceiling())}). It is not available on this turn, and "
+        "nothing in the request can widen it -- the agent's configuration is the ceiling."
+    )
+
+
 def is_attached(tool_name: str) -> bool:
     """Whether this tool's schema belongs in the current request.
 
-    Three answers, and the middle one is the one worth stating:
+    The acting agent's ceiling is asked first, and it is not negotiable: a tool outside the
+    groups that agent declared is absent whatever the turn mentions.
+
+    Then the mention gate, with three answers, and the middle one is the one worth stating:
 
     - A tool in no group, or in no group set to `mention`, is always available. That is every tool
       in a default deployment.
@@ -185,6 +280,8 @@ def is_attached(tool_name: str) -> bool:
       where the alternative -- a capability silently withdrawn -- is the worse failure.
     - Otherwise it needs one of its groups named this turn.
     """
+    if not within_agent_ceiling(tool_name):
+        return False
     groups = _MEMBERSHIP.get(tool_name)
     if not groups:
         return True
@@ -262,12 +359,16 @@ __all__ = [
     "BUILTIN_GROUPS",
     "ToolGroup",
     "advertisement",
+    "agent_ceiling_refusal",
+    "agent_tool_group_ceiling",
     "attached_groups",
     "declared_groups",
+    "group_membership",
     "group_of",
     "is_attached",
     "mention_only_groups",
     "mentions_in_text",
     "normalize_group_mentions",
     "set_tool_groups",
+    "within_agent_ceiling",
 ]

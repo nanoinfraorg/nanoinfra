@@ -133,7 +133,7 @@ def _gate_latch_summary(runtime: Any) -> str:
 
 # The built-in cron jobs, by name. `on_cron_job` answers each one before the bound path, so each one
 # must mark its own turn. A name that is missing here runs at interactive privilege (#49).
-SYSTEM_CRON_JOB_NAMES = frozenset({"dream", "heartbeat"})
+SYSTEM_CRON_JOB_NAMES = frozenset({"dream", "heartbeat", "knowledge-index"})
 
 
 def _system_job_metadata(job_name: str, *, message: str) -> dict[str, Any]:
@@ -1109,6 +1109,26 @@ def _run_gateway(
         async def _silent(*_args: Any, **_kwargs: Any) -> None:
             pass
 
+        # Indexing is internal work with no model in it, so it runs directly like dream rather
+        # than as a turn (#241). A turn would cost a provider call to walk a directory.
+        if job.name == "knowledge-index":
+            from nanoinfra.knowledge import reindex_workspace
+
+            report = await reindex_workspace(
+                workspace=agent.context.workspace,
+                config=config.tools.knowledge,
+            )
+            logger.info(
+                "Knowledge: indexed {} added, {} updated, {} removed, {} skipped in {}ms",
+                report.added, report.updated, report.removed, report.skipped,
+                report.duration_ms,
+            )
+            if report.errors:
+                # Reported rather than raised: one unreadable file must not stop the pass, and a
+                # file that was skipped in silence is the failure this line exists to prevent.
+                logger.warning("Knowledge: {} file(s) could not be indexed", len(report.errors))
+            return report.summary()
+
         # Dream is an internal job — run directly, not through the agent loop.
         if job.name == "dream":
             from nanoinfra.agent.dream_run import run_dream
@@ -1439,6 +1459,30 @@ def _run_gateway(
     else:
         console.print("[yellow]○[/yellow] Dream: disabled")
         _advance_dream_cursor_if_behind(agent.context.memory)
+
+    # Register the knowledge indexing system job (#241). Beside dream and heartbeat because it is
+    # the same kind of thing: work the deployment does for itself on a clock, with no human waiting.
+    #
+    # The full pass is this job's: walk the tree, drop entries whose files are gone, rebuild what
+    # changed. Freshness for a document dropped seconds ago belongs to the search tool, which
+    # compares mtimes before it answers -- otherwise the person who just saved a runbook is told it
+    # does not exist until the next tick.
+    knowledge_cfg = config.tools.knowledge
+    if knowledge_cfg.enabled:
+        cron.register_system_job(CronJob(
+            id="knowledge-index",
+            name="knowledge-index",
+            schedule=CronSchedule(
+                kind="every",
+                every_ms=knowledge_cfg.reindex_interval_s * 1000,
+                tz=config.agents.defaults.timezone,
+            ),
+            payload=CronPayload(kind="system_event"),
+        ))
+        console.print(
+            f"[green]✓[/green] Knowledge: {knowledge_cfg.mode}, reindex every "
+            f"{knowledge_cfg.reindex_interval_s}s"
+        )
 
     # Register Heartbeat system job (idempotent on restart)
     if hb_cfg.enabled:

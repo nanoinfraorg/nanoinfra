@@ -19,6 +19,15 @@ The payload keys are the ones `webui/token_usage.py` already served -- `prompt_t
 `provider_tokens`, `sources` -- because the WebUI reads them today and a rename would be a second
 change wearing the first one's clothes. The new keys (`failed_requests_30d`, `providers_30d`) are
 additions, and the shape is otherwise the same one `SettingsPayload["usage"]` describes.
+
+**A second table, `tool_calls` (#232).** This database is here because it is the one place in the
+tree that already answers a question relationally, and "who ran `execute_on_server` yesterday, did
+it succeed, how long did it take, and who approved it" was four reads and a correlation by
+timestamp across a JSONL transcript, this store, a gate log and a run record. So the tool row
+joins this family rather than starting a fifth store. It keeps the three properties above with one
+difference: it holds `session_key`, `turn_id` and `seq`, which are the *address* of the arguments
+in the session history rather than the arguments, and its window is 180 days rather than 400
+because one row per call grows faster than one row per attempt. See `models.ToolCallRecord`.
 """
 
 from __future__ import annotations
@@ -35,9 +44,16 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from loguru import logger
 
-from nanoinfra.llm_usage.models import LLMCallRecord
+from nanoinfra.llm_usage.models import (
+    TOOL_CALL_ERROR_KINDS,
+    LLMCallRecord,
+    ToolCallRecord,
+)
 
-SCHEMA_VERSION = 1
+#: 2 adds `tool_calls` and its purge ledger (#232). Both arrive through the same
+#: `CREATE TABLE IF NOT EXISTS` script every connection runs, so an existing database with months
+#: of usage rows in it gains the table when it is next opened and loses nothing.
+SCHEMA_VERSION = 2
 #: The provider name a migrated day carries. Named for what it is rather than for a
 #: real provider, so a per-model chart cannot claim precision the data never had.
 MIGRATED_PROVIDER = "migrated"
@@ -49,6 +65,14 @@ MAX_CALLS_RETAINED = 100_000
 #: How often a write bothers to prune. Pruning on every row would make the common path pay for the
 #: rare one.
 _PRUNE_EVERY = 500
+
+#: 180 days for a tool-call row, against 400 for a usage row (#234). One row per call grows far
+#: faster than one row per provider attempt, and the window was decided now rather than when
+#: somebody's database is 4 GB.
+MAX_TOOL_CALL_DAYS_RETAINED = 180
+#: How many purge entries the ledger keeps. A purge writes one entry, so this is years of them,
+#: and a ledger that grew forever would be the leak the window exists to prevent.
+MAX_TOOL_CALL_PURGES_RETAINED = 365
 
 #: Coarse error kinds. A provider's own error *text* is not stored -- it is the one field most
 #: likely to quote a prompt back -- so an unrecognised kind becomes `other` rather than being kept
@@ -151,6 +175,24 @@ def _clean_finish_reason(value: str) -> str:
     return cleaned if cleaned in _FINISH_REASONS else "other"
 
 
+def _clean_tool_call_error_kind(value: str | None) -> str | None:
+    """The same rule as `_clean_error_kind`, over the tool vocabulary (#232)."""
+    if value is None:
+        return None
+    cleaned = value.strip().lower()
+    if not cleaned:
+        return None
+    return cleaned if cleaned in TOOL_CALL_ERROR_KINDS else "other"
+
+
+def _clipped(value: str | None, limit: int) -> str | None:
+    """Bound an identifier, and never store blank text where nothing was known."""
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned[:limit] if cleaned else None
+
+
 def _clean_status_code(value: int | None) -> int | None:
     """Only a plausible HTTP status. A provider that returned something else says nothing here."""
     if value is None or isinstance(value, bool):
@@ -187,6 +229,10 @@ class LLMUsageStore:
         # not survive a fork, and the gateway's supervisors fork.
         self._connection_pid: int | None = None
         self._writes_since_prune = 0
+        # Counted separately from the usage rows (#234): the two tables have different windows and
+        # very different write rates, so one counter would prune the busy table on the quiet one's
+        # schedule.
+        self._tool_call_writes_since_prune = 0
 
     # --- connections -----------------------------------------------------------------
 
@@ -235,6 +281,39 @@ class LLMUsageStore:
                 ON llm_calls(started_at_ms);
             CREATE INDEX IF NOT EXISTS llm_calls_provider_model_time_idx
                 ON llm_calls(provider, model, started_at_ms);
+
+            CREATE TABLE IF NOT EXISTS tool_calls (
+                id INTEGER PRIMARY KEY,
+                ts_ms INTEGER NOT NULL,
+                session_key TEXT,
+                turn_id TEXT,
+                seq INTEGER,
+                tool TEXT NOT NULL,
+                source TEXT NOT NULL,
+                actor TEXT,
+                capability_class TEXT,
+                gate_decision TEXT,
+                gate_reason TEXT,
+                outcome TEXT NOT NULL,
+                duration_ms INTEGER NOT NULL,
+                error_kind TEXT
+            );
+            CREATE INDEX IF NOT EXISTS tool_calls_ts_idx
+                ON tool_calls(ts_ms);
+            -- The two questions the page asks: what did this tool do lately, and what happened in
+            -- this turn. `session_key, turn_id, seq` is also the address a reader expands, so the
+            -- index that answers "which calls were in this turn" is the same one.
+            CREATE INDEX IF NOT EXISTS tool_calls_tool_ts_idx
+                ON tool_calls(tool, ts_ms);
+            CREATE INDEX IF NOT EXISTS tool_calls_turn_idx
+                ON tool_calls(session_key, turn_id, seq);
+
+            CREATE TABLE IF NOT EXISTS tool_call_purges (
+                id INTEGER PRIMARY KEY,
+                ts_ms INTEGER NOT NULL,
+                rows_purged INTEGER NOT NULL,
+                cutoff_ms INTEGER NOT NULL
+            );
             """
         )
         connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -332,6 +411,165 @@ class LLMUsageStore:
             """,
             (MAX_CALLS_RETAINED,),
         )
+
+    # --- tool calls ------------------------------------------------------------------
+
+    def record_tool_call(self, call: ToolCallRecord) -> None:
+        """Append one tool call. The address of its arguments, never the arguments (#232)."""
+        self.record_tool_calls((call,))
+
+    def record_tool_calls(self, calls: Iterable[ToolCallRecord]) -> None:
+        rows = [self._as_tool_call_row(call) for call in calls]
+        if not rows:
+            return
+        with self._lock:
+            connection = self._connect()
+            connection.executemany(
+                """
+                INSERT INTO tool_calls (
+                    ts_ms, session_key, turn_id, seq, tool, source, actor, capability_class,
+                    gate_decision, gate_reason, outcome, duration_ms, error_kind
+                ) VALUES (
+                    :ts_ms, :session_key, :turn_id, :seq, :tool, :source, :actor,
+                    :capability_class, :gate_decision, :gate_reason, :outcome, :duration_ms,
+                    :error_kind
+                )
+                """,
+                rows,
+            )
+            self._tool_call_writes_since_prune += len(rows)
+            if self._tool_call_writes_since_prune >= _PRUNE_EVERY:
+                self._tool_call_writes_since_prune = 0
+                self._prune_tool_calls(connection)
+
+    @staticmethod
+    def _as_tool_call_row(call: ToolCallRecord) -> dict[str, Any]:
+        return {
+            "ts_ms": int(call.ts_ms),
+            # The address, and the only identifiers in this database. `llm_calls` keeps none,
+            # because a day's cost is answerable without them and a call's history is not.
+            "session_key": _clipped(call.session_key, 256),
+            "turn_id": _clipped(call.turn_id, 128),
+            "seq": None if call.seq is None else int(call.seq),
+            "tool": call.tool.strip()[:128],
+            "source": call.source,
+            "actor": _clipped(call.actor, 128),
+            "capability_class": _clipped(call.capability_class, 64),
+            "gate_decision": _clipped(call.gate_decision, 32),
+            "gate_reason": _clipped(call.gate_reason, 240),
+            "outcome": call.outcome,
+            "duration_ms": int(call.duration_ms),
+            "error_kind": _clean_tool_call_error_kind(call.error_kind),
+        }
+
+    def _prune_tool_calls(self, connection: sqlite3.Connection, *, now: float | None = None) -> int:
+        """Drop rows outside the window and **record how many went** (#234).
+
+        The count is the point. A window that silently deletes makes a gap in the history look
+        like a quiet week, and an operator asking why last spring shows no tool calls at all
+        deserves an answer from the database rather than from the release notes.
+        """
+        moment = now if now is not None else time.time()
+        cutoff_ms = int((moment - MAX_TOOL_CALL_DAYS_RETAINED * 86_400) * 1000)
+        cursor = connection.execute("DELETE FROM tool_calls WHERE ts_ms < ?", (cutoff_ms,))
+        purged = int(cursor.rowcount or 0)
+        if purged <= 0:
+            return 0
+        connection.execute(
+            "INSERT INTO tool_call_purges (ts_ms, rows_purged, cutoff_ms) VALUES (?, ?, ?)",
+            (int(moment * 1000), purged, cutoff_ms),
+        )
+        connection.execute(
+            """
+            DELETE FROM tool_call_purges WHERE id NOT IN (
+                SELECT id FROM tool_call_purges ORDER BY id DESC LIMIT ?
+            )
+            """,
+            (MAX_TOOL_CALL_PURGES_RETAINED,),
+        )
+        logger.info(
+            "pruned {} tool-call row(s) older than {} days",
+            purged,
+            MAX_TOOL_CALL_DAYS_RETAINED,
+        )
+        return purged
+
+    def tool_calls(
+        self,
+        *,
+        limit: int = 200,
+        since_ms: int | None = None,
+        tool: str | None = None,
+        outcome: str | None = None,
+        source: str | None = None,
+        actor: str | None = None,
+        session_key: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """The rows, newest first. Filters are the ones a reader asks for by name.
+
+        No filter takes free text, and the row carries none either, so there is nothing here to
+        search *within* a call -- that answer lives in the transcript the row addresses.
+        """
+        clauses: list[str] = []
+        params: list[Any] = []
+        for column, value in (
+            ("ts_ms >= ?", since_ms),
+            ("tool = ?", tool),
+            ("outcome = ?", outcome),
+            ("source = ?", source),
+            ("actor = ?", actor),
+            ("session_key = ?", session_key),
+        ):
+            if value is not None:
+                clauses.append(column)
+                params.append(value)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        connection = self._read_connection()
+        try:
+            rows = connection.execute(
+                f"""
+                SELECT ts_ms, session_key, turn_id, seq, tool, source, actor, capability_class,
+                       gate_decision, gate_reason, outcome, duration_ms, error_kind
+                FROM tool_calls
+                {where}
+                ORDER BY ts_ms DESC, id DESC
+                LIMIT ?
+                """,
+                (*params, max(0, min(int(limit), 5_000))),
+            ).fetchall()
+        finally:
+            connection.close()
+        return [dict(row) for row in rows]
+
+    def tool_call_count(self) -> int:
+        connection = self._read_connection()
+        try:
+            row = connection.execute("SELECT COUNT(*) AS n FROM tool_calls").fetchone()
+            return int(row["n"] or 0)
+        finally:
+            connection.close()
+
+    def tool_call_purges(self) -> dict[str, Any]:
+        """How many rows the window has taken, and when it last took any (#234)."""
+        connection = self._read_connection()
+        try:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS purges,
+                       COALESCE(SUM(rows_purged), 0) AS rows_purged,
+                       MAX(ts_ms) AS last_purge_ms
+                FROM tool_call_purges
+                """
+            ).fetchone()
+        finally:
+            connection.close()
+        last = row["last_purge_ms"]
+        return {
+            "purges": int(row["purges"] or 0),
+            "rows_purged": int(row["rows_purged"] or 0),
+            "last_purge_ms": int(last) if last is not None else None,
+            "retention_days": MAX_TOOL_CALL_DAYS_RETAINED,
+        }
 
     # --- reads -----------------------------------------------------------------------
 
@@ -523,5 +761,7 @@ __all__ = [
     "LLMUsageStore",
     "MAX_CALLS_RETAINED",
     "MAX_DAYS_RETAINED",
+    "MAX_TOOL_CALL_DAYS_RETAINED",
+    "MAX_TOOL_CALL_PURGES_RETAINED",
     "SCHEMA_VERSION",
 ]

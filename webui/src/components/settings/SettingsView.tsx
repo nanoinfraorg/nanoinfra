@@ -14,6 +14,7 @@ import {
   Activity,
   ArrowUpCircle,
   ArrowUpDown,
+  BookOpen,
   Bot,
   Brain,
   Check,
@@ -77,6 +78,12 @@ import {
 import { AgentPluginsSettings } from "@/components/settings/AgentPluginsSettings";
 import { GatesAuditLog } from "@/components/settings/GatesAuditLog";
 import { GatesSettings } from "@/components/settings/GatesSettings";
+import { AgentRoster } from "@/components/agents/AgentRoster";
+import {
+  AutomationAgentField,
+  useNamedAgents,
+} from "@/components/settings/AutomationAgentField";
+import { KnowledgeSettings } from "@/components/settings/KnowledgeSettings";
 import { SkillsCatalogSettings } from "@/components/settings/SkillsCatalogSettings";
 import { TokenUsageHeatmap } from "@/components/settings/TokenUsageHeatmap";
 import { TokenUsageSummary } from "@/components/settings/TokenUsageSummary";
@@ -162,7 +169,7 @@ import {
   updateTranscriptionSettings,
   updateWebSearchSettings,
 } from "@/lib/api";
-import type { ServerSummary } from "@/lib/api";
+import type { NamedAgentSummary, ServerSummary } from "@/lib/api";
 import { notifyCliAppsChanged } from "@/lib/cli-app-events";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import {
@@ -213,6 +220,7 @@ import type {
   ImageGenerationSettingsUpdate,
   McpPresetInfo,
   McpPresetsPayload,
+  NamedAgentRosterEntry,
   NanoinfraFeatureInfo,
   NanoinfraFeaturesPayload,
   NetworkSafetySettingsUpdate,
@@ -241,6 +249,7 @@ export type SettingsSectionKey =
   | "apps"
   | "automations"
   | "skills"
+  | "knowledge"
   | "agents"
   | "runtime"
   | "advanced";
@@ -685,6 +694,9 @@ export function SettingsView({
 }: SettingsViewProps) {
   const { t } = useTranslation();
   const { getToken, token } = useClient();
+  // The roster the automation editor offers (#257). A failed read is "no named agents", which is
+  // every deployment that names none -- and there the field does not render at all.
+  const namedAgents = useNamedAgents(token);
   const pageVisible = usePageVisibility();
   const remoteBrowserAccess =
     typeof window !== "undefined" && !isLoopbackHost(window.location.hostname);
@@ -2645,6 +2657,8 @@ export function SettingsView({
             isRestarting={isRestarting}
             requiresRestartPending={pendingRestartSections.agents}
             isNativeHost={(settings.surface ?? settings.runtime_surface) === "native"}
+            namedAgents={settings.named_agents ?? []}
+            token={token}
           />
         );
       case "runtime":
@@ -2671,6 +2685,8 @@ export function SettingsView({
             onInstallCapability={(name) => void installCapabilities([name])}
           />
         );
+      case "knowledge":
+        return <KnowledgeSettings token={token} settings={settings} onSaved={applyPayload} />;
       case "advanced":
         return (
           <div className="space-y-7">
@@ -2703,6 +2719,7 @@ export function SettingsView({
           onBackToChat={onBackToChat}
           onLogout={onLogout}
           hostChromeInset={hostChromeInset}
+          hideAgentsSection={(settings?.named_agents?.length ?? 0) > 0}
         />
       ) : null}
 
@@ -2763,6 +2780,7 @@ export function SettingsView({
       />
 
       <AutomationEditDialog
+        agents={namedAgents}
         job={automationPendingEdit}
         saving={automationAction === `update:${automationPendingEdit?.id ?? ""}`}
         skills={skills}
@@ -2852,6 +2870,7 @@ const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fal
   { key: "browser", icon: Globe2, fallback: "Web" },
   { key: "channels", icon: MessageCircle, fallback: "Channels" },
   { key: "agents", icon: Bot, fallback: "Agents" },
+  { key: "knowledge", icon: BookOpen, fallback: "Knowledge" },
   { key: "runtime", icon: Server, fallback: "System" },
   { key: "advanced", icon: ShieldCheck, fallback: "Security" },
 ];
@@ -2864,6 +2883,9 @@ function standaloneSectionTitle(section: SettingsSectionKey): string {
   if (section === "apps") return "Apps";
   if (section === "automations") return "Automations";
   if (section === "skills") return "Skills";
+  // Reached as its own destination once the deployment names agents (#253), the same way Apps and
+  // Skills are, so it needs a title of its own rather than the settings sidebar's.
+  if (section === "agents") return "Agents";
   return SETTINGS_NAV_ITEMS.find((item) => item.key === section)?.fallback ?? "Settings";
 }
 
@@ -2873,17 +2895,28 @@ function SettingsSidebar({
   onBackToChat,
   onLogout,
   hostChromeInset,
+  hideAgentsSection,
 }: {
   activeSection: SettingsSectionKey;
   onSelectSection: (section: SettingsSectionKey) => void;
   onBackToChat: () => void;
   onLogout?: () => void;
   hostChromeInset?: boolean;
+  /**
+   * True once the deployment names agents, which is when `Agents` exists as a top-level
+   * destination (#253). The same panel reached from two places under one name is the confusion
+   * the rename was meant to end; a deployment that names nothing keeps the row exactly where it
+   * has always been.
+   */
+  hideAgentsSection?: boolean;
 }) {
   const { t } = useTranslation();
   const activeNavItemRef = useRef<HTMLButtonElement>(null);
-  const activeItem = SETTINGS_NAV_ITEMS.find((item) => item.key === activeSection)
-    ?? SETTINGS_NAV_ITEMS[0];
+  const navItems = hideAgentsSection
+    ? SETTINGS_NAV_ITEMS.filter((item) => item.key !== "agents")
+    : SETTINGS_NAV_ITEMS;
+  const activeItem = navItems.find((item) => item.key === activeSection)
+    ?? navItems[0];
   const ActiveIcon = activeItem.icon;
   const activeLabel = t(`settings.nav.${activeItem.key}`, {
     defaultValue: activeItem.fallback,
@@ -2931,7 +2964,7 @@ function SettingsSidebar({
             sideOffset={6}
             className="w-[var(--radix-dropdown-menu-trigger-width)] max-w-[calc(100vw-1.5rem)] rounded-[16px] p-1.5"
           >
-            {SETTINGS_NAV_ITEMS.map(({ key, icon: Icon, fallback }) => {
+            {navItems.map(({ key, icon: Icon, fallback }) => {
               const active = key === activeSection;
               return (
                 <DropdownMenuItem
@@ -2960,7 +2993,7 @@ function SettingsSidebar({
           scope="settings"
           className="relative hidden space-y-1 lg:block"
         >
-          {SETTINGS_NAV_ITEMS.map(({ key, icon: Icon, fallback }) => {
+          {navItems.map(({ key, icon: Icon, fallback }) => {
             const active = key === activeSection;
             return (
               <button
@@ -7156,6 +7189,8 @@ type AutomationEveryUnit = "second" | "minute" | "hour" | "day";
 type AutomationEditDraft = {
   name: string;
   message: string;
+  /** Which agent runs this automation (#257). Empty is the deployment's default agent. */
+  agent: string;
   delivery: AutomationDeliveryPolicy;
   skills: string[];
   references: ResourceMention[];
@@ -7181,6 +7216,7 @@ function AutomationEditDialog({
   skills,
   servers,
   diagrams,
+  agents,
   onOpenChange,
   onSave,
 }: {
@@ -7189,6 +7225,7 @@ function AutomationEditDialog({
   skills: SkillSummary[];
   servers: ServerSummary[];
   diagrams: DiagramSummary[];
+  agents: NamedAgentSummary[];
   onOpenChange: (open: boolean) => void;
   onSave: (job: SessionAutomationJob, values: AutomationUpdatePayload) => void | Promise<void>;
 }) {
@@ -7403,6 +7440,16 @@ function AutomationEditDialog({
                       DELIVERY_HELP_FALLBACK[draft.delivery],
                     )}
                   </p>
+                </div>
+                {/* Above the skills picker, because the agent is what bounds it: a job may
+                    narrow its agent's skills and may not widen past them (#257). */}
+                <div className="mt-4">
+                  <AutomationAgentField
+                    agents={agents}
+                    value={draft.agent}
+                    onChange={(agent) => setDraft((prev) => ({ ...prev, agent }))}
+                    tx={tx}
+                  />
                 </div>
                 <div className="mt-4 space-y-1.5">
                   <span className="text-[12px] font-medium text-muted-foreground">
@@ -7705,6 +7752,7 @@ function automationDraftFromJob(job: SessionAutomationJob | null): AutomationEdi
   return {
     name: job?.name ?? "",
     message: job?.payload.message ?? "",
+    agent: job?.agent ?? "",
     delivery: normalizeDeliveryPolicy(job?.delivery),
     skills: [...(job?.skills ?? [])],
     references: [...(job?.references ?? [])],
@@ -7773,6 +7821,7 @@ function automationUpdatePayloadFromDraft(
     if (!name) return "invalid";
     return {
       name,
+      agent: draft.agent,
       delivery: draft.delivery,
       skills: draft.skills,
       references: draft.references,
@@ -7783,6 +7832,7 @@ function automationUpdatePayloadFromDraft(
   const payload: AutomationUpdatePayload = {
     name,
     message,
+    agent: draft.agent,
     delivery: draft.delivery,
     skills: draft.skills,
     references: draft.references,
@@ -9844,6 +9894,16 @@ function CliAppLogo({ app, showBrandLogos }: { app: CliAppInfo; showBrandLogos: 
   );
 }
 
+/**
+ * The Agents area: the roster first, then the subagent-concurrency row -- #253.
+ *
+ * This panel used to be *only* the concurrency row, under a section named `Agents` that was about
+ * parallelism inside one agent rather than about agents at all. The roster takes the name over and
+ * the row becomes what it always was: one setting inside the area, rather than the whole of it.
+ *
+ * A deployment that names no agent renders exactly what it rendered before, because `AgentRoster`
+ * returns nothing for an empty roster.
+ */
 function AgentsSettings({
   form,
   setForm,
@@ -9854,6 +9914,8 @@ function AgentsSettings({
   isRestarting,
   requiresRestartPending,
   isNativeHost,
+  namedAgents,
+  token,
 }: {
   form: AgentSettingsDraft;
   setForm: Dispatch<SetStateAction<AgentSettingsDraft>>;
@@ -9864,6 +9926,8 @@ function AgentsSettings({
   isRestarting?: boolean;
   requiresRestartPending: boolean;
   isNativeHost: boolean;
+  namedAgents: NamedAgentRosterEntry[];
+  token: string;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
@@ -9871,6 +9935,7 @@ function AgentsSettings({
 
   return (
     <div className="space-y-7">
+      <AgentRoster agents={namedAgents} token={token} />
       <section>
         <SettingsSectionTitle>
           {tx("settings.sections.subagents", "Subagents")}

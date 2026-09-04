@@ -7,6 +7,7 @@ import {
 } from "react";
 import {
   Archive,
+  Bot,
   Brain,
   CalendarClock,
   ChevronDown,
@@ -18,6 +19,7 @@ import {
   Server,
   Settings,
   ShieldCheck,
+  Sparkles,
   SquarePen,
   Blocks,
 } from "lucide-react";
@@ -60,8 +62,18 @@ interface SidebarProps {
   onOpenServers: () => void;
   onOpenSecrets: () => void;
   onOpenApprovals: () => void;
+  onOpenAgents: () => void;
   /** How many actions wait for a human answer (nanoinfraorg/nanoinfra#27). */
   approvalsCount?: number;
+  /**
+   * How many agents this deployment names (nanoinfraorg/nanoinfra#253).
+   *
+   * Zero is every deployment today, and zero means **the navigation does not change at all**: no
+   * Agents destination, and Apps and Skills stay where they are rather than moving under an
+   * Abilities heading. A menu that grouped two rows under a new word for a feature the deployment
+   * does not have would cost every existing operator a re-learn and buy them nothing.
+   */
+  namedAgentCount?: number;
   /** The running build, from the settings payload. Absent until it loads, or on an older gateway. */
   version?: string;
   /** Where the docs live, from the same payload, so one place decides the host. */
@@ -71,6 +83,7 @@ interface SidebarProps {
   activeUtility?:
     | "apps"
     | "skills"
+    | "agents"
     | "automations"
     | "diagrams"
     | "workspace"
@@ -128,6 +141,24 @@ export function Sidebar(props: SidebarProps) {
       || props.activeUtility === "servers"
       || props.activeUtility === "secrets",
   );
+  // The Abilities grouping (#253). Open when you are already inside it, so a reload does not hide
+  // the page you are looking at behind a collapsed heading.
+  const [abilitiesExpanded, setAbilitiesExpanded] = useState(
+    () => props.activeUtility === "apps" || props.activeUtility === "skills",
+  );
+  useEffect(() => {
+    if (props.activeUtility === "apps" || props.activeUtility === "skills") {
+      setAbilitiesExpanded(true);
+    }
+  }, [props.activeUtility]);
+  /**
+   * Whether this deployment names any agent.
+   *
+   * The one switch behind both additions here: the `Agents` destination and the `Abilities`
+   * grouping. False is every deployment today, and false has to mean *no change at all* -- the
+   * same rows, in the same order, under the same names.
+   */
+  const hasNamedAgents = (props.namedAgentCount ?? 0) > 0;
   useEffect(() => {
     if (
       props.activeUtility === "diagrams"
@@ -246,24 +277,39 @@ export function Sidebar(props: SidebarProps) {
           onClick={props.onOpenSearch}
           icon={<Search className="h-4 w-4" />}
         />
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.apps")}
-          onClick={props.onOpenApps}
-          onIntent={props.onSettingsIntent}
-          active={props.activeUtility === "apps"}
-          selectionRef={activeActionRef}
-          icon={<Blocks className="h-4 w-4" />}
-        />
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.skills.title")}
-          onClick={props.onOpenSkills}
-          onIntent={props.onSettingsIntent}
-          active={props.activeUtility === "skills"}
-          selectionRef={activeActionRef}
-          icon={<Brain className="h-4 w-4" />}
-        />
+        {hasNamedAgents ? (
+          <SidebarActionButton
+            collapsed={collapsed}
+            label={t("sidebar.agents", { defaultValue: "Agents" })}
+            onClick={props.onOpenAgents}
+            onIntent={props.onSettingsIntent}
+            active={props.activeUtility === "agents"}
+            selectionRef={activeActionRef}
+            icon={<Bot className="h-4 w-4" />}
+          />
+        ) : null}
+        {hasNamedAgents ? null : (
+          <>
+            <SidebarActionButton
+              collapsed={collapsed}
+              label={t("sidebar.apps")}
+              onClick={props.onOpenApps}
+              onIntent={props.onSettingsIntent}
+              active={props.activeUtility === "apps"}
+              selectionRef={activeActionRef}
+              icon={<Blocks className="h-4 w-4" />}
+            />
+            <SidebarActionButton
+              collapsed={collapsed}
+              label={t("sidebar.skills.title")}
+              onClick={props.onOpenSkills}
+              onIntent={props.onSettingsIntent}
+              active={props.activeUtility === "skills"}
+              selectionRef={activeActionRef}
+              icon={<Brain className="h-4 w-4" />}
+            />
+          </>
+        )}
         <SidebarActionButton
           collapsed={collapsed}
           label={t("sidebar.automations", { defaultValue: "Automations" })}
@@ -298,6 +344,81 @@ export function Sidebar(props: SidebarProps) {
               : undefined
           }
         />
+        {hasNamedAgents
+          ? (
+            collapsed
+              ? (
+                // A collapsed rail has no room for a heading, so the destinations stay flat --
+                // the same choice the Infrastructure group makes right below.
+                <>
+                  <SidebarActionButton
+                    collapsed
+                    label={t("sidebar.apps")}
+                    onClick={props.onOpenApps}
+                    onIntent={props.onSettingsIntent}
+                    active={props.activeUtility === "apps"}
+                    selectionRef={activeActionRef}
+                    icon={<Blocks className="h-4 w-4" />}
+                  />
+                  <SidebarActionButton
+                    collapsed
+                    label={t("sidebar.skills.title")}
+                    onClick={props.onOpenSkills}
+                    onIntent={props.onSettingsIntent}
+                    active={props.activeUtility === "skills"}
+                    selectionRef={activeActionRef}
+                    icon={<Brain className="h-4 w-4" />}
+                  />
+                </>
+              )
+              : (
+                <div>
+                  {/*
+                    * Abilities is a **menu grouping and nothing more**: no section key changes, no
+                    * page moves, no link breaks. What it buys is that the rail stops presenting
+                    * unrelated destinations as one flat list.
+                    */}
+                  <SidebarActionButton
+                    collapsed={false}
+                    label={t("sidebar.abilities", { defaultValue: "Abilities" })}
+                    onClick={() => setAbilitiesExpanded((v) => !v)}
+                    ariaExpanded={abilitiesExpanded}
+                    icon={<Sparkles className="h-4 w-4" />}
+                    trailing={
+                      <ChevronDown
+                        className={cn(
+                          "h-3.5 w-3.5 text-muted-foreground transition-transform",
+                          abilitiesExpanded && "rotate-180",
+                        )}
+                      />
+                    }
+                  />
+                  {abilitiesExpanded ? (
+                    <div className="ml-3 mt-0.5 flex flex-col gap-0.5 border-l border-border/45 pl-3">
+                      <SidebarActionButton
+                        collapsed={false}
+                        label={t("sidebar.apps")}
+                        onClick={props.onOpenApps}
+                        onIntent={props.onSettingsIntent}
+                        active={props.activeUtility === "apps"}
+                        selectionRef={activeActionRef}
+                        icon={<Blocks className="h-4 w-4" />}
+                      />
+                      <SidebarActionButton
+                        collapsed={false}
+                        label={t("sidebar.skills.title")}
+                        onClick={props.onOpenSkills}
+                        onIntent={props.onSettingsIntent}
+                        active={props.activeUtility === "skills"}
+                        selectionRef={activeActionRef}
+                        icon={<Brain className="h-4 w-4" />}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              )
+          )
+          : null}
         {collapsed ? (
           <>
             <SidebarActionButton

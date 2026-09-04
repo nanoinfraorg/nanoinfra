@@ -490,6 +490,51 @@ describe("App layout", () => {
     expect(window.location.hash).toBe("#/approvals");
   });
 
+  it("opens the Agents area from the sidebar, and the route is deep-linkable", async () => {
+    // nanoinfraorg/nanoinfra#253. The destination exists only for a deployment that names agents,
+    // so the payload has to name one before the row is there to click.
+    mockFetchRoutes({
+      "/api/settings": {
+        ...baseSettingsPayload(),
+        named_agents: [
+          {
+            name: "sre",
+            description: "hands-on checks on one host",
+            model_preset: "default",
+            tool_group_count: 2,
+            skill_count: 1,
+            delegate_count: 0,
+            has_addendum: false,
+          },
+        ],
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const entry = await screen.findByRole("button", { name: "Agents" });
+
+    fireEvent.click(entry);
+
+    await waitFor(() => expect(window.location.hash).toBe("#/agents"));
+    expect(document.title).toBe("Agents · nanoinfra");
+    expect(await screen.findByTestId("agent-roster")).toBeInTheDocument();
+  });
+
+  it("leaves the navigation alone for a deployment that names no agents", async () => {
+    // Which is every deployment today: no Agents destination, and Apps and Skills stay at the top
+    // level rather than moving under an Abilities heading.
+    mockFetchRoutes({ "/api/settings": baseSettingsPayload() });
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    expect(await screen.findByRole("button", { name: "Apps" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Agents" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Abilities" })).toBeNull();
+  });
+
   it("opens Skills from the main sidebar", async () => {
     const longSkillDescription = [
       "Work with GitHub repositories, issues, pull requests, releases, workflows,",
@@ -1110,8 +1155,11 @@ describe("App layout", () => {
     expect(JSON.parse(decodeURIComponent(headers["X-Nanoinfra-Automation-Values"]))).toEqual({
       name: "Past one-shot",
       message: "Updated one-shot message",
-      // Both sent on every save, carrying the job's current values. The point of this test is
-      // that `schedule` is absent -- a past one-shot must not resubmit a run time in the past.
+      // Sent on every save, carrying the job's current values -- `agent` included, and empty
+      // when the job names none, because a full-state save is also how the field is cleared.
+      // The point of this test is that `schedule` is absent: a past one-shot must not resubmit
+      // a run time in the past.
+      agent: "",
       delivery: "always",
       skills: [],
       references: [],

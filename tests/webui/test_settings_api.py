@@ -2110,3 +2110,50 @@ def test_azure_openai_spec_no_longer_requires_api_key() -> None:
     spec = find_by_name("azure_openai")
     assert spec is not None
     assert _provider_requires_api_key(spec) is False
+
+def test_settings_payload_offers_named_agents_as_counts(
+    tmp_path, monkeypatch
+) -> None:
+    """A browser needs the roster it may offer, not the bindings behind it (#247).
+
+    Counts rather than lists, for the same reason the delegate tool's own description carries
+    counts: an agent may cover hundreds of hosts, and a payload that named them would grow with the
+    inventory every time somebody opened the page.
+    """
+    config_path = tmp_path / "config.json"
+    config = Config.model_validate({
+        "agents": {
+            "named": {
+                "sre": {
+                    "description": "hands-on",
+                    "toolGroups": ["servers"],
+                    "skills": ["servers", "cron"],
+                    "addendum": "prefer read-only checks",
+                },
+                "manager": {"delegates": ["sre"]},
+            }
+        }
+    })
+    save_config(config, config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
+
+    agents = settings_payload()["named_agents"]
+
+    assert [a["name"] for a in agents] == ["manager", "sre"]
+    sre = next(a for a in agents if a["name"] == "sre")
+    assert sre["tool_group_count"] == 1
+    assert sre["skill_count"] == 2
+    assert sre["has_addendum"] is True
+    assert next(a for a in agents if a["name"] == "manager")["delegate_count"] == 1
+    # The bindings themselves never travel.
+    assert "tool_groups" not in sre and "skills" not in sre and "addendum" not in sre
+
+
+def test_settings_payload_names_no_agents_when_none_are_configured(
+    tmp_path, monkeypatch
+) -> None:
+    config_path = tmp_path / "config.json"
+    save_config(Config(), config_path)
+    monkeypatch.setattr("nanoinfra.config.loader._current_config_path", config_path)
+
+    assert settings_payload()["named_agents"] == []

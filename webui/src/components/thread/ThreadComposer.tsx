@@ -24,6 +24,7 @@ import { INLINE_TOKEN_HIGHLIGHT_COLOR } from "@/components/InlineTokenHighlight"
 import {
   Activity,
   ArrowUp,
+  Bot,
   BookOpen,
   Brain,
   ChevronDown,
@@ -57,6 +58,8 @@ import { useTranslation } from "react-i18next";
 
 import type { ConnectorInfo, ConnectorObject } from "@/lib/types";
 import type { DiagramSummary } from "@/components/diagrams/diagramTypes";
+import type { NamedAgentSummary } from "@/lib/api";
+import { AgentBadge } from "@/components/thread/AgentBadge";
 import type { ServerSummary } from "@/lib/api";
 
 import { Button } from "@/components/ui/button";
@@ -210,6 +213,11 @@ interface ThreadComposerProps {
   /** The active data connectors themselves, so `@<name>` can load one for a turn (#204). */
   connectors?: ConnectorInfo[];
   diagrams?: DiagramSummary[];
+  /** The configured named agents, so `@agent:` can offer them (#255). Empty hides the prefix. */
+  namedAgents?: NamedAgentSummary[];
+  /** Which agent answers this conversation (#254). `null` is the deployment's default agent. */
+  agent?: string | null;
+  onAgentChange?: (agent: string | null) => void;
   skills?: SkillSummary[];
   onStop?: () => void;
   onTranscribeAudio?: (dataUrl: string, options?: { durationMs?: number }) => Promise<string>;
@@ -339,6 +347,11 @@ interface CliAppMentionQuery {
  * Calendar -- so anything that has to know *every* kind reads the target list instead of this.
  */
 export const RESOURCE_MENTION_KINDS = ["server", "diagram"] as const;
+/**
+ * Deliberately *not* in `RESOURCE_MENTION_KINDS`. That list is what the gateway resolves against a
+ * store, and an agent is not a resource the turn carries: `@agent:sre` is text the manager reads.
+ */
+export const AGENT_MENTION_KIND = "agent";
 /** Matches the server-side bound, so the composer cannot build a payload the gateway will trim. */
 const RESOURCE_MENTIONS_LIMIT = 16;
 /** A name safe to put in a mention token: no space and no colon for the parser to split on. */
@@ -380,6 +393,12 @@ type MentionCandidate = {
    * loads that connector's operations for the turn without pinning a particular calendar.
    */
   | { kind: "connectorApp"; detail: string }
+  /**
+   * A named agent (#255). Nothing is referenced and nothing is recorded: `@agent:sre` stays in
+   * the text, because it is a *preference the manager reads* when it plans the turn, not an
+   * invocation. The manager may still delegate elsewhere, or nowhere.
+   */
+  | { kind: "agent"; detail: string }
   /** A discoverability entry on a bare `@`: choosing it types the prefix. Nothing is referenced. */
   | { kind: "prefix"; prefix: MentionKind; detail: string }
 );
@@ -1014,6 +1033,9 @@ export function ThreadComposer({
   connectorObjects = [],
   connectors = [],
   diagrams = [],
+  namedAgents = [],
+  agent = null,
+  onAgentChange,
   sessions = [],
   skills = [],
   onStop,
@@ -1385,8 +1407,14 @@ export function ThreadComposer({
    * prefix with no change here.
    */
   const mentionPrefixKinds = useMemo(
-    () => new Set<string>([...RESOURCE_MENTION_KINDS, ...connectorKinds]),
-    [connectorKinds],
+    () => new Set<string>([
+      ...RESOURCE_MENTION_KINDS,
+      ...connectorKinds,
+      // Only when at least one agent is named. Otherwise `@agent:foo` is an ordinary word, which
+      // is what it means in every deployment that has one agent.
+      ...(namedAgents.length ? [AGENT_MENTION_KIND] : []),
+    ]),
+    [connectorKinds, namedAgents.length],
   );
 
   const cliAppMention = useMemo<CliAppMentionQuery | null>(() => {
@@ -1536,6 +1564,21 @@ export function ThreadComposer({
           reference: { kind: "diagram" as const, id: diagram.id },
         }));
     }
+    if (cliAppMention.kind === AGENT_MENTION_KIND) {
+      return namedAgents
+        .filter((agent) => [agent.name, agent.description]
+          .join(" ").toLowerCase().includes(cliAppMention.query))
+        .slice(0, 8)
+        .map((agent) => ({
+          kind: "agent" as const,
+          name: agent.name,
+          displayName: agent.name,
+          detail: agent.description
+            || t("thread.composer.mentions.agentNoDescription", {
+              defaultValue: "Ask the manager to prefer this agent",
+            }),
+        }));
+    }
     // A connector kind, such as `@calendar:`. One branch for every connector because the kinds
     // come from their manifests: matching on the name and the detail is what makes
     // "@calendar:team" find a calendar whose id is a uuid.
@@ -1565,6 +1608,7 @@ export function ThreadComposer({
       : (([
         { prefix: "server", count: servers.length },
         { prefix: "diagram", count: diagrams.length },
+        { prefix: AGENT_MENTION_KIND, count: namedAgents.length },
         ...Array.from(connectorKinds).map((kind) => ({
           prefix: kind,
           count: connectorObjects.filter((object) => object.kind === kind).length,
@@ -1577,7 +1621,12 @@ export function ThreadComposer({
           prefix,
           name: `${prefix}:`,
           displayName: `${prefix}:`,
-          detail: prefix === "server"
+          detail: prefix === AGENT_MENTION_KIND
+            ? t("thread.composer.mentions.agentPrefixHint", {
+                defaultValue: "Ask for one of {{count}} agents",
+                count,
+              })
+            : prefix === "server"
             ? t("thread.composer.mentions.serverPrefixHint", {
                 defaultValue: "Reference one of {{count}} servers",
                 count,
@@ -1702,6 +1751,7 @@ export function ThreadComposer({
     connectors,
     diagrams,
     mcpPresets,
+    namedAgents,
     servers,
     t,
   ]);
@@ -2013,6 +2063,11 @@ export function ThreadComposer({
       // the operator; the server re-reads it from the store, so a rename does not strand the
       // reference.
       let token = candidate.name;
+      if (candidate.kind === "agent") {
+        // Text and nothing else. Config refuses a name that cannot be a token, so there is no id
+        // to fall back to and no state to keep -- the token *is* the request.
+        token = `${AGENT_MENTION_KIND}:${candidate.name}`;
+      }
       if (candidate.kind === "server" || candidate.kind === "diagram" || candidate.kind === "connector") {
         const tokenKind = candidate.kind === "connector" ? candidate.resourceKind : candidate.kind;
         // Nothing is recorded here. The token in the text is the record, resolved against the
@@ -2856,7 +2911,16 @@ export function ThreadComposer({
               isHero ? "gap-1.5" : "gap-2",
             )}
           >
-            {modelLabel && !voiceRecorder.isRecording ? (
+            {namedAgents.length && !voiceRecorder.isRecording ? (
+              <AgentBadge
+                agent={agent}
+                agents={namedAgents}
+                onAgentChange={onAgentChange}
+                isHero={isHero}
+                disabled={disabled}
+              />
+            ) : null}
+            {modelLabel && !namedAgents.length && !voiceRecorder.isRecording ? (
               <ModelPresetBadge
                 label={modelLabel}
                 modelDetail={modelDetail}
@@ -3248,6 +3312,7 @@ function CliAppMentionPalette({
   // rest of it worked, so a new kind belongs here as well as in the group budget above.
   const groupedCandidates = ([
     "prefix",
+    "agent",
     "connectorApp",
     "cli",
     "mcp",
@@ -3260,6 +3325,8 @@ function CliAppMentionPalette({
       kind,
       label: kind === "prefix"
         ? t("thread.composer.mentions.referenceGroup", { defaultValue: "Reference" })
+        : kind === "agent"
+        ? t("thread.composer.mentions.agentGroup", { defaultValue: "Agents" })
         : kind === "connectorApp"
         ? t("thread.composer.mentions.connectorAppGroup", { defaultValue: "Data connectors" })
         : kind === "session"
@@ -3302,8 +3369,10 @@ function CliAppMentionPalette({
               const name = candidate.name;
               const resource = candidate.kind === "server" || candidate.kind === "diagram"
                 || candidate.kind === "connector" || candidate.kind === "prefix"
-                || candidate.kind === "connectorApp";
-              const typeLabel = candidate.kind === "cli"
+                || candidate.kind === "connectorApp" || candidate.kind === "agent";
+              const typeLabel = candidate.kind === "agent"
+                ? t("thread.composer.mentions.agentBadge", { defaultValue: "Agent" })
+                : candidate.kind === "cli"
                 ? t("thread.composer.mentions.cliBadge")
                 : candidate.kind === "mcp"
                   ? t("thread.composer.mentions.mcpBadge")
@@ -3401,7 +3470,10 @@ function MentionCandidateLogo({
   const { logoUrl, onLogoError, onLogoLoad } = useLogoFallback(logoUrls);
 
   if (!branded) {
-    const Icon = candidate.kind === "session"
+    const Icon = candidate.kind === "agent"
+      || (candidate.kind === "prefix" && candidate.prefix === AGENT_MENTION_KIND)
+      ? Bot
+      : candidate.kind === "session"
       ? MessageCircle
       : candidate.kind === "server" || (candidate.kind === "prefix" && candidate.prefix === "server")
         ? Server

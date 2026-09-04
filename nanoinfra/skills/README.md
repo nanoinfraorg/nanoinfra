@@ -31,3 +31,4 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `skill-creator` | Create new skills |
 | `infra-diagrams` | Read and update saved Infra Diagrams |
 | `servers` | Read, discuss, and manage the server inventory |
+| `knowledge` | Search the operator's own documents and cite `path#section` |

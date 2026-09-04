@@ -78,7 +78,9 @@
     "website": "nanoinfra 웹사이트",
     "documentation": "문서",
     "docs": "문서",
-    "signOut": "로그아웃"
+    "signOut": "로그아웃",
+    "agents": "에이전트",
+    "abilities": "역량"
   },
   "settings": {
     "backToChat": "채팅으로 돌아가기",
@@ -104,7 +106,8 @@
       "apps": "앱",
       "automations": "자동화",
       "skills": "스킬",
-      "agents": "에이전트"
+      "agents": "에이전트",
+      "knowledge": "지식"
     },
     "sections": {
       "interface": "인터페이스",
@@ -812,6 +815,7 @@
         "timezone": "시간대",
         "runAt": "실행 시간",
         "delivery": "알림 시점",
+        "agent": "실행 주체",
         "skills": "불러올 스킬"
       },
       "scheduleTypes": {
@@ -863,6 +867,8 @@
       },
       "skillsHelp": "선택하지 않으면 이전처럼 모든 스킬을 요약합니다. 선택하면 해당 스킬을 전문으로 불러오고 나머지는 이 자동화의 프롬프트에서 제외합니다.",
       "skillsEmpty": "설치된 스킬이 없습니다",
+      "agentDefault": "기본 에이전트",
+      "agentHelp": "이 실행의 상한은 에이전트가 정합니다. 도구 그룹과 에이전트 자체 지침입니다. 자동화는 이를 좁힐 수만 있고 넓힐 수는 없습니다.",
       "referencePicker": "리소스 참조",
       "referenceMissing": "{{kind}}가 더 이상 존재하지 않습니다",
       "referenceBrokenHint": "누락된 참조를 제거할 때까지 이 자동화는 실행을 거부합니다.",
@@ -1087,6 +1093,8 @@
         "empty": "상시 권한이 없습니다. 어떤 자동화도 원격 명령을 실행할 수 없습니다.",
         "hosts": "호스트",
         "commands": "명령",
+        "expires": "{{when}}에 만료",
+        "expired": "{{when}}에 만료되었습니다. 게이트는 더 이상 적용하지 않으며, 행은 그대로 남아 있습니다.",
         "add": "상시 권한 추가",
         "remove": "상시 권한 삭제",
         "note": "상시 권한은 원격 명령만 허용합니다. 인벤토리 쓰기는 허용할 수 없습니다."
@@ -1562,6 +1570,10 @@
         "referenceGroup": "참조",
         "referenceBadge": "참조",
         "serverPrefixHint": "{{count}}개 서버 중 하나 참조",
+        "agentPrefixHint": "{{count}}개 에이전트 중 하나를 요청",
+        "agentGroup": "에이전트",
+        "agentBadge": "에이전트",
+        "agentNoDescription": "이 에이전트를 우선하도록 매니저에게 요청",
         "diagramPrefixHint": "{{count}}개 다이어그램 중 하나 참조",
         "serverGroup": "서버",
         "diagramGroup": "다이어그램",
@@ -1671,7 +1683,26 @@
     "cliRunRan": "사용함",
     "cliRunFailed": "실패",
     "automationSourceFallback": "자동화",
-    "automationTriggered": "자동 실행됨"
+    "automationTriggered": "자동 실행됨",
+    "plan": {
+      "title": "계획",
+      "answered": "{{count}}건 응답",
+      "failed": "{{count}}건 실패",
+      "running": "{{count}}건 진행 중",
+      "total": "위임 {{usage}}",
+      "totalPartial": "{{total}}건 중 {{reported}}건 보고",
+      "totalTitle": "위임 자체의 비용 합계입니다. 위임된 턴은 별도의 턴이므로 응답한 에이전트의 사용량에는 포함되지 않습니다.",
+      "unknownAgent": "피어",
+      "step": {
+        "running": "{{agent}}에 위임 중",
+        "done": "{{agent}} 응답 완료",
+        "failed": "{{agent}} 실패",
+        "noAnswer": "{{agent}} 보고 없음"
+      }
+    },
+    "prompt": {
+      "replaced": "교체됨"
+    }
   },
   "lightbox": {
     "title": "이미지 미리보기",
@@ -1753,11 +1784,25 @@
       "approve": "승인 경로",
       "session": "세션",
       "class": "권한 등급",
-      "digest": "결속 다이제스트"
+      "digest": "결속 다이제스트",
+      "agent": "실행 에이전트"
     },
     "approveFromValue": "webui (이 세션, 인증됨)",
     "approve": "승인",
     "approveUnavailable": "승인 (사용 불가)",
+    "grant": {
+      "menuLabel": "승인하고 상시 권한 추가",
+      "menuNote": "이 호스트에서 정확히 이 명령에 대한 상시 권한을 추가합니다. 옵션 하나가 다른 명령은 다른 명령입니다.",
+      "add24h": "승인하고 추가 — 24시간 후 만료",
+      "add7d": "승인하고 추가 — 7일 후 만료",
+      "addNever": "승인하고 추가 — 만료 없음",
+      "permanentTitle": "만료되지 않는 상시 권한을 추가할까요?",
+      "permanentBody": "이제부터 이 명령은 아무에게도 묻지 않고 이 호스트에서 실행됩니다. 이후 권한을 지우는 것은 없습니다. 되돌리려면 config.json의 gates.standingGrants를 편집하세요.",
+      "permanentConfirm": "예, 만료 없음",
+      "saved": "상시 권한 {{id}}을(를) 추가했습니다. {{when}}에 만료됩니다.",
+      "savedPermanent": "상시 권한 {{id}}을(를) 추가했으며 만료되지 않습니다. 되돌리려면 gates.standingGrants를 편집하세요.",
+      "notSaved": "작업은 승인되었습니다. 상시 권한은 저장되지 않았습니다: {{reason}}"
+    },
     "deny": "거부",
     "samePath": "이 요청은 지금 사용 중인 경로에서 왔습니다. 다른 인증된 경로에서 승인하세요. 탈취된 계정 하나가 두 절반을 모두 제공해서는 안 됩니다.",
     "denyTerminal": "거부는 이 세션에서 최종입니다. 운영자가 잠금을 해제할 때까지 에이전트는 다시 요청할 수 없습니다.",
@@ -1775,6 +1820,68 @@
       "unauthenticatedPath": "gates.approvalPaths 에 webui 가 없으므로 이 경로는 승인자를 인증하지 않습니다.",
       "unknownOriginPath": "요청이 출발 경로를 밝히지 않습니다. 실행기는 경로 독립성을 증명할 수 없습니다.",
       "unknownRequest": "실행기에 이 요청이 없습니다. 기한이 지났거나 누군가 답변했습니다."
+    },
+    "agentDelegated": "{{agent}} — {{delegatedBy}}이(가) 위임",
+    "agentAsserted": "에이전트가 스스로 밝힌 이름입니다. 이 배포가 인증한 신원이 아니라 요청의 주장이며, 위의 다이제스트는 이를 포함하지 않습니다."
+  },
+  "serverNotes": {
+    "title": "장비 메모",
+    "hint": "이 호스트를 다음에 다룰 사람이 알아야 할 내용. 메모는 만료되지 않으며, 관측과 어긋나는 메모는 인프라가 바뀌었다는 증거입니다.",
+    "add": "메모 추가",
+    "edit": "편집",
+    "cancelEdit": "취소",
+    "append": "추가",
+    "saveRaw": "메모 저장",
+    "empty": "아직 메모가 없습니다. 에이전트가 무언가를 알게 되면 여기에 기록합니다.",
+    "operator": "운영자",
+    "titleLabel": "메모 제목",
+    "bodyLabel": "메모 본문",
+    "rawLabel": "Markdown 메모",
+    "titlePlaceholder": "예: journald 설정은 의도된 것",
+    "bodyPlaceholder": "결론과, 고치지 말아야 할 것.",
+    "authorNote": "확인된 신원으로 운영자 이름으로 서명됩니다.",
+    "showArchive": "보관된 항목 보기",
+    "archive": "보관함",
+    "lastNote": "메모 {{when}}"
+  },
+  "agents": {
+    "roster": {
+      "title": "이름이 지정된 에이전트",
+      "help": "각 에이전트는 자신의 모델과 도구로 응답합니다. 에이전트는 설정 파일에서 선언되므로 이 페이지는 읽기만 하고 바꾸지 않습니다.",
+      "toolGroups": "도구 그룹",
+      "skills": "스킬",
+      "delegates": "위임 대상",
+      "addendum": "추가 지침"
+    },
+    "detail": {
+      "tabs": "에이전트 설정",
+      "prompt": "프롬프트"
+    },
+    "prompt": {
+      "loading": "프롬프트 구성을 읽는 중…",
+      "unavailable": "이 게이트웨이는 프롬프트 구성을 보고하지 않습니다.",
+      "replaced": "교체됨",
+      "replacedHelp": "이 배포는 이 섹션의 플랫폼 텍스트를 교체했습니다. 교체를 숨기는 기록은 서로 다른 두 프롬프트를 같아 보이게 만들기 때문에, 섹션 이름은 여기 그대로 남습니다.",
+      "perTurn": "크기가 턴마다 달라짐",
+      "tokens": "{{tokens}} 토큰",
+      "addendumTitle": "추가 지침",
+      "addendumHelp": "추가 지침은 위 섹션들 뒤에 덧붙으며 어떤 섹션도 대체할 수 없습니다. 에이전트를 선언한 설정 파일에서 수정하세요.",
+      "addendumEmpty": "이 에이전트에는 추가 지침이 없습니다.",
+      "estimateNote": "토큰 수치는 매 턴 같은 비용이 드는 섹션에 대한 추정값입니다. 특정 턴이 실제로 실어 보낸 양은 그 턴에 표시됩니다.",
+      "permission": {
+        "replaceable": "직접 작성",
+        "workspace": "워크스페이스",
+        "derived": "설정에서 생성",
+        "appendOnly": "덧붙임",
+        "fixed": "고정"
+      },
+      "permissionHelp": {
+        "replaceable": "이 섹션은 배포가 직접 쓰는 텍스트입니다.",
+        "workspace": "다른 경로로 이미 당신 것입니다. 워크스페이스의 지침 파일이 그것입니다.",
+        "derived": "설정에서 계산되므로 바꾸는 곳도 설정입니다.",
+        "appendOnly": "플랫폼 섹션 뒤에 추가되며 어떤 것도 대체하지 않습니다.",
+        "fixed": "도구 계약과 안전 지침입니다. 지우면 게이트는 계속 거부하지만 모델은 그 규칙을 더 이상 알지 못합니다."
+      }
     }
   }
 }

@@ -59,6 +59,7 @@ function renderSidebar(props: { version?: string; collapsed?: boolean; docsUrl?:
         onOpenServers={noop}
         onOpenSecrets={noop}
         onOpenApprovals={noop}
+        onOpenAgents={noop}
         onOpenSearch={noop}
         onToggleArchived={noop}
         onCollapse={noop}

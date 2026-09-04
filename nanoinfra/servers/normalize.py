@@ -52,6 +52,9 @@ def normalize_server_input(raw: Any, *, server_id: str) -> Server:
         tags=tags,
         created_at="",
         updated_at="",
+        # Not read off the payload on purpose (#225): a client cannot claim a server has memory,
+        # and ``ServerStore.update`` carries the real value across. Only a notes write moves it.
+        notes_updated_at=None,
     )
 
 

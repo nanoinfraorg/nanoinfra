@@ -78,7 +78,9 @@
     "website": "nanoinfra のサイト",
     "documentation": "ドキュメント",
     "docs": "ドキュメント",
-    "signOut": "サインアウト"
+    "signOut": "サインアウト",
+    "agents": "エージェント",
+    "abilities": "能力"
   },
   "settings": {
     "backToChat": "チャットに戻る",
@@ -104,7 +106,8 @@
       "apps": "アプリ",
       "automations": "自動タスク",
       "skills": "スキル",
-      "agents": "エージェント"
+      "agents": "エージェント",
+      "knowledge": "ナレッジ"
     },
     "sections": {
       "interface": "インターフェース",
@@ -812,6 +815,7 @@
         "timezone": "タイムゾーン",
         "runAt": "実行日時",
         "delivery": "通知するタイミング",
+        "agent": "実行者",
         "skills": "読み込むスキル"
       },
       "scheduleTypes": {
@@ -863,6 +867,8 @@
       },
       "skillsHelp": "何も選ばなければ従来どおり全スキルを要約します。選ぶとそれらを全文読み込み、他はこの自動化のプロンプトから除外されます。",
       "skillsEmpty": "インストール済みのスキルはありません",
+      "agentDefault": "既定のエージェント",
+      "agentHelp": "この実行の上限はエージェントが決めます。ツールグループと、エージェント自身の指示です。自動化はそれを狭められますが、広げることはできません。",
       "referencePicker": "リソースを参照",
       "referenceMissing": "{{kind}} は存在しません",
       "referenceBrokenHint": "欠けている参照を削除するまで、この自動化は実行を拒否します。",
@@ -1087,6 +1093,8 @@
         "empty": "常設権限がありません。自動処理はリモートコマンドを実行できません。",
         "hosts": "ホスト",
         "commands": "コマンド",
+        "expires": "{{when}} に失効",
+        "expired": "{{when}} に失効しました。ゲートはもう一致させず、行は残っています。",
         "add": "常設権限を追加",
         "remove": "常設権限を削除",
         "note": "常設権限が許可するのはリモートコマンドだけです。インベントリへの書き込みは許可できません。"
@@ -1562,6 +1570,10 @@
         "referenceGroup": "参照",
         "referenceBadge": "参照",
         "serverPrefixHint": "{{count}} 台のサーバーから参照",
+        "agentPrefixHint": "{{count}}体のエージェントから指定",
+        "agentGroup": "エージェント",
+        "agentBadge": "エージェント",
+        "agentNoDescription": "このエージェントを優先するようマネージャーに依頼",
         "diagramPrefixHint": "{{count}} 件の図から参照",
         "serverGroup": "サーバー",
         "diagramGroup": "図",
@@ -1671,7 +1683,26 @@
     "cliRunRan": "使用済み",
     "cliRunFailed": "失敗",
     "automationSourceFallback": "自動化",
-    "automationTriggered": "自動実行"
+    "automationTriggered": "自動実行",
+    "plan": {
+      "title": "プラン",
+      "answered": "{{count}} 件が回答",
+      "failed": "{{count}} 件が失敗",
+      "running": "{{count}} 件が実行中",
+      "total": "委譲分 {{usage}}",
+      "totalPartial": "{{total}} 件中 {{reported}} 件が報告",
+      "totalTitle": "各委譲自身のコストの合計です。委譲されたターンは独立したターンなので、応答したエージェント自身の使用量には含まれません。",
+      "unknownAgent": "ピア",
+      "step": {
+        "running": "{{agent}} に委譲中",
+        "done": "{{agent}} が回答",
+        "failed": "{{agent}} が失敗",
+        "noAnswer": "{{agent}} は報告なし"
+      }
+    },
+    "prompt": {
+      "replaced": "差し替え"
+    }
   },
   "lightbox": {
     "title": "画像プレビュー",
@@ -1753,11 +1784,25 @@
       "approve": "承認する経路",
       "session": "セッション",
       "class": "権限クラス",
-      "digest": "束縛ダイジェスト"
+      "digest": "束縛ダイジェスト",
+      "agent": "実行するエージェント"
     },
     "approveFromValue": "webui (このセッション、認証済み)",
     "approve": "承認",
     "approveUnavailable": "承認 (利用不可)",
+    "grant": {
+      "menuLabel": "承認して常設権限を追加",
+      "menuNote": "このホストでこの完全に同一のコマンドに対する常設権限を追加します。オプションが 1 つ違うコマンドは別のコマンドです。",
+      "add24h": "承認して追加 — 24 時間で失効",
+      "add7d": "承認して追加 — 7 日で失効",
+      "addNever": "承認して追加 — 失効しない",
+      "permanentTitle": "失効しない常設権限を追加しますか？",
+      "permanentBody": "以後このコマンドは誰にも確認せずこれらのホストで実行されます。この権限を後から消すものはありません。取り消すには config.json の gates.standingGrants を編集します。",
+      "permanentConfirm": "はい、失効させない",
+      "saved": "常設権限 {{id}} を追加しました。{{when}} に失効します。",
+      "savedPermanent": "常設権限 {{id}} を追加しました。失効しません。取り消すには gates.standingGrants を編集してください。",
+      "notSaved": "操作は承認されました。常設権限は保存されていません: {{reason}}"
+    },
     "deny": "拒否",
     "samePath": "この要求は現在の経路から届きました。別の認証済み経路から承認してください。1 つの侵害されたアカウントが両方の半分を用意してはいけません。",
     "denyTerminal": "拒否はこのセッションで最終です。オペレーターがロックを解除するまで、エージェントは再度要求できません。",
@@ -1775,6 +1820,68 @@
       "unauthenticatedPath": "gates.approvalPaths に webui がないので、この経路は承認者を認証しません。",
       "unknownOriginPath": "要求は発信元の経路を示していません。実行プロセスは経路の独立性を証明できません。",
       "unknownRequest": "実行プロセスはこの要求を保持していません。期限切れか、誰かが回答しました。"
+    },
+    "agentDelegated": "{{agent}} — {{delegatedBy}} から委任",
+    "agentAsserted": "エージェントが自分で名乗った名前です。このデプロイが認証した身元ではなくリクエストの主張であり、上のダイジェストはこれを含みません。"
+  },
+  "serverNotes": {
+    "title": "デバイスメモ",
+    "hint": "次にこのホストを触る人が知っておくべきこと。メモは期限切れになりません。観測と食い違うメモは、インフラが変わった証拠です。",
+    "add": "メモを追加",
+    "edit": "編集",
+    "cancelEdit": "キャンセル",
+    "append": "追記",
+    "saveRaw": "メモを保存",
+    "empty": "まだメモはありません。エージェントは何かを学んだときにここへ書き込みます。",
+    "operator": "オペレーター",
+    "titleLabel": "メモのタイトル",
+    "bodyLabel": "メモの本文",
+    "rawLabel": "Markdown のメモ",
+    "titlePlaceholder": "例: journald の設定は意図的",
+    "bodyPlaceholder": "結論と、直してはいけないこと。",
+    "authorNote": "検証済みの本人情報で、オペレーターとして署名されます。",
+    "showArchive": "アーカイブ済みのエントリを表示",
+    "archive": "アーカイブ",
+    "lastNote": "メモ {{when}}"
+  },
+  "agents": {
+    "roster": {
+      "title": "名前付きエージェント",
+      "help": "各エージェントは自身のモデルとツールで応答します。エージェントは設定ファイルで宣言されるため、このページは読み取るだけで変更はしません。",
+      "toolGroups": "ツールグループ",
+      "skills": "スキル",
+      "delegates": "委任先",
+      "addendum": "追記"
+    },
+    "detail": {
+      "tabs": "エージェント設定",
+      "prompt": "プロンプト"
+    },
+    "prompt": {
+      "loading": "プロンプト構成を読み込み中…",
+      "unavailable": "このゲートウェイはプロンプト構成を報告しません。",
+      "replaced": "差し替え済み",
+      "replacedHelp": "このデプロイはこのセクションのプラットフォーム側テキストを差し替えました。差し替えを隠す記録は、異なる二つのプロンプトを同一に見せてしまうため、セクション名はここに残します。",
+      "perTurn": "サイズはターンごとに変化",
+      "tokens": "{{tokens}} トークン",
+      "addendumTitle": "追記",
+      "addendumHelp": "追記は上のセクションの後に付け足されるもので、どのセクションも置き換えません。エージェントを宣言している設定ファイルで編集してください。",
+      "addendumEmpty": "このエージェントは追記を宣言していません。",
+      "estimateNote": "トークン数は、毎ターン同じコストになるセクションについての推定値です。あるターンが実際に運んだ量はそのターン側に表示されます。",
+      "permission": {
+        "replaceable": "あなたのもの",
+        "workspace": "ワークスペース",
+        "derived": "設定から生成",
+        "appendOnly": "追加のみ",
+        "fixed": "固定"
+      },
+      "permissionHelp": {
+        "replaceable": "このセクションはデプロイ自身が書くテキストです。",
+        "workspace": "別の経路ですでにあなたのものです。ワークスペースの指示ファイルがそれです。",
+        "derived": "設定から計算されるため、変更する場所は設定です。",
+        "appendOnly": "プラットフォームのセクションの後に追加され、どれも置き換えません。",
+        "fixed": "ツール契約と安全上の注意です。削除すると、ゲートは行為を拒否し続けるのに、モデルはその規則を知らない状態になります。"
+      }
     }
   }
 }

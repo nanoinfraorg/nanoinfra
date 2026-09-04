@@ -126,15 +126,17 @@ def render_approval_prompt_for_hosts(*, command: str, hosts: tuple[str, ...]) ->
     return _build(command=command, hosts=hosts, scope=None, pattern=None)
 
 
-def digest_rendered_prompt(text: str) -> str:
-    """Re-derive the binding digest from a rendered payload's own bytes.
-
-    This is how a caller proves the approval covers the display. The executor in #18 holds the
-    digest and the text, and needs no third field to compare them.
+def action_from_rendered_prompt(text: str) -> ApprovalPrompt:
+    """Recover the command and the host set from a rendered payload's own bytes.
 
     The function reads the command and the host list back out of ``text``, and then renders
     those values again. A text whose count, order, digest line, or fixed wording differs from
     that render raises: exactly one text exists for one command and one host set.
+
+    "Approve and add" (#219) derives its grant through this function, and not from the request
+    body. The bytes are the ones the executor rendered and the digest covers, so a grant built
+    from them cannot be wider than the action a human read. A grant built from a browser-side
+    string would be a way to widen authority by editing a request.
     """
     command, hosts = _extract(text)
     payload = _build(command=command, hosts=hosts, scope=None, pattern=None)
@@ -143,7 +145,16 @@ def digest_rendered_prompt(text: str) -> str:
             "This text is not a payload this renderer produced. A re-render of its command "
             "and its host list gives other bytes, so no digest describes it."
         )
-    return payload.target_digest
+    return payload
+
+
+def digest_rendered_prompt(text: str) -> str:
+    """Re-derive the binding digest from a rendered payload's own bytes.
+
+    This is how a caller proves the approval covers the display. The executor in #18 holds the
+    digest and the text, and needs no third field to compare them.
+    """
+    return action_from_rendered_prompt(text).target_digest
 
 
 def _build(
@@ -292,6 +303,7 @@ __all__ = [
     "PROMPT_VERSION",
     "ApprovalPrompt",
     "PromptRenderError",
+    "action_from_rendered_prompt",
     "digest_rendered_prompt",
     "render_approval_prompt",
     "render_approval_prompt_for_hosts",

@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  Bot,
   Check,
   ChevronRight,
   CircleAlert,
@@ -457,6 +458,7 @@ export function MessageBubble({
                 {assistantTimestampLabel}
               </time>
             ) : null}
+            {message.agent ? <TurnAgentMeta agent={message.agent} /> : null}
             {showUsage && turnUsage ? (
               <TurnUsageMeta usage={turnUsage} latencyMs={message.latencyMs} />
             ) : null}
@@ -471,6 +473,30 @@ export function MessageBubble({
         </TooltipProvider>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Which agent answered, on the turn (#248).
+ *
+ * Shown whenever the turn recorded one, including when the usage line is hidden: the cost is a
+ * detail an operator may switch off, and *who acted* is not. Absent for the deployment's default
+ * agent, so a deployment that names no agent sees no new chrome.
+ */
+function TurnAgentMeta({ agent }: { agent: string }) {
+  const { t } = useTranslation();
+  return (
+    <span
+      data-turn-agent={agent}
+      title={t("message.agent.title", {
+        defaultValue: "Answered by the {{agent}} agent",
+        agent,
+      })}
+      className="inline-flex items-center gap-1 text-[11px] leading-none text-muted-foreground/70"
+    >
+      <Bot className="h-3 w-3" aria-hidden />
+      {agent}
+    </span>
   );
 }
 

@@ -15,11 +15,13 @@ from nanoinfra.agent.turn_delivery import AUTOMATION_WITHHOLD_DELIVERY_META
 from nanoinfra.automations.delivery import normalize_policy, should_deliver
 from nanoinfra.automations.state import AutomationDeliveryLog, response_fingerprint
 from nanoinfra.bus.events import InboundMessage, OutboundMessage
-from nanoinfra.connectors.attachment import ATTACHED_CONNECTORS_META
+from nanoinfra.connectors.attachment import ATTACHED_CONNECTORS_META, RESOURCE_MENTIONS_META
+from nanoinfra.cron.agent_binding import agent_addendum_prefix, job_agent_binding
 from nanoinfra.runtime_context import RUNTIME_CONTEXT_INPUT_META
 from nanoinfra.session.automation_turns import (
     AUTOMATION_PRESETS_META,
     AUTOMATION_SKILLS_META,
+    automation_agent_metadata,
 )
 from nanoinfra.triggers.local_session_turns import LOCAL_TRIGGER_META
 from nanoinfra.triggers.local_store import LocalTriggerStore
@@ -165,8 +167,23 @@ async def _deliver_delivery(
 
     # Alongside the other preconditions, and before the processing record is written: a reference
     # that no longer resolves is not something a retry fixes, and the model must not get a chance
-    # to fall back to matching on a name.
+    # to fall back to matching on a name. An agent config no longer has is the same shape of
+    # failure, with a sharper consequence -- falling back to the deployment's default agent would
+    # widen a trigger somebody narrowed on purpose (#257).
+    binding = None
+    if trigger.agent:
+        try:
+            binding = job_agent_binding(
+                agent=trigger.agent,
+                skills=trigger.skills,
+                roster=store.named_agents,
+                asked_by=f"automation:{trigger.id}",
+            )
+        except ValueError as exc:
+            raise _TerminalDeliveryError(str(exc)) from exc
+
     reference_context = None
+    resolved_references: list[dict[str, Any]] = []
     if trigger.references:
         resolution = ResourceMentionResolver(store.workspace_path).resolve(trigger.references)
         try:
@@ -174,22 +191,44 @@ async def _deliver_delivery(
         except UnresolvedMentionError as exc:
             raise _TerminalDeliveryError(str(exc)) from exc
         reference_context = resource_mentions_runtime_context(resolution.resolved)
+        resolved_references = [mention.to_payload() for mention in resolution.resolved]
 
     store.write_delivery_run_record(delivery, trigger=trigger, status="processing")
     policy = normalize_policy(trigger.delivery)
     metadata = _delivery_metadata(trigger, delivery)
-    if trigger.skills:
-        metadata[AUTOMATION_SKILLS_META] = list(trigger.skills)
+    if binding is not None:
+        # Who acts, and the ceiling that travels with the turn. The name goes on the same seam a
+        # person's chosen agent uses, so `AgentLoop` resolves it against the roster and the turn
+        # record says which agent answered. Nothing is written when no agent is named: absent and
+        # "the default agent" have to be one state.
+        metadata.update(automation_agent_metadata(binding.name, binding.tool_groups))
+    declared_skills = list(binding.skills) if binding is not None else list(trigger.skills)
+    if declared_skills:
+        metadata[AUTOMATION_SKILLS_META] = declared_skills
     if trigger.mcp_presets:
         # The same key a mention writes, so an unattended turn reaches a `mention` server the only
         # way it can: by having declared it in advance (#204).
         metadata[AUTOMATION_PRESETS_META] = list(trigger.mcp_presets)
     if trigger.connectors:
         metadata[ATTACHED_CONNECTORS_META] = list(trigger.connectors)
-    if trigger.tool_groups:
-        metadata[ATTACHED_GROUPS_META] = list(trigger.tool_groups)
+    attached_groups = list(trigger.tool_groups)
+    if binding is not None:
+        # Attached as well as capped: a group set to `attach: mention` would otherwise withhold
+        # its schemas from the very agent whose whole tool set it is, and nobody types `@servers`
+        # into a trigger. This widens nothing -- the ceiling *is* this list.
+        attached_groups += [
+            group for group in binding.tool_groups if group not in attached_groups
+        ]
+    if attached_groups:
+        metadata[ATTACHED_GROUPS_META] = attached_groups
     if reference_context is not None:
         metadata[RUNTIME_CONTEXT_INPUT_META] = [reference_context]
+    if resolved_references:
+        # The same key the composer writes for an `@server:` mention, so "the turn named this
+        # server" is one fact with one reader (#226). Device memory is loaded from it, and it is
+        # dropped before the turn is stored (`_LIVE_TURN_ONLY_META`) because a trigger re-resolves
+        # its references when it fires.
+        metadata[RESOURCE_MENTIONS_META] = resolved_references
     withholding = policy != "always" and publish is not None
     if withholding:
         metadata[AUTOMATION_WITHHOLD_DELIVERY_META] = True
@@ -197,7 +236,9 @@ async def _deliver_delivery(
         channel=trigger.channel,
         sender_id=trigger.sender_id,
         chat_id=trigger.chat_id,
-        content=delivery.content,
+        # The agent's own instructions in front of the message, because the message came from
+        # whatever fired this trigger: trusted text precedes untrusted text.
+        content=agent_addendum_prefix(binding) + delivery.content,
         metadata=metadata,
         session_key_override=trigger.session_key,
     )

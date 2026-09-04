@@ -119,6 +119,56 @@ async def test_plain_text(bus: MagicMock) -> None:
 
 
 @pytest.mark.asyncio
+async def test_the_chosen_agent_reaches_the_turn_metadata(bus: MagicMock) -> None:
+    """The composer's agent choice travels as one field and is *recorded*, not honoured here.
+
+    Whether the name means anything is `agents.named`'s answer, resolved in the loop -- the same
+    posture a named connector has. This layer only carries what the operator asked for.
+    """
+    ch = _ch(bus, 29931)
+    t = asyncio.create_task(ch.start())
+    try:
+        async with WsTestClient("ws://127.0.0.1:29931/", client_id="a") as c:
+            ready = await c.recv_ready()
+            await c.send_json({
+                "type": "message",
+                "chat_id": ready.chat_id,
+                "content": "check db-01",
+                "agent": "sre-prod",
+            })
+            await asyncio.sleep(0.1)
+            inbound = bus.publish_inbound.call_args[0][0]
+            assert inbound.metadata["agent"] == "sre-prod"
+    finally:
+        await ch.stop()
+        await t
+
+
+@pytest.mark.asyncio
+async def test_a_turn_that_names_no_agent_carries_no_agent_key(bus: MagicMock) -> None:
+    """Which is every turn today. An empty or non-string value is the same as absent, so a client
+    cannot put a blank name where the loop expects either a name or nothing."""
+    ch = _ch(bus, 29932)
+    t = asyncio.create_task(ch.start())
+    try:
+        async with WsTestClient("ws://127.0.0.1:29932/", client_id="b") as c:
+            ready = await c.recv_ready()
+            for junk in (None, "", "   ", 7, ["sre-prod"]):
+                await c.send_json({
+                    "type": "message",
+                    "chat_id": ready.chat_id,
+                    "content": "hello",
+                    "agent": junk,
+                })
+                await asyncio.sleep(0.05)
+                inbound = bus.publish_inbound.call_args[0][0]
+                assert "agent" not in inbound.metadata, junk
+    finally:
+        await ch.stop()
+        await t
+
+
+@pytest.mark.asyncio
 async def test_json_content_field(bus: MagicMock) -> None:
     ch = _ch(bus, 29905)
     t = asyncio.create_task(ch.start())

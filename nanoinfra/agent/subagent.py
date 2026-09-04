@@ -5,12 +5,14 @@ import json
 import time
 import uuid
 import warnings
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, TypedDict
 
 from loguru import logger
 
+from nanoinfra.agent.delegation import DelegateBinding, tools_for_groups
 from nanoinfra.agent.hook import AgentHook, AgentHookContext, AgentRunHookContext
 from nanoinfra.agent.runner import AgentRunner, AgentRunResult, AgentRunSpec
 from nanoinfra.agent.subagent_transcript import SubagentTranscriptStore
@@ -116,6 +118,7 @@ class SubagentManager:
         max_concurrent_subagents: int | None = None,
         fail_on_tool_error: bool | None = None,
         llm_wall_timeout_for_session: Callable[[str | None], float | None] | None = None,
+        gate: Any = None,
     ):
         if workspace is None:
             raise TypeError("SubagentManager.__init__() missing required argument: 'workspace'")
@@ -146,6 +149,10 @@ class SubagentManager:
         self.bus = bus
         self.transcripts = SubagentTranscriptStore(workspace)
         self.tools_config = tools_config or ToolsConfig()
+        #: The gate runtime, handed to a *delegated* turn's tools so a peer reaches the same
+        #: approval path the turn that spawned it would have. Typed loosely for the same reason
+        #: `ToolContext.gate` is: the gate module imports the agent tree.
+        self._gate: Any = gate
         self.max_tool_result_chars = max_tool_result_chars
         self.restrict_to_workspace = restrict_to_workspace
         self.disabled_skills = set(disabled_skills or [])
@@ -239,11 +246,59 @@ class SubagentManager:
             self._file_states_by_session[session_key] = existing
         return existing
 
+    @staticmethod
+    def _inherited_ceiling() -> dict[str, Any]:
+        """The acting agent's tool-group ceiling, copied from the turn that is spawning.
+
+        Read here rather than in the child, because the child runs in another task and the
+        parent's request context is gone by the time it starts.
+
+        Without this a capped turn could spawn an uncapped subagent and reach, through it, exactly
+        the tools its agent was declared not to have -- the ceiling held for the turn and leaked
+        one level down. Only the ceiling travels: the agent's *name* deliberately does not, because
+        a subagent is not a second turn by that agent and must not be recorded as one.
+        """
+        from nanoinfra.agent.tools.context import current_request_context
+        from nanoinfra.session.automation_turns import (
+            AUTOMATION_AGENT_META,
+            automation_agent_tool_groups,
+        )
+
+        ctx = current_request_context()
+        if ctx is None:
+            return {}
+        groups = automation_agent_tool_groups(ctx.metadata)
+        if not groups:
+            return {}
+        return {AUTOMATION_AGENT_META: {"tool_groups": list(groups)}}
+
+    @staticmethod
+    def _group_membership() -> dict[str, set[str]]:
+        """tool name -> the groups holding it, from config first and the built-ins for the rest.
+
+        Read here rather than imported as state, because a group a deployment declared is the one
+        that governs; ``BUILTIN_GROUPS`` only answers for a group config never mentioned.
+        """
+        from nanoinfra.agent.tools.groups import BUILTIN_GROUPS, declared_groups
+
+        membership: dict[str, set[str]] = {}
+        declared = declared_groups()
+        for name, group in declared.items():
+            for tool_name in group.tools:
+                membership.setdefault(tool_name, set()).add(name)
+        for name, (_description, tools) in BUILTIN_GROUPS.items():
+            if name in declared:
+                continue
+            for tool_name in tools:
+                membership.setdefault(tool_name, set()).add(name)
+        return membership
+
     def _build_tools(
         self,
         workspace: Path | None = None,
         tools_config: ToolsConfig | None = None,
         session_key: str | None = None,
+        binding: DelegateBinding | None = None,
     ) -> ToolRegistry:
         """Build an isolated subagent tool registry via ToolLoader."""
         root = self.workspace if workspace is None else workspace
@@ -258,8 +313,28 @@ class SubagentManager:
                 restrict_to_workspace=cfg.restrict_to_workspace,
                 workspace=root,
             ),
+            # The gate, for a delegated turn only. Without it the peer's tools fall back to policy
+            # alone -- no approval path -- and a peer could execute where the turn that spawned it
+            # would have stopped to ask. That is the invariant inverted, so the gate travels with
+            # the binding. A plain subagent is unchanged: giving it one is a different decision
+            # from this one, and not this issue's to make.
+            gate=self._gate if binding is not None else None,
         )
-        ToolLoader().load(ctx, registry, scope="subagent")
+        # A delegated turn runs the **core** scope, because a delegate is a different agent and
+        # not a helper of this one: the tools its groups name -- `servers`, `diagrams` -- are
+        # core-scoped, and under the subagent scope an agent declared with `toolGroups:
+        # ["servers"]` would have received none of them. A plain subagent keeps the narrower
+        # scope it has always had.
+        ToolLoader().load(ctx, registry, scope="core" if binding is not None else "subagent")
+        if binding is not None and binding.tool_groups:
+            # The peer's tool set is *declared*, not accumulated. Unregistering after the load
+            # rather than filtering the loader keeps one code path building tools, so a peer sees
+            # tools constructed exactly as every other turn constructs them.
+            kept = tools_for_groups(
+                registry.tool_names, binding.tool_groups, self._group_membership()
+            )
+            for name in [n for n in registry.tool_names if n not in kept]:
+                registry.unregister(name)
         return registry
 
     async def spawn(
@@ -274,6 +349,7 @@ class SubagentManager:
         workspace_scope: WorkspaceScope | None = None,
         *,
         runtime: LLMRuntime | None = None,
+        binding: DelegateBinding | None = None,
     ) -> str:
         """Spawn a subagent to execute a task in the background."""
         if runtime is None:
@@ -297,6 +373,7 @@ class SubagentManager:
             started_at=time.monotonic(),
         )
         self._task_statuses[task_id] = status
+        inherited = self._inherited_ceiling()
 
         bg_task = asyncio.create_task(
             self._run_subagent(
@@ -308,6 +385,8 @@ class SubagentManager:
                 runtime,
                 origin_message_id,
                 workspace_scope,
+                binding=binding,
+                inherited_metadata=inherited,
             )
         )
         self._running_tasks[task_id] = bg_task
@@ -339,8 +418,15 @@ class SubagentManager:
         workspace_scope: WorkspaceScope | None = None,
         *,
         runtime: LLMRuntime | None = None,
+        binding: DelegateBinding | None = None,
+        usage_sink: dict[str, Any] | None = None,
     ) -> str:
-        """Run a subagent synchronously and return its result to the caller."""
+        """Run a subagent synchronously and return its result to the caller.
+
+        ``usage_sink``, when given, receives the run's own token usage under ``"usage"``. An out
+        parameter rather than a richer return type, because the status this reads is dropped in
+        the ``finally`` below and the other caller of this method returns a plain string.
+        """
         if runtime is None:
             runtime = self._compat_spawn_runtime()
         if temperature is not None:
@@ -361,6 +447,7 @@ class SubagentManager:
             started_at=time.monotonic(),
         )
         self._task_statuses[task_id] = status
+        inherited = self._inherited_ceiling()
         logger.info("Running inline subagent [{}]: {}", task_id, display_label)
         inline_task = asyncio.create_task(
             self._run_subagent(
@@ -373,6 +460,8 @@ class SubagentManager:
                 origin_message_id,
                 workspace_scope,
                 announce=False,
+                binding=binding,
+                inherited_metadata=inherited,
             )
         )
         self._running_tasks[task_id] = inline_task
@@ -380,6 +469,8 @@ class SubagentManager:
             self._session_tasks.setdefault(session_key, set()).add(task_id)
         try:
             result = await inline_task
+            if usage_sink is not None and status.usage is not None:
+                usage_sink["usage"] = status.usage.to_turn_dict()
             if status.phase == "error" or status.stop_reason in {"error", "tool_error"}:
                 return ToolResult.error(result)
             return result
@@ -403,6 +494,8 @@ class SubagentManager:
         workspace_scope: WorkspaceScope | None = None,
         *,
         announce: bool = True,
+        binding: DelegateBinding | None = None,
+        inherited_metadata: dict[str, Any] | None = None,
     ) -> str:
         """Execute the subagent task and announce the result."""
         logger.info("Subagent [{}] starting task: {}", task_id, label)
@@ -430,8 +523,10 @@ class SubagentManager:
                 cfg.restrict_to_workspace = workspace_scope.restrict_to_workspace
             # Construct from the agent workspace; the bound scope below supplies the project cwd.
             # The origin carries the parent session, which is what siblings share a tracker by.
-            tools = self._build_tools(tools_config=cfg, session_key=origin.get("session_key"))
-            system_prompt = self._build_subagent_prompt(workspace=root)
+            tools = self._build_tools(
+                tools_config=cfg, session_key=origin.get("session_key"), binding=binding
+            )
+            system_prompt = self._build_subagent_prompt(workspace=root, binding=binding)
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": task},
@@ -449,33 +544,58 @@ class SubagentManager:
                 message_id=origin_message_id,
                 session_key=sess_key,
                 runtime=runtime,
+                # Both names, so the turn knows who it is and the record knows who asked. Their
+                # presence is also the one-level check: a turn that carries `delegated_by` is
+                # already a delegation and its own delegation tool refuses.
+                agent=binding.name if binding else None,
+                delegated_by=binding.delegated_by if binding else None,
+                # The originating human, so the gate can route an approval back to the person who
+                # asked (#251). None on an unattended chain, where a standing grant is the only
+                # path -- which is the fail-closed half and has to stay that way.
+                sender_id=binding.actor if binding else None,
+                # Only the ceiling, never the acting agent's name: this is not a second turn by
+                # that agent, and recording it as one would be a misattribution.
+                metadata=dict(inherited_metadata or {}),
                 # The origin channel stays for delivery and for the record. It must not
                 # decide this value. A subagent inherits a chat channel. So a derived
                 # value would read interactive for a run that nobody watches.
                 execution_context=EXECUTION_CONTEXT_SUBAGENT,
             ))
             token = bind_workspace_scope(workspace_scope) if workspace_scope is not None else None
-            try:
-                result = await self.runner.run(AgentRunSpec(
-                    initial_messages=messages,
-                    tools=tools,
-                    runtime=runtime,
-                    max_iterations=self.max_iterations,
-                    max_tool_result_chars=self.max_tool_result_chars,
-                    hook=hook,
-                    max_iterations_message="Task completed but no final response was generated.",
-                    finalize_on_max_iterations=False,
-                    error_message=None,
-                    fail_on_tool_error=self.fail_on_tool_error,
-                    checkpoint_callback=_on_checkpoint,
-                    session_key=sess_key,
-                    workspace=root,
-                    llm_timeout_s=llm_timeout,
-                ))
-            finally:
-                if token is not None:
-                    reset_workspace_scope(token)
-                reset_request_context(request_token)
+            # The ceiling the spawning turn held, declared for the whole delegated turn the way
+            # the workspace scope is (#251). Nothing inside can widen it: the gate layer reads
+            # this value and never writes it. `ExitStack` because the two bindings are
+            # independent and either may be absent.
+            with ExitStack() as ceiling:
+                if binding is not None:
+                    from nanoinfra.gates.delegation import bind_inherited_capabilities
+
+                    ceiling.enter_context(
+                        bind_inherited_capabilities(binding.inherited_capabilities)
+                    )
+                try:
+                    result = await self.runner.run(AgentRunSpec(
+                        initial_messages=messages,
+                        tools=tools,
+                        runtime=runtime,
+                        max_iterations=self.max_iterations,
+                        max_tool_result_chars=self.max_tool_result_chars,
+                        hook=hook,
+                        max_iterations_message=(
+                            "Task completed but no final response was generated."
+                        ),
+                        finalize_on_max_iterations=False,
+                        error_message=None,
+                        fail_on_tool_error=self.fail_on_tool_error,
+                        checkpoint_callback=_on_checkpoint,
+                        session_key=sess_key,
+                        workspace=root,
+                        llm_timeout_s=llm_timeout,
+                    ))
+                finally:
+                    if token is not None:
+                        reset_workspace_scope(token)
+                    reset_request_context(request_token)
             if self._persist_transcript(
                 task_id, hook, result.stop_reason, usage=result.usage
             ):
@@ -637,7 +757,11 @@ class SubagentManager:
             lines.append(f"- {result.error}")
         return "\n".join(lines) or (result.error or "Error: subagent execution failed.")
 
-    def _build_subagent_prompt(self, workspace: Path | None = None) -> str:
+    def _build_subagent_prompt(
+        self,
+        workspace: Path | None = None,
+        binding: DelegateBinding | None = None,
+    ) -> str:
         """Build a focused system prompt for the subagent."""
         from nanoinfra.agent.skills import SkillsLoader
 
@@ -647,13 +771,36 @@ class SubagentManager:
             self.workspace,
             disabled_skills=self.disabled_skills,
         ).build_skills_summary()
-        return render_template(
+        prompt = render_template(
             "agent/subagent_system.md",
             workspace=str(project_workspace),
             agent_workspace=str(agent_workspace),
             history_log=str(agent_workspace / "memory" / "history.jsonl"),
             skills_summary=skills_summary or "",
         )
+        if binding is None:
+            return prompt
+        # Appended, never substituted. A peer that could replace this text could drop the tool
+        # contract and the safety notes with it, and the addendum is written by whoever edits
+        # config -- not by the manager that asked for the delegation.
+        lines = [
+            prompt,
+            "",
+            "## You are a delegated agent",
+            "",
+            f"You are `{binding.name}`. `{binding.delegated_by}` asked for this task and is "
+            "waiting on your answer.",
+            "",
+            "You see the task, not the conversation it came from. If it is missing something "
+            f"you need, say what is missing rather than guessing -- `{binding.delegated_by}` "
+            "can supply it and ask again.",
+            "",
+            "You cannot delegate. Delegation is one level deep, so report what you found and "
+            "let the agent that asked decide who does the next step.",
+        ]
+        if binding.addendum.strip():
+            lines += ["", "## Your instructions", "", binding.addendum.strip()]
+        return "\n".join(lines)
 
     async def cancel_by_session(self, session_key: str) -> int:
         """Cancel all subagents for the given session. Returns count cancelled."""

@@ -97,6 +97,9 @@ type ShellView =
   | "apps"
   | "automations"
   | "skills"
+  // The Agents area (#253): a top-level destination rather than a settings section, so an agent
+  // page is deep-linkable the way `diagrams` and `approvals` already are.
+  | "agents"
   | "diagrams"
   | "workspace"
   | "servers"
@@ -199,6 +202,9 @@ function defaultShellRoute(): ShellRoute {
 
 function shellViewForSettingsSection(section: SettingsSectionKey): ShellView {
   if (section === "apps" || section === "automations" || section === "skills") return section;
+  // `agents` follows the same pattern those three established: one settings panel, reached as its
+  // own destination and rendered without the settings sidebar.
+  if (section === "agents") return "agents";
   return "settings";
 }
 
@@ -268,6 +274,9 @@ function readShellRoute(): ShellRoute {
   }
   if (path === "/skills") {
     return { view: "skills", activeKey, settingsSection: "skills" };
+  }
+  if (path === "/agents") {
+    return { view: "agents", activeKey, settingsSection: "agents" };
   }
   if (path === "/diagrams") {
     const diagramId = params.get("d")?.trim() || null;
@@ -1845,6 +1854,12 @@ function Shell({
     setMobileSidebarOpen(false);
   }, [activeKey, navigate]);
 
+  const onOpenAgents = useCallback(() => {
+    setSessionSearchOpen(false);
+    navigate({ view: "agents", activeKey, settingsSection: "agents" });
+    setMobileSidebarOpen(false);
+  }, [activeKey, navigate]);
+
   const onSettingsSectionChange = useCallback(
     (section: SettingsSectionKey) => {
       navigate({
@@ -2102,6 +2117,12 @@ function Shell({
       });
       return;
     }
+    if (view === "agents") {
+      document.title = t("app.documentTitle.chat", {
+        title: t("sidebar.agents", { defaultValue: "Agents" }),
+      });
+      return;
+    }
     document.title = activeSession
       ? t("app.documentTitle.chat", { title: headerTitle })
       : t("app.documentTitle.base");
@@ -2131,6 +2152,10 @@ function Shell({
     onOpenServers,
     onOpenSecrets,
     onOpenApprovals,
+    onOpenAgents,
+    // The roster the sidebar decides with (#253). Zero named agents means the navigation is
+    // exactly what it is today: no Agents destination, and no Abilities grouping either.
+    namedAgentCount: settingsSnapshot?.named_agents?.length ?? 0,
     approvalsCount: approvals.count,
     onSettingsIntent,
     onOpenSearch: onOpenSessionSearch,
@@ -2138,6 +2163,7 @@ function Shell({
       view === "apps"
       || view === "automations"
       || view === "skills"
+      || view === "agents"
       || view === "diagrams"
       || view === "workspace"
       || view === "servers"

@@ -38,7 +38,7 @@ from nanoinfra.agent.tools.capabilities import (
     MUTATE_REMOTE,
     READ,
 )
-from nanoinfra.gates.audit import DECISION_COMPLETION
+from nanoinfra.gates.audit import DECISION_COMPLETION, DECISION_GRANT_WRITTEN
 
 if TYPE_CHECKING:
     from nanoinfra.gates.audit import AuditStore
@@ -48,8 +48,8 @@ AUDIT_READ_PATH = "/api/webui/gates/audit"
 
 # The values the log writes today, for the viewer's selects. The server owns this list, so a new
 # decision name needs no UI edit. `refused` is #15's latched attempt. `expired` is #38's deadline.
-# `completion` is #46's outcome record, and it comes from the store rather than from a copy of the
-# string here, so one name cannot drift into two.
+# `completion` is #46's outcome record, and `grant_written` is #219's derived grant. Both come from
+# the store rather than from a copy of the string here, so one name cannot drift into two.
 DECISION_CHOICES = (
     "allow",
     "grant",
@@ -62,6 +62,7 @@ DECISION_CHOICES = (
     "preview",
     "would_gate",
     DECISION_COMPLETION,
+    DECISION_GRANT_WRITTEN,
 )
 
 CAPABILITY_CLASS_CHOICES = (

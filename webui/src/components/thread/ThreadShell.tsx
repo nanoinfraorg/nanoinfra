@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useTranslation } from "react-i18next";
 
 import type { DiagramSummary } from "@/components/diagrams/diagramTypes";
-import type { ServerSummary } from "@/lib/api";
+import type { NamedAgentSummary, ServerSummary } from "@/lib/api";
 
 import { FilePreviewAvailabilityProvider } from "@/components/FilePreviewAvailabilityContext";
 import { FilePreviewPanel } from "@/components/FilePreviewPanel";
@@ -25,6 +25,7 @@ import {
   fetchConnectorObjects,
   fetchConnectors,
   fetchMcpPresets,
+  fetchNamedAgents,
   fetchServers,
   fetchSettings,
   listSlashCommands,
@@ -653,6 +654,24 @@ export function ThreadShell({
   // against the store at send time, so a stale menu entry is refused rather than acted on.
   const [mentionServers, setMentionServers] = useState<ServerSummary[]>([]);
   const [mentionDiagrams, setMentionDiagrams] = useState<DiagramSummary[]>([]);
+  // The named-agent roster, so `@agent:` can offer them (#255). Same posture as the two above:
+  // one read per shell, and the roster is re-read from config when the turn actually runs, so a
+  // menu entry for an agent that has since been removed is refused rather than acted on.
+  const [mentionAgents, setMentionAgents] = useState<NamedAgentSummary[]>([]);
+  // Which agent answers, per chat (#254). Keyed by chat because the choice belongs to the
+  // conversation; the welcome composer has no id yet and uses the empty key until it gets one.
+  const [agentByChatId, setAgentByChatId] = useState<Record<string, string | null>>({});
+  const chosenAgent = agentByChatId[chatId ?? ""] ?? null;
+  // Read by `withTurnBindings`, which must not be rebuilt on every choice: a new identity there
+  // re-renders both composers and drops the caret.
+  const chosenAgentRef = useRef<string | null>(chosenAgent);
+  chosenAgentRef.current = chosenAgent;
+  const handleAgentChange = useCallback(
+    (agent: string | null) => {
+      setAgentByChatId((prev) => ({ ...prev, [chatId ?? ""]: agent }));
+    },
+    [chatId],
+  );
   // A connector's objects come from the connector rather than from a local store, so this is one
   // read through the executor per shell. The result is cached server-side: a mention resolves
   // against that cache at send time, so a menu entry that has gone stale is refused rather than
@@ -675,6 +694,15 @@ export function ThreadShell({
       })
       .catch(() => {
         if (!cancelled) setMentionDiagrams([]);
+      });
+    void fetchNamedAgents(getToken())
+      .then((payload) => {
+        if (!cancelled) setMentionAgents(payload.agents);
+      })
+      .catch(() => {
+        // No roster reads as no named agents, which is the shape of every deployment that has
+        // one. The prefix disappears; nothing else in the menu is affected.
+        if (!cancelled) setMentionAgents([]);
       });
     // Twice on purpose. The cached read answers immediately, so `@calendar:` is in the menu on the
     // first keystroke; the refreshing read costs a token mint and a live call per connector, and
@@ -909,12 +937,17 @@ export function ThreadShell({
     wasShowingHeroComposerRef.current = showHeroComposer;
   }, [showHeroComposer]);
 
-  const withWorkspaceScope = useCallback(
+  // One funnel for the bindings a turn carries, because both send paths -- the welcome composer
+  // and the thread composer -- go through it. Adding the agent at each call site instead would
+  // mean five places that have to agree, which is four chances for a turn to run unattributed.
+  const withTurnBindings = useCallback(
     (options?: SendOptions): SendOptions | undefined => {
-      if (!workspaceScope) return options;
+      const agent = chosenAgentRef.current;
+      if (!workspaceScope && !agent) return options;
       return {
         ...(options ?? {}),
-        workspaceScope,
+        ...(workspaceScope ? { workspaceScope } : {}),
+        ...(agent ? { agent } : {}),
       };
     },
     [workspaceScope],
@@ -1285,7 +1318,7 @@ export function ThreadShell({
     async (content: string, images?: SendAttachment[], options?: SendOptions) => {
       if (booting) return;
       setBooting(true);
-      pendingFirstRef.current = { content, images, options: withWorkspaceScope(options) };
+      pendingFirstRef.current = { content, images, options: withTurnBindings(options) };
       setPendingFirstTargetChatId(null);
       const newId = await onCreateChat?.(workspaceScope);
       if (!newId) {
@@ -1297,21 +1330,27 @@ export function ThreadShell({
       if (localModelPreset) {
         await client.sendSystemCommand(newId, `/model ${localModelPreset}`).catch(() => {});
       }
+      // The welcome composer has no chat id yet, so its agent choice was stored under the empty
+      // key. Carry it to the chat that choice created, or the first turn would run as the chosen
+      // agent while the thread's own badge read "Default agent" (#254).
+      setAgentByChatId((prev) => (
+        prev[""] ? { ...prev, [newId]: prev[""] } : prev
+      ));
       setPendingFirstTargetChatId(newId);
     },
-    [booting, client, localModelPreset, onCreateChat, withWorkspaceScope, workspaceScope],
+    [booting, client, localModelPreset, onCreateChat, withTurnBindings, workspaceScope],
   );
 
   const handleThreadSend = useCallback(
     (content: string, images?: SendAttachment[], options?: SendOptions) => {
       setFallbackModelName(null);
-      const submitted = send(content, images, withWorkspaceScope(options));
+      const submitted = send(content, images, withTurnBindings(options));
       if (chatId && submitted && !submitted.sideChannel) {
         activeViewportTurnByChatIdRef.current.set(chatId, submitted.turnId);
         setSubmittedViewportTurnId(submitted.turnId);
       }
     },
-    [chatId, send, withWorkspaceScope],
+    [chatId, send, withTurnBindings],
   );
 
   const handleOpenFilePreview = useCallback((path: string) => {
@@ -1384,6 +1423,9 @@ export function ThreadShell({
           connectorObjects={mentionConnectorObjects}
           connectors={mentionConnectors}
           diagrams={mentionDiagrams}
+          namedAgents={mentionAgents}
+          agent={chosenAgent}
+          onAgentChange={handleAgentChange}
           mcpPresets={mcpPresets}
           sessions={mentionSessions}
           skills={skills}
@@ -1433,6 +1475,9 @@ export function ThreadShell({
           connectorObjects={mentionConnectorObjects}
           connectors={mentionConnectors}
           diagrams={mentionDiagrams}
+          namedAgents={mentionAgents}
+          agent={chosenAgent}
+          onAgentChange={handleAgentChange}
           mcpPresets={mcpPresets}
           sessions={mentionSessions}
           skills={skills}

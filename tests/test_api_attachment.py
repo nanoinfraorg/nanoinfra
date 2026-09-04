@@ -137,22 +137,59 @@ def test_parse_json_content_plain_text_only() -> None:
     assert media_paths == []
 
 
-def test_parse_json_content_validates_single_message() -> None:
-    """Multiple messages raise ValueError."""
+def test_consecutive_user_messages_are_one_turn() -> None:
+    """The tail is what the client is asking for now, and it may be more than one item.
+
+    This used to be refused, which is what made a coding CLI resending its own transcript fail
+    with a 400 on the second message of every conversation.
+    """
     body = {
         "messages": [
             {"role": "user", "content": "first"},
             {"role": "user", "content": "second"},
         ]
     }
-    with pytest.raises(ValueError, match="single user message"):
+
+    text, media_paths = _parse_json_content(body)
+
+    assert text == "first\n\nsecond"
+    assert media_paths == []
+
+
+def test_history_up_to_the_last_assistant_reply_is_the_clients_own_copy() -> None:
+    """It is dropped rather than replayed: the session already holds it, and answering it again
+    would charge the caller for a conversation the server never forgot."""
+    body = {
+        "messages": [
+            {"role": "user", "content": "old question"},
+            {"role": "assistant", "content": "old answer"},
+            {"role": "user", "content": "new question"},
+        ]
+    }
+
+    text, _media_paths = _parse_json_content(body)
+
+    assert text == "new question"
+
+
+def test_a_request_with_no_user_message_is_refused() -> None:
+    """A system prompt alone asks nothing. The reason says so rather than naming a shape."""
+    body = {"messages": [{"role": "system", "content": "you are a bot"}]}
+
+    with pytest.raises(ValueError, match="no user message to answer"):
         _parse_json_content(body)
 
 
-def test_parse_json_content_validates_user_role() -> None:
-    """Non-user role raises ValueError."""
-    body = {"messages": [{"role": "system", "content": "you are a bot"}]}
-    with pytest.raises(ValueError, match="single user message"):
+def test_a_transcript_that_ends_in_an_assistant_reply_is_refused() -> None:
+    """There is no new turn in it. Answering the previous one would repeat the last answer."""
+    body = {
+        "messages": [
+            {"role": "user", "content": "question"},
+            {"role": "assistant", "content": "answer"},
+        ]
+    }
+
+    with pytest.raises(ValueError, match="no new turn to answer"):
         _parse_json_content(body)
 
 

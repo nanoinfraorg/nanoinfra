@@ -78,7 +78,9 @@
     "website": "nanoinfra website",
     "documentation": "Documentation",
     "docs": "docs",
-    "signOut": "Sign out"
+    "signOut": "Sign out",
+    "agents": "Agents",
+    "abilities": "Abilities"
   },
   "settings": {
     "backToChat": "Back to chat",
@@ -104,7 +106,8 @@
       "apps": "Apps",
       "automations": "Automations",
       "skills": "Skills",
-      "agents": "Agents"
+      "agents": "Agents",
+      "knowledge": "Knowledge"
     },
     "sections": {
       "interface": "Interface",
@@ -812,6 +815,7 @@
         "timezone": "Timezone",
         "runAt": "Run at",
         "delivery": "When to notify me",
+        "agent": "Runs as",
         "skills": "Skills to load"
       },
       "scheduleTypes": {
@@ -863,6 +867,8 @@
       },
       "skillsHelp": "Pick none to summarise every skill, as before. Picking some loads those in full and leaves the rest out of this automation's prompt.",
       "skillsEmpty": "No skills installed",
+      "agentDefault": "Default agent",
+      "agentHelp": "The agent sets the ceiling for this run: its tool groups and its own instructions. The job may narrow that, never widen it.",
       "referencePicker": "Reference a resource",
       "referenceMissing": "{{kind}} no longer exists",
       "referenceBrokenHint": "This automation will refuse to run until the missing reference is removed.",
@@ -1087,6 +1093,8 @@
         "empty": "No grants. No automation may run a remote command.",
         "hosts": "Hosts",
         "commands": "Commands",
+        "expires": "Expires {{when}}",
+        "expired": "Expired {{when}}. The gate no longer matches it, and nothing removed the row.",
         "add": "Add a grant",
         "remove": "Remove grant",
         "note": "A grant permits a remote command and nothing else. It cannot permit an inventory write."
@@ -1546,6 +1554,10 @@
         "referenceGroup": "Reference",
         "referenceBadge": "Reference",
         "serverPrefixHint": "Reference one of {{count}} servers",
+        "agentPrefixHint": "Ask for one of {{count}} agents",
+        "agentGroup": "Agents",
+        "agentBadge": "Agent",
+        "agentNoDescription": "Ask the manager to prefer this agent",
         "diagramPrefixHint": "Reference one of {{count}} diagrams",
         "serverGroup": "Servers",
         "diagramGroup": "Diagrams",
@@ -1671,7 +1683,26 @@
     "fileEditShowMoreLines": "Show {{count}} more lines",
     "fileEditShowFewerLines": "Show fewer lines",
     "fileEditOpenFile": "Open file",
-    "fileEditDiffTruncated": "Diff truncated. Open the file for the full change."
+    "fileEditDiffTruncated": "Diff truncated. Open the file for the full change.",
+    "plan": {
+      "title": "Plan",
+      "answered": "{{count}} answered",
+      "failed": "{{count}} failed",
+      "running": "{{count}} running",
+      "total": "delegated {{usage}}",
+      "totalPartial": "{{reported}} of {{total}} reported",
+      "totalTitle": "The delegations' own cost, summed. A delegated turn is its own turn, so this is not part of the answering agent's own usage.",
+      "unknownAgent": "a peer",
+      "step": {
+        "running": "Delegating to {{agent}}",
+        "done": "{{agent}} answered",
+        "failed": "{{agent}} failed",
+        "noAnswer": "{{agent}} did not report"
+      }
+    },
+    "prompt": {
+      "replaced": "replaced"
+    }
   },
   "lightbox": {
     "title": "Image preview",
@@ -1753,11 +1784,25 @@
       "approve": "Approve from",
       "session": "Session",
       "class": "Capability class",
-      "digest": "Binding digest"
+      "digest": "Binding digest",
+      "agent": "Acting agent"
     },
     "approveFromValue": "webui (this session, authenticated)",
     "approve": "Approve",
     "approveUnavailable": "Approve (unavailable)",
+    "grant": {
+      "menuLabel": "Approve and add a standing grant",
+      "menuNote": "Adds a standing grant for this exact command on these hosts. A command that differs by one flag is a different command.",
+      "add24h": "Approve and add — expires in 24 hours",
+      "add7d": "Approve and add — expires in 7 days",
+      "addNever": "Approve and add — never expires",
+      "permanentTitle": "Add a grant that never expires?",
+      "permanentBody": "This command runs on these hosts from now on, with nobody asked. Nothing removes the grant later: you edit gates.standingGrants in config.json to take it back.",
+      "permanentConfirm": "Yes, never expires",
+      "saved": "Standing grant {{id}} added. It expires {{when}}.",
+      "savedPermanent": "Standing grant {{id}} added, and it never expires. Edit gates.standingGrants to take it back.",
+      "notSaved": "The action was approved. The grant was not saved: {{reason}}"
+    },
     "deny": "Deny",
     "samePath": "This request came from the path you are on. Approve it from another authenticated path. One compromised account must not supply both halves.",
     "denyTerminal": "A denial is terminal for this session. The agent cannot ask again until an operator clears the latch.",
@@ -1775,6 +1820,68 @@
       "unauthenticatedPath": "gates.approvalPaths does not list webui, so this path authenticates no approver.",
       "unknownOriginPath": "The request names no origin path. The executor cannot prove path independence.",
       "unknownRequest": "The executor does not hold this request. It expired, or somebody answered it."
+    },
+    "agentDelegated": "{{agent}} — delegated by {{delegatedBy}}",
+    "agentAsserted": "The agent named itself. That is a claim of the request, not an identity this deployment authenticated, and the digest above does not cover it."
+  },
+  "serverNotes": {
+    "title": "Device notes",
+    "hint": "What a future visitor to this box needs to know. A note does not expire — one that disagrees with what you see is evidence the infrastructure changed.",
+    "add": "Add note",
+    "edit": "Edit",
+    "cancelEdit": "Cancel",
+    "append": "Append",
+    "saveRaw": "Save notes",
+    "empty": "No notes yet — the agent writes here when it learns something.",
+    "operator": "operator",
+    "titleLabel": "Note title",
+    "bodyLabel": "Note body",
+    "rawLabel": "Notes markdown",
+    "titlePlaceholder": "e.g. journald is deliberate",
+    "bodyPlaceholder": "The conclusion, and what not to 'fix'.",
+    "authorNote": "Signed as the operator, with your verified identity.",
+    "showArchive": "Show rotated-out entries",
+    "archive": "Archive",
+    "lastNote": "Notes {{when}}"
+  },
+  "agents": {
+    "roster": {
+      "title": "Named agents",
+      "help": "Each agent answers with its own model and its own tools. Agents are declared in config, so this page reads them and does not change them.",
+      "toolGroups": "Tool groups",
+      "skills": "Skills",
+      "delegates": "Delegates",
+      "addendum": "Addendum"
+    },
+    "detail": {
+      "tabs": "Agent settings",
+      "prompt": "Prompt"
+    },
+    "prompt": {
+      "loading": "Reading the prompt composition…",
+      "unavailable": "This gateway does not report the prompt composition.",
+      "replaced": "Replaced",
+      "replacedHelp": "This deployment replaced the platform's text for this section. The section is still named here, because a record that hid the replacement would make two different prompts look identical.",
+      "perTurn": "size varies per turn",
+      "tokens": "{{tokens}} tokens",
+      "addendumTitle": "Addendum",
+      "addendumHelp": "The addendum is appended after the sections above and can replace none of them. Edit it in the config file, where an agent is declared.",
+      "addendumEmpty": "This agent declares no addendum.",
+      "estimateNote": "Token figures are estimates for the sections that cost the same on every turn. What one turn actually carried is on the turn itself.",
+      "permission": {
+        "replaceable": "Yours",
+        "workspace": "Workspace",
+        "derived": "From config",
+        "appendOnly": "Appended",
+        "fixed": "Fixed"
+      },
+      "permissionHelp": {
+        "replaceable": "This section is the deployment's own text to write.",
+        "workspace": "Already yours by another route: the workspace's own instruction files.",
+        "derived": "Computed from config, so config is where it changes.",
+        "appendOnly": "Added after the platform's sections; it can replace none of them.",
+        "fixed": "The tool contract and the safety notes. Deleting them would leave the gate refusing actions the model no longer knows the rules for."
+      }
     }
   }
 }

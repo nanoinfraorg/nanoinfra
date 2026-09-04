@@ -17,6 +17,12 @@ version rises. The executor treats both origin fields as the agent's assertion a
 an absent identity travels as null rather than as an empty string, because #13 must be able to
 tell "no identity" from a person named by the empty text.
 
+Delegation took the version to 7 and added ``acting_agent``, ``delegated_by`` and
+``inherited_capabilities`` (#251). The gate asks *may this actor do this now*, and it cannot
+answer that for a delegated turn without knowing which agent acts, which one asked, and what the
+asking turn was allowed to do. All three are ``None``/empty on a turn nothing delegated, which is
+every turn in a deployment with one agent.
+
 Data connectors took the version to 5 and added a second request kind. The kind travels in the
 envelope beside the version, so one socket serves two shapes and neither can be read as the
 other. The connector frame names a connector and an operation and never a URL or a method: the
@@ -130,6 +136,9 @@ def test_a_connector_frame_names_no_url_and_no_method() -> None:
         "token_nonce",
         "origin_path",
         "origin_actor",
+        "acting_agent",
+        "delegated_by",
+        "inherited_capabilities",
     }
 
 
@@ -159,10 +168,13 @@ def test_a_request_carries_no_free_form_field() -> None:
         "token_nonce",
         "origin_path",
         "origin_actor",
+        "acting_agent",
+        "delegated_by",
+        "inherited_capabilities",
     }
 
 
-def test_the_version_is_six_and_a_version_one_frame_is_refused() -> None:
+def test_the_version_is_seven_and_a_version_one_frame_is_refused() -> None:
     """#38 needs the origin path, so the older frame cannot describe a request any more.
 
     A version 1 peer states no path. #13 cannot prove path independence for it, so the frame
@@ -171,16 +183,58 @@ def test_the_version_is_six_and_a_version_one_frame_is_refused() -> None:
     The version reached 5 when the wire gained a second request kind for a data connector
     call, and 6 when it gained a third for a secret write. The field set of this request did
     not change either time; the envelope did, and an envelope change is a version change for
-    the same reason a field change is.
+    the same reason a field change is. 7 is a field change again: #251 added the two agent names
+    and the ceiling the delegating turn declared.
     """
     payload = json.loads(encode_request(_request()))
     payload["v"] = 1
     del payload["origin_path"]
     del payload["origin_actor"]
 
-    assert PROTOCOL_VERSION == 6
+    assert PROTOCOL_VERSION == 7
     with pytest.raises(ProtocolError):
         decode_request(json.dumps(payload).encode())
+
+
+def test_the_delegation_survives_the_round_trip() -> None:
+    """The gate reads all three to decide a delegated action (#251)."""
+    request = _request(
+        acting_agent="sre-prod",
+        delegated_by="manager",
+        inherited_capabilities=["mutate.remote"],
+    )
+
+    decoded = decode_request(encode_request(request))
+
+    assert (decoded.acting_agent, decoded.delegated_by) == ("sre-prod", "manager")
+    assert decoded.inherited_capabilities == ["mutate.remote"]
+
+
+def test_a_frame_that_nothing_delegated_names_no_agent_and_declares_no_ceiling() -> None:
+    """Every frame of a deployment with one agent. The gate must read it as it always did.
+
+    Null and not empty text, for the reason the origin identity is null: an empty name reads as
+    a name, and the approvals inbox renders these two values.
+    """
+    payload = json.loads(encode_request(_request()))
+
+    assert payload["acting_agent"] is None
+    assert payload["delegated_by"] is None
+    assert payload["inherited_capabilities"] == []
+
+
+def test_a_frame_missing_a_delegation_field_is_refused() -> None:
+    """The field set is the version, so a peer that shares the version shares every field.
+
+    A default on this side would let the executor decide a delegated action from a fact the
+    agent never sent, which is the guess this wire exists to refuse.
+    """
+    for absent in ("acting_agent", "delegated_by", "inherited_capabilities"):
+        payload = json.loads(encode_request(_request()))
+        del payload[absent]
+
+        with pytest.raises(ProtocolError):
+            decode_request(json.dumps(payload).encode())
 
 
 def test_a_version_two_frame_is_refused_rather_than_read_as_an_unknown_identity() -> None:

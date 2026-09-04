@@ -60,7 +60,7 @@ def test_the_frame_round_trips_and_the_version_rose() -> None:
     request = _request()
 
     assert decode_request(encode_request(request)) == request
-    assert PROTOCOL_VERSION == 6
+    assert PROTOCOL_VERSION == 7
     # The kind lives in the envelope, so the field that describes the *secret* cannot be called
     # `kind` -- the decoder strips envelope keys before matching fields, and a field of that name
     # went missing on every frame. Found by round-tripping one.

@@ -11,13 +11,14 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from types import EllipsisType
-from typing import Any, Callable, Coroutine, Literal
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, Literal
 
 from filelock import FileLock
 from loguru import logger
 
 from nanoinfra.automations.commissioning_state import CommissioningState
 from nanoinfra.automations.delivery import normalize_policy
+from nanoinfra.cron.agent_binding import enforce_agent_binding
 from nanoinfra.cron.session_turns import is_bound_cron_job
 from nanoinfra.cron.types import (
     CronJob,
@@ -35,6 +36,11 @@ from nanoinfra.utils.run_records import (
 from nanoinfra.utils.run_records import (
     write_run_record as write_automation_run_record,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
+    from nanoinfra.config.schema import NamedAgentConfig
 
 
 class CronJobTerminalError(RuntimeError):
@@ -175,7 +181,12 @@ class CronService:
         store_path: Path,
         on_job: Callable[[CronJob], Coroutine[Any, Any, str | None]] | None = None,
         max_sleep_ms: int = 300_000,  # 5 minutes
+        named_agents: "Mapping[str, NamedAgentConfig] | None" = None,
     ):
+        # The roster a job's `agent` is checked against (#257). ``None`` means "read config when
+        # a job names one", which is both the fresh read the roster wants and a promise that a
+        # store full of jobs naming nothing never touches config at all.
+        self._named_agents = named_agents
         self.store_path = store_path
         self._action_path = store_path.parent / "action.jsonl"
         self._run_records_dir = store_path.parent / "runs"
@@ -194,6 +205,15 @@ class CronService:
     def _should_persist_store(self) -> bool:
         """Return whether this instance currently owns the live store."""
         return self._running or self._active_executions > 0
+
+    def _refuse_agent_binding(self, agent: str, skills: "Sequence[str]") -> None:
+        """Refuse a job that names an agent it may not have, naming the agent (#257).
+
+        At save time rather than at run time, which is the posture ``agents.named[x].delegates``
+        already has: an operator who mistypes an agent should be told by the thing that refuses
+        the write, not by a job that fails at 03:00 with nobody reading.
+        """
+        enforce_agent_binding(agent=agent, skills=skills, roster=self._named_agents)
 
     def _is_unbound_agent_job(self, job: CronJob) -> bool:
         return job.payload.kind == "agent_turn" and not is_bound_cron_job(job)
@@ -755,11 +775,15 @@ class CronService:
         origin_metadata: dict[str, Any] | None = None,
         retry: CronRetryPolicy | None = None,
         delivery: str | None = None,
+        agent: str | None = None,
         skills: list[str] | None = None,
         references: list[dict[str, str]] | None = None,
     ) -> CronJob:
         """Add a new job."""
         _validate_schedule_for_add(schedule)
+        # Before the record exists, like the schedule above: a job saved and then found to name an
+        # agent config does not have would be armed for a run that cannot happen.
+        self._refuse_agent_binding((agent or "").strip(), list(skills or []))
         now = _now_ms()
 
         job = CronJob(
@@ -782,6 +806,7 @@ class CronService:
             state=CronJobState(next_run_at_ms=_compute_next_run(schedule, now)),
             retry=retry or CronRetryPolicy(),
             delivery=normalize_policy(delivery),
+            agent=(agent or "").strip(),
             skills=list(skills or []),
             references=[dict(item) for item in (references or [])],
             created_at_ms=now,
@@ -913,6 +938,7 @@ class CronService:
         delete_after_run: bool | None = None,
         retry: CronRetryPolicy | None = None,
         delivery: str | None = None,
+        agent: str | None = None,
         skills: list[str] | None = None,
         references: list[dict[str, str]] | None = None,
     ) -> CronJob | Literal["not_found", "protected"]:
@@ -927,6 +953,17 @@ class CronService:
             return "not_found"
         if job.payload.kind == "system_event":
             return "protected"
+
+        # Checked against what the job *would become*, and before a single field is assigned: this
+        # method mutates the record in the live store, so a refusal raised half way through would
+        # leave the store holding an edit nobody accepted. It also catches the other direction --
+        # adding a skill to a job whose agent does not carry it.
+        self._refuse_agent_binding(
+            job.agent if agent is None else agent.strip(),
+            job.skills if skills is None else skills,
+        )
+        if agent is not None:
+            job.agent = agent.strip()
 
         if retry is not None:
             job.retry = retry

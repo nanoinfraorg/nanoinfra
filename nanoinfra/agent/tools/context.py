@@ -5,7 +5,8 @@ from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Protocol, runtime_checkable
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from nanoinfra.agent.subagent import SubagentManager
@@ -13,12 +14,16 @@ if TYPE_CHECKING:
     from nanoinfra.agent.tools.file_state import FileStates
     from nanoinfra.bus.queue import MessageBus
     from nanoinfra.bus.runtime_events import RuntimeEventBus
-    from nanoinfra.config.schema import ProviderConfig, ToolsConfig
+    from nanoinfra.config.schema import NamedAgentConfig, ProviderConfig, ToolsConfig
     from nanoinfra.cron.service import CronService
     from nanoinfra.providers.factory import ProviderSnapshot
     from nanoinfra.security.workspace_access import WorkspaceSandboxStatus
     from nanoinfra.session.manager import SessionManager
     from nanoinfra.utils.llm_runtime import LLMRuntime
+
+#: The empty roster, as a default a dataclass may share: read-only, so no context can mutate
+#: the one every other context is holding.
+_NO_NAMED_AGENTS: "Mapping[str, NamedAgentConfig]" = MappingProxyType({})
 
 _CURRENT_REQUEST_CONTEXT: ContextVar["RequestContext | None"] = ContextVar(
     "nanoinfra_tool_request_context",
@@ -64,6 +69,18 @@ class RequestContext:
     turn_id: str | None = None
     workspace: Path | None = None
     attributes: dict[str, Any] = field(default_factory=dict)
+    #: Which named agent is answering this turn (#248). ``None`` is the deployment default agent,
+    #: which is what every turn is today. It is read rather than trusted: what the agent may do
+    #: comes from ``agents.named`` in config, never from this string.
+    agent: str | None = None
+    #: Set on a turn that is itself a delegation, to the agent that asked for it (#251). Its
+    #: presence is what makes the turn refuse to delegate again -- one level, checked locally.
+    delegated_by: str | None = None
+    #: The capability classes this turn can reach, for a peer it delegates to (#251). Its own
+    #: field rather than an entry in ``attributes``, because ``attributes`` is what a caller hands
+    #: a context provider and this is the runtime's own answer about the turn. Empty means *not
+    #: computed*, never *nothing allowed*.
+    acting_capabilities: frozenset[str] = frozenset()
     # Last, and defaulted, so an existing positional call keeps its meaning. Only an
     # explicit channel-driven turn may pass EXECUTION_CONTEXT_INTERACTIVE.
     execution_context: str = FAIL_CLOSED_EXECUTION_CONTEXT
@@ -149,6 +166,11 @@ class ToolContext:
     disabled_skills: frozenset[str] = frozenset()
     workspace_sandbox: WorkspaceSandboxStatus | None = None
     runtime_events: RuntimeEventBus | None = None
+    #: The configured named agents (#247), for the tools that offer delegation. The registry is
+    #: built once at boot, so this answers "does this deployment delegate at all"; *which* peer a
+    #: given turn may reach is re-read from here when the tool runs, because that depends on who
+    #: is answering and a tool call is not evidence of authority.
+    named_agents: "Mapping[str, NamedAgentConfig]" = _NO_NAMED_AGENTS
     # The gate runtime from nanoinfra/gates/runtime.py (#33). Typed loosely on purpose:
     # that module imports the agent tree, so a real annotation here would close a cycle.
     # It carries the gate half only, so nothing reached through a tool can clear a latch.

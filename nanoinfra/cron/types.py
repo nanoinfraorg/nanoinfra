@@ -224,8 +224,17 @@ class CronJob:
     retry: CronRetryPolicy = field(default_factory=CronRetryPolicy)
     #: Whether this job's outcome reaches the operator. Defaults to today's behaviour.
     delivery: str = DEFAULT_DELIVERY_POLICY
+    #: The named agent this job runs as (#257). Empty is the deployment's default agent, which is
+    #: what every job is today and what a job written before this field reads as.
+    #:
+    #: Naming an agent **narrows** the job: the agent's tool groups become the ceiling for the
+    #: turn and its own declarations may only stay inside that. So this is not a routing hint the
+    #: run may ignore, and the fields below cannot be used to escape it -- otherwise naming a
+    #: small agent would become the way out of its contract.
+    agent: str = ""
     #: Skills this job's prompt carries in full. Empty means the whole catalogue is summarised,
-    #: which is what every job had before.
+    #: which is what every job had before. With an agent named, empty means *the agent's* skills:
+    #: the picker narrows that list rather than replacing it.
     skills: list[str] = field(default_factory=list[str])
     #: MCP servers this automation declares (#204). A `mention` server sends only a one-line
     #: advertisement unless a turn names it, and an unattended turn has nobody to type `@server`.
@@ -285,6 +294,7 @@ class CronJob:
             state=CronJobState.from_store_dict(data.get("state") or {}),
             retry=CronRetryPolicy.from_store_dict(data.get("retry")),
             delivery=normalize_policy(data.get("delivery")),
+            agent=str(data.get("agent") or "").strip(),
             skills=_store_names(data.get("skills")),
             mcp_presets=_store_names(get_camel_snake(data, "mcpPresets", "mcp_presets", [])),
             connectors=_store_names(data.get("connectors")),

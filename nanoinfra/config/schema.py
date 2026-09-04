@@ -1,6 +1,7 @@
 """Configuration schema using Pydantic."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
@@ -197,10 +198,111 @@ class AgentDefaults(Base):
         return value
 
 
+class NamedAgentConfig(Base):
+    """One named agent: its own model, its own tools, its own bindings (#247).
+
+    An agent's tool set is **declared, not accumulated**. Every field left unset inherits from
+    ``agents.defaults``, which is what keeps a two-line agent meaningful -- a name, a preset, and
+    the tools it is allowed to see.
+
+    There is deliberately no equivalent of a "custom" type whose capability list means *no
+    restrictions*. A type like that is a hole kept open for compatibility nobody here needs.
+    """
+
+    description: str = ""
+    #: Which model this agent answers with. Names a `modelPresets` entry; unset inherits the
+    #: deployment default.
+    model_preset: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("modelPreset", "model_preset"),
+        serialization_alias="modelPreset",
+    )
+    #: The `tools.groups` this agent may use. Empty means every group -- the same reading
+    #: `tool_capabilities` has upstream, and what a deployment with one agent already gets.
+    tool_groups: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("toolGroups", "tool_groups"),
+        serialization_alias="toolGroups",
+    )
+    #: Skills loaded in full for this agent. Empty means the catalogue is summarised, as today.
+    skills: list[str] = Field(default_factory=list)
+    #: Connectors and MCP servers this agent may reach. Empty means whatever config activates
+    #: globally; naming them narrows, never widens.
+    connectors: list[str] = Field(default_factory=list)
+    mcp_servers: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("mcpServers", "mcp_servers"),
+        serialization_alias="mcpServers",
+    )
+    #: Appended after the platform's own prompt sections; it specialises an agent and cannot
+    #: replace the tool contract or the safety notes. See the Prompt tab design (#256).
+    addendum: str = ""
+    #: Prompt sections this agent replaces outright, by section name (#256). Which sections *may*
+    #: be replaced is decided in `agent/prompt_sections.py`, not here: naming a fixed one -- the
+    #: tool contract, the safety notes -- is refused when the prompt is assembled rather than
+    #: quietly ignored. A replaced section is still named in the manifest and marked as
+    #: overridden, because a record that hid a replacement would make two different prompts look
+    #: identical.
+    prompt_sections: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("promptSections", "prompt_sections"),
+        serialization_alias="promptSections",
+    )
+    #: The peers this agent may delegate to. **Membership is the authorization** -- it lives in
+    #: config because that is where authority lives, and the executor revalidates it rather than
+    #: trusting a tool call (#249).
+    delegates: list[str] = Field(default_factory=list)
+
+
+#: A named agent is addressed as ``@agent:<name>``; the composer's own token pattern is the same
+#: set minus the colon it splits on (``webui/src/components/thread/ThreadComposer.tsx``).
+_MENTIONABLE_AGENT_NAME = re.compile(r"^[\w.-]+$", re.UNICODE)
+
+
 class AgentsConfig(Base):
     """Agent configuration."""
 
     defaults: AgentDefaults = Field(default_factory=AgentDefaults)
+    # Named agents (#247). Empty is the shape every deployment has today: one agent, described by
+    # `defaults`. A named agent inherits `defaults` and narrows it.
+    named: dict[str, NamedAgentConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _names_must_be_mentionable(self) -> "AgentsConfig":
+        """An agent is addressed as ``@agent:<name>`` in a message, so the name has to survive
+        being a token: no space, and no colon for the parser to split on.
+
+        Checked here rather than filtered in the picker, because an agent that config accepts and
+        the composer silently hides is a worse outcome than a config that says why.
+        """
+        for name in self.named:
+            if not name or not _MENTIONABLE_AGENT_NAME.match(name):
+                raise ValueError(
+                    f"agents.named[{name!r}] is not a usable agent name: use letters, digits, "
+                    "'-', '_' or '.', so the agent can be addressed as @agent:<name>"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _delegates_must_exist(self) -> "AgentsConfig":
+        """A roster naming an agent that does not exist would fail at delegation time.
+
+        Refused at load instead, because the roster is authority: an operator who mistypes a peer
+        should be told by the config that refuses to load, not by an agent that cannot find who it
+        was told to ask.
+        """
+        for name, agent in self.named.items():
+            for peer in agent.delegates:
+                if peer not in self.named:
+                    raise ValueError(
+                        f"agents.named[{name!r}].delegates names {peer!r}, "
+                        "which is not a configured agent"
+                    )
+                if peer == name:
+                    raise ValueError(
+                        f"agents.named[{name!r}] lists itself as a delegate"
+                    )
+        return self
 
 
 class ProviderConfig(Base):
@@ -426,6 +528,68 @@ class MCPServerConfig(Base):
     enabled_tools: list[str] = Field(default_factory=lambda: ["*"])  # Only register these tools; accepts raw MCP names or wrapped mcp_<server>_<tool> names; ["*"] = all capabilities (tools, resources, prompts); any restriction = only listed tools, no resources/prompts
 
 
+class KnowledgeConfig(Base):
+    """The knowledge base in the workspace, and how it is searched (#237).
+
+    Documents live in ``workspaces/<ws>/knowledge/`` -- folders and subfolders, whatever the
+    operator drops there -- and the index sits beside them. Nothing is injected into a prompt: the
+    agent reaches it through ``knowledge_search``, because a knowledge base in the stable prompt
+    block is the *31K for a hola* problem (#203) at a larger scale, and it grows with the operator's
+    own writing.
+    """
+
+    enabled: bool = False
+    # `lexical` is BM25F over the fielded index and carries no dependencies of its own. `hybrid`
+    # adds vector search and needs the optional extra; it is not the default because for runbooks
+    # the words in the question are usually the words in the document. The limit is worth knowing
+    # rather than discovering: lexical will not match "pod won't start" against a document that
+    # says "CrashLoopBackOff".
+    mode: Literal["lexical", "hybrid"] = "lexical"
+    #: How often the indexing system job runs. Quiet by default: the search tool checks freshness
+    #: itself, so this pass exists to collect deletions and to catch what nobody searched for.
+    reindex_interval_s: int = Field(
+        default=900,
+        ge=60,
+        validation_alias=AliasChoices("reindexIntervalS", "reindex_interval_s"),
+        serialization_alias="reindexIntervalS",
+    )
+    #: Never indexed. Config rather than code, because an operator's tree has secrets ours cannot
+    #: guess -- and removable only deliberately, which is why the defaults are written out.
+    exclude: list[str] = Field(
+        default_factory=lambda: [
+            ".env",
+            ".env.*",
+            "*.pem",
+            "*.key",
+            "id_*",
+            "secrets/**",
+            "**/.git/**",
+        ]
+    )
+    #: One 2 GB log file must not become the knowledge base.
+    max_file_bytes: int = Field(
+        default=2_000_000,
+        ge=1_024,
+        validation_alias=AliasChoices("maxFileBytes", "max_file_bytes"),
+        serialization_alias="maxFileBytes",
+    )
+    max_total_bytes: int = Field(
+        default=200_000_000,
+        ge=1_024,
+        validation_alias=AliasChoices("maxTotalBytes", "max_total_bytes"),
+        serialization_alias="maxTotalBytes",
+    )
+    #: How many fragments one search returns. Small on purpose: a citation the model has to read is
+    #: worth more than ten it skims.
+    max_results: int = Field(
+        default=5,
+        ge=1,
+        le=25,
+        validation_alias=AliasChoices("maxResults", "max_results"),
+        serialization_alias="maxResults",
+    )
+
+
 class ToolGroupConfig(Base):
     """A named group of built-in tools, and when their schemas reach the prompt (#210).
 
@@ -516,6 +680,9 @@ class ToolsConfig(Base):
     # Declared groups of built-in tools (#210). Keyed by group name; `diagrams` and `servers` are
     # defined by nanoinfra, so a deployment only writes the mode it wants.
     groups: dict[str, ToolGroupConfig] = Field(default_factory=dict)
+    # The knowledge base and its search (#237). Off by default: an empty index answers nothing, and
+    # a deployment that never drops a document should not pay for a walk of its workspace.
+    knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
     # Agent Plugin identities the operator has activated (#141). This list is the authority: the
     # executor reconciles activation markers against it, and enabling a package that ships an
     # mcp.json grants a new stdio process, so the decision belongs in a git-reviewed file rather

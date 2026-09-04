@@ -25,6 +25,12 @@ class Server:
     tags: list[str] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
+    #: When this server's ``NOTES.md`` was last appended to (#225). A scalar and not the prose,
+    #: because ``list_servers()`` parses every record in full -- notes inside the record would make
+    #: the frequent cheap operation pay for the rare large one. Never read off a client payload:
+    #: ``normalize_server_input`` leaves it ``None`` and ``ServerStore`` carries it across an
+    #: update, so only a notes write moves it.
+    notes_updated_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -36,6 +42,7 @@ class Server:
             "tags": self.tags,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
+            "notesUpdatedAt": self.notes_updated_at,
         }
 
     @classmethod
@@ -49,6 +56,9 @@ class Server:
             tags=[str(t) for t in list(data.get("tags") or [])],
             created_at=str(data["createdAt"]),
             updated_at=str(data["updatedAt"]),
+            notes_updated_at=(
+                str(data["notesUpdatedAt"]) if data.get("notesUpdatedAt") else None
+            ),
         )
 
 
@@ -61,6 +71,9 @@ class ServerSummary:
     provider_id: str
     tags: list[str]
     updated_at: str
+    #: So a listing and the gallery can say "has memory, last touched then" without reading a word
+    #: of prose (#225).
+    notes_updated_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -69,6 +82,7 @@ class ServerSummary:
             "providerId": self.provider_id,
             "tags": self.tags,
             "updatedAt": self.updated_at,
+            "notesUpdatedAt": self.notes_updated_at,
         }
 
 

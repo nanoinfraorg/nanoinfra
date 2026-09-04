@@ -905,6 +905,8 @@ export class NanoinfraClient {
       mcpPresets?: OutboundMcpPresetMention[];
       /** Data connectors this turn named, by name (#204). */
       connectors?: string[];
+      /** Which named agent answers this turn (#254). Resolved against config server-side. */
+      agent?: string | null;
       sessionMentions?: SessionMention[];
       resourceMentions?: ResourceMention[];
       quotedContext?: string;
@@ -923,6 +925,7 @@ export class NanoinfraClient {
       ...(options?.cliApps?.length ? { cli_apps: options.cliApps } : {}),
       ...(options?.mcpPresets?.length ? { mcp_presets: options.mcpPresets } : {}),
       ...(options?.connectors?.length ? { connectors: options.connectors } : {}),
+      ...(options?.agent ? { agent: options.agent } : {}),
       ...(options?.sessionMentions?.length
         ? { session_mentions: options.sessionMentions }
         : {}),

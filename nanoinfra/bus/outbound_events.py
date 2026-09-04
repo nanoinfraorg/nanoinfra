@@ -68,6 +68,9 @@ class TurnEndEvent(OutboundEvent):
     usage: LLMUsage | None = None
     #: What the turn's prompt was made of, by section (#203).
     prompt_manifest: dict[str, Any] | None = None
+    #: Which named agent answered (#248). ``None`` is the default agent, and the frame then omits
+    #: the field rather than sending a name the deployment never configured.
+    agent: str | None = None
 
 
 @dataclass(frozen=True)

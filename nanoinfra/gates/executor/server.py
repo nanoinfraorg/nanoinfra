@@ -52,7 +52,7 @@ import os
 import socket
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -66,6 +66,7 @@ from nanoinfra.agent.tools.capabilities import (
 )
 from nanoinfra.agent.tools.context import EXECUTION_CONTEXT_INTERACTIVE
 from nanoinfra.gates.approvals import approval_feasible
+from nanoinfra.gates.delegation import delegation_of
 from nanoinfra.gates.executor.operator_socket import (
     ApprovalService,
     bind_operator_socket,
@@ -219,7 +220,15 @@ class Executor:
         return await self.handle(request)
 
     async def handle(self, request: ExecuteRequest) -> ExecuteResponse:
-        """Answer one request. Never raises for a refusal: a refusal is a response."""
+        """Answer one request. Never raises for a refusal: a refusal is a response.
+
+        The delegation is read once, here, and the context it implies replaces the one the frame
+        declared (#251). A delegated turn that names a human is attended, because an approval can
+        reach that person; one that names none stays unattended and a standing grant is its only
+        allow path. Replacing the value at the door rather than at each decision keeps one fact in
+        one place: the record then states the context that actually decided, with the two agent
+        names beside it saying why.
+        """
         if request.token_nonce:
             # The executor issues every nonce and hands none to the agent (#38), so a nonce on
             # this wire arrives from model-visible text. A verification attempt would treat a
@@ -228,6 +237,7 @@ class Executor:
                 "This request carries an approval nonce. The executor issues every nonce and "
                 "gives none to the agent, so no caller on this socket can hold one."
             )
+        request = _as_decided(request)
         servers = ServerStore(self.workspace)
         server = resolve_server(servers, request.server_id_or_name)
         if server is None:
@@ -335,6 +345,7 @@ class Executor:
         credential = evaluate_credential_access(
             self.gates_loader(),
             execution_context=request.execution_context,
+            delegation=delegation_of(request),
             authorization=ActionAuthorization(
                 grant_id=decision.grant_id,
                 policy_decision=decision.outcome.value,
@@ -443,6 +454,7 @@ class Executor:
         if suspended.refusal is not None:
             return suspended.refusal
 
+        acting = delegation_of(request)
         approval = pending.create(
             session_id=session_id,
             origin_path=(request.origin_path or "").strip(),
@@ -455,6 +467,10 @@ class Executor:
             payload=prompt.text,
             target_digest=prompt.target_digest,
             timeout_s=float(gates.approval_timeout_s),
+            # Which agent will run this, and which one asked (#251). The inbox names the peer, so
+            # an operator approving a command is not left to assume the manager runs it.
+            acting_agent=acting.acting_agent,
+            delegated_by=acting.delegated_by,
         )
         logger.info(
             "gates: action {} waits for an approval on a second path (session {}, {} host(s))",
@@ -604,6 +620,10 @@ class Executor:
         The answer carries the record that landed, because #46 appends the outcome as a second
         record and that record names the decision it follows.
 
+        ``acting_agent`` and ``delegated_by`` are not parameters either, and for the same reason
+        (#251): the frame states who acted, so no call site can name a different agent and leave
+        two records of one action disagreeing about it.
+
         ``origin_actor`` is not a parameter (#79). It comes from the bound request, like the
         command and the session, because the channel adapter that authenticated the sender is the
         only honest source for it. A keyword here would let one call site name a different person
@@ -629,6 +649,8 @@ class Executor:
                 actor=actor,
                 origin_path=origin_path,
                 origin_actor=request.origin_actor,
+                acting_agent=request.acting_agent,
+                delegated_by=request.delegated_by,
                 approval_path=approval_path,
                 grant_id=grant_id,
                 approval_id=approval_id,
@@ -728,6 +750,9 @@ class Executor:
             hosts=resolution.hosts,
             command=request.command,
             servers=servers,
+            # The ceiling (#251). A peer must not reach a class the turn that spawned it could
+            # not, and no grant and no approval answers that refusal.
+            delegation=delegation_of(request),
         )
         if decision.outcome is Outcome.APPROVE and not interactive:
             # #8's rule, and #38 does not relax it. Nobody waits on an unattended turn, so a
@@ -767,6 +792,7 @@ class Executor:
             self.gates_loader(),
             execution_context=request.execution_context,
             authorization=authorization,
+            delegation=delegation_of(request),
         )
         allowed = decision.outcome is Outcome.ALLOW
         reason = f"{decision.reason} The server names secret {server.secret_ref!r}."
@@ -941,6 +967,25 @@ class Executor:
         return ExecuteResponse(
             ok=True, output=output, exit_code=result.exit_code, error=None, reason="",
         )
+
+
+def _as_decided(request: ExecuteRequest) -> ExecuteRequest:
+    """The frame as the gate decides it, with the delegation's own context applied (#251).
+
+    A delegated turn runs under ``subagent``, because nobody watches a subagent. A delegation
+    that names a human is the exception: the person who asked is present, so an approval can
+    reach them and the turn reads as attended. Every other frame comes back unchanged, which is
+    every frame a deployment with one agent sends.
+
+    The replacement happens once, so the policy decision, the suspended record and the audit
+    record all state the same context. A frame whose context is already ``interactive`` cannot be
+    changed by this, and neither can an automation: the rule only lifts ``subagent``, and only for
+    a chain with a human on it.
+    """
+    decided = delegation_of(request).effective_execution_context(request.execution_context)
+    if decided == request.execution_context:
+        return request
+    return replace(request, execution_context=decided)
 
 
 def _error(message: str) -> ExecuteResponse:

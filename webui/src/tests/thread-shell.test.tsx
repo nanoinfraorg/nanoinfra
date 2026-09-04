@@ -3706,6 +3706,85 @@ describe("ThreadShell", () => {
     expect(screen.getByRole("option", { name: /@gimp/i })).toBeInTheDocument();
   });
 
+  /** The roster the composer's agent badge is built from. */
+  function mockNamedAgents() {
+    vi.mocked(fetch).mockImplementation((input) => {
+      if (String(input).includes("/api/webui/agents/named")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            agents: [
+              { name: "sre-prod", description: "hands-on checks" },
+              { name: "db-oncall", description: "Postgres and Valkey" },
+            ],
+          }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: false, status: 404, json: async () => ({}) } as Response);
+    });
+  }
+
+  it("sends no agent name while the conversation is on the default agent", async () => {
+    // The loop resolves an absent name to the deployment default, so sending one here would be a
+    // claim the deployment never made.
+    const client = makeClient();
+    mockNamedAgents();
+    render(wrap(
+      client,
+      <ThreadShell
+        session={session("chat-agent-default")}
+        title="Chat chat-agent-default"
+        onToggleSidebar={() => {}}
+        onGoHome={() => {}}
+        onNewChat={() => {}}
+      />,
+    ));
+
+    const input = await screen.findByLabelText("Message input");
+    await screen.findByRole("button", { name: /Agent: Default agent/ });
+    fireEvent.change(input, { target: { value: "first" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(client.sendMessage).toHaveBeenLastCalledWith(
+      "chat-agent-default",
+      "first",
+      undefined,
+      expect.not.objectContaining({ agent: expect.anything() }),
+    );
+  });
+
+  it("sends the agent the conversation chose", async () => {
+    const client = makeClient();
+    mockNamedAgents();
+    render(wrap(
+      client,
+      <ThreadShell
+        session={session("chat-agent-chosen")}
+        title="Chat chat-agent-chosen"
+        onToggleSidebar={() => {}}
+        onGoHome={() => {}}
+        onNewChat={() => {}}
+      />,
+    ));
+
+    const input = await screen.findByLabelText("Message input");
+    const badge = await screen.findByRole("button", { name: /Agent: Default agent/ });
+    // Radix opens a menu on pointerdown, not on click.
+    fireEvent.pointerDown(badge, { button: 0 });
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: /sre-prod/ }));
+
+    fireEvent.change(input, { target: { value: "check db-01" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(client.sendMessage).toHaveBeenLastCalledWith(
+      "chat-agent-chosen",
+      "check db-01",
+      undefined,
+      expect.objectContaining({ agent: "sre-prod" }),
+    );
+  });
+
   it("does not let an older catalog request overwrite a newer install event", async () => {
     const client = makeClient();
     let resolveCatalog!: (response: Response) => void;

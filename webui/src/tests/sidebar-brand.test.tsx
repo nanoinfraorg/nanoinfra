@@ -67,6 +67,7 @@ function renderSidebar(collapsed: boolean) {
         onOpenServers={noop}
         onOpenSecrets={noop}
         onOpenApprovals={noop}
+        onOpenAgents={noop}
         onOpenSearch={noop}
         onToggleArchived={noop}
         onCollapse={noop}

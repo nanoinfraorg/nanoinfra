@@ -26,8 +26,9 @@ _FIXED_TS = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
 # Every line carries the same keys, so a reader can load the log into a table.
 # `record_id` names the record, and `follows` names the record a completion follows (#46).
 # `origin_actor` names the person the request came from, and `actor` names the person who
-# answered (#79). This set is the contract, so a new column arrives here and in the field list
-# of the store together.
+# answered (#79). `acting_agent`, `delegated_by` and `delegation_chain` name which agent acted,
+# which one asked, and the three of them as one line (#251). This set is the contract, so a new
+# column arrives here and in the field list of the store together.
 _EXPECTED_KEYS = {
     "ts",
     "record_id",
@@ -38,6 +39,9 @@ _EXPECTED_KEYS = {
     "approval_path",
     "same_path",
     "origin_actor",
+    "acting_agent",
+    "delegated_by",
+    "delegation_chain",
     "actor",
     "capability_class",
     "scope",

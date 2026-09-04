@@ -72,6 +72,8 @@ export function PromptBreakdown({ manifest }: { manifest: PromptManifest }) {
               kind={sourceKind(section.name)}
               group={groupLabel(section.group, tx)}
               items={section.items}
+              overridden={section.overridden}
+              overriddenLabel={tx("message.prompt.replaced", "replaced")}
               tools={section.tools}
               tokens={section.tokens}
               share={section.tokens / total}
@@ -111,6 +113,8 @@ function PromptRow({
   kind,
   group,
   items,
+  overridden,
+  overriddenLabel,
   tools,
   tokens,
   share,
@@ -122,6 +126,9 @@ function PromptRow({
   kind?: string;
   group: string;
   items?: number;
+  /** True when this deployment replaced the section rather than taking the platform's text. */
+  overridden?: boolean;
+  overriddenLabel: string;
   tools?: Array<{ name: string; chars: number; tokens: number }>;
   tokens: number;
   share: number;
@@ -145,6 +152,17 @@ function PromptRow({
         <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground/60">
           {group}
         </span>
+        {overridden ? (
+          // Marked, not hidden. Without this a replaced section and the platform's own look
+          // identical here -- same name, same group, a plausible size -- and the panel would be a
+          // measurement that conceals the one difference a reader came for.
+          <span
+            className="shrink-0 rounded-full bg-primary/15 px-1.5 text-[10px] leading-4 text-primary"
+            data-testid={`prompt-section-overridden-${label}`}
+          >
+            {overriddenLabel}
+          </span>
+        ) : null}
         {items ? (
           expandable ? (
             <button

@@ -132,12 +132,19 @@ class PendingView(TypedDict):
     channel authenticated nobody. The delivery watcher of #43 reads it to choose targets, because
     ``gates.identityIndependence`` can admit an approver on the origin path. The value is the
     agent's own assertion, so no operator surface presents it as a verified fact.
+
+    ``acting_agent`` and ``delegated_by`` name the peer that will act and the agent that asked
+    (#251). Both are blank where no agent named itself, and an operator surface then renders
+    nothing rather than a guess. They carry the same trust as ``origin_actor``: an assertion,
+    normalised to a name-shaped value before it reached this record, and never a verified fact.
     """
 
     request_id: str
     session_id: str
     origin_path: str
     origin_actor: str
+    acting_agent: str
+    delegated_by: str
     execution_context: str
     capability_class: str
     scope: str
@@ -191,6 +198,8 @@ def pending_view(approval: PendingApproval, *, now: float | None = None) -> Pend
         session_id=approval.session_id,
         origin_path=approval.origin_path,
         origin_actor=approval.origin_actor,
+        acting_agent=approval.acting_agent,
+        delegated_by=approval.delegated_by,
         execution_context=approval.execution_context,
         capability_class=approval.capability_class,
         scope=approval.scope,

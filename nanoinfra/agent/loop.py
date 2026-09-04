@@ -59,7 +59,7 @@ from nanoinfra.bus.outbound_events import StreamedResponseEvent
 from nanoinfra.bus.queue import MessageBus
 from nanoinfra.bus.runtime_events import RuntimeEventBus
 from nanoinfra.command import CommandContext, CommandRouter, register_builtin_commands
-from nanoinfra.config.schema import AgentDefaults, ModelPresetConfig
+from nanoinfra.config.schema import AgentDefaults, ModelPresetConfig, NamedAgentConfig
 from nanoinfra.connectors import attachment as connector_attachment
 from nanoinfra.llm_usage.context import llm_usage_source, source_from_request
 from nanoinfra.providers.base import LLMProvider, LLMUsage, ProviderConversationState
@@ -184,6 +184,9 @@ class TurnContext:
     #: What this turn's prompt was made of, by section (#203). `None` when it could not be built,
     #: which is a missing diagnostic rather than a failed turn.
     prompt_manifest: dict[str, Any] | None = None
+    #: Which named agent is answering (#248). `None` is the deployment's default agent, which is
+    #: every turn in a deployment that names none.
+    agent: str | None = None
 
     def require_runtime(self) -> LLMRuntime:
         """Return the runtime established by the BUILD stage."""
@@ -365,6 +368,7 @@ class AgentLoop:
         hook_factories: list[AgentTurnHookFactory] | None = None,
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
+        named_agents: Mapping[str, NamedAgentConfig] | None = None,
         tools_config: ToolsConfig | None = None,
         image_generation_provider_config: ProviderConfig | None = None,
         image_generation_provider_configs: dict[str, ProviderConfig] | None = None,
@@ -443,6 +447,9 @@ class AgentLoop:
             else defaults.tool_hint_max_length
         )
         self.tools_config = _tc
+        # The roster, for the tools that offer delegation (#247). Empty is every deployment that
+        # names no agent, and there the delegation tools do not exist.
+        self.named_agents: Mapping[str, NamedAgentConfig] = dict(named_agents or {})
         self.web_config = _tc.web
         self.exec_config = _tc.exec
         self._image_generation_provider_configs = dict(image_generation_provider_configs or {})
@@ -489,6 +496,9 @@ class AgentLoop:
             max_concurrent_subagents=max_concurrent_subagents,
             fail_on_tool_error=fail_on_tool_error,
             llm_wall_timeout_for_session=lambda sk: runner_wall_llm_timeout_s(self.sessions, sk),
+            # For a delegated turn (#250): its tools reach the same gate this turn would, so a
+            # peer cannot execute where the agent that asked would have stopped for approval.
+            gate=self.gate,
         )
         self._unified_session = unified_session
         self._running = False
@@ -614,6 +624,7 @@ class AgentLoop:
             timezone=defaults.timezone,
             unified_session=defaults.unified_session,
             disabled_skills=defaults.disabled_skills,
+            named_agents=config.agents.named,
             session_ttl_minutes=defaults.session_ttl_minutes,
             idle_compact_check_interval_seconds=defaults.idle_compact_check_interval_seconds,
             mid_turn_messages=defaults.mid_turn_messages,
@@ -742,6 +753,7 @@ class AgentLoop:
             image_generation_provider_configs=self._image_generation_provider_configs,
             timezone=self.context.timezone or "UTC",
             disabled_skills=frozenset(self.context.skills.disabled_skills),
+            named_agents=self.named_agents,
             workspace_sandbox=self.workspace_scopes.sandbox_status,
             runtime_events=self.runtime_events,
         )
@@ -878,6 +890,42 @@ class AgentLoop:
         ctx.prompt_manifest = self._prompt_manifest_for(ctx, messages)
         return messages
 
+    def _acting_capabilities_for(self, ctx: TurnContext) -> frozenset[str]:
+        """What this turn can reach, as capability classes, for anything it delegates (#251).
+
+        Computed from the turn's own registry rather than from config: a tool that failed to
+        construct for want of a collaborator is not authority this turn holds, and config cannot
+        know that. Applied to the ceiling the acting agent declared, so a narrowed manager
+        produces a narrowed ceiling and an unrestricted one produces the full set.
+        """
+        from nanoinfra.agent.delegation import acting_capabilities
+        from nanoinfra.agent.tools.capabilities import capability_class_of
+        from nanoinfra.agent.tools.groups import group_membership
+        from nanoinfra.session.automation_turns import automation_agent_tool_groups
+
+        registry = ctx.tools if ctx.tools is not None else self.tools
+        names = list(registry.tool_names)
+        classes = {name: capability_class_of(registry.get(name)) for name in names}
+        return acting_capabilities(
+            names,
+            automation_agent_tool_groups(ctx.msg.metadata),
+            group_membership(),
+            lambda name: classes[name],
+        )
+
+    def _acting_agent_for(self, metadata: dict[str, Any] | None) -> str | None:
+        """Which named agent answers this turn, from what the client asked for.
+
+        Validated against config rather than trusted, and an unknown name falls back to the default
+        agent rather than raising. A name is a *request*; the authority to act as an agent is the
+        roster in config, so a client that invents a name gets the deployment default -- which
+        grants nothing -- instead of an error that would tell it which names exist.
+        """
+        requested = (metadata or {}).get("agent")
+        if not isinstance(requested, str) or not requested:
+            return None
+        return requested if requested in self.named_agents else None
+
     def _prompt_manifest_for(
         self, ctx: TurnContext, messages: list[dict[str, Any]]
     ) -> dict[str, Any] | None:
@@ -945,6 +993,10 @@ class AgentLoop:
             session_metadata=ctx.session.metadata,
         )
         return RequestContext(
+            agent=ctx.agent,
+            # What this turn may do, for a peer it delegates to. Carried on the context because
+            # the delegation tool builds the binding and has no route to the registry (#251).
+            acting_capabilities=self._acting_capabilities_for(ctx),
             channel=ctx.delivery.route.channel,
             chat_id=ctx.delivery.route.chat_id,
             message_id=ctx.msg.metadata.get("message_id"),
@@ -1788,6 +1840,9 @@ class AgentLoop:
             msg=msg,
             session=None,
             session_key=key,
+            # Resolved once, here, so the request context a tool reads and the record the
+            # transcript keeps can never disagree about who answered (#248).
+            agent=self._acting_agent_for(msg.metadata),
             turn_id=f"{key}:{time.time_ns()}",
             runtime=runtime,
             kind=kind,
@@ -2215,6 +2270,7 @@ class AgentLoop:
         # Recorded beside the latency, and keyed by session for the same reason (#203): the
         # manifest belongs to the turn that built it, and two sessions can be mid-turn at once.
         self.runtime_event_publisher.record_turn_prompt(ctx.session_key, ctx.prompt_manifest)
+        self.runtime_event_publisher.record_turn_agent(ctx.session_key, ctx.agent)
         if not ctx.ephemeral:
             session.enforce_file_cap(
                 on_archive=partial(self.context.memory.raw_archive, session_key=ctx.session_key)

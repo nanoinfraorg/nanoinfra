@@ -165,6 +165,9 @@ def _serialize_job(
 
     payload["protected"] = job.payload.kind == "system_event"
     payload["delivery"] = job.delivery
+    # The agent this job runs as (#257). Empty is the deployment's default agent, which is what
+    # the editor shows when a deployment names no agents -- and there the field is not rendered.
+    payload["agent"] = job.agent
     payload["skills"] = list(job.skills)
     payload["references"] = [dict(item) for item in job.references]
     payload["retry"] = {
@@ -233,6 +236,9 @@ def _serialize_trigger(
 
     payload["protected"] = False
     payload["delivery"] = trigger.delivery
+    # The agent this trigger runs as (#257), the same field a cron job carries, because the editor
+    # is one form over both records.
+    payload["agent"] = trigger.agent
     payload["skills"] = list(trigger.skills)
     payload["references"] = [dict(item) for item in trigger.references]
     # Whether a key exists, never the key. The plaintext is returned once at issue time and is

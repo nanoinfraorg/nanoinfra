@@ -1400,7 +1400,13 @@ describe("ThreadComposer", () => {
     }
   });
 
-  const MENTION_SERVERS = [
+  /** Two agents, because a roster of one cannot show narrowing. */
+const MENTION_AGENTS = [
+  { name: "sre-prod", description: "Hands-on checks on production hosts" },
+  { name: "db-oncall", description: "Postgres and Valkey, read-only by default" },
+];
+
+const MENTION_SERVERS = [
     { id: "srv_a1b2", name: "db-01", providerId: "ssh", tags: ["prod"], updatedAt: "2026-08-21" },
     { id: "srv_c3d4", name: "web-01", providerId: "ssh", tags: ["edge"], updatedAt: "2026-08-21" },
   ];
@@ -1488,6 +1494,166 @@ const MENTION_CALENDARS = [
 
     expect(screen.getByRole("option", { name: /web-01/i })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /db-01/i })).not.toBeInTheDocument();
+  });
+
+  it("offers an agent to answer with, once the deployment names some", async () => {
+    const onAgentChange = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        namedAgents={MENTION_AGENTS}
+        agent={null}
+        onAgentChange={onAgentChange}
+      />,
+    );
+
+    // The default agent is a real entry, not an empty state: "no agent chosen" and "the
+    // deployment default" are the same thing, and hiding one of them reads as a missing choice.
+    const badge = screen.getByRole("button", { name: /Agent: Default agent/ });
+    // Radix opens a menu on pointerdown, not on click.
+    fireEvent.pointerDown(badge, { button: 0 });
+
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: /sre-prod/ }));
+    expect(onAgentChange).toHaveBeenCalledWith("sre-prod");
+  });
+
+  it("shows the chosen agent rather than the default once one is chosen", () => {
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        namedAgents={MENTION_AGENTS}
+        agent="db-oncall"
+        onAgentChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Agent: db-oncall/ })).toBeInTheDocument();
+  });
+
+  it("keeps naming an agent that config no longer lists", () => {
+    // The turn will fall back to the default server-side. A label that quietly said "Default
+    // agent" would hide that the conversation is still asking for something else.
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        namedAgents={MENTION_AGENTS}
+        agent="retired-agent"
+        onAgentChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Agent: retired-agent/ })).toBeInTheDocument();
+  });
+
+  it("stops offering a model once the model belongs to the agent", () => {
+    const { container, unmount } = render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        modelLabel="Kimi K2"
+        namedAgents={MENTION_AGENTS}
+        agent={null}
+        onAgentChange={vi.fn()}
+      />,
+    );
+
+    // Offering a model here would offer a decision that is no longer the turn's to make.
+    expect(container.querySelector(".thread-composer-model-badge")).toBeNull();
+    expect(container.querySelector("[data-thread-agent]")).not.toBeNull();
+    unmount();
+
+    // And a deployment that names no agent keeps exactly what it has today.
+    const plain = render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        modelLabel="Kimi K2"
+      />,
+    );
+    expect(plain.container.querySelector(".thread-composer-model-badge")).not.toBeNull();
+    expect(plain.container.querySelector("[data-thread-agent]")).toBeNull();
+  });
+
+  it("offers the agent prefix only when the deployment names agents", () => {
+    const { unmount } = render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        servers={MENTION_SERVERS}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Message input"), {
+      target: { value: "@", selectionStart: 1 },
+    });
+
+    // One agent is what every deployment has today, and there `@agent:` means nothing.
+    expect(screen.queryByRole("option", { name: /agent:/ })).not.toBeInTheDocument();
+    unmount();
+
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        servers={MENTION_SERVERS}
+        namedAgents={MENTION_AGENTS}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Message input"), {
+      target: { value: "@", selectionStart: 1 },
+    });
+
+    expect(screen.getByRole("option", { name: /agent:/ })).toBeInTheDocument();
+  });
+
+  it("lists the named agents on @agent: and narrows on what they are for", () => {
+    render(
+      <ThreadComposer
+        onSend={vi.fn()}
+        placeholder="Type your message..."
+        namedAgents={MENTION_AGENTS}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: "@agent:", selectionStart: 7 } });
+
+    expect(screen.getByRole("option", { name: /sre-prod/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /db-oncall/ })).toBeInTheDocument();
+
+    // The description is searchable, because an operator knows the problem before the roster.
+    fireEvent.change(input, { target: { value: "@agent:postgres", selectionStart: 15 } });
+
+    expect(screen.getByRole("option", { name: /db-oncall/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /sre-prod/ })).not.toBeInTheDocument();
+  });
+
+  it("sends an agent mention as text, with nothing recorded alongside it", () => {
+    const onSend = vi.fn();
+    render(
+      <ThreadComposer
+        onSend={onSend}
+        placeholder="Type your message..."
+        namedAgents={MENTION_AGENTS}
+      />,
+    );
+    const input = screen.getByLabelText("Message input");
+
+    fireEvent.change(input, { target: { value: "@agent:sre", selectionStart: 10 } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(input).toHaveValue("@agent:sre-prod ");
+
+    fireEvent.change(input, {
+      target: { value: "@agent:sre-prod check disk", selectionStart: 26 },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    // No sidecar. The token is a preference the manager reads when it plans the turn -- it is not
+    // an invocation, and the manager may still delegate elsewhere or answer itself.
+    expect(onSend).toHaveBeenCalledWith("@agent:sre-prod check disk", undefined, undefined);
   });
 
   it("lists a connector's objects on @calendar: and pins the id", () => {

@@ -6,6 +6,7 @@ import json
 from typing import TYPE_CHECKING, Any, cast
 
 from nanoinfra.agent.tools.base import Tool, ToolResult
+from nanoinfra.agent.tools.capabilities import capability_class_of
 from nanoinfra.agent.tools.context import ContextAware, current_request_context
 
 if TYPE_CHECKING:
@@ -202,6 +203,16 @@ class ToolRegistry:
         if not tool.available():
             return None, params, ToolResult.error(f"Error: Tool '{name}' is unavailable")
 
+        # The acting agent's tool groups are a ceiling, not a suggestion (#257). Withholding the
+        # schema is not enough by itself: a model that names a tool it never saw would otherwise
+        # reach it. Checked here rather than in `execute`, because the runner prepares a call and
+        # awaits the tool directly -- this is the one place both paths pass through.
+        from nanoinfra.agent.tools import groups
+
+        ceiling_refusal = groups.agent_ceiling_refusal(name)
+        if ceiling_refusal:
+            return None, params, ToolResult.error(ceiling_refusal)
+
         # Compatibility for external tools that still implement the legacy
         # setter protocol. Built-ins read the authoritative ContextVar
         # directly and never copy routing state.
@@ -267,18 +278,31 @@ class ToolRegistry:
     async def execute(self, name: str, params: Any) -> Any:
         """Execute a tool by name with given parameters."""
         hint = "\n\n[Analyze the error above and try a different approach.]"
-        tool, params, error = self.prepare_call(name, params)
-        if error:
-            return ToolResult.error(str(error) + hint)
+        # Imported here, not at module level: the usage package reaches `providers/base.py`, which
+        # reaches `config/schema.py`, which imports this module -- and #57 already carries the
+        # deferred resolve that cycle needs. A per-call import is a dict lookup after the first.
+        from nanoinfra.llm_usage.tool_calls import classify_tool_error, tool_call_record
 
-        try:
-            assert tool is not None  # guarded by prepare_call()
-            result = await tool.execute(**params)
-            if is_tool_error_result(result):
-                return ToolResult.error(str(result) + hint)
-            return result
-        except Exception as e:
-            return ToolResult.error(f"Error executing {name}: {str(e)}" + hint)
+        # One tool-call row per call (#232). The scope is re-entrant, so this records nothing when
+        # the caller already opened one -- the runner does, because it executes a prepared tool
+        # directly and never reaches this method for a tool it resolved.
+        with tool_call_record(tool=name) as row:
+            tool, params, error = self.prepare_call(name, params)
+            if error:
+                row.failed(classify_tool_error(error))
+                return ToolResult.error(str(error) + hint)
+
+            row.capability_class = capability_class_of(tool)
+            try:
+                assert tool is not None  # guarded by prepare_call()
+                result = await tool.execute(**params)
+                if is_tool_error_result(result):
+                    row.failed(classify_tool_error(result))
+                    return ToolResult.error(str(result) + hint)
+                return result
+            except Exception as e:
+                row.failed("exception")
+                return ToolResult.error(f"Error executing {name}: {str(e)}" + hint)
 
     @property
     def tool_names(self) -> list[str]:

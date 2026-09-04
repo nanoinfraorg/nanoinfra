@@ -25,7 +25,3 @@ This conversation is via email. Structure with clear sections. Markdown may not 
 ## Format Hint
 Output is rendered in a terminal. Avoid markdown headings and tables. Use plain text with minimal formatting.
 {% endif %}
-
-## External Content
-
-{% include 'agent/_snippets/untrusted_content.md' %}

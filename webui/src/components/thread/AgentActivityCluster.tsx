@@ -18,6 +18,11 @@ import {
   compactActivityPath,
   redactShellCommand,
 } from "@/components/thread/activity/activity-text";
+import {
+  collectDelegationPlan,
+  isDelegationTraceLine,
+} from "@/components/thread/activity/delegation-plan-model";
+import { DelegationPlan } from "@/components/thread/activity/DelegationPlan";
 import { FileEditGroup, type FileEditSummary } from "@/components/thread/activity/FileEditRow";
 import { GenericToolRun } from "@/components/thread/activity/GenericToolRun";
 import {
@@ -103,7 +108,13 @@ function countActivity(
     if (m.kind === "trace") {
       const lines = traceLines(m);
       for (const line of lines) {
-        if (!isCliRunTraceLine(line) && !isMcpRunTraceLine(line)) {
+        // A delegation is counted by the plan, not here: it is one step of the turn's plan and
+        // not a tool call the fold has to summarise (#252).
+        if (
+          !isCliRunTraceLine(line)
+          && !isMcpRunTraceLine(line)
+          && !isDelegationTraceLine(line)
+        ) {
           toolCalls += 1;
         }
       }
@@ -156,6 +167,9 @@ export function AgentActivityCluster({
   );
   const cliRuns = useMemo(() => collectCliRuns(activityMessages), [activityMessages]);
   const mcpRuns = useMemo(() => collectMcpRuns(activityMessages), [activityMessages]);
+  // The turn's plan, or `null` when it delegated nothing -- which is every turn today, and the
+  // reason a turn with no delegation renders exactly as it did before (#252).
+  const delegationPlan = useMemo(() => collectDelegationPlan(activityMessages), [activityMessages]);
   const cliAppsByName = useMemo(
     () => new Map(cliApps.map((app) => [app.name.toLowerCase(), app])),
     [cliApps],
@@ -187,9 +201,17 @@ export function AgentActivityCluster({
     ? outerOpenLocal
     : isTurnStreaming || completionHoldOpen || (wasTurnStreaming && !isTurnStreaming);
 
-  const hasVisibleActivity = reasoningSteps > 0 || toolCalls > 0 || cliCount > 0 || mcpCount > 0 || fileCount > 0;
-  const hasOnlyFileActivity = fileCount > 0 && activityMessages.every(messageHasOnlyFileActivity);
-  const hasNonReasoningActivity = toolCalls > 0 || cliCount > 0 || mcpCount > 0 || fileCount > 0;
+  const delegationCount = delegationPlan?.steps.length ?? 0;
+  // What the collapsible fold holds. The plan is a sibling of the fold rather than a row inside
+  // it, so a turn whose only activity is its plan renders the plan and no empty fold.
+  const hasFoldActivity = reasoningSteps > 0 || toolCalls > 0 || cliCount > 0 || mcpCount > 0 || fileCount > 0;
+  const hasVisibleActivity = hasFoldActivity || delegationCount > 0;
+  // The file-edit shortcut skips the fold entirely, so it must not swallow a plan. A row holding
+  // a delegation already fails `messageHasOnlyFileActivity`; this states it rather than relying
+  // on it.
+  const hasOnlyFileActivity =
+    fileCount > 0 && !delegationPlan && activityMessages.every(messageHasOnlyFileActivity);
+  const hasNonReasoningActivity = toolCalls > 0 || cliCount > 0 || mcpCount > 0 || fileCount > 0 || delegationCount > 0;
   const durationMs = activityDurationMs(
     activityMessages,
     isTurnStreaming,
@@ -343,29 +365,36 @@ export function AgentActivityCluster({
 
   return (
     <div className={cn("w-full", hasBodyBelow && "mb-2")}>
-      <ThinkingReasoningShell
-        active={isTurnStreaming}
-        expanded={outerExpanded}
-        label={stepUsageLabel ? `${thoughtLabel} · ${stepUsageLabel}` : thoughtLabel}
-        viewportRef={activityScrollRef}
-        contentRef={activityContentRef}
-        onToggle={toggleOuter}
-        onScroll={onActivityScroll}
-      >
-        <ActivityMessageTimeline
-          messages={activityMessages}
+      {hasFoldActivity ? (
+        <ThinkingReasoningShell
           active={isTurnStreaming}
-          cliAppsByName={cliAppsByName}
-          mcpPresetsByName={mcpPresetsByName}
-        />
-        {fileEdits.length ? (
-          <FileEditGroup
-            edits={fileEdits}
-            displayMode={fileEditDisplayMode}
-            onOpenFilePreview={onOpenFilePreview}
+          expanded={outerExpanded}
+          label={stepUsageLabel ? `${thoughtLabel} · ${stepUsageLabel}` : thoughtLabel}
+          viewportRef={activityScrollRef}
+          contentRef={activityContentRef}
+          onToggle={toggleOuter}
+          onScroll={onActivityScroll}
+        >
+          <ActivityMessageTimeline
+            messages={activityMessages}
+            active={isTurnStreaming}
+            cliAppsByName={cliAppsByName}
+            mcpPresetsByName={mcpPresetsByName}
           />
-        ) : null}
-      </ThinkingReasoningShell>
+          {fileEdits.length ? (
+            <FileEditGroup
+              edits={fileEdits}
+              displayMode={fileEditDisplayMode}
+              onOpenFilePreview={onOpenFilePreview}
+            />
+          ) : null}
+        </ThinkingReasoningShell>
+      ) : null}
+      {/* After the fold, before the answer: the reader sees how the turn thought, what it decided
+          to delegate, then what came back (#252). */}
+      {delegationPlan ? (
+        <DelegationPlan plan={delegationPlan} turnActive={isTurnStreaming} />
+      ) : null}
     </div>
   );
 }
@@ -543,6 +572,13 @@ function ActivityTraceTimeline({
   };
 
   lines.forEach((line, index) => {
+    // A delegation belongs to the plan, which renders as one unit outside this fold. Left here it
+    // would read as a tool call the manager happened to make, which is the misreading #252 fixes.
+    if (isDelegationTraceLine(line)) {
+      flushNormalLines(String(index));
+      return;
+    }
+
     const traceKey = canonicalToolTrace(line);
     const webSearchRun = webSearchRunsByLine.get(traceKey);
     if (webSearchRun) {

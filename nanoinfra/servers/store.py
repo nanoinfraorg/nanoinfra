@@ -25,6 +25,12 @@ from nanoinfra.utils.helpers import (
 
 _VALID_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 
+#: The notes file is a sibling of the record (#223), so it needs the same id test the record path
+#: uses. Public because ``nanoinfra/servers/notes.py`` builds its own filename and must not be able
+#: to disagree with this module about which ids are writable.
+def valid_server_id(server_id: str) -> bool:
+    return _VALID_ID_RE.match(server_id) is not None
+
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -38,7 +44,7 @@ class ServerStore:
         self.root = self.workspace_path / "servers"
 
     def _path(self, server_id: str) -> Path | None:
-        if not _VALID_ID_RE.match(server_id):
+        if not valid_server_id(server_id):
             return None
         return self.root / f"{server_id}.json"
 
@@ -73,6 +79,7 @@ class ServerStore:
                     provider_id=server.provider_id,
                     tags=server.tags,
                     updated_at=server.updated_at,
+                    notes_updated_at=server.notes_updated_at,
                 )
             )
         summaries.sort(key=lambda s: s.updated_at, reverse=True)
@@ -121,8 +128,32 @@ class ServerStore:
         self._check_name_unique(server.name, exclude_id=server_id)
         server.created_at = existing.created_at
         server.updated_at = _now_iso()
+        # Carried across the update for the same reason ``created_at`` is: this is a full
+        # replacement of the client-supplied fields, and ``notesUpdatedAt`` is not one of them
+        # (#225). Dropping it would make renaming a server look like it had never been visited.
+        server.notes_updated_at = existing.notes_updated_at
         self._write(server)
         return server
+
+    def touch_notes(self, server_id: str, *, when: str | None = None) -> bool:
+        """Stamp ``notesUpdatedAt`` after a notes write (#225).
+
+        Edits the decoded JSON object rather than round-tripping a ``Server``, so a field a later
+        version added survives a notes append written by an older reader, and so the window in
+        which a concurrent ``update()`` could be clobbered covers one key instead of the record.
+
+        ``updatedAt`` is deliberately left alone: it means *the record* changed, and the gallery
+        sorts on it. A note is not the record, and appending one should not reorder the inventory.
+        """
+        path = self._path(server_id)
+        if path is None:
+            return False
+        data = self._read(path)
+        if data is None:
+            return False
+        data["notesUpdatedAt"] = when or _now_iso()
+        _write_text_atomic(path, json.dumps(data, ensure_ascii=False, indent=2))
+        return True
 
     def delete(self, server_id: str) -> bool:
         path = self._path(server_id)
@@ -139,4 +170,4 @@ class ServerStore:
         _write_text_atomic(path, json.dumps(server.to_dict(), ensure_ascii=False, indent=2))
 
 
-__all__ = ["ServerStore"]
+__all__ = ["ServerStore", "valid_server_id"]

@@ -547,6 +547,7 @@ class WebuiTurnCoordinator:
             latency_ms=event.latency_ms,
             usage=event.usage,
             prompt_manifest=event.prompt_manifest,
+            agent=event.agent,
         )
         self._schedule_title_update_from_event(event)
 
@@ -596,6 +597,7 @@ class WebuiTurnCoordinator:
         latency_ms: int | None,
         usage: LLMUsage | None = None,
         prompt_manifest: dict[str, Any] | None = None,
+        agent: str | None = None,
     ) -> None:
         if msg.channel != "websocket":
             return
@@ -610,6 +612,7 @@ class WebuiTurnCoordinator:
                     goal_state=goal_state_ws_blob(session.metadata),
                     usage=usage,
                     prompt_manifest=prompt_manifest,
+                    agent=agent,
                 ),
                 metadata=msg.metadata,
             )

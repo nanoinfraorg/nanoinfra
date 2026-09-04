@@ -51,6 +51,14 @@ gives up when it lets that claim widen who may answer. Both record kinds carry t
 filter on a person shows a decision and the outcome that followed it. Neither field ever holds
 blank text: an empty name reads as a person, so "nobody" is ``null``.
 
+**Three names on a delegated action (#251).** ``acting_agent`` is the peer that acted,
+``delegated_by`` is the agent that asked, and ``delegation_chain`` renders those two with the
+human as one line. The three exist so a reader can answer "who authorised this" from one record
+instead of correlating two files, which is the property that makes one level of delegation
+checkable at all. Both agent names inherit the trust of ``origin_actor`` exactly: an assertion,
+normalised to a name-shaped value before it arrived, never an authentication. All three are
+``null`` where no agent named itself, which is every record a deployment with one agent writes.
+
 **Separate from the transcripts.** These records belong under ``gates/audit/`` in the data
 dir. They never enter the session history, and they have their own retention. This module
 also stays independent of ``nanoinfra/bus/runtime_events.py``. That bus is in-memory pub/sub
@@ -96,6 +104,11 @@ from loguru import logger
 from nanoinfra.agent.tools.capabilities import command_digest as _command_digest
 from nanoinfra.config.gates import AuditConfig
 
+# The tool-call row's join key (#233). One context variable, in a module that imports only the
+# stdlib, so the gate does not gain a dependency on the store it notes for -- and the executor,
+# which builds its own audit store, gains no import it did not already have.
+from nanoinfra.llm_usage.gate_join import note_gate_decision
+
 _SEGMENT_PREFIX = "gate-"
 _SEGMENT_SUFFIX = ".jsonl"
 _SEGMENT_DATE_FORMAT = "%Y-%m-%d"
@@ -107,6 +120,15 @@ _SEGMENT_DATE_FORMAT = "%Y-%m-%d"
 # `nanoinfra/webui/audit_api.py` imports this name for its filter list, so the viewer offers the
 # value with no second copy of the string.
 DECISION_COMPLETION = "completion"
+
+# What the `decision` field holds on the record of one derived standing grant (#219). It names a
+# record kind, the same way `completion` does, because nothing was decided at that moment: the
+# human already approved the action, and this row says which grant the approval wrote.
+#
+# The record is a second row rather than a field on the approval's own record, and it has to be:
+# this log is append-only, the executor writes the decision before the action runs, and the
+# gateway writes the grant after the answer lands. A reader pairs the two by `approval_id`.
+DECISION_GRANT_WRITTEN = "grant_written"
 
 # An audit record names hosts, actors, and sessions. Only the owner needs to read it.
 # The executor writes this log and the agent process reads it: #32 restores latches there, and
@@ -210,6 +232,8 @@ class AuditStore:
         origin_path: str | None = None,
         approval_path: str | None = None,
         origin_actor: str | None = None,
+        acting_agent: str | None = None,
+        delegated_by: str | None = None,
         actor: str | None = None,
         scope: str | None = None,
         hosts: Sequence[str] | None = None,
@@ -257,6 +281,14 @@ class AuditStore:
         text into ``None``, so no writer can put an empty name in the log. #67 keeps the two apart
         on the wire for that reason, and the record holds the same line.
 
+        ``acting_agent`` and ``delegated_by`` name **which agent acted, and which one asked**
+        (#251). A delegated action's record therefore names both agents and the human, and
+        ``delegation_chain`` renders the three as one line -- ``alberto -> manager -> sre-prod``
+        -- so a reader answers "who authorised this" without opening a second file. The chain is
+        derived here rather than passed, for the reason ``same_path`` is: a derived value cannot
+        contradict the fields it comes from. All three are ``None`` where no agent named itself,
+        which is every record a deployment with one agent writes.
+
         ``same_path`` and ``host_count`` are not parameters on purpose. Both derive from
         other fields, so a derived value cannot contradict them. #13 keys an out-of-band
         approval on the two paths. The record must not claim a separate path that the two
@@ -285,6 +317,10 @@ class AuditStore:
             # Who asked, beside who answered (#79). The gate strips this value before it compares
             # it, so the record holds the text that decided.
             "origin_actor": _named_or_none(origin_actor),
+            # Which agent acted, which one asked, and the three of them as one line (#251).
+            "acting_agent": _named_or_none(acting_agent),
+            "delegated_by": _named_or_none(delegated_by),
+            "delegation_chain": _delegation_chain(origin_actor, delegated_by, acting_agent),
             "actor": actor,
             "capability_class": capability_class,
             "scope": scope,
@@ -304,6 +340,16 @@ class AuditStore:
         if command is not None and self.config.record_command_text:
             payload["command_text"] = command
         self._append(self.root / segment_name(moment), payload, moment)
+        # The join #233 asked for, and the only line of it on this side. This log has held every
+        # decision since #16 and the tool-call row has held everything except the decision,
+        # because the two shared no key. The note lands *after* the append: a decision that
+        # reached no durable record must not reach a metrics row either, and the caller is about
+        # to fail closed on the OSError this line would otherwise have jumped.
+        #
+        # A no-op outside a tool call, which is what makes the empty column honest -- a
+        # deployment with no gate writes no record here, takes no note, and gets a row whose
+        # decision is blank rather than a fabricated `allow`.
+        note_gate_decision(decision=decision, reason=reason, actor=actor)
         return payload
 
     def record_completion(
@@ -363,6 +409,10 @@ class AuditStore:
             # this record cannot make.
             origin_path=_text(follows.get("origin_path")),
             origin_actor=_text(follows.get("origin_actor")),
+            # Which agent ran it is a fact about the action, like the session and the hosts, so
+            # both names travel and a filter on one agent sees the outcome of its work (#83).
+            acting_agent=_text(follows.get("acting_agent")),
+            delegated_by=_text(follows.get("delegated_by")),
             scope=_text(follows.get("scope")),
             hosts=_host_list(follows.get("hosts")),
             # The digest, and never the text. The decision record holds the text under the
@@ -576,6 +626,22 @@ def _host_list(value: Any) -> list[str]:
     return []
 
 
+def _delegation_chain(
+    origin_actor: str | None, delegated_by: str | None, acting_agent: str | None
+) -> str | None:
+    """``"alberto -> manager -> sre-prod"``, or ``None`` when no agent acted -- #251.
+
+    Derived here rather than taken as a parameter, so the line cannot disagree with the three
+    fields it is made of. ``None`` and never an empty string: a record that held ``""`` would
+    read as a chain nobody can parse, which is the rule ``_named_or_none`` applies to a name.
+    """
+    acting = _named_or_none(acting_agent)
+    if acting is None:
+        return None
+    behind = (_named_or_none(origin_actor), _named_or_none(delegated_by), acting)
+    return " -> ".join(name for name in behind if name)
+
+
 def _named_or_none(value: str | None) -> str | None:
     """Return the name a caller passed, or ``None`` when it named nobody -- #79.
 
@@ -603,6 +669,7 @@ def _same_path(origin_path: str | None, approval_path: str | None) -> bool | Non
 
 __all__ = [
     "DECISION_COMPLETION",
+    "DECISION_GRANT_WRITTEN",
     "AuditRootChangedError",
     "AuditStore",
     "root_identity",

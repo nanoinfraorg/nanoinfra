@@ -86,7 +86,16 @@ class LocalTrigger:
     sender_id: str = "trigger"
     #: Whether this trigger's outcome reaches the operator. Defaults to today's behaviour.
     delivery: str = DEFAULT_DELIVERY_POLICY
-    #: Skills this trigger's prompt carries in full. Empty means the whole catalogue.
+    #: The named agent this trigger runs as (#257). Empty is the deployment's default agent, which
+    #: is what every trigger is today and what a trigger written before this field reads as.
+    #:
+    #: Naming an agent **narrows** the trigger: the agent's tool groups become the ceiling for the
+    #: turn, and the fields below may only stay inside it. See ``cron/agent_binding.py`` -- the
+    #: rule and its enforcement are shared with cron jobs, because two answers to "what may this
+    #: automation reach" is one more than anybody can reason about.
+    agent: str = ""
+    #: Skills this trigger's prompt carries in full. Empty means the whole catalogue -- or, with an
+    #: agent named, that agent's own skills, which this list narrows rather than replaces.
     skills: list[str] = field(default_factory=list[str])
     #: MCP servers this automation declares (#204). A `mention` server sends only a one-line
     #: advertisement unless a turn names it, and an unattended turn has nobody to type `@server`.
@@ -137,6 +146,7 @@ class LocalTrigger:
             session_key=str(_get(data, "sessionKey", "session_key", "")),
             sender_id=str(_get(data, "senderId", "sender_id", "trigger") or "trigger"),
             delivery=normalize_policy(data.get("delivery")),
+            agent=str(data.get("agent") or "").strip(),
             skills=_names(data.get("skills")),
             mcp_presets=_names(_get(data, "mcpPresets", "mcp_presets", [])),
             connectors=_names(data.get("connectors")),
@@ -165,6 +175,7 @@ class LocalTrigger:
             "sessionKey": self.session_key,
             "senderId": self.sender_id,
             "delivery": self.delivery,
+            "agent": self.agent,
             "skills": list(self.skills),
             "mcpPresets": list(self.mcp_presets),
             "connectors": list(self.connectors),

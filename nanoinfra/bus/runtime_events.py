@@ -61,6 +61,11 @@ class TurnCompleted:
     usage: LLMUsage | None = None
     #: What the turn's prompt was made of, by section (#203). Names and sizes, never content.
     prompt_manifest: dict[str, Any] | None = None
+    #: Which named agent answered (#248). ``None`` is the deployment's default agent, which is
+    #: every turn today. Recorded rather than inferred: switching agents mid-thread is allowed, so
+    #: a reader who has to guess from the model or the tools would sometimes guess wrong, and that
+    #: history cannot be reconstructed afterwards.
+    agent: str | None = None
 
 
 @dataclass(frozen=True)
@@ -202,6 +207,10 @@ class RuntimeEventPublisher:
         # loop-global "last usage" would hand one session's number to the other's thread.
         self._turn_usage: dict[str, LLMUsage] = {}
         self._turn_prompt: dict[str, dict[str, Any]] = {}
+        #: Which named agent is answering, per session (#248). Per session for the same reason the
+        #: others are: two chats run concurrently, and one loop-global value would attribute one
+        #: session's turn to the other session's agent.
+        self._turn_agent: dict[str, str] = {}
 
     @staticmethod
     def _context(
@@ -235,11 +244,21 @@ class RuntimeEventPublisher:
         if manifest:
             self._turn_prompt[session_key] = manifest
 
+    def record_turn_agent(self, session_key: str, agent: str | None) -> None:
+        """Record who is answering. Only a resolved name reaches here.
+
+        The default agent records nothing, which is what leaves the field off the frame rather
+        than putting a name on it that config never declared.
+        """
+        if agent:
+            self._turn_agent[session_key] = agent
+
     def clear_turn(self, session_key: str) -> None:
         self._turn_latency_ms.pop(session_key, None)
         self._turn_runtime.pop(session_key, None)
         self._turn_usage.pop(session_key, None)
         self._turn_prompt.pop(session_key, None)
+        self._turn_agent.pop(session_key, None)
 
     async def session_turn_started(
         self,
@@ -325,6 +344,7 @@ class RuntimeEventPublisher:
                 prompt_manifest=_manifest_scope(
                     self._turn_prompt.pop(session_key, None), usage
                 ),
+                agent=self._turn_agent.pop(session_key, None),
             )
         )
 

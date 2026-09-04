@@ -22,6 +22,19 @@ An unattended context has exactly one allow path: a standing grant that covers e
 resolved host and holds the resolved command exactly. There is no interactive fallback,
 because a prompt with nobody present becomes a hang or a rubber stamp.
 
+An expired grant is treated as absent, and it is never reported as absent (#218). The reason
+text names it and gives the date, because the state this feature has to explain is a turn that
+ran unattended yesterday and waits for a human today. "No standing grant names this action"
+would send an operator to write the grant that is already in their config.
+
+**A delegated action is decided here too (#251).** ``delegation`` carries the peer that acts, the
+agent that asked, and the human behind the chain, and this function applies both rules that
+follow from it: the ceiling, which refuses a capability class the spawning turn did not hold, and
+the actor rule, which reads a delegated turn as attended exactly when a human is on its chain.
+Both live in ``nanoinfra/gates/delegation.py`` and are applied *here* rather than in the tool
+that asks, because a tool that checks its own ceiling is a ceiling the model can talk past. A
+caller that passes nothing gets the behaviour of every deployment with one agent.
+
 ``credential.access`` is a decision about one decryption, and never about the action (#39).
 ``evaluate_credential_access`` answers it, and that answer is ``allow`` or ``deny`` alone. A
 second ``approve`` outcome would prompt a human twice for one action, and #13 says a human who
@@ -32,6 +45,7 @@ authorization the action already carries.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -44,12 +58,17 @@ from nanoinfra.agent.tools.capabilities import (
     READ,
 )
 from nanoinfra.agent.tools.context import EXECUTION_CONTEXT_INTERACTIVE
+from nanoinfra.gates.delegation import Delegation
 from nanoinfra.servers.scope import ALL, GROUP, HOST
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
     from nanoinfra.config.gates import ContextPolicy, GatesConfig
+
+# What a caller that names no delegation gets: no agent, no chain, no ceiling. Shared because it
+# is frozen, so no evaluation can mutate the one every other evaluation reads.
+_NO_DELEGATION = Delegation()
 
 # Classes this policy models. A class outside this set refuses, so a new capability cannot
 # reach a host until someone gives it a policy.
@@ -220,7 +239,21 @@ def _grant_matches(
     return all(host in allowed for host in hosts)
 
 
-def _matching_grant_id(
+@dataclass(frozen=True, slots=True)
+class _GrantHits:
+    """The grants that cover one action: the live one, and the expired one behind it (#218).
+
+    Both halves travel because an expired grant is not a missing grant. A turn that ran
+    unattended yesterday and waits for a human today needs the reason in the record, and "no
+    standing grant names this action" sends an operator to write the grant they already wrote.
+    """
+
+    live: str | None = None
+    expired: str | None = None
+    expired_at: datetime | None = None
+
+
+def _grant_hits(
     gates: GatesConfig,
     *,
     context_key: str,
@@ -228,11 +261,19 @@ def _matching_grant_id(
     command: str,
     servers: Any = None,
     cache: dict[str, set[str]] | None = None,
-) -> str | None:
+) -> _GrantHits:
+    """Find the first live grant that covers the action, and the first expired one.
+
+    The scan continues past an expired match, because a second grant may still be live. It
+    stops at the first live one, which is the value every caller before #218 read.
+    """
+    now = datetime.now(UTC)
+    expired: str | None = None
+    expired_at: datetime | None = None
     for index, grant in enumerate(gates.standing_grants):
         if context_key not in grant.contexts:
             continue
-        if _grant_matches(
+        if not _grant_matches(
             grant.hosts,
             grant.commands,
             hosts=hosts,
@@ -241,8 +282,29 @@ def _matching_grant_id(
             cache=cache,
             connector_grant=bool(grant.connectors or grant.operations),
         ):
-            return grant.id or f"grant[{index}]"
-    return None
+            continue
+        named = grant.id or f"grant[{index}]"
+        if not grant.is_expired(now):
+            return _GrantHits(live=named, expired=expired, expired_at=expired_at)
+        if expired is None:
+            expired, expired_at = named, grant.expires_at
+    return _GrantHits(expired=expired, expired_at=expired_at)
+
+
+def _expiry_sentence(hits: _GrantHits) -> str:
+    """The clause that names an expired grant, or nothing at all.
+
+    It reads as one sentence appended to a refusal or to an approve reason, so the audit line
+    says *expired* where it used to say nothing.
+    """
+    if hits.expired is None:
+        return ""
+    when = hits.expired_at.isoformat() if hits.expired_at is not None else "an earlier date"
+    return (
+        f" Standing grant {hits.expired} covers this action, and it expired at {when}. "
+        "Nothing removed it: set a later expiresAt on that grant, or approve the action once "
+        "and add a fresh grant."
+    )
 
 
 def evaluate(
@@ -254,16 +316,28 @@ def evaluate(
     hosts: Iterable[str],
     command: str,
     servers: Any = None,
+    delegation: Delegation | None = None,
 ) -> Decision:
     """Decide one action. Safe to call before any credential is resolved.
 
     ``servers`` is the inventory store. Pass it so a grant host resolves through the same
     resolver the action used (#24). A caller that passes nothing gets label comparison, which
     is correct for #23's inventory writes, since an inventory write reaches no host.
+
+    ``delegation`` names the peer that acts, the agent that asked, and the human behind the chain
+    (#251). It does two things and only two: it refuses a class outside the ceiling the spawning
+    turn declared, and it decides whether a delegated turn reads as attended. ``None`` is every
+    turn of a deployment with one agent.
     """
     host_tuple = tuple(hosts)
     # One resolve per grant host for this decision, and nothing survives the call (#35).
     resolve_cache: dict[str, set[str]] = {}
+    delegated = delegation or _NO_DELEGATION
+    # The actor rule, before the context is read for anything. A delegated turn with a human on
+    # its chain is attended, because an approval can reach that person; one without stays
+    # unattended and a standing grant is its only allow path. Idempotent, so it does not matter
+    # whether the caller already applied it.
+    execution_context = delegated.effective_execution_context(execution_context)
     unattended = execution_context != EXECUTION_CONTEXT_INTERACTIVE
     context_key = "unattended" if unattended else "interactive"
 
@@ -278,6 +352,12 @@ def evaluate(
             f"Refusing {capability_class!r} at scope {scope!r}: the target did not resolve, "
             "so the host set is unknown.",
         )
+    # The ceiling, before any policy lookup. A peer must not reach a class the turn that spawned
+    # it could not, whatever the matrix says for this context, so no grant and no approval can
+    # answer this refusal.
+    ceiling = delegated.ceiling_refusal(capability_class)
+    if ceiling is not None:
+        return Decision(Outcome.DENY, ceiling)
 
     policy = _context_policy(gates, unattended=unattended)
 
@@ -285,7 +365,9 @@ def evaluate(
         # One implementation, and no second wording (#39). A caller that reaches the class
         # through this function names no authorization, so `approve` and `grant` refuse here.
         # The executor calls `evaluate_credential_access` directly and passes what it holds.
-        return evaluate_credential_access(gates, execution_context=execution_context)
+        return evaluate_credential_access(
+            gates, execution_context=execution_context, delegation=delegated
+        )
 
     if capability_class == MUTATE_INVENTORY:
         # A standing grant carries no class, so it can never satisfy this. A grant that
@@ -308,8 +390,13 @@ def evaluate(
     # `deny` means the action is not permitted at all. A grant that could overrule that would
     # make the matrix advisory, so a deny stays a deny and the refusal names the shadowed
     # grant instead.
+
+    # The expired match survives this branch, because an `approve` decision falls through to the
+    # bottom and its reason is where "why is a human being asked today" has to be legible (#218).
+    hits = _GrantHits()
+
     if configured in ("grant", "approve"):
-        grant_id = _matching_grant_id(
+        hits = _grant_hits(
             gates,
             context_key=context_key,
             hosts=host_tuple,
@@ -317,24 +404,25 @@ def evaluate(
             servers=servers,
             cache=resolve_cache,
         )
-        if grant_id is not None:
+        if hits.live is not None:
             return Decision(
                 Outcome.ALLOW,
-                f"Standing grant {grant_id} covers this action, so nobody was asked.",
-                grant_id,
+                f"Standing grant {hits.live} covers this action, so nobody was asked.",
+                hits.live,
                 resolved_targets=host_tuple,
             )
         if configured == "grant":
             return Decision(
                 Outcome.DENY,
-                _missing_grant_reason(capability_class, scope, context_key, host_tuple),
+                _missing_grant_reason(capability_class, scope, context_key, host_tuple)
+                + _expiry_sentence(hits),
             )
 
     outcome = _decision_for(configured)
     if outcome is Outcome.DENY:
         # A grant that matches everything except the matrix is the most confusing state an
         # operator can reach: they wrote the grant, and nothing happened. Name the key.
-        shadowed = _matching_grant_id(
+        hits = _grant_hits(
             gates,
             context_key=context_key,
             hosts=host_tuple,
@@ -342,20 +430,25 @@ def evaluate(
             servers=servers,
             cache=resolve_cache,
         )
-        if shadowed is not None:
+        if hits.live is not None:
             return Decision(
                 Outcome.DENY,
-                f"Standing grant {shadowed} covers this action, but "
+                f"Standing grant {hits.live} covers this action, but "
                 f"gates.{context_key}.mutate.remote.{scope} is {configured!r}. "
                 "Set it to 'grant' for the grant to apply.",
             )
         return Decision(
             Outcome.DENY,
-            _missing_grant_reason(capability_class, scope, context_key, host_tuple)
-            if unattended
-            else f"{capability_class} at {scope} scope is deny for a {context_key} context.",
+            (
+                _missing_grant_reason(capability_class, scope, context_key, host_tuple)
+                if unattended
+                else f"{capability_class} at {scope} scope is deny for a {context_key} context."
+            )
+            + _expiry_sentence(hits),
         )
-    return Decision(outcome, f"{capability_class} at {scope} scope is {configured}.")
+    return Decision(
+        outcome, f"{capability_class} at {scope} scope is {configured}." + _expiry_sentence(hits)
+    )
 
 
 def _connector_grant_matches(
@@ -374,15 +467,24 @@ def _connector_grant_matches(
     return connector in grant.connectors and operation in grant.operations
 
 
-def _matching_connector_grant_id(
+def _connector_grant_hits(
     gates: GatesConfig, *, context_key: str, connector: str, operation: str
-) -> str | None:
+) -> _GrantHits:
+    """The same two answers for a connector call. Expiry is on the grant, not on the kind."""
+    now = datetime.now(UTC)
+    expired: str | None = None
+    expired_at: datetime | None = None
     for index, grant in enumerate(gates.standing_grants):
         if context_key not in grant.contexts:
             continue
-        if _connector_grant_matches(grant, connector=connector, operation=operation):
-            return grant.id or f"grant[{index}]"
-    return None
+        if not _connector_grant_matches(grant, connector=connector, operation=operation):
+            continue
+        named = grant.id or f"grant[{index}]"
+        if not grant.is_expired(now):
+            return _GrantHits(live=named, expired=expired, expired_at=expired_at)
+        if expired is None:
+            expired, expired_at = named, grant.expires_at
+    return _GrantHits(expired=expired, expired_at=expired_at)
 
 
 def evaluate_connector(
@@ -392,6 +494,7 @@ def evaluate_connector(
     execution_context: str,
     connector: str,
     operation: str,
+    delegation: Delegation | None = None,
 ) -> Decision:
     """Decide one connector operation. The class comes from the connector's manifest.
 
@@ -403,12 +506,23 @@ def evaluate_connector(
     is the audit log rather than a decision. That asymmetry **is** the design: an MCP server's
     tools all resolve to ``mutate.remote``, and a connector that declares ``read`` on its GETs
     is what buys the difference.
+
+    ``delegation`` applies the same two rules a command gets (#251). A peer can call a connector,
+    and the ceiling and the actor rule cannot depend on which surface the peer reached for.
     """
+    delegated = delegation or _NO_DELEGATION
+    execution_context = delegated.effective_execution_context(execution_context)
     unattended = execution_context != EXECUTION_CONTEXT_INTERACTIVE
     context_key = "unattended" if unattended else "interactive"
 
     if capability_class == READ:
         return Decision(Outcome.ALLOW, f"{connector}.{operation} is a read.")
+
+    # Before the class check below, because a class outside the ceiling is refused for being
+    # outside the ceiling rather than for being unmodelled here.
+    ceiling = delegated.ceiling_refusal(capability_class)
+    if ceiling is not None:
+        return Decision(Outcome.DENY, ceiling)
 
     if capability_class != MUTATE_REMOTE:
         # A connector operation is a remote call or a read of one. Anything else means the
@@ -423,15 +537,17 @@ def evaluate_connector(
     policy = _context_policy(gates, unattended=unattended)
     configured = policy.mutate_remote.host
 
+    hits = _GrantHits()
+
     if configured in ("grant", "approve"):
-        grant_id = _matching_connector_grant_id(
+        hits = _connector_grant_hits(
             gates, context_key=context_key, connector=connector, operation=operation
         )
-        if grant_id is not None:
+        if hits.live is not None:
             return Decision(
                 Outcome.ALLOW,
-                f"Standing grant {grant_id} covers {connector}.{operation}, so nobody was asked.",
-                grant_id,
+                f"Standing grant {hits.live} covers {connector}.{operation}, so nobody was asked.",
+                hits.live,
             )
         if configured == "grant":
             return Decision(
@@ -439,27 +555,31 @@ def evaluate_connector(
                 f"Refusing {connector}.{operation}: gates.{context_key}.mutate.remote.host is "
                 "'grant' and no standing grant names it. Add "
                 f'{{"connectors": ["{connector}"], "operations": ["{operation}"]}} to '
-                "gates.standingGrants to permit it.",
+                "gates.standingGrants to permit it." + _expiry_sentence(hits),
             )
 
     outcome = _decision_for(configured)
     if outcome is Outcome.DENY:
-        shadowed = _matching_connector_grant_id(
+        hits = _connector_grant_hits(
             gates, context_key=context_key, connector=connector, operation=operation
         )
-        if shadowed is not None:
+        if hits.live is not None:
             return Decision(
                 Outcome.DENY,
-                f"Standing grant {shadowed} covers {connector}.{operation}, but "
+                f"Standing grant {hits.live} covers {connector}.{operation}, but "
                 f"gates.{context_key}.mutate.remote.host is {configured!r}. "
                 "Set it to 'grant' for the grant to apply.",
             )
         return Decision(
             Outcome.DENY,
             f"Refusing {connector}.{operation}: gates.{context_key}.mutate.remote.host is "
-            f"{configured!r}.",
+            f"{configured!r}." + _expiry_sentence(hits),
         )
-    return Decision(outcome, f"{connector}.{operation} is {capability_class}, which is {configured}.")
+    return Decision(
+        outcome,
+        f"{connector}.{operation} is {capability_class}, which is {configured}."
+        + _expiry_sentence(hits),
+    )
 
 
 def evaluate_credential_access(
@@ -467,6 +587,7 @@ def evaluate_credential_access(
     *,
     execution_context: str,
     authorization: ActionAuthorization | None = None,
+    delegation: Delegation | None = None,
 ) -> Decision:
     """Decide one decryption -- #39. Call this before ``resolve_plaintext`` reads the store.
 
@@ -485,7 +606,16 @@ def evaluate_credential_access(
 
     A value this function does not model refuses. A hand-edited key must cost the decryption
     rather than buy it.
+
+    ``delegation`` applies the ceiling and the actor rule here as well (#251). A peer that could
+    not have run the action must not be able to open the credential the action needs, and the
+    order matters: this class is decided against the same context the action was.
     """
+    delegated = delegation or _NO_DELEGATION
+    execution_context = delegated.effective_execution_context(execution_context)
+    ceiling = delegated.ceiling_refusal(CREDENTIAL_ACCESS)
+    if ceiling is not None:
+        return Decision(Outcome.DENY, ceiling)
     unattended = execution_context != EXECUTION_CONTEXT_INTERACTIVE
     context_key = "unattended" if unattended else "interactive"
     # ``str`` on purpose, and not a cast. #7 names four decision values, and the schema spells
@@ -580,6 +710,7 @@ def load_policy() -> GatesConfig:
 __all__ = [
     "ActionAuthorization",
     "Decision",
+    "Delegation",
     "Outcome",
     "evaluate",
     "evaluate_connector",

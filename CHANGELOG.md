@@ -11,6 +11,65 @@ not here.
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-09-03
+
+### Added
+
+- One approval can become a standing grant. The grant is derived from the payload the executor
+  actually rendered, defaults to expiring, and asks once more before it never does.
+  ([#217](https://github.com/nanoinfraorg/nanoinfra/issues/217))
+- Every server keeps notes the agent and the operator both write, and a turn that names a server
+  reads them. A note does not expire; one that disagrees with what you see is evidence the
+  infrastructure changed. ([#222](https://github.com/nanoinfraorg/nanoinfra/issues/222))
+- A queryable record of every tool call: which tool, by whom, what the gate decided, and how it
+  ended. It stores the *address* of the arguments in the session history, never the arguments.
+  ([#231](https://github.com/nanoinfraorg/nanoinfra/issues/231))
+- The agent can search your own documents and answer with citations. Drop files in
+  `<workspace>/knowledge/`; nothing reaches a prompt on a turn that does not ask.
+  ([#237](https://github.com/nanoinfraorg/nanoinfra/issues/237))
+- A deployment can name more than one agent, each with its own model, tools, skills and
+  instructions. An empty `agents.named` is exactly the single agent every deployment has today.
+  ([#247](https://github.com/nanoinfraorg/nanoinfra/issues/247))
+- An agent can hand one task to a peer and wait for its answer. Membership in
+  `agents.named[x].delegates` is the grant, and delegation is one level deep.
+  ([#250](https://github.com/nanoinfraorg/nanoinfra/issues/250))
+- A delegated action records the human who asked, the agent that delegated and the peer that
+  acted, so a reader can answer "who authorised this" without opening a second file.
+  ([#251](https://github.com/nanoinfraorg/nanoinfra/issues/251))
+- Every assistant turn says which agent answered it, beside the turn's cost.
+  ([#248](https://github.com/nanoinfraorg/nanoinfra/issues/248))
+- The composer offers the agents a message may ask for, as `@agent:<name>`. The token stays in the
+  text, because it is a preference the answering agent reads and not an invocation.
+  ([#255](https://github.com/nanoinfraorg/nanoinfra/issues/255))
+- A turn that delegates shows its plan as one object in the thread — a row per peer with its
+  outcome and its own cost — and a reload shows the same plan. ([#252](https://github.com/nanoinfraorg/nanoinfra/issues/252))
+- An Agents destination lists the agents a deployment names, and an Abilities grouping collects
+  Apps and Skills in the menu. ([#253](https://github.com/nanoinfraorg/nanoinfra/issues/253))
+- Each agent's Prompt tab shows the prompt's sections with the permission on each, and the
+  addendum that appends after them. ([#256](https://github.com/nanoinfraorg/nanoinfra/issues/256))
+- An automation can name the agent it runs as, and that agent is the ceiling: its tool groups cap
+  the turn and its skills bound the job's own picker. ([#257](https://github.com/nanoinfraorg/nanoinfra/issues/257))
+- The approvals inbox names the agent that will act, and the agent that delegated to it.
+  ([#258](https://github.com/nanoinfraorg/nanoinfra/issues/258))
+
+### Changed
+
+- Where a deployment names agents, the composer chooses an agent instead of a model — the model
+  belongs to the agent. A deployment that names none keeps its model selector unchanged.
+  ([#254](https://github.com/nanoinfraorg/nanoinfra/issues/254))
+- The prompt's safety notes are their own fixed section, so replacing the runtime section can no
+  longer delete them. ([#256](https://github.com/nanoinfraorg/nanoinfra/issues/256))
+- A replaced prompt section is still named in the prompt manifest and marked as overridden — a
+  record that hid a replacement would make two different prompts look identical.
+  ([#256](https://github.com/nanoinfraorg/nanoinfra/issues/256))
+- The executor protocol is version 7, carrying the delegation chain. A deployment running the
+  executor as a separate process must restart it alongside the gateway. ([#251](https://github.com/nanoinfraorg/nanoinfra/issues/251))
+
+### Security
+
+- A delegated turn can no longer reach a capability class the turn that spawned it did not hold,
+  and a capped turn hands that ceiling to anything it spawns. ([#251](https://github.com/nanoinfraorg/nanoinfra/issues/251))
+
 ## [1.9.1] — 2026-09-03
 
 ### Removed

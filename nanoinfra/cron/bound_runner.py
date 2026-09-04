@@ -6,13 +6,14 @@ import asyncio
 import hashlib
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from loguru import logger
 
+from nanoinfra.agent.delegation import DelegateBinding
 from nanoinfra.agent.tools.cron import CronTool
 from nanoinfra.agent.tools.groups import ATTACHED_GROUPS_META
 from nanoinfra.agent.turn_delivery import AUTOMATION_WITHHOLD_DELIVERY_META
@@ -20,7 +21,12 @@ from nanoinfra.automations.commissioning import COMMISSIONING_TURN_META
 from nanoinfra.automations.delivery import normalize_policy, should_deliver
 from nanoinfra.automations.state import AutomationDeliveryLog, response_fingerprint
 from nanoinfra.bus.events import InboundMessage, OutboundMessage
-from nanoinfra.connectors.attachment import ATTACHED_CONNECTORS_META
+from nanoinfra.connectors.attachment import ATTACHED_CONNECTORS_META, RESOURCE_MENTIONS_META
+from nanoinfra.cron.agent_binding import (
+    agent_addendum_prefix,
+    job_agent_binding,
+    roster_from_config,
+)
 from nanoinfra.cron.service import CronJobTerminalError
 from nanoinfra.cron.session_delivery import origin_delivery_context
 from nanoinfra.cron.session_turns import CRON_DEFER_UNTIL_IDLE_META, CRON_TRIGGER_META
@@ -30,6 +36,7 @@ from nanoinfra.runtime_context import RUNTIME_CONTEXT_INPUT_META, RuntimeContext
 from nanoinfra.session.automation_turns import (
     AUTOMATION_PRESETS_META,
     AUTOMATION_SKILLS_META,
+    automation_agent_metadata,
 )
 from nanoinfra.utils.prompt_templates import render_template
 from nanoinfra.webui.resource_mentions import (
@@ -40,6 +47,7 @@ from nanoinfra.webui.resource_mentions import (
 
 if TYPE_CHECKING:
     from nanoinfra.agent.tools.registry import ToolRegistry
+    from nanoinfra.config.schema import NamedAgentConfig
 
 
 class BoundCronAgent(Protocol):
@@ -60,6 +68,31 @@ def _cron_prompt_ref(prompt: str) -> dict[str, Any]:
         "version": 1,
         "sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
     }
+
+
+def _job_agent_binding(
+    job: CronJob,
+    *,
+    named_agents: "Mapping[str, NamedAgentConfig] | None",
+) -> DelegateBinding | None:
+    """The agent this run acts as, or ``None`` for the deployment's default agent.
+
+    A job whose agent config no longer accepts is a terminal failure, not a retry: nothing about
+    running again fixes a name config does not have, and the run must not silently fall back to
+    an agent with more reach than the one somebody chose.
+    """
+    if not job.agent:
+        return None
+    roster = named_agents if named_agents is not None else roster_from_config()
+    try:
+        return job_agent_binding(
+            agent=job.agent,
+            skills=job.skills,
+            roster=roster,
+            asked_by=f"automation:{job.id}",
+        )
+    except ValueError as exc:
+        raise CronJobTerminalError(str(exc)) from exc
 
 
 def _bound_session_delivery_context(
@@ -111,18 +144,26 @@ def build_bound_turn(
     *,
     workspace_path: Path | None = None,
     commissioning_id: str | None = None,
+    named_agents: "Mapping[str, NamedAgentConfig] | None" = None,
 ) -> BoundTurn:
     """Render one bound cron job into the turn that runs it.
 
     Shared with commissioning (#183) on purpose. A rehearsal that built its own message would
-    rehearse a different automation than the one that runs: the references, the declared skills
-    and the delivery routing are all decided here.
+    rehearse a different automation than the one that runs: the references, the declared skills,
+    the acting agent and the delivery routing are all decided here.
 
     A reference that no longer resolves stops the run rather than letting the model fall back to
     matching on a name -- the fallback reintroduces exactly the ambiguity the reference removed,
-    and there is nobody watching at 03:00.
+    and there is nobody watching at 03:00. An agent that no longer resolves stops the run for the
+    same reason and a sharper one: falling back to the deployment's default agent would *widen* a
+    job somebody narrowed on purpose.
+
+    ``named_agents`` is read from config when the job names an agent and the caller passes none.
+    A job that names none -- every job today -- never reaches that read.
     """
+    binding = _job_agent_binding(job, named_agents=named_agents)
     reference_context: RuntimeContextBlock | None = None
+    resolved_references: list[dict[str, Any]] = []
     if job.references and workspace_path is not None:
         resolution = ResourceMentionResolver(workspace_path).resolve(job.references)
         try:
@@ -130,8 +171,9 @@ def build_bound_turn(
         except UnresolvedMentionError as exc:
             raise CronJobTerminalError(str(exc)) from exc
         reference_context = resource_mentions_runtime_context(resolution.resolved)
+        resolved_references = [mention.to_payload() for mention in resolution.resolved]
 
-    prompt = render_template(
+    prompt = agent_addendum_prefix(binding) + render_template(
         "agent/cron_reminder.md",
         strip=True,
         message=job.payload.message,
@@ -155,16 +197,39 @@ def build_bound_turn(
     metadata[CRON_DEFER_UNTIL_IDLE_META] = True
     if reference_context is not None:
         metadata[RUNTIME_CONTEXT_INPUT_META] = [reference_context]
-    if job.skills:
-        metadata[AUTOMATION_SKILLS_META] = list(job.skills)
+    if resolved_references:
+        # The same key the composer writes for an `@server:` mention, so "the turn named this
+        # server" is one fact with one reader (#226). Device memory is loaded from it, and it is
+        # dropped before the turn is stored (`_LIVE_TURN_ONLY_META`) because a job re-resolves its
+        # references when it fires.
+        metadata[RESOURCE_MENTIONS_META] = resolved_references
+    if binding is not None:
+        # Who acts, and the ceiling that travels with the turn. The name goes on the same seam a
+        # person's chosen agent uses, so `AgentLoop` resolves it against the roster and the turn
+        # record says which agent answered -- an unattributed run of a narrowed job would be the
+        # misattribution #248 exists to stop. Nothing is written when no agent is named: absent
+        # and "the default agent" have to be one state.
+        metadata.update(automation_agent_metadata(binding.name, binding.tool_groups))
+    declared_skills = list(binding.skills) if binding is not None else list(job.skills)
+    if declared_skills:
+        metadata[AUTOMATION_SKILLS_META] = declared_skills
     if job.mcp_presets:
         # The same key a mention writes, so an unattended turn reaches a `mention` server the only
         # way it can: by having declared it in advance (#204).
         metadata[AUTOMATION_PRESETS_META] = list(job.mcp_presets)
     if job.connectors:
         metadata[ATTACHED_CONNECTORS_META] = list(job.connectors)
-    if job.tool_groups:
-        metadata[ATTACHED_GROUPS_META] = list(job.tool_groups)
+    attached_groups = list(job.tool_groups)
+    if binding is not None:
+        # The agent's own groups are attached as well as capped. A group set to `attach: mention`
+        # otherwise withholds its schemas from the very agent whose whole tool set it is, and an
+        # unattended turn has nobody to type `@servers`. Attaching them widens nothing: they are
+        # inside the ceiling by definition, because the ceiling *is* this list.
+        attached_groups += [
+            group for group in binding.tool_groups if group not in attached_groups
+        ]
+    if attached_groups:
+        metadata[ATTACHED_GROUPS_META] = attached_groups
     if commissioning_id is not None:
         metadata[COMMISSIONING_TURN_META] = commissioning_id
     return BoundTurn(

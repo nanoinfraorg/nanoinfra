@@ -1,4 +1,4 @@
-import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -259,6 +259,226 @@ describe("ApprovalsView", () => {
     render(view({ outcome: answer({ degraded: true, ok: false }) }));
 
     expect(screen.getByText(/The action still waits/)).toBeInTheDocument();
+  });
+});
+
+// -- approve and add (nanoinfraorg/nanoinfra#220) --------------------------------------------
+
+/** Open the caret of the split button. Radix opens a menu on pointerdown, not on click. */
+async function openGrantMenu() {
+  fireEvent.pointerDown(
+    screen.getByRole("button", { name: "Approve and add a standing grant" }),
+    { button: 0 },
+  );
+  return screen.findByRole("menu");
+}
+
+describe("ApprovalsView: approve and add", () => {
+  it("keeps the bare click a plain approve that grants nothing", async () => {
+    const onAnswer = vi.fn();
+    const user = userEvent.setup();
+
+    render(view({ onAnswer }));
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+
+    // The default action of a split button is the one people press without reading.
+    expect(onAnswer).toHaveBeenCalledWith({
+      decision: "approve",
+      requestId: "req-1",
+      targetDigest: DIGEST,
+    });
+  });
+
+  it.each([
+    ["Approve and add — expires in 24 hours", "24h"],
+    ["Approve and add — expires in 7 days", "7d"],
+  ])("approves and adds a grant that expires (%s)", async (label, expires) => {
+    const onAnswer = vi.fn();
+
+    render(view({ onAnswer }));
+    await openGrantMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: label }));
+
+    expect(onAnswer).toHaveBeenCalledWith({
+      decision: "approve",
+      grant: { expires },
+      requestId: "req-1",
+      targetDigest: DIGEST,
+    });
+  });
+
+  it("asks once more before a grant that never expires", async () => {
+    const onAnswer = vi.fn();
+
+    render(view({ onAnswer }));
+    await openGrantMenu();
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Approve and add — never expires" }),
+    );
+
+    // Nothing was answered yet. This is the only option a click makes permanent.
+    expect(onAnswer).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Add a grant that never expires\?/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Yes, never expires" }));
+
+    expect(onAnswer).toHaveBeenCalledWith({
+      decision: "approve",
+      grant: { expires: "never", permanentAcknowledged: true },
+      requestId: "req-1",
+      targetDigest: DIGEST,
+    });
+  });
+
+  it("answers nothing when the permanent confirmation is cancelled", async () => {
+    const onAnswer = vi.fn();
+
+    render(view({ onAnswer }));
+    await openGrantMenu();
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Approve and add — never expires" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  it("offers no grant control where it offers no approve control", () => {
+    render(view({ pending: [pendingAction({ originPath: "webui", samePath: true })] }));
+
+    expect(
+      screen.queryByRole("button", { name: "Approve and add a standing grant" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers no grant control after the deadline passes", () => {
+    render(view({ pending: [pendingAction({ expiresAt: Date.now() - 1_000 })] }));
+
+    expect(
+      screen.queryByRole("button", { name: "Approve and add a standing grant" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("names the grant it wrote and the date it stops", () => {
+    render(
+      view({
+        outcome: answer({
+          grant: {
+            expiresAt: "2026-09-04T10:00:00Z",
+            id: "approval-2026-09-03-systemctl-1a2b3c",
+            ok: true,
+            reason: null,
+          },
+        }),
+        pending: [],
+      }),
+    );
+
+    expect(screen.getByText(/approval-2026-09-03-systemctl-1a2b3c/)).toBeInTheDocument();
+  });
+
+  it("says a permanent grant never expires", () => {
+    render(
+      view({
+        outcome: answer({
+          grant: { expiresAt: null, id: "approval-2026-09-03-systemctl-1a2b3c", ok: true, reason: null },
+        }),
+        pending: [],
+      }),
+    );
+
+    expect(screen.getByText(/never expires/)).toBeInTheDocument();
+  });
+
+  it("reports an approval that stands beside a grant that was not saved", () => {
+    render(
+      view({
+        outcome: answer({
+          grant: {
+            expiresAt: null,
+            id: null,
+            ok: false,
+            reason: "The grant was not saved: Read-only file system",
+          },
+        }),
+        pending: [],
+      }),
+    );
+
+    // Both facts, because they happened in two processes and either one can fail alone.
+    expect(screen.getByText(/You approved this action/)).toBeInTheDocument();
+    expect(screen.getByText(/Read-only file system/)).toBeInTheDocument();
+  });
+
+  it("says nothing about a grant when the answer asked for none", () => {
+    render(view({ outcome: answer(), pending: [] }));
+
+    expect(screen.queryByText(/Standing grant/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/was not saved/)).not.toBeInTheDocument();
+  });
+});
+
+// -- the acting agent (nanoinfraorg/nanoinfra#258) --------------------------------------------
+
+/**
+ * An approval prompt must say which agent will act.
+ *
+ * Without it an operator approving a command reads the request and cannot tell whether the
+ * manager or one of its peers runs it, and with delegation those are two different blast radii.
+ *
+ * The harder half is the absence. Every deployment today names no agent, so a card with no
+ * attribution has to look exactly as it looked before this field existed -- and a blank name has
+ * to read as no name rather than as one.
+ */
+describe("ApprovalsView: the acting agent", () => {
+  const AGENT_LABEL = "Acting agent";
+  const ASSERTED = /The agent named itself/;
+
+  it("names the peer that will act and the agent that delegated to it", () => {
+    render(view({ pending: [pendingAction({ actingAgent: "sre-prod", delegatedBy: "manager" })] }));
+
+    expect(screen.getByText(AGENT_LABEL)).toBeInTheDocument();
+    expect(screen.getByText("sre-prod — delegated by manager")).toBeInTheDocument();
+  });
+
+  it("names the agent alone when nothing delegated to it", () => {
+    render(view({ pending: [pendingAction({ actingAgent: "sre-prod" })] }));
+
+    expect(screen.getByText("sre-prod")).toBeInTheDocument();
+    expect(screen.queryByText(/delegated by/)).not.toBeInTheDocument();
+  });
+
+  it("says the name is a claim of the request rather than an authenticated identity", () => {
+    render(view({ pending: [pendingAction({ actingAgent: "sre-prod", delegatedBy: "manager" })] }));
+
+    expect(screen.getByText(ASSERTED)).toBeInTheDocument();
+  });
+
+  it("renders exactly today's card when no agent is named", () => {
+    render(view());
+
+    // The default fixture is a deployment that does not delegate, which is every deployment.
+    expect(screen.queryByText(AGENT_LABEL)).not.toBeInTheDocument();
+    expect(screen.queryByText(ASSERTED)).not.toBeInTheDocument();
+    // And nothing else moved: the rows that were there are still there.
+    expect(screen.getByText("Requested on")).toBeInTheDocument();
+    expect(screen.getByText("telegram:chat-1")).toBeInTheDocument();
+  });
+
+  it.each([null, undefined, "", "   "])("reads %p as no agent at all", (claimed) => {
+    render(view({ pending: [pendingAction({ actingAgent: claimed, delegatedBy: "manager" })] }));
+
+    // Absent attribution renders nothing rather than a guess, and a manager with no peer named
+    // is not a peer.
+    expect(screen.queryByText(AGENT_LABEL)).not.toBeInTheDocument();
+    expect(screen.queryByText(/manager/)).not.toBeInTheDocument();
+  });
+
+  it("keeps a blank coordinator from reading as a delegation", () => {
+    render(view({ pending: [pendingAction({ actingAgent: "sre-prod", delegatedBy: "  " })] }));
+
+    expect(screen.getByText("sre-prod")).toBeInTheDocument();
+    expect(screen.queryByText(/delegated by/)).not.toBeInTheDocument();
   });
 });
 

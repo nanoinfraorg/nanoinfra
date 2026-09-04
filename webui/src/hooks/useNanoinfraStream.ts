@@ -232,7 +232,7 @@ function pruneReasoningOnlyPlaceholders(prev: UIMessage[]): UIMessage[] {
 
 function stampLastAssistantCompletion(
   prev: UIMessage[],
-  completion: Pick<UIMessage, "latencyMs" | "completedAt" | "usage" | "prompt">,
+  completion: Pick<UIMessage, "latencyMs" | "completedAt" | "usage" | "prompt" | "agent">,
   turnId?: string,
 ): UIMessage[] {
   for (let i = prev.length - 1; i >= 0; i -= 1) {
@@ -485,6 +485,12 @@ export interface SendOptions {
   mcpPresets?: OutboundMcpPresetMention[];
   /** Data connectors this turn named, by name (#204). */
   connectors?: string[];
+  /**
+   * Which named agent answers this turn (#254). Absent is the deployment's default agent. The
+   * choice is a *request*: the loop resolves it against `agents.named` and ignores a name config
+   * never declared, so this cannot widen what the turn may do.
+   */
+  agent?: string | null;
   sessionMentions?: SessionMention[];
   quotedContext?: string;
   workspaceScope?: WorkspaceScopePayload | null;
@@ -1159,6 +1165,7 @@ export function useNanoinfraStream(
               ...(latencyMs !== undefined ? { latencyMs } : {}),
               ...(ev.usage ? { usage: ev.usage } : {}),
               ...(ev.prompt ? { prompt: ev.prompt } : {}),
+              ...(ev.agent ? { agent: ev.agent } : {}),
               completedAt,
             },
             ev.turn_id,

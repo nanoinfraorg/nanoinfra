@@ -14,7 +14,7 @@ from typing import Any
 from loguru import logger
 
 from nanoinfra.config.paths import get_data_dir
-from nanoinfra.llm_usage.models import LLMCallRecord
+from nanoinfra.llm_usage.models import LLMCallRecord, ToolCallRecord
 from nanoinfra.llm_usage.store import LLMUsageStore
 
 _STORES_LOCK = threading.Lock()
@@ -73,6 +73,20 @@ def record_llm_call(call: LLMCallRecord) -> None:
         logger.exception("failed to record an LLM call")
 
 
+def record_tool_call(call: ToolCallRecord) -> None:
+    """One row per tool call (#232). Fails open, for the same reason `record_llm_call` does.
+
+    Not an observer the gateway attaches, unlike the LLM one: a provider is handed to the agent
+    and a tool registry is not, so the seam in `tool_calls.py` reaches this directly. The
+    consequence is that an embedded SDK caller records too, which is the right answer -- the
+    question "what ran" does not stop being asked when nobody started a gateway.
+    """
+    try:
+        get_llm_usage_store().record_tool_call(call)
+    except Exception:
+        logger.exception("failed to record a tool call")
+
+
 def empty_usage_payload() -> dict[str, Any]:
     """What a caller gets when the store cannot be read: zeros, not an exception.
 
@@ -109,6 +123,7 @@ def llm_usage_payload(
 
 __all__ = [
     "LLMCallRecord",
+    "ToolCallRecord",
     "migrate_legacy_token_usage",
     "LLMUsageStore",
     "empty_usage_payload",
@@ -116,5 +131,6 @@ __all__ = [
     "llm_usage_payload",
     "llm_usage_store_path",
     "record_llm_call",
+    "record_tool_call",
     "reset_llm_usage_stores",
 ]

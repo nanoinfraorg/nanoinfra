@@ -1,6 +1,6 @@
 [project]
 name = "nanoinfra"
-version = "1.9.1"
+version = "2.0.0"
 description = "A lightweight self-hosted AI agent for infrastructure"
 readme = { file = "README_PYPI.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -74,6 +74,12 @@ dependencies = [
     "boto3>=1.43.0",
     "pytest-playwright>=0.8.0",
     "cryptography>=42.0.0,<46.0.0",
+    # The knowledge base index (#238). A core dependency rather than an extra because semlix
+    # declares no required dependencies of its own -- numpy sits under its `semantic` extra and
+    # the model stack under `semantic-full` -- so this adds a pure-Python library and nothing
+    # else. Lexical (BM25F) mode only; hybrid stays an opt-in extra nobody installs until they
+    # ask for it.
+    "semlix>=3.2.2,<4.0.0",
 ]
 
 [project.urls]

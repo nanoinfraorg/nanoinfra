@@ -43,4 +43,24 @@ def test_server_summary_to_dict():
         "providerId": "ssh",
         "tags": ["prod"],
         "updatedAt": "t",
+        # A scalar and not the prose, so a listing knows a box has memory without reading it (#225).
+        "notesUpdatedAt": None,
     }
+
+
+def test_notes_updated_at_round_trips_and_defaults_to_absent():
+    summary = ServerSummary(
+        id="a" * 32,
+        name="n",
+        provider_id="ssh",
+        tags=[],
+        updated_at="t",
+        notes_updated_at="2026-09-03T00:00:00+00:00",
+    )
+    assert summary.to_dict()["notesUpdatedAt"] == "2026-09-03T00:00:00+00:00"
+
+    server = Server(id="a" * 32, name="n", provider_id="ssh", created_at="t", updated_at="t")
+    assert server.to_dict()["notesUpdatedAt"] is None
+    assert Server.from_dict(server.to_dict()) == server
+    stamped = Server.from_dict({**server.to_dict(), "notesUpdatedAt": "2026-09-03"})
+    assert stamped.notes_updated_at == "2026-09-03"

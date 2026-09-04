@@ -50,6 +50,16 @@ lands with the ownership the executor needs by construction. Making the director
 would have been the ten-minute answer and would have let the process the model steers *replace*
 a credential, which is worse than reading one.
 
+**Version 7 carries the delegation (#251).** A delegated turn runs as a peer agent on behalf of
+the human who asked, and the gate decides *may this actor do this now*. It cannot decide that
+without knowing which agent acts and which agent asked, and the audit record cannot answer "who
+authorised this" from one line without them either. Both fields are the agent's assertion about
+itself, exactly as the two origin fields are; ``nanoinfra/gates/delegation.py`` states what that
+does and does not buy a compromised agent, and it normalises both names before anything compares
+them or renders them. ``inherited_capabilities`` travels beside them because the peer's turn runs
+in another process from the config lookup that authorised it, so the ceiling has to travel with
+the action rather than be re-derived from a value the peer controls.
+
 ``ConnectorRequest.arguments_json`` is the one field that carries caller-shaped content, and it
 is not the free-form member this wire refuses. Every key in it must appear in the operation's
 own declared parameter schema, which the executor reads from the installed package rather than
@@ -65,7 +75,7 @@ import struct
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any, cast
 
-PROTOCOL_VERSION = 6
+PROTOCOL_VERSION = 7
 
 # A peer controls the length prefix, so the reader caps it. 8 MiB is far above a command and
 # far below a memory problem. Output is bounded separately by truncate_output.
@@ -100,6 +110,13 @@ class ExecuteRequest:
     the channel authenticated nobody, and it is never a wildcard that matches every person: #13
     falls back to the path rule alone for that case. ``None`` and the empty string are different
     facts on this wire, so a channel with no sender sends null rather than empty text.
+
+    ``acting_agent`` and ``delegated_by`` name the peer that acts and the agent that asked (#251).
+    Both are ``None`` on every turn that is not a delegation, which is every turn in a deployment
+    with one agent, and the gate then behaves exactly as it did before this version.
+    ``inherited_capabilities`` holds the capability classes the delegating turn was allowed to
+    use; an empty list means it declared no ceiling. ``nanoinfra/gates/delegation.py`` holds every
+    rule that reads the three, and normalises them first.
     """
 
     server_id_or_name: str
@@ -111,6 +128,9 @@ class ExecuteRequest:
     token_nonce: str | None
     origin_path: str | None = None
     origin_actor: str | None = None
+    acting_agent: str | None = None
+    delegated_by: str | None = None
+    inherited_capabilities: list[str] = field(default_factory=list[str])
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +159,11 @@ class ConnectorRequest:
     token_nonce: str | None
     origin_path: str | None = None
     origin_actor: str | None = None
+    # The delegation, on the kind that carries it for the same reason a command does (#251): a
+    # peer can call a connector, and the record of that call has to name who acted.
+    acting_agent: str | None = None
+    delegated_by: str | None = None
+    inherited_capabilities: list[str] = field(default_factory=list[str])
 
 
 # What a secret write may do. Three verbs and no fourth: a rename is an update, and there is no

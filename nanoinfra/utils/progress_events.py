@@ -100,6 +100,13 @@ def build_tool_event_finish_payloads(context: AgentHookContext) -> list[dict[str
             "files": files,
             "embeds": embeds,
         }
+        # A delegation's answer carries what the *peer's* turn cost (#252). Copied out
+        # deliberately, because the answer is a `str` subclass and the attribute does not survive
+        # being serialised. Absent for every other tool, and the thread then prints no cost rather
+        # than borrowing the asking agent's.
+        delegated_usage = getattr(result, "usage", None)
+        if isinstance(delegated_usage, dict):
+            payload["usage"] = delegated_usage
         if phase == "error":
             if isinstance(result, str) and result.strip():
                 payload["error"] = result.strip()

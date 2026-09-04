@@ -374,6 +374,56 @@ describe("MessageBubble", () => {
     expect(usage).toHaveTextContent("4.1s");
   });
 
+  it("names the agent that answered the turn", () => {
+    const { container } = render(
+      <MessageBubble
+        message={{
+          id: "a-agent",
+          role: "assistant",
+          content: "disk is at 71%",
+          createdAt: Date.now(),
+          agent: "sre-prod",
+        }}
+      />,
+    );
+
+    expect(container.querySelector("[data-turn-agent]")).toHaveTextContent("sre-prod");
+  });
+
+  it("says nothing about the agent when the default one answered", () => {
+    const { container } = render(
+      <MessageBubble
+        message={{
+          id: "a-default",
+          role: "assistant",
+          content: "disk is at 71%",
+          createdAt: Date.now(),
+        }}
+      />,
+    );
+
+    // Which is every deployment that names no agent, and it should see no new chrome.
+    expect(container.querySelector("[data-turn-agent]")).toBeNull();
+  });
+
+  it("names the agent even when the cost line is not shown", () => {
+    // The cost is a detail an operator may switch off. Who acted is not.
+    const { container } = render(
+      <MessageBubble
+        message={{
+          id: "a-agent-nousage",
+          role: "assistant",
+          content: "disk is at 71%",
+          createdAt: Date.now(),
+          agent: "db-oncall",
+        }}
+      />,
+    );
+
+    expect(container.querySelector("[data-turn-usage]")).toBeNull();
+    expect(container.querySelector("[data-turn-agent]")).toHaveTextContent("db-oncall");
+  });
+
   it("marks a total that includes an estimate, rather than showing it as measured", () => {
     const { container } = render(
       <MessageBubble

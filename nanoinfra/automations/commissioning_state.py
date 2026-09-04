@@ -119,12 +119,18 @@ def commissioning_fingerprint(
     message: str,
     references: Sequence[Mapping[str, str]] = (),
     skills: Sequence[str] = (),
+    agent: str = "",
 ) -> str:
     """Identify an automation by what decides which commands it will run.
 
     Deliberately not the whole record. A renamed automation, or one whose schedule moved from
     hourly to nightly, runs the same commands, and paying for a model turn to learn that again
     teaches an operator to dread saving.
+
+    The acting agent is in it because it decides exactly that: its tool groups cap what the turn
+    can call and its addendum changes what the turn is told to do (#257). Included only when
+    there is one, so every fingerprint already on disk -- all of them, since no job named an
+    agent before this -- keeps its value and no automation is re-rehearsed for nothing.
     """
     payload = json.dumps(
         {
@@ -133,6 +139,7 @@ def commissioning_fingerprint(
                 (str(item.get("kind", "")), str(item.get("id", ""))) for item in references
             ),
             "skills": sorted(str(skill) for skill in skills),
+            **({"agent": agent} if agent else {}),
         },
         ensure_ascii=False,
         sort_keys=True,

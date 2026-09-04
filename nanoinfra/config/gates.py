@@ -21,6 +21,7 @@ unattended secret resolution. An absent block must widen nothing.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import AliasChoices, ConfigDict, Field, model_validator
@@ -120,6 +121,16 @@ class StandingGrant(Base):
     have to mean either "and" or "or", and both readings are wrong: the first makes a grant
     that never matches, the second silently widens one grant into two. The validator refuses it
     instead of choosing.
+
+    ``expires_at`` is an absolute timestamp, and absent means never (#218). Absent has to keep
+    that meaning, because every grant written before this field existed omits it. The value is
+    absolute rather than a duration for the reader six months later: a file has to say the date
+    it stops, not a subtraction from a start nobody recorded. ``note`` is where the writer echoes
+    the duration the operator chose, because config.json is JSON and JSON has no comments.
+
+    Nothing prunes an expired grant. The gate stops matching it and the line stays in the file.
+    An application that deleted lines from the operator's config would make the file something
+    other than the authority, and a stale line an operator can read beats a silent edit.
     """
 
     model_config = _FORBID_EXTRA
@@ -130,6 +141,34 @@ class StandingGrant(Base):
     commands: list[str] = Field(default_factory=list)
     connectors: list[str] = Field(default_factory=list)
     operations: list[str] = Field(default_factory=list)
+    expires_at: datetime | None = None
+    # Free text a human reads, and nothing matches on it (#218). "Approve and add" writes the
+    # duration and the approval here, so an operator who opens config.json in six months reads
+    # why the line exists beside the date it dies.
+    note: str | None = None
+
+    @model_validator(mode="after")
+    def _utc_expiry(self) -> StandingGrant:
+        """Read a timestamp with no offset as UTC.
+
+        Pydantic accepts ``2026-12-01`` and ``2026-12-01T09:00:00`` and leaves both naive, and a
+        naive value cannot be compared with an aware ``now`` at all -- the gate raised
+        ``TypeError`` instead of deciding. UTC is also the fail-closed reading: an operator who
+        meant a local time east of UTC gets a grant that dies earlier than they wrote, never
+        later.
+        """
+        if self.expires_at is not None and self.expires_at.tzinfo is None:
+            self.expires_at = self.expires_at.replace(tzinfo=UTC)
+        return self
+
+    def is_expired(self, now: datetime) -> bool:
+        """True when this grant no longer covers anything.
+
+        The comparison is wall clock, and the approval wait in ``nanoinfra/gates/pending.py`` is
+        monotonic. The two are not inconsistent: that wait is a deadline of seconds inside one
+        process, and this one is a date that has to survive a restart and be legible in a file.
+        """
+        return self.expires_at is not None and now >= self.expires_at
 
     @model_validator(mode="after")
     def _one_kind_of_action(self) -> StandingGrant:

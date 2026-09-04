@@ -59,6 +59,12 @@ RuntimeContextProvider: TypeAlias = Callable[
 _LIVE_TURN_ONLY_META: frozenset[str] = frozenset({
     RUNTIME_CONTEXT_INPUT_META,
     "resource_mentions",
+    # `AUTOMATION_AGENT_META`: the agent an automation resolved for one run, and the tool groups
+    # it declared (#257). Same reason as the references above -- the job holds the agent's *name*
+    # and re-resolves it when it fires, so a stored copy would freeze a ceiling that config has
+    # since narrowed. A literal like its two neighbours, because this module sits below the
+    # session package and must not import it.
+    "_automation_agent",
     # Names an in-process collector for one commissioning turn. A stored id would name nothing
     # after a restart, and a stored one that happened to match would make a scheduled run
     # rehearse instead of act.

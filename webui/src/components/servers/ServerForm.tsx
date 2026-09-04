@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronLeft, Plus, Save, Trash2 } from "lucide-react";
 
+import { ServerNotesPanel } from "./ServerNotesPanel";
 import { Input } from "@/components/ui/input";
 import { fetchSecrets, type ServerDetail, type ServerValues, type SecretSummary } from "@/lib/api";
 import { useClient } from "@/providers/ClientProvider";
@@ -223,6 +224,10 @@ export function ServerForm({ server, onBack, onSave }: ServerFormProps) {
               className="mt-1 h-9 rounded-[10px] border-border/60 bg-muted/35 text-[13px]"
             />
           </label>
+
+          {/* Only for a saved server: notes are keyed by id (#223), and a record being created
+              has no id yet. */}
+          {server ? <ServerNotesPanel serverId={server.id} /> : null}
 
           {error ? <span className="text-[12px] text-destructive-text">{error}</span> : null}
 
