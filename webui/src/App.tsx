@@ -2160,7 +2160,6 @@ function Shell({
     onOpenAgents,
     // The roster the sidebar decides with (#253). Zero named agents means the navigation is
     // exactly what it is today: no Agents destination, and no Abilities grouping either.
-    namedAgentCount: settingsSnapshot?.named_agents?.length ?? 0,
     approvalsCount: approvals.count,
     onSettingsIntent,
     onOpenSearch: onOpenSessionSearch,

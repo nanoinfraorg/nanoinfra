@@ -107,43 +107,19 @@ function destinations(): string[] {
     .filter((label): label is string => label !== null);
 }
 
-describe("a deployment that names no agents", () => {
-  it("sees the navigation it already had", () => {
-    renderSidebar({ namedAgentCount: 0 });
-
-    expect(destinations()).toEqual([
-      "New topic",
-      "Search",
-      "Apps",
-      "Skills",
-      "Automations",
-      "Approvals",
-      "Workspaces",
-      "Infrastructure",
-      "Settings",
-    ]);
-  });
-
-  it("is also what an older gateway looks like, which reports no count at all", () => {
-    // `namedAgentCount` is absent until the settings payload arrives, and "absent" has to read as
-    // "no agents" rather than as "unknown, so show everything".
+describe("the rail, in one shape whatever the roster holds", () => {
+  /*
+   * Both the `Agents` destination and the `Abilities` grouping used to appear only for a
+   * deployment that named an agent, so that naming none meant *no change at all*. That is the bug
+   * these tests replace, and the report was concrete: a fresh install has no named agents, so the
+   * rail had no Agents row -- and the first card on that page is the deployment's **own** agent,
+   * the one that answers every turn and the only place to narrow the skills and MCP servers each
+   * conversation pays for. The surface existed and nothing led to it.
+   *
+   * A rail whose shape depends on config is also a rail nobody can be shown a screenshot of.
+   */
+  it("offers Agents whether or not the deployment names one", () => {
     renderSidebar({});
-
-    expect(screen.queryByRole("button", { name: "Agents" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Abilities" })).toBeNull();
-  });
-
-  it("keeps Apps and Skills where an operator's muscle memory left them", () => {
-    renderSidebar({ namedAgentCount: 0 });
-
-    expect(screen.getByRole("button", { name: "Apps" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
-  });
-});
-
-describe("a deployment that names agents", () => {
-  it("gains an Agents destination and an Abilities grouping", () => {
-    renderSidebar({ namedAgentCount: 2 });
 
     expect(destinations()).toEqual([
       "New topic",
@@ -152,16 +128,40 @@ describe("a deployment that names agents", () => {
       "Automations",
       "Approvals",
       "Abilities",
+      "Apps",
+      "Skills",
       "Workspaces",
       "Infrastructure",
       "Settings",
     ]);
   });
 
+  it("groups Apps and Skills without hiding them", () => {
+    /*
+     * The grouping is open by default, and that is the difference between a grouping and a hiding
+     * place. Closing it by default would take two destinations out of a rail where they have
+     * always been one click away, on every existing deployment, for a reorganisation nobody asked
+     * for -- and a heading that costs a click to undo is worse than the flat list it replaced.
+     */
+    renderSidebar({});
+
+    expect(screen.getByRole("button", { name: "Apps" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
+  });
+
+  it("lets an operator collapse it, which is their choice and not the default", () => {
+    renderSidebar({});
+
+    fireEvent.click(screen.getByRole("button", { name: "Abilities" }));
+
+    expect(screen.queryByRole("button", { name: "Apps" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skills" })).toBeNull();
+  });
+
   it("leaves Approvals at the top level, where the person answering it looks", () => {
     // Filing an approval under agent configuration was considered and rejected: an approval
     // belongs to a *person*, and a turn is suspended while it waits.
-    renderSidebar({ namedAgentCount: 1 });
+    renderSidebar({});
 
     const rail = destinations();
     expect(rail).toContain("Approvals");
@@ -171,9 +171,8 @@ describe("a deployment that names agents", () => {
   it("opens Apps and Skills from inside the grouping, through the same handlers", () => {
     const onOpenApps = vi.fn();
     const onOpenSkills = vi.fn();
-    renderSidebar({ namedAgentCount: 1, onOpenApps, onOpenSkills });
+    renderSidebar({ onOpenApps, onOpenSkills });
 
-    fireEvent.click(screen.getByRole("button", { name: "Abilities" }));
     fireEvent.click(screen.getByRole("button", { name: "Apps" }));
     fireEvent.click(screen.getByRole("button", { name: "Skills" }));
 
@@ -182,17 +181,18 @@ describe("a deployment that names agents", () => {
     expect(onOpenSkills).toHaveBeenCalledTimes(1);
   });
 
-  it("opens the grouping already expanded when you are inside it", () => {
+  it("keeps the grouping expanded when you are inside it", () => {
     // A reload while on Skills must not hide the page you are looking at behind a collapsed
-    // heading.
-    renderSidebar({ namedAgentCount: 1, activeUtility: "skills" });
+    // heading -- which stays true now that the default is open, and stays pinned because the
+    // default is the kind of thing somebody changes.
+    renderSidebar({ activeUtility: "skills" });
 
     expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
   });
 
   it("routes the Agents row to the Agents destination", () => {
     const onOpenAgents = vi.fn();
-    renderSidebar({ namedAgentCount: 1, onOpenAgents });
+    renderSidebar({ onOpenAgents });
 
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
 
@@ -202,7 +202,7 @@ describe("a deployment that names agents", () => {
   it("keeps both destinations reachable in the collapsed rail, without a heading", () => {
     // 56 px has no room for a group label, so the rows stay flat -- the same choice the
     // Infrastructure group already makes.
-    renderSidebar({ namedAgentCount: 1, collapsed: true });
+    renderSidebar({ collapsed: true });
 
     expect(screen.getByRole("button", { name: "Agents" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Apps" })).toBeInTheDocument();

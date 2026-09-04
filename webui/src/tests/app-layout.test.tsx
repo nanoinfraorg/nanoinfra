@@ -355,21 +355,30 @@ describe("App layout", () => {
     expect(asideClassNames.some((cls) => cls.includes("lg:block"))).toBe(true);
   });
 
-  it("places Automations after Skills in the main sidebar", async () => {
+  it("places Apps and Skills inside Abilities, below the destinations that are not one", async () => {
+    /*
+     * This asserted `Apps -> Skills -> Automations`, the flat rail. Apps and Skills now sit under
+     * the `Abilities` heading, which is below Automations and Approvals -- the #253 shape, applied
+     * to every deployment rather than only to one that names an agent.
+     *
+     * They are still one click away, because the grouping is open by default. What changed is
+     * where they sit, and the order within the group did not: Apps then Skills.
+     */
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    const appsButton = within(sidebar).getByRole("button", { name: "Apps" });
-    const skillsButton = within(sidebar).getByRole("button", { name: "Skills" });
-    const automationsButton = within(sidebar).getByRole("button", { name: "Automations" });
+    const abilities = within(sidebar).getByRole("button", { name: "Abilities" });
+    const apps = within(sidebar).getByRole("button", { name: "Apps" });
+    const skills = within(sidebar).getByRole("button", { name: "Skills" });
+    const automations = within(sidebar).getByRole("button", { name: "Automations" });
 
-    expect(appsButton.compareDocumentPosition(skillsButton) & Node.DOCUMENT_POSITION_FOLLOWING)
-      .toBeTruthy();
-    expect(
-      skillsButton.compareDocumentPosition(automationsButton) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    const follows = (a: Element, b: Element) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+    expect(follows(automations, abilities)).toBe(true);
+    expect(follows(abilities, apps)).toBe(true);
+    expect(follows(apps, skills)).toBe(true);
   });
 
   it("highlights the blank new-topic destination immediately", async () => {
@@ -522,17 +531,26 @@ describe("App layout", () => {
     expect(await screen.findByTestId("agent-roster")).toBeInTheDocument();
   });
 
-  it("leaves the navigation alone for a deployment that names no agents", async () => {
-    // Which is every deployment today: no Agents destination, and Apps and Skills stay at the top
-    // level rather than moving under an Abilities heading.
+  it("offers Agents and Abilities to a deployment that names no agent", async () => {
+    /*
+     * The rail used to hide both until `agents.named` had an entry, so that naming none meant no
+     * change at all. That is the bug this replaces: the first card on Agents is the deployment's
+     * *own* agent, and it is the only place to narrow the skills and MCP servers every
+     * conversation pays for -- so on a fresh install the surface existed and nothing led to it.
+     *
+     * Apps and Skills live under `Abilities` now, in one shape whatever the roster holds. A rail
+     * whose shape depends on config is a rail nobody can be shown a screenshot of.
+     */
     mockFetchRoutes({ "/api/settings": baseSettingsPayload() });
 
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
-    expect(await screen.findByRole("button", { name: "Apps" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Agents" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Abilities" })).toBeNull();
+    expect(await screen.findByRole("button", { name: "Agents" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Abilities" })).toBeInTheDocument();
+    // Grouped, not hidden: the heading names what these two are and both stay visible.
+    expect(screen.getByRole("button", { name: "Apps" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
   });
 
   it("opens Skills from the main sidebar", async () => {

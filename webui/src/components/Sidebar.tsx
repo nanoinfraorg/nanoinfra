@@ -73,7 +73,6 @@ interface SidebarProps {
    * Abilities heading. A menu that grouped two rows under a new word for a feature the deployment
    * does not have would cost every existing operator a re-learn and buy them nothing.
    */
-  namedAgentCount?: number;
   /** The running build, from the settings payload. Absent until it loads, or on an older gateway. */
   version?: string;
   /** Where the docs live, from the same payload, so one place decides the host. */
@@ -141,24 +140,26 @@ export function Sidebar(props: SidebarProps) {
       || props.activeUtility === "servers"
       || props.activeUtility === "secrets",
   );
-  // The Abilities grouping (#253). Open when you are already inside it, so a reload does not hide
-  // the page you are looking at behind a collapsed heading.
-  const [abilitiesExpanded, setAbilitiesExpanded] = useState(
-    () => props.activeUtility === "apps" || props.activeUtility === "skills",
-  );
+  /**
+   * The Abilities grouping (#253). **Open by default**, and that is the whole difference between
+   * a grouping and a hiding place.
+   *
+   * It started closed, because it only appeared for a deployment that named an agent -- so the
+   * rail it changed was one the operator had just changed themselves. The grouping is
+   * unconditional now, which means closing it by default would take `Apps` and `Skills` out of a
+   * rail where they have always been one click away, on every existing deployment, for a
+   * reorganisation nobody asked for. A heading that costs a click to undo is worse than the flat
+   * list it replaced.
+   *
+   * So it groups without hiding: the heading names what these two are, and both stay visible.
+   * Collapsing it is available and is the operator's choice, not the default.
+   */
+  const [abilitiesExpanded, setAbilitiesExpanded] = useState(true);
   useEffect(() => {
     if (props.activeUtility === "apps" || props.activeUtility === "skills") {
       setAbilitiesExpanded(true);
     }
   }, [props.activeUtility]);
-  /**
-   * Whether this deployment names any agent.
-   *
-   * The one switch behind both additions here: the `Agents` destination and the `Abilities`
-   * grouping. False is every deployment today, and false has to mean *no change at all* -- the
-   * same rows, in the same order, under the same names.
-   */
-  const hasNamedAgents = (props.namedAgentCount ?? 0) > 0;
   useEffect(() => {
     if (
       props.activeUtility === "diagrams"
@@ -277,39 +278,16 @@ export function Sidebar(props: SidebarProps) {
           onClick={props.onOpenSearch}
           icon={<Search className="h-4 w-4" />}
         />
-        {hasNamedAgents ? (
-          <SidebarActionButton
-            collapsed={collapsed}
-            label={t("sidebar.agents", { defaultValue: "Agents" })}
-            onClick={props.onOpenAgents}
-            onIntent={props.onSettingsIntent}
-            active={props.activeUtility === "agents"}
-            selectionRef={activeActionRef}
-            icon={<Bot className="h-4 w-4" />}
-          />
-        ) : null}
-        {hasNamedAgents ? null : (
-          <>
-            <SidebarActionButton
-              collapsed={collapsed}
-              label={t("sidebar.apps")}
-              onClick={props.onOpenApps}
-              onIntent={props.onSettingsIntent}
-              active={props.activeUtility === "apps"}
-              selectionRef={activeActionRef}
-              icon={<Blocks className="h-4 w-4" />}
-            />
-            <SidebarActionButton
-              collapsed={collapsed}
-              label={t("sidebar.skills.title")}
-              onClick={props.onOpenSkills}
-              onIntent={props.onSettingsIntent}
-              active={props.activeUtility === "skills"}
-              selectionRef={activeActionRef}
-              icon={<Brain className="h-4 w-4" />}
-            />
-          </>
-        )}
+        {/* Always. See the note on the Abilities grouping below for why this is not gated. */}
+        <SidebarActionButton
+          collapsed={collapsed}
+          label={t("sidebar.agents", { defaultValue: "Agents" })}
+          onClick={props.onOpenAgents}
+          onIntent={props.onSettingsIntent}
+          active={props.activeUtility === "agents"}
+          selectionRef={activeActionRef}
+          icon={<Bot className="h-4 w-4" />}
+        />
         <SidebarActionButton
           collapsed={collapsed}
           label={t("sidebar.automations", { defaultValue: "Automations" })}
@@ -344,8 +322,22 @@ export function Sidebar(props: SidebarProps) {
               : undefined
           }
         />
-        {hasNamedAgents
-          ? (
+        {/*
+          * `Abilities`, always -- the roster no longer decides the shape of this rail.
+          *
+          * Both this grouping and the `Agents` row above it used to appear only for a deployment
+          * that named an agent, on the reasoning that naming none meant there was nothing new to
+          * show and the rail should therefore be untouched. That reasoning died with the page it
+          * described: the first card on Agents is the deployment's *own* agent, which every
+          * deployment has, and it is the only place to narrow the skills and MCP servers that
+          * every conversation pays for. Gating on the roster meant the agent answering every turn
+          * was reachable only after naming an agent you did not want -- so on a fresh install the
+          * whole surface was invisible. That is the report that removed this switch.
+          *
+          * And a rail whose shape depends on config is a rail nobody can be shown a screenshot
+          * of. One shape, whatever the deployment holds.
+          */}
+        {
             collapsed
               ? (
                 // A collapsed rail has no room for a heading, so the destinations stay flat --
@@ -417,8 +409,7 @@ export function Sidebar(props: SidebarProps) {
                   ) : null}
                 </div>
               )
-          )
-          : null}
+        }
         {collapsed ? (
           <>
             <SidebarActionButton
