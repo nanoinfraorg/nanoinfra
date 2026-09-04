@@ -11,6 +11,8 @@ not here.
 
 ## [Unreleased]
 
+## [2.0.3] — 2026-09-04
+
 ### Fixed
 
 - The WebUI inbox is no longer warned about as an unreachable chat channel. A deployment whose
