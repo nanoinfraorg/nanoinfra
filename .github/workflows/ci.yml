@@ -25,6 +25,10 @@ on:
       - README.md
       - SECURITY.md
       - webui/README.md
+  # Coverage runs here, not on the push path (#272). The number is read occasionally, not per
+  # commit, so collecting it nightly keeps every push and PR on the fast, coverage-free lane.
+  schedule:
+    - cron: "0 6 * * *"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -83,12 +87,14 @@ jobs:
           - name: minimum, 3.11
             os: ubuntu-latest
             python-version: "3.11"
-            coverage: false
+            primary: false
             pytest_args: ""
-          - name: latest, 3.14 + coverage
+          # The primary lane runs lint, type-check and the Postgres secrets check on every event,
+          # and collects coverage on the nightly schedule only (#272).
+          - name: latest, 3.14
             os: ubuntu-latest
             python-version: "3.14"
-            coverage: true
+            primary: true
             pytest_args: ""
 
     # The Postgres-backed secrets tests skip themselves when NANOINFRA_TEST_POSTGRES_DSN is
@@ -138,15 +144,16 @@ jobs:
       # Channel requirements live in manifests rather than uv.lock. Avoid a
       # later uv run sync pruning the packages installed by the previous step.
       - name: Lint with ruff
-        if: matrix.coverage
+        if: matrix.primary
         run: uv run --no-sync ruff check nanoinfra tests conftest.py
 
       - name: Type check with BasedPyright (strict)
-        if: matrix.coverage
+        if: matrix.primary
         run: uv run --no-sync basedpyright
 
+      # Coverage only on the nightly schedule (#272): every push and PR takes the fast lane below.
       - name: Run tests with coverage
-        if: matrix.coverage
+        if: ${{ matrix.primary && github.event_name == 'schedule' }}
         env:
           NANOINFRA_TEST_POSTGRES_DSN: postgresql://nanoinfra:nanoinfra@localhost:5432/nanoinfra_test
         run: >-
@@ -157,9 +164,10 @@ jobs:
 
       # These tests skip themselves when Postgres is unset *or unreachable*, so a service
       # container that fails to come up would put the run straight back where it was: green, with
-      # five tests over an encrypted secret store executed nowhere. Fail on a skip instead.
+      # five tests over an encrypted secret store executed nowhere. Fail on a skip instead. Runs on
+      # every event on the primary lane, so a push still exercises the encrypted store.
       - name: Confirm the Postgres secrets tests ran rather than skipped
-        if: matrix.coverage
+        if: matrix.primary
         env:
           NANOINFRA_TEST_POSTGRES_DSN: postgresql://nanoinfra:nanoinfra@localhost:5432/nanoinfra_test
         run: |
@@ -171,8 +179,10 @@ jobs:
             exit 1
           fi
 
-      - name: Run compatibility tests
-        if: ${{ !matrix.coverage }}
+      # The fast lane: every push, every PR, and the non-primary lane on the schedule. Coverage is
+      # the only thing the primary nightly run adds, so it is the only case excluded here.
+      - name: Run tests
+        if: ${{ !(matrix.primary && github.event_name == 'schedule') }}
         run: >-
           uv run --no-sync python -m pytest
           -n auto
