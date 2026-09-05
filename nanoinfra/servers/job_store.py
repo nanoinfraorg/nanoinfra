@@ -50,12 +50,17 @@ def _share_with_the_directory_group(path: Path) -> None:
     to -- both accounts belong to this directory's group.
 
     Only when the directory is group-writable, which is what marks it as shared. A single-uid host
-    has its own primary group there and takes neither branch. Every failure is ignored: a mode
-    this process cannot set is not a reason to lose a job record, and the write already landed.
+    has its own primary group there and gets the private branch: the record is set to `0o600`
+    rather than left to the umask, because a umask of `0002` -- the default on many distributions
+    with user-private groups -- would otherwise create it group-writable, so a private host's job
+    records were only owner-private by accident of the environment (#273). Every failure is
+    ignored: a mode this process cannot set is not a reason to lose a job record, and the write
+    already landed.
     """
     try:
         directory = path.parent.stat()
         if not directory.st_mode & stat.S_IWGRP:
+            os.chmod(path, 0o600)
             return
         current = path.stat()
         if current.st_gid != directory.st_gid:
