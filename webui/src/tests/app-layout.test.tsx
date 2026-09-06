@@ -51,6 +51,23 @@ function mockFetchRoutes(routes: Record<string, unknown>): void {
 }
 
 /** One action that waits for an answer, in the shape the inbox route sends (#27). */
+/**
+ * Open the `Abilities` group so `Apps` and `Skills` are reachable.
+ *
+ * Both rail groups start closed as of 2.2.6, and `Abilities` no longer reopens itself for the
+ * active page. Every test below that clicks one of its two members has to open it first, the way
+ * an operator does.
+ */
+function openAbilities(): HTMLElement {
+  const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+  // Idempotent: the heading toggles, so a second call would close the group again. Several tests
+  // reach into it more than once.
+  if (within(sidebar).queryByRole("button", { name: "Apps" }) === null) {
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Abilities" }));
+  }
+  return sidebar;
+}
+
 function pendingApproval(requestId: string) {
   return {
     capabilityClass: "mutate.remote",
@@ -367,7 +384,7 @@ describe("App layout", () => {
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
-    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    const sidebar = openAbilities();
     const abilities = within(sidebar).getByRole("button", { name: "Abilities" });
     const apps = within(sidebar).getByRole("button", { name: "Apps" });
     const skills = within(sidebar).getByRole("button", { name: "Skills" });
@@ -580,9 +597,13 @@ describe("App layout", () => {
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     expect(await screen.findByRole("button", { name: "Agents" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abilities" })).toBeInTheDocument();
-    // Grouped, not hidden: the heading names what these two are and both stay visible.
-    expect(screen.getByRole("button", { name: "Apps" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
+    // Grouped **and** closed as of 2.2.6: the heading is what the rail offers, and one click
+    // brings both members back. This asserted "grouped, not hidden" until the owner asked for
+    // the opposite.
+    expect(screen.queryByRole("button", { name: "Apps" })).toBeNull();
+    const sidebar = openAbilities();
+    expect(within(sidebar).getByRole("button", { name: "Apps" })).toBeInTheDocument();
+    expect(within(sidebar).getByRole("button", { name: "Skills" })).toBeInTheDocument();
   });
 
   it("opens Skills from the main sidebar", async () => {
@@ -686,8 +707,8 @@ describe("App layout", () => {
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
-    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    const skillsButton = within(sidebar).getByRole("button", { name: "Skills" });
+    const sidebar = openAbilities();
+    const skillsButton = await within(sidebar).findByRole("button", { name: "Skills" });
 
     fireEvent.click(skillsButton);
 
@@ -700,7 +721,7 @@ describe("App layout", () => {
     expect(screen.getByText("Needs setup")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Sidebar navigation" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument();
-    expect(within(sidebar).getByRole("button", { name: "Skills" })).toHaveAttribute(
+    expect(within(openAbilities()).getByRole("button", { name: "Skills" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -709,7 +730,7 @@ describe("App layout", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
     expect(await screen.findByText(HERO_GREETING_PATTERN)).toBeInTheDocument();
 
-    fireEvent.click(within(sidebar).getByRole("button", { name: "Skills" }));
+    fireEvent.click(within(openAbilities()).getByRole("button", { name: "Skills" }));
     expect(await screen.findByRole("heading", { name: "Skills" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Open details for github" }));
@@ -786,7 +807,7 @@ describe("App layout", () => {
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    fireEvent.click(within(sidebar).getByRole("button", { name: "Skills" }));
+    fireEvent.click(within(openAbilities()).getByRole("button", { name: "Skills" }));
     fireEvent.click(
       await screen.findByRole("button", { name: "Open details for custom-skill" }),
     );
@@ -916,7 +937,7 @@ describe("App layout", () => {
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    fireEvent.click(within(sidebar).getByRole("button", { name: "Skills" }));
+    fireEvent.click(within(openAbilities()).getByRole("button", { name: "Skills" }));
     const discoverTab = await screen.findByRole("tab", { name: "Discover" });
     expect(discoverTab.querySelector("svg")).toBeNull();
     fireEvent.click(discoverTab);
@@ -2608,7 +2629,7 @@ describe("App layout", () => {
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
-    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    const sidebar = openAbilities();
     const searchButton = within(sidebar).getByRole("button", { name: "Search" });
     const appsButton = within(sidebar).getByRole("button", { name: "Apps" });
     expect(searchButton.compareDocumentPosition(appsButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -2855,7 +2876,7 @@ describe("App layout", () => {
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
-    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    const sidebar = openAbilities();
     const appsButton = within(sidebar).getByRole("button", { name: "Apps" });
 
     fireEvent.click(appsButton);
@@ -2885,7 +2906,7 @@ describe("App layout", () => {
     );
     expect(document.title).toBe("Apps · nanoinfra");
 
-    fireEvent.click(within(sidebar).getByRole("button", { name: "Skills" }));
+    fireEvent.click(within(openAbilities()).getByRole("button", { name: "Skills" }));
 
     expect(await screen.findByRole("heading", { name: "Skills" })).toBeInTheDocument();
     await waitFor(() => {
@@ -2895,7 +2916,7 @@ describe("App layout", () => {
       );
     });
     expect(screen.getByRole("navigation", { name: "Sidebar navigation" })).toBeInTheDocument();
-    expect(within(sidebar).getByRole("button", { name: "Skills" })).toHaveAttribute(
+    expect(within(openAbilities()).getByRole("button", { name: "Skills" })).toHaveAttribute(
       "aria-current",
       "page",
     );

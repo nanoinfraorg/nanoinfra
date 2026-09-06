@@ -155,25 +155,25 @@ export function Sidebar(props: SidebarProps) {
    * round-trips to the server for chat project groups, keyed by group id; these two just were not
    * using it.
    *
-   * **Each group keeps its own default**, which is the part a single rule got wrong: `Abilities`
-   * opens by default for the reason argued below, and `Infrastructure` starts closed and always
-   * has. So absent means *that group's default* rather than "expanded".
-   *
-   * The two therefore read the map in opposite directions, and `onToggleGroup` already has both
-   * conventions: a default-open group stores `true` to mean collapsed, and a default-closed one
-   * stores `false` to mean expanded (the same path `workspace:chats` uses). Absent is the default
-   * in both cases, so a deployment that has never touched the rail sees exactly what it saw
-   * before.
+   * **Both start closed.** `Infrastructure` always has; `Abilities` does as of 2.2.6, by the
+   * owner's call, replacing the argument written below. A group stores `false` to mean "the
+   * operator opened this" and absent means closed -- the same convention `workspace:chats` and
+   * `date:all` use.
    *
    * The keys are namespaced because this map is shared with project groups, whose ids are
    * workspace paths and project names.
    */
   const collapsedGroups = props.collapsedGroups ?? {};
-  const abilitiesCollapsed = collapsedGroups[NAV_GROUP_ABILITIES] === true;
+  const abilitiesCollapsed = collapsedGroups[NAV_GROUP_ABILITIES] !== false;
   const infraCollapsed = collapsedGroups[NAV_GROUP_INFRASTRUCTURE] !== false;
   /**
-   * The Abilities grouping (#253). **Open by default**, and that is the whole difference between
-   * a grouping and a hiding place.
+   * The Abilities grouping (#253). **Closed by default as of 2.2.6.**
+   *
+   * The argument below is kept because it is the reasoning this reversed, not because it still
+   * holds: it claimed that closing the group by default would cost every operator a click for a
+   * reorganisation nobody asked for. Somebody did ask -- the owner of the deployment this rail
+   * belongs to -- and a default is a product decision rather than a derivation. Opening it is
+   * remembered, so the click is paid once.
    *
    * It started closed, because it only appeared for a deployment that named an agent -- so the
    * rail it changed was one the operator had just changed themselves. The grouping is
@@ -186,21 +186,24 @@ export function Sidebar(props: SidebarProps) {
    * Collapsing it is available and is the operator's choice, not the default.
    */
   /*
-   * A group holding the page you are on renders open whatever the stored preference says, and the
-   * preference is **not** rewritten.
+   * `Abilities` opens **only** on a click. It used to open itself when the active page was inside
+   * it -- Apps or Skills -- so that a reload would not hide the page you were looking at behind a
+   * collapsed heading. That reasoning is what the closed default rejects: the page itself is
+   * still on screen, and a group that reopens on its own is not closed.
    *
-   * The two effects this replaces called the setter, which was harmless while the state was
-   * local. Against a persisted map it would silently undo the operator's setting the first time
-   * they opened Skills -- a reload would then find the group expanded and nobody would know why.
-   * So the override is a render-time read, not a write.
+   * `Infrastructure` keeps that override for now. It was not part of the ask, and changing it
+   * unasked would be the same overreach that produced the persistence work when a default flip
+   * was what was wanted.
+   *
+   * Either way the override is a render-time read and never a write: the two effects this
+   * replaced called the setter, which was harmless against local state and against a persisted
+   * map would have silently undone the operator's setting.
    */
-  const abilitiesHoldsActive =
-    props.activeUtility === "apps" || props.activeUtility === "skills";
   const infraHoldsActive =
     props.activeUtility === "diagrams"
     || props.activeUtility === "servers"
     || props.activeUtility === "secrets";
-  const abilitiesExpanded = !abilitiesCollapsed || abilitiesHoldsActive;
+  const abilitiesExpanded = !abilitiesCollapsed;
   const infraExpanded = !infraCollapsed || infraHoldsActive;
   const collapsed = Boolean(props.collapsed);
   const toggleLabel = t("thread.header.toggleSidebar");

@@ -123,6 +123,8 @@ describe("the rail, in one shape whatever the roster holds", () => {
   it("offers Agents whether or not the deployment names one", () => {
     renderSidebar({});
 
+    // `Abilities` and `Infrastructure` both start closed as of 2.2.6, so their members are
+    // behind their headings until somebody opens them.
     expect(destinations()).toEqual([
       "New topic",
       "Search",
@@ -131,25 +133,24 @@ describe("the rail, in one shape whatever the roster holds", () => {
       "Approvals",
       "Metrics",
       "Abilities",
-      "Apps",
-      "Skills",
       "Workspaces",
       "Infrastructure",
       "Settings",
     ]);
   });
 
-  it("groups Apps and Skills without hiding them", () => {
+  it("puts Apps and Skills behind a heading that starts closed", () => {
     /*
-     * The grouping is open by default, and that is the difference between a grouping and a hiding
-     * place. Closing it by default would take two destinations out of a rail where they have
-     * always been one click away, on every existing deployment, for a reorganisation nobody asked
-     * for -- and a heading that costs a click to undo is worse than the flat list it replaced.
+     * This asserted the opposite until 2.2.6, on the reasoning that closing the group by default
+     * would cost every operator a click for a reorganisation nobody asked for. Somebody did ask,
+     * and a default is a product decision rather than a derivation. The click is paid once,
+     * because opening it is remembered.
      */
     renderSidebar({});
 
-    expect(screen.getByRole("button", { name: "Apps" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Abilities" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Apps" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skills" })).toBeNull();
   });
 
   it("lets an operator collapse it, which is their choice and not the default", () => {
@@ -177,7 +178,11 @@ describe("the rail, in one shape whatever the roster holds", () => {
   it("opens Apps and Skills from inside the grouping, through the same handlers", () => {
     const onOpenApps = vi.fn();
     const onOpenSkills = vi.fn();
-    renderSidebar({ onOpenApps, onOpenSkills });
+    renderSidebar({
+      onOpenApps,
+      onOpenSkills,
+      collapsedGroups: { "nav:abilities": false },
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Apps" }));
     fireEvent.click(screen.getByRole("button", { name: "Skills" }));
@@ -187,13 +192,16 @@ describe("the rail, in one shape whatever the roster holds", () => {
     expect(onOpenSkills).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the grouping expanded when you are inside it", () => {
-    // A reload while on Skills must not hide the page you are looking at behind a collapsed
-    // heading -- which stays true now that the default is open, and stays pinned because the
-    // default is the kind of thing somebody changes.
+  it("stays closed even while you are on a page inside it", () => {
+    /*
+     * It used to reopen itself here, so that a reload would not hide the page you were looking at
+     * behind a collapsed heading. That is what a closed default rejects: the page is still on
+     * screen in the main area, and a group that reopens on its own is not closed.
+     */
     renderSidebar({ activeUtility: "skills" });
 
-    expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Skills" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Abilities" })).toBeInTheDocument();
   });
 
   it("routes the Agents row to the Agents destination", () => {
@@ -239,15 +247,22 @@ describe("the rail groups remember whether you closed them", () => {
    * `collapsed_groups` is the map the sidebar already round-trips to the server for chat project
    * groups. These two just were not using it.
    */
-  it("still opens expanded for a deployment that has never touched it", () => {
-    // Absent means expanded, which keeps the documented default for everybody else.
+  it("starts closed for a deployment that has never touched it", () => {
+    // Absent means closed for both rail groups. This asserted the opposite one commit earlier.
     renderSidebar({ collapsedGroups: {} });
+
+    expect(screen.queryByRole("button", { name: "Apps" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Diagrams" })).toBeNull();
+  });
+
+  it("opens Abilities when the operator has opened it before", () => {
+    renderSidebar({ collapsedGroups: { "nav:abilities": false } });
 
     expect(screen.getByRole("button", { name: "Apps" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
   });
 
-  it("starts collapsed when that is what the stored state says", () => {
+  it("stays closed when the stored state says so explicitly", () => {
     renderSidebar({ collapsedGroups: { "nav:abilities": true } });
 
     expect(screen.queryByRole("button", { name: "Apps" })).toBeNull();
@@ -296,27 +311,28 @@ describe("the rail groups remember whether you closed them", () => {
     expect(screen.getByRole("button", { name: "Servers" })).toBeInTheDocument();
   });
 
-  it("renders a collapsed group open when it holds the page you are on", () => {
-    // The visual guarantee the old effects gave, kept.
-    renderSidebar({ collapsedGroups: { "nav:abilities": true }, activeUtility: "skills" });
+  it("renders Infrastructure open when it holds the page you are on", () => {
+    /*
+     * The visual guarantee the old effects gave, kept where it was not asked to change.
+     * `Abilities` gave it up with the closed default -- see "stays closed even while you are on a
+     * page inside it" -- and doing the same to `Infrastructure` unasked would be the overreach
+     * that produced persistence when a default flip was wanted.
+     */
+    renderSidebar({ activeUtility: "servers" });
 
-    expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Servers" })).toBeInTheDocument();
   });
 
   it("does not rewrite the preference when it overrides it for the active page", () => {
     /*
      * The two effects this replaced called the setter. Against a persisted map that would undo
-     * the operator's setting the first time they opened Skills, and a reload would then find the
-     * group expanded with nobody knowing why. So the override is a render-time read.
+     * the operator's setting the first time they opened a page inside the group, and a reload
+     * would then find it expanded with nobody knowing why. So the override is a render-time read.
      */
     const onToggleGroup = vi.fn();
-    renderSidebar({
-      collapsedGroups: { "nav:abilities": true },
-      activeUtility: "skills",
-      onToggleGroup,
-    });
+    renderSidebar({ activeUtility: "servers", onToggleGroup });
 
-    expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Servers" })).toBeInTheDocument();
     expect(onToggleGroup).not.toHaveBeenCalled();
   });
 });

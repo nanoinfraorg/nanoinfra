@@ -15,12 +15,17 @@ not here.
 
 ### Changed
 
-- The `Abilities` and `Infrastructure` groups in the sidebar remember whether you closed them.
-  They held that in local state, so collapsing one lasted until the next reload — and the comment
-  on that state said collapsing "is the operator's choice, not the default", which a choice that
-  does not survive a reload is not. They now use `collapsed_groups`, the map the sidebar already
-  round-trips for chat project groups. Each keeps its own default, so a deployment that has never
-  touched the rail sees exactly what it saw before: `Abilities` open, `Infrastructure` closed.
+- **`Abilities` in the sidebar starts closed**, and opens only when you click it. It opened by
+  default, and it also reopened itself whenever the active page was one of its two members — so a
+  visit to Skills undid the collapse. Both are gone: absent means closed, and the heading is the
+  only thing that opens it. `Infrastructure` already started closed and keeps its own reopen
+  behaviour, which was not part of the ask.
+  ([#253](https://github.com/nanoinfraorg/nanoinfra/issues/253))
+- Both rail groups remember whether you closed them. They held that in local state, so the choice
+  lasted until the next reload — and the comment on that state called collapsing "the operator's
+  choice, not the default", which a choice that does not survive a reload is not. They now use
+  `collapsed_groups`, the map the sidebar already round-trips for chat project groups, under
+  `nav:`-prefixed keys so they cannot collide with a project of the same name.
   ([#253](https://github.com/nanoinfraorg/nanoinfra/issues/253))
 
 ## [2.2.5] — 2026-09-06
