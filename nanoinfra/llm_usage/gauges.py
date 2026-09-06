@@ -17,8 +17,11 @@ identically is a dashboard that lies on the day it matters.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Any
+
+from nanoinfra.llm_usage.counters import counter_exposition
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +103,45 @@ def _sample(source: Any) -> int | None:
         return None
 
 
+def _resident_bytes() -> int | None:
+    """RSS, from `/proc` and with no dependency.
+
+    `resource.getrusage` reports a *maximum* rather than a current value, which is a different
+    question: a process that peaked at 2 GB an hour ago and holds 300 MB now is healthy, and the
+    maximum says it is not. `/proc/self/statm` is the current one, and its absence -- a
+    non-Linux host -- reads as unknown rather than as zero.
+    """
+    try:
+        with open("/proc/self/statm", encoding="ascii") as handle:
+            resident_pages = int(handle.read().split()[1])
+    except (OSError, IndexError, ValueError):
+        return None
+    return resident_pages * os.sysconf("SC_PAGE_SIZE")
+
+
+def _event_loop_lag_ms() -> int | None:
+    """How late the loop's last scheduled tick was, or `None` when nothing is measuring.
+
+    Sampled from a value the running loop maintains rather than measured here: measuring it would
+    mean awaiting inside a synchronous sampler, and a `/metrics` scrape that yields to the loop it
+    is measuring perturbs the number it reports.
+    """
+    lag = _loop_lag_ms
+    return None if lag is None else max(0, int(lag))
+
+
+#: Milliseconds the loop was last observed running behind, or `None` while nobody measures it.
+#: Written by the gateway's own monitor; read here. A plain module value rather than a callable on
+#: `GaugeSources`, because it is a property of the process and not of an injected object.
+_loop_lag_ms: float | None = None
+
+
+def set_event_loop_lag_ms(value: float | None) -> None:
+    """Publish the loop's observed lag. Called by the gateway's monitor, once per interval."""
+    global _loop_lag_ms
+    _loop_lag_ms = value
+
+
 def sample_gauges(sources: GaugeSources) -> list[Gauge]:
     """Every gauge, in the order the Live panel reads top to bottom."""
     return [
@@ -144,6 +186,23 @@ def sample_gauges(sources: GaugeSources) -> list[Gauge]:
             label="Context used",
             help="Tokens in the last turn's prompt.",
         ),
+        # Process health (#274). Not specific to nanoinfra and that is the point: an operator
+        # setting a memory request or chasing a stall needs the same two numbers every runtime
+        # exposes, and neither has an event to be driven by -- there is no diagnostic for "this
+        # process is 300 MB". Sampled at read, like everything else here.
+        Gauge(
+            name="nanoinfra_rss_bytes",
+            value=_sample(_resident_bytes),
+            label="Resident memory",
+            help="Resident set size of the gateway process.",
+        ),
+        Gauge(
+            name="nanoinfra_event_loop_lag_ms",
+            value=_sample(_event_loop_lag_ms),
+            label="Event loop lag",
+            help="How far behind the asyncio loop is running. A rising number is a blocked loop.",
+            alerting=True,
+        ),
         Gauge(
             name="nanoinfra_context_tokens_limit",
             value=_sample(sources.context_tokens_limit),
@@ -173,10 +232,12 @@ def gauges_payload(sources: GaugeSources) -> dict[str, Any]:
 def prometheus_exposition(sources: GaugeSources) -> str:
     """The text format, from the same sample the panel reads.
 
-    Gauges only, and deliberately. A Prometheus **counter must be monotonic**, and a count queried
-    from a table with a 180-day purge is not: it falls when the pruner runs, and a `rate()` over a
-    falling counter is nonsense. Counters therefore belong to a process-lifetime accumulator rather
-    than to a `SELECT`, and until that exists this endpoint exports what it can export honestly.
+    Gauges, plus the counters and the histogram `counters.py` accumulates (#274). A Prometheus
+    **counter must be monotonic**, and a count queried from a table with a purge is not: it falls
+    when the pruner runs, and a `rate()` over a falling counter is nonsense. So the counters live
+    in memory for the life of the process, which is what Prometheus expects and handles with
+    `resets()`. `gate_decisions_total` is still absent, and `counters.py` says why: those
+    decisions happen in the executor, whose process this one cannot read.
 
     No `session_key`, `turn_id` or `actor` labels either, at any point. They are unbounded, and a
     label per session is how a Prometheus install falls over. That detail is the Calls table's job.
@@ -190,6 +251,10 @@ def prometheus_exposition(sources: GaugeSources) -> str:
         lines.append(f"# HELP {gauge.name} {gauge.help}")
         lines.append(f"# TYPE {gauge.name} gauge")
         lines.append(f"{gauge.name} {gauge.value}")
+    # The counters and the histogram (#274), from the same function, so one place owns the format.
+    # They are process-lifetime accumulators rather than queries: a count over a table with a
+    # purge is not monotonic, and a `rate()` over a falling counter is nonsense.
+    lines.extend(counter_exposition())
     return "\n".join(lines) + ("\n" if lines else "")
 
 
@@ -198,6 +263,7 @@ __all__ = [
     "GaugeSources",
     "active_gauge_sources",
     "set_active_gauge_sources",
+    "set_event_loop_lag_ms",
     "gauges_payload",
     "prometheus_exposition",
     "sample_gauges",

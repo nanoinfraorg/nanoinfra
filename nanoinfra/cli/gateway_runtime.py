@@ -1512,6 +1512,25 @@ def _run_gateway(
 
         set_active_gauge_sources(_gauge_sources())
 
+    async def _event_loop_lag_monitor(interval_s: float = 5.0) -> None:
+        """Publish how far behind the loop is running (#274).
+
+        A sleep that asks for `interval_s` and returns later than that was late by the difference,
+        and the difference is the loop's lag: the time it spent unable to run this callback.
+        Measured by the loop itself rather than by the sampler, because a `/metrics` scrape that
+        awaited in order to measure would perturb the number it reports.
+
+        Its own task rather than a hook on an existing one: every other periodic job here does
+        work whose duration would be counted as lag.
+        """
+        from nanoinfra.llm_usage.gauges import set_event_loop_lag_ms
+
+        while True:
+            started = time.monotonic()
+            await asyncio.sleep(interval_s)
+            late_ms = (time.monotonic() - started - interval_s) * 1000
+            set_event_loop_lag_ms(max(0.0, late_ms))
+
     async def _health_server(host: str, health_port: int) -> None:
         """Lightweight HTTP health endpoint on the gateway port."""
         import json as _json
@@ -1735,6 +1754,13 @@ def _run_gateway(
                     name="nanoinfra-approval-delivery",
                 ),
             ]
+            # Its own task, and not gated on the health server: the lag gauge is read by the Live
+            # tab too, and a deployment that turned the health port off still wants to know its
+            # loop is blocked.
+            tasks.append(asyncio.create_task(
+                _event_loop_lag_monitor(),
+                name="nanoinfra-loop-lag",
+            ))
             if health_server_enabled:
                 tasks.append(asyncio.create_task(
                     _health_server(config.gateway.host, port),

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import pytest
 
+from nanoinfra.llm_usage.counters import reset_metrics
 from nanoinfra.llm_usage.gauges import (
     GaugeSources,
     active_gauge_sources,
@@ -34,15 +35,29 @@ _EXPECTED = [
     "nanoinfra_inbound_queue_depth",
     "nanoinfra_outbound_queue_depth",
     "nanoinfra_context_tokens_used",
+    # Process health (#274), sampled from the process rather than from an injected source.
+    "nanoinfra_rss_bytes",
+    "nanoinfra_event_loop_lag_ms",
     "nanoinfra_context_tokens_limit",
 ]
+
+#: The two that read the process itself, so a test about injected sources can exclude them.
+_SELF_SAMPLED = {"nanoinfra_rss_bytes", "nanoinfra_event_loop_lag_ms"}
 
 
 @pytest.fixture(autouse=True)
 def _clear_process_holder():
-    """The holder is process-global, so a test that sets it must not leak into the next file."""
+    """Both accumulators here are process-global, so a test that fills one must not leak.
+
+    `reset_metrics` matters more than it looks: `prometheus_exposition` renders the counters from
+    `counters.py` as well, so a counter incremented by another test file would appear in this
+    file's exposition assertions -- and a counter series carries labels, which is exactly what the
+    gauge rules here forbid.
+    """
+    reset_metrics()
     yield
     set_active_gauge_sources(None)
+    reset_metrics()
 
 
 # --- what a sample is -------------------------------------------------------------------
@@ -63,7 +78,11 @@ def test_the_approvals_gauge_comes_first_and_is_the_one_that_alerts() -> None:
 
 
 def test_an_unreadable_source_is_none_and_never_zero() -> None:
-    rows = {gauge.name: gauge.value for gauge in sample_gauges(GaugeSources())}
+    rows = {
+        gauge.name: gauge.value
+        for gauge in sample_gauges(GaugeSources())
+        if gauge.name not in _SELF_SAMPLED
+    }
 
     # No source given at all: nothing is known, and nothing is claimed.
     assert rows["nanoinfra_pending_approvals"] is None
@@ -133,7 +152,11 @@ def test_the_payload_lists_every_gauge_even_the_unreadable_ones() -> None:
     payload = gauges_payload(GaugeSources())
 
     assert [gauge["name"] for gauge in payload["gauges"]] == _EXPECTED
-    assert all(gauge["value"] is None for gauge in payload["gauges"])
+    assert all(
+        gauge["value"] is None
+        for gauge in payload["gauges"]
+        if gauge["name"] not in _SELF_SAMPLED
+    )
 
 
 # --- the exposition ---------------------------------------------------------------------
@@ -156,8 +179,50 @@ def test_an_unreadable_gauge_is_omitted_rather_than_exported_as_zero() -> None:
     assert "nanoinfra_pending_approvals" not in text
 
 
-def test_nothing_readable_produces_an_empty_body_and_not_a_broken_one() -> None:
-    assert prometheus_exposition(GaugeSources()) == ""
+def test_no_injected_source_exports_no_injected_series() -> None:
+    """It used to assert an empty body, and two self-sampled gauges (#274) made that impossible.
+
+    The property worth keeping is the one underneath: a gauge with no source exports nothing at
+    all rather than a zero. `rss_bytes` reads the process and so always answers on Linux, which is
+    why it is excluded here rather than being the reason to weaken the rule.
+    """
+    text = prometheus_exposition(GaugeSources())
+
+    for name in (
+        "nanoinfra_pending_approvals",
+        "nanoinfra_ws_connections",
+        "nanoinfra_sessions_active",
+        "nanoinfra_inbound_queue_depth",
+        "nanoinfra_outbound_queue_depth",
+        "nanoinfra_context_tokens_used",
+        "nanoinfra_context_tokens_limit",
+    ):
+        assert name not in text, name
+
+
+def test_the_process_health_gauges_read_the_process_and_need_no_source() -> None:
+    """They have no event to be driven by -- there is no diagnostic for "this process is 300 MB"."""
+    from nanoinfra.llm_usage.gauges import set_event_loop_lag_ms
+
+    set_event_loop_lag_ms(12.7)
+    try:
+        rows = {gauge.name: gauge.value for gauge in sample_gauges(GaugeSources())}
+    finally:
+        set_event_loop_lag_ms(None)
+
+    # RSS is read from /proc, so it is a real number on Linux and `None` elsewhere.
+    assert rows["nanoinfra_rss_bytes"] is None or rows["nanoinfra_rss_bytes"] > 0
+    assert rows["nanoinfra_event_loop_lag_ms"] == 12
+
+
+def test_nobody_measuring_the_loop_reads_as_unknown_rather_than_zero() -> None:
+    """A gateway that never started the monitor has no lag to report, and zero would claim one."""
+    from nanoinfra.llm_usage.gauges import set_event_loop_lag_ms
+
+    set_event_loop_lag_ms(None)
+    rows = {gauge.name: gauge.value for gauge in sample_gauges(GaugeSources())}
+
+    assert rows["nanoinfra_event_loop_lag_ms"] is None
 
 
 def test_nothing_is_typed_as_a_counter() -> None:
@@ -179,21 +244,57 @@ def test_nothing_is_typed_as_a_counter() -> None:
         )
     )
 
-    assert "counter" not in text
-    assert text.count("# TYPE") == len(_EXPECTED)
+    # Gauges only. Counted by reading each `# TYPE` line rather than by expecting a total,
+    # because a self-sampled gauge answers whether or not a source was injected and the total
+    # would then depend on the host.
+    types = [line for line in text.splitlines() if line.startswith("# TYPE")]
+    assert types
+    for line in types:
+        assert line.endswith(" gauge"), line
 
 
-def test_no_series_carries_a_label_at_all() -> None:
-    """`session_key`, `turn_id` and `actor` are unbounded, and a label per session is how a
-    Prometheus install falls over. The Calls table answers per-call questions instead."""
+def test_a_gauge_carries_no_label_at_all() -> None:
+    """A gauge here is one number about the whole process, so it needs no dimension.
+
+    The counters (#274) are the other case and do carry `provider`, `model` and `outcome` -- which
+    is why this asserts over the gauge lines rather than over the body, and why
+    `test_no_series_carries_an_unbounded_label` states the rule that applies to both.
+    """
     text = prometheus_exposition(
         GaugeSources(ws_connections=lambda: 1, pending_approvals=lambda: 2)
     )
 
     for line in text.splitlines():
-        if line.startswith("#"):
+        if line.startswith("#") or not line.startswith("nanoinfra_"):
             continue
         assert "{" not in line, line
+
+
+def test_no_series_carries_an_unbounded_label() -> None:
+    """The rule that applies to gauges and counters alike.
+
+    `session_key`, `turn_id` and `actor` are per-turn values, and a label per turn is how a
+    Prometheus install falls over. The Calls table answers per-call questions instead.
+    """
+    from nanoinfra.llm_usage.counters import record_tool_call_metrics
+    from nanoinfra.llm_usage.models import ToolCallRecord
+
+    record_tool_call_metrics(
+        ToolCallRecord(
+            ts_ms=1,
+            tool="exec",
+            source="user",  # pyright: ignore[reportArgumentType]
+            outcome="ok",
+            duration_ms=1,
+            session_key="webui:alberto",
+            turn_id="turn-1",
+            actor="alberto",
+        )
+    )
+    text = prometheus_exposition(GaugeSources(ws_connections=lambda: 1))
+
+    for forbidden in ("session_key", "turn_id", "actor", "webui:alberto", "turn-1"):
+        assert forbidden not in text, forbidden
 
 
 # --- the process holder -----------------------------------------------------------------

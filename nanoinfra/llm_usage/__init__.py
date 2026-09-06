@@ -14,6 +14,10 @@ from typing import Any
 from loguru import logger
 
 from nanoinfra.config.paths import get_data_dir
+from nanoinfra.llm_usage.counters import (
+    record_llm_call_metrics,
+    record_tool_call_metrics,
+)
 from nanoinfra.llm_usage.models import LLMCallRecord, ToolCallRecord
 from nanoinfra.llm_usage.store import LLMUsageStore
 
@@ -66,11 +70,19 @@ def migrate_legacy_token_usage() -> dict[str, int]:
 
 
 def record_llm_call(call: LLMCallRecord) -> None:
-    """The observer the gateway attaches to every provider. Fails open, by design."""
+    """The observer the gateway attaches to every provider. Fails open, by design.
+
+    Two consumers of one event (#274): the row, which survives a restart and is what the Usage tab
+    reads, and the in-memory counter, which is monotonic and is what a `rate()` needs. Derived
+    here from the same call rather than from each other -- a counter computed from the table would
+    fall when the pruner runs, and a table derived from a counter would lose everything on a
+    restart. They are not equal and are not meant to be.
+    """
     try:
         get_llm_usage_store().record(call)
     except Exception:
         logger.exception("failed to record an LLM call")
+    record_llm_call_metrics(call)
 
 
 def record_tool_call(call: ToolCallRecord) -> None:
@@ -85,6 +97,7 @@ def record_tool_call(call: ToolCallRecord) -> None:
         get_llm_usage_store().record_tool_call(call)
     except Exception:
         logger.exception("failed to record a tool call")
+    record_tool_call_metrics(call)
 
 
 def empty_usage_payload() -> dict[str, Any]:
