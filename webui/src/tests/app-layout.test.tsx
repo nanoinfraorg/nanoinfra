@@ -806,7 +806,6 @@ describe("App layout", () => {
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
-    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
     fireEvent.click(within(openAbilities()).getByRole("button", { name: "Skills" }));
     fireEvent.click(
       await screen.findByRole("button", { name: "Open details for custom-skill" }),
@@ -936,7 +935,6 @@ describe("App layout", () => {
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
-    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
     fireEvent.click(within(openAbilities()).getByRole("button", { name: "Skills" }));
     const discoverTab = await screen.findByRole("tab", { name: "Discover" });
     expect(discoverTab.querySelector("svg")).toBeNull();
