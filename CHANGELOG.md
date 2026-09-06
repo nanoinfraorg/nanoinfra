@@ -11,6 +11,39 @@ not here.
 
 ## [Unreleased]
 
+## [2.2.3] — 2026-09-05
+
+### Added
+
+- An `Approvals` tab in Metrics: how many actions the gate held for a person, how many they
+  answered, how many they refused, how many expired, and the **median time to answer** — the
+  number that says whether the gate is working rather than merely running. A person's refusal is
+  counted apart from a policy refusal nobody was asked about, because merging them overstated the
+  approver's denials sixteen-fold on the deployment this was measured against. An ask that was
+  neither answered nor expired is named on its own: nothing ran and nothing said why.
+  ([#274](https://github.com/nanoinfraorg/nanoinfra/issues/274))
+- A scale row at the top of Metrics → Usage: servers, skills, agents, MCP servers and connectors,
+  in one request. Every one of these existed and was scattered across five settings pages. A
+  count that cannot be read shows `—` and names itself rather than reading as zero.
+  ([#274](https://github.com/nanoinfraorg/nanoinfra/issues/274))
+- `/metrics` exports counters and a latency histogram, so a Prometheus install can ask for a rate
+  and a quantile rather than only a level: `nanoinfra_llm_calls_total`,
+  `nanoinfra_llm_tokens_total` (by input, output, cache read and cache write),
+  `nanoinfra_tool_calls_total`, and `nanoinfra_llm_duration_ms` over nine buckets. Accumulated in
+  memory for the life of the process, because a count over a table with a purge is not monotonic
+  and a `rate()` over a falling counter is nonsense.
+  ([#274](https://github.com/nanoinfraorg/nanoinfra/issues/274))
+- Two process-health gauges, `nanoinfra_rss_bytes` and `nanoinfra_event_loop_lag_ms`. A rising lag
+  is a blocked loop, and neither number has an event to be driven by, so both are sampled at read.
+  ([#274](https://github.com/nanoinfraorg/nanoinfra/issues/274))
+
+### Fixed
+
+- The gate audit viewer no longer offers `deny` as a decision filter. Nothing writes it: the name
+  lives on as the outcome enum and as the operator socket's wire verb, and the log records that
+  outcome as `denied` so it speaks the operator's vocabulary. The filter could only ever match
+  zero records. ([#274](https://github.com/nanoinfraorg/nanoinfra/issues/274))
+
 ## [2.2.2] — 2026-09-05
 
 ### Fixed

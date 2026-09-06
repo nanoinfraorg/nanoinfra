@@ -17,6 +17,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
+import { MetricsApprovals } from "@/components/metrics/MetricsApprovals";
 import { MetricsCalls } from "@/components/metrics/MetricsCalls";
 import { MetricsLive } from "@/components/metrics/MetricsLive";
 import { MetricsUsage } from "@/components/metrics/MetricsUsage";
@@ -157,7 +158,20 @@ describe("MetricsUsage", () => {
   });
 
   it("refetches with the chosen window rather than re-slicing what it holds", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse(usagePayload({ window_days: 90 })));
+    // Route-aware, because the tab now also loads the scale row (#274) and answering that route
+    // with a usage payload is not a case worth asserting here.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/metrics/scale")
+        ? jsonResponse({
+          servers: 1,
+          skills: 2,
+          agents: 1,
+          mcp_servers: 0,
+          connectors: 0,
+          unavailable: [],
+        })
+        : jsonResponse(usagePayload({ window_days: 90 }))
+    );
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
 
@@ -586,7 +600,7 @@ describe("MetricsCalls", () => {
 });
 
 describe("MetricsView", () => {
-  it("switches between the three tabs", async () => {
+  it("switches between its four tabs", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(callsPayload())));
     const user = userEvent.setup();
 
@@ -605,5 +619,193 @@ describe("MetricsView", () => {
 
     await user.click(screen.getByRole("tab", { name: "Live" }));
     expect(await screen.findByTestId("metrics-live")).toBeInTheDocument();
+  });
+});
+
+describe("MetricsScaleRow", () => {
+  it("shows the five counts a reader would otherwise open five pages for", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes("/metrics/scale")
+          ? jsonResponse({
+            servers: 6,
+            skills: 14,
+            agents: 2,
+            mcp_servers: 3,
+            connectors: 1,
+            unavailable: [],
+          })
+          : new Promise<Response>(() => {})
+      ),
+    );
+
+    render(<MetricsUsage settings={settingsWith(usagePayload())} token="tok" />);
+
+    const row = await screen.findByTestId("metrics-scale");
+    expect(within(row).getByText("6")).toBeInTheDocument();
+    expect(within(row).getByText("14")).toBeInTheDocument();
+    expect(screen.queryByTestId("metrics-scale-unavailable")).not.toBeInTheDocument();
+  });
+
+  it("renders a dash for a count it could not read, and says so", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes("/metrics/scale")
+          ? jsonResponse({
+            servers: null,
+            skills: 14,
+            agents: 2,
+            mcp_servers: 0,
+            connectors: 0,
+            unavailable: ["servers"],
+          })
+          : new Promise<Response>(() => {})
+      ),
+    );
+
+    render(<MetricsUsage settings={settingsWith(usagePayload())} token="tok" />);
+
+    const servers = await screen.findByTestId("metrics-scale-servers");
+    expect(within(servers).getByText("—")).toBeInTheDocument();
+    expect(screen.getByTestId("metrics-scale-unavailable")).toBeInTheDocument();
+  });
+
+  it("does not take the Usage tab down when the payload is a shape it did not expect", async () => {
+    /*
+     * This row renders inside Usage, and it used to read `scale.unavailable.length` without
+     * checking. An older gateway answering the route without that field threw, React unmounted
+     * the tree, and every number on the tab vanished — a worse outcome than no row at all.
+     */
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ what: "is this" })),
+    );
+
+    render(<MetricsUsage settings={settingsWith(usagePayload())} token="tok" />);
+
+    // The tab is still there, which is the whole assertion.
+    expect(await screen.findByTestId("metrics-usage")).toBeInTheDocument();
+    expect(screen.getByTestId("metrics-window")).toBeInTheDocument();
+    expect(screen.queryByTestId("metrics-scale")).not.toBeInTheDocument();
+  });
+});
+
+describe("MetricsApprovals", () => {
+  const approvals = (over: Record<string, unknown> = {}) => ({
+    window_days: 30,
+    asked: 43,
+    answered: 38,
+    refused: 1,
+    expired: 3,
+    unanswered: 1,
+    policy_refusals: 16,
+    refusal_share: 0.0256,
+    same_path_answers: 0,
+    median_seconds_to_answer: 13.3,
+    fastest_seconds: 3.6,
+    slowest_seconds: 80.6,
+    attributed_to: "ask",
+    ...over,
+  });
+
+  it("shows the four numbers and the median", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(approvals())));
+
+    render(<MetricsApprovals token="tok" />);
+
+    expect(within(await screen.findByTestId("metrics-approvals-asked")).getByText("43"))
+      .toBeInTheDocument();
+    expect(within(screen.getByTestId("metrics-approvals-answered")).getByText("38"))
+      .toBeInTheDocument();
+    expect(within(screen.getByTestId("metrics-approvals-refused")).getByText("1"))
+      .toBeInTheDocument();
+    expect(within(screen.getByTestId("metrics-approvals-median")).getByText("13.3s"))
+      .toBeInTheDocument();
+  });
+
+  it("keeps policy refusals out of the denial count and says why", async () => {
+    // Merging them would claim an approver rejected sixteen actions nobody showed them.
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(approvals())));
+
+    render(<MetricsApprovals token="tok" />);
+
+    const note = await screen.findByTestId("metrics-approvals-policy-note");
+    expect(note.textContent).toContain("16");
+    expect(note.textContent).toMatch(/without anybody being asked/);
+    expect(within(screen.getByTestId("metrics-approvals-refused")).getByText("1"))
+      .toBeInTheDocument();
+  });
+
+  it("raises the expired tile and explains what an expiry costs", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(approvals())));
+
+    render(<MetricsApprovals token="tok" />);
+
+    const tile = await screen.findByTestId("metrics-approvals-expired");
+    expect(tile.className).toContain("amber");
+    expect(screen.getByTestId("metrics-approvals-expired-note").textContent)
+      .toMatch(/never ran/);
+  });
+
+  it("names an ask that was neither answered nor expired", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(approvals())));
+
+    render(<MetricsApprovals token="tok" />);
+
+    expect((await screen.findByTestId("metrics-approvals-unanswered-note")).textContent)
+      .toMatch(/fell through/);
+  });
+
+  it("says there is no refusal rate rather than showing 0%", async () => {
+    // A zero share would read as "this approver refuses nothing", which is a claim about a person.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(approvals({
+          answered: 0,
+          refused: 0,
+          refusal_share: null,
+          median_seconds_to_answer: null,
+          fastest_seconds: null,
+          slowest_seconds: null,
+        }))
+      ),
+    );
+
+    render(<MetricsApprovals token="tok" />);
+
+    expect((await screen.findByText(/no refusal rate to read/))).toBeInTheDocument();
+    expect(screen.queryByText("0%")).not.toBeInTheDocument();
+  });
+
+  it("says the view is missing rather than that nobody approved anything", async () => {
+    // The 503 a gateway with no gate runtime answers.
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("503");
+    }));
+
+    render(<MetricsApprovals token="tok" />);
+
+    expect(await screen.findByTestId("metrics-approvals-unavailable")).toBeInTheDocument();
+    expect(screen.queryByTestId("metrics-approvals-asked")).not.toBeInTheDocument();
+  });
+
+  it("carries its own window, because a decision is not a token", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(approvals({ window_days: 90 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<MetricsApprovals token="tok" />);
+    await screen.findByTestId("metrics-approvals-asked");
+
+    await user.click(screen.getByTestId("metrics-approvals-window-90"));
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(([input]) => String(input).includes("window=90")),
+      ).toBe(true);
+    });
   });
 });

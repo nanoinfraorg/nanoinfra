@@ -2065,7 +2065,8 @@
       "usage": "Usage",
       "live": "En direct",
       "calls": "Appels",
-      "aria": "Sections des métriques"
+      "aria": "Sections des métriques",
+      "approvals": "Approbations"
     },
     "window": {
       "label": "Période",
@@ -2139,6 +2140,14 @@
       "nanoinfra_context_tokens_limit": {
         "label": "Limite de contexte",
         "help": "La fenêtre de contexte du préréglage actif."
+      },
+      "nanoinfra_rss_bytes": {
+        "label": "Mémoire résidente",
+        "help": "Taille de l'ensemble résident du processus de la passerelle."
+      },
+      "nanoinfra_event_loop_lag_ms": {
+        "label": "Retard de la boucle",
+        "help": "Le retard de la boucle asyncio. Un nombre qui monte, c'est une boucle bloquée."
       }
     },
     "calls": {
@@ -2185,6 +2194,26 @@
     "sources": {
       "title": "Par source, {{count}} derniers jours",
       "calls": "{{count}} appels"
+    },
+    "approvals": {
+      "unavailable": "Cette passerelle ne peut pas lire le journal d'audit du contrôle. Le contrôle applique peut-être encore chaque décision : lisez ceci comme une vue manquante et non comme une période où personne n'a rien approuvé.",
+      "asked": "Retenues pour une personne",
+      "answered": "Répondues",
+      "refused": "Refusées par une personne",
+      "expired": "Expirées",
+      "median": "Réponse médiane",
+      "expiredNote": "{{count}} ont expiré. Une approbation expirée est une action qui n'a jamais tourné et une personne qui n'a jamais vu la demande.",
+      "unansweredNote": "{{count}} ont été retenues, ni répondues ni expirées — une approbation passée à travers les mailles.",
+      "noAnswers": "Personne n'a répondu à une approbation sur cette période, il n'y a donc pas de taux de refus à lire.",
+      "refusalShare": "{{percent}} % des réponses étaient des refus. Un approbateur qui ne refuse rien ne contrôle que des choses sûres, ou ne lit pas la demande.",
+      "policyRefusals": "{{count}} autres actions ont été refusées par la politique sans que personne ne soit sollicité. Elles ne sont pas comptées ci-dessus, car personne ne les a vues.",
+      "samePath": "{{count}} réponses sont arrivées sur le canal qui avait demandé. Un seul compte compromis détient alors les deux moitiés.",
+      "anchored": "Comptées au moment où le contrôle a retenu l'action, non au moment de la réponse — une approbation levée dans cette période et répondue après compte donc ici. La plus rapide {{fastest}}, la plus lente {{slowest}}."
+    },
+    "scale": {
+      "mcp": "MCP",
+      "connectors": "connecteurs",
+      "unavailable": "Un tiret est un compte illisible, pas un compte de zéro."
     }
   }
 }

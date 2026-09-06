@@ -28,8 +28,10 @@ import type {
   KnowledgeSettingsUpdate,
   McpPresetsPayload,
   MarketplaceProvider,
+  MetricsApprovalsPayload,
   MetricsCallsPayload,
   MetricsCallsQuery,
+  MetricsScalePayload,
   MetricsLivePayload,
   NanoinfraFeaturesPayload,
   ModelConfigurationCreate,
@@ -1746,6 +1748,39 @@ export async function fetchMetricsLive(
 ): Promise<MetricsLivePayload> {
   return request<MetricsLivePayload>(
     `${base}/api/webui/metrics/live`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+/**
+ * The approval numbers (#274).
+ *
+ * 503 from this route means the gateway has no gate runtime — which the panel must render as
+ * "not available here" and never as a window in which nobody approved anything.
+ */
+export async function fetchMetricsApprovals(
+  token: string,
+  windowDays?: number,
+  base: string = "",
+): Promise<MetricsApprovalsPayload> {
+  const query = windowDays && windowDays > 0 ? `?window=${windowDays}` : "";
+  return request<MetricsApprovalsPayload>(
+    `${base}/api/webui/metrics/approvals${query}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+/** The five counts behind the Usage tab's scale row (#274). */
+export async function fetchMetricsScale(
+  token: string,
+  base: string = "",
+): Promise<MetricsScalePayload> {
+  return request<MetricsScalePayload>(
+    `${base}/api/webui/metrics/scale`,
     token,
     undefined,
     API_READ_TIMEOUT_MS,

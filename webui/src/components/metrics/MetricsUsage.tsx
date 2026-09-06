@@ -12,6 +12,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { MetricsScaleRow } from "@/components/metrics/MetricsScaleRow";
 import { TokenUsageHeatmap } from "@/components/settings/TokenUsageHeatmap";
 import { TokenUsageSummary } from "@/components/settings/TokenUsageSummary";
 import { Button } from "@/components/ui/button";
@@ -113,7 +114,10 @@ export function MetricsUsage({
 
   return (
     <div className="space-y-4" data-testid="metrics-usage">
-      {/* The window first, because every number under it is scoped by it. */}
+      {/* Above the window control: it is the only thing here a range does not scope (#274). */}
+      <MetricsScaleRow token={token} base={base} />
+
+      {/* The window next, because every number under it is scoped by it. */}
       <div className="flex flex-wrap items-center gap-2" data-testid="metrics-window">
         <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           {tx("metrics.window.label", "Window")}

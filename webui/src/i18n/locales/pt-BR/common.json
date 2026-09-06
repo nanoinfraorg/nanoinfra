@@ -2065,7 +2065,8 @@
       "usage": "Uso",
       "live": "Ao vivo",
       "calls": "Chamadas",
-      "aria": "Seções de métricas"
+      "aria": "Seções de métricas",
+      "approvals": "Aprovações"
     },
     "window": {
       "label": "Período",
@@ -2139,6 +2140,14 @@
       "nanoinfra_context_tokens_limit": {
         "label": "Limite de contexto",
         "help": "A janela de contexto do preset ativo."
+      },
+      "nanoinfra_rss_bytes": {
+        "label": "Memória residente",
+        "help": "Tamanho do conjunto residente do processo do gateway."
+      },
+      "nanoinfra_event_loop_lag_ms": {
+        "label": "Atraso do event loop",
+        "help": "Quanto o laço do asyncio está atrasado. Um número subindo é um laço bloqueado."
       }
     },
     "calls": {
@@ -2185,6 +2194,26 @@
     "sources": {
       "title": "Por origem, últimos {{count}} dias",
       "calls": "{{count}} chamadas"
+    },
+    "approvals": {
+      "unavailable": "Este gateway não consegue ler o log de auditoria do gate. O gate pode continuar aplicando cada decisão, então leia isto como uma visão ausente e não como um período em que ninguém aprovou nada.",
+      "asked": "Retidas para uma pessoa",
+      "answered": "Respondidas",
+      "refused": "Recusadas por uma pessoa",
+      "expired": "Expiradas",
+      "median": "Resposta mediana",
+      "expiredNote": "{{count}} expiraram. Uma aprovação expirada é uma ação que nunca rodou e uma pessoa que nunca viu o pedido.",
+      "unansweredNote": "{{count}} ficaram retidas sem resposta e sem expirar — uma aprovação que escapou.",
+      "noAnswers": "Ninguém respondeu a uma aprovação neste período, então não há taxa de recusa a ler.",
+      "refusalShare": "{{percent}}% das respostas foram recusas. Um aprovador que não recusa nada ou só coloca gate em coisas seguras, ou não está lendo o pedido.",
+      "policyRefusals": "{{count}} outras ações foram recusadas por política sem ninguém ser consultado. Não entram na conta acima, porque ninguém as viu.",
+      "samePath": "{{count}} respostas chegaram pelo mesmo canal que pediu. Uma única conta comprometida passa a ter as duas metades.",
+      "anchored": "Contadas por quando o gate reteve a ação, não por quando foi respondida — então uma aprovação levantada dentro deste período e respondida depois ainda conta aqui. Mais rápida {{fastest}}, mais lenta {{slowest}}."
+    },
+    "scale": {
+      "mcp": "MCP",
+      "connectors": "conectores",
+      "unavailable": "Um travessão é uma contagem que não pôde ser lida, não uma contagem de zero."
     }
   }
 }

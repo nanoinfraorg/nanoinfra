@@ -2065,7 +2065,8 @@
       "usage": "Uso",
       "live": "En vivo",
       "calls": "Llamadas",
-      "aria": "Secciones de métricas"
+      "aria": "Secciones de métricas",
+      "approvals": "Aprobaciones"
     },
     "window": {
       "label": "Periodo",
@@ -2139,6 +2140,14 @@
       "nanoinfra_context_tokens_limit": {
         "label": "Límite de contexto",
         "help": "La ventana de contexto del preset activo."
+      },
+      "nanoinfra_rss_bytes": {
+        "label": "Memoria residente",
+        "help": "Tamaño del conjunto residente del proceso del gateway."
+      },
+      "nanoinfra_event_loop_lag_ms": {
+        "label": "Retraso del event loop",
+        "help": "Cuánto atrasado va el loop de asyncio. Un número que sube es un loop bloqueado."
       }
     },
     "calls": {
@@ -2185,6 +2194,26 @@
     "sources": {
       "title": "Por origen, últimos {{count}} días",
       "calls": "{{count}} llamadas"
+    },
+    "approvals": {
+      "unavailable": "Este gateway no puede leer el audit log del gate. El gate puede seguir aplicando cada decisión, así que lee esto como una vista ausente y no como un periodo en que nadie aprobó nada.",
+      "asked": "Retenidas para una persona",
+      "answered": "Respondidas",
+      "refused": "Denegadas por una persona",
+      "expired": "Expiradas",
+      "median": "Mediana de respuesta",
+      "expiredNote": "{{count}} expiraron. Una aprobación expirada es una acción que nunca corrió y una persona que nunca vio la petición.",
+      "unansweredNote": "{{count}} quedaron retenidas sin respuesta y sin expirar — una aprobación que se cayó por el hueco.",
+      "noAnswers": "Nadie respondió una aprobación en este periodo, así que no hay tasa de denegación que leer.",
+      "refusalShare": "{{percent}}% de las respuestas fueron denegaciones. Un aprobador que no deniega nada o solo pone gate a cosas seguras, o no está leyendo la petición.",
+      "policyRefusals": "{{count}} acciones más fueron rechazadas por política sin preguntarle a nadie. No se cuentan arriba, porque nadie las vio.",
+      "samePath": "{{count}} respuestas llegaron por el mismo canal que preguntó. Una sola cuenta comprometida tiene entonces las dos mitades.",
+      "anchored": "Contadas por cuándo el gate retuvo la acción, no por cuándo se respondió — así que una aprobación levantada dentro de este periodo y respondida después sigue contando aquí. Más rápida {{fastest}}, más lenta {{slowest}}."
+    },
+    "scale": {
+      "mcp": "MCP",
+      "connectors": "conectores",
+      "unavailable": "Un guion es un conteo que no se pudo leer, no un conteo de cero."
     }
   }
 }

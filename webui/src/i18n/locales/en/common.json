@@ -2065,7 +2065,8 @@
       "usage": "Usage",
       "live": "Live",
       "calls": "Calls",
-      "aria": "Metrics sections"
+      "aria": "Metrics sections",
+      "approvals": "Approvals"
     },
     "window": {
       "label": "Window",
@@ -2139,6 +2140,14 @@
       "nanoinfra_context_tokens_limit": {
         "label": "Context limit",
         "help": "The active preset's context window."
+      },
+      "nanoinfra_rss_bytes": {
+        "label": "Resident memory",
+        "help": "Resident set size of the gateway process."
+      },
+      "nanoinfra_event_loop_lag_ms": {
+        "label": "Event loop lag",
+        "help": "How far behind the asyncio loop is running. A rising number is a blocked loop."
       }
     },
     "calls": {
@@ -2185,6 +2194,26 @@
     "sources": {
       "title": "By source, last {{count}} days",
       "calls": "{{count}} calls"
+    },
+    "approvals": {
+      "unavailable": "This gateway cannot reach the gate audit log. The gate may still be enforcing every decision, so read this as a missing view and not as a window in which nobody approved anything.",
+      "asked": "Held for a person",
+      "answered": "Answered",
+      "refused": "Refused by a person",
+      "expired": "Expired",
+      "median": "Median answer",
+      "expiredNote": "{{count}} expired. An expired approval is an action that never ran and a person who never saw the ask.",
+      "unansweredNote": "{{count}} were held and neither answered nor expired — an approval that fell through.",
+      "noAnswers": "Nobody answered an approval in this window, so there is no refusal rate to read.",
+      "refusalShare": "{{percent}}% of answers were refusals. An approver who refuses nothing is either gating only safe things or not reading the ask.",
+      "policyRefusals": "{{count}} more actions were refused by policy without anybody being asked. They are not counted above, because nobody saw them.",
+      "samePath": "{{count}} answers arrived on the same channel that asked. One compromised account then holds both halves.",
+      "anchored": "Counted by when the gate held the action, not when it was answered — so an approval raised inside this window and answered after it still counts here. Fastest {{fastest}}, slowest {{slowest}}."
+    },
+    "scale": {
+      "mcp": "MCP",
+      "connectors": "connectors",
+      "unavailable": "A dash is a count that could not be read, not a count of zero."
     }
   }
 }

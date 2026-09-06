@@ -2562,3 +2562,48 @@ export type ModelPricingRates = {
   cacheReadPerMtok: number;
   cacheWritePerMtok: number;
 };
+
+/**
+ * How big this deployment is, in five numbers (#274).
+ *
+ * `null` on a count means the source could not be read, and `unavailable` names it — which is a
+ * different fact from a count of zero. A row that says which number is missing beats one that
+ * quietly shows four.
+ */
+export type MetricsScalePayload = {
+  servers: number | null;
+  skills: number | null;
+  agents: number | null;
+  mcp_servers: number | null;
+  connectors: number | null;
+  unavailable: string[];
+};
+
+/**
+ * Whether the gate is working, rather than merely running (#274).
+ *
+ * The names do not match the audit log's decision names, and that is the point: `approve` in the
+ * log is the **ask**, the answer is a later `allow` carrying an approval path, and `denied` holds
+ * both a person's refusal and a policy refusal nobody was asked about.
+ */
+export type MetricsApprovalsPayload = {
+  window_days: number;
+  /** Actions the gate held for a person. */
+  asked: number;
+  answered: number;
+  /** A person refused. Not the same as `policy_refusals`. */
+  refused: number;
+  expired: number;
+  /** Held, never answered, never expired — an approval that fell through. */
+  unanswered: number;
+  /** The gate refused on policy and nobody was ever asked. */
+  policy_refusals: number;
+  /** `null` when nobody answered: a zero share would read as "refuses nothing". */
+  refusal_share: number | null;
+  same_path_answers: number;
+  median_seconds_to_answer: number | null;
+  fastest_seconds: number | null;
+  slowest_seconds: number | null;
+  /** Which end of an approval anchors the counts. */
+  attributed_to: "ask";
+};

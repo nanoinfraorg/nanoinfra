@@ -2065,7 +2065,8 @@
       "usage": "Mức dùng",
       "live": "Trực tiếp",
       "calls": "Lượt gọi",
-      "aria": "Các mục số liệu"
+      "aria": "Các mục số liệu",
+      "approvals": "Phê duyệt"
     },
     "window": {
       "label": "Khoảng",
@@ -2139,6 +2140,14 @@
       "nanoinfra_context_tokens_limit": {
         "label": "Giới hạn ngữ cảnh",
         "help": "Cửa sổ ngữ cảnh của preset đang dùng."
+      },
+      "nanoinfra_rss_bytes": {
+        "label": "Bộ nhớ thường trú",
+        "help": "Kích thước resident set của tiến trình gateway."
+      },
+      "nanoinfra_event_loop_lag_ms": {
+        "label": "Độ trễ event loop",
+        "help": "Vòng lặp asyncio đang chạy trễ bao nhiêu. Số tăng lên là vòng lặp bị nghẽn."
       }
     },
     "calls": {
@@ -2185,6 +2194,26 @@
     "sources": {
       "title": "Theo nguồn, {{count}} ngày qua",
       "calls": "{{count}} lượt gọi"
+    },
+    "approvals": {
+      "unavailable": "Gateway này không đọc được log kiểm toán của cổng kiểm soát. Cổng có thể vẫn đang áp dụng mọi quyết định, nên hãy đọc đây là một khung hiển thị bị thiếu, không phải một khoảng thời gian không ai phê duyệt gì.",
+      "asked": "Bị giữ để chờ người",
+      "answered": "Đã trả lời",
+      "refused": "Bị người từ chối",
+      "expired": "Hết hạn",
+      "median": "Trung vị thời gian trả lời",
+      "expiredNote": "{{count}} đã hết hạn. Một phê duyệt hết hạn là một hành động chưa từng chạy và một người chưa từng thấy yêu cầu.",
+      "unansweredNote": "{{count}} bị giữ mà không được trả lời cũng không hết hạn — một phê duyệt bị lọt qua.",
+      "noAnswers": "Không ai trả lời phê duyệt nào trong khoảng này, nên không có tỷ lệ từ chối để đọc.",
+      "refusalShare": "{{percent}}% câu trả lời là từ chối. Một người phê duyệt không từ chối gì thì hoặc chỉ đang kiểm soát những thứ an toàn, hoặc không đọc yêu cầu.",
+      "policyRefusals": "{{count}} hành động khác bị chính sách từ chối mà không hỏi ai. Chúng không được tính ở trên, vì không ai nhìn thấy.",
+      "samePath": "{{count}} câu trả lời đến trên cùng kênh đã hỏi. Khi đó một tài khoản bị xâm nhập giữ cả hai nửa.",
+      "anchored": "Tính theo lúc cổng giữ hành động, không phải lúc được trả lời — nên một phê duyệt phát sinh trong khoảng này và được trả lời sau vẫn tính ở đây. Nhanh nhất {{fastest}}, chậm nhất {{slowest}}."
+    },
+    "scale": {
+      "mcp": "MCP",
+      "connectors": "trình kết nối",
+      "unavailable": "Dấu gạch ngang là số không đọc được, không phải số không."
     }
   }
 }

@@ -5,9 +5,14 @@
  * deployment is *configured* and none of these numbers are settings. Three tabs, one per surface,
  * and the reason there are three is that they answer three different questions:
  *
- * | Usage | what this cost, per model and per day |
- * | Live  | is it healthy, right now |
- * | Calls | what did it actually do |
+ * | Usage     | what this cost, per model and per day |
+ * | Live      | is it healthy, right now |
+ * | Calls     | what did it actually do |
+ * | Approvals | is the gate working, or is somebody rubber-stamping |
+ *
+ * `Approvals` carries its own window control rather than sharing Usage's: it reads the gate audit
+ * log, whose retention is not `llm_calls`', and one range over two retentions would mean two
+ * different things in the same click.
  *
  * The strip is the shared `TabStrip`, the same one the agent editor uses. Not the segmented
  * control with counts that Automations uses to filter one list — these are surfaces, and "Usage"
@@ -16,6 +21,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { MetricsApprovals } from "@/components/metrics/MetricsApprovals";
 import { MetricsCalls } from "@/components/metrics/MetricsCalls";
 import { MetricsLive } from "@/components/metrics/MetricsLive";
 import { MetricsUsage } from "@/components/metrics/MetricsUsage";
@@ -23,7 +29,7 @@ import { TabStrip } from "@/components/ui/tab-strip";
 import type { SettingsPayload } from "@/lib/types";
 import { useClient } from "@/providers/ClientProvider";
 
-const TABS = ["usage", "live", "calls"] as const;
+const TABS = ["usage", "live", "calls", "approvals"] as const;
 export type MetricsTab = (typeof TABS)[number];
 
 export function MetricsView({
@@ -53,6 +59,7 @@ export function MetricsView({
     usage: tx("metrics.tabs.usage", "Usage"),
     live: tx("metrics.tabs.live", "Live"),
     calls: tx("metrics.tabs.calls", "Calls"),
+    approvals: tx("metrics.tabs.approvals", "Approvals"),
   };
 
   return (
@@ -99,6 +106,7 @@ export function MetricsView({
             />
           )
           : null}
+        {tab === "approvals" ? <MetricsApprovals token={token} base={base} /> : null}
       </div>
     </div>
   );

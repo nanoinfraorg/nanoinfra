@@ -2065,7 +2065,8 @@
       "usage": "Penggunaan",
       "live": "Langsung",
       "calls": "Panggilan",
-      "aria": "Bagian metrik"
+      "aria": "Bagian metrik",
+      "approvals": "Persetujuan"
     },
     "window": {
       "label": "Rentang",
@@ -2139,6 +2140,14 @@
       "nanoinfra_context_tokens_limit": {
         "label": "Batas konteks",
         "help": "Jendela konteks dari preset yang aktif."
+      },
+      "nanoinfra_rss_bytes": {
+        "label": "Memori residen",
+        "help": "Ukuran resident set proses gateway."
+      },
+      "nanoinfra_event_loop_lag_ms": {
+        "label": "Keterlambatan event loop",
+        "help": "Seberapa jauh loop asyncio tertinggal. Angka yang naik berarti loop tersumbat."
       }
     },
     "calls": {
@@ -2185,6 +2194,26 @@
     "sources": {
       "title": "Per sumber, {{count}} hari terakhir",
       "calls": "{{count}} panggilan"
+    },
+    "approvals": {
+      "unavailable": "Gateway ini tidak dapat membaca log audit gate. Gate mungkin masih menerapkan setiap keputusan, jadi baca ini sebagai tampilan yang hilang dan bukan sebagai rentang di mana tidak ada yang menyetujui apa pun.",
+      "asked": "Ditahan untuk seseorang",
+      "answered": "Dijawab",
+      "refused": "Ditolak oleh orang",
+      "expired": "Kedaluwarsa",
+      "median": "Median jawaban",
+      "expiredNote": "{{count}} kedaluwarsa. Persetujuan yang kedaluwarsa adalah tindakan yang tidak pernah berjalan dan seseorang yang tidak pernah melihat permintaannya.",
+      "unansweredNote": "{{count}} ditahan tanpa dijawab dan tanpa kedaluwarsa — persetujuan yang lolos.",
+      "noAnswers": "Tidak ada yang menjawab persetujuan pada rentang ini, jadi tidak ada rasio penolakan untuk dibaca.",
+      "refusalShare": "{{percent}}% jawaban adalah penolakan. Penyetuju yang tidak menolak apa pun entah hanya menggerbangi hal yang aman, atau tidak membaca permintaannya.",
+      "policyRefusals": "{{count}} tindakan lain ditolak oleh kebijakan tanpa ada yang ditanya. Tidak dihitung di atas, karena tidak ada yang melihatnya.",
+      "samePath": "{{count}} jawaban datang di kanal yang sama dengan yang meminta. Satu akun yang disusupi lalu memegang kedua bagiannya.",
+      "anchored": "Dihitung dari kapan gate menahan tindakan, bukan kapan dijawab — jadi persetujuan yang muncul dalam rentang ini dan dijawab setelahnya tetap masuk di sini. Tercepat {{fastest}}, terlama {{slowest}}."
+    },
+    "scale": {
+      "mcp": "MCP",
+      "connectors": "konektor",
+      "unavailable": "Tanda hubung adalah jumlah yang tidak bisa dibaca, bukan jumlah nol."
     }
   }
 }
