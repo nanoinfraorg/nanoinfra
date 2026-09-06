@@ -2358,6 +2358,10 @@ class GatewayHTTPHandler:
             return self._handle_webui_skill_update(request)
         if got == "/api/webui/skills/delete":
             return self._handle_webui_skill_delete(connection, request)
+        if got == "/api/webui/metrics/live":
+            return self._handle_webui_metrics_live(request)
+        if got == "/api/webui/metrics/calls":
+            return self._handle_webui_metrics_calls(request)
         if got == "/api/webui/skills":
             return self._handle_webui_skills(request)
         m = re.match(r"^/api/webui/skills/([^/]+)$", got)
@@ -2444,6 +2448,52 @@ class GatewayHTTPHandler:
             self._log.exception("skills.sh trend history lookup failed")
             return _http_error(500, "skills.sh trend history lookup failed")
         return _http_json_response(payload)
+
+    def _handle_webui_metrics_live(self, request: WsRequest) -> Response:
+        """The gauges the Live tab reads (#235).
+
+        The same sampler `/metrics` uses, so the page and a Prometheus scrape cannot disagree.
+        Behind the API token like every other WebUI route -- the unauthenticated exposition lives
+        on the gateway's loopback listener, where the bind is the authentication.
+        """
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        from nanoinfra.llm_usage.gauges import active_gauge_sources, gauges_payload
+
+        sources = active_gauge_sources()
+        if sources is None:
+            # A surface that says "not wired here" beats one that renders seven blanks: this
+            # process may be `nanoinfra webui` rather than the gateway, and then none of these
+            # numbers exist to sample.
+            return _http_json_response({"gauges": [], "available": False})
+        return _http_json_response({**gauges_payload(sources), "available": True})
+
+    def _handle_webui_metrics_calls(self, request: WsRequest) -> Response:
+        """One page of `tool_calls` (#232, read at last).
+
+        Every filter is a bound parameter, because every one of them is a value a browser sent.
+        """
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        from nanoinfra.llm_usage import get_llm_usage_store
+
+        query = _parse_query(request.path)
+        raw_limit = _query_first(query, "limit") or ""
+        raw_before = _query_first(query, "before") or ""
+        try:
+            page = get_llm_usage_store().tool_call_page(
+                limit=int(raw_limit) if raw_limit.isdigit() else 100,
+                before_id=int(raw_before) if raw_before.isdigit() else None,
+                tool=_query_first(query, "tool") or None,
+                outcome=_query_first(query, "outcome") or None,
+                gate_decision=_query_first(query, "decision") or None,
+                session_key=_query_first(query, "session") or None,
+                turn_id=_query_first(query, "turn") or None,
+            )
+        except Exception:
+            self._log.exception("tool call page failed")
+            return _http_error(500, "could not read the tool call log")
+        return _http_json_response(page)
 
     async def _handle_webui_skill_install(
         self,

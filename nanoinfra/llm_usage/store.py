@@ -118,12 +118,23 @@ _USAGE_COLUMNS = (
     "measured_completion_tokens",
     "ttft_ms",
     "timed_requests",
+    # Wall clock, which `generation_ms` is not: the time a call occupied, including the wait
+    # before the first token. Stored on every row since the table existed and aggregated by
+    # nothing until now, so "how long do calls take" had no answer while the data was there.
+    "duration_ms",
 )
 _REQUEST_COLUMNS = (
     "requests",
     "failed_requests",
     "provider_requests",
     "estimated_requests",
+    # A `length` finish is a **truncated answer**, and it read as a success: `failed_requests`
+    # counts only `error` and `cancelled`. An answer the model was cut off mid-sentence is not a
+    # success, and a deployment hitting its `maxTokens` sees nothing today.
+    "truncated_requests",
+    # `ttft_ms` only means something for a streamed call. Without this the average is computed
+    # over a denominator the reader cannot see.
+    "streamed_requests",
 )
 
 # One expression list, used for the day rows, the per-source rows and the per-model rows, so the
@@ -147,7 +158,10 @@ _AGGREGATE_SQL = """
     COALESCE(SUM(CASE WHEN reported_tokens > 0 THEN 1 ELSE 0 END), 0) AS provider_requests,
     COALESCE(SUM(
         CASE WHEN estimated_tokens > 0 AND reported_tokens = 0 THEN 1 ELSE 0 END
-    ), 0) AS estimated_requests
+    ), 0) AS estimated_requests,
+    COALESCE(SUM(duration_ms), 0) AS duration_ms,
+    COALESCE(SUM(CASE WHEN finish_reason = 'length' THEN 1 ELSE 0 END), 0) AS truncated_requests,
+    COALESCE(SUM(CASE WHEN stream != 0 THEN 1 ELSE 0 END), 0) AS streamed_requests
 """
 
 
@@ -585,6 +599,7 @@ class LLMUsageStore:
         self,
         *,
         days: int = 371,
+        window_days: int = 30,
         timezone_name: str | None = None,
         now: datetime | None = None,
     ) -> dict[str, Any]:
@@ -593,6 +608,10 @@ class LLMUsageStore:
         Day boundaries are local, because a heatmap of days is read by somebody in a timezone.
         """
         zone = _zone(timezone_name)
+        # The window the per-model and per-failure breakdowns cover. Thirty days was hard-coded in
+        # three places and the store keeps four hundred, so a reader could not ask a question the
+        # data already answered.
+        window = max(1, min(int(window_days), MAX_DAYS_RETAINED))
         today = (now or datetime.now(tz=zone)).astimezone(zone).date()
         connection = self._read_connection()
         try:
@@ -600,7 +619,9 @@ class LLMUsageStore:
             all_rows = self._daily_rows(
                 connection, zone=zone, days=MAX_DAYS_RETAINED, today=today
             )
-            providers = self._provider_rows(connection, zone=zone, days=30, today=today)
+            providers = self._provider_rows(connection, zone=zone, days=window, today=today)
+            sources = self._source_rows(connection, zone=zone, days=window, today=today)
+            failures = self._failure_rows(connection, zone=zone, days=window, today=today)
         finally:
             connection.close()
 
@@ -647,6 +668,13 @@ class LLMUsageStore:
             # What a day row could not answer, which is the reason this store exists.
             "failed_requests_30d": totals_30["failed_requests"],
             "providers_30d": providers,
+            # What started the turns, over the window. `source` was stored per day and read
+            # only inside a heatmap cell's tooltip, so "what does automation cost me" -- the
+            # question the column exists for -- had no surface that answered it.
+            "sources_window": sources,
+            # Why the failures failed, and over which window. Both were stored and unread.
+            "failures": failures,
+            "window_days": window,
             "updated_at": latest,
         }
 
@@ -716,6 +744,203 @@ class LLMUsageStore:
         ).fetchall()
         return [
             {"provider": str(row["provider"]), "model": str(row["model"]), **_row_ints(row)}
+            for row in rows
+        ]
+
+    def _source_rows(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        zone: timezone | ZoneInfo,
+        days: int,
+        today: date,
+    ) -> list[dict[str, Any]]:
+        """What started the turns, over the window (#235).
+
+        `source` has been recorded per call since the store existed and aggregated per day, and the
+        only place it reached was a tooltip inside one heatmap cell. Asking "what did automation
+        cost me this month" therefore meant reading 30 tooltips and adding them up.
+
+        Grouped in SQL rather than summed from the day rows in the browser, for the same reason
+        every other breakdown here is: the day rows a page holds cover a year, and slicing them to
+        the window client-side would answer a different question than the table beside it.
+        """
+        start_ms = self._midnight_ms(today - timedelta(days=days - 1), zone)
+        rows = connection.execute(
+            f"""
+            SELECT source, {_AGGREGATE_SQL}
+            FROM llm_calls
+            WHERE started_at_ms >= ?
+            GROUP BY source
+            ORDER BY total_tokens DESC
+            """,
+            (start_ms,),
+        ).fetchall()
+        return [{"source": str(row["source"] or "system"), **_row_ints(row)} for row in rows]
+
+    def tool_call_page(
+        self,
+        *,
+        limit: int = 100,
+        before_id: int | None = None,
+        tool: str | None = None,
+        outcome: str | None = None,
+        gate_decision: str | None = None,
+        session_key: str | None = None,
+        turn_id: str | None = None,
+    ) -> dict[str, Any]:
+        """One page of what actually ran (#232, read at last).
+
+        The table has had `record_tool_call`, `record_tool_calls` and `_prune_tool_calls` since
+        2.0.0 and **no reader**: fourteen columns written and none surfaced. This is the reader.
+
+        Keyset pagination on `id` rather than `OFFSET`, because rows arrive while somebody is
+        paging and an offset silently skips or repeats them. `id` is monotonic per row and the
+        index on `ts_ms` orders by the same direction.
+
+        Filters are separate arguments rather than a where-clause string: every one of them is a
+        value a browser sent, and the only safe place for those is a bound parameter.
+
+        The arguments are **not** here, and that is the design (#232): the row carries the address
+        of the call -- `session_key`, `turn_id`, `seq` -- and the transcript carries what was said.
+        A table that duplicated the arguments would be a second transcript with a different
+        retention.
+        """
+        clauses: list[str] = []
+        params: list[Any] = []
+        if before_id is not None:
+            clauses.append("id < ?")
+            params.append(int(before_id))
+        for column, value in (
+            ("tool", tool),
+            ("outcome", outcome),
+            ("gate_decision", gate_decision),
+            ("session_key", session_key),
+            ("turn_id", turn_id),
+        ):
+            if value:
+                clauses.append(f"{column} = ?")
+                params.append(value)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        page = max(1, min(int(limit), 500))
+
+        connection = self._read_connection()
+        try:
+            rows = connection.execute(
+                f"""
+                SELECT id, ts_ms, session_key, turn_id, seq, tool, source, actor,
+                       capability_class, gate_decision, gate_reason, outcome, duration_ms,
+                       error_kind
+                FROM tool_calls
+                {where}
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (*params, page + 1),
+            ).fetchall()
+            facets = connection.execute(
+                """
+                SELECT tool, outcome, COALESCE(gate_decision, '') AS gate_decision, COUNT(*) AS n
+                FROM tool_calls
+                GROUP BY tool, outcome, gate_decision
+                ORDER BY n DESC
+                LIMIT 200
+                """
+            ).fetchall()
+            purge = connection.execute(
+                """
+                SELECT ts_ms, rows_purged, cutoff_ms
+                FROM tool_call_purges
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        finally:
+            connection.close()
+
+        has_more = len(rows) > page
+        visible = rows[:page]
+        return {
+            "calls": [
+                {
+                    "id": int(row["id"]),
+                    "ts_ms": int(row["ts_ms"]),
+                    "session_key": row["session_key"],
+                    "turn_id": row["turn_id"],
+                    "seq": row["seq"],
+                    "tool": str(row["tool"]),
+                    "source": str(row["source"]),
+                    "actor": row["actor"],
+                    "capability_class": row["capability_class"],
+                    "gate_decision": row["gate_decision"],
+                    "gate_reason": row["gate_reason"],
+                    "outcome": str(row["outcome"]),
+                    "duration_ms": int(row["duration_ms"]),
+                    "error_kind": row["error_kind"],
+                }
+                for row in visible
+            ],
+            "has_more": has_more,
+            "next_before_id": int(visible[-1]["id"]) if visible and has_more else None,
+            # What a filter may offer, so the UI cannot invent a value the table does not hold.
+            "tools": sorted({str(row["tool"]) for row in facets}),
+            "outcomes": sorted({str(row["outcome"]) for row in facets}),
+            "gate_decisions": sorted(
+                {str(row["gate_decision"]) for row in facets if row["gate_decision"]}
+            ),
+            # Written by the pruner and read by nobody until now. Without it a reader cannot tell
+            # an empty window from a purged one, which is what #234 made countable.
+            "retention_days": MAX_TOOL_CALL_DAYS_RETAINED,
+            "last_purge": None
+            if purge is None
+            else {
+                "ts_ms": int(purge["ts_ms"]),
+                "rows_purged": int(purge["rows_purged"]),
+                "cutoff_ms": int(purge["cutoff_ms"]),
+            },
+        }
+
+    def _failure_rows(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        zone: timezone | ZoneInfo,
+        days: int,
+        today: date,
+    ) -> list[dict[str, Any]]:
+        """Why the failed calls failed, which the counts alone never said.
+
+        `failed_requests` answers *how many* and the page showed "16 failed (4%)" with no way to
+        learn whether that was one provider rate-limiting or a credential that expired. Both
+        columns have been on every row since the table existed and neither reached a reader.
+
+        Its own query rather than a column in `_AGGREGATE_SQL`, because `error_kind` is a grouping
+        dimension: one row per kind, not one number per day.
+        """
+        start_ms = self._midnight_ms(today - timedelta(days=days - 1), zone)
+        rows = connection.execute(
+            """
+            SELECT
+                COALESCE(error_kind, '') AS error_kind,
+                COALESCE(error_status_code, 0) AS status_code,
+                provider,
+                COUNT(*) AS requests
+            FROM llm_calls
+            WHERE started_at_ms >= ?
+              AND finish_reason IN ('error', 'cancelled')
+            GROUP BY error_kind, status_code, provider
+            ORDER BY requests DESC
+            LIMIT 24
+            """,
+            (start_ms,),
+        ).fetchall()
+        return [
+            {
+                "error_kind": str(row["error_kind"]),
+                "status_code": int(row["status_code"]),
+                "provider": str(row["provider"]),
+                "requests": int(row["requests"]),
+            }
             for row in rows
         ]
 

@@ -105,6 +105,9 @@ def empty_usage_payload() -> dict[str, Any]:
         "requests_30d": 0,
         "failed_requests_30d": 0,
         "providers_30d": [],
+        "sources_window": [],
+        "failures": [],
+        "window_days": 30,
         "updated_at": None,
     }
 
@@ -112,10 +115,13 @@ def empty_usage_payload() -> dict[str, Any]:
 def llm_usage_payload(
     *,
     days: int = 371,
+    window_days: int = 30,
     timezone_name: str | None = None,
 ) -> dict[str, Any]:
     try:
-        return get_llm_usage_store().usage_payload(days=days, timezone_name=timezone_name)
+        return get_llm_usage_store().usage_payload(
+            days=days, window_days=window_days, timezone_name=timezone_name
+        )
     except Exception:
         logger.exception("failed to query LLM usage")
         return empty_usage_payload()

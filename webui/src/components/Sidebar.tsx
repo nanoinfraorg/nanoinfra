@@ -12,6 +12,7 @@ import {
   CalendarClock,
   ChevronDown,
   FolderTree,
+  Gauge,
   KeyRound,
   Menu,
   Network,
@@ -63,6 +64,7 @@ interface SidebarProps {
   onOpenSecrets: () => void;
   onOpenApprovals: () => void;
   onOpenAgents: () => void;
+  onOpenMetrics: () => void;
   /** How many actions wait for a human answer (nanoinfraorg/nanoinfra#27). */
   approvalsCount?: number;
   /**
@@ -89,6 +91,7 @@ interface SidebarProps {
     | "servers"
     | "secrets"
     | "approvals"
+    | "metrics"
     | null;
   onToggleArchived: () => void;
   onCollapse: () => void;
@@ -321,6 +324,19 @@ export function Sidebar(props: SidebarProps) {
               )
               : undefined
           }
+        />
+        {/*
+          * Metrics (#235). Top level, and deliberately not under `Infrastructure`: that heading
+          * groups what this deployment *manages*, and these three tabs are about the deployment
+          * itself -- what it spent, how it is running, what it did.
+          */}
+        <SidebarActionButton
+          collapsed={collapsed}
+          label={t("sidebar.metrics", { defaultValue: "Metrics" })}
+          onClick={props.onOpenMetrics}
+          active={props.activeUtility === "metrics"}
+          selectionRef={activeActionRef}
+          icon={<Gauge className="h-4 w-4" />}
         />
         {/*
           * `Abilities`, always -- the roster no longer decides the shape of this rail.

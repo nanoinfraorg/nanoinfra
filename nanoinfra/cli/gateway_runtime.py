@@ -1,6 +1,7 @@
 """Foreground gateway runtime and lifecycle helpers."""
 
 import asyncio
+import hmac
 import os
 import signal
 import time
@@ -799,6 +800,42 @@ _GATEWAY_HEALTH_MAX_CONNECTIONS = 64
 _GATEWAY_HEALTH_READ_TIMEOUT_SECONDS = 2.0
 
 
+def _presented_bearer_token(raw: bytes) -> str:
+    """The bearer credential a request presented, or `""` when it presented none.
+
+    Parsed from the raw bytes rather than through an HTTP library because this listener is 60
+    lines of `asyncio.start_server` and answering two paths: pulling in a framework to read one
+    header would be a larger change than the feature.
+    """
+    for line in raw.split(b"\r\n")[1:]:
+        if not line:
+            break  # end of headers
+        name, _, value = line.partition(b":")
+        if name.strip().lower() != b"authorization":
+            continue
+        scheme, _, rest = value.strip().decode("utf-8", errors="replace").partition(" ")
+        return rest.strip() if scheme.lower() == "bearer" else ""
+    return ""
+
+
+def _metrics_scrape_allowed(*, host: str, expected: str, presented: str) -> bool:
+    """Whether a `/metrics` scrape may be answered (#235).
+
+    Two rules, and the second is the one that matters:
+
+    * A configured token must match, compared in constant time.
+    * **With no token, only a loopback bind is served.** "The bind is the authentication" is the
+      Prometheus convention and it is true exactly while the bind is local. It is not true here:
+      the demo sets `gateway.host` to `0.0.0.0` so a reverse proxy can front the port, and an
+      unauthenticated `/metrics` there publishes model names, spend volumes and queue depths to
+      anyone who reaches it. So a routable bind with no token fails closed rather than exporting
+      the deployment's telemetry because somebody flipped one boolean.
+    """
+    if expected:
+        return hmac.compare_digest(expected, presented)
+    return is_loopback_host(host)
+
+
 def _print_gateway_health_endpoint(host: str, port: int) -> None:
     """Print a usable health URL and make non-loopback binds explicit."""
     console.print(
@@ -812,6 +849,34 @@ def _print_gateway_health_endpoint(host: str, port: int) -> None:
         "[yellow]Warning: the unauthenticated health endpoint is listening beyond loopback "
         "and may be reachable from other devices. "
         f"Keep port {port} private or protect it with a firewall or reverse proxy.[/yellow]"
+    )
+
+
+def _print_metrics_endpoint(host: str, port: int, *, enabled: bool, tokened: bool) -> None:
+    """Say what `/metrics` is doing, including when it refuses (#235).
+
+    The refusing case is the one worth printing. An operator who set `metricsEnabled` on a
+    container that binds `0.0.0.0` gets a 404 from every scrape, and without this line the only
+    way to find out why is to read the source.
+    """
+    if not enabled:
+        return
+    if tokened:
+        console.print(
+            f"[green]✓[/green] Metrics endpoint: http://{host}:{port}/metrics "
+            "[dim](bearer token required)[/dim]"
+        )
+        return
+    if is_loopback_host(host):
+        console.print(
+            f"[green]✓[/green] Metrics endpoint: http://{host}:{port}/metrics "
+            "[dim](loopback bind, no token)[/dim]"
+        )
+        return
+    console.print(
+        "[yellow]Warning: metrics are enabled but this port is not a loopback bind and "
+        "gateway.metricsToken is unset, so /metrics will answer 404. Set a token to scrape it "
+        "from another host.[/yellow]"
     )
 
 
@@ -1390,6 +1455,63 @@ def _run_gateway(
         finally:
             await runner.cleanup()
 
+    def _gauge_sources() -> "Any":
+        """What `/metrics` and the Live panel both sample (#235).
+
+        Closures over the objects this function already built, rather than a registry somebody has
+        to remember to populate: every number here is state the gateway holds, and a gauge whose
+        source is registered elsewhere is a gauge that reads `None` on the day the registration is
+        forgotten.
+
+        `websocket` is looked up per sample rather than captured, because a channel that is not
+        enabled has no socket count and that is a `None` rather than a zero.
+        """
+        from nanoinfra.llm_usage.gauges import GaugeSources
+
+        def _ws_connections() -> int | None:
+            channel = channels.get_channel("websocket")
+            connections = getattr(channel, "_webui_connections", None)
+            return None if connections is None else len(connections)
+
+        def _context_used() -> int | None:
+            """Tokens in the last turn's prompt, from the loop's own record of it.
+
+            `_last_usage` is an `LLMUsage`, and `context_tokens` on it is `None` for a provider
+            that reported no context figure -- which is why this gauge reads `None` rather than
+            zero there. It is deliberately loop-global and therefore whichever session answered
+            most recently: a per-session number is not a gauge, it is a series, and a label per
+            session is how a Prometheus install falls over (the Calls tab answers per-session
+            questions instead).
+            """
+            usage = cast("Any", getattr(agent, "_last_usage", None))
+            if usage is None:
+                return None
+            value = cast(object, getattr(usage, "context_tokens", None))
+            return int(value) if isinstance(value, (int, float)) else None
+
+        return GaugeSources(
+            ws_connections=_ws_connections,
+            active_sessions=lambda: len(session_manager.list_sessions()),
+            pending_approvals=lambda: approval_delivery.pending_count,
+            inbound_queue_depth=lambda: bus.inbound.qsize(),
+            outbound_queue_depth=lambda: bus.outbound.qsize(),
+            context_tokens_used=_context_used,
+            context_tokens_limit=lambda: config.resolve_preset().context_window_tokens,
+        )
+
+    def _publish_gauge_sources() -> None:
+        """Publish the sampler for this process, so the Live tab and `/metrics` read one source.
+
+        Through a module-level holder rather than an attribute on the WebUI surface, because that
+        surface is a **frozen** dataclass -- and it should be: the objects a gauge reads are built
+        in an order it knows nothing about. Every value inside the container resolves at *sample*
+        time, so publishing it before the channels start is safe, and publishing it later would
+        leave the Live tab blank until something else happened.
+        """
+        from nanoinfra.llm_usage.gauges import set_active_gauge_sources
+
+        set_active_gauge_sources(_gauge_sources())
+
     async def _health_server(host: str, health_port: int) -> None:
         """Lightweight HTTP health endpoint on the gateway port."""
         import json as _json
@@ -1422,6 +1544,43 @@ def _run_gateway(
                         body = _json.dumps({"status": "ok"})
                         status = "200 OK"
                         content_type = "application/json"
+                    elif method == "GET" and path == "/metrics":
+                        # Prometheus text format, on this listener rather than the WebUI's.
+                        #
+                        # Here because this server binds `127.0.0.1` by default and the WebUI's
+                        # does not: serving `/metrics` on the WebUI's port would publish usage
+                        # volumes and model names to anyone reaching the one TCP listener the
+                        # whole process tree has. Off by default, so no deployment gains a scrape
+                        # surface by upgrading.
+                        #
+                        # Three answers, and the distinction is deliberate. Disabled is 404: there
+                        # is no endpoint. A wrong token is **401**, so an operator with a typo in
+                        # their Prometheus config sees a credential failure instead of chasing a
+                        # phantom path. A routable bind with no token configured is 404 as well --
+                        # that is a misconfiguration, not a credential failure, and it is warned
+                        # about at startup where a log line is read rather than on every scrape.
+                        if not config.gateway.metrics_enabled:
+                            body = "Not Found"
+                            status = "404 Not Found"
+                            content_type = "text/plain"
+                        elif not _metrics_scrape_allowed(
+                            host=host,
+                            expected=config.gateway.metrics_token,
+                            presented=_presented_bearer_token(data),
+                        ):
+                            if config.gateway.metrics_token:
+                                body = "Unauthorized"
+                                status = "401 Unauthorized"
+                            else:
+                                body = "Not Found"
+                                status = "404 Not Found"
+                            content_type = "text/plain"
+                        else:
+                            from nanoinfra.llm_usage.gauges import prometheus_exposition
+
+                            body = prometheus_exposition(_gauge_sources())
+                            status = "200 OK"
+                            content_type = "text/plain; version=0.0.4; charset=utf-8"
                     else:
                         body = "Not Found"
                         status = "404 Not Found"
@@ -1443,6 +1602,12 @@ def _run_gateway(
 
         server = await asyncio.start_server(handle, host, health_port)
         _print_gateway_health_endpoint(host, health_port)
+        _print_metrics_endpoint(
+            host,
+            health_port,
+            enabled=config.gateway.metrics_enabled,
+            tokened=bool(config.gateway.metrics_token),
+        )
         async with server:
             await server.serve_forever()
     # Register Dream system job (idempotent on restart)
@@ -1527,6 +1692,9 @@ def _run_gateway(
             console.print(f"[yellow]Could not open browser ({e}); visit {open_browser_url}[/yellow]")
 
     async def run() -> None:
+        # The Live tab and `/metrics` sample one container from here on (#235). Safe this early
+        # because every value inside it is resolved when a gauge is read, not when it is built.
+        _publish_gauge_sources()
         tasks: list[asyncio.Task[Any]] = []
         shutdown_task: asyncio.Task[Any] | None = None
         runtime_tasks: asyncio.Future[list[Any]] | None = None

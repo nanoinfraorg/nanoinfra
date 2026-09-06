@@ -546,7 +546,11 @@ class WebUISettingsRouter:
     def _handle_settings_usage(self, request: WsRequest) -> Response:
         if not self._authorized(request):
             return self._unauthorized()
-        return self._json_response(settings_usage_payload())
+        # `?window=<days>` picks what the per-model and per-failure breakdowns cover. The store
+        # clamps it to what it actually retains, so a client cannot ask for rows that were purged.
+        raw = _query_first(self._query(request), "window") or ""
+        window = int(raw) if raw.isdigit() and raw != "0" else 30
+        return self._json_response(settings_usage_payload(window_days=window))
 
     def _handle_settings_pairing(self, request: WsRequest) -> Response:
         if not self._authorized(request):

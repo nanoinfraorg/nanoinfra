@@ -49,6 +49,7 @@ const NAV_LABELS = [
   "Abilities",
   "Automations",
   "Approvals",
+  "Metrics",
   "Workspaces",
   "Infrastructure",
   "Diagrams",
@@ -87,6 +88,7 @@ function renderSidebar(over: Record<string, unknown> = {}) {
         onOpenSecrets={noop}
         onOpenApprovals={noop}
         onOpenAgents={noop}
+        onOpenMetrics={noop}
         onOpenSearch={noop}
         onToggleArchived={noop}
         onCollapse={noop}
@@ -127,6 +129,7 @@ describe("the rail, in one shape whatever the roster holds", () => {
       "Agents",
       "Automations",
       "Approvals",
+      "Metrics",
       "Abilities",
       "Apps",
       "Skills",
@@ -197,6 +200,19 @@ describe("the rail, in one shape whatever the roster holds", () => {
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
 
     expect(onOpenAgents).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes the Metrics row to its own destination, not under Infrastructure", () => {
+    // Metrics (#235) sits at the top level on purpose. `Infrastructure` groups what this
+    // deployment *manages*; these numbers are about the deployment itself.
+    const onOpenMetrics = vi.fn();
+    renderSidebar({ onOpenMetrics });
+
+    fireEvent.click(screen.getByRole("button", { name: "Metrics" }));
+
+    expect(onOpenMetrics).toHaveBeenCalledTimes(1);
+    const rail = destinations();
+    expect(rail.indexOf("Metrics")).toBeLessThan(rail.indexOf("Infrastructure"));
   });
 
   it("keeps both destinations reachable in the collapsed rail, without a heading", () => {

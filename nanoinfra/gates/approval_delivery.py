@@ -204,6 +204,8 @@ class ApprovalDeliveryWatcher:
         self._interval_s = interval_s
         self._delivered: set[tuple[str, str, str]] = set()
         self._warned_channels: set[str] = set()
+        #: `None` until the first poll answers: before that, nothing is known rather than zero.
+        self.pending_count: int | None = None
 
     async def run(self) -> None:
         """Poll until the task is cancelled.
@@ -231,6 +233,11 @@ class ApprovalDeliveryWatcher:
             views = await asyncio.to_thread(self._client.pending)
         except OperatorUnavailableError as exc:
             logger.debug("gates: the approval delivery watcher could not read pending: {}", exc)
+            # `None` rather than 0: "the executor did not answer" and "nothing is pending" are
+            # different facts, and the Live gauge that reads this must not render them the same
+            # (#235). A dashboard showing a confident zero while the executor is down is a
+            # dashboard that lies on the one day it matters.
+            self.pending_count = None
             return 0
 
         self._forget_answered(views)
@@ -325,6 +332,11 @@ class ApprovalDeliveryWatcher:
         """
         live = {view["request_id"] for view in views}
         self._delivered = {key for key in self._delivered if key[0] in live}
+        # Read by the `Live` gauge and by `/metrics` (#235). Kept here rather than sampled on
+        # demand because reading it costs a socket round trip to the executor, and a metrics
+        # scrape must not be able to add load to the gate. This watcher already polls every three
+        # seconds, so the number is never more stale than that.
+        self.pending_count = len(live)
 
     def _warn_absent_channel(self, channel: str) -> None:
         """Say once that an approver sits on a channel this gateway does not run."""

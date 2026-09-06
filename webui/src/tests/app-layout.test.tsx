@@ -499,6 +499,38 @@ describe("App layout", () => {
     expect(window.location.hash).toBe("#/approvals");
   });
 
+  it("opens Metrics from the sidebar, and the route is deep-linkable", async () => {
+    // nanoinfraorg/nanoinfra#235. Its own destination rather than a section of Settings, because
+    // none of the three tabs is a setting.
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/webui/metrics/live": { gauges: [], available: false },
+      "/api/webui/metrics/calls": {
+        calls: [],
+        has_more: false,
+        next_before_id: null,
+        tools: [],
+        outcomes: [],
+        gate_decisions: [],
+        retention_days: 180,
+        last_purge: null,
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    fireEvent.click(await screen.findByRole("button", { name: "Metrics" }));
+
+    await waitFor(() => expect(window.location.hash).toBe("#/metrics"));
+    expect(document.title).toBe("Metrics · nanoinfra");
+    expect(await screen.findByTestId("metrics-view")).toBeInTheDocument();
+    // Three tabs, and Usage is the one that opens.
+    expect(screen.getByRole("tab", { name: "Usage" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Live" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Calls" })).toBeInTheDocument();
+  });
+
   it("opens the Agents area from the sidebar, and the route is deep-linkable", async () => {
     // nanoinfraorg/nanoinfra#253. The destination exists only for a deployment that names agents,
     // so the payload has to name one before the row is there to click.

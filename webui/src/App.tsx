@@ -104,7 +104,10 @@ type ShellView =
   | "workspace"
   | "servers"
   | "secrets"
-  | "approvals";
+  | "approvals"
+  // Metrics (#235): three tabs of read-only numbers, and none of them a setting -- which is
+  // why it is a destination and not a settings section.
+  | "metrics";
 type ShellRoute = {
   view: ShellView;
   activeKey: string | null;
@@ -147,6 +150,10 @@ const SecretsView = lazy(async () => {
 const ApprovalsView = lazy(async () => {
   const module = await import("@/components/approvals/ApprovalsView");
   return { default: module.ApprovalsView };
+});
+const MetricsView = lazy(async () => {
+  const module = await import("@/components/metrics/MetricsView");
+  return { default: module.MetricsView };
 });
 const SessionSearchDialog = lazy(async () => {
   const module = await import("@/components/SessionSearchDialog");
@@ -306,6 +313,9 @@ function readShellRoute(): ShellRoute {
   }
   if (path === "/approvals") {
     return { view: "approvals", activeKey, settingsSection: "overview" };
+  }
+  if (path === "/metrics") {
+    return { view: "metrics", activeKey, settingsSection: "overview" };
   }
   if (path.startsWith("/chat/")) {
     const encoded = path.slice("/chat/".length);
@@ -1268,6 +1278,10 @@ function Shell({
     return sessions.find((s) => s.key === activeKey) ?? null;
   }, [sessions, activeKey]);
   const runningChatIdList = useMemo(() => Array.from(runningChatIds), [runningChatIds]);
+  // Which transcripts exist, for the surfaces that hold a session key rather than a session:
+  // a `tool_calls` row outlives the conversation it names, and the Calls tab must not offer
+  // to open one that is gone.
+  const sessionKeys = useMemo(() => sessions.map((session) => session.key), [sessions]);
   const updatedChatIdList = useMemo(() => Array.from(updatedChatIds), [updatedChatIds]);
   const activeChatId = activeSession?.chatId ?? null;
   useEffect(() => {
@@ -1859,6 +1873,12 @@ function Shell({
     setMobileSidebarOpen(false);
   }, [activeKey, navigate]);
 
+  const onOpenMetrics = useCallback(() => {
+    setSessionSearchOpen(false);
+    navigate({ view: "metrics", activeKey, settingsSection: "overview" });
+    setMobileSidebarOpen(false);
+  }, [activeKey, navigate]);
+
   const onOpenAgents = useCallback(() => {
     setSessionSearchOpen(false);
     navigate({ view: "agents", activeKey, settingsSection: "agents" });
@@ -2128,6 +2148,12 @@ function Shell({
       });
       return;
     }
+    if (view === "metrics") {
+      document.title = t("app.documentTitle.chat", {
+        title: t("sidebar.metrics", { defaultValue: "Metrics" }),
+      });
+      return;
+    }
     document.title = activeSession
       ? t("app.documentTitle.chat", { title: headerTitle })
       : t("app.documentTitle.base");
@@ -2158,6 +2184,7 @@ function Shell({
     onOpenSecrets,
     onOpenApprovals,
     onOpenAgents,
+    onOpenMetrics,
     // The roster the sidebar decides with (#253). Zero named agents means the navigation is
     // exactly what it is today: no Agents destination, and no Abilities grouping either.
     approvalsCount: approvals.count,
@@ -2173,6 +2200,7 @@ function Shell({
       || view === "servers"
       || view === "secrets"
       || view === "approvals"
+      || view === "metrics"
         ? view
         : null,
     onToggleArchived,
@@ -2431,11 +2459,27 @@ function Shell({
                 </Suspense>
               </div>
             )}
+            {view === "metrics" && (
+              <div className="absolute inset-0 flex flex-col overflow-y-auto">
+                <Suspense fallback={<SurfaceLoadingFallback />}>
+                  <MetricsView
+                    settings={settingsSnapshot}
+                    onSettings={setSettingsSnapshot}
+                    onOpenSession={onSelectChat}
+                    // Which transcripts this shell can actually open. A call row may name a
+                    // session that has since been deleted, and a button that navigates
+                    // nowhere is worse than no button.
+                    knownSessions={sessionKeys}
+                  />
+                </Suspense>
+              </div>
+            )}
             {view !== "chat"
               && view !== "diagrams"
               && view !== "workspace"
               && view !== "servers"
               && view !== "secrets"
+              && view !== "metrics"
               && view !== "approvals" && (
               <div className="absolute inset-0 flex flex-col">
                 <Suspense fallback={<SurfaceLoadingFallback />}>
@@ -2458,6 +2502,7 @@ function Shell({
                     hostChromeInset={showHostChrome}
                     approvalsCount={approvals.count}
                     onOpenApprovals={onOpenApprovals}
+                    onOpenMetrics={onOpenMetrics}
                   />
                 </Suspense>
               </div>

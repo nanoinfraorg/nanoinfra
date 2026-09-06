@@ -30,7 +30,7 @@ import { useTranslation } from "react-i18next";
 import { ArrowLeft, Loader2, Save } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { TabStrip } from "@/components/ui/tab-strip";
 
 export interface AgentFrameTab {
   key: string;
@@ -142,29 +142,13 @@ export function AgentDetailFrame({
         )
         : null}
 
-      <div
-        className="flex flex-wrap items-center gap-x-5 border-b border-border/50 px-1"
-        role="tablist"
-        aria-label={t("agents.detail.tabs", { defaultValue: "Agent settings" })}
-      >
-        {tabs.map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            role="tab"
-            aria-selected={tab === item.key}
-            onClick={() => onTab(item.key)}
-            className={cn(
-              "-mb-px border-b-2 px-0.5 pb-2 pt-1 text-[13px] transition-colors",
-              tab === item.key
-                ? "border-foreground font-medium text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
+      {/* Extracted to `ui/tab-strip.tsx` when the Metrics destination needed the same strip. */}
+      <TabStrip
+        items={tabs}
+        value={tab}
+        onChange={onTab}
+        ariaLabel={t("agents.detail.tabs", { defaultValue: "Agent settings" })}
+      />
 
       <div className="rounded-[22px] bg-settings-surface px-4 py-4 sm:px-5">{children}</div>
     </section>
