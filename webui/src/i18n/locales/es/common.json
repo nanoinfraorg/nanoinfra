@@ -80,7 +80,8 @@
     "docs": "docs",
     "signOut": "Cerrar sesión",
     "agents": "Agentes",
-    "abilities": "Capacidades"
+    "abilities": "Capacidades",
+    "metrics": "Métricas"
   },
   "settings": {
     "backToChat": "Volver al chat",
@@ -372,6 +373,11 @@
           "answer": "Alguien tiene que responder",
           "empty": "Ninguna acción espera respuesta"
         }
+      },
+      "metrics": {
+        "spent": "{{count}} llamadas en los últimos {{days}} días",
+        "none": "Todavía no hay llamadas registradas",
+        "caption": "Gasto por modelo, indicadores en vivo y cada llamada a herramienta"
       }
     },
     "usage": {
@@ -417,7 +423,14 @@
       "profile": "Perfil",
       "extraHeaders": "Cabeceras adicionales",
       "extraBody": "Cuerpo adicional",
-      "extraQuery": "Parámetros de consulta adicionales"
+      "extraQuery": "Parámetros de consulta adicionales",
+      "pricing": "Precios por defecto de este proveedor",
+      "pricingHelp": "Aplica a cada modelo de este proveedor que no tenga tarifas propias. Las tarifas propias de un modelo siempre ganan.",
+      "pricingFree": "Todo en este proveedor es gratis",
+      "pricingFreeLocal": "Este proveedor corre localmente, así que normalmente es la respuesta correcta — y es una edición en lugar de una por modelo.",
+      "pricingFreeSummary": "Todos los modelos aquí son gratis",
+      "pricingNone": "Sin valor por defecto — cada modelo pone su precio",
+      "pricingSummary": "${{input}} entrada · ${{output}} salida · por Mtok"
     },
     "image": {
       "selectProvider": "Seleccionar proveedor",
@@ -486,7 +499,22 @@
       "loadFailed": "Lista de modelos no disponible.",
       "unsupportedModelList": "Escribe un ID de modelo manualmente.",
       "providerNotConfigured": "Configura este proveedor antes de cargar modelos.",
-      "autoProviderCustomOnly": "El modo de proveedor automático usa IDs de modelo personalizados."
+      "autoProviderCustomOnly": "El modo de proveedor automático usa IDs de modelo personalizados.",
+      "pricing": "Precios",
+      "pricingNone": "Sin precio — Uso muestra el costo de este modelo como “—”",
+      "pricingSummary": "{{input}} entrada · {{output}} salida · por millón de tokens",
+      "pricingFromProvider": "{{line}} — del valor por defecto del proveedor",
+      "rateInput": "Entrada",
+      "rateOutput": "Salida",
+      "rateCacheRead": "Lectura de caché",
+      "rateCacheWrite": "Escritura de caché",
+      "pricingHelp": "USD por millón de tokens. Copia los cuatro números de la lista de precios de tu proveedor; nanoinfra no trae ninguno, porque una tabla de tarifas incrustada en un producto está mal la semana siguiente.",
+      "pricingCacheWarning": "Este modelo leyó {{tokens}} tokens de caché en el periodo. Si dejas la lectura de caché en 0, la cifra de abajo los excluye.",
+      "pricingInherited": "Estas son las tarifas por defecto del proveedor. Guardarlas aquí las convierte en propias de este modelo, y el valor por defecto del proveedor deja de aplicarle.",
+      "pricingShared": "Estas tarifas aplican a {{key}}, así que también cubren {{others}}, que nombra el mismo modelo.",
+      "pricingNoUsage": "Todavía no hay llamadas registradas para este modelo, así que no hay contra qué comprobar las tarifas.",
+      "pricingPreview": "Últimos {{days}} días con estas tarifas: {{cost}}",
+      "pricingClear": "Borrar tarifas"
     },
     "timezone": {
       "select": "Seleccionar zona horaria",
@@ -2027,6 +2055,136 @@
       "skillsVsDisabled": "Distinto de las skills que este despliegue desactiva, en Ajustes → Skills. Esa lista quita una skill de todos los agentes; esta elige cuáles de las que quedan carga en pleno este agente.",
       "delegatesHelp": "Los agentes a los que este puede pasar trabajo. Aquí importa más: este es el agente con el que hablas, así que sin un par nombrado la única forma de llegar a uno es dejar de hablarle.",
       "delegatesEmpty": "Este despliegue todavía no nombra otro agente."
+    }
+  },
+  "metrics": {
+    "title": "Métricas",
+    "subtitle": "Lo que gastó este despliegue, cómo está funcionando y qué hizo en realidad.",
+    "refresh": "Actualizar",
+    "tabs": {
+      "usage": "Uso",
+      "live": "En vivo",
+      "calls": "Llamadas",
+      "aria": "Secciones de métricas"
+    },
+    "window": {
+      "label": "Periodo",
+      "days": "{{count}} d",
+      "loading": "Cargando…"
+    },
+    "cost": {
+      "label": "Gasto en este periodo",
+      "priced": "{{priced}} de {{total}} modelos con precio",
+      "unpriced": "Sin precios configurados",
+      "unpricedHelp": "Fija las tarifas en el modelo mismo, en Ajustes → Modelos → Precios — o una vez para un proveedor entero, que es la respuesta para uno local. Cuatro tarifas, porque una lectura de caché cuesta una fracción de un token nuevo y una sola tarifa sobre el total sobrefactura más de la mitad cuando la caché funciona."
+    },
+    "models": {
+      "title": "Por modelo, últimos {{count}} días",
+      "model": "Modelo",
+      "in": "Entrada",
+      "out": "Salida",
+      "cacheRead": "Lectura de caché",
+      "cacheWrite": "Escritura de caché",
+      "calls": "Llamadas",
+      "truncated": "Truncadas",
+      "ttft": "TTFT",
+      "wall": "Tiempo real",
+      "cost": "Costo",
+      "reported": "Reportado / estimado",
+      "reportedValue": "{{reported}} de {{total}} llamadas reportadas por el proveedor · {{tokens}} tokens contados localmente",
+      "reportedHint": "Una estimación es el tokenizador de nanoinfra, no una factura.",
+      "throughput": "Rendimiento",
+      "throughputValue": "{{rate}} tokens de salida/s",
+      "throughputHint": "Tokens de salida sobre el tiempo de generación, que no es el tiempo real.",
+      "measured": "Salida medida vs reportada",
+      "measuredHint": "La diferencia es de lo que aprende la calibración de tokens.",
+      "streamed": "En streaming / no",
+      "streamedHint": "El TTFT se promedia sobre {{count}} llamadas cronometradas; no significa nada para una llamada sin streaming.",
+      "costFromProvider": "De las tarifas por defecto del proveedor, no propias de este modelo"
+    },
+    "failures": {
+      "title": "Por qué fallaron las llamadas"
+    },
+    "live": {
+      "loading": "Muestreando…",
+      "unreachable": "No se pudieron leer los indicadores",
+      "notGateway": "Estos números viven en el proceso del gateway. Esta WebUI habla con uno que no ejecuta, así que aquí no hay nada que muestrear.",
+      "scrape": "Los mismos valores se sirven en formato de texto de Prometheus en /metrics, en el puerto propio del gateway, que escucha solo en loopback y está apagado salvo que se active gateway.metricsEnabled. Un guion significa que el valor no se pudo leer, que no es lo mismo que cero."
+    },
+    "gauge": {
+      "nanoinfra_pending_approvals": {
+        "label": "Aprobaciones pendientes",
+        "help": "Acciones suspendidas esperando que alguien responda."
+      },
+      "nanoinfra_ws_connections": {
+        "label": "Sockets de la WebUI",
+        "help": "Conexiones WebSocket abiertas desde la WebUI."
+      },
+      "nanoinfra_sessions_active": {
+        "label": "Sesiones activas",
+        "help": "Sesiones con historial registrado en este espacio de trabajo."
+      },
+      "nanoinfra_inbound_queue_depth": {
+        "label": "Cola de entrada",
+        "help": "Mensajes esperando al bucle del agente. Un número que sube es el agente quedándose atrás."
+      },
+      "nanoinfra_outbound_queue_depth": {
+        "label": "Cola de salida",
+        "help": "Respuestas esperando a un canal. Un número que sube es un canal que no se vacía."
+      },
+      "nanoinfra_context_tokens_used": {
+        "label": "Contexto usado",
+        "help": "Tokens del prompt del último turno."
+      },
+      "nanoinfra_context_tokens_limit": {
+        "label": "Límite de contexto",
+        "help": "La ventana de contexto del preset activo."
+      }
+    },
+    "calls": {
+      "filter": {
+        "tool": "Herramienta",
+        "outcome": "Resultado",
+        "decision": "Compuerta",
+        "any": "cualquiera",
+        "clearTurn": "Mostrando un turno — ver todos"
+      },
+      "column": {
+        "time": "Hora",
+        "tool": "Herramienta",
+        "source": "Origen",
+        "outcome": "Resultado",
+        "gate": "Compuerta",
+        "duration": "Duró"
+      },
+      "field": {
+        "time": "Hora",
+        "tool": "Herramienta",
+        "source": "Origen",
+        "outcome": "Resultado",
+        "errorKind": "Tipo de error",
+        "duration": "Duró",
+        "class": "Clase de capacidad",
+        "gate": "Decisión de la compuerta",
+        "gateReason": "Motivo de la compuerta",
+        "actor": "Actor",
+        "session": "Sesión",
+        "turn": "Turno",
+        "seq": "Secuencia"
+      },
+      "empty": "Ninguna llamada coincide con estos filtros. Las filas más viejas que la ventana de retención se purgan, así que una página vacía no siempre es una página inactiva.",
+      "unreachable": "No se pudo leer el registro de llamadas a herramientas. Las llamadas se siguen registrando, así que trata esto como una vista ausente y no como un registro vacío.",
+      "loadMore": "Cargar más",
+      "retention": "Las llamadas se guardan {{days}} días y luego se purgan.",
+      "lastPurge": "La última purga corrió el {{when}} y eliminó {{rows}} filas anteriores a {{cutoff}}.",
+      "noPurge": "Todavía no se ha purgado nada.",
+      "noArguments": "Lo que recibió la llamada no se registra aquí. Esta fila es la dirección de la llamada; la conversación guarda lo que se dijo.",
+      "sameTurn": "Todas las llamadas de este turno",
+      "openTranscript": "Abrir la conversación"
+    },
+    "sources": {
+      "title": "Por origen, últimos {{count}} días",
+      "calls": "{{count}} llamadas"
     }
   }
 }

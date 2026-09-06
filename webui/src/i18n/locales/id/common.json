@@ -80,7 +80,8 @@
     "docs": "dokumen",
     "signOut": "Keluar",
     "agents": "Agen",
-    "abilities": "Kemampuan"
+    "abilities": "Kemampuan",
+    "metrics": "Metrik"
   },
   "settings": {
     "backToChat": "Kembali ke chat",
@@ -372,6 +373,11 @@
           "answer": "Seseorang harus menjawab",
           "empty": "Tidak ada tindakan yang menunggu jawaban"
         }
+      },
+      "metrics": {
+        "spent": "{{count}} panggilan dalam {{days}} hari terakhir",
+        "none": "Belum ada panggilan yang tercatat",
+        "caption": "Biaya per model, pengukur langsung, dan setiap panggilan alat"
       }
     },
     "usage": {
@@ -417,7 +423,14 @@
       "profile": "Profil",
       "extraHeaders": "Header tambahan",
       "extraBody": "Body tambahan",
-      "extraQuery": "Parameter kueri tambahan"
+      "extraQuery": "Parameter kueri tambahan",
+      "pricing": "Harga default untuk penyedia ini",
+      "pricingHelp": "Berlaku untuk setiap model pada penyedia ini yang tidak punya tarif sendiri. Tarif milik model selalu menang.",
+      "pricingFree": "Semua di penyedia ini gratis",
+      "pricingFreeLocal": "Penyedia ini berjalan lokal, jadi biasanya ini jawaban yang benar — dan cukup satu kali edit, bukan satu per model.",
+      "pricingFreeSummary": "Semua model di sini gratis",
+      "pricingNone": "Tidak ada default — setiap model menentukan harganya",
+      "pricingSummary": "${{input}} masuk · ${{output}} keluar · per Mtok"
     },
     "image": {
       "selectProvider": "Pilih penyedia",
@@ -486,7 +499,22 @@
       "loadFailed": "Daftar model tidak tersedia.",
       "unsupportedModelList": "Ketik ID model secara manual.",
       "providerNotConfigured": "Konfigurasikan penyedia ini sebelum memuat model.",
-      "autoProviderCustomOnly": "Mode penyedia otomatis memakai ID model kustom."
+      "autoProviderCustomOnly": "Mode penyedia otomatis memakai ID model kustom.",
+      "pricing": "Harga",
+      "pricingNone": "Belum diberi harga — Penggunaan menampilkan biaya model ini sebagai “—”",
+      "pricingSummary": "{{input}} masuk · {{output}} keluar · per juta token",
+      "pricingFromProvider": "{{line}} — dari default penyedia",
+      "rateInput": "Masukan",
+      "rateOutput": "Keluaran",
+      "rateCacheRead": "Baca cache",
+      "rateCacheWrite": "Tulis cache",
+      "pricingHelp": "USD per juta token. Salin keempat angka dari daftar harga penyedia Anda; nanoinfra tidak menyertakan satu pun, karena tabel tarif yang ditanam dalam produk sudah salah seminggu setelah dirilis.",
+      "pricingCacheWarning": "Model ini membaca {{tokens}} token dari cache pada rentang ini. Biarkan baca cache di 0 dan angka di bawah tidak menghitungnya.",
+      "pricingInherited": "Ini tarif default penyedia. Menyimpannya di sini menjadikannya tarif milik model ini, dan default penyedia berhenti berlaku untuknya.",
+      "pricingShared": "Tarif ini berlaku untuk {{key}}, jadi juga mencakup {{others}}, yang menyebut model yang sama.",
+      "pricingNoUsage": "Belum ada panggilan tercatat untuk model ini, jadi tidak ada yang bisa dipakai untuk memeriksa tarifnya.",
+      "pricingPreview": "{{days}} hari terakhir dengan tarif ini: {{cost}}",
+      "pricingClear": "Hapus tarif"
     },
     "timezone": {
       "select": "Pilih zona waktu",
@@ -2027,6 +2055,136 @@
       "skillsVsDisabled": "Berbeda dari skill yang dinonaktifkan deployment ini, di Pengaturan → Skills. Daftar itu menghapus skill dari setiap agen; yang ini memilih mana dari sisanya yang dimuat penuh oleh agen ini.",
       "delegatesHelp": "Agen yang boleh diberi pekerjaan oleh agen ini. Di sini paling penting: ini agen yang Anda ajak bicara, jadi tanpa rekan yang disebut, satu-satunya cara menjangkau rekan adalah berhenti bicara dengannya.",
       "delegatesEmpty": "Deployment ini belum menyebut agen lain."
+    }
+  },
+  "metrics": {
+    "title": "Metrik",
+    "subtitle": "Apa yang dibelanjakan deployment ini, bagaimana ia berjalan, dan apa yang benar-benar dilakukannya.",
+    "refresh": "Muat ulang",
+    "tabs": {
+      "usage": "Penggunaan",
+      "live": "Langsung",
+      "calls": "Panggilan",
+      "aria": "Bagian metrik"
+    },
+    "window": {
+      "label": "Rentang",
+      "days": "{{count}} h",
+      "loading": "Memuat…"
+    },
+    "cost": {
+      "label": "Biaya pada rentang ini",
+      "priced": "{{priced}} dari {{total}} model punya tarif",
+      "unpriced": "Belum ada tarif yang dikonfigurasi",
+      "unpricedHelp": "Setel tarif pada modelnya sendiri, di Pengaturan → Model → Harga — atau sekali untuk satu penyedia penuh, yang merupakan jawaban untuk penyedia lokal. Empat tarif, karena satu kali baca cache hanya sebagian kecil dari biaya token baru dan satu tarif atas total akan menagih lebih dari dua kali lipat saat cache bekerja."
+    },
+    "models": {
+      "title": "Per model, {{count}} hari terakhir",
+      "model": "Model",
+      "in": "Masuk",
+      "out": "Keluar",
+      "cacheRead": "Baca cache",
+      "cacheWrite": "Tulis cache",
+      "calls": "Panggilan",
+      "truncated": "Terpotong",
+      "ttft": "TTFT",
+      "wall": "Waktu nyata",
+      "cost": "Biaya",
+      "reported": "Dilaporkan / diperkirakan",
+      "reportedValue": "{{reported}} dari {{total}} panggilan dilaporkan oleh penyedia · {{tokens}} token dihitung secara lokal",
+      "reportedHint": "Perkiraan berasal dari tokenizer nanoinfra sendiri, bukan dari tagihan.",
+      "throughput": "Laju keluaran",
+      "throughputValue": "{{rate}} token keluaran/s",
+      "throughputHint": "Token keluaran dibagi waktu generasi, yang bukan waktu nyata.",
+      "measured": "Keluaran terukur vs dilaporkan",
+      "measuredHint": "Selisihnya adalah yang dipelajari kalibrasi token.",
+      "streamed": "Streaming / tidak",
+      "streamedHint": "TTFT dirata-ratakan atas {{count}} panggilan yang terukur; tidak berarti apa pun untuk panggilan tanpa streaming.",
+      "costFromProvider": "Dari tarif default penyedia, bukan milik model ini"
+    },
+    "failures": {
+      "title": "Mengapa panggilan gagal"
+    },
+    "live": {
+      "loading": "Mengambil sampel…",
+      "unreachable": "Tidak dapat membaca pengukur",
+      "notGateway": "Angka-angka ini berada di proses gateway. WebUI ini berbicara dengan gateway yang tidak dijalankannya, jadi tidak ada yang bisa disampel di sini.",
+      "scrape": "Nilai yang sama disajikan dalam format teks Prometheus di /metrics pada port milik gateway sendiri, yang hanya mengikat ke loopback dan mati kecuali gateway.metricsEnabled disetel. Tanda hubung berarti nilainya tidak bisa dibaca, dan itu tidak sama dengan nol."
+    },
+    "gauge": {
+      "nanoinfra_pending_approvals": {
+        "label": "Persetujuan menunggu",
+        "help": "Tindakan yang ditahan sambil menunggu jawaban seseorang."
+      },
+      "nanoinfra_ws_connections": {
+        "label": "Socket WebUI",
+        "help": "Koneksi WebSocket terbuka dari WebUI."
+      },
+      "nanoinfra_sessions_active": {
+        "label": "Sesi aktif",
+        "help": "Sesi dengan riwayat tercatat di workspace ini."
+      },
+      "nanoinfra_inbound_queue_depth": {
+        "label": "Antrean masuk",
+        "help": "Pesan yang menunggu loop agen. Angka yang naik berarti agen mulai tertinggal."
+      },
+      "nanoinfra_outbound_queue_depth": {
+        "label": "Antrean keluar",
+        "help": "Balasan yang menunggu kanal. Angka yang naik berarti kanal tidak mengalir."
+      },
+      "nanoinfra_context_tokens_used": {
+        "label": "Konteks terpakai",
+        "help": "Token pada prompt giliran terakhir."
+      },
+      "nanoinfra_context_tokens_limit": {
+        "label": "Batas konteks",
+        "help": "Jendela konteks dari preset yang aktif."
+      }
+    },
+    "calls": {
+      "filter": {
+        "tool": "Alat",
+        "outcome": "Hasil",
+        "decision": "Gerbang",
+        "any": "semua",
+        "clearTurn": "Menampilkan satu giliran — tampilkan semua"
+      },
+      "column": {
+        "time": "Waktu",
+        "tool": "Alat",
+        "source": "Sumber",
+        "outcome": "Hasil",
+        "gate": "Gerbang",
+        "duration": "Lama"
+      },
+      "field": {
+        "time": "Waktu",
+        "tool": "Alat",
+        "source": "Sumber",
+        "outcome": "Hasil",
+        "errorKind": "Jenis galat",
+        "duration": "Lama",
+        "class": "Kelas kapabilitas",
+        "gate": "Keputusan gerbang",
+        "gateReason": "Alasan gerbang",
+        "actor": "Pelaku",
+        "session": "Sesi",
+        "turn": "Giliran",
+        "seq": "Urutan"
+      },
+      "empty": "Tidak ada panggilan yang cocok dengan filter ini. Baris yang lebih tua dari jendela retensi dihapus, jadi halaman kosong tidak selalu berarti tidak ada aktivitas.",
+      "unreachable": "Tidak dapat membaca log panggilan alat. Panggilan tetap dicatat, jadi anggap ini sebagai tampilan yang hilang dan bukan log yang kosong.",
+      "loadMore": "Muat lebih banyak",
+      "retention": "Panggilan disimpan {{days}} hari lalu dihapus.",
+      "lastPurge": "Pembersihan terakhir berjalan pada {{when}} dan menghapus {{rows}} baris yang lebih tua dari {{cutoff}}.",
+      "noPurge": "Belum ada yang dihapus.",
+      "noArguments": "Apa yang diberikan ke panggilan tidak dicatat di sini. Baris ini adalah alamat panggilan; percakapannya yang menyimpan apa yang dikatakan.",
+      "sameTurn": "Semua panggilan pada giliran ini",
+      "openTranscript": "Buka percakapan"
+    },
+    "sources": {
+      "title": "Per sumber, {{count}} hari terakhir",
+      "calls": "{{count}} panggilan"
     }
   }
 }

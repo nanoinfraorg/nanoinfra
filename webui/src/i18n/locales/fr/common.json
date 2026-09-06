@@ -80,7 +80,8 @@
     "docs": "docs",
     "signOut": "Se déconnecter",
     "agents": "Agents",
-    "abilities": "Capacités"
+    "abilities": "Capacités",
+    "metrics": "Métriques"
   },
   "settings": {
     "backToChat": "Retour au chat",
@@ -372,6 +373,11 @@
           "answer": "Quelqu'un doit répondre",
           "empty": "Aucune action n'attend de réponse"
         }
+      },
+      "metrics": {
+        "spent": "{{count}} appels durant les {{days}} derniers jours",
+        "none": "Aucun appel enregistré pour l'instant",
+        "caption": "Dépense par modèle, jauges en direct et chaque appel d'outil"
       }
     },
     "usage": {
@@ -417,7 +423,14 @@
       "profile": "Profil",
       "extraHeaders": "En-têtes supplémentaires",
       "extraBody": "Corps supplémentaire",
-      "extraQuery": "Paramètres de requête supplémentaires"
+      "extraQuery": "Paramètres de requête supplémentaires",
+      "pricing": "Tarifs par défaut de ce fournisseur",
+      "pricingHelp": "S'applique à chaque modèle de ce fournisseur qui n'a pas ses propres tarifs. Les tarifs propres d'un modèle l'emportent toujours.",
+      "pricingFree": "Tout est gratuit chez ce fournisseur",
+      "pricingFreeLocal": "Ce fournisseur tourne en local, c'est donc généralement la bonne réponse — et c'est une seule modification au lieu d'une par modèle.",
+      "pricingFreeSummary": "Tous les modèles ici sont gratuits",
+      "pricingNone": "Aucun défaut — chaque modèle fixe son prix",
+      "pricingSummary": "${{input}} entrée · ${{output}} sortie · par Mtok"
     },
     "image": {
       "selectProvider": "Choisir un fournisseur",
@@ -486,7 +499,22 @@
       "loadFailed": "Liste des modèles indisponible.",
       "unsupportedModelList": "Saisissez manuellement un ID de modèle.",
       "providerNotConfigured": "Configurez ce fournisseur avant de charger les modèles.",
-      "autoProviderCustomOnly": "Le mode fournisseur automatique utilise des IDs de modèle personnalisés."
+      "autoProviderCustomOnly": "Le mode fournisseur automatique utilise des IDs de modèle personnalisés.",
+      "pricing": "Tarification",
+      "pricingNone": "Non tarifé — Usage affiche le coût de ce modèle comme “—”",
+      "pricingSummary": "{{input}} entrée · {{output}} sortie · par million de jetons",
+      "pricingFromProvider": "{{line}} — depuis le défaut du fournisseur",
+      "rateInput": "Entrée",
+      "rateOutput": "Sortie",
+      "rateCacheRead": "Lecture de cache",
+      "rateCacheWrite": "Écriture de cache",
+      "pricingHelp": "USD par million de jetons. Copiez les quatre nombres depuis la liste de prix de votre fournisseur ; nanoinfra n'en fournit aucun, parce qu'une table de tarifs intégrée à un produit est fausse la semaine suivante.",
+      "pricingCacheWarning": "Ce modèle a lu {{tokens}} jetons de cache sur la période. Laissez la lecture de cache à 0 et le montant ci-dessous les exclut.",
+      "pricingInherited": "Ce sont les tarifs par défaut du fournisseur. Les enregistrer ici en fait les tarifs propres de ce modèle, et le défaut du fournisseur ne s'y applique plus.",
+      "pricingShared": "Ces tarifs s'appliquent à {{key}}, donc ils couvrent aussi {{others}}, qui nomme le même modèle.",
+      "pricingNoUsage": "Aucun appel enregistré pour ce modèle, il n'y a donc rien contre quoi vérifier les tarifs.",
+      "pricingPreview": "{{days}} derniers jours à ces tarifs : {{cost}}",
+      "pricingClear": "Effacer les tarifs"
     },
     "timezone": {
       "select": "Choisir un fuseau horaire",
@@ -2027,6 +2055,136 @@
       "skillsVsDisabled": "Distinct des compétences que ce déploiement désactive, dans Paramètres → Compétences. Cette liste retire une compétence à tous les agents ; celle-ci choisit lesquelles du reste cet agent charge intégralement.",
       "delegatesHelp": "Les agents auxquels celui-ci peut confier une tâche. C'est ici que cela compte le plus : c'est l'agent à qui vous parlez, donc sans pair nommé le seul moyen d'en atteindre un est de cesser de lui parler.",
       "delegatesEmpty": "Ce déploiement ne nomme encore aucun autre agent."
+    }
+  },
+  "metrics": {
+    "title": "Métriques",
+    "subtitle": "Ce que ce déploiement a dépensé, comment il tourne, et ce qu'il a réellement fait.",
+    "refresh": "Actualiser",
+    "tabs": {
+      "usage": "Usage",
+      "live": "En direct",
+      "calls": "Appels",
+      "aria": "Sections des métriques"
+    },
+    "window": {
+      "label": "Période",
+      "days": "{{count}} j",
+      "loading": "Chargement…"
+    },
+    "cost": {
+      "label": "Dépense sur la période",
+      "priced": "{{priced}} modèles tarifés sur {{total}}",
+      "unpriced": "Aucun tarif configuré",
+      "unpricedHelp": "Définissez les tarifs sur le modèle lui-même, dans Paramètres → Modèles → Tarification — ou une seule fois pour tout un fournisseur, ce qui est la réponse pour un fournisseur local. Quatre tarifs, parce qu'une lecture de cache coûte une fraction d'un jeton neuf et qu'un tarif unique sur le total surfacture de plus de la moitié un cache qui fonctionne."
+    },
+    "models": {
+      "title": "Par modèle, {{count}} derniers jours",
+      "model": "Modèle",
+      "in": "Entrée",
+      "out": "Sortie",
+      "cacheRead": "Lecture de cache",
+      "cacheWrite": "Écriture de cache",
+      "calls": "Appels",
+      "truncated": "Tronqués",
+      "ttft": "TTFT",
+      "wall": "Temps réel",
+      "cost": "Coût",
+      "reported": "Déclaré / estimé",
+      "reportedValue": "{{reported}} appels sur {{total}} déclarés par le fournisseur · {{tokens}} jetons comptés localement",
+      "reportedHint": "Une estimation vient du tokeniseur de nanoinfra, pas d'une facture.",
+      "throughput": "Débit",
+      "throughputValue": "{{rate}} jetons de sortie/s",
+      "throughputHint": "Jetons de sortie sur le temps de génération, qui n'est pas le temps réel.",
+      "measured": "Sortie mesurée vs déclarée",
+      "measuredHint": "L'écart est ce dont la calibration des jetons apprend.",
+      "streamed": "En flux / non",
+      "streamedHint": "Le TTFT est moyenné sur {{count}} appels chronométrés ; il ne veut rien dire pour un appel sans flux.",
+      "costFromProvider": "Depuis les tarifs par défaut du fournisseur, pas ceux de ce modèle"
+    },
+    "failures": {
+      "title": "Pourquoi les appels ont échoué"
+    },
+    "live": {
+      "loading": "Échantillonnage…",
+      "unreachable": "Impossible de lire les jauges",
+      "notGateway": "Ces valeurs vivent dans le processus de la passerelle. Cette WebUI parle à une passerelle qu'elle n'exécute pas : il n'y a rien à échantillonner ici.",
+      "scrape": "Les mêmes valeurs sont servies au format texte Prometheus sur /metrics, sur le port propre de la passerelle, qui n'écoute qu'en loopback et reste désactivé sauf si gateway.metricsEnabled est défini. Un tiret signifie que la valeur n'a pas pu être lue, ce qui n'est pas la même chose que zéro."
+    },
+    "gauge": {
+      "nanoinfra_pending_approvals": {
+        "label": "Approbations en attente",
+        "help": "Actions suspendues qui attendent la réponse d'une personne."
+      },
+      "nanoinfra_ws_connections": {
+        "label": "Sockets WebUI",
+        "help": "Connexions WebSocket ouvertes depuis la WebUI."
+      },
+      "nanoinfra_sessions_active": {
+        "label": "Sessions actives",
+        "help": "Sessions avec un historique enregistré dans cet espace de travail."
+      },
+      "nanoinfra_inbound_queue_depth": {
+        "label": "File entrante",
+        "help": "Messages en attente de la boucle de l'agent. Un nombre qui monte, c'est l'agent qui prend du retard."
+      },
+      "nanoinfra_outbound_queue_depth": {
+        "label": "File sortante",
+        "help": "Réponses en attente d'un canal. Un nombre qui monte, c'est un canal qui ne se vide pas."
+      },
+      "nanoinfra_context_tokens_used": {
+        "label": "Contexte utilisé",
+        "help": "Jetons du prompt du dernier tour."
+      },
+      "nanoinfra_context_tokens_limit": {
+        "label": "Limite de contexte",
+        "help": "La fenêtre de contexte du préréglage actif."
+      }
+    },
+    "calls": {
+      "filter": {
+        "tool": "Outil",
+        "outcome": "Résultat",
+        "decision": "Contrôle",
+        "any": "tous",
+        "clearTurn": "Un seul tour affiché — tout afficher"
+      },
+      "column": {
+        "time": "Heure",
+        "tool": "Outil",
+        "source": "Source",
+        "outcome": "Résultat",
+        "gate": "Contrôle",
+        "duration": "Durée"
+      },
+      "field": {
+        "time": "Heure",
+        "tool": "Outil",
+        "source": "Source",
+        "outcome": "Résultat",
+        "errorKind": "Type d'erreur",
+        "duration": "Durée",
+        "class": "Classe de capacité",
+        "gate": "Décision du contrôle",
+        "gateReason": "Motif du contrôle",
+        "actor": "Acteur",
+        "session": "Session",
+        "turn": "Tour",
+        "seq": "Séquence"
+      },
+      "empty": "Aucun appel ne correspond à ces filtres. Les lignes plus anciennes que la fenêtre de rétention sont purgées : une page vide n'est pas toujours une page inactive.",
+      "unreachable": "Impossible de lire le journal des appels d'outils. Les appels sont toujours enregistrés : traitez ceci comme une vue manquante et non comme un journal vide.",
+      "loadMore": "Charger plus",
+      "retention": "Les appels sont conservés {{days}} jours, puis purgés.",
+      "lastPurge": "La dernière purge a eu lieu le {{when}} et a supprimé {{rows}} lignes antérieures au {{cutoff}}.",
+      "noPurge": "Rien n'a encore été purgé.",
+      "noArguments": "Ce que l'appel a reçu n'est pas enregistré ici. Cette ligne est l'adresse de l'appel ; la conversation garde ce qui a été dit.",
+      "sameTurn": "Tous les appels de ce tour",
+      "openTranscript": "Ouvrir la conversation"
+    },
+    "sources": {
+      "title": "Par source, {{count}} derniers jours",
+      "calls": "{{count}} appels"
     }
   }
 }

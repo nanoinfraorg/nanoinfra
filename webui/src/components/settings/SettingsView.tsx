@@ -30,6 +30,7 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  Gauge,
   Gem,
   Globe2,
   GripVertical,
@@ -61,6 +62,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
+  TriangleAlert,
   Triangle,
   UserRound,
   Waves,
@@ -88,8 +90,6 @@ import { KnowledgeSettings } from "@/components/settings/KnowledgeSettings";
 import { ToolGroupsSettings } from "@/components/settings/ToolGroupsSettings";
 import { WorkspacePromptsSettings } from "@/components/settings/WorkspacePromptsSettings";
 import { SkillsCatalogSettings } from "@/components/settings/SkillsCatalogSettings";
-import { TokenUsageHeatmap } from "@/components/settings/TokenUsageHeatmap";
-import { TokenUsageSummary } from "@/components/settings/TokenUsageSummary";
 import { ToggleButton } from "@/components/settings/ToggleButton";
 import {
   channelIsRunning,
@@ -145,7 +145,6 @@ import {
   fetchNanoinfraFeatures,
   fetchProviderModels,
   fetchSettings,
-  fetchSettingsUsage,
   importMcpConfig,
   loginProviderOAuth,
   logoutProviderOAuth,
@@ -223,6 +222,7 @@ import type {
   ImageGenerationSettingsUpdate,
   McpPresetInfo,
   McpPresetsPayload,
+  ModelPricingRates,
   NamedAgentRosterEntry,
   NanoinfraFeatureInfo,
   NanoinfraFeaturesPayload,
@@ -292,6 +292,73 @@ interface AgentSettingsDraft {
   timezone: string;
   toolHintMaxLength: number;
   maxConcurrentSubagents: number;
+  /**
+   * The four rates as typed, which is why they are strings (#235).
+   *
+   * A number would make "" and 0 the same value, and those are the two facts this editor exists
+   * to keep apart: an empty field is unset, and an explicit `0` is a price that means free.
+   */
+  pricing: PricingDraft;
+  /** Where the rates on screen came from, so the panel can mark an inherited cost. */
+  pricingSource: "model" | "provider" | null;
+}
+
+/** One rate per field, as typed. Empty string means the operator has not stated this one. */
+interface PricingDraft {
+  inputPerMtok: string;
+  outputPerMtok: string;
+  cacheReadPerMtok: string;
+  cacheWritePerMtok: string;
+}
+
+const EMPTY_PRICING_DRAFT: PricingDraft = {
+  inputPerMtok: "",
+  outputPerMtok: "",
+  cacheReadPerMtok: "",
+  cacheWritePerMtok: "",
+};
+
+const PRICING_FIELDS = [
+  "inputPerMtok",
+  "outputPerMtok",
+  "cacheReadPerMtok",
+  "cacheWritePerMtok",
+] as const;
+
+/**
+ * The payload's rates as a draft.
+ *
+ * `null` rates become empty fields rather than zeros, because the two mean different things and
+ * seeding zeros would turn "not priced" into "free" the moment somebody pressed save.
+ */
+function pricingDraftFrom(rates: ModelPricingRates | null | undefined): PricingDraft {
+  if (!rates) return { ...EMPTY_PRICING_DRAFT };
+  return {
+    inputPerMtok: String(rates.inputPerMtok),
+    outputPerMtok: String(rates.outputPerMtok),
+    cacheReadPerMtok: String(rates.cacheReadPerMtok),
+    cacheWritePerMtok: String(rates.cacheWritePerMtok),
+  };
+}
+
+/** The rates a request should carry: only the fields that hold a usable number. */
+function pricingUpdateFrom(draft: PricingDraft): Partial<ModelPricingRates> {
+  const update: Partial<ModelPricingRates> = {};
+  for (const field of PRICING_FIELDS) {
+    const text = draft[field].trim();
+    if (!text) continue;
+    const value = Number(text);
+    if (Number.isFinite(value) && value >= 0) update[field] = value;
+  }
+  return update;
+}
+
+function pricingDraftIsEmpty(draft: PricingDraft): boolean {
+  return PRICING_FIELDS.every((field) => draft[field].trim() === "");
+}
+
+function pricingDraftsEqual(left: PricingDraft, right: PricingDraft): boolean {
+  return PRICING_FIELDS.every((field) => left[field].trim() === right[field].trim());
 }
 
 type PendingRestartSection = "runtime" | "agents" | "browser" | "image";
@@ -318,6 +385,10 @@ type ProviderForm = {
   thinkingStyle: string;
   region: string;
   profile: string;
+  /** The provider's default rates, as typed (#235). Empty fields mean no default. */
+  pricing: PricingDraft;
+  /** The one-edit answer for a local fleet: four explicit zeros, which means free. */
+  pricingFree: boolean;
 };
 type CustomProviderDraft = ProviderForm & { name: string };
 type CustomMcpTransport = "stdio" | "streamableHttp" | "sse";
@@ -369,6 +440,8 @@ function providerFormFromRow(
     thinkingStyle: provider.thinking_style ?? "",
     region: provider.region ?? "",
     profile: provider.profile ?? "",
+    pricing: pricingDraftFrom(provider.pricing),
+    pricingFree: provider.pricing_free ?? false,
   };
 }
 
@@ -386,6 +459,8 @@ function emptyCustomProviderDraft(): CustomProviderDraft {
     thinkingStyle: "",
     region: "",
     profile: "",
+    pricing: { ...EMPTY_PRICING_DRAFT },
+    pricingFree: false,
   };
 }
 const DEFERRED_MODEL_LIST_QUERY_MIN_LENGTH = 2;
@@ -486,6 +561,8 @@ interface SettingsViewProps {
   approvalsCount?: number;
   /** Leave Settings for the Approvals view. That row is about work waiting, not config. */
   onOpenApprovals?: () => void;
+  /** Leave Settings for Metrics, where the usage band moved (#235). */
+  onOpenMetrics?: () => void;
 }
 
 function modelPresetValue(payload: SettingsPayload): string {
@@ -537,6 +614,8 @@ const DEFAULT_AGENT_SETTINGS_DRAFT: AgentSettingsDraft = {
   timezone: "UTC",
   toolHintMaxLength: 40,
   maxConcurrentSubagents: 1,
+  pricing: { ...EMPTY_PRICING_DRAFT },
+  pricingSource: null,
 };
 
 const DEFAULT_WEB_SEARCH_FORM: WebSearchSettingsUpdate = {
@@ -605,6 +684,8 @@ function agentDraftFromPayload(
     timezone: payload.agent.timezone,
     toolHintMaxLength: payload.agent.tool_hint_max_length,
     maxConcurrentSubagents: payload.agent.max_concurrent_subagents,
+    pricing: pricingDraftFrom(activePreset?.pricing),
+    pricingSource: activePreset?.pricing_source ?? null,
   };
 }
 
@@ -696,6 +777,7 @@ export function SettingsView({
   hostChromeInset = false,
   approvalsCount = 0,
   onOpenApprovals,
+  onOpenMetrics,
 }: SettingsViewProps) {
   const { t } = useTranslation();
   const { getToken, token } = useClient();
@@ -917,35 +999,10 @@ export function SettingsView({
     };
   }, [applyPayload, getToken]);
 
-  const hasSettings = settings !== null;
-  useEffect(() => {
-    if (activeSection !== "overview" || !hasSettings || !pageVisible) return;
-    let cancelled = false;
-    let refreshing = false;
-    const refresh = async () => {
-      if (refreshing) return;
-      refreshing = true;
-      try {
-        const usage = await fetchSettingsUsage(getToken());
-        if (!cancelled) {
-          setSettings((current) => (current ? { ...current, usage } : current));
-        }
-      } catch {
-        // Usage is best-effort telemetry; the settings snapshot remains usable.
-      } finally {
-        refreshing = false;
-      }
-    };
-    void refresh();
-    const interval = window.setInterval(() => void refresh(), 5000);
-    const onFocus = () => void refresh();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [activeSection, getToken, hasSettings, pageVisible]);
+  // The five-second usage poll that used to live here is gone with the band it fed (#235). The
+  // overview now shows one count as a signpost, and that count arrives with the settings payload
+  // itself -- so a settings page left open no longer re-aggregates `llm_calls` twelve times a
+  // minute for a figure nobody is watching. Metrics polls what Metrics displays.
 
   useEffect(() => {
     if (activeSection !== "apps") return;
@@ -1321,7 +1378,10 @@ export function SettingsView({
       form.contextWindowTokens !== normalizeContextWindowTokens(selectedPreset.context_window_tokens) ||
       form.temperature !== selectedPreset.temperature ||
       form.reasoningEffort !== (selectedPreset.reasoning_effort ?? "") ||
-      form.presetLabel.trim() !== selectedPreset.label
+      form.presetLabel.trim() !== selectedPreset.label ||
+      // A rate change is a change. Compared against what the payload showed, so re-seeding the
+      // form from a save does not leave the button lit.
+      !pricingDraftsEqual(form.pricing, pricingDraftFrom(selectedPreset.pricing))
     );
   }, [form, settings]);
 
@@ -1478,6 +1538,7 @@ export function SettingsView({
           contextWindowTokens: form.contextWindowTokens,
           temperature: form.temperature,
           reasoningEffort: form.reasoningEffort || null,
+          pricing: pricingUpdateFrom(form.pricing),
         });
         const createdPreset = payload.created_model_preset;
         const nextOrder = createdPreset ? [...modelCallOrder, createdPreset] : null;
@@ -1533,6 +1594,12 @@ export function SettingsView({
           form.temperature !== selectedPreset.temperature ? form.temperature : undefined,
         reasoningEffort:
           reasoningEffort !== selectedPreset.reasoning_effort ? reasoningEffort : undefined,
+        pricing: pricingUpdateFrom(form.pricing),
+        // Every field emptied, against rates that existed: that is the operator removing the
+        // price, and it needs saying explicitly because an empty field otherwise means unchanged.
+        clearPricing:
+          pricingDraftIsEmpty(form.pricing)
+          && selectedPreset.pricing_source === "model",
       });
       applyPayload(payload);
       setForm(agentDraftFromPayload(payload, selectedPreset.name));
@@ -1831,6 +1898,17 @@ export function SettingsView({
         }
         if (field === "region") update.region = providerForm.region.trim();
         if (field === "profile") update.profile = providerForm.profile.trim();
+      }
+      // Pricing is not an advanced field and is not gated per provider: every provider may carry
+      // a default, and the free toggle is the whole reason the level exists.
+      if (providerForm.pricingFree) {
+        update.pricingFree = true;
+      } else if (pricingDraftIsEmpty(providerForm.pricing)) {
+        // Emptied against a default that existed is the operator removing it. Sending it always
+        // would be harmless but would rewrite the config on every unrelated provider save.
+        if (provider.pricing) update.clearPricing = true;
+      } else {
+        update.pricing = pricingUpdateFrom(providerForm.pricing);
       }
       const payload = await updateProviderSettings(token, update);
       applyPayload(payload);
@@ -2387,6 +2465,7 @@ export function SettingsView({
             approvalsCount={approvalsCount}
             onSelectSection={selectSection}
             onOpenApprovals={onOpenApprovals}
+            onOpenMetrics={onOpenMetrics}
           />
         );
       case "appearance":
@@ -3066,6 +3145,7 @@ function OverviewSettings({
   showBrandLogos,
   approvalsCount,
   onOpenApprovals,
+  onOpenMetrics,
 }: {
   settings: SettingsPayload;
   requiresRestart: boolean;
@@ -3073,6 +3153,7 @@ function OverviewSettings({
   showBrandLogos: boolean;
   approvalsCount: number;
   onOpenApprovals?: () => void;
+  onOpenMetrics?: () => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -3150,12 +3231,34 @@ function OverviewSettings({
       : tx("settings.values.ready", "Ready");
   return (
     <div className="space-y-7">
-      <section className="rounded-[22px] bg-settings-surface px-4 py-4 sm:px-5">
-        {/* The numbers first, the year of shape second. A grid of grey dots with
-            no figure on it answered nothing for a deployment with eighteen days
-            of history. */}
-        <TokenUsageSummary usage={settings.usage} className="mb-4" />
-        <TokenUsageHeatmap usage={settings.usage} timeZone={settings.agent.timezone} />
+      {/*
+        * The usage summary and the heatmap used to open this page. They live in Metrics now
+        * (#235), with a range control, the cost, and the columns the store recorded and never
+        * showed. This row is here so an operator who knows where the numbers were finds where
+        * they went -- deleting the band and saying nothing would read as a regression.
+        */}
+      <section>
+        <SettingsGroup>
+          <OverviewListRow
+            icon={Gauge}
+            testId="overview-metrics"
+            title={tx("sidebar.metrics", "Metrics")}
+            value={
+              settings.usage
+                ? t("settings.overview.metrics.spent", {
+                  defaultValue: "{{count}} calls in the last {{days}} days",
+                  count: settings.usage.requests_30d,
+                  days: settings.usage.window_days,
+                })
+                : tx("settings.overview.metrics.none", "No calls recorded yet")
+            }
+            caption={tx(
+              "settings.overview.metrics.caption",
+              "Spend per model, live gauges, and every tool call",
+            )}
+            onClick={() => onOpenMetrics?.()}
+          />
+        </SettingsGroup>
       </section>
 
       <section>
@@ -3926,6 +4029,7 @@ function ModelsSettings({
     t(key, { defaultValue: fallback, ...(values ?? {}) });
   const [editorOpen, setEditorOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);
   const [draggedCallOrderIndex, setDraggedCallOrderIndex] = useState<number | null>(null);
   const [dragOverCallOrderIndex, setDragOverCallOrderIndex] = useState<number | null>(null);
   const namedPresets = settings.model_presets.filter((preset) => !preset.is_default);
@@ -4419,6 +4523,53 @@ function ModelsSettings({
                 />
               </div>
             ) : null}
+            {/*
+              * Pricing is its own row rather than a field under `Advanced options`, for two
+              * reasons: an unpriced model has to be obvious without opening anything, and money
+              * is not a generation parameter (#235).
+              */}
+            <button
+              type="button"
+              aria-expanded={pricingOpen}
+              onClick={() => setPricingOpen((value) => !value)}
+              className="flex min-h-[62px] w-full items-center justify-between gap-4 px-4 py-3.5 text-left transition-colors hover:bg-muted/30 sm:px-5"
+              data-testid="model-pricing-row"
+            >
+              <span>
+                <span className="block text-[14px] font-medium text-foreground">
+                  {tx("settings.models.pricing", "Pricing")}
+                </span>
+                <span className="mt-0.5 block text-[12px] text-muted-foreground">
+                  {pricingSummary(form, tx)}
+                </span>
+              </span>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                  pricingOpen && "rotate-180",
+                )}
+                aria-hidden
+              />
+            </button>
+            {pricingOpen ? (
+              <div className="bg-muted/12 px-4 py-4 sm:px-5">
+                <ModelPricingFields
+                  draft={form.pricing}
+                  source={form.pricingSource}
+                  provider={form.provider}
+                  model={form.model}
+                  sharesWith={
+                    settings.model_presets.find(
+                      (preset) => !preset.is_default && preset.name === form.modelPreset,
+                    )?.shares_pricing_with ?? []
+                  }
+                  usage={settings.usage}
+                  onChange={(pricing) =>
+                    setForm((prev) => ({ ...prev, pricing: { ...prev.pricing, ...pricing } }))}
+                  onClear={() => setForm((prev) => ({ ...prev, pricing: { ...EMPTY_PRICING_DRAFT } }))}
+                />
+              </div>
+            ) : null}
             <div className="flex min-h-[58px] flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
               {creating ? (
                 <Button
@@ -4477,6 +4628,185 @@ function ModelsSettings({
       ) : null}
         </SettingsGroup>
       </section>
+    </div>
+  );
+}
+
+/** The one line under `Pricing` on a closed card. Not priced has to read as not priced. */
+function pricingSummary(
+  form: AgentSettingsDraft,
+  tx: (key: string, fallback: string, values?: Record<string, unknown>) => string,
+): string {
+  const rates = pricingUpdateFrom(form.pricing);
+  if (pricingDraftIsEmpty(form.pricing)) {
+    return tx(
+      "settings.models.pricingNone",
+      "Not priced — Usage shows this model's cost as \u201c\u2014\u201d",
+    );
+  }
+  const money = (value: number | undefined) =>
+    value === undefined ? "\u2014" : `$${value.toFixed(2)}`;
+  const line = tx("settings.models.pricingSummary", "{{input}} in · {{output}} out · per million tokens", {
+    input: money(rates.inputPerMtok),
+    output: money(rates.outputPerMtok),
+  });
+  return form.pricingSource === "provider"
+    ? tx("settings.models.pricingFromProvider", "{{line}} — from the provider default", { line })
+    : line;
+}
+
+/**
+ * The four rates, and the three things around them that make a typed rate checkable (#235).
+ *
+ * The live figure at the bottom is the important one. A rate in a box is unverifiable; the same
+ * rate against the month already recorded is checkable against the invoice already received.
+ */
+function ModelPricingFields({
+  draft,
+  source,
+  provider,
+  model,
+  sharesWith,
+  usage,
+  onChange,
+  onClear,
+}: {
+  draft: PricingDraft;
+  source: "model" | "provider" | null;
+  provider: string;
+  model: string;
+  sharesWith: string[];
+  usage: SettingsPayload["usage"];
+  onChange: (value: Partial<PricingDraft>) => void;
+  onClear: () => void;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
+    t(key, { defaultValue: fallback, ...(values ?? {}) });
+
+  // The row for this exact model, from the payload the Usage tab reads. It is what makes the
+  // cache warning and the live figure possible without a second request.
+  const row = usage?.providers_30d?.find(
+    (entry) => entry.provider === provider && entry.model === model,
+  );
+  const rates = pricingUpdateFrom(draft);
+  const cachedTokens = row?.cached_tokens ?? 0;
+  const cacheUnpriced = cachedTokens > 0 && !(rates.cacheReadPerMtok ?? 0);
+  // The same arithmetic the server does, and it has to be: a preview that disagreed with the
+  // table would be worse than no preview.
+  //
+  // `prompt_tokens` is the **logical** input and includes the cached halves, so the three input
+  // buckets are made disjoint before they meet three rates. Charging `prompt_tokens` at the input
+  // rate *and* `cached_tokens` at the cache rate bills every cached token twice.
+  const cacheWriteTokens = row?.cache_write_tokens ?? 0;
+  const freshTokens = row
+    ? Math.max(0, row.prompt_tokens - row.cached_tokens - cacheWriteTokens)
+    : 0;
+  const monthCost = row
+    ? ((freshTokens * (rates.inputPerMtok ?? 0))
+      + (row.completion_tokens * (rates.outputPerMtok ?? 0))
+      + (row.cached_tokens * (rates.cacheReadPerMtok ?? 0))
+      + (cacheWriteTokens * (rates.cacheWritePerMtok ?? 0))) / 1_000_000
+    : null;
+
+  const labels: Record<keyof PricingDraft, string> = {
+    inputPerMtok: tx("settings.models.rateInput", "Input"),
+    outputPerMtok: tx("settings.models.rateOutput", "Output"),
+    cacheReadPerMtok: tx("settings.models.rateCacheRead", "Cache read"),
+    cacheWritePerMtok: tx("settings.models.rateCacheWrite", "Cache write"),
+  };
+
+  return (
+    <div className="space-y-4" data-testid="model-pricing-fields">
+      <p className="max-w-[40rem] text-[12px] leading-5 text-muted-foreground">
+        {tx(
+          "settings.models.pricingHelp",
+          "USD per million tokens. Copy the four numbers from your provider's price list; nanoinfra ships none, because a rate table baked into a product is wrong the week after it ships.",
+        )}
+      </p>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {PRICING_FIELDS.map((field) => (
+          <label key={field} className="block">
+            <span className="mb-1.5 block text-[12px] font-medium text-muted-foreground">
+              {labels[field]}
+            </span>
+            <Input
+              type="number"
+              min={0}
+              step="any"
+              inputMode="decimal"
+              aria-label={labels[field]}
+              value={draft[field]}
+              placeholder="0.00"
+              onChange={(event) => onChange({ [field]: event.target.value } as Partial<PricingDraft>)}
+              className="h-9 rounded-[12px] text-[13px]"
+            />
+          </label>
+        ))}
+      </div>
+
+      {cacheUnpriced ? (
+        <p
+          className="flex items-start gap-2 text-[12px] leading-5 text-amber-600 dark:text-amber-500"
+          data-testid="model-pricing-cache-warning"
+        >
+          <TriangleAlert className="mt-[2px] h-3.5 w-3.5 shrink-0" aria-hidden />
+          {tx(
+            "settings.models.pricingCacheWarning",
+            "This model read {{tokens}} cached tokens over the window. Leave cache read at 0 and the figure below excludes them.",
+            { tokens: new Intl.NumberFormat().format(cachedTokens) },
+          )}
+        </p>
+      ) : null}
+
+      {source === "provider" && !pricingDraftIsEmpty(draft) ? (
+        <p className="text-[12px] leading-5 text-muted-foreground" data-testid="model-pricing-inherited">
+          {tx(
+            "settings.models.pricingInherited",
+            "These are the provider's default rates. Saving them here makes them this model's own, and the provider default stops applying to it.",
+          )}
+        </p>
+      ) : null}
+
+      {sharesWith.length > 0 ? (
+        <p className="text-[12px] leading-5 text-muted-foreground" data-testid="model-pricing-shared">
+          {tx(
+            "settings.models.pricingShared",
+            "These rates apply to {{key}}, so they also cover {{others}}, which names the same model.",
+            { key: `${provider}/${model}`, others: sharesWith.join(", ") },
+          )}
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[12px] text-muted-foreground" data-testid="model-pricing-preview">
+          {monthCost === null
+            ? tx(
+              "settings.models.pricingNoUsage",
+              "No calls recorded for this model yet, so there is nothing to check the rates against.",
+            )
+            : tx(
+              "settings.models.pricingPreview",
+              "Last {{days}} days at these rates: {{cost}}",
+              {
+                days: usage?.window_days ?? 30,
+                cost: `$${monthCost.toFixed(monthCost > 0 && monthCost < 1 ? 4 : 2)}`,
+              },
+            )}
+        </p>
+        {pricingDraftIsEmpty(draft) ? null : (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="rounded-full text-muted-foreground"
+            onClick={onClear}
+            data-testid="model-pricing-clear"
+          >
+            {tx("settings.models.pricingClear", "Clear rates")}
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -4571,6 +4901,126 @@ function ModelAdvancedFields({
           className="h-9 rounded-[12px] text-[13px]"
         />
       </label>
+    </div>
+  );
+}
+
+/**
+ * A provider's default rates (#235).
+ *
+ * Its own disclosure rather than a field inside `Advanced options`, because that block returns
+ * `null` for a provider with no advanced fields — and the providers that most need this are the
+ * local ones, where the answer is one checkbox for a dozen models.
+ */
+function ProviderPricingOptions({
+  form,
+  isLocal,
+  onChange,
+}: {
+  form: ProviderForm;
+  isLocal: boolean;
+  onChange: (value: Partial<ProviderForm>) => void;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
+    t(key, { defaultValue: fallback, ...(values ?? {}) });
+  const [open, setOpen] = useState(false);
+
+  const labels: Record<keyof PricingDraft, string> = {
+    inputPerMtok: tx("settings.models.rateInput", "Input"),
+    outputPerMtok: tx("settings.models.rateOutput", "Output"),
+    cacheReadPerMtok: tx("settings.models.rateCacheRead", "Cache read"),
+    cacheWritePerMtok: tx("settings.models.rateCacheWrite", "Cache write"),
+  };
+
+  const summary = form.pricingFree
+    ? tx("settings.providers.pricingFreeSummary", "Every model here is free")
+    : pricingDraftIsEmpty(form.pricing)
+      ? tx("settings.providers.pricingNone", "No default — models price themselves")
+      : tx("settings.providers.pricingSummary", "${{input}} in · ${{output}} out · per Mtok", {
+        input: (Number(form.pricing.inputPerMtok) || 0).toFixed(2),
+        output: (Number(form.pricing.outputPerMtok) || 0).toFixed(2),
+      });
+
+  return (
+    <div className="border-y border-border/45" data-testid="provider-pricing">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex min-h-[48px] w-full items-center justify-between gap-4 px-1 py-2.5 text-left transition-colors hover:text-foreground"
+      >
+        <span className="min-w-0">
+          <span className="block text-[13px] font-medium text-foreground">
+            {tx("settings.providers.pricing", "Default pricing for this provider")}
+          </span>
+          <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">
+            {summary}
+          </span>
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+          aria-hidden
+        />
+      </button>
+      {open ? (
+        <div className="space-y-3 px-1 pb-3">
+          <p className="max-w-[38rem] text-[12px] leading-5 text-muted-foreground">
+            {tx(
+              "settings.providers.pricingHelp",
+              "Applies to every model on this provider that has no rates of its own. A model's own rates always win.",
+            )}
+          </p>
+
+          <label className="flex items-start gap-2.5 text-[13px] text-foreground">
+            <input
+              type="checkbox"
+              checked={form.pricingFree}
+              onChange={(event) => onChange({ pricingFree: event.target.checked })}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-input"
+              data-testid="provider-pricing-free"
+            />
+            <span>
+              {tx("settings.providers.pricingFree", "Everything on this provider is free")}
+              {isLocal ? (
+                <span className="mt-0.5 block text-[12px] text-muted-foreground">
+                  {tx(
+                    "settings.providers.pricingFreeLocal",
+                    "This provider runs locally, so this is usually the right answer — and it is one edit instead of one per model.",
+                  )}
+                </span>
+              ) : null}
+            </span>
+          </label>
+
+          {form.pricingFree ? null : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {PRICING_FIELDS.map((field) => (
+                <label key={field} className="block">
+                  <span className="mb-1.5 block text-[12px] font-medium text-muted-foreground">
+                    {labels[field]}
+                  </span>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="any"
+                    inputMode="decimal"
+                    aria-label={`${tx("settings.providers.pricing", "Default pricing for this provider")} — ${labels[field]}`}
+                    value={form.pricing[field]}
+                    placeholder="0.00"
+                    onChange={(event) =>
+                      onChange({ pricing: { ...form.pricing, [field]: event.target.value } })}
+                    className="h-9 rounded-[12px] text-[13px]"
+                  />
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -5171,6 +5621,11 @@ function ProvidersSettings({
                 <ProviderAdvancedOptions
                   fields={advancedFields}
                   form={form}
+                  onChange={(value) => onChangeProviderForm(provider.name, value)}
+                />
+                <ProviderPricingOptions
+                  form={form}
+                  isLocal={provider.is_local ?? false}
                   onChange={(value) => onChangeProviderForm(provider.name, value)}
                 />
                 <div className="flex items-center justify-end gap-2">

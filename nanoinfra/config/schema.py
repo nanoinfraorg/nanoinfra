@@ -413,6 +413,16 @@ class ProviderConfig(Base):
     extra_query: dict[str, str] | None = None  # Extra query params (e.g. api-version for Azure-style gateways)
     proxy: str | None = None  # Explicit HTTP proxy; image downloads trust its DNS and egress
     thinking_style: str | None = None  # Thinking/reasoning style for custom providers
+    #: Default rates for every model on this provider that has no rates of its own (#235).
+    #:
+    #: The case this exists for is a **local** provider. `ollama`, `vllm`, `lm_studio`,
+    #: `atomic_chat` and `ovms` are a dozen models that all cost nothing, and pricing them one at
+    #: a time is twelve edits to state one fact. Four explicit zeros there say *free*, which is
+    #: true, and stop those models reading as unpriced.
+    #:
+    #: `None` means unset, and unset means a model with no entry of its own stays unpriced. A
+    #: model's own rates always win -- see `resolve_pricing`.
+    pricing: "ModelPricing | None" = None
 
     # Valid values mirror the keys of _THINKING_STYLE_MAP in
     # nanoinfra/providers/openai_compat_provider.py. Kept duplicated here to
@@ -581,6 +591,37 @@ class GatewayConfig(Base):
 
     host: str = "127.0.0.1"  # Safer default: local-only bind.
     port: int = 18790
+    #: Whether this listener also answers `GET /metrics` in Prometheus text format (#235).
+    #:
+    #: **Off by default**, so no deployment gains a scrape surface by upgrading. On, it is served
+    #: here rather than on the WebUI's port for one reason: this server binds loopback by default
+    #: and the WebUI's does not -- a container fronted by a reverse proxy sets `api.host` to
+    #: `0.0.0.0`, and `/metrics` there would publish usage volumes and model names to anyone who
+    #: reaches it.
+    metrics_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("metricsEnabled", "metrics_enabled"),
+        serialization_alias="metricsEnabled",
+    )
+    #: The bearer token a scrape must present (#235).
+    #:
+    #: Empty means **the bind is the authentication**, which is the Prometheus convention and is
+    #: true only while `host` is loopback. It is not true here: the demo sets this host to
+    #: `0.0.0.0` so a reverse proxy can front it, and an unauthenticated `/metrics` there would
+    #: publish model names, spend volumes and queue depths to anyone who reaches the port.
+    #:
+    #: So the rule the gateway enforces is: loopback may go without a token, a routable bind may
+    #: not. On a non-loopback host with no token set, `/metrics` stays 404 -- failing closed,
+    #: because the alternative is a deployment that exports its own telemetry publicly the moment
+    #: somebody flips one boolean.
+    #:
+    #: A token of its own rather than the WebUI's: a scrape credential lives in a Prometheus
+    #: config file and is read by a service, and that is not where an admin token belongs.
+    metrics_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("metricsToken", "metrics_token"),
+        serialization_alias="metricsToken",
+    )
     restart_mode: Literal["auto", "exec", "spawn", "exit"] = "auto"
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
 
@@ -795,6 +836,67 @@ class ToolsConfig(Base):
     ssrf_whitelist: list[str] = Field(default_factory=list)  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
 
 
+class ModelPricing(Base):
+    """What one model charges, in USD per million tokens.
+
+    Per **million** because that is the unit every provider publishes, so a deployment can copy a
+    price list without arithmetic — and arithmetic is where a price table goes wrong silently.
+
+    Four rates and not one, because the cheap tokens are most of the volume. A cached read costs a
+    fraction of a fresh prompt token, and a usage page that multiplies `total_tokens` by one rate
+    over-bills a deployment with a warm cache by more than it under-bills anyone. The store has
+    kept `cache_read_tokens` and `cache_write_tokens` on every row since the table existed; this is
+    what makes them mean money.
+
+    Absent rates are zero rather than an error: a deployment that prices its primary model and not
+    its fallback should see the primary's cost, not a page that refuses to render. An entry with
+    **no** rate set at all is a different case and reads as unpriced -- see :meth:`is_stated`.
+
+    Both casings of each key are accepted. `inputPerMtok` is the house style, being the plain
+    camelCase of the field name the way every other key in this file is; `inputPerMTok` is taken
+    too, because it was the only spelling for a while and a config that used it must not silently
+    start pricing everything at zero.
+    """
+
+    input_per_mtok: float = Field(
+        default=0.0,
+        validation_alias=AliasChoices("inputPerMtok", "inputPerMTok", "input_per_mtok"),
+        serialization_alias="inputPerMtok",
+    )
+    output_per_mtok: float = Field(
+        default=0.0,
+        validation_alias=AliasChoices("outputPerMtok", "outputPerMTok", "output_per_mtok"),
+        serialization_alias="outputPerMtok",
+    )
+    cache_read_per_mtok: float = Field(
+        default=0.0,
+        validation_alias=AliasChoices(
+            "cacheReadPerMtok", "cacheReadPerMTok", "cache_read_per_mtok"
+        ),
+        serialization_alias="cacheReadPerMtok",
+    )
+    cache_write_per_mtok: float = Field(
+        default=0.0,
+        validation_alias=AliasChoices(
+            "cacheWritePerMtok", "cacheWritePerMTok", "cache_write_per_mtok"
+        ),
+        serialization_alias="cacheWritePerMtok",
+    )
+
+    def is_stated(self) -> bool:
+        """Whether this entry states a price at all.
+
+        `{}` is not a price. It is an entry somebody created and did not fill -- which is what a
+        typo in a rate key leaves behind, and what the pricing editor writes before anything is
+        typed into it. Counting it as priced would render a month of real spend as a confident
+        `$0.00`, which is the one outcome the whole four-rate design exists to avoid.
+
+        An **explicit** zero is a price and means free, which is the truth for a local model. So
+        this reads what was set rather than what the value is.
+        """
+        return bool(self.model_fields_set)
+
+
 class Config(BaseSettings):
     """Root configuration for nanoinfra."""
 
@@ -820,6 +922,15 @@ class Config(BaseSettings):
         validation_alias=AliasChoices("modelPresets", "model_presets"),
         serialization_alias="modelPresets",
     )
+    #: What each model costs, keyed the way the usage rows are: `"<provider>/<model>"`.
+    #:
+    #: Keyed by the row rather than by preset on purpose. `llm_calls` records the provider and
+    #: model that actually answered, which is not always the preset that was asked for -- a
+    #: fallback answers under its own name. Pricing by preset would leave every fallback call
+    #: unpriced, and a fallback is exactly the call somebody wants the cost of.
+    #:
+    #: Empty by default, and an unpriced model shows tokens with no cost rather than a wrong one.
+    pricing: dict[str, ModelPricing] = Field(default_factory=dict)
 
     def __init__(self, **values: Any) -> None:
         ensure_tool_config_refs()

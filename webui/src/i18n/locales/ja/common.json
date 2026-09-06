@@ -80,7 +80,8 @@
     "docs": "ドキュメント",
     "signOut": "サインアウト",
     "agents": "エージェント",
-    "abilities": "能力"
+    "abilities": "能力",
+    "metrics": "メトリクス"
   },
   "settings": {
     "backToChat": "チャットに戻る",
@@ -372,6 +373,11 @@
           "answer": "誰かが回答する必要があります",
           "empty": "回答を待つ操作はありません"
         }
+      },
+      "metrics": {
+        "spent": "直近 {{days}} 日間で {{count}} 件の呼び出し",
+        "none": "まだ呼び出しの記録がありません",
+        "caption": "モデルごとの費用、リアルタイムのゲージ、すべてのツール呼び出し"
       }
     },
     "usage": {
@@ -417,7 +423,14 @@
       "profile": "プロファイル",
       "extraHeaders": "追加ヘッダー",
       "extraBody": "追加ボディ",
-      "extraQuery": "追加クエリ"
+      "extraQuery": "追加クエリ",
+      "pricing": "このプロバイダーの既定料金",
+      "pricingHelp": "このプロバイダーで自身の料金を持たないすべてのモデルに適用されます。モデル自身の料金が常に優先します。",
+      "pricingFree": "このプロバイダーはすべて無料",
+      "pricingFreeLocal": "このプロバイダーはローカルで動作するため、通常はこれが正解です。しかもモデルごとではなく1回の編集で済みます。",
+      "pricingFreeSummary": "ここのモデルはすべて無料",
+      "pricingNone": "既定値なし — 各モデルが自分で料金を持ちます",
+      "pricingSummary": "入力 ${{input}} · 出力 ${{output}} · 100万トークンあたり"
     },
     "image": {
       "selectProvider": "プロバイダーを選択",
@@ -486,7 +499,22 @@
       "loadFailed": "モデル一覧を利用できません。",
       "unsupportedModelList": "モデル ID を手動で入力してください。",
       "providerNotConfigured": "モデルを読み込む前にこのプロバイダーを設定してください。",
-      "autoProviderCustomOnly": "自動プロバイダーモードではカスタムモデル ID を使用します。"
+      "autoProviderCustomOnly": "自動プロバイダーモードではカスタムモデル ID を使用します。",
+      "pricing": "料金",
+      "pricingNone": "料金未設定 — 使用量ではこのモデルのコストが “—” と表示されます",
+      "pricingSummary": "入力 {{input}} · 出力 {{output}} · 100万トークンあたり",
+      "pricingFromProvider": "{{line}} — プロバイダーの既定値より",
+      "rateInput": "入力",
+      "rateOutput": "出力",
+      "rateCacheRead": "キャッシュ読み取り",
+      "rateCacheWrite": "キャッシュ書き込み",
+      "pricingHelp": "100万トークンあたりの USD です。プロバイダーの価格表から4つの数値をそのまま写してください。nanoinfra は価格表を同梱しません。製品に焼き込んだ料金表は、公開の翌週には間違っているからです。",
+      "pricingCacheWarning": "このモデルは期間内に {{tokens}} トークンをキャッシュから読み取りました。キャッシュ読み取りを 0 のままにすると、下の金額はそれらを含みません。",
+      "pricingInherited": "これはプロバイダーの既定料金です。ここで保存するとこのモデル自身の料金になり、プロバイダーの既定値はこのモデルには適用されなくなります。",
+      "pricingShared": "この料金は {{key}} に適用されるため、同じモデルを指定している {{others}} も対象になります。",
+      "pricingNoUsage": "このモデルの呼び出し記録がまだないため、料金を照合できる実績がありません。",
+      "pricingPreview": "この料金での直近 {{days}} 日: {{cost}}",
+      "pricingClear": "料金を消去"
     },
     "timezone": {
       "select": "タイムゾーンを選択",
@@ -2027,6 +2055,136 @@
       "skillsVsDisabled": "設定 → スキルで無効化するスキルとは別物です。あちらは全エージェントからスキルを外します。こちらは残ったもののうち、このエージェントが全文で読み込むものを選びます。",
       "delegatesHelp": "このエージェントが仕事を渡せる相手です。ここが最も重要です: これはあなたが話している相手なので、ピアを指定しなければ、ピアに届く唯一の方法は話すのをやめることになります。",
       "delegatesEmpty": "このデプロイはまだ他のエージェントを指定していません。"
+    }
+  },
+  "metrics": {
+    "title": "メトリクス",
+    "subtitle": "このデプロイが何にいくら使い、いまどう動いていて、実際に何をしたか。",
+    "refresh": "更新",
+    "tabs": {
+      "usage": "使用量",
+      "live": "ライブ",
+      "calls": "呼び出し",
+      "aria": "メトリクスのセクション"
+    },
+    "window": {
+      "label": "期間",
+      "days": "{{count}}日",
+      "loading": "読み込み中…"
+    },
+    "cost": {
+      "label": "この期間の支出",
+      "priced": "{{total}} モデルのうち {{priced}} に価格設定あり",
+      "unpriced": "価格が設定されていません",
+      "unpricedHelp": "料金はモデル自体に設定します（設定 → モデル → 料金）。ローカルのプロバイダーなら、プロバイダー単位で一度設定するのが答えです。単価が4つあるのは、キャッシュ読み取りが新規トークンのごく一部の費用で済み、合計に単一の単価を掛けるとキャッシュが効いている場合に半分以上の過大請求になるからです。"
+    },
+    "models": {
+      "title": "モデル別、直近 {{count}} 日",
+      "model": "モデル",
+      "in": "入力",
+      "out": "出力",
+      "cacheRead": "キャッシュ読み取り",
+      "cacheWrite": "キャッシュ書き込み",
+      "calls": "呼び出し",
+      "truncated": "打ち切り",
+      "ttft": "TTFT",
+      "wall": "実時間",
+      "cost": "コスト",
+      "reported": "報告値 / 推定値",
+      "reportedValue": "{{total}} 件のうち {{reported}} 件はプロバイダーが報告 · {{tokens}} トークンはローカルで計算",
+      "reportedHint": "推定値は nanoinfra 自身のトークナイザーによるもので、請求額ではありません。",
+      "throughput": "スループット",
+      "throughputValue": "出力 {{rate}} トークン/秒",
+      "throughputHint": "生成時間あたりの出力トークン数。実時間とは異なります。",
+      "measured": "測定した出力 / 報告された出力",
+      "measuredHint": "この差がトークン較正の学習材料です。",
+      "streamed": "ストリーミング / 非ストリーミング",
+      "streamedHint": "TTFT は計測できた {{count}} 件の呼び出しの平均です。ストリーミングしない呼び出しでは意味がありません。",
+      "costFromProvider": "プロバイダーの既定料金によるもので、このモデル自身の料金ではありません"
+    },
+    "failures": {
+      "title": "呼び出しが失敗した理由"
+    },
+    "live": {
+      "loading": "サンプリング中…",
+      "unreachable": "ゲージを読み取れませんでした",
+      "notGateway": "これらの数値はゲートウェイのプロセス内にあります。この WebUI は自分が動かしていないゲートウェイと通信しているため、ここにサンプリングできるものはありません。",
+      "scrape": "同じ値は、ゲートウェイ自身のポートの /metrics で Prometheus のテキスト形式でも提供されます。このポートはループバックにのみバインドされ、gateway.metricsEnabled を設定しない限り無効です。ダッシュは値を読み取れなかったことを意味し、ゼロとは異なります。"
+    },
+    "gauge": {
+      "nanoinfra_pending_approvals": {
+        "label": "承認待ち",
+        "help": "人の回答を待って中断しているアクション。"
+      },
+      "nanoinfra_ws_connections": {
+        "label": "WebUI ソケット",
+        "help": "WebUI から開かれている WebSocket 接続。"
+      },
+      "nanoinfra_sessions_active": {
+        "label": "アクティブなセッション",
+        "help": "このワークスペースに履歴が記録されているセッション。"
+      },
+      "nanoinfra_inbound_queue_depth": {
+        "label": "受信キュー",
+        "help": "エージェントループを待っているメッセージ。増えていく数値はエージェントが追いつけていない印です。"
+      },
+      "nanoinfra_outbound_queue_depth": {
+        "label": "送信キュー",
+        "help": "チャネルを待っている返信。増えていく数値は、はけていないチャネルの印です。"
+      },
+      "nanoinfra_context_tokens_used": {
+        "label": "使用中のコンテキスト",
+        "help": "直前のターンのプロンプトのトークン数。"
+      },
+      "nanoinfra_context_tokens_limit": {
+        "label": "コンテキスト上限",
+        "help": "有効なプリセットのコンテキストウィンドウ。"
+      }
+    },
+    "calls": {
+      "filter": {
+        "tool": "ツール",
+        "outcome": "結果",
+        "decision": "ゲート",
+        "any": "すべて",
+        "clearTurn": "1ターンのみ表示中 — すべて表示"
+      },
+      "column": {
+        "time": "時刻",
+        "tool": "ツール",
+        "source": "発生元",
+        "outcome": "結果",
+        "gate": "ゲート",
+        "duration": "所要"
+      },
+      "field": {
+        "time": "時刻",
+        "tool": "ツール",
+        "source": "発生元",
+        "outcome": "結果",
+        "errorKind": "エラー種別",
+        "duration": "所要",
+        "class": "権限クラス",
+        "gate": "ゲートの判断",
+        "gateReason": "ゲートの理由",
+        "actor": "実行者",
+        "session": "セッション",
+        "turn": "ターン",
+        "seq": "連番"
+      },
+      "empty": "この条件に一致する呼び出しはありません。保持期間より古い行は削除されるため、空のページは必ずしも何もしていなかったことを意味しません。",
+      "unreachable": "ツール呼び出しログを読み取れませんでした。呼び出し自体は記録され続けているので、これは空のログではなく、ビューが欠けている状態として扱ってください。",
+      "loadMore": "さらに読み込む",
+      "retention": "呼び出しは {{days}} 日間保持され、その後削除されます。",
+      "lastPurge": "最後の削除は {{when}} に実行され、{{cutoff}} より古い {{rows}} 行を削除しました。",
+      "noPurge": "まだ何も削除されていません。",
+      "noArguments": "呼び出しに渡された内容はここには記録されません。この行は呼び出しの所在であり、やり取りの内容は会話が保持しています。",
+      "sameTurn": "このターンのすべての呼び出し",
+      "openTranscript": "会話を開く"
+    },
+    "sources": {
+      "title": "発生元別、直近 {{count}} 日",
+      "calls": "{{count}} 件の呼び出し"
     }
   }
 }

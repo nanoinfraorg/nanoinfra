@@ -1214,6 +1214,22 @@ export interface SettingsPayload {
     temperature: number;
     reasoning_effort: string | null;
     reasoning_effort_values?: string[];
+    /**
+     * The rates that apply to this model, or `null` when nothing prices it.
+     *
+     * **Effective**, not declared: these are the model's own rates when it has them and the
+     * provider's default otherwise, which is what `pricing_source` distinguishes. A cost
+     * inherited from a provider is a weaker claim than one somebody typed for that model.
+     */
+    pricing?: ModelPricingRates | null;
+    pricing_source?: "model" | "provider" | null;
+    /**
+     * Other configurations naming the same provider and model.
+     *
+     * They are one bill. The editor says so rather than letting an operator find out by editing
+     * one and watching the other change.
+     */
+    shares_pricing_with?: string[];
   }>;
   /**
    * The agents this deployment names, with **counts** of their bindings and never the bindings
@@ -1285,6 +1301,12 @@ export interface SettingsPayload {
     thinking_style?: string | null;
     region?: string | null;
     profile?: string | null;
+    /** Default rates for every model on this provider that has no rates of its own. */
+    pricing?: ModelPricingRates | null;
+    /** True when the default is the four explicit zeros that say *free*. */
+    pricing_free?: boolean;
+    /** Whether this provider runs locally, which is the case the free toggle exists for. */
+    is_local?: boolean;
   }>;
   web_search: {
     provider: string;
@@ -1429,7 +1451,64 @@ export interface SettingsPayload {
       timed_requests: number;
       generation_ms: number;
       measured_completion_tokens: number;
+      /** Cache writes, priced separately from cache reads. Both were summed and never shown. */
+      cache_write_tokens?: number;
+      /** Wall clock, which `generation_ms` is not: it includes the wait before the first token. */
+      duration_ms?: number;
+      /** A `length` finish. The answer arrived cut off mid-sentence, and it is not a failure. */
+      truncated_requests?: number;
+      /** The denominator `ttft_ms` needs: it means nothing for a non-streamed call. */
+      streamed_requests?: number;
+      /** How many attempts the provider reported usage for, against how many were tokenized
+       *  locally. The two never mix silently, and the split was stored and never shown. */
+      provider_requests?: number;
+      estimated_requests?: number;
+      /**
+       * What this model cost over the window, in USD.
+       *
+       * **`null` is "no price configured", not "free".** `0` is a price, and a month of real
+       * spend shown as `$0.00` is worse than a blank. Priced from `pricing["<provider>/<model>"]`
+       * at four rates, because a cached read costs a fraction of a fresh prompt token and one
+       * rate over the total over-bills a warm cache by more than half.
+       */
+      cost_usd?: number | null;
+      /**
+       * Which level priced it: the model's own rates, or its provider's default.
+       *
+       * A cost inherited from a provider is a weaker claim than one somebody typed for that
+       * model, and a reader checking a figure against an invoice needs to know which they have.
+       */
+      cost_source?: "model" | "provider" | null;
     }>;
+    /**
+     * What started the turns, over the window.
+     *
+     * `source` was aggregated per day and read only inside a heatmap cell's tooltip, so "what
+     * does automation cost me this month" had no surface that answered it.
+     */
+    sources_window?: Array<{
+      source: string;
+      total_tokens: number;
+      prompt_tokens: number;
+      completion_tokens: number;
+      cached_tokens: number;
+      requests: number;
+      failed_requests: number;
+    }>;
+    /** Why the failures failed: per kind, status code and provider. Stored since #176, unread. */
+    failures?: Array<{
+      error_kind: string;
+      status_code: number;
+      provider: string;
+      requests: number;
+    }>;
+    /** What the per-model and per-failure breakdowns cover. A table headed "by model" over an
+     *  unstated window is a table nobody can check. */
+    window_days?: number;
+    /** The window's total spend, or `null` when nothing is priced. */
+    cost_usd_window?: number | null;
+    /** How many of the models in the breakdown have a price. */
+    priced_models?: number;
     updated_at?: string | null;
   };
   advanced: {
@@ -1968,6 +2047,8 @@ export interface ModelConfigurationCreate {
   contextWindowTokens?: number;
   temperature?: number;
   reasoningEffort?: string | null;
+  /** USD per million tokens. Absent means unset, and unset means unpriced. */
+  pricing?: Partial<ModelPricingRates>;
 }
 
 export interface ModelConfigurationUpdate {
@@ -1979,6 +2060,15 @@ export interface ModelConfigurationUpdate {
   contextWindowTokens?: number;
   temperature?: number;
   reasoningEffort?: string | null;
+  /** A rate this request states. Absent means unchanged, like every other field here. */
+  pricing?: Partial<ModelPricingRates>;
+  /**
+   * Remove the entry for this model.
+   *
+   * Its own flag because `0` is a valid rate and means free, so an empty field cannot mean
+   * "remove".
+   */
+  clearPricing?: boolean;
 }
 
 export interface ProviderSettingsUpdate {
@@ -1994,6 +2084,12 @@ export interface ProviderSettingsUpdate {
   thinkingStyle?: string;
   region?: string;
   profile?: string;
+  /** Default rates for this provider's models. Absent means unchanged. */
+  pricing?: Partial<ModelPricingRates>;
+  /** Write four explicit zeros — the one-edit answer for a local fleet. */
+  pricingFree?: boolean;
+  /** Remove the default, returning this provider's models to unpriced. */
+  clearPricing?: boolean;
 }
 
 export interface ProviderCreationUpdate {
@@ -2387,3 +2483,82 @@ export type Outbound =
        * generic websocket protocol for other clients. */
       webui?: true;
     };
+
+/**
+ * One sampled gauge from `/api/webui/metrics/live` (#235).
+ *
+ * `value` is nullable on purpose: the sampler returns `null` when a source could not be read,
+ * which is a different fact from a source that read zero.
+ */
+export type MetricsGauge = {
+  name: string;
+  value: number | null;
+  label: string;
+  help: string;
+  alerting: boolean;
+};
+
+export type MetricsLivePayload = {
+  gauges: MetricsGauge[];
+  /** False when this process is not the gateway, so there is nothing to sample here. */
+  available?: boolean;
+};
+
+/**
+ * One row of `tool_calls` (#232). No arguments, by design: the row carries the *address* of the
+ * call — `session_key`, `turn_id`, `seq` — and the transcript carries what was said.
+ */
+export type ToolCallRow = {
+  id: number;
+  ts_ms: number;
+  session_key: string | null;
+  turn_id: string | null;
+  seq: number | null;
+  tool: string;
+  source: string;
+  actor: string | null;
+  capability_class: string | null;
+  gate_decision: string | null;
+  gate_reason: string | null;
+  outcome: string;
+  duration_ms: number;
+  error_kind: string | null;
+};
+
+export type MetricsCallsPayload = {
+  calls: ToolCallRow[];
+  has_more: boolean;
+  next_before_id: number | null;
+  tools: string[];
+  outcomes: string[];
+  gate_decisions: string[];
+  retention_days: number;
+  last_purge: { ts_ms: number; rows_purged: number; cutoff_ms: number } | null;
+};
+
+export type MetricsCallsQuery = {
+  limit?: number;
+  before?: number | null;
+  tool?: string;
+  outcome?: string;
+  decision?: string;
+  session?: string;
+  turn?: string;
+};
+
+/**
+ * Four rates in USD per **million** tokens (#235).
+ *
+ * Four and not one because the cheap tokens are most of the volume: a cached read is billed at a
+ * fraction of a fresh prompt token, so a single blended rate over the total over-bills a working
+ * cache by more than half.
+ *
+ * Per million because that is the unit every provider publishes, so a price list can be copied
+ * without arithmetic — and arithmetic is where a rate table goes wrong silently.
+ */
+export type ModelPricingRates = {
+  inputPerMtok: number;
+  outputPerMtok: number;
+  cacheReadPerMtok: number;
+  cacheWritePerMtok: number;
+};

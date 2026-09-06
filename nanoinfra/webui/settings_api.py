@@ -47,11 +47,13 @@ from nanoinfra.config.schema import (
     FallbackCandidate,
     KnowledgeConfig,
     ModelPresetConfig,
+    ModelPricing,
     ProviderConfig,
     ToolGroupConfig,
 )
 from nanoinfra.knowledge import HYBRID_INSTALL_HINT, hybrid_available, status_payload
 from nanoinfra.llm_usage import llm_usage_payload
+from nanoinfra.llm_usage.pricing import cost_usd, pricing_key, resolve_pricing
 from nanoinfra.providers.image_generation import (
     get_image_gen_provider,
     image_gen_provider_names,
@@ -641,6 +643,19 @@ def _provider_settings_row(
         "region": getattr(provider_config, "region", None),
         "profile": getattr(provider_config, "profile", None),
         "proxy": provider_config.proxy,
+        # The default rates for every model on this provider that has no rates of its own (#235),
+        # and whether they are the four explicit zeros that say "free". `is_local` is here because
+        # the free case is what the provider level exists for, and the panel offers it first for a
+        # local provider rather than burying it under four number fields.
+        "pricing": None
+        if provider_config.pricing is None
+        else {
+            param: getattr(provider_config.pricing, field)
+            for field, param in _PRICING_FIELDS
+        },
+        "pricing_free": provider_config.pricing is not None
+        and all(getattr(provider_config.pricing, field) == 0.0 for field, _ in _PRICING_FIELDS),
+        "is_local": bool(getattr(spec, "is_local", False)),
     }
     if oauth_status is not None:
         row["oauth_account"] = oauth_status["account"]
@@ -933,6 +948,149 @@ def _parse_positive_int(value: str | None, field: str) -> int | None:
     if parsed <= 0:
         raise WebUISettingsError(f"{field} must be greater than zero")
     return parsed
+
+
+#: The four rate fields, as (config field, query param). One list so the routes, the payload and
+#: the validator cannot disagree about which four there are.
+_PRICING_FIELDS: tuple[tuple[str, str], ...] = (
+    ("input_per_mtok", "inputPerMtok"),
+    ("output_per_mtok", "outputPerMtok"),
+    ("cache_read_per_mtok", "cacheReadPerMtok"),
+    ("cache_write_per_mtok", "cacheWritePerMtok"),
+)
+
+#: USD per **million** tokens. A rate above this could only be a mistake.
+#:
+#: The bound catches one direction and not the other, which is worth being honest about: somebody
+#: entering a per-token price types `0.0000025` and somebody entering a per-1K price types a number
+#: a thousand times too small, and neither is distinguishable from a real cheap rate. The reverse
+#: mistake is distinguishable, so it is refused rather than rendered as a $40,000 month.
+_MAX_RATE_PER_MTOK = 10_000.0
+
+
+def _parse_rate(value: str | None, field: str) -> float | None:
+    """One rate, or `None` when the caller did not send it.
+
+    `None` means unchanged, which is this route's convention for every field. It is also why
+    clearing a price needs its own parameter: `0` is a valid rate and means free, so an empty
+    field cannot mean "remove".
+    """
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        parsed = float(text)
+    except ValueError:
+        raise WebUISettingsError(f"{field} must be a number") from None
+    if parsed < 0:
+        raise WebUISettingsError(f"{field} must not be negative")
+    if parsed > _MAX_RATE_PER_MTOK:
+        raise WebUISettingsError(
+            f"{field} must be {_MAX_RATE_PER_MTOK:,.0f} or less -- rates are per million tokens"
+        )
+    return parsed
+
+
+def _pricing_rates(query: QueryParams) -> dict[str, float]:
+    """The rates this request states, keyed by config field. Absent ones are simply absent."""
+    rates: dict[str, float] = {}
+    for field, param in _PRICING_FIELDS:
+        parsed = _parse_rate(_query_first_alias(query, field, param), param)
+        if parsed is not None:
+            rates[field] = parsed
+    return rates
+
+
+def _apply_model_pricing(config: Config, key: str, rates: dict[str, float]) -> bool:
+    """Merge rates into `pricing[key]`, creating the entry if this is the first one."""
+    if not rates:
+        return False
+    current = config.pricing.get(key)
+    values = (
+        {field: getattr(current, field) for field, _ in _PRICING_FIELDS}
+        if current is not None and current.is_stated()
+        else {}
+    )
+    values.update(rates)
+    updated = ModelPricing(**values)
+    if current is not None and all(
+        getattr(current, field) == getattr(updated, field) for field, _ in _PRICING_FIELDS
+    ) and current.is_stated():
+        return False
+    config.pricing[key] = updated
+    return True
+
+
+def _preset_names_for_model(config: Config, key: str, *, exclude: str) -> list[str]:
+    """Which other configurations name the same provider and model.
+
+    Two of them are one bill, and the editor says so rather than letting an operator discover it
+    by editing one and watching the other change.
+    """
+    return [
+        preset.label or name
+        for name, preset in sorted(config.model_presets.items())
+        if name != exclude and pricing_key(preset.provider, preset.model) == key
+    ]
+
+
+def _carry_model_pricing(config: Config, *, old_key: str, new_key: str, preset_name: str) -> bool:
+    """Move a configuration's rates when its model changes.
+
+    Two rules, both deliberate:
+
+    * The rates **move**, because retyping them is the annoyance the pricing editor exists to
+      remove, and a model swap is not a repricing.
+    * The old entry **stays**. `llm_calls` keeps 400 days keyed by provider and model, so deleting
+      it would silently un-price rows that are still on the Usage page -- a regression in a number
+      somebody already read.
+
+    And it only moves when the new key states nothing and no other configuration named the old
+    model: otherwise this would overwrite a price somebody set, or claim one that belongs to a
+    configuration that did not change.
+    """
+    if old_key == new_key:
+        return False
+    source = config.pricing.get(old_key)
+    if source is None or not source.is_stated():
+        return False
+    existing = config.pricing.get(new_key)
+    if existing is not None and existing.is_stated():
+        return False
+    if _preset_names_for_model(config, old_key, exclude=preset_name):
+        return False
+    config.pricing[new_key] = source.model_copy()
+    return True
+
+
+def _pricing_payload(
+    config: Config,
+    *,
+    provider: str,
+    model: str,
+    preset_name: str,
+) -> dict[str, Any]:
+    """The three pricing fields a model row carries (#235).
+
+    `pricing` is the **effective** rates -- the model's own, or the provider's default -- and
+    `pricing_source` says which, because a cost inherited from a provider is a weaker claim than
+    one somebody typed for that model.
+
+    `shares_pricing_with` is computed here because only the server has every configuration. Two
+    configurations naming one model are one bill, and an operator must not learn that by editing
+    one and watching the other change.
+    """
+    key = pricing_key(provider, model)
+    price, source = resolve_pricing(config, provider, model)
+    return {
+        "pricing": None
+        if price is None
+        else {param: getattr(price, field) for field, param in _PRICING_FIELDS},
+        "pricing_source": source,
+        "shares_pricing_with": _preset_names_for_model(config, key, exclude=preset_name),
+    }
 
 
 def _parse_temperature(value: str | None) -> float | None:
@@ -1295,6 +1453,19 @@ def settings_payload(
                 or defaults.provider,
                 defaults.model,
             ),
+            # Read-only here: the implicit default is not writable through
+            # `model-configurations/update`, and the panel already asks a deployment on it to
+            # convert first. Present so the card can still show what the model costs.
+            **_pricing_payload(
+                config,
+                provider=config.get_provider_name(
+                    defaults.model,
+                    preset=config.resolve_default_preset(),
+                )
+                or defaults.provider,
+                model=defaults.model,
+                preset_name="default",
+            ),
         }
     ] if show_implicit_default else []
     for name, preset in config.model_presets.items():
@@ -1320,6 +1491,14 @@ def settings_payload(
                 "reasoning_effort": preset.reasoning_effort,
                 "reasoning_effort_values": _reasoning_effort_values_for(
                     resolved_preset_provider, preset.model
+                ),
+                # Keyed on the preset's own `provider`, not the resolved one: that is the key the
+                # editor writes and the key `llm_calls` records.
+                **_pricing_payload(
+                    config,
+                    provider=preset.provider,
+                    model=preset.model,
+                    preset_name=name,
                 ),
             }
         )
@@ -1487,7 +1666,9 @@ def settings_payload(
             },
             "unified_session": defaults.unified_session,
         },
-        "usage": llm_usage_payload(timezone_name=defaults.timezone),
+        "usage": priced_usage_payload(
+            llm_usage_payload(timezone_name=defaults.timezone), config
+        ),
         "advanced": {
             "restrict_to_workspace": config.tools.restrict_to_workspace,
             "workspace_sandbox": sandbox_status.as_dict(),
@@ -1516,10 +1697,67 @@ def settings_payload(
     )
 
 
-def settings_usage_payload() -> dict[str, Any]:
+def settings_usage_payload(*, window_days: int = 30) -> dict[str, Any]:
     """Return the lightweight token usage slice for Overview refreshes."""
     config = load_config()
-    return llm_usage_payload(timezone_name=config.agents.defaults.timezone)
+    payload = llm_usage_payload(
+        timezone_name=config.agents.defaults.timezone, window_days=window_days
+    )
+    return priced_usage_payload(payload, config)
+
+
+def priced_usage_payload(payload: dict[str, Any], config: Config) -> dict[str, Any]:
+    """The usage payload with cost attached, where `tools.pricing` says what a token is worth.
+
+    Derived here rather than in the store, and the split is deliberate: the store records what
+    happened, and what a token cost is a deployment's answer that can change after the fact. A
+    price edited today should re-price yesterday's rows, which it does when the number is computed
+    on read and cannot when it is written into them.
+
+    Four rates per model, because the cheap tokens are most of the volume: multiplying
+    `total_tokens` by one rate over-bills a deployment with a warm cache. Unpriced models carry
+    `cost_usd: None` rather than `0.0` -- zero is a price and "we do not know" is not.
+
+    `cost_source` travels beside the figure. A cost inherited from a provider default is a weaker
+    claim than one somebody typed for that model, and a reader checking a figure against an
+    invoice needs to know which of the two they have.
+    """
+    priced_rows: list[dict[str, Any]] = []
+    total = 0.0
+    any_priced = False
+    incoming = cast("list[dict[str, Any]]", payload.get("providers_30d") or [])
+
+    def _tokens(row: dict[str, Any], key: str) -> int:
+        value = cast(object, row.get(key))
+        return int(value) if isinstance(value, (int, float)) else 0
+
+    for row in incoming:
+        # `resolve_pricing` owns the two levels and the "an unstated entry is not a price" rule,
+        # so a mistyped rate key cannot report a month of real spend as free.
+        price, source = resolve_pricing(
+            config, str(row.get("provider") or ""), str(row.get("model") or "")
+        )
+        if price is None:
+            priced_rows.append({**row, "cost_usd": None, "cost_source": None})
+            continue
+        any_priced = True
+        cost = cost_usd(
+            price,
+            prompt_tokens=_tokens(row, "prompt_tokens"),
+            completion_tokens=_tokens(row, "completion_tokens"),
+            cached_tokens=_tokens(row, "cached_tokens"),
+            cache_write_tokens=_tokens(row, "cache_write_tokens"),
+        )
+        total += cost
+        priced_rows.append({**row, "cost_usd": round(cost, 6), "cost_source": source})
+    return {
+        **payload,
+        "providers_30d": priced_rows,
+        # `None` when nothing is priced, so the page can say "no prices configured" rather than
+        # showing a confident $0.00 for a month of real spend.
+        "cost_usd_window": round(total, 4) if any_priced else None,
+        "priced_models": sum(1 for row in priced_rows if row.get("cost_usd") is not None),
+    }
 
 
 def update_agent_settings(query: QueryParams) -> dict[str, Any]:
@@ -1683,6 +1921,9 @@ def create_model_configuration(query: QueryParams) -> dict[str, Any]:
     # whole area exists to remove.
     if not defaults_have_active_preset(config) and not config.agents.defaults.model.strip():
         config.agents.defaults.model_preset = name
+    # Rates go on the model, not the configuration: two configurations naming one model are one
+    # bill, and `llm_calls` keeps 400 days keyed by provider and model.
+    _apply_model_pricing(config, pricing_key(provider, model), _pricing_rates(query))
     save_config(config)
     payload = settings_payload()
     payload["created_model_preset"] = name
@@ -1711,6 +1952,9 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
         raise WebUISettingsError("unknown model configuration")
 
     changed = False
+    # The key the rates live under before anything in this request is applied. Captured first
+    # because a model or provider change moves it.
+    pricing_key_before = pricing_key(preset.provider, preset.model)
     label = _query_first_alias(query, "label", "displayName")
     if label is not None:
         label = label.strip()
@@ -1770,6 +2014,21 @@ def update_model_configuration(query: QueryParams) -> dict[str, Any]:
         if preset.reasoning_effort != reasoning_effort:
             preset.reasoning_effort = reasoning_effort
             changed = True
+
+    pricing_key_after = pricing_key(preset.provider, preset.model)
+    if _carry_model_pricing(
+        config, old_key=pricing_key_before, new_key=pricing_key_after, preset_name=name
+    ):
+        changed = True
+
+    # Explicit, because `0` is a valid rate and means free -- so an empty field cannot mean
+    # "remove". Applied before the rates so one request can clear and re-state in that order.
+    if _query_first(query, "clearPricing") or _query_first(query, "clear_pricing"):
+        if config.pricing.pop(pricing_key_after, None) is not None:
+            changed = True
+
+    if _apply_model_pricing(config, pricing_key_after, _pricing_rates(query)):
+        changed = True
 
     if changed:
         save_config(config)
@@ -1987,6 +2246,7 @@ def update_provider_settings(query: QueryParams) -> dict[str, Any]:
             raise WebUISettingsError("provider already exists", status=409)
 
     updated_provider_config = _validated_provider_config(provider_config, updates)
+    updated_provider_config = _provider_pricing_applied(query, updated_provider_config)
     changed = updated_provider_config != provider_config
     if changed:
         setattr(config.providers, provider_key, updated_provider_config)
@@ -1999,6 +2259,46 @@ def update_provider_settings(query: QueryParams) -> dict[str, Any]:
         and get_image_gen_provider(provider_key) is not None
     )
     return settings_payload(requires_restart=restart_required)
+
+
+def _provider_pricing_applied(
+    query: QueryParams,
+    provider_config: ProviderConfig,
+) -> ProviderConfig:
+    """The provider's default rates, applied to a validated provider config (#235).
+
+    Handled here rather than through `_provider_config_updates`, because that path is for scalar
+    fields with an allow-list per provider and this is a nested object every provider may carry.
+
+    Three inputs, in precedence order:
+
+    * `pricingFree=1` writes **four explicit zeros**. That is the whole point of the provider
+      level: a local fleet is a dozen models that all cost nothing, and pricing them one at a time
+      is twelve edits to state one fact. An explicit zero is a price and means free.
+    * `clearPricing=1` removes the default, so models fall back to unpriced.
+    * The four rates, merged into whatever is there.
+
+    A request that sends none of them leaves the default exactly as it was.
+    """
+    if _query_first(query, "pricingFree") or _query_first(query, "pricing_free"):
+        return provider_config.model_copy(
+            update={"pricing": ModelPricing(**{field: 0.0 for field, _ in _PRICING_FIELDS})}
+        )
+    if _query_first(query, "clearPricing") or _query_first(query, "clear_pricing"):
+        return provider_config.model_copy(update={"pricing": None})
+
+    rates = _pricing_rates(query)
+    if not rates:
+        return provider_config
+
+    current = provider_config.pricing
+    values = (
+        {field: getattr(current, field) for field, _ in _PRICING_FIELDS}
+        if current is not None
+        else {}
+    )
+    values.update(rates)
+    return provider_config.model_copy(update={"pricing": ModelPricing(**values)})
 
 
 def login_oauth_provider(query: QueryParams) -> dict[str, Any]:

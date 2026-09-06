@@ -80,7 +80,8 @@
     "docs": "문서",
     "signOut": "로그아웃",
     "agents": "에이전트",
-    "abilities": "역량"
+    "abilities": "역량",
+    "metrics": "메트릭"
   },
   "settings": {
     "backToChat": "채팅으로 돌아가기",
@@ -372,6 +373,11 @@
           "answer": "누군가 답해야 합니다",
           "empty": "답변을 기다리는 작업이 없습니다"
         }
+      },
+      "metrics": {
+        "spent": "지난 {{days}}일간 호출 {{count}}건",
+        "none": "아직 기록된 호출이 없습니다",
+        "caption": "모델별 지출, 실시간 게이지, 모든 도구 호출"
       }
     },
     "usage": {
@@ -417,7 +423,14 @@
       "profile": "프로필",
       "extraHeaders": "추가 헤더",
       "extraBody": "추가 본문",
-      "extraQuery": "추가 쿼리"
+      "extraQuery": "추가 쿼리",
+      "pricing": "이 공급자의 기본 가격",
+      "pricingHelp": "이 공급자에서 자체 단가가 없는 모든 모델에 적용됩니다. 모델 자체 단가가 항상 우선합니다.",
+      "pricingFree": "이 공급자의 모든 것이 무료",
+      "pricingFreeLocal": "이 공급자는 로컬에서 실행되므로 보통 이것이 맞는 답이며, 모델마다 하지 않고 한 번만 편집하면 됩니다.",
+      "pricingFreeSummary": "여기 모든 모델이 무료",
+      "pricingNone": "기본값 없음 — 각 모델이 스스로 가격을 정합니다",
+      "pricingSummary": "입력 ${{input}} · 출력 ${{output}} · Mtok당"
     },
     "image": {
       "selectProvider": "제공자 선택",
@@ -486,7 +499,22 @@
       "loadFailed": "모델 목록을 사용할 수 없습니다.",
       "unsupportedModelList": "모델 ID를 직접 입력하세요.",
       "providerNotConfigured": "모델을 불러오기 전에 이 제공자를 설정하세요.",
-      "autoProviderCustomOnly": "자동 제공자 모드는 사용자 지정 모델 ID를 사용합니다."
+      "autoProviderCustomOnly": "자동 제공자 모드는 사용자 지정 모델 ID를 사용합니다.",
+      "pricing": "가격",
+      "pricingNone": "가격 미설정 — 사용량에서 이 모델의 비용이 “—” 로 표시됩니다",
+      "pricingSummary": "입력 {{input}} · 출력 {{output}} · 100만 토큰당",
+      "pricingFromProvider": "{{line}} — 공급자 기본값에서",
+      "rateInput": "입력",
+      "rateOutput": "출력",
+      "rateCacheRead": "캐시 읽기",
+      "rateCacheWrite": "캐시 쓰기",
+      "pricingHelp": "100만 토큰당 USD입니다. 공급자의 가격표에서 네 숫자를 그대로 옮겨 적으세요. nanoinfra는 가격표를 포함하지 않습니다. 제품에 박아 넣은 단가표는 출시 다음 주에 이미 틀리기 때문입니다.",
+      "pricingCacheWarning": "이 모델은 해당 기간에 캐시에서 {{tokens}} 토큰을 읽었습니다. 캐시 읽기를 0으로 두면 아래 금액에서 제외됩니다.",
+      "pricingInherited": "공급자의 기본 단가입니다. 여기서 저장하면 이 모델 자체의 단가가 되고, 공급자 기본값은 이 모델에 더 이상 적용되지 않습니다.",
+      "pricingShared": "이 단가는 {{key}}에 적용되므로, 같은 모델을 지정한 {{others}}도 함께 적용됩니다.",
+      "pricingNoUsage": "이 모델의 호출 기록이 아직 없어, 단가를 맞춰볼 실적이 없습니다.",
+      "pricingPreview": "이 단가로 지난 {{days}}일: {{cost}}",
+      "pricingClear": "단가 지우기"
     },
     "timezone": {
       "select": "시간대 선택",
@@ -2027,6 +2055,136 @@
       "skillsVsDisabled": "설정 → 스킬에서 비활성화하는 스킬과는 다릅니다. 그 목록은 모든 에이전트에서 스킬을 없애고, 이 목록은 남은 것 중 이 에이전트가 전문으로 실을 것을 고릅니다.",
       "delegatesHelp": "이 에이전트가 일을 넘길 수 있는 에이전트입니다. 여기서 가장 중요합니다: 당신이 말을 거는 에이전트이므로, 동료를 지정하지 않으면 동료에게 닿는 유일한 방법은 말을 그만두는 것입니다.",
       "delegatesEmpty": "이 배포는 아직 다른 에이전트를 지정하지 않았습니다."
+    }
+  },
+  "metrics": {
+    "title": "메트릭",
+    "subtitle": "이 배포가 무엇에 얼마를 썼고, 지금 어떻게 돌고 있으며, 실제로 무엇을 했는지.",
+    "refresh": "새로 고침",
+    "tabs": {
+      "usage": "사용량",
+      "live": "실시간",
+      "calls": "호출",
+      "aria": "메트릭 섹션"
+    },
+    "window": {
+      "label": "기간",
+      "days": "{{count}}일",
+      "loading": "불러오는 중…"
+    },
+    "cost": {
+      "label": "이 기간의 지출",
+      "priced": "{{total}}개 모델 중 {{priced}}개에 단가 설정됨",
+      "unpriced": "설정된 단가가 없습니다",
+      "unpricedHelp": "단가는 모델 자체에 설정하세요(설정 → 모델 → 가격). 로컬 공급자라면 공급자 단위로 한 번 설정하는 것이 답입니다. 단가가 네 개인 이유는 캐시 읽기가 새 토큰의 일부 비용만 들고, 합계에 단일 단가를 적용하면 캐시가 잘 동작할 때 절반 이상 과다 청구되기 때문입니다."
+    },
+    "models": {
+      "title": "모델별, 최근 {{count}}일",
+      "model": "모델",
+      "in": "입력",
+      "out": "출력",
+      "cacheRead": "캐시 읽기",
+      "cacheWrite": "캐시 쓰기",
+      "calls": "호출",
+      "truncated": "잘림",
+      "ttft": "TTFT",
+      "wall": "실제 시간",
+      "cost": "비용",
+      "reported": "보고값 / 추정값",
+      "reportedValue": "{{total}}건 중 {{reported}}건은 공급자가 보고 · {{tokens}} 토큰은 로컬에서 계산",
+      "reportedHint": "추정값은 nanoinfra 자체 토크나이저의 결과이며 청구서가 아닙니다.",
+      "throughput": "처리량",
+      "throughputValue": "출력 {{rate}} 토큰/초",
+      "throughputHint": "생성 시간당 출력 토큰 수이며, 실제 소요 시간과는 다릅니다.",
+      "measured": "측정된 출력 / 보고된 출력",
+      "measuredHint": "이 차이가 토큰 보정이 학습하는 대상입니다.",
+      "streamed": "스트리밍 / 비스트리밍",
+      "streamedHint": "TTFT는 시간이 측정된 {{count}}건의 평균이며, 스트리밍하지 않은 호출에는 의미가 없습니다.",
+      "costFromProvider": "공급자의 기본 단가에서 온 값이며, 이 모델 자체의 단가가 아닙니다"
+    },
+    "failures": {
+      "title": "호출이 실패한 이유"
+    },
+    "live": {
+      "loading": "샘플링 중…",
+      "unreachable": "게이지를 읽을 수 없습니다",
+      "notGateway": "이 수치들은 게이트웨이 프로세스 안에 있습니다. 이 WebUI는 자신이 실행하지 않는 게이트웨이와 통신하고 있어서, 여기서 샘플링할 것이 없습니다.",
+      "scrape": "같은 값이 게이트웨이 자체 포트의 /metrics에서 Prometheus 텍스트 형식으로 제공됩니다. 이 포트는 루프백에만 바인딩되며 gateway.metricsEnabled를 설정하지 않으면 꺼져 있습니다. 대시는 값을 읽을 수 없었다는 뜻이며, 0과는 다릅니다."
+    },
+    "gauge": {
+      "nanoinfra_pending_approvals": {
+        "label": "대기 중인 승인",
+        "help": "사람의 응답을 기다리며 중단된 작업."
+      },
+      "nanoinfra_ws_connections": {
+        "label": "WebUI 소켓",
+        "help": "WebUI에서 열려 있는 WebSocket 연결."
+      },
+      "nanoinfra_sessions_active": {
+        "label": "활성 세션",
+        "help": "이 워크스페이스에 기록된 이력이 있는 세션."
+      },
+      "nanoinfra_inbound_queue_depth": {
+        "label": "수신 큐",
+        "help": "에이전트 루프를 기다리는 메시지. 숫자가 오르면 에이전트가 뒤처지고 있다는 뜻입니다."
+      },
+      "nanoinfra_outbound_queue_depth": {
+        "label": "발신 큐",
+        "help": "채널을 기다리는 응답. 숫자가 오르면 채널이 비워지지 않고 있다는 뜻입니다."
+      },
+      "nanoinfra_context_tokens_used": {
+        "label": "사용된 컨텍스트",
+        "help": "마지막 턴 프롬프트의 토큰 수."
+      },
+      "nanoinfra_context_tokens_limit": {
+        "label": "컨텍스트 한도",
+        "help": "활성 프리셋의 컨텍스트 창."
+      }
+    },
+    "calls": {
+      "filter": {
+        "tool": "도구",
+        "outcome": "결과",
+        "decision": "게이트",
+        "any": "전체",
+        "clearTurn": "한 턴만 표시 중 — 전체 보기"
+      },
+      "column": {
+        "time": "시간",
+        "tool": "도구",
+        "source": "출처",
+        "outcome": "결과",
+        "gate": "게이트",
+        "duration": "소요"
+      },
+      "field": {
+        "time": "시간",
+        "tool": "도구",
+        "source": "출처",
+        "outcome": "결과",
+        "errorKind": "오류 종류",
+        "duration": "소요",
+        "class": "권한 등급",
+        "gate": "게이트 결정",
+        "gateReason": "게이트 사유",
+        "actor": "행위자",
+        "session": "세션",
+        "turn": "턴",
+        "seq": "순번"
+      },
+      "empty": "이 필터에 맞는 호출이 없습니다. 보존 기간보다 오래된 행은 삭제되므로, 빈 페이지가 항상 아무 일도 없었다는 뜻은 아닙니다.",
+      "unreachable": "도구 호출 로그를 읽을 수 없습니다. 호출은 계속 기록되고 있으므로, 이것은 빈 로그가 아니라 빠진 화면으로 보아야 합니다.",
+      "loadMore": "더 불러오기",
+      "retention": "호출은 {{days}}일 동안 보관된 뒤 삭제됩니다.",
+      "lastPurge": "마지막 삭제는 {{when}}에 실행되어 {{cutoff}} 이전의 {{rows}}개 행을 지웠습니다.",
+      "noPurge": "아직 삭제된 것이 없습니다.",
+      "noArguments": "호출에 전달된 내용은 여기에 기록되지 않습니다. 이 행은 호출의 위치이고, 무엇을 주고받았는지는 대화가 담고 있습니다.",
+      "sameTurn": "이 턴의 모든 호출",
+      "openTranscript": "대화 열기"
+    },
+    "sources": {
+      "title": "출처별, 최근 {{count}}일",
+      "calls": "호출 {{count}}건"
     }
   }
 }

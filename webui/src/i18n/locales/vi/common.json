@@ -80,7 +80,8 @@
     "docs": "tài liệu",
     "signOut": "Đăng xuất",
     "agents": "Tác nhân",
-    "abilities": "Năng lực"
+    "abilities": "Năng lực",
+    "metrics": "Số liệu"
   },
   "settings": {
     "backToChat": "Quay lại chat",
@@ -372,6 +373,11 @@
           "answer": "Phải có người trả lời",
           "empty": "Không có hành động nào chờ trả lời"
         }
+      },
+      "metrics": {
+        "spent": "{{count}} lượt gọi trong {{days}} ngày qua",
+        "none": "Chưa ghi nhận lượt gọi nào",
+        "caption": "Chi phí theo mô hình, đồng hồ đo trực tiếp và mọi lượt gọi công cụ"
       }
     },
     "usage": {
@@ -417,7 +423,14 @@
       "profile": "Hồ sơ",
       "extraHeaders": "Header bổ sung",
       "extraBody": "Body bổ sung",
-      "extraQuery": "Tham số truy vấn bổ sung"
+      "extraQuery": "Tham số truy vấn bổ sung",
+      "pricing": "Giá mặc định cho nhà cung cấp này",
+      "pricingHelp": "Áp dụng cho mọi mô hình của nhà cung cấp này mà không có đơn giá riêng. Đơn giá riêng của mô hình luôn thắng.",
+      "pricingFree": "Mọi thứ ở nhà cung cấp này đều miễn phí",
+      "pricingFreeLocal": "Nhà cung cấp này chạy cục bộ, nên thường đây là câu trả lời đúng — và chỉ cần một lần sửa thay vì một lần cho từng mô hình.",
+      "pricingFreeSummary": "Mọi mô hình ở đây đều miễn phí",
+      "pricingNone": "Không có mặc định — mỗi mô hình tự định giá",
+      "pricingSummary": "${{input}} vào · ${{output}} ra · mỗi Mtok"
     },
     "image": {
       "selectProvider": "Chọn nhà cung cấp",
@@ -486,7 +499,22 @@
       "loadFailed": "Không tải được danh sách mô hình.",
       "unsupportedModelList": "Nhập ID mô hình thủ công.",
       "providerNotConfigured": "Hãy cấu hình nhà cung cấp này trước khi tải mô hình.",
-      "autoProviderCustomOnly": "Chế độ nhà cung cấp tự động dùng ID mô hình tùy chỉnh."
+      "autoProviderCustomOnly": "Chế độ nhà cung cấp tự động dùng ID mô hình tùy chỉnh.",
+      "pricing": "Giá",
+      "pricingNone": "Chưa có giá — Mức dùng hiển thị chi phí của mô hình này là “—”",
+      "pricingSummary": "{{input}} vào · {{output}} ra · trên mỗi triệu token",
+      "pricingFromProvider": "{{line}} — từ mặc định của nhà cung cấp",
+      "rateInput": "Vào",
+      "rateOutput": "Ra",
+      "rateCacheRead": "Đọc cache",
+      "rateCacheWrite": "Ghi cache",
+      "pricingHelp": "USD trên mỗi triệu token. Sao lại bốn con số từ bảng giá của nhà cung cấp; nanoinfra không kèm theo bảng giá nào, vì một bảng giá nhúng trong sản phẩm đã sai ngay tuần sau.",
+      "pricingCacheWarning": "Mô hình này đã đọc {{tokens}} token từ cache trong khoảng này. Để đọc cache ở 0 thì con số bên dưới không tính chúng.",
+      "pricingInherited": "Đây là đơn giá mặc định của nhà cung cấp. Lưu tại đây sẽ biến chúng thành đơn giá riêng của mô hình này, và mặc định của nhà cung cấp thôi áp dụng cho nó.",
+      "pricingShared": "Đơn giá này áp dụng cho {{key}}, nên cũng bao gồm {{others}}, vốn chỉ cùng một mô hình.",
+      "pricingNoUsage": "Chưa ghi nhận lượt gọi nào cho mô hình này, nên không có gì để đối chiếu đơn giá.",
+      "pricingPreview": "{{days}} ngày qua với đơn giá này: {{cost}}",
+      "pricingClear": "Xóa đơn giá"
     },
     "timezone": {
       "select": "Chọn múi giờ",
@@ -2027,6 +2055,136 @@
       "skillsVsDisabled": "Khác với các skill mà triển khai này vô hiệu hóa, trong Cài đặt → Skills. Danh sách đó bỏ một skill khỏi mọi tác nhân; danh sách này chọn trong phần còn lại những gì tác nhân này nạp trọn.",
       "delegatesHelp": "Các tác nhân mà tác nhân này có thể giao việc. Ở đây điều đó quan trọng nhất: đây là tác nhân bạn đang nói chuyện, nên nếu không nêu tên một tác nhân khác thì cách duy nhất để tới được nó là thôi nói chuyện với tác nhân này.",
       "delegatesEmpty": "Triển khai này chưa nêu tên tác nhân nào khác."
+    }
+  },
+  "metrics": {
+    "title": "Số liệu",
+    "subtitle": "Bản triển khai này đã chi bao nhiêu, đang chạy thế nào, và thực sự đã làm gì.",
+    "refresh": "Làm mới",
+    "tabs": {
+      "usage": "Mức dùng",
+      "live": "Trực tiếp",
+      "calls": "Lượt gọi",
+      "aria": "Các mục số liệu"
+    },
+    "window": {
+      "label": "Khoảng",
+      "days": "{{count}} ngày",
+      "loading": "Đang tải…"
+    },
+    "cost": {
+      "label": "Chi phí trong khoảng này",
+      "priced": "{{priced}} trong {{total}} mô hình đã có giá",
+      "unpriced": "Chưa cấu hình giá",
+      "unpricedHelp": "Đặt đơn giá trên chính mô hình, tại Cài đặt → Mô hình → Giá — hoặc một lần cho cả nhà cung cấp, vốn là câu trả lời cho một nhà cung cấp cục bộ. Bốn đơn giá, vì một lần đọc cache chỉ tốn một phần nhỏ so với token mới và dùng một đơn giá cho tổng số sẽ tính vượt hơn một nửa khi cache đang hoạt động."
+    },
+    "models": {
+      "title": "Theo mô hình, {{count}} ngày qua",
+      "model": "Mô hình",
+      "in": "Vào",
+      "out": "Ra",
+      "cacheRead": "Đọc cache",
+      "cacheWrite": "Ghi cache",
+      "calls": "Lượt gọi",
+      "truncated": "Bị cắt",
+      "ttft": "TTFT",
+      "wall": "Thời gian thực",
+      "cost": "Chi phí",
+      "reported": "Báo cáo / ước lượng",
+      "reportedValue": "{{reported}} trong {{total}} lượt gọi do nhà cung cấp báo cáo · {{tokens}} token được đếm cục bộ",
+      "reportedHint": "Ước lượng đến từ bộ tokenizer của nanoinfra, không phải hóa đơn.",
+      "throughput": "Thông lượng",
+      "throughputValue": "{{rate}} token đầu ra/giây",
+      "throughputHint": "Token đầu ra trên thời gian sinh, khác với thời gian thực.",
+      "measured": "Đầu ra đo được / được báo cáo",
+      "measuredHint": "Khoảng chênh là những gì việc hiệu chỉnh token học từ đó.",
+      "streamed": "Có stream / không",
+      "streamedHint": "TTFT là trung bình trên {{count}} lượt gọi đo được; nó vô nghĩa với lượt gọi không stream.",
+      "costFromProvider": "Từ đơn giá mặc định của nhà cung cấp, không phải của riêng mô hình này"
+    },
+    "failures": {
+      "title": "Vì sao các lượt gọi thất bại"
+    },
+    "live": {
+      "loading": "Đang lấy mẫu…",
+      "unreachable": "Không đọc được các đồng hồ đo",
+      "notGateway": "Những con số này nằm trong tiến trình gateway. WebUI này đang nói chuyện với một gateway mà nó không chạy, nên ở đây không có gì để lấy mẫu.",
+      "scrape": "Cùng những giá trị đó được phục vụ ở dạng văn bản Prometheus tại /metrics trên cổng riêng của gateway, cổng này chỉ lắng nghe trên loopback và bị tắt trừ khi gateway.metricsEnabled được đặt. Dấu gạch ngang nghĩa là không đọc được giá trị, khác với số không."
+    },
+    "gauge": {
+      "nanoinfra_pending_approvals": {
+        "label": "Chờ phê duyệt",
+        "help": "Các hành động bị tạm dừng, đang chờ một người trả lời."
+      },
+      "nanoinfra_ws_connections": {
+        "label": "Socket WebUI",
+        "help": "Các kết nối WebSocket đang mở từ WebUI."
+      },
+      "nanoinfra_sessions_active": {
+        "label": "Phiên đang hoạt động",
+        "help": "Các phiên có lịch sử được ghi trong workspace này."
+      },
+      "nanoinfra_inbound_queue_depth": {
+        "label": "Hàng đợi vào",
+        "help": "Tin nhắn đang chờ vòng lặp của tác nhân. Số tăng lên là tác nhân đang bị tụt lại."
+      },
+      "nanoinfra_outbound_queue_depth": {
+        "label": "Hàng đợi ra",
+        "help": "Phản hồi đang chờ một kênh. Số tăng lên là một kênh không thoát được."
+      },
+      "nanoinfra_context_tokens_used": {
+        "label": "Ngữ cảnh đã dùng",
+        "help": "Số token trong prompt của lượt gần nhất."
+      },
+      "nanoinfra_context_tokens_limit": {
+        "label": "Giới hạn ngữ cảnh",
+        "help": "Cửa sổ ngữ cảnh của preset đang dùng."
+      }
+    },
+    "calls": {
+      "filter": {
+        "tool": "Công cụ",
+        "outcome": "Kết quả",
+        "decision": "Cổng kiểm soát",
+        "any": "tất cả",
+        "clearTurn": "Đang xem một lượt — xem tất cả"
+      },
+      "column": {
+        "time": "Thời điểm",
+        "tool": "Công cụ",
+        "source": "Nguồn",
+        "outcome": "Kết quả",
+        "gate": "Cổng",
+        "duration": "Mất"
+      },
+      "field": {
+        "time": "Thời điểm",
+        "tool": "Công cụ",
+        "source": "Nguồn",
+        "outcome": "Kết quả",
+        "errorKind": "Loại lỗi",
+        "duration": "Mất",
+        "class": "Lớp năng lực",
+        "gate": "Quyết định của cổng",
+        "gateReason": "Lý do của cổng",
+        "actor": "Người thực hiện",
+        "session": "Phiên",
+        "turn": "Lượt",
+        "seq": "Thứ tự"
+      },
+      "empty": "Không có lượt gọi nào khớp với các bộ lọc này. Những dòng cũ hơn khoảng lưu trữ đã bị xóa, nên một trang trống không phải lúc nào cũng là một trang không có hoạt động.",
+      "unreachable": "Không đọc được log lượt gọi công cụ. Các lượt gọi vẫn đang được ghi lại, nên hãy coi đây là một khung hiển thị bị thiếu, không phải một log trống.",
+      "loadMore": "Tải thêm",
+      "retention": "Các lượt gọi được giữ {{days}} ngày rồi bị xóa.",
+      "lastPurge": "Lần xóa gần nhất chạy vào {{when}} và đã bỏ {{rows}} dòng cũ hơn {{cutoff}}.",
+      "noPurge": "Chưa có gì bị xóa.",
+      "noArguments": "Nội dung truyền cho lượt gọi không được ghi ở đây. Dòng này là địa chỉ của lượt gọi; cuộc hội thoại mới giữ những gì đã được nói.",
+      "sameTurn": "Mọi lượt gọi trong lượt này",
+      "openTranscript": "Mở cuộc hội thoại"
+    },
+    "sources": {
+      "title": "Theo nguồn, {{count}} ngày qua",
+      "calls": "{{count}} lượt gọi"
     }
   }
 }

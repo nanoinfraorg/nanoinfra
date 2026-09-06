@@ -28,9 +28,13 @@ import type {
   KnowledgeSettingsUpdate,
   McpPresetsPayload,
   MarketplaceProvider,
+  MetricsCallsPayload,
+  MetricsCallsQuery,
+  MetricsLivePayload,
   NanoinfraFeaturesPayload,
   ModelConfigurationCreate,
   ModelConfigurationUpdate,
+  ModelPricingRates,
   NamedAgentsSaveRequest,
   AgentDefaultsSaveRequest,
   NetworkSafetySettingsUpdate,
@@ -790,12 +794,21 @@ export async function fetchSettings(
   );
 }
 
+/**
+ * The usage slice, over a window the caller picks (#235).
+ *
+ * `windowDays` scopes the per-model and per-failure breakdowns. The store clamps it to what it
+ * actually retains, so asking for ten thousand days returns four hundred rather than a promise it
+ * cannot keep. Omitted means the thirty days this endpoint answered before the parameter existed.
+ */
 export async function fetchSettingsUsage(
   token: string,
+  windowDays?: number,
   base: string = "",
 ): Promise<NonNullable<SettingsPayload["usage"]>> {
+  const query = windowDays && windowDays > 0 ? `?window=${windowDays}` : "";
   return request<NonNullable<SettingsPayload["usage"]>>(
-    `${base}/api/settings/usage`,
+    `${base}/api/settings/usage${query}`,
     token,
     undefined,
     API_READ_TIMEOUT_MS,
@@ -1344,6 +1357,23 @@ function appendModelGenerationSettings(
   }
 }
 
+/**
+ * The four rates, flat, in the camelCase the config file uses (#235).
+ *
+ * A rate left `undefined` is not sent, and the server reads absent as unchanged — which is why
+ * clearing has its own flag: `0` is a valid rate and means free.
+ */
+function appendPricingRates(
+  query: URLSearchParams,
+  pricing: Partial<ModelPricingRates> | undefined,
+): void {
+  if (!pricing) return;
+  for (const key of ["inputPerMtok", "outputPerMtok", "cacheReadPerMtok", "cacheWritePerMtok"] as const) {
+    const value = pricing[key];
+    if (value !== undefined) query.set(key, String(value));
+  }
+}
+
 export async function createModelConfiguration(
   token: string,
   configuration: ModelConfigurationCreate,
@@ -1355,6 +1385,7 @@ export async function createModelConfiguration(
   query.set("provider", configuration.provider);
   query.set("model", configuration.model);
   appendModelGenerationSettings(query, configuration);
+  appendPricingRates(query, configuration.pricing);
   return request<SettingsPayload>(
     `${base}/api/settings/model-configurations/create?${query}`,
     token,
@@ -1372,6 +1403,8 @@ export async function updateModelConfiguration(
   if (configuration.provider !== undefined) query.set("provider", configuration.provider);
   if (configuration.model !== undefined) query.set("model", configuration.model);
   appendModelGenerationSettings(query, configuration);
+  appendPricingRates(query, configuration.pricing);
+  if (configuration.clearPricing) query.set("clearPricing", "1");
   return request<SettingsPayload>(
     `${base}/api/settings/model-configurations/update?${query}`,
     token,
@@ -1417,14 +1450,17 @@ export async function updateProviderSettings(
   update: ProviderSettingsUpdate,
   base: string = "",
 ): Promise<SettingsPayload> {
-  const { provider, ...values } = update;
+  const { provider, pricing, ...values } = update;
+  // The rates travel flat, in the same camelCase the config file uses, because the server reads
+  // them as four independent parameters -- absent means unchanged, one rate at a time.
+  const flattened: Record<string, unknown> = { ...values, ...(pricing ?? {}) };
   const query = new URLSearchParams({ provider });
   return request<SettingsPayload>(
     `${base}/api/settings/provider/update?${query}`,
     token,
     {
       headers: {
-        [PROVIDER_VALUES_HEADER]: encodeURIComponent(JSON.stringify(values)),
+        [PROVIDER_VALUES_HEADER]: encodeURIComponent(JSON.stringify(flattened)),
       },
     },
   );
@@ -1691,6 +1727,53 @@ export async function fetchGatesAudit(
   const suffix = params.toString();
   return request<GatesAuditPage>(
     `${base}/api/webui/gates/audit${suffix ? `?${suffix}` : ""}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+/**
+ * The Live tab's gauges (#235).
+ *
+ * Deliberately not cached and deliberately cheap: the panel polls it, and every gauge is a
+ * callable the gateway already holds. The same sampler backs `/metrics`, so a scrape and this
+ * response are the same numbers taken at two moments rather than two different measurements.
+ */
+export async function fetchMetricsLive(
+  token: string,
+  base: string = "",
+): Promise<MetricsLivePayload> {
+  return request<MetricsLivePayload>(
+    `${base}/api/webui/metrics/live`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+/**
+ * One page of `tool_calls` (#232).
+ *
+ * `before` is the keyset cursor, not an offset: rows arrive while somebody is paging, and an
+ * offset silently skips or repeats them.
+ */
+export async function fetchMetricsCalls(
+  token: string,
+  query: MetricsCallsQuery = {},
+  base: string = "",
+): Promise<MetricsCallsPayload> {
+  const params = new URLSearchParams();
+  if (query.limit) params.set("limit", String(query.limit));
+  if (query.before) params.set("before", String(query.before));
+  if (query.tool) params.set("tool", query.tool);
+  if (query.outcome) params.set("outcome", query.outcome);
+  if (query.decision) params.set("decision", query.decision);
+  if (query.session) params.set("session", query.session);
+  if (query.turn) params.set("turn", query.turn);
+  const suffix = params.toString();
+  return request<MetricsCallsPayload>(
+    `${base}/api/webui/metrics/calls${suffix ? `?${suffix}` : ""}`,
     token,
     undefined,
     API_READ_TIMEOUT_MS,

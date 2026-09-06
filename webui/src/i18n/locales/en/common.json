@@ -80,7 +80,8 @@
     "docs": "docs",
     "signOut": "Sign out",
     "agents": "Agents",
-    "abilities": "Abilities"
+    "abilities": "Abilities",
+    "metrics": "Metrics"
   },
   "settings": {
     "backToChat": "Back to chat",
@@ -184,7 +185,22 @@
       "loadFailed": "Model list unavailable.",
       "unsupportedModelList": "Type a model ID manually.",
       "providerNotConfigured": "Configure this provider before loading models.",
-      "autoProviderCustomOnly": "Auto provider mode uses custom model IDs."
+      "autoProviderCustomOnly": "Auto provider mode uses custom model IDs.",
+      "pricing": "Pricing",
+      "pricingNone": "Not priced — Usage shows this model's cost as “—”",
+      "pricingSummary": "{{input}} in · {{output}} out · per million tokens",
+      "pricingFromProvider": "{{line}} — from the provider default",
+      "rateInput": "Input",
+      "rateOutput": "Output",
+      "rateCacheRead": "Cache read",
+      "rateCacheWrite": "Cache write",
+      "pricingHelp": "USD per million tokens. Copy the four numbers from your provider's price list; nanoinfra ships none, because a rate table baked into a product is wrong the week after it ships.",
+      "pricingCacheWarning": "This model read {{tokens}} cached tokens over the window. Leave cache read at 0 and the figure below excludes them.",
+      "pricingInherited": "These are the provider's default rates. Saving them here makes them this model's own, and the provider default stops applying to it.",
+      "pricingShared": "These rates apply to {{key}}, so they also cover {{others}}, which names the same model.",
+      "pricingNoUsage": "No calls recorded for this model yet, so there is nothing to check the rates against.",
+      "pricingPreview": "Last {{days}} days at these rates: {{cost}}",
+      "pricingClear": "Clear rates"
     },
     "rows": {
       "theme": "Theme",
@@ -521,6 +537,11 @@
           "answer": "Someone has to answer",
           "empty": "No action waits for an answer"
         }
+      },
+      "metrics": {
+        "spent": "{{count}} calls in the last {{days}} days",
+        "none": "No calls recorded yet",
+        "caption": "Spend per model, live gauges, and every tool call"
       }
     },
     "usage": {
@@ -566,7 +587,14 @@
       "profile": "Profile",
       "extraHeaders": "Extra headers",
       "extraBody": "Extra body",
-      "extraQuery": "Extra query"
+      "extraQuery": "Extra query",
+      "pricing": "Default pricing for this provider",
+      "pricingHelp": "Applies to every model on this provider that has no rates of its own. A model's own rates always win.",
+      "pricingFree": "Everything on this provider is free",
+      "pricingFreeLocal": "This provider runs locally, so this is usually the right answer — and it is one edit instead of one per model.",
+      "pricingFreeSummary": "Every model here is free",
+      "pricingNone": "No default — models price themselves",
+      "pricingSummary": "${{input}} in · ${{output}} out · per Mtok"
     },
     "legal": {
       "thirdPartyBrands": "Product names, logos, and brands are property of their respective owners. Use is for identification only and does not imply endorsement."
@@ -2027,6 +2055,136 @@
       "skillsVsDisabled": "Separate from the skills this deployment disables, in Settings → Skills. That list removes a skill from every agent; this one chooses which of what remains this agent loads in full.",
       "delegatesHelp": "The agents this one may hand work to. It matters most here: this is the agent you talk to, so without a peer named the only way to reach one is to stop talking to it.",
       "delegatesEmpty": "This deployment names no other agent yet."
+    }
+  },
+  "metrics": {
+    "title": "Metrics",
+    "subtitle": "What this deployment spent, how it is running, and what it actually did.",
+    "refresh": "Refresh",
+    "tabs": {
+      "usage": "Usage",
+      "live": "Live",
+      "calls": "Calls",
+      "aria": "Metrics sections"
+    },
+    "window": {
+      "label": "Window",
+      "days": "{{count}}d",
+      "loading": "Loading…"
+    },
+    "cost": {
+      "label": "Spend, this window",
+      "priced": "{{priced}} of {{total}} models priced",
+      "unpriced": "No prices configured",
+      "unpricedHelp": "Set the rates on the model itself, under Settings → Models → Pricing — or once for a whole provider, which is the answer for a local one. Four rates, because a cached read costs a fraction of a fresh prompt token and one rate over the total over-bills a working cache by more than half."
+    },
+    "models": {
+      "title": "By model, last {{count}} days",
+      "model": "Model",
+      "in": "In",
+      "out": "Out",
+      "cacheRead": "Cache read",
+      "cacheWrite": "Cache write",
+      "calls": "Calls",
+      "truncated": "Truncated",
+      "ttft": "TTFT",
+      "wall": "Wall clock",
+      "cost": "Cost",
+      "reported": "Reported / estimated",
+      "reportedValue": "{{reported}} of {{total}} calls reported by the provider · {{tokens}} tokens tokenized locally",
+      "reportedHint": "An estimate is nanoinfra's own tokenizer, not a bill.",
+      "throughput": "Throughput",
+      "throughputValue": "{{rate}} output tok/s",
+      "throughputHint": "Output tokens over generation time, which wall clock is not.",
+      "measured": "Measured vs reported out",
+      "measuredHint": "The gap is what the token calibration learns from.",
+      "streamed": "Streamed / not",
+      "streamedHint": "TTFT is averaged over {{count}} timed calls; it means nothing for a call that did not stream.",
+      "costFromProvider": "From the provider's default rates, not this model's own"
+    },
+    "failures": {
+      "title": "Why calls failed"
+    },
+    "live": {
+      "loading": "Sampling…",
+      "unreachable": "Could not read the gauges",
+      "notGateway": "These numbers live in the gateway process. This WebUI is talking to one it does not run, so there is nothing here to sample.",
+      "scrape": "The same values are served in Prometheus text format at /metrics on the gateway's own port, which binds to loopback and is off unless gateway.metricsEnabled is set. A dash means the value could not be read, which is not the same as zero."
+    },
+    "gauge": {
+      "nanoinfra_pending_approvals": {
+        "label": "Approvals waiting",
+        "help": "Suspended actions waiting for a person to answer."
+      },
+      "nanoinfra_ws_connections": {
+        "label": "WebUI sockets",
+        "help": "Open WebSocket connections from the WebUI."
+      },
+      "nanoinfra_sessions_active": {
+        "label": "Active sessions",
+        "help": "Sessions with recorded history in this workspace."
+      },
+      "nanoinfra_inbound_queue_depth": {
+        "label": "Inbound queue",
+        "help": "Messages waiting for the agent loop. A rising number is the agent falling behind."
+      },
+      "nanoinfra_outbound_queue_depth": {
+        "label": "Outbound queue",
+        "help": "Replies waiting for a channel. A rising number is a channel that is not draining."
+      },
+      "nanoinfra_context_tokens_used": {
+        "label": "Context used",
+        "help": "Tokens in the last turn's prompt."
+      },
+      "nanoinfra_context_tokens_limit": {
+        "label": "Context limit",
+        "help": "The active preset's context window."
+      }
+    },
+    "calls": {
+      "filter": {
+        "tool": "Tool",
+        "outcome": "Outcome",
+        "decision": "Gate",
+        "any": "any",
+        "clearTurn": "Showing one turn — show all"
+      },
+      "column": {
+        "time": "Time",
+        "tool": "Tool",
+        "source": "Source",
+        "outcome": "Outcome",
+        "gate": "Gate",
+        "duration": "Took"
+      },
+      "field": {
+        "time": "Time",
+        "tool": "Tool",
+        "source": "Source",
+        "outcome": "Outcome",
+        "errorKind": "Error kind",
+        "duration": "Took",
+        "class": "Capability class",
+        "gate": "Gate decision",
+        "gateReason": "Gate reason",
+        "actor": "Actor",
+        "session": "Session",
+        "turn": "Turn",
+        "seq": "Sequence"
+      },
+      "empty": "No call matches these filters. Rows older than the retention window are purged, so an empty page is not always an idle one.",
+      "unreachable": "Could not read the tool call log. The calls are still recorded, so treat this as a missing view and not as an empty log.",
+      "loadMore": "Load more",
+      "retention": "Calls are kept for {{days}} days and then purged.",
+      "lastPurge": "The last purge ran on {{when}} and dropped {{rows}} rows older than {{cutoff}}.",
+      "noPurge": "Nothing has been purged yet.",
+      "noArguments": "What the call was given is not recorded here. This row is the address of the call; the conversation holds what was said.",
+      "sameTurn": "Every call in this turn",
+      "openTranscript": "Open the conversation"
+    },
+    "sources": {
+      "title": "By source, last {{count}} days",
+      "calls": "{{count}} calls"
     }
   }
 }
