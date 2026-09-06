@@ -15,7 +15,7 @@
  * The retention line at the bottom exists because an empty page and a purged page look identical
  * otherwise. `last_purge` is written by the pruner and, until this view, was read by nobody.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -138,7 +138,6 @@ export function MetricsCalls({
     setFilters((current) => ({ ...current, [field]: value }));
   };
 
-  const open = rows.find((row) => row.id === openId) ?? null;
   const turnFiltered = filters.session !== "" || filters.turn !== "";
 
   return (
@@ -237,8 +236,8 @@ export function MetricsCalls({
               </thead>
               <tbody>
                 {rows.map((row) => (
+                  <Fragment key={row.id}>
                   <tr
-                    key={row.id}
                     data-testid={`metrics-call-${row.id}`}
                     onClick={() => setOpenId(openId === row.id ? null : row.id)}
                     className={cn(
@@ -265,28 +264,49 @@ export function MetricsCalls({
                       {durationLabel(row.duration_ms)}
                     </td>
                   </tr>
+                  {/*
+                    * The detail belongs **here**, under the row that opened it.
+                    *
+                    * It used to render after the whole table, so opening row 1 of 100 put its
+                    * fields below row 100 and the reader had to scroll the page to find them.
+                    * The chevron on the left already promises an inline disclosure, and a
+                    * disclosure that opens a hundred rows away is a broken affordance rather
+                    * than a layout preference. A sheet or a modal was the other option and is
+                    * worse for this: thirteen short fields do not earn covering the table, and
+                    * expanding in place leaves the clicked row exactly where it was.
+                    *
+                    * The per-model detail in `MetricsUsage` was already built this way, in this
+                    * same shape, hours earlier. This is that pattern, applied where it was
+                    * missed.
+                    */}
+                  {openId === row.id
+                    ? (
+                      <tr className="border-t border-border/30 bg-muted/15">
+                        <td colSpan={7} className="px-1 py-2 sm:px-2">
+                          <CallDetail
+                            row={row}
+                            canOpenSession={
+                              row.session_key != null && openable.has(row.session_key)
+                            }
+                            onOpenSession={onOpenSession}
+                            onFilterTurn={() => {
+                              setOpenId(null);
+                              setFilters((current) => ({
+                                ...current,
+                                session: row.session_key ?? "",
+                                turn: row.turn_id ?? "",
+                              }));
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    )
+                    : null}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
           </div>
-        )
-        : null}
-
-      {open
-        ? (
-          <CallDetail
-            row={open}
-            canOpenSession={open.session_key != null && openable.has(open.session_key)}
-            onOpenSession={onOpenSession}
-            onFilterTurn={() => {
-              setOpenId(null);
-              setFilters((current) => ({
-                ...current,
-                session: open.session_key ?? "",
-                turn: open.turn_id ?? "",
-              }));
-            }}
-          />
         )
         : null}
 
@@ -397,11 +417,10 @@ function CallDetail({
   ];
 
   return (
-    <div
-      data-testid="metrics-call-detail"
-      className="space-y-2 rounded-[14px] border border-border bg-muted/20 p-3"
-    >
-      <dl className="grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2">
+    <div data-testid="metrics-call-detail" className="space-y-2 px-2 py-1">
+      {/* Three columns on a wide screen: thirteen fields in two columns is a tall block, and
+          the point of expanding in place is that the rows below do not travel far. */}
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2 xl:grid-cols-3">
         {fields.map(([label, value]) => (
           <div key={label} className="flex min-w-0 gap-2 text-[12.5px]">
             <dt className="w-[126px] shrink-0 text-muted-foreground">{label}</dt>

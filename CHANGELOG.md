@@ -11,6 +11,18 @@ not here.
 
 ## [Unreleased]
 
+## [2.2.5] — 2026-09-06
+
+### Fixed
+
+- A row's detail in Metrics → Calls opens under that row instead of after the whole table.
+  Opening row 1 of 100 put its fields below row 100, so reading a call meant scrolling the page
+  away from the row that was clicked. The chevron on the left already promised an inline
+  disclosure, and a disclosure that opens a hundred rows away is a broken affordance rather than a
+  layout preference. Thirteen fields also lay out in three columns on a wide screen now, so the
+  rows below do not travel far.
+  ([#274](https://github.com/nanoinfraorg/nanoinfra/issues/274))
+
 ## [2.2.4] — 2026-09-06
 
 ### Added

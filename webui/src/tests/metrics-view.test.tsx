@@ -830,3 +830,75 @@ describe("MetricsApprovals", () => {
     });
   });
 });
+
+describe("the Calls detail opens where the row is", () => {
+  it("renders the detail immediately after the row that opened it", async () => {
+    /*
+     * It used to render after the whole table, so opening row 1 of 100 put its fields below row
+     * 100 and the reader had to scroll the page to find them. The chevron already promises an
+     * inline disclosure; a disclosure that opens a hundred rows away is a broken affordance.
+     *
+     * Asserted on DOM adjacency rather than on presence, because "the detail exists somewhere on
+     * the page" is exactly what was true before and was the bug.
+     */
+    const many = callsPayload({
+      calls: Array.from({ length: 8 }, (_, index) => ({
+        ...callsPayload().calls[0],
+        id: 100 - index,
+        tool: `tool-${index}`,
+      })),
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(many)));
+    const user = userEvent.setup();
+
+    render(<MetricsCalls token="tok" />);
+
+    const first = await screen.findByTestId("metrics-call-100");
+    await user.click(first);
+
+    const detail = screen.getByTestId("metrics-call-detail");
+    // The detail's row is the very next sibling of the row that was clicked.
+    const detailRow = detail.closest("tr");
+    expect(detailRow).not.toBeNull();
+    expect(first.nextElementSibling).toBe(detailRow);
+    // And it is inside the table, not after it.
+    expect(detailRow?.closest("table")).not.toBeNull();
+  });
+
+  it("moves the detail when a different row is opened", async () => {
+    const many = callsPayload({
+      calls: [
+        { ...callsPayload().calls[0], id: 2, tool: "second" },
+        { ...callsPayload().calls[0], id: 1, tool: "first" },
+      ],
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(many)));
+    const user = userEvent.setup();
+
+    render(<MetricsCalls token="tok" />);
+    await user.click(await screen.findByTestId("metrics-call-2"));
+    expect(screen.getByTestId("metrics-call-2").nextElementSibling)
+      .toBe(screen.getByTestId("metrics-call-detail").closest("tr"));
+
+    await user.click(screen.getByTestId("metrics-call-1"));
+
+    // One detail at a time, and it followed the click.
+    expect(screen.getAllByTestId("metrics-call-detail")).toHaveLength(1);
+    expect(screen.getByTestId("metrics-call-1").nextElementSibling)
+      .toBe(screen.getByTestId("metrics-call-detail").closest("tr"));
+  });
+
+  it("closes on a second click of the same row", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(callsPayload())));
+    const user = userEvent.setup();
+
+    render(<MetricsCalls token="tok" />);
+    const row = await screen.findByTestId("metrics-call-42");
+
+    await user.click(row);
+    expect(screen.getByTestId("metrics-call-detail")).toBeInTheDocument();
+
+    await user.click(row);
+    expect(screen.queryByTestId("metrics-call-detail")).toBeNull();
+  });
+});
