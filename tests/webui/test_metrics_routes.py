@@ -201,6 +201,29 @@ async def test_the_query_string_filters_are_applied(
     assert [row["tool"] for row in payload["calls"]] == ["read_file"]
 
 
+async def test_source_and_actor_reach_the_store_from_the_query_string(
+    tmp_path: Path, store: LLMUsageStore
+) -> None:
+    """Both were on the row and in the payload with no way to filter by them (#274)."""
+    handler = _handler(tmp_path)
+    token = handler.tokens.issue_api_token(300)
+    store.record_tool_call(_call(tool="execute_on_server", source="user", actor="alberto"))
+    store.record_tool_call(_call(tool="read_file", source="cron", actor=None))
+
+    by_source = _body(
+        await handler.dispatch(_connection(), _request(f"{_CALLS}?source=cron", token=token))
+    )
+    by_actor = _body(
+        await handler.dispatch(_connection(), _request(f"{_CALLS}?actor=alberto", token=token))
+    )
+
+    assert [row["tool"] for row in by_source["calls"]] == ["read_file"]
+    assert [row["tool"] for row in by_actor["calls"]] == ["execute_on_server"]
+    # And the facets the two controls are populated from arrive with the page.
+    assert by_source["sources"] == ["cron", "user"]
+    assert by_source["actors"] == ["alberto"]
+
+
 async def test_the_limit_and_the_cursor_come_from_the_query_string(
     tmp_path: Path, store: LLMUsageStore
 ) -> None:

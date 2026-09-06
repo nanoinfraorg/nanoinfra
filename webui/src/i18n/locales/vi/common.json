@@ -2157,6 +2157,8 @@
         "tool": "Công cụ",
         "outcome": "Kết quả",
         "decision": "Cổng kiểm soát",
+        "source": "Nguồn",
+        "actor": "Người thực hiện",
         "any": "tất cả",
         "clearTurn": "Đang xem một lượt — xem tất cả"
       },

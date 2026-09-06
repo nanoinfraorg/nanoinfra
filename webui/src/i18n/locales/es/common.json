@@ -2157,6 +2157,8 @@
         "tool": "Herramienta",
         "outcome": "Resultado",
         "decision": "Compuerta",
+        "source": "Origen",
+        "actor": "Actor",
         "any": "cualquiera",
         "clearTurn": "Mostrando un turno — ver todos"
       },

@@ -30,6 +30,14 @@ interface Filters {
   tool: string;
   outcome: string;
   decision: string;
+  source: string;
+  /**
+   * The person the row belongs to: the approver the gate authenticated when the call was
+   * answered, and otherwise the identity the turn arrived under. Often a pseudonym rather than a
+   * name, and absent entirely on a call no gate touched — which is why "" means *any* and not
+   * *nobody*.
+   */
+  actor: string;
   /** Set by clicking a row's turn, not typed: it is an opaque id nobody remembers. */
   session: string;
   turn: string;
@@ -39,6 +47,8 @@ const EMPTY_FILTERS: Filters = {
   tool: "",
   outcome: "",
   decision: "",
+  source: "",
+  actor: "",
   session: "",
   turn: "",
 };
@@ -107,6 +117,8 @@ export function MetricsCalls({
             tool: next.tool,
             outcome: next.outcome,
             decision: next.decision,
+            source: next.source,
+            actor: next.actor,
             session: next.session,
             turn: next.turn,
           },
@@ -163,6 +175,20 @@ export function MetricsCalls({
           choices={page?.gate_decisions ?? []}
           anyLabel={tx("metrics.calls.filter.any", "any")}
           onChange={(value) => update("decision", value)}
+        />
+        <FilterSelect
+          label={tx("metrics.calls.filter.source", "Source")}
+          value={filters.source}
+          choices={page?.sources ?? []}
+          anyLabel={tx("metrics.calls.filter.any", "any")}
+          onChange={(value) => update("source", value)}
+        />
+        <FilterSelect
+          label={tx("metrics.calls.filter.actor", "Actor")}
+          value={filters.actor}
+          choices={page?.actors ?? []}
+          anyLabel={tx("metrics.calls.filter.any", "any")}
+          onChange={(value) => update("actor", value)}
         />
         {turnFiltered
           ? (
@@ -364,6 +390,10 @@ function FilterSelect({
   anyLabel: string;
   onChange: (value: string) => void;
 }) {
+  // Guarded here rather than at each of the five call sites: a facet list that arrives as
+  // anything but an array took the Usage and Live tabs down once each already, and one control
+  // that cannot render is a worse outcome than one filter that offers only "any".
+  const options = Array.isArray(choices) ? choices : [];
   return (
     <label className="flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
       <span>{label}</span>
@@ -374,7 +404,7 @@ function FilterSelect({
         className="h-8 rounded-[10px] border border-input bg-background px-2 text-[12.5px] text-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
       >
         <option value="">{anyLabel}</option>
-        {choices.map((choice) => (
+        {options.map((choice) => (
           <option key={choice} value={choice}>
             {choice}
           </option>

@@ -1818,6 +1818,8 @@ export async function fetchMetricsCalls(
   if (query.tool) params.set("tool", query.tool);
   if (query.outcome) params.set("outcome", query.outcome);
   if (query.decision) params.set("decision", query.decision);
+  if (query.source) params.set("source", query.source);
+  if (query.actor) params.set("actor", query.actor);
   if (query.session) params.set("session", query.session);
   if (query.turn) params.set("turn", query.turn);
   const suffix = params.toString();

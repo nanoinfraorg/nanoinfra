@@ -2157,6 +2157,8 @@
         "tool": "Ferramenta",
         "outcome": "Resultado",
         "decision": "Portão",
+        "source": "Origem",
+        "actor": "Ator",
         "any": "qualquer",
         "clearTurn": "Mostrando um turno — mostrar todos"
       },

@@ -2157,6 +2157,8 @@
         "tool": "ツール",
         "outcome": "結果",
         "decision": "ゲート",
+        "source": "発生元",
+        "actor": "実行者",
         "any": "すべて",
         "clearTurn": "1ターンのみ表示中 — すべて表示"
       },

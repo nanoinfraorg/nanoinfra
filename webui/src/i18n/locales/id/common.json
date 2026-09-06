@@ -2157,6 +2157,8 @@
         "tool": "Alat",
         "outcome": "Hasil",
         "decision": "Gerbang",
+        "source": "Sumber",
+        "actor": "Pelaku",
         "any": "semua",
         "clearTurn": "Menampilkan satu giliran — tampilkan semua"
       },

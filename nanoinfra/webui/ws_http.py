@@ -2570,6 +2570,8 @@ class GatewayHTTPHandler:
                 tool=_query_first(query, "tool") or None,
                 outcome=_query_first(query, "outcome") or None,
                 gate_decision=_query_first(query, "decision") or None,
+                source=_query_first(query, "source") or None,
+                actor=_query_first(query, "actor") or None,
                 session_key=_query_first(query, "session") or None,
                 turn_id=_query_first(query, "turn") or None,
             )

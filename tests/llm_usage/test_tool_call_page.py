@@ -206,13 +206,21 @@ def test_a_limit_a_browser_sent_is_clamped(store: LLMUsageStore) -> None:
 
 
 def test_each_filter_narrows_to_its_own_column(store: LLMUsageStore) -> None:
-    store.record_tool_call(_call(tool="exec", outcome="ok", gate_decision="allow"))
-    store.record_tool_call(_call(tool="read_file", outcome="error", gate_decision=None))
-    store.record_tool_call(_call(tool="exec", outcome="denied", gate_decision="denied"))
+    store.record_tool_call(
+        _call(tool="exec", outcome="ok", gate_decision="allow", source="user", actor="alberto")
+    )
+    store.record_tool_call(
+        _call(tool="read_file", outcome="error", gate_decision=None, source="cron", actor=None)
+    )
+    store.record_tool_call(
+        _call(tool="exec", outcome="denied", gate_decision="denied", source="user", actor="rae")
+    )
 
     assert len(store.tool_call_page(tool="exec")["calls"]) == 2
     assert len(store.tool_call_page(outcome="error")["calls"]) == 1
     assert len(store.tool_call_page(gate_decision="denied")["calls"]) == 1
+    assert len(store.tool_call_page(source="user")["calls"]) == 2
+    assert len(store.tool_call_page(actor="rae")["calls"]) == 1
 
 
 def test_filters_combine_rather_than_replace_one_another(store: LLMUsageStore) -> None:
@@ -251,9 +259,12 @@ def test_a_filter_value_is_data_and_never_sql(store: LLMUsageStore, hostile: str
     """Every filter arrives from a query string, so this is the property that matters most."""
     store.record_tool_call(_call(tool="exec"))
 
-    page = store.tool_call_page(tool=hostile)
-
-    assert page["calls"] == []
+    for page in (
+        store.tool_call_page(tool=hostile),
+        store.tool_call_page(source=hostile),
+        store.tool_call_page(actor=hostile),
+    ):
+        assert page["calls"] == []
     # The table is still there, and still holds the row.
     assert len(store.tool_call_page()["calls"]) == 1
 
@@ -265,6 +276,8 @@ def test_an_empty_filter_means_no_filter_rather_than_a_match_on_empty(
 
     assert len(store.tool_call_page(tool="")["calls"]) == 1
     assert len(store.tool_call_page(outcome="")["calls"]) == 1
+    assert len(store.tool_call_page(source="")["calls"]) == 1
+    assert len(store.tool_call_page(actor="")["calls"]) == 1
 
 
 # --- facets -----------------------------------------------------------------------------
@@ -279,6 +292,8 @@ def test_the_facets_are_what_the_table_holds_and_nothing_else(store: LLMUsageSto
     assert page["tools"] == ["exec", "read_file"]
     assert page["outcomes"] == ["denied", "ok"]
     assert page["gate_decisions"] == ["allow", "denied"]
+    assert page["sources"] == ["user"]
+    assert page["actors"] == ["alberto"]
 
 
 def test_an_ungated_call_contributes_no_gate_facet(store: LLMUsageStore) -> None:
@@ -286,6 +301,39 @@ def test_an_ungated_call_contributes_no_gate_facet(store: LLMUsageStore) -> None
     store.record_tool_call(_call(gate_decision=None))
 
     assert store.tool_call_page()["gate_decisions"] == []
+
+
+def test_an_unattributed_call_contributes_no_actor_facet(store: LLMUsageStore) -> None:
+    """Nearly every row has no actor -- no human was involved -- and "" is not one of them.
+
+    Offering a blank would read as a value a reader could filter on, when what it means is the
+    absence of one. `gate_decisions` drops its blank for the same reason.
+    """
+    store.record_tool_call(_call(actor=None))
+
+    page = store.tool_call_page()
+
+    assert page["actors"] == []
+    # `source` is NOT NULL, so it has no equivalent blank to drop and always offers its value.
+    assert page["sources"] == ["user"]
+
+
+def test_a_wide_spread_of_actors_cannot_starve_the_tool_facet(store: LLMUsageStore) -> None:
+    """Why `source` and `actor` are a second query rather than two more GROUP BY columns.
+
+    Grouped together, the facet row count is the *product* of five dimensions, and the `LIMIT`
+    that keeps the query cheap starts dropping combinations -- which means a tool the table
+    holds stops being offered as a filter. Split, each list is bounded by its own dimension.
+    """
+    tools = ("exec", "read_file", "write_file")
+    for index in range(70):
+        for tool in tools:
+            store.record_tool_call(_call(tool=tool, actor=f"person-{index:03d}"))
+
+    page = store.tool_call_page()
+
+    assert page["tools"] == sorted(tools)
+    assert len(page["actors"]) == 70
 
 
 def test_the_facets_ignore_the_filters_so_a_reader_can_widen_again(

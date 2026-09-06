@@ -786,6 +786,8 @@ class LLMUsageStore:
         tool: str | None = None,
         outcome: str | None = None,
         gate_decision: str | None = None,
+        source: str | None = None,
+        actor: str | None = None,
         session_key: str | None = None,
         turn_id: str | None = None,
     ) -> dict[str, Any]:
@@ -815,6 +817,8 @@ class LLMUsageStore:
             ("tool", tool),
             ("outcome", outcome),
             ("gate_decision", gate_decision),
+            ("source", source),
+            ("actor", actor),
             ("session_key", session_key),
             ("turn_id", turn_id),
         ):
@@ -843,6 +847,19 @@ class LLMUsageStore:
                 SELECT tool, outcome, COALESCE(gate_decision, '') AS gate_decision, COUNT(*) AS n
                 FROM tool_calls
                 GROUP BY tool, outcome, gate_decision
+                ORDER BY n DESC
+                LIMIT 200
+                """
+            ).fetchall()
+            # Its own query rather than two more columns on the one above: `source` and `actor`
+            # are independent dimensions, so grouping all five together multiplies the row count
+            # and the `LIMIT 200` starts truncating the *tool* list to make room for combinations
+            # nobody asked for. Two cheap queries keep each facet list complete.
+            who = connection.execute(
+                """
+                SELECT source, COALESCE(actor, '') AS actor, COUNT(*) AS n
+                FROM tool_calls
+                GROUP BY source, actor
                 ORDER BY n DESC
                 LIMIT 200
                 """
@@ -888,6 +905,13 @@ class LLMUsageStore:
             "gate_decisions": sorted(
                 {str(row["gate_decision"]) for row in facets if row["gate_decision"]}
             ),
+            "sources": sorted({str(row["source"]) for row in who}),
+            # Empty is dropped rather than offered: a call no gate touched has no actor, and an
+            # "" choice would read as a value instead of as its absence. The `LIMIT` above is
+            # what bounds this list -- `actor` is a sender identity as often as an approver, so
+            # it is the one facet whose cardinality grows with the deployment rather than with
+            # the schema.
+            "actors": sorted({str(row["actor"]) for row in who if row["actor"]}),
             # Written by the pruner and read by nobody until now. Without it a reader cannot tell
             # an empty window from a purged one, which is what #234 made countable.
             "retention_days": MAX_TOOL_CALL_DAYS_RETAINED,

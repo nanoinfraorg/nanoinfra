@@ -2157,6 +2157,8 @@
         "tool": "Outil",
         "outcome": "Résultat",
         "decision": "Contrôle",
+        "source": "Source",
+        "actor": "Acteur",
         "any": "tous",
         "clearTurn": "Un seul tour affiché — tout afficher"
       },

@@ -2532,6 +2532,8 @@ export type MetricsCallsPayload = {
   tools: string[];
   outcomes: string[];
   gate_decisions: string[];
+  sources: string[];
+  actors: string[];
   retention_days: number;
   last_purge: { ts_ms: number; rows_purged: number; cutoff_ms: number } | null;
 };
@@ -2542,6 +2544,8 @@ export type MetricsCallsQuery = {
   tool?: string;
   outcome?: string;
   decision?: string;
+  source?: string;
+  actor?: string;
   session?: string;
   turn?: string;
 };

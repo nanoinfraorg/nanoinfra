@@ -11,6 +11,13 @@ not here.
 
 ## [Unreleased]
 
+### Added
+
+- Metrics → Calls filters by **source** and **actor**. Both were already on every row and in the
+  payload with no control to filter on them, so finding what one approver authorised, or what one
+  channel ran, meant reading the table by eye.
+  ([#274](https://github.com/nanoinfraorg/nanoinfra/issues/274))
+
 ## [2.2.6] — 2026-09-06
 
 ### Changed

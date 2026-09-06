@@ -2157,6 +2157,8 @@
         "tool": "도구",
         "outcome": "결과",
         "decision": "게이트",
+        "source": "출처",
+        "actor": "행위자",
         "any": "전체",
         "clearTurn": "한 턴만 표시 중 — 전체 보기"
       },

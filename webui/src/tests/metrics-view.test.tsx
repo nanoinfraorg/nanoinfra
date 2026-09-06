@@ -91,6 +91,8 @@ function callsPayload(overrides: Partial<MetricsCallsPayload> = {}): MetricsCall
     tools: ["exec", "read_file"],
     outcomes: ["ok", "error", "denied"],
     gate_decisions: ["allow", "deny"],
+    sources: ["user", "cron"],
+    actors: ["alberto", "rae"],
     retention_days: 180,
     last_purge: null,
     ...overrides,
@@ -516,12 +518,54 @@ describe("MetricsCalls", () => {
     await screen.findByTestId("metrics-call-42");
 
     await user.selectOptions(screen.getByLabelText("Outcome"), "denied");
+    await user.selectOptions(screen.getByLabelText("Source"), "cron");
+    await user.selectOptions(screen.getByLabelText("Actor"), "alberto");
 
-    await waitFor(() => {
-      expect(
-        fetchMock.mock.calls.some(([input]) => String(input).includes("outcome=denied")),
-      ).toBe(true);
-    });
+    for (const expected of ["outcome=denied", "source=cron", "actor=alberto"]) {
+      await waitFor(() => {
+        expect(
+          fetchMock.mock.calls.some(([input]) => String(input).includes(expected)),
+        ).toBe(true);
+      });
+    }
+  });
+
+  it("offers only the sources and actors the table actually holds", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(callsPayload())));
+
+    render(<MetricsCalls token="tok" />);
+    await screen.findByTestId("metrics-call-42");
+
+    const options = (label: string) =>
+      Array.from((screen.getByLabelText(label) as HTMLSelectElement).options).map(
+        (option) => option.value,
+      );
+
+    // "" is the "any" choice every filter opens on, not a value from the table.
+    expect(options("Source")).toEqual(["", "user", "cron"]);
+    expect(options("Actor")).toEqual(["", "alberto", "rae"]);
+  });
+
+  it("survives a facet list that is not a list", async () => {
+    // Twice this session a payload-shape assumption took a whole tab down. A filter is the one
+    // part of this view that maps over server-sent data, so it gets the guard.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          ...callsPayload(),
+          actors: null,
+          sources: "user",
+        })
+      ),
+    );
+
+    render(<MetricsCalls token="tok" />);
+
+    // The row still renders, and the broken filters degrade to offering "any" alone.
+    expect(await screen.findByTestId("metrics-call-42")).toBeInTheDocument();
+    expect((screen.getByLabelText("Actor") as HTMLSelectElement).options).toHaveLength(1);
+    expect((screen.getByLabelText("Source") as HTMLSelectElement).options).toHaveLength(1);
   });
 
   it("pages with the keyset cursor and appends rather than replacing", async () => {

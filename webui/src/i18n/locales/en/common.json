@@ -2157,6 +2157,8 @@
         "tool": "Tool",
         "outcome": "Outcome",
         "decision": "Gate",
+        "source": "Source",
+        "actor": "Actor",
         "any": "any",
         "clearTurn": "Showing one turn — show all"
       },
