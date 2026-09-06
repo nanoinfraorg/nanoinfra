@@ -2110,7 +2110,9 @@
       "loading": "샘플링 중…",
       "unreachable": "게이지를 읽을 수 없습니다",
       "notGateway": "이 수치들은 게이트웨이 프로세스 안에 있습니다. 이 WebUI는 자신이 실행하지 않는 게이트웨이와 통신하고 있어서, 여기서 샘플링할 것이 없습니다.",
-      "scrape": "같은 값이 게이트웨이 자체 포트의 /metrics에서 Prometheus 텍스트 형식으로 제공됩니다. 이 포트는 루프백에만 바인딩되며 gateway.metricsEnabled를 설정하지 않으면 꺼져 있습니다. 대시는 값을 읽을 수 없었다는 뜻이며, 0과는 다릅니다."
+      "scrape": "각 숫자 아래의 추세는 지난 3분이며, 이 탭에만 보관되고 새로 고치면 사라집니다. 게이지 이력은 어디에도 저장되지 않습니다 — 읽을 때 샘플링하기 때문입니다. 같은 값이 게이트웨이 자체 포트의 /metrics에서 Prometheus 텍스트 형식으로 제공됩니다. 이 포트는 루프백에만 바인딩되며 gateway.metricsEnabled를 설정하지 않으면 꺼져 있습니다. 대시는 값을 읽을 수 없었다는 뜻이며, 0과는 다릅니다.",
+      "trend": "지난 3분간 {{label}}",
+      "context": "컨텍스트 창"
     },
     "gauge": {
       "nanoinfra_pending_approvals": {
@@ -2214,6 +2216,20 @@
       "mcp": "MCP",
       "connectors": "커넥터",
       "unavailable": "대시는 읽을 수 없었던 개수이며, 0개가 아닙니다."
+    },
+    "charts": {
+      "rate": "분당 호출",
+      "rateAria": "지난 3분간 분당 호출",
+      "latency": "응답 지연",
+      "latencyCalls": "호출 {{count}}건",
+      "over": "초과",
+      "llmCalls": "LLM 호출",
+      "toolCalls": "도구 호출",
+      "rateNote": "누적 카운터를 연속으로 읽은 차이에서 계산합니다 — 스크레이프와 같은 방식입니다. 이 탭에만 보관되므로 새로 고치면 처음부터 시작합니다."
+    },
+    "meter": {
+      "unknown": "보고된 한도 없음",
+      "ofLimit": "{{limit}} 중 {{used}}"
     }
   }
 }

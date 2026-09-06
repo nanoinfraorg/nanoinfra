@@ -2110,7 +2110,9 @@
       "loading": "Mengambil sampel…",
       "unreachable": "Tidak dapat membaca pengukur",
       "notGateway": "Angka-angka ini berada di proses gateway. WebUI ini berbicara dengan gateway yang tidak dijalankannya, jadi tidak ada yang bisa disampel di sini.",
-      "scrape": "Nilai yang sama disajikan dalam format teks Prometheus di /metrics pada port milik gateway sendiri, yang hanya mengikat ke loopback dan mati kecuali gateway.metricsEnabled disetel. Tanda hubung berarti nilainya tidak bisa dibaca, dan itu tidak sama dengan nol."
+      "scrape": "Tren di bawah setiap angka adalah tiga menit terakhir, disimpan di tab ini dan hilang saat dimuat ulang — tidak ada yang menyimpan riwayat pengukur, karena semuanya disampel saat dibaca. Nilai yang sama disajikan dalam format teks Prometheus di /metrics pada port milik gateway sendiri, yang hanya mengikat ke loopback dan mati kecuali gateway.metricsEnabled disetel. Tanda hubung berarti nilainya tidak bisa dibaca, dan itu tidak sama dengan nol.",
+      "trend": "{{label}} dalam tiga menit terakhir",
+      "context": "Jendela konteks"
     },
     "gauge": {
       "nanoinfra_pending_approvals": {
@@ -2214,6 +2216,20 @@
       "mcp": "MCP",
       "connectors": "konektor",
       "unavailable": "Tanda hubung adalah jumlah yang tidak bisa dibaca, bukan jumlah nol."
+    },
+    "charts": {
+      "rate": "Panggilan per menit",
+      "rateAria": "Panggilan per menit dalam tiga menit terakhir",
+      "latency": "Latensi respons",
+      "latencyCalls": "{{count}} panggilan",
+      "over": "di atas",
+      "llmCalls": "Panggilan LLM",
+      "toolCalls": "Panggilan alat",
+      "rateNote": "Diturunkan dari selisih antara pembacaan berturut-turut sebuah counter kumulatif — sama seperti yang dilakukan scrape. Disimpan di tab ini, jadi memuat ulang mulai dari awal."
+    },
+    "meter": {
+      "unknown": "Tidak ada batas yang dilaporkan",
+      "ofLimit": "{{used}} dari {{limit}}"
     }
   }
 }

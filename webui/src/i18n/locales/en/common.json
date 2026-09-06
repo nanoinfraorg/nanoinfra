@@ -2110,7 +2110,9 @@
       "loading": "Sampling…",
       "unreachable": "Could not read the gauges",
       "notGateway": "These numbers live in the gateway process. This WebUI is talking to one it does not run, so there is nothing here to sample.",
-      "scrape": "The same values are served in Prometheus text format at /metrics on the gateway's own port, which binds to loopback and is off unless gateway.metricsEnabled is set. A dash means the value could not be read, which is not the same as zero."
+      "scrape": "The trend under each number is the last three minutes, kept in this tab and lost on reload — nothing stores gauge history, because these are sampled when read. The same values are served in Prometheus text format at /metrics on the gateway's own port, which binds to loopback and is off unless gateway.metricsEnabled is set. A dash means the value could not be read, which is not the same as zero.",
+      "trend": "{{label}} over the last three minutes",
+      "context": "Context window"
     },
     "gauge": {
       "nanoinfra_pending_approvals": {
@@ -2214,6 +2216,20 @@
       "mcp": "MCP",
       "connectors": "connectors",
       "unavailable": "A dash is a count that could not be read, not a count of zero."
+    },
+    "charts": {
+      "rate": "Calls per minute",
+      "rateAria": "Calls per minute over the last three minutes",
+      "latency": "Response latency",
+      "latencyCalls": "{{count}} calls",
+      "over": "over",
+      "llmCalls": "LLM calls",
+      "toolCalls": "Tool calls",
+      "rateNote": "Derived from the difference between successive reads of a cumulative counter — the same way a scrape would. Kept in this tab, so a reload starts over."
+    },
+    "meter": {
+      "unknown": "No limit reported",
+      "ofLimit": "{{used}} of {{limit}}"
     }
   }
 }

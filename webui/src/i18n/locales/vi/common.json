@@ -2110,7 +2110,9 @@
       "loading": "Đang lấy mẫu…",
       "unreachable": "Không đọc được các đồng hồ đo",
       "notGateway": "Những con số này nằm trong tiến trình gateway. WebUI này đang nói chuyện với một gateway mà nó không chạy, nên ở đây không có gì để lấy mẫu.",
-      "scrape": "Cùng những giá trị đó được phục vụ ở dạng văn bản Prometheus tại /metrics trên cổng riêng của gateway, cổng này chỉ lắng nghe trên loopback và bị tắt trừ khi gateway.metricsEnabled được đặt. Dấu gạch ngang nghĩa là không đọc được giá trị, khác với số không."
+      "scrape": "Đường xu hướng dưới mỗi con số là ba phút gần nhất, chỉ giữ trong tab này và mất khi tải lại — không có gì lưu lịch sử đồng hồ đo, vì chúng được lấy mẫu khi đọc. Cùng những giá trị đó được phục vụ ở dạng văn bản Prometheus tại /metrics trên cổng riêng của gateway, cổng này chỉ lắng nghe trên loopback và bị tắt trừ khi gateway.metricsEnabled được đặt. Dấu gạch ngang nghĩa là không đọc được giá trị, khác với số không.",
+      "trend": "{{label}} trong ba phút qua",
+      "context": "Cửa sổ ngữ cảnh"
     },
     "gauge": {
       "nanoinfra_pending_approvals": {
@@ -2214,6 +2216,20 @@
       "mcp": "MCP",
       "connectors": "trình kết nối",
       "unavailable": "Dấu gạch ngang là số không đọc được, không phải số không."
+    },
+    "charts": {
+      "rate": "Lượt gọi mỗi phút",
+      "rateAria": "Lượt gọi mỗi phút trong ba phút qua",
+      "latency": "Độ trễ phản hồi",
+      "latencyCalls": "{{count}} lượt gọi",
+      "over": "trên",
+      "llmCalls": "Lượt gọi LLM",
+      "toolCalls": "Lượt gọi công cụ",
+      "rateNote": "Suy ra từ hiệu giữa các lần đọc liên tiếp của một counter tích lũy — đúng cách một lần scrape làm. Chỉ giữ trong tab này, nên tải lại là bắt đầu lại."
+    },
+    "meter": {
+      "unknown": "Không có giới hạn được báo cáo",
+      "ofLimit": "{{used}} trên {{limit}}"
     }
   }
 }

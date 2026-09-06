@@ -2110,7 +2110,9 @@
       "loading": "Amostrando…",
       "unreachable": "Não foi possível ler os medidores",
       "notGateway": "Estes números vivem no processo do gateway. Esta WebUI está falando com um gateway que ela não executa, então não há nada aqui para amostrar.",
-      "scrape": "Os mesmos valores são servidos em formato de texto do Prometheus em /metrics, na porta própria do gateway, que escuta apenas em loopback e fica desligada a menos que gateway.metricsEnabled esteja definido. Um travessão significa que o valor não pôde ser lido, o que não é o mesmo que zero."
+      "scrape": "A tendência sob cada número são os últimos três minutos, guardados nesta aba e perdidos ao recarregar — nada armazena histórico de medidores, porque eles são amostrados na leitura. Os mesmos valores são servidos em formato de texto do Prometheus em /metrics, na porta própria do gateway, que escuta apenas em loopback e fica desligada a menos que gateway.metricsEnabled esteja definido. Um travessão significa que o valor não pôde ser lido, o que não é o mesmo que zero.",
+      "trend": "{{label}} nos últimos três minutos",
+      "context": "Janela de contexto"
     },
     "gauge": {
       "nanoinfra_pending_approvals": {
@@ -2214,6 +2216,20 @@
       "mcp": "MCP",
       "connectors": "conectores",
       "unavailable": "Um travessão é uma contagem que não pôde ser lida, não uma contagem de zero."
+    },
+    "charts": {
+      "rate": "Chamadas por minuto",
+      "rateAria": "Chamadas por minuto nos últimos três minutos",
+      "latency": "Latência de resposta",
+      "latencyCalls": "{{count}} chamadas",
+      "over": "acima de",
+      "llmCalls": "Chamadas ao LLM",
+      "toolCalls": "Chamadas de ferramentas",
+      "rateNote": "Derivado da diferença entre leituras sucessivas de um counter cumulativo — do mesmo jeito que um scrape faria. Fica nesta aba, então recarregar começa de novo."
+    },
+    "meter": {
+      "unknown": "Nenhum limite reportado",
+      "ofLimit": "{{used}} de {{limit}}"
     }
   }
 }

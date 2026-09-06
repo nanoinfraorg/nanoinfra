@@ -452,12 +452,16 @@ describe("MetricsLive", () => {
   });
 
   it("keeps the last sample on screen when a poll fails", async () => {
-    let calls = 0;
+    // Route-aware: the tab now also loads the counters charts, and a mock that counts calls
+    // would fail whichever component happened to mount its effect first.
+    let liveReads = 0;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => {
-        calls += 1;
-        if (calls === 1) {
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (!url.includes("/metrics/live")) return jsonResponse({ counters: [], histograms: [] });
+        liveReads += 1;
+        if (liveReads === 1) {
           return jsonResponse({
             available: true,
             gauges: [{
@@ -601,7 +605,24 @@ describe("MetricsCalls", () => {
 
 describe("MetricsView", () => {
   it("switches between its four tabs", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(callsPayload())));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/metrics/live")) {
+          return jsonResponse({ available: true, gauges: [] });
+        }
+        if (url.includes("/metrics/counters")) {
+          return jsonResponse({ counters: [], histograms: [] });
+        }
+        if (url.includes("/metrics/scale")) {
+          return jsonResponse({
+            servers: 0, skills: 0, agents: 0, mcp_servers: 0, connectors: 0, unavailable: [],
+          });
+        }
+        return jsonResponse(callsPayload());
+      }),
+    );
     const user = userEvent.setup();
 
     render(

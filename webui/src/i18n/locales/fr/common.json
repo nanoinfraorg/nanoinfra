@@ -2110,7 +2110,9 @@
       "loading": "Échantillonnage…",
       "unreachable": "Impossible de lire les jauges",
       "notGateway": "Ces valeurs vivent dans le processus de la passerelle. Cette WebUI parle à une passerelle qu'elle n'exécute pas : il n'y a rien à échantillonner ici.",
-      "scrape": "Les mêmes valeurs sont servies au format texte Prometheus sur /metrics, sur le port propre de la passerelle, qui n'écoute qu'en loopback et reste désactivé sauf si gateway.metricsEnabled est défini. Un tiret signifie que la valeur n'a pas pu être lue, ce qui n'est pas la même chose que zéro."
+      "scrape": "La tendance sous chaque nombre couvre les trois dernières minutes, gardée dans cet onglet et perdue au rechargement — rien ne stocke l'historique des jauges, car elles sont échantillonnées à la lecture. Les mêmes valeurs sont servies au format texte Prometheus sur /metrics, sur le port propre de la passerelle, qui n'écoute qu'en loopback et reste désactivé sauf si gateway.metricsEnabled est défini. Un tiret signifie que la valeur n'a pas pu être lue, ce qui n'est pas la même chose que zéro.",
+      "trend": "{{label}} sur les trois dernières minutes",
+      "context": "Fenêtre de contexte"
     },
     "gauge": {
       "nanoinfra_pending_approvals": {
@@ -2214,6 +2216,20 @@
       "mcp": "MCP",
       "connectors": "connecteurs",
       "unavailable": "Un tiret est un compte illisible, pas un compte de zéro."
+    },
+    "charts": {
+      "rate": "Appels par minute",
+      "rateAria": "Appels par minute sur les trois dernières minutes",
+      "latency": "Latence de réponse",
+      "latencyCalls": "{{count}} appels",
+      "over": "plus de",
+      "llmCalls": "Appels LLM",
+      "toolCalls": "Appels d'outils",
+      "rateNote": "Dérivé de la différence entre deux lectures successives d'un compteur cumulatif — comme le ferait un scrape. Gardé dans cet onglet, donc un rechargement repart de zéro."
+    },
+    "meter": {
+      "unknown": "Aucune limite rapportée",
+      "ofLimit": "{{used}} sur {{limit}}"
     }
   }
 }

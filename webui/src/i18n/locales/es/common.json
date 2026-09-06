@@ -2110,7 +2110,9 @@
       "loading": "Muestreando…",
       "unreachable": "No se pudieron leer los indicadores",
       "notGateway": "Estos números viven en el proceso del gateway. Esta WebUI habla con uno que no ejecuta, así que aquí no hay nada que muestrear.",
-      "scrape": "Los mismos valores se sirven en formato de texto de Prometheus en /metrics, en el puerto propio del gateway, que escucha solo en loopback y está apagado salvo que se active gateway.metricsEnabled. Un guion significa que el valor no se pudo leer, que no es lo mismo que cero."
+      "scrape": "La tendencia bajo cada número son los últimos tres minutos, guardados en esta pestaña y perdidos al recargar — nada almacena historial de gauges, porque se muestrean al leer. Los mismos valores se sirven en formato de texto de Prometheus en /metrics, en el puerto propio del gateway, que escucha solo en loopback y está apagado salvo que se active gateway.metricsEnabled. Un guion significa que el valor no se pudo leer, que no es lo mismo que cero.",
+      "trend": "{{label}} en los últimos tres minutos",
+      "context": "Ventana de contexto"
     },
     "gauge": {
       "nanoinfra_pending_approvals": {
@@ -2214,6 +2216,20 @@
       "mcp": "MCP",
       "connectors": "conectores",
       "unavailable": "Un guion es un conteo que no se pudo leer, no un conteo de cero."
+    },
+    "charts": {
+      "rate": "Llamadas por minuto",
+      "rateAria": "Llamadas por minuto en los últimos tres minutos",
+      "latency": "Latencia de respuesta",
+      "latencyCalls": "{{count}} llamadas",
+      "over": "más de",
+      "llmCalls": "Llamadas al LLM",
+      "toolCalls": "Llamadas a herramientas",
+      "rateNote": "Derivado de la diferencia entre lecturas sucesivas de un counter acumulativo — igual que lo haría un scrape. Vive en esta pestaña, así que al recargar empieza de nuevo."
+    },
+    "meter": {
+      "unknown": "Sin límite reportado",
+      "ofLimit": "{{used}} de {{limit}}"
     }
   }
 }

@@ -16,6 +16,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { MetricsCharts } from "@/components/metrics/MetricsCharts";
+import { Meter } from "@/components/metrics/Meter";
+import { Sparkline } from "@/components/metrics/Sparkline";
 import { Button } from "@/components/ui/button";
 import { fetchMetricsLive } from "@/lib/api";
 import type { MetricsGauge } from "@/lib/types";
@@ -24,6 +27,26 @@ import { cn } from "@/lib/utils";
 /** How often the panel resamples. Matches the approval watcher's own poll, which feeds one gauge. */
 const POLL_MS = 3_000;
 
+/**
+ * How many samples the sparklines hold: three minutes at the poll above.
+ *
+ * **In the browser, deliberately.** Nothing stores gauge history — the nine are sampled at read,
+ * which is what stops them going stale — so a server-side ring buffer would need its own timer and
+ * every deployment would pay memory to record numbers for a tab most operators never open. The
+ * cost of keeping it here is that a reload starts over, and the panel says so rather than
+ * implying it holds yesterday.
+ */
+const HISTORY = 60;
+
+/** The two that are one ratio rather than two facts, and are drawn as a meter instead. */
+const CONTEXT_USED = "nanoinfra_context_tokens_used";
+const CONTEXT_LIMIT = "nanoinfra_context_tokens_limit";
+
+function compact(value: number): string {
+  return new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 })
+    .format(value);
+}
+
 export function MetricsLive({ token, base = "" }: { token: string; base?: string }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -31,6 +54,9 @@ export function MetricsLive({ token, base = "" }: { token: string; base?: string
   const [gauges, setGauges] = useState<MetricsGauge[] | null>(null);
   const [available, setAvailable] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // One bounded series per gauge name. `null` enters the series for a sample that could not be
+  // read, so the sparkline breaks its line there rather than drawing across the gap.
+  const [history, setHistory] = useState<Record<string, Array<number | null>>>({});
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -39,6 +65,13 @@ export function MetricsLive({ token, base = "" }: { token: string; base?: string
       setGauges(payload.gauges);
       setAvailable(payload.available !== false);
       setError(null);
+      setHistory((current) => {
+        const next: Record<string, Array<number | null>> = { ...current };
+        for (const gauge of payload.gauges) {
+          next[gauge.name] = [...(current[gauge.name] ?? []), gauge.value].slice(-HISTORY);
+        }
+        return next;
+      });
     } catch {
       // A sample that fails leaves the last one on screen rather than blanking the panel: a
       // dropped poll is not news, and a panel that flickers to empty teaches people to ignore it.
@@ -68,10 +101,13 @@ export function MetricsLive({ token, base = "" }: { token: string; base?: string
     );
   }
 
+  const contextUsed = (gauges ?? []).find((gauge) => gauge.name === CONTEXT_USED);
+  const contextLimit = (gauges ?? []).find((gauge) => gauge.name === CONTEXT_LIMIT);
+
   return (
     <div className="space-y-3" data-testid="metrics-live">
       <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-        {(gauges ?? []).map((gauge) => {
+        {(gauges ?? []).filter((gauge) => gauge.name !== CONTEXT_USED && gauge.name !== CONTEXT_LIMIT).map((gauge) => {
           // A non-zero alerting gauge is somebody waiting or something backing up.
           const raised = gauge.alerting && (gauge.value ?? 0) > 0;
           // The sampler is Python and has no locale. Rather than build an i18n layer into the
@@ -101,6 +137,20 @@ export function MetricsLive({ token, base = "" }: { token: string; base?: string
               >
                 {gauge.value == null ? "—" : new Intl.NumberFormat().format(gauge.value)}
               </p>
+              {/* The trend half of the tile. Absent when the gauge is unreadable: an empty plot
+                  would read as flat at zero, which is the one lie this panel has avoided. */}
+              {gauge.value == null
+                ? null
+                : (
+                  <Sparkline
+                    values={history[gauge.name] ?? []}
+                    className={raised ? "text-amber-500" : "text-primary"}
+                    ariaLabel={tx(
+                      "metrics.live.trend",
+                      "{{label}} over the last three minutes",
+                    ).replace("{{label}}", label)}
+                  />
+                )}
               <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground/80">
                 {help}
               </p>
@@ -108,6 +158,19 @@ export function MetricsLive({ token, base = "" }: { token: string; base?: string
           );
         })}
       </div>
+
+      {/* The context pair as one meter: `used` and `limit` were never two facts. */}
+      {contextUsed || contextLimit
+        ? (
+          <Meter
+            label={tx("metrics.live.context", "Context window")}
+            used={contextUsed?.value ?? null}
+            limit={contextLimit?.value ?? null}
+            format={compact}
+            testId="metrics-context-meter"
+          />
+        )
+        : null}
 
       {gauges == null
         ? (
@@ -125,11 +188,14 @@ export function MetricsLive({ token, base = "" }: { token: string; base?: string
         )
         : null}
 
+      {/* The two charts a level cannot draw: a rate and a tail. */}
+      <MetricsCharts token={token} base={base} />
+
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="max-w-[46rem] text-[11px] leading-4 text-muted-foreground/80">
           {tx(
             "metrics.live.scrape",
-            "The same values are served in Prometheus text format at /metrics on the gateway's own port, which binds to loopback and is off unless gateway.metricsEnabled is set. A dash means the value could not be read, which is not the same as zero.",
+            "The trend under each number is the last three minutes, kept in this tab and lost on reload — nothing stores gauge history, because these are sampled when read. The same values are served in Prometheus text format at /metrics on the gateway's own port, which binds to loopback and is off unless gateway.metricsEnabled is set. A dash means the value could not be read, which is not the same as zero.",
           )}
         </p>
         <Button
