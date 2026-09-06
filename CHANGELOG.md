@@ -11,6 +11,33 @@ not here.
 
 ## [Unreleased]
 
+## [2.2.4] — 2026-09-06
+
+### Added
+
+- The Live tab draws its numbers as well as printing them. Each gauge grows a sparkline of the
+  last three minutes, kept in the tab — nothing stores gauge history, because the gauges are
+  sampled when read, and the panel says so rather than implying it holds yesterday. A gauge that
+  could not be read gets its dash and no plot: an empty plot area reads as flat at zero.
+  ([#274](https://github.com/nanoinfraorg/nanoinfra/issues/274))
+- Context used and its limit are one **meter** instead of two tiles. They were never two facts,
+  and reading 428K against 1,048,576 is arithmetic the panel should do. The fill carries severity
+  past 75% and 90%, with the percentage always spelled out — a status colour never carries meaning
+  alone. An absent or zero limit reads as unknown rather than as 0%.
+  ([#274](https://github.com/nanoinfraorg/nanoinfra/issues/274))
+- Two charts under the gauges: **calls per minute**, derived from the difference between
+  successive reads of the cumulative counters the way `rate()` does, and a **latency histogram**
+  over the nine buckets. An empty latency bucket keeps its row, because a band with no calls is
+  information. `GET /api/webui/metrics/counters` serves both.
+  ([#274](https://github.com/nanoinfraorg/nanoinfra/issues/274))
+
+### Fixed
+
+- The counters charts cannot take the Live tab down. They render inside it, so trusting the
+  route's shape meant an older gateway — or any unexpected answer — unmounted every gauge above
+  them. The same failure the scale row had one release earlier.
+  ([#274](https://github.com/nanoinfraorg/nanoinfra/issues/274))
+
 ## [2.2.3] — 2026-09-05
 
 ### Added
