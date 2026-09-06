@@ -2362,6 +2362,10 @@ class GatewayHTTPHandler:
             return self._handle_webui_metrics_live(request)
         if got == "/api/webui/metrics/calls":
             return self._handle_webui_metrics_calls(request)
+        if got == "/api/webui/metrics/scale":
+            return self._handle_webui_metrics_scale(request)
+        if got == "/api/webui/metrics/approvals":
+            return self._handle_webui_metrics_approvals(request)
         if got == "/api/webui/skills":
             return self._handle_webui_skills(request)
         m = re.match(r"^/api/webui/skills/([^/]+)$", got)
@@ -2467,6 +2471,70 @@ class GatewayHTTPHandler:
             # numbers exist to sample.
             return _http_json_response({"gauges": [], "available": False})
         return _http_json_response({**gauges_payload(sources), "available": True})
+
+    def _handle_webui_metrics_approvals(self, request: WsRequest) -> Response:
+        """Whether the gate is working, rather than merely running (#274).
+
+        503 with no audit surface, and never an empty window: a gateway that cannot read the log
+        must not report that nobody approved anything. Same rule the viewer's own route follows.
+        """
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if self.audit is None:
+            return _http_error(503, "the gate runtime is not available on this gateway")
+        return _http_json_response(self.audit.approvals(_parse_query(request.path)))
+
+    def _handle_webui_metrics_scale(self, request: WsRequest) -> Response:
+        """How big this deployment is, in five numbers (#274).
+
+        One aggregate rather than five requests from the browser. Each number already exists and
+        each lives behind its own route, so a browser-side row would be five chances at a partial
+        render -- and a row showing four numbers and a spinner answers nothing.
+
+        **Counts only, no names.** This is a scale indicator; the five pages that own these things
+        are one click away and already list them. It is also what keeps the response cheap enough
+        to sit at the top of a tab that reloads.
+
+        A source that raises is reported as `null` for that one number, with its name in
+        `unavailable`. A row that says which number it could not read beats a row that quietly
+        shows four.
+        """
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+
+        counts: dict[str, int | None] = {}
+        unavailable: list[str] = []
+
+        def _count(name: str, read: "Callable[[], int]") -> None:
+            try:
+                counts[name] = int(read())
+            except Exception:
+                # Never fatal, and never zero: "this could not be read" and "there are none of
+                # these" are different facts about a deployment.
+                self._log.exception("metrics scale: could not count %s", name)
+                counts[name] = None
+                unavailable.append(name)
+
+        _count("servers", lambda: len(self.servers.list_servers()))
+        _count(
+            "skills",
+            lambda: len(
+                cast(
+                    "list[Any]",
+                    webui_skills_payload(
+                        self.skills_workspace_path,
+                        disabled_skills=self.disabled_skills,
+                    )["skills"],
+                )
+            ),
+        )
+        _count("agents", lambda: len(load_config().agents.named))
+        _count("mcp_servers", lambda: len(load_config().tools.mcp_servers))
+        # `connectors` is the installed map; `active` is a subset of it, and the row counts
+        # what the deployment *has* rather than what a turn currently carries.
+        _count("connectors", lambda: len(load_config().connectors.connectors))
+
+        return _http_json_response({**counts, "unavailable": unavailable})
 
     def _handle_webui_metrics_calls(self, request: WsRequest) -> Response:
         """One page of `tool_calls` (#232, read at last).

@@ -284,3 +284,70 @@ async def test_a_store_that_cannot_be_read_is_not_an_empty_log(
     response = await handler.dispatch(_connection(), _request(_CALLS, token=token))
 
     assert response.status_code == 500
+
+
+# --- the scale row -----------------------------------------------------------------------
+
+_SCALE = "/api/webui/metrics/scale"
+
+
+async def test_the_scale_row_needs_a_token_like_every_other_metrics_route(
+    tmp_path: Path,
+) -> None:
+    handler = _handler(tmp_path)
+
+    response = await handler.dispatch(_connection(), _request(_SCALE))
+
+    assert response.status_code == 401
+
+
+async def test_the_scale_row_answers_five_counts_in_one_request(tmp_path: Path) -> None:
+    """One aggregate, not five browser requests.
+
+    Five parallel reads to render five integers is five chances at a partial row, and a row that
+    shows four numbers and a spinner answers nothing.
+    """
+    handler = _handler(tmp_path)
+    token = handler.tokens.issue_api_token(300)
+
+    response = await handler.dispatch(_connection(), _request(_SCALE, token=token))
+
+    assert response.status_code == 200
+    payload = _body(response)
+    for key in ("servers", "skills", "agents", "mcp_servers", "connectors"):
+        assert key in payload, key
+        assert payload[key] is None or isinstance(payload[key], int)
+    assert payload["unavailable"] == []
+
+
+async def test_the_scale_row_carries_counts_and_never_names(tmp_path: Path) -> None:
+    """A scale indicator. The five pages that own these things already list them."""
+    handler = _handler(tmp_path)
+    token = handler.tokens.issue_api_token(300)
+
+    payload = _body(await handler.dispatch(_connection(), _request(_SCALE, token=token)))
+
+    for value in payload.values():
+        assert not isinstance(value, dict)
+        if isinstance(value, list):
+            assert value == [], "only `unavailable` is a list, and it holds names of counts"
+
+
+async def test_a_source_that_raises_is_named_rather_than_counted_as_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`null` and `0` are different facts about a deployment, and only one of them is a count."""
+    handler = _handler(tmp_path)
+    token = handler.tokens.issue_api_token(300)
+
+    def _explode(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("the store is gone")
+
+    monkeypatch.setattr(type(handler.servers), "list_servers", _explode, raising=False)
+
+    payload = _body(await handler.dispatch(_connection(), _request(_SCALE, token=token)))
+
+    assert payload["servers"] is None
+    assert "servers" in payload["unavailable"]
+    # And the other four still answered.
+    assert payload["agents"] is not None
