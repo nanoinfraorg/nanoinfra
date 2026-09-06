@@ -57,8 +57,10 @@ def test_the_entrypoint_prepares_the_operator_directory_with_its_own_group() -> 
     block = block[block.index("prepare_executor_paths()") : block.index("start_executor()")]
 
     assert 'mkdir -p "$op_socket_dir"' in block
-    assert 'chown "$exec_user:$op_group" "$op_socket_dir"' in block
-    assert 'chmod 2710 "$op_socket_dir"' in block
+    # One call, and it has to be that one: `chmod 2710` on a directory that already carries the
+    # operator group silently yields 710 without CAP_FSETID, which is how this sat broken through
+    # 2.2.0 and 2.2.1. `set_socket_dir_mode` takes it back to root first.
+    assert 'set_socket_dir_mode "$op_socket_dir" "$exec_user" "$op_group"' in block
 
 
 def test_a_missing_operator_group_is_loud_and_closed() -> None:
@@ -91,7 +93,10 @@ def test_the_start_reapplies_the_operator_socket_mode() -> None:
     text = _entrypoint()
 
     assert 'chmod 660 "$op_socket_path"' in text
-    assert 'chown "$exec_user:$op_group" "$op_socket_dir" "$op_socket_path"' in text
+    # The socket file's own group, and the directory's through the helper. They are two calls now:
+    # the directory's mode cannot be re-applied by a plain chmod once it carries the group.
+    assert 'chown "$exec_user:$op_group" "$op_socket_path"' in text
+    assert 'set_socket_dir_mode "$op_socket_dir" "$exec_user" "$op_group"' in text
 
 
 def test_the_image_creates_the_operator_group() -> None:

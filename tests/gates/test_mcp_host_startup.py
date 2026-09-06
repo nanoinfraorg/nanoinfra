@@ -218,7 +218,12 @@ def test_the_container_gives_the_host_its_own_group() -> None:
     text = _ENTRYPOINT.read_text(encoding="utf-8")
 
     assert 'mcp_host_ipc_group="nanoinfra-mcp-ipc"' in text
-    assert 'chown "$mcp_host_run_user:$mcp_host_run_group" "$mcp_host_socket_dir"' in text
+    # Through `set_socket_dir_mode`: a plain `chmod 2710` cannot set setgid once the directory
+    # carries the host's group, because CAP_FSETID is absent from the published capability list.
+    assert (
+        'set_socket_dir_mode "$mcp_host_socket_dir" "$mcp_host_run_user" "$mcp_host_run_group"'
+        in text
+    )
 
 
 def test_the_container_hands_the_socket_path_to_the_agent() -> None:

@@ -11,6 +11,18 @@ not here.
 
 ## [Unreleased]
 
+## [2.2.2] — 2026-09-05
+
+### Fixed
+
+- The socket directories are setgid for real this time, verified in the built image rather than
+  reasoned about. v2.2.1 set the mode before the `chown` in `prepare`, which was right and not
+  enough: the post-bind block re-applies the mode, and by then the directory already carries the
+  helper's group, so its `chmod 2710` dropped the bit again and returned success. All five
+  directories were still at `710` on 2.2.1. One `set_socket_dir_mode` helper now owns that mode
+  and takes the directory back to root before setting it, which is the only order that works on a
+  fresh directory, on a re-apply, and on the `0700` one the Python side creates.
+
 ## [2.2.1] — 2026-09-05
 
 ### Fixed

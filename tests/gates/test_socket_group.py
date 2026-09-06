@@ -220,26 +220,59 @@ def test_the_executor_can_set_the_ipc_group_and_deliberately_not_the_operator_on
     assert "--groups nanoinfra-op nanoinfra" in dockerfile
 
 
-# --- the setgid bit the entrypoint claims, and the order that keeps it -------------------
+# --- the setgid bit the entrypoint claims -------------------------------------------------
 
 
-def test_every_socket_directory_is_made_setgid_before_it_changes_hands() -> None:
-    """`chmod 2710` must precede the `chown` of the same directory, and the reason is a syscall.
+def test_one_helper_owns_every_socket_directory_mode() -> None:
+    """`set_socket_dir_mode` is the only thing that may `chmod 2710`, and the reason is a syscall.
 
     `chmod(2)`: without CAP_FSETID, S_ISGID is turned off when the file's group is not the
-    caller's egid or one of its supplementary groups -- **and no error is returned**. The
-    published compose file drops ALL capabilities and adds six; FSETID is not among them. So
-    `chown` to a helper group followed by `chmod 2710` left every socket directory at 710,
-    silently, with `chmod` exiting 0 -- which is why the `|| return 1` guards never fired and no
-    log ever said so. Verified in the published 2.2.0 image: chown-then-chmod yields 710,
-    chmod-then-chown yields 2710, and a socket bound inside then inherits the group.
+    caller's egid or one of its supplementary groups -- **and no error is returned**. The published
+    compose file drops ALL capabilities and adds six; FSETID is not among them.
 
-    It matters most for the operator socket, where `apply_socket_group` cannot set the group at
-    all: the executor deliberately does not join `nanoinfra-op` (it owns the socket, so it needs
-    no membership, and no other helper may hold that group), which leaves the inherited group as
-    the only non-racy mechanism.
+    v2.2.1 tried to fix this by setting the mode before the chown, which fixed `prepare` and left
+    the bug in place: the post-bind block re-applies the mode, and by then the directory already
+    carries the helper's group, so `chmod 2710` dropped the bit again with rc=0. The live 2.2.1
+    image still showed all five directories at 710.
+
+    The order that works in every case takes the directory back to root first, because `chown`
+    does not clear setgid on a directory. Three cases occur and it is correct in all three:
+    a fresh directory, a re-apply on one that already carries the group (`/run` is in the writable
+    layer, so a container *restart* finds last run's), and the 0700 one the Python side creates
+    when it binds a path root did not prepare.
+
+    Asserted as "one helper" rather than as an order, because the order is the part that was got
+    wrong twice while every scattered copy read plausibly.
     """
-    lines = Path("entrypoint.sh").read_text(encoding="utf-8").splitlines()
+    text = Path("entrypoint.sh").read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    body_start = next(
+        index for index, line in enumerate(lines) if line.startswith("set_socket_dir_mode()")
+    )
+    body_end = next(
+        index for index, line in enumerate(lines[body_start:], body_start) if line == "}"
+    )
+    helper = "\n".join(lines[body_start:body_end])
+
+    # The helper does the three calls, in the one order that keeps the bit.
+    assert helper.index('chown root:root') < helper.index("chmod 2710")
+    assert helper.index("chmod 2710") < helper.index('chown "$_sd_owner:$_sd_group"')
+
+    # And nothing outside it sets that mode.
+    outside = [
+        (number, line)
+        for number, line in enumerate(lines, 1)
+        if "chmod 2710" in line
+        and not line.lstrip().startswith("#")
+        and not (body_start < number <= body_end + 1)
+    ]
+    assert not outside, f"chmod 2710 outside the helper: {outside}"
+
+
+def test_every_socket_directory_goes_through_that_helper() -> None:
+    """A directory left out keeps its own group across a rebind, which is the failure #38 names."""
+    text = Path("entrypoint.sh").read_text(encoding="utf-8")
 
     for directory in (
         "socket_dir",
@@ -248,31 +281,4 @@ def test_every_socket_directory_is_made_setgid_before_it_changes_hands() -> None
         "mcp_host_socket_dir",
         "connector_host_socket_dir",
     ):
-        # A chown may be split over a line continuation, so pair each `chmod 2710` with the next
-        # `chown` that mentions the same directory rather than matching whole statements.
-        events: list[tuple[int, str]] = []
-        for number, line in enumerate(lines, 1):
-            if f'"${directory}"' not in line:
-                continue
-            if "chmod 2710" in line:
-                events.append((number, "setgid"))
-            elif "chmod 700" in line:
-                # The fallback branch for an image with no operator group. 700 has no setgid bit
-                # to lose, so its order does not matter.
-                events.append((number, "private"))
-            elif line.lstrip().startswith("chown") or line.lstrip().startswith(f'"${directory}"'):
-                events.append((number, "chown"))
-
-        assert events, f"{directory}: no chmod/chown found at all"
-        pending_setgid = False
-        for number, kind in events:
-            if kind == "setgid":
-                pending_setgid = True
-            elif kind == "chown" and not pending_setgid:
-                # A chown with no setgid ahead of it in the same block is the losing order, unless
-                # this directory was deliberately closed to 700 first.
-                if not any(k == "private" for _, k in events if _ < number):
-                    raise AssertionError(
-                        f"{directory}: chown at line {number} runs before any chmod 2710, "
-                        "so the setgid bit is dropped without an error"
-                    )
+        assert f'set_socket_dir_mode "${directory}"' in text, directory

@@ -82,7 +82,10 @@ def test_the_entrypoint_gives_the_fetcher_socket_its_own_group() -> None:
     text = _entrypoint()
 
     assert f'fetch_ipc_group="{FETCHER_GROUP}"' in text
-    assert 'chown "$fetch_run_user:$fetch_run_group" "$fetch_socket_dir"' in text
+    # Through `set_socket_dir_mode`, which is the only thing allowed to set that mode: `chmod`
+    # drops setgid when the directory's group is not the caller's and CAP_FSETID is absent, so the
+    # helper takes the directory back to root first. See `test_socket_group.py`.
+    assert 'set_socket_dir_mode "$fetch_socket_dir" "$fetch_run_user" "$fetch_run_group"' in text
 
 
 def test_the_entrypoint_prepares_the_job_store_for_both_accounts() -> None:
@@ -238,6 +241,6 @@ def test_the_mcp_state_dir_belongs_to_the_mcp_host() -> None:
     assert 'chmod 2770 "$mcp_dir"' in body
     assert '-type d -exec chmod 2770' in body
     # The host's own socket directory is not widened by any of this.
-    assert 'chmod 2710 "$mcp_host_socket_dir"' in body
+    assert 'set_socket_dir_mode "$mcp_host_socket_dir"' in body
     # A group that does not exist closes the directory and says what it costs.
     assert 'chmod 2700 "$mcp_dir"' in body
