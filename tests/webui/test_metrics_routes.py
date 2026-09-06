@@ -351,3 +351,47 @@ async def test_a_source_that_raises_is_named_rather_than_counted_as_zero(
     assert "servers" in payload["unavailable"]
     # And the other four still answered.
     assert payload["agents"] is not None
+
+
+# --- the counters route ------------------------------------------------------------------
+
+_COUNTERS = "/api/webui/metrics/counters"
+
+
+async def test_the_counters_route_needs_a_token(tmp_path: Path) -> None:
+    handler = _handler(tmp_path)
+
+    response = await handler.dispatch(_connection(), _request(_COUNTERS))
+
+    assert response.status_code == 401
+
+
+async def test_the_counters_route_answers_without_a_gauge_source(tmp_path: Path) -> None:
+    """These live in this process's memory, so `available: false` would be the wrong answer.
+
+    The Live gauges need a sampler the gateway published; the counters do not, and conflating the
+    two would hide a real number behind a missing one.
+    """
+    from nanoinfra.llm_usage.counters import record_tool_call_metrics, reset_metrics
+    from nanoinfra.llm_usage.models import ToolCallRecord
+
+    reset_metrics()
+    handler = _handler(tmp_path)
+    token = handler.tokens.issue_api_token(300)
+    record_tool_call_metrics(
+        ToolCallRecord(
+            ts_ms=1,
+            tool="exec",
+            source="user",  # pyright: ignore[reportArgumentType]
+            outcome="ok",
+            duration_ms=1,
+        )
+    )
+    try:
+        response = await handler.dispatch(_connection(), _request(_COUNTERS, token=token))
+
+        assert response.status_code == 200
+        payload = _body(response)
+        assert any(row["name"] == "nanoinfra_tool_calls_total" for row in payload["counters"])
+    finally:
+        reset_metrics()

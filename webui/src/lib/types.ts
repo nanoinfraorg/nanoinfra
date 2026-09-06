@@ -2607,3 +2607,21 @@ export type MetricsApprovalsPayload = {
   /** Which end of an approval anchors the counts. */
   attributed_to: "ask";
 };
+
+/**
+ * The accumulated counters and the latency histogram (#274).
+ *
+ * Cumulative, like the Prometheus exposition they share. A panel derives a rate from successive
+ * reads the way `rate()` does — sound only because these never go down.
+ */
+export type MetricsCountersPayload = {
+  counters: Array<{ name: string; labels: Record<string, string>; value: number }>;
+  histograms: Array<{
+    name: string;
+    labels: Record<string, string>;
+    /** `le: null` is the `+Inf` overflow, spelled the way Prometheus spells it. */
+    buckets: Array<{ le: number | null; count: number }>;
+    sum: number;
+    count: number;
+  }>;
+};

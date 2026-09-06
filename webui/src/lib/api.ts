@@ -31,6 +31,7 @@ import type {
   MetricsApprovalsPayload,
   MetricsCallsPayload,
   MetricsCallsQuery,
+  MetricsCountersPayload,
   MetricsScalePayload,
   MetricsLivePayload,
   NanoinfraFeaturesPayload,
@@ -1768,6 +1769,19 @@ export async function fetchMetricsApprovals(
   const query = windowDays && windowDays > 0 ? `?window=${windowDays}` : "";
   return request<MetricsApprovalsPayload>(
     `${base}/api/webui/metrics/approvals${query}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+/** The accumulated counters and the latency histogram, for the Live tab's charts (#274). */
+export async function fetchMetricsCounters(
+  token: string,
+  base: string = "",
+): Promise<MetricsCountersPayload> {
+  return request<MetricsCountersPayload>(
+    `${base}/api/webui/metrics/counters`,
     token,
     undefined,
     API_READ_TIMEOUT_MS,

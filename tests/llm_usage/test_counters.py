@@ -273,3 +273,58 @@ def test_a_label_value_with_a_quote_cannot_break_the_format() -> None:
 
     text = "\n".join(counter_exposition())
     assert 'tool="ex\\"ec"' in text
+
+
+# --- the payload the charts read ---------------------------------------------------------
+
+
+def test_the_browser_payload_carries_the_bucket_edges_with_the_counts() -> None:
+    """A client that hardcoded the ladder would mislabel every bar the day it changed."""
+    from nanoinfra.llm_usage.counters import counters_payload
+
+    record_llm_call_metrics(_call(duration_ms=400))
+
+    payload = counters_payload()
+    histogram = payload["histograms"][0]
+    edges = [bucket["le"] for bucket in histogram["buckets"]]
+
+    assert edges[: len(DURATION_BUCKETS_MS)] == list(DURATION_BUCKETS_MS)
+    # The overflow, spelled as `null` the way Prometheus spells `+Inf`.
+    assert edges[-1] is None
+
+
+def test_the_payload_buckets_are_per_bucket_and_not_cumulative() -> None:
+    """The chart scales each bar against the widest, so a cumulative reading would make every bar
+    wider than the last and say nothing about the distribution."""
+    from nanoinfra.llm_usage.counters import counters_payload
+
+    record_llm_call_metrics(_call(duration_ms=400))
+    record_llm_call_metrics(_call(duration_ms=400))
+    record_llm_call_metrics(_call(duration_ms=3_000))
+
+    histogram = counters_payload()["histograms"][0]
+    counts = {bucket["le"]: bucket["count"] for bucket in histogram["buckets"]}
+
+    assert counts[500.0] == 2
+    assert counts[5_000.0] == 1
+    assert counts[1_000.0] == 0
+    assert histogram["count"] == 3
+
+
+def test_a_label_set_becomes_an_object_because_json_cannot_key_by_a_tuple() -> None:
+    from nanoinfra.llm_usage.counters import counters_payload
+
+    record_llm_call_metrics(_call())
+
+    row = next(
+        row for row in counters_payload()["counters"]
+        if row["name"] == "nanoinfra_llm_calls_total"
+    )
+    assert row["labels"] == {"provider": "moonshot", "model": "kimi-k3", "outcome": "stop"}
+
+
+def test_an_empty_accumulator_answers_two_empty_lists() -> None:
+    """The panel renders nothing from that, rather than an axis with no data on it."""
+    from nanoinfra.llm_usage.counters import counters_payload
+
+    assert counters_payload() == {"counters": [], "histograms": []}

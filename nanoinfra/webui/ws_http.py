@@ -2366,6 +2366,8 @@ class GatewayHTTPHandler:
             return self._handle_webui_metrics_scale(request)
         if got == "/api/webui/metrics/approvals":
             return self._handle_webui_metrics_approvals(request)
+        if got == "/api/webui/metrics/counters":
+            return self._handle_webui_metrics_counters(request)
         if got == "/api/webui/skills":
             return self._handle_webui_skills(request)
         m = re.match(r"^/api/webui/skills/([^/]+)$", got)
@@ -2471,6 +2473,19 @@ class GatewayHTTPHandler:
             # numbers exist to sample.
             return _http_json_response({"gauges": [], "available": False})
         return _http_json_response({**gauges_payload(sources), "available": True})
+
+    def _handle_webui_metrics_counters(self, request: WsRequest) -> Response:
+        """The accumulated counters and the latency histogram, for the charts (#274).
+
+        The same numbers `/metrics` exposes, shaped for a browser. No gate on a gauge source here:
+        these live in this process's own memory and are readable whether or not the gateway
+        published a sampler, so a `available: false` answer would be wrong.
+        """
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        from nanoinfra.llm_usage.counters import counters_payload
+
+        return _http_json_response(counters_payload())
 
     def _handle_webui_metrics_approvals(self, request: WsRequest) -> Response:
         """Whether the gate is working, rather than merely running (#274).

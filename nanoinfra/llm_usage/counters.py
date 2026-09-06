@@ -216,6 +216,40 @@ def snapshot() -> dict[str, Any]:
         }
 
 
+def counters_payload() -> dict[str, Any]:
+    """The same numbers, shaped for a browser rather than for a scraper (#274).
+
+    JSON cannot key an object by a tuple, so a label set becomes a nested object and the series
+    becomes a list. The bucket edges travel with the counts: a client that hardcoded them would
+    silently mislabel every bar the day the ladder changed.
+
+    Cumulative, like the exposition. The panel derives a rate from successive reads the way
+    `rate()` does, which is sound only because these never go down — see the module docstring.
+    """
+    with _lock:
+        counters = [
+            {"name": name, "labels": dict(labels), "value": value}
+            for (name, labels), value in sorted(_counters.items())
+        ]
+        histograms = [
+            {
+                "name": name,
+                "labels": dict(labels),
+                "buckets": [
+                    {"le": edge, "count": count}
+                    for edge, count in zip(DURATION_BUCKETS_MS, buckets, strict=False)
+                ]
+                # The overflow, spelled the way Prometheus spells it so one vocabulary covers
+                # both readers.
+                + [{"le": None, "count": buckets[-1]}],
+                "sum": _histogram_sums.get((name, labels), 0.0),
+                "count": sum(buckets),
+            }
+            for (name, labels), buckets in sorted(_histograms.items())
+        ]
+    return {"counters": counters, "histograms": histograms}
+
+
 def reset_metrics() -> None:
     """Drop everything. For tests, and for nothing else -- a counter a process clears mid-life
     is a counter whose `rate()` lies."""
@@ -228,6 +262,7 @@ def reset_metrics() -> None:
 __all__ = [
     "DURATION_BUCKETS_MS",
     "counter_exposition",
+    "counters_payload",
     "increment",
     "observe",
     "record_llm_call_metrics",
