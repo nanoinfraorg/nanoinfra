@@ -11,6 +11,18 @@ not here.
 
 ## [Unreleased]
 
+## [2.2.6] — 2026-09-06
+
+### Changed
+
+- The `Abilities` and `Infrastructure` groups in the sidebar remember whether you closed them.
+  They held that in local state, so collapsing one lasted until the next reload — and the comment
+  on that state said collapsing "is the operator's choice, not the default", which a choice that
+  does not survive a reload is not. They now use `collapsed_groups`, the map the sidebar already
+  round-trips for chat project groups. Each keeps its own default, so a deployment that has never
+  touched the rail sees exactly what it saw before: `Abilities` open, `Infrastructure` closed.
+  ([#253](https://github.com/nanoinfraorg/nanoinfra/issues/253))
+
 ## [2.2.5] — 2026-09-06
 
 ### Fixed

@@ -1,7 +1,6 @@
 import {
   type ReactNode,
   type RefObject,
-  useEffect,
   useRef,
   useState,
 } from "react";
@@ -38,6 +37,16 @@ import type {
   SidebarViewState,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+/**
+ * The ids the two rail groups store their collapsed state under (#253).
+ *
+ * Namespaced with `nav:` because `collapsed_groups` is shared with chat project groups, whose ids
+ * are workspace paths and project names. A bare "abilities" could collide with a project called
+ * that.
+ */
+const NAV_GROUP_ABILITIES = "nav:abilities";
+const NAV_GROUP_INFRASTRUCTURE = "nav:infrastructure";
 
 interface SidebarProps {
   sessions: ChatSummary[];
@@ -137,12 +146,31 @@ export function Sidebar(props: SidebarProps) {
   const { t } = useTranslation();
   const [menuPortalContainer, setMenuPortalContainer] =
     useState<HTMLElement | null>(null);
-  const [infraExpanded, setInfraExpanded] = useState(
-    () =>
-      props.activeUtility === "diagrams"
-      || props.activeUtility === "servers"
-      || props.activeUtility === "secrets",
-  );
+  /**
+   * The two rail groups remember whether you closed them.
+   *
+   * They used to be plain `useState`, so collapsing one lasted until the next reload. The comment
+   * below said collapsing "is the operator's choice, not the default" -- and a choice that does
+   * not survive a reload is not really one. `collapsed_groups` is the map the sidebar already
+   * round-trips to the server for chat project groups, keyed by group id; these two just were not
+   * using it.
+   *
+   * **Each group keeps its own default**, which is the part a single rule got wrong: `Abilities`
+   * opens by default for the reason argued below, and `Infrastructure` starts closed and always
+   * has. So absent means *that group's default* rather than "expanded".
+   *
+   * The two therefore read the map in opposite directions, and `onToggleGroup` already has both
+   * conventions: a default-open group stores `true` to mean collapsed, and a default-closed one
+   * stores `false` to mean expanded (the same path `workspace:chats` uses). Absent is the default
+   * in both cases, so a deployment that has never touched the rail sees exactly what it saw
+   * before.
+   *
+   * The keys are namespaced because this map is shared with project groups, whose ids are
+   * workspace paths and project names.
+   */
+  const collapsedGroups = props.collapsedGroups ?? {};
+  const abilitiesCollapsed = collapsedGroups[NAV_GROUP_ABILITIES] === true;
+  const infraCollapsed = collapsedGroups[NAV_GROUP_INFRASTRUCTURE] !== false;
   /**
    * The Abilities grouping (#253). **Open by default**, and that is the whole difference between
    * a grouping and a hiding place.
@@ -157,21 +185,23 @@ export function Sidebar(props: SidebarProps) {
    * So it groups without hiding: the heading names what these two are, and both stay visible.
    * Collapsing it is available and is the operator's choice, not the default.
    */
-  const [abilitiesExpanded, setAbilitiesExpanded] = useState(true);
-  useEffect(() => {
-    if (props.activeUtility === "apps" || props.activeUtility === "skills") {
-      setAbilitiesExpanded(true);
-    }
-  }, [props.activeUtility]);
-  useEffect(() => {
-    if (
-      props.activeUtility === "diagrams"
-      || props.activeUtility === "servers"
-      || props.activeUtility === "secrets"
-    ) {
-      setInfraExpanded(true);
-    }
-  }, [props.activeUtility]);
+  /*
+   * A group holding the page you are on renders open whatever the stored preference says, and the
+   * preference is **not** rewritten.
+   *
+   * The two effects this replaces called the setter, which was harmless while the state was
+   * local. Against a persisted map it would silently undo the operator's setting the first time
+   * they opened Skills -- a reload would then find the group expanded and nobody would know why.
+   * So the override is a render-time read, not a write.
+   */
+  const abilitiesHoldsActive =
+    props.activeUtility === "apps" || props.activeUtility === "skills";
+  const infraHoldsActive =
+    props.activeUtility === "diagrams"
+    || props.activeUtility === "servers"
+    || props.activeUtility === "secrets";
+  const abilitiesExpanded = !abilitiesCollapsed || abilitiesHoldsActive;
+  const infraExpanded = !infraCollapsed || infraHoldsActive;
   const collapsed = Boolean(props.collapsed);
   const toggleLabel = t("thread.header.toggleSidebar");
   const newChatShortcut = newChatShortcutLabel();
@@ -389,7 +419,7 @@ export function Sidebar(props: SidebarProps) {
                   <SidebarActionButton
                     collapsed={false}
                     label={t("sidebar.abilities", { defaultValue: "Abilities" })}
-                    onClick={() => setAbilitiesExpanded((v) => !v)}
+                    onClick={() => props.onToggleGroup(NAV_GROUP_ABILITIES)}
                     ariaExpanded={abilitiesExpanded}
                     icon={<Sparkles className="h-4 w-4" />}
                     trailing={
@@ -479,7 +509,7 @@ export function Sidebar(props: SidebarProps) {
             <SidebarActionButton
               collapsed={false}
               label={t("sidebar.infrastructure", { defaultValue: "Infrastructure" })}
-              onClick={() => setInfraExpanded((v) => !v)}
+              onClick={() => props.onToggleGroup(NAV_GROUP_INFRASTRUCTURE)}
               ariaExpanded={infraExpanded}
               icon={<Network className="h-4 w-4" />}
               trailing={

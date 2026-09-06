@@ -153,9 +153,12 @@ describe("the rail, in one shape whatever the roster holds", () => {
   });
 
   it("lets an operator collapse it, which is their choice and not the default", () => {
-    renderSidebar({});
-
-    fireEvent.click(screen.getByRole("button", { name: "Abilities" }));
+    /*
+     * The click now records the choice instead of holding it in local state, so the collapse is
+     * asserted from the stored map. "The rail groups remember whether you closed them" below
+     * covers the handler and the persistence; this keeps the property #253 argued for.
+     */
+    renderSidebar({ collapsedGroups: { "nav:abilities": true } });
 
     expect(screen.queryByRole("button", { name: "Apps" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Skills" })).toBeNull();
@@ -224,5 +227,96 @@ describe("the rail, in one shape whatever the roster holds", () => {
     expect(screen.getByRole("button", { name: "Apps" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Abilities" })).toBeNull();
+  });
+});
+
+describe("the rail groups remember whether you closed them", () => {
+  /*
+   * They were plain `useState`, so collapsing one lasted until the next reload — and the comment
+   * on that state said collapsing "is the operator's choice, not the default". A choice that does
+   * not survive a reload is not really one.
+   *
+   * `collapsed_groups` is the map the sidebar already round-trips to the server for chat project
+   * groups. These two just were not using it.
+   */
+  it("still opens expanded for a deployment that has never touched it", () => {
+    // Absent means expanded, which keeps the documented default for everybody else.
+    renderSidebar({ collapsedGroups: {} });
+
+    expect(screen.getByRole("button", { name: "Apps" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
+  });
+
+  it("starts collapsed when that is what the stored state says", () => {
+    renderSidebar({ collapsedGroups: { "nav:abilities": true } });
+
+    expect(screen.queryByRole("button", { name: "Apps" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skills" })).toBeNull();
+    // The heading is still there — it is a grouping, not a removal.
+    expect(screen.getByRole("button", { name: "Abilities" })).toBeInTheDocument();
+  });
+
+  it("persists the toggle through the same handler the project groups use", () => {
+    const onToggleGroup = vi.fn();
+    renderSidebar({ onToggleGroup });
+
+    fireEvent.click(screen.getByRole("button", { name: "Abilities" }));
+
+    expect(onToggleGroup).toHaveBeenCalledWith("nav:abilities");
+  });
+
+  it("namespaces its key, because that map is shared with project groups", () => {
+    // A bare "abilities" could collide with a project of that name.
+    const onToggleGroup = vi.fn();
+    renderSidebar({ onToggleGroup });
+
+    fireEvent.click(screen.getByRole("button", { name: "Infrastructure" }));
+
+    expect(onToggleGroup).toHaveBeenCalledWith("nav:infrastructure");
+  });
+
+  it("keeps Infrastructure closed by default, which is not the same rule as Abilities", () => {
+    /*
+     * The regression a single rule caused: "absent means expanded" opened Infrastructure, which
+     * has started closed since it existed. Each group keeps its own default, so the two read the
+     * map in opposite directions — `true` means collapsed for a default-open group, `false` means
+     * expanded for a default-closed one.
+     */
+    renderSidebar({ collapsedGroups: {} });
+
+    expect(screen.getByRole("button", { name: "Infrastructure" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Diagrams" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Servers" })).toBeNull();
+  });
+
+  it("opens Infrastructure when the operator has opened it before", () => {
+    renderSidebar({ collapsedGroups: { "nav:infrastructure": false } });
+
+    expect(screen.getByRole("button", { name: "Diagrams" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Servers" })).toBeInTheDocument();
+  });
+
+  it("renders a collapsed group open when it holds the page you are on", () => {
+    // The visual guarantee the old effects gave, kept.
+    renderSidebar({ collapsedGroups: { "nav:abilities": true }, activeUtility: "skills" });
+
+    expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
+  });
+
+  it("does not rewrite the preference when it overrides it for the active page", () => {
+    /*
+     * The two effects this replaced called the setter. Against a persisted map that would undo
+     * the operator's setting the first time they opened Skills, and a reload would then find the
+     * group expanded with nobody knowing why. So the override is a render-time read.
+     */
+    const onToggleGroup = vi.fn();
+    renderSidebar({
+      collapsedGroups: { "nav:abilities": true },
+      activeUtility: "skills",
+      onToggleGroup,
+    });
+
+    expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
+    expect(onToggleGroup).not.toHaveBeenCalled();
   });
 });

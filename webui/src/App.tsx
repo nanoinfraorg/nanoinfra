@@ -1675,7 +1675,15 @@ function Shell({
     (groupId: string) => {
       void updateSidebarState((current) => {
         const collapsedGroups = { ...current.collapsed_groups };
-        if (groupId === "workspace:chats" || groupId === "date:all") {
+        // `nav:infrastructure` joins the default-collapsed group ids (#253): for those, storing
+        // `false` means "the operator opened this" and absent means the default. A
+        // default-collapsed group on the other path would store `true` for its own default and
+        // the first click would do nothing visible.
+        if (
+          groupId === "workspace:chats"
+          || groupId === "date:all"
+          || groupId === "nav:infrastructure"
+        ) {
           if (collapsedGroups[groupId] === false) {
             delete collapsedGroups[groupId];
           } else {
