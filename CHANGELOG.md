@@ -11,6 +11,70 @@ not here.
 
 ## [Unreleased]
 
+## [2.2.0] — 2026-09-05
+
+### Added
+
+- A `Metrics` destination in the rail, with three tabs. `Usage` shows spend per model over a
+  chosen window of 7, 30, 90 or 365 days, with cache writes, truncated answers, time to first
+  token, wall clock and a per-model cost — five of which the store has recorded since 2.0.0 and
+  none of which reached a pixel. `Live` shows seven point-in-time gauges, starting with how many
+  suspended actions are waiting for a person. `Calls` reads the `tool_calls` table, which had a
+  writer, a pruner and a purge log and no reader at all.
+  ([#235](https://github.com/nanoinfraorg/nanoinfra/issues/235),
+  [#232](https://github.com/nanoinfraorg/nanoinfra/issues/232))
+- `pricing` in config gives a model four rates in USD per million tokens — input, output, cache
+  read and cache write — keyed `"<provider>/<model>"`. Until one is set the Usage tab says no
+  prices are configured rather than showing a spend of `$0.00`.
+  ([#235](https://github.com/nanoinfraorg/nanoinfra/issues/235))
+- `gateway.metricsEnabled` serves the same gauges in Prometheus text format at `/metrics` on the
+  gateway's own port. Off by default. `gateway.metricsToken` sets the bearer token a scrape must
+  present; with no token only a loopback bind is served, so enabling metrics on a port a reverse
+  proxy fronts does not publish them.
+  ([#235](https://github.com/nanoinfraorg/nanoinfra/issues/235))
+- The Usage tab lists why calls failed, per error kind, status code and provider. The failure
+  count was already shown; the reason behind it was recorded and never read.
+  ([#235](https://github.com/nanoinfraorg/nanoinfra/issues/235))
+- The Usage tab breaks the window down by what started the turns — chat, API, automations, memory,
+  system. `source` was aggregated per day and readable only inside one heatmap cell's tooltip, so
+  "what does automation cost me this month" meant opening thirty tooltips.
+  ([#235](https://github.com/nanoinfraorg/nanoinfra/issues/235))
+- A model row in the Usage tab expands to the four measurements the columns are checked against:
+  how many calls the provider reported against how many were tokenized locally, output tokens per
+  second of generation, measured against reported output, and the streamed split that time to
+  first token is averaged over. ([#235](https://github.com/nanoinfraorg/nanoinfra/issues/235))
+
+### Fixed
+
+- A cached token is no longer billed twice. `prompt_tokens` is the *logical* input and includes
+  the cached halves, so charging it at the input rate and the cached count at the cache rate
+  over-stated a warm cache badly — 5.7× on published Kimi K3 rates for a 90%-cached prompt. The
+  three input buckets are now disjoint.
+  ([#235](https://github.com/nanoinfraorg/nanoinfra/issues/235))
+- A usage row names the provider that was configured rather than the class that made the call.
+  `OpenAICompatProvider` serves every OpenAI-compatible API, so Moonshot, DeepSeek, Groq,
+  OpenRouter and forty others were all recorded as `openaicompat` — which left "which provider is
+  expensive" unanswerable and meant a rate set for `moonshot/kimi-k3` could never match its own
+  rows. Single-provider backends were wrong too: `openai_codex` recorded `openaicodex`.
+  ([#235](https://github.com/nanoinfraorg/nanoinfra/issues/235))
+- Both spellings of the pricing rate keys are accepted (`inputPerMtok` and `inputPerMTok`), and an
+  entry that states no rate nanoinfra recognises reads as *unpriced* rather than as `$0.00`. A
+  mistyped key used to produce a confident zero over a month of real spend.
+  ([#235](https://github.com/nanoinfraorg/nanoinfra/issues/235))
+
+### Changed
+
+- Model rates are set where the model is: `Settings → Models → Pricing`, with a live figure
+  showing what the recorded window would have cost at the rates typed, a warning when the model
+  reads cached tokens and the cache rate is still zero, and a note when two configurations name
+  the same model and therefore share one bill. `Settings → Providers → Default pricing` sets rates
+  for a whole provider, including a *free* checkbox — the one-edit answer for a local fleet.
+  ([#235](https://github.com/nanoinfraorg/nanoinfra/issues/235))
+- The Settings overview no longer opens with the token summary and the heatmap. They are the
+  Usage tab now, and the overview keeps one row that leads there — which also ends the
+  five-second re-aggregation of `llm_calls` that a settings page left open used to run.
+  ([#235](https://github.com/nanoinfraorg/nanoinfra/issues/235))
+
 ## [2.1.0] — 2026-09-04
 
 ### Added
