@@ -20,9 +20,15 @@ The symptom was quiet in the worst way. A scrub socket the agent cannot reach ma
 persisted transcript read `[nanoinfra withheld this text]`, and an execute socket it cannot reach
 fails every remote action. Both were reported as something else.
 
-So the group moves to the side that creates the socket. The executor belongs to both groups --
-`nanoinfra-ipc` with the agent, and `nanoinfra-op` for the approval path -- so it can set them
-without any privilege, and it does so between bind and listen, before a peer can connect.
+So the group moves to the side that creates the socket, between bind and listen, before a peer can
+connect.
+
+**That requires the creator to be a member of the group it sets.** A non-root process may set a
+file's group only to one of its own, so this is a constraint on the image rather than a detail:
+the executor has to belong to `nanoinfra-ipc` *and* to `nanoinfra-op`. It belonged only to the
+first, so the operator socket logged EPERM on every boot and the racy supervisor chown this module
+exists to replace stayed the only thing setting that group. The membership costs nothing -- the
+executor already owns the socket, so the group grants it no access it did not have.
 
 The group name arrives in the environment because the layout that defines it is the container's,
 not this module's. A start with nothing set changes nothing, which is every single-uid host.
@@ -75,15 +81,34 @@ def apply_socket_group(path: Path | str, *, env_var: str = SOCKET_GROUP_ENV) -> 
     except KeyError:
         logger.warning("gates: socket group {!r} does not exist on this host", name)
         return
+    # Two calls, and deliberately not one try block: they fail for different reasons and only one
+    # of them is what a peer needs.
+    #
+    # A non-root process may set a file's group only to a group it belongs to, so the chown
+    # returns EPERM in any layout where the socket's creator is not a member of the target group.
+    # In one try block that EPERM took the chmod with it -- and the chmod is the half that grants
+    # the group its write bit, which is the whole reason this runs.
+    chowned = True
     try:
         os.chown(path, -1, group.gr_gid)
+    except OSError as exc:
+        chowned = False
+        # Not fatal. A supervisor holding root may already have set it, and a refusal to serve
+        # would cost every gated action rather than one account's access.
+        logger.warning("gates: could not give {} the group {!r}: {}", path, name, exc)
+    try:
         os.chmod(path, SOCKET_MODE)
     except OSError as exc:
-        # Not fatal. The supervisor may still fix it, and a refusal to serve would cost every
-        # gated action rather than one account's access.
-        logger.warning("gates: could not give {} the group {!r}: {}", path, name, exc)
+        logger.warning("gates: could not set the mode on {}: {}", path, exc)
         return
-    logger.info("gates: socket {} carries group {!r} (mode {:o})", path, name, SOCKET_MODE)
+    if chowned:
+        logger.info("gates: socket {} carries group {!r} (mode {:o})", path, name, SOCKET_MODE)
+    else:
+        # Names which half held, so a reader does not have to infer from one warning whether the
+        # socket is reachable at all.
+        logger.info(
+            "gates: socket {} kept its own group and carries mode {:o}", path, SOCKET_MODE
+        )
 
 
 __all__ = [

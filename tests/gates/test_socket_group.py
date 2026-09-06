@@ -131,3 +131,148 @@ def test_the_entrypoint_hands_a_group_name_to_every_helper() -> None:
     assert 'rm -f "$socket_path" "$scrub_socket_path" "$op_socket_path"' in text
     assert 'rm -f "$fetch_socket_path"' in text
     assert 'rm -f "$mcp_host_socket_path"' in text
+
+
+# --- the mode is the half a connect() needs ---------------------------------------------
+
+
+def test_the_mode_is_set_even_when_the_group_cannot_be(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed chown must not take the chmod with it.
+
+    The two calls fail for different reasons, and only one of them is what a peer needs. A
+    non-root process may set a file's group only to a group it belongs to, so the chown returns
+    EPERM in any layout where the socket's creator is not a member of the target group -- which
+    was the operator socket's situation on every containerized boot for as long as the group
+    existed. In one try block the EPERM skipped the chmod, and the chmod is what grants the group
+    its write bit.
+    """
+    path = tmp_path / "helper.sock"
+    listener = _bound(path)
+    try:
+        path.chmod(0o600)
+        name = _a_group_this_process_belongs_to()
+        if name is None:
+            pytest.skip("this process belongs to no second group")
+        monkeypatch.setenv(SOCKET_GROUP_ENV, name)
+
+        def _refuse(*_args: object, **_kwargs: object) -> None:
+            raise PermissionError(1, "Operation not permitted")
+
+        monkeypatch.setattr("nanoinfra.gates.socket_group.os.chown", _refuse)
+
+        apply_socket_group(path)
+
+        assert stat.S_IMODE(path.stat().st_mode) == SOCKET_MODE
+    finally:
+        listener.close()
+
+
+def test_a_mode_that_cannot_be_set_is_logged_and_not_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A socket that works for one account beats no socket at all."""
+    path = tmp_path / "helper.sock"
+    listener = _bound(path)
+    try:
+        name = _a_group_this_process_belongs_to()
+        if name is None:
+            pytest.skip("this process belongs to no second group")
+        monkeypatch.setenv(SOCKET_GROUP_ENV, name)
+
+        def _refuse(*_args: object, **_kwargs: object) -> None:
+            raise PermissionError(1, "Operation not permitted")
+
+        monkeypatch.setattr("nanoinfra.gates.socket_group.os.chmod", _refuse)
+
+        apply_socket_group(path)  # must not raise
+    finally:
+        listener.close()
+
+
+# --- which groups the module can actually set ---------------------------------------------
+
+
+def test_the_executor_can_set_the_ipc_group_and_deliberately_not_the_operator_one() -> None:
+    """The membership decides which sockets this module can actually set, and it is asymmetric.
+
+    `apply_socket_group` works only where the socket's creator belongs to the target group: a
+    non-root process may set a file's group only to one of its own. The executor is in
+    `nanoinfra-ipc`, so the execute and scrub sockets get their group from the code that binds
+    them -- the whole point, since the supervisor's chown can land on the previous run's file.
+
+    It is **not** in `nanoinfra-op`, on purpose: it owns that socket so it needs no membership,
+    and no other helper may hold that group or it could answer an approval for an action it asked
+    for (`test_only_the_agent_joins_the_operator_group` states the same rule from the other side).
+    The consequence is the point of this test: for the operator socket the group can only come
+    from the **setgid directory**, which is why its mode order is load-bearing.
+
+    Read from the Dockerfile rather than from `/etc/group`, because the test host is a single-uid
+    machine with none of these accounts.
+    """
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+
+    assert "--groups nanoinfra-ipc nanoinfra-exec" in dockerfile
+    assert "--groups nanoinfra-op nanoinfra-exec" not in dockerfile
+    # The agent is the peer on both, and holds both memberships.
+    assert "--groups nanoinfra-ipc nanoinfra" in dockerfile
+    assert "--groups nanoinfra-op nanoinfra" in dockerfile
+
+
+# --- the setgid bit the entrypoint claims, and the order that keeps it -------------------
+
+
+def test_every_socket_directory_is_made_setgid_before_it_changes_hands() -> None:
+    """`chmod 2710` must precede the `chown` of the same directory, and the reason is a syscall.
+
+    `chmod(2)`: without CAP_FSETID, S_ISGID is turned off when the file's group is not the
+    caller's egid or one of its supplementary groups -- **and no error is returned**. The
+    published compose file drops ALL capabilities and adds six; FSETID is not among them. So
+    `chown` to a helper group followed by `chmod 2710` left every socket directory at 710,
+    silently, with `chmod` exiting 0 -- which is why the `|| return 1` guards never fired and no
+    log ever said so. Verified in the published 2.2.0 image: chown-then-chmod yields 710,
+    chmod-then-chown yields 2710, and a socket bound inside then inherits the group.
+
+    It matters most for the operator socket, where `apply_socket_group` cannot set the group at
+    all: the executor deliberately does not join `nanoinfra-op` (it owns the socket, so it needs
+    no membership, and no other helper may hold that group), which leaves the inherited group as
+    the only non-racy mechanism.
+    """
+    lines = Path("entrypoint.sh").read_text(encoding="utf-8").splitlines()
+
+    for directory in (
+        "socket_dir",
+        "op_socket_dir",
+        "fetch_socket_dir",
+        "mcp_host_socket_dir",
+        "connector_host_socket_dir",
+    ):
+        # A chown may be split over a line continuation, so pair each `chmod 2710` with the next
+        # `chown` that mentions the same directory rather than matching whole statements.
+        events: list[tuple[int, str]] = []
+        for number, line in enumerate(lines, 1):
+            if f'"${directory}"' not in line:
+                continue
+            if "chmod 2710" in line:
+                events.append((number, "setgid"))
+            elif "chmod 700" in line:
+                # The fallback branch for an image with no operator group. 700 has no setgid bit
+                # to lose, so its order does not matter.
+                events.append((number, "private"))
+            elif line.lstrip().startswith("chown") or line.lstrip().startswith(f'"${directory}"'):
+                events.append((number, "chown"))
+
+        assert events, f"{directory}: no chmod/chown found at all"
+        pending_setgid = False
+        for number, kind in events:
+            if kind == "setgid":
+                pending_setgid = True
+            elif kind == "chown" and not pending_setgid:
+                # A chown with no setgid ahead of it in the same block is the losing order, unless
+                # this directory was deliberately closed to 700 first.
+                if not any(k == "private" for _, k in events if _ < number):
+                    raise AssertionError(
+                        f"{directory}: chown at line {number} runs before any chmod 2710, "
+                        "so the setgid bit is dropped without an error"
+                    )

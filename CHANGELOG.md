@@ -11,6 +11,21 @@ not here.
 
 ## [Unreleased]
 
+## [2.2.1] — 2026-09-05
+
+### Fixed
+
+- Every helper socket directory is actually setgid now, so a socket keeps its shared group when
+  the helper rebinds it. `chmod 2710` ran *after* `chown`, and without `CAP_FSETID` — which the
+  published compose file does not grant — that silently drops the setgid bit and returns success,
+  so all five directories sat at `710` while the code's own comments described `2710`. The
+  operator socket is the one that paid: the executor deliberately does not join `nanoinfra-op`,
+  so the inherited group is the only mechanism it has, and its absence left the racy root chown
+  as the only thing setting it — plus a `[Errno 1] Operation not permitted` on every boot.
+- `apply_socket_group` sets the mode even when it cannot set the group. The two were in one `try`,
+  so a refused chown skipped the chmod — and the mode is the half that grants a peer its write
+  bit.
+
 ## [2.2.0] — 2026-09-05
 
 ### Added

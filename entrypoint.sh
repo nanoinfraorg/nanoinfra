@@ -185,7 +185,6 @@ prepare_executor_paths() {
     # then answer as the authority that polices it. So the executor owns the directory, and
     # the agent only reaches through it.
     mkdir -p "$socket_dir" || return 1
-    chown "$exec_user:$ipc_group" "$socket_dir" || return 1
     # Mode 2710 on the socket directory:
     #   owner rwx  the executor binds, unlinks, and rebinds its socket.
     #   group --x  the agent traverses to a known socket name. It cannot list the directory,
@@ -193,15 +192,17 @@ prepare_executor_paths() {
     #   other ---  every other account is refused before it reaches the socket.
     #   setgid     each new socket inherits group nanoinfra-ipc, so the agent keeps access
     #              after the executor rebinds.
+    # Mode first, then owner. See the note above `prepare_socket_dirs` for why that order.
     chmod 2710 "$socket_dir" || return 1
+    chown "$exec_user:$ipc_group" "$socket_dir" || return 1
 
     # The operator socket directory (#38). bind_operator_socket() creates it at 0700 under the
     # executor account, and the agent could then not traverse it, so the #27 inbox reported
     # degraded in every container. Root prepares it here instead.
     mkdir -p "$op_socket_dir" || return 1
     if getent group "$op_group" >/dev/null 2>&1; then
-        chown "$exec_user:$op_group" "$op_socket_dir" || return 1
         chmod 2710 "$op_socket_dir" || return 1
+        chown "$exec_user:$op_group" "$op_socket_dir" || return 1
     else
         # An image built before the group exists keeps the directory closed. A silent 0700 reads
         # to an operator as an inbox that broke for no reason, so it says what it costs.
@@ -410,13 +411,14 @@ resolve_fetcher_group() {
 # agent reaches through it to a known socket name.
 prepare_fetcher_paths() {
     mkdir -p "$fetch_socket_dir" || return 1
-    chown "$fetch_run_user:$fetch_run_group" "$fetch_socket_dir" || return 1
     # Mode 2710, the same four reasons as the executor's socket directory:
     #   owner rwx  the fetcher binds, unlinks, and rebinds its socket.
     #   group --x  the agent traverses to a known socket name. It cannot list or create.
     #   other ---  every other account is refused before it reaches the socket.
     #   setgid     each new socket inherits the fetcher's group, so a rebind keeps the agent in.
+    # Mode before owner, for the CAP_FSETID reason stated on the executor's directory.
     chmod 2710 "$fetch_socket_dir" || return 1
+    chown "$fetch_run_user:$fetch_run_group" "$fetch_socket_dir" || return 1
 }
 
 # Start the fetcher and keep it up. A dead fetcher means web_fetch and web_search fail, so a restart
@@ -540,13 +542,14 @@ prepare_mcp_host_paths() {
     fi
 
     mkdir -p "$mcp_host_socket_dir" || return 1
-    chown "$mcp_host_run_user:$mcp_host_run_group" "$mcp_host_socket_dir" || return 1
+    # Mode before owner, for the CAP_FSETID reason stated on the executor's directory.
     # Mode 2710, the same four reasons as the other two socket directories:
     #   owner rwx  the host binds, unlinks, and rebinds its socket.
     #   group --x  the agent traverses to a known socket name. It cannot list or create.
     #   other ---  every other account is refused before it reaches the socket.
     #   setgid     each new socket inherits the host's group, so a rebind keeps the agent in.
     chmod 2710 "$mcp_host_socket_dir" || return 1
+    chown "$mcp_host_run_user:$mcp_host_run_group" "$mcp_host_socket_dir" || return 1
 }
 
 # Start the MCP host and keep it up. A dead host means every stdio MCP tool fails, so a restart
@@ -612,11 +615,13 @@ resolve_connector_host_group() {
 # Hand the connector host's socket directory to its account, and keep every other account out.
 prepare_connector_host_paths() {
     mkdir -p "$connector_host_socket_dir" || return 1
-    chown "$connector_host_run_user:$connector_host_run_group" "$connector_host_socket_dir" || return 1
     # Mode 2710, the same reasoning as the other socket directories -- except that the group here
     # is the executor's, so the "group --x" line means the executor traverses to the socket and the
     # agent does not.
+    # Mode before owner, for the CAP_FSETID reason stated on the executor's directory.
     chmod 2710 "$connector_host_socket_dir" || return 1
+    chown "$connector_host_run_user:$connector_host_run_group" \
+        "$connector_host_socket_dir" || return 1
 }
 
 # Start the connector host and keep it up. A dead host means a marketplace connector's calls fail
@@ -749,10 +754,10 @@ if [ "$(id -u)" = "0" ]; then
                 # that directory closed to every other account. A two-uid host needs the group
                 # bit back, or the agent cannot reach the socket at all. So this start re-applies
                 # the owner, the group, and the two modes while it still holds root.
-                chown "$exec_user:$ipc_group" "$socket_dir" "$socket_path" 2>/dev/null || \
-                    echo "[entrypoint] warning: chown $socket_dir failed"
                 chmod 2710 "$socket_dir" 2>/dev/null || \
                     echo "[entrypoint] warning: chmod $socket_dir failed"
+                chown "$exec_user:$ipc_group" "$socket_dir" "$socket_path" 2>/dev/null || \
+                    echo "[entrypoint] warning: chown $socket_dir failed"
                 chmod 660 "$socket_path" 2>/dev/null || \
                     echo "[entrypoint] warning: chmod $socket_path failed"
                 # And the scrub socket, which the agent connects to as well (#41). It was left
@@ -768,10 +773,10 @@ if [ "$(id -u)" = "0" ]; then
                     echo "[entrypoint] warning: chmod $scrub_socket_path failed"
                 # The same treatment for the operator socket. The executor creates it, and a
                 # rebind can narrow the mode. connect() needs the group write bit.
-                chown "$exec_user:$op_group" "$op_socket_dir" "$op_socket_path" 2>/dev/null || \
-                    echo "[entrypoint] warning: chown $op_socket_dir failed"
                 chmod 2710 "$op_socket_dir" 2>/dev/null || \
                     echo "[entrypoint] warning: chmod $op_socket_dir failed"
+                chown "$exec_user:$op_group" "$op_socket_dir" "$op_socket_path" 2>/dev/null || \
+                    echo "[entrypoint] warning: chown $op_socket_dir failed"
                 chmod 660 "$op_socket_path" 2>/dev/null || \
                     echo "[entrypoint] warning: chmod $op_socket_path failed"
             fi
@@ -823,12 +828,12 @@ if [ "$(id -u)" = "0" ]; then
                 # The fetcher creates its own socket, and a rebind can widen or narrow the mode.
                 # So this start re-applies the owner, the group, and the two modes while it still
                 # holds root. Without the group write bit the agent cannot connect at all.
+                chmod 2710 "$fetch_socket_dir" 2>/dev/null || \
+                    echo "[entrypoint] warning: chmod $fetch_socket_dir failed"
                 chown "$fetch_run_user:$fetch_run_group" "$fetch_socket_dir" \
                     "$fetch_socket_path" \
                     2>/dev/null || \
                     echo "[entrypoint] warning: chown $fetch_socket_dir failed"
-                chmod 2710 "$fetch_socket_dir" 2>/dev/null || \
-                    echo "[entrypoint] warning: chmod $fetch_socket_dir failed"
                 chmod 660 "$fetch_socket_path" 2>/dev/null || \
                     echo "[entrypoint] warning: chmod $fetch_socket_path failed"
             fi
@@ -872,12 +877,12 @@ if [ "$(id -u)" = "0" ]; then
                 # The host creates its own socket, and a rebind can widen or narrow the mode. So
                 # this start re-applies the owner, the group, and the two modes while it still holds
                 # root. Without the group write bit the agent cannot connect at all.
+                chmod 2710 "$mcp_host_socket_dir" 2>/dev/null || \
+                    echo "[entrypoint] warning: chmod $mcp_host_socket_dir failed"
                 chown "$mcp_host_run_user:$mcp_host_run_group" "$mcp_host_socket_dir" \
                     "$mcp_host_socket_path" \
                     2>/dev/null || \
                     echo "[entrypoint] warning: chown $mcp_host_socket_dir failed"
-                chmod 2710 "$mcp_host_socket_dir" 2>/dev/null || \
-                    echo "[entrypoint] warning: chmod $mcp_host_socket_dir failed"
                 chmod 660 "$mcp_host_socket_path" 2>/dev/null || \
                     echo "[entrypoint] warning: chmod $mcp_host_socket_path failed"
             fi
@@ -906,10 +911,10 @@ if [ "$(id -u)" = "0" ]; then
             rm -f "$connector_host_socket_path" 2>/dev/null || true
             start_connector_host "$mcp_host_workspace"
             if wait_for_connector_host_socket; then
+                chmod 2710 "$connector_host_socket_dir" 2>/dev/null || true
                 chown "$connector_host_run_user:$connector_host_run_group" \
                     "$connector_host_socket_dir" "$connector_host_socket_path" 2>/dev/null || \
                     echo "[entrypoint] warning: chown $connector_host_socket_dir failed"
-                chmod 2710 "$connector_host_socket_dir" 2>/dev/null || true
                 chmod 660 "$connector_host_socket_path" 2>/dev/null || true
             fi
             export NANOINFRA_CONNECTOR_HOST_SOCKET="$connector_host_socket_path"
