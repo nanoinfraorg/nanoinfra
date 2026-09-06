@@ -206,6 +206,9 @@ def _make_provider_core(
             proxy=p.proxy if p else None,
         )
 
+    # Which configured provider this is, for the usage row and therefore for its price (#235).
+    # Here because this is the one point every backend converges on, and the only one that knows.
+    provider.set_configured_provider_name(provider_name)
     provider.generation = preset.to_generation_settings()
     return provider
 

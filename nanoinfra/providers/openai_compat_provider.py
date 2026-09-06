@@ -1191,6 +1191,30 @@ class OpenAICompatProvider(LLMProvider):
             model=self._responses_state_model(model),
         )
 
+    def observed_provider_name(self) -> str:
+        """The configured provider, not this class (#235).
+
+        One class serves **every** OpenAI-compatible API, so the inherited answer -- the class
+        name, `openaicompat` -- labelled Moonshot, DeepSeek, Groq, OpenRouter and forty others
+        identically. Two things broke on that:
+
+        * "which provider is expensive" had no answer, because the per-model breakdown collapsed
+          all of them into one row per model under one provider name.
+        * `pricing` is keyed `"<provider>/<model>"` from the configured provider, so a rate set
+          for `moonshot/kimi-k3` could never match a row recorded as `openaicompat/kimi-k3`. The
+          cost column stayed empty no matter what was configured.
+
+        The spec's name is the configured key, which is what the rest of the product calls this
+        provider. A construction with no spec -- the SDK, a test -- keeps the class name.
+
+        Not the calibration key: that one is `type(provider).__name__` and is deliberately per
+        *tokenizer*, which is a property of the class rather than of the endpoint.
+        """
+        if self._configured_provider_name:
+            return self._configured_provider_name
+        name = getattr(self._spec, "name", "") if self._spec is not None else ""
+        return name or self.provider_name
+
     def supports_native_compaction(self, model: str | None = None) -> bool:
         """Enable server compaction only on direct OpenAI Responses endpoints."""
         _ = model

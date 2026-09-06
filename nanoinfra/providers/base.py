@@ -797,6 +797,9 @@ class LLMProvider(ABC):
         # Set by the gateway, once, for every provider it builds (#176). `None` means nothing is
         # recording, which is the case in a test, in the SDK, and in any embedding of this class.
         self._llm_call_observer = None
+        # The provider key from config, stamped by the factory (#235). `None` when this object was
+        # built directly -- the SDK, a test -- and then the class name is all there is.
+        self._configured_provider_name: str | None = None
 
     @property
     def provider_name(self) -> str:
@@ -812,14 +815,39 @@ class LLMProvider(ABC):
         """Attach the callback that records one row per provider attempt."""
         self._llm_call_observer = observer
 
+    def set_configured_provider_name(self, name: str | None) -> None:
+        """Record which configured provider this object is (#235).
+
+        Called once by the factory, which is the only place that knows: a provider class is not
+        a provider. `OpenAICompatProvider` alone serves every OpenAI-compatible API in the
+        registry, so the class name labelled Moonshot, DeepSeek, Groq, OpenRouter and forty others
+        identically -- and even the one-class backends disagreed with their own config key, since
+        `OpenAICodexProvider` derives `openaicodex` from a key spelled `openai_codex`.
+
+        Two things broke on that, and the second is why this exists:
+
+        * "which provider is expensive" had no answer, because the per-model breakdown collapsed
+          forty providers into one name.
+        * `pricing` is keyed `"<provider>/<model>"` from the **configured** provider, so a rate
+          set for `moonshot/kimi-k3` could never match a row stored as `openaicompat/kimi-k3`.
+          The cost column stayed empty no matter what anybody configured.
+        """
+        self._configured_provider_name = (name or "").strip() or None
+
     def observed_provider_name(self) -> str:
         """The provider name to record for the call that just finished.
+
+        The configured key when the factory stamped one, and otherwise the class name.
 
         Overridable because a *wrapper* answers to its own class name and that is
         not what made the call: `FallbackProvider` recorded every row as
         `fallback`, which is a useless answer to "which provider is expensive".
+
+        Deliberately **not** the calibration key: that one is `type(provider).__name__` and is per
+        *tokenizer*, which is a property of the class rather than of the endpoint. Changing it
+        would discard every learned correction factor and buy nothing.
         """
-        return self.provider_name
+        return self._configured_provider_name or self.provider_name
 
     def can_resume_conversation_state(
         self,
