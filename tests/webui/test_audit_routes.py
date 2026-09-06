@@ -407,10 +407,15 @@ def test_the_surface_bounds_the_page_size(tmp_path: Path) -> None:
 
 
 def test_the_surface_offers_no_write(tmp_path: Path) -> None:
-    """The log appends. A reader that could prune it would make that false."""
+    """The log appends. A reader that could prune it would make that false.
+
+    The whole list is pinned rather than checked for write-shaped names, and that is the guard:
+    any method added here fails this test and has to be argued for. `approvals` (#274) is the
+    second read -- the four approval numbers over the same segments through the same store.
+    """
     names = [name for name in dir(AuditReadSurface) if not name.startswith("_")]
 
-    assert names == ["page"]
+    assert names == ["approvals", "page"]
 
 
 def test_the_surface_reports_the_filter_choices(tmp_path: Path) -> None:
@@ -419,7 +424,11 @@ def test_the_surface_reports_the_filter_choices(tmp_path: Path) -> None:
 
     page = AuditReadSurface(store).page({})
 
-    assert "deny" in page["choices"]["decision"]
+    # `denied` and not `deny`. `runtime.py` translates `Outcome.DENY` to `denied` on the way to
+    # disk so the log speaks the operator's vocabulary, so a `deny` choice could only ever match
+    # zero records -- and this list's own note says one name must not drift into two.
+    assert "denied" in page["choices"]["decision"]
+    assert "deny" not in page["choices"]["decision"]
     assert MUTATE_REMOTE in page["choices"]["capabilityClass"]
     assert "automation" in page["choices"]["executionContext"]
 

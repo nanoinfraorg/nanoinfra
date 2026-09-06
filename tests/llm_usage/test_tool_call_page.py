@@ -208,11 +208,11 @@ def test_a_limit_a_browser_sent_is_clamped(store: LLMUsageStore) -> None:
 def test_each_filter_narrows_to_its_own_column(store: LLMUsageStore) -> None:
     store.record_tool_call(_call(tool="exec", outcome="ok", gate_decision="allow"))
     store.record_tool_call(_call(tool="read_file", outcome="error", gate_decision=None))
-    store.record_tool_call(_call(tool="exec", outcome="denied", gate_decision="deny"))
+    store.record_tool_call(_call(tool="exec", outcome="denied", gate_decision="denied"))
 
     assert len(store.tool_call_page(tool="exec")["calls"]) == 2
     assert len(store.tool_call_page(outcome="error")["calls"]) == 1
-    assert len(store.tool_call_page(gate_decision="deny")["calls"]) == 1
+    assert len(store.tool_call_page(gate_decision="denied")["calls"]) == 1
 
 
 def test_filters_combine_rather_than_replace_one_another(store: LLMUsageStore) -> None:
@@ -272,13 +272,13 @@ def test_an_empty_filter_means_no_filter_rather_than_a_match_on_empty(
 
 def test_the_facets_are_what_the_table_holds_and_nothing_else(store: LLMUsageStore) -> None:
     store.record_tool_call(_call(tool="exec", outcome="ok", gate_decision="allow"))
-    store.record_tool_call(_call(tool="read_file", outcome="denied", gate_decision="deny"))
+    store.record_tool_call(_call(tool="read_file", outcome="denied", gate_decision="denied"))
 
     page = store.tool_call_page()
 
     assert page["tools"] == ["exec", "read_file"]
     assert page["outcomes"] == ["denied", "ok"]
-    assert page["gate_decisions"] == ["allow", "deny"]
+    assert page["gate_decisions"] == ["allow", "denied"]
 
 
 def test_an_ungated_call_contributes_no_gate_facet(store: LLMUsageStore) -> None:

@@ -39,6 +39,7 @@ from nanoinfra.agent.tools.capabilities import (
     READ,
 )
 from nanoinfra.gates.audit import DECISION_COMPLETION, DECISION_GRANT_WRITTEN
+from nanoinfra.webui.approval_metrics import approvals_metrics
 
 if TYPE_CHECKING:
     from nanoinfra.gates.audit import AuditStore
@@ -50,11 +51,16 @@ AUDIT_READ_PATH = "/api/webui/gates/audit"
 # decision name needs no UI edit. `refused` is #15's latched attempt. `expired` is #38's deadline.
 # `completion` is #46's outcome record, and `grant_written` is #219's derived grant. Both come from
 # the store rather than from a copy of the string here, so one name cannot drift into two.
+# `deny` is deliberately absent, and it used to be here. Nothing writes it: the name lives on as
+# `Outcome.DENY` (the enum the gate decides with) and as `OP_DENY` (the operator socket's wire
+# verb), and `runtime.py` translates that outcome to `denied` on the way to disk so the log speaks
+# the operator's vocabulary. Offering `deny` here gave the viewer a filter value that could only
+# ever match zero records -- one name drifted into two, which the note above says must not happen.
+# Measured on a live log of 423 records: 17 `denied`, no `deny`.
 DECISION_CHOICES = (
     "allow",
     "grant",
     "approve",
-    "deny",
     "refused",
     "expired",
     "denied",
@@ -222,6 +228,20 @@ class AuditReadSurface:
 
     def __init__(self, store: AuditStore) -> None:
         self._store = store
+
+    def approvals(self, query: Mapping[str, Sequence[str]]) -> dict[str, Any]:
+        """The four approval numbers over a window (#274).
+
+        On this class rather than its own surface, because it reads the same segments through the
+        same store and a second surface would be a second thing the gateway has to remember to
+        attach. Still a read, and the class still holds nothing that writes.
+        """
+        raw = _first(query, "window")
+        try:
+            window = int(raw) if raw else 30
+        except ValueError:
+            window = 30
+        return approvals_metrics(self._store, window_days=max(1, min(window, 400)))
 
     def page(self, query: Mapping[str, Sequence[str]]) -> dict[str, Any]:
         """One page of decisions for the viewer, newest first.

@@ -78,14 +78,14 @@ def _store(
 def test_record_writes_one_json_line_per_decision(tmp_path: Path) -> None:
     store = _store(tmp_path)
 
-    store.record(decision="deny", capability_class="mutate.remote", execution_context="automation")
+    store.record(decision="denied", capability_class="mutate.remote", execution_context="automation")
     store.record(decision="allow", capability_class="read", execution_context="interactive")
 
     segments = store.segments()
     assert len(segments) == 1
     lines = segments[0].read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2
-    assert [r["decision"] for r in store.read_all()] == ["deny", "allow"]
+    assert [r["decision"] for r in store.read_all()] == ["denied", "allow"]
 
 
 def test_record_carries_every_field_of_the_spec(tmp_path: Path) -> None:
@@ -121,7 +121,7 @@ def test_absent_fields_stay_present_as_null(tmp_path: Path) -> None:
     store = _store(tmp_path)
 
     written = store.record(
-        decision="deny", capability_class="mutate.remote", execution_context="subagent"
+        decision="denied", capability_class="mutate.remote", execution_context="subagent"
     )
 
     assert set(written) == _EXPECTED_KEYS
@@ -135,7 +135,7 @@ def test_ts_is_utc_and_sortable(tmp_path: Path) -> None:
     store = _store(tmp_path)
 
     written = store.record(
-        decision="deny",
+        decision="denied",
         capability_class="mutate.remote",
         execution_context="automation",
         ts=datetime(2026, 8, 14, 9, 30, tzinfo=UTC),
@@ -148,7 +148,7 @@ def test_host_count_is_derived_and_cannot_disagree_with_hosts(tmp_path: Path) ->
     store = _store(tmp_path)
 
     written = store.record(
-        decision="deny",
+        decision="denied",
         capability_class="mutate.remote",
         execution_context="automation",
         hosts=("web-1", "web-2", "web-3"),
@@ -176,7 +176,7 @@ def test_same_path_is_derived_from_the_two_paths(tmp_path: Path) -> None:
         approval_path="slack:ops",
     )
     unapproved = store.record(
-        decision="deny",
+        decision="denied",
         capability_class="mutate.remote",
         execution_context="automation",
         origin_path="cron:nightly",
@@ -192,7 +192,7 @@ def test_a_denial_appears_in_the_log(tmp_path: Path) -> None:
     store = _store(tmp_path)
 
     store.record(
-        decision="deny",
+        decision="denied",
         capability_class="mutate.remote",
         execution_context="automation",
         reason="unattended policy denies scope=group",
@@ -201,7 +201,7 @@ def test_a_denial_appears_in_the_log(tmp_path: Path) -> None:
 
     records = store.read_all()
     assert len(records) == 1
-    assert records[0]["decision"] == "deny"
+    assert records[0]["decision"] == "denied"
     assert records[0]["reason"] == "unattended policy denies scope=group"
 
 
@@ -229,7 +229,7 @@ def test_an_expiry_and_a_latched_refusal_appear_in_the_log(tmp_path: Path) -> No
 def test_a_later_record_never_rewrites_an_earlier_one(tmp_path: Path) -> None:
     store = _store(tmp_path)
 
-    store.record(decision="deny", capability_class="read", execution_context="automation")
+    store.record(decision="denied", capability_class="read", execution_context="automation")
     segment = store.segments()[0]
     first_bytes = segment.read_bytes()
 
@@ -286,7 +286,7 @@ def test_a_precomputed_digest_is_kept_and_adds_no_text(tmp_path: Path) -> None:
     store = _store(tmp_path, record_command_text=True)
 
     written = store.record(
-        decision="deny",
+        decision="denied",
         capability_class="mutate.remote",
         execution_context="automation",
         command_digest="sha256:deadbeef",
@@ -320,7 +320,7 @@ def test_prune_deletes_only_the_segments_outside_retention(tmp_path: Path) -> No
 
     for age_days in (200, 31, 29, 0):
         seed.record(
-            decision="deny",
+            decision="denied",
             capability_class="read",
             execution_context="automation",
             reason=f"age {age_days}",
@@ -339,7 +339,7 @@ def test_prune_leaves_the_surviving_records_untouched(tmp_path: Path) -> None:
     store = _store(tmp_path, retention_days=30)
     now = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
     seed.record(
-        decision="deny",
+        decision="denied",
         capability_class="read",
         execution_context="automation",
         ts=now - timedelta(days=200),
@@ -378,7 +378,7 @@ def test_prune_keeps_everything_when_retention_is_not_positive(tmp_path: Path) -
             ),
         )
         store.record(
-            decision="deny",
+            decision="denied",
             capability_class="read",
             execution_context="automation",
             ts=now - timedelta(days=5000),
@@ -403,7 +403,7 @@ def test_a_new_segment_prunes_the_expired_ones(tmp_path: Path) -> None:
     store = _store(tmp_path, retention_days=7)
     now = datetime(2026, 8, 14, 12, 0, tzinfo=UTC)
     store.record(
-        decision="deny",
+        decision="denied",
         capability_class="read",
         execution_context="automation",
         ts=now - timedelta(days=90),
@@ -426,7 +426,7 @@ def test_a_newline_inside_a_field_stays_on_one_line(tmp_path: Path) -> None:
     store = _store(tmp_path)
 
     store.record(
-        decision="deny",
+        decision="denied",
         capability_class="mutate.remote",
         execution_context="automation",
         reason="line one\nline two\r\nline three",
@@ -439,19 +439,19 @@ def test_a_newline_inside_a_field_stays_on_one_line(tmp_path: Path) -> None:
 
 def test_read_all_skips_a_malformed_line_and_keeps_the_rest(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    store.record(decision="deny", capability_class="read", execution_context="automation")
+    store.record(decision="denied", capability_class="read", execution_context="automation")
     with open(store.segments()[0], "ab") as handle:
         handle.write(b"not json at all\n")
     store.record(decision="allow", capability_class="read", execution_context="automation")
 
     records = store.read_all()
 
-    assert [r["decision"] for r in records] == ["deny", "allow"]
+    assert [r["decision"] for r in records] == ["denied", "allow"]
 
 
 def test_a_torn_tail_costs_the_tail_only(tmp_path: Path) -> None:
     store = _store(tmp_path)
-    store.record(decision="deny", capability_class="read", execution_context="automation")
+    store.record(decision="denied", capability_class="read", execution_context="automation")
     store.record(decision="approve", capability_class="read", execution_context="interactive")
     # A power loss can cut the last line short. The writer probes nothing before it
     # appends, because a probe cannot be race free while other writers append. So the
@@ -463,7 +463,7 @@ def test_a_torn_tail_costs_the_tail_only(tmp_path: Path) -> None:
 
     records = store.read_all()
 
-    assert [r["decision"] for r in records] == ["deny", "approve"]
+    assert [r["decision"] for r in records] == ["denied", "approve"]
 
 
 def test_the_segment_is_writable_by_the_owner_and_readable_by_the_group(
@@ -480,7 +480,7 @@ def test_the_segment_is_writable_by_the_owner_and_readable_by_the_group(
     """
     store = _store(tmp_path)
 
-    store.record(decision="deny", capability_class="read", execution_context="automation")
+    store.record(decision="denied", capability_class="read", execution_context="automation")
 
     assert stat.S_IMODE(store.segments()[0].stat().st_mode) == 0o640
 
@@ -491,7 +491,7 @@ def _write_many(root: str, writer: str, count: int, barrier: Any) -> None:
     barrier.wait()
     for index in range(count):
         store.record(
-            decision="deny",
+            decision="denied",
             capability_class="mutate.remote",
             execution_context="automation",
             actor=writer,
