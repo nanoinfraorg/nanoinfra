@@ -1659,7 +1659,24 @@
       },
       "approvalsWaiting_one": "{{count}} tindakan menunggu jawaban Anda",
       "approvalsWaiting_other": "{{count}} tindakan menunggu jawaban Anda",
-      "approvalsReview": "Tinjau"
+      "approvalsReview": "Tinjau",
+      "context": {
+        "detailsLabel": "Buka penggunaan konteks",
+        "panelTitle": "Penggunaan konteks",
+        "tooltip": "Konteks {{percent}}%",
+        "contextTitle": "Konteks",
+        "recentRounds": "Putaran terbaru",
+        "inputTrend": "Token masukan",
+        "input": "Token masukan",
+        "output": "Token keluaran",
+        "cacheHitRate": "Rasio hit cache",
+        "cacheWritten": "Penulisan cache",
+        "duration": "Waktu generasi",
+        "estimated": "Termasuk penggunaan perkiraan",
+        "legendFresh": "Dikirim",
+        "legendWritten": "Ditulis ke cache",
+        "legendReused": "Dibaca dari cache"
+      }
     },
     "scrollToBottom": "Gulir ke bawah",
     "loadEarlier": "Muat pesan sebelumnya",

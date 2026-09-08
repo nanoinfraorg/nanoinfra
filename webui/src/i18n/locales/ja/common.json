@@ -1659,7 +1659,24 @@
       },
       "approvalsWaiting_one": "{{count}} 件の操作が回答を待っています",
       "approvalsWaiting_other": "{{count}} 件の操作が回答を待っています",
-      "approvalsReview": "確認"
+      "approvalsReview": "確認",
+      "context": {
+        "detailsLabel": "コンテキスト使用量を開く",
+        "panelTitle": "コンテキスト使用量",
+        "tooltip": "コンテキスト {{percent}}%",
+        "contextTitle": "コンテキスト",
+        "recentRounds": "直近のラウンド",
+        "inputTrend": "入力トークン",
+        "input": "入力トークン",
+        "output": "出力トークン",
+        "cacheHitRate": "キャッシュヒット率",
+        "cacheWritten": "キャッシュ書き込み",
+        "duration": "生成時間",
+        "estimated": "推定値を含みます",
+        "legendFresh": "送信",
+        "legendWritten": "キャッシュへ書き込み",
+        "legendReused": "キャッシュから読み込み"
+      }
     },
     "scrollToBottom": "一番下へスクロール",
     "loadEarlier": "以前のメッセージを読み込む",

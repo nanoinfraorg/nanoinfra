@@ -71,6 +71,11 @@ class TurnEndEvent(OutboundEvent):
     #: Which named agent answered (#248). ``None`` is the default agent, and the frame then omits
     #: the field rather than sending a name the deployment never configured.
     agent: str | None = None
+    #: The context window the model that answered this turn was given, so `usage.context_tokens`
+    #: can be read as a fraction rather than as a bare number (#5649). Recorded per turn because a
+    #: thread may switch presets, and the window of the preset selected *now* is not the window
+    #: the turn actually ran under.
+    context_window_tokens: int | None = None
 
 
 @dataclass(frozen=True)

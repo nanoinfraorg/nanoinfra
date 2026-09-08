@@ -232,7 +232,10 @@ function pruneReasoningOnlyPlaceholders(prev: UIMessage[]): UIMessage[] {
 
 function stampLastAssistantCompletion(
   prev: UIMessage[],
-  completion: Pick<UIMessage, "latencyMs" | "completedAt" | "usage" | "prompt" | "agent">,
+  completion: Pick<
+    UIMessage,
+    "latencyMs" | "completedAt" | "usage" | "prompt" | "agent" | "contextWindowTokens"
+  >,
   turnId?: string,
 ): UIMessage[] {
   for (let i = prev.length - 1; i >= 0; i -= 1) {
@@ -1166,6 +1169,9 @@ export function useNanoinfraStream(
               ...(ev.usage ? { usage: ev.usage } : {}),
               ...(ev.prompt ? { prompt: ev.prompt } : {}),
               ...(ev.agent ? { agent: ev.agent } : {}),
+              ...(typeof ev.context_window_tokens === "number" && ev.context_window_tokens > 0
+                ? { contextWindowTokens: ev.context_window_tokens }
+                : {}),
               completedAt,
             },
             ev.turn_id,

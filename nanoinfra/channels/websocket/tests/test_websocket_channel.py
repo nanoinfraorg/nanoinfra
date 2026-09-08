@@ -2667,6 +2667,52 @@ async def test_send_turn_end_includes_goal_state_when_present() -> None:
 
 
 @pytest.mark.asyncio
+async def test_send_turn_end_carries_the_context_window_it_ran_under() -> None:
+    """The denominator, beside the numerator.
+
+    `usage.context_tokens` alone is a token count; a surface that wants a fraction has to guess
+    the window, and a thread that switched presets makes that guess wrong for every earlier turn.
+    """
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-1",
+        content="",
+        event=TurnEndEvent(
+            usage=LLMUsage.reported(input_tokens=87_300, output_tokens=900),
+            context_window_tokens=200_000,
+        ),
+    ))
+
+    body = _sent_ws_payloads(mock_ws)[0]
+    assert body["usage"]["context_tokens"] == 87_300
+    assert body["context_window_tokens"] == 200_000
+
+
+@pytest.mark.asyncio
+async def test_send_turn_end_omits_an_unreported_context_window() -> None:
+    """A gateway that reported no window gets no key, not a zero. Absence is the test on the
+    client, and a `0` there would read as a full window rather than as an unknown one."""
+    bus = MagicMock()
+    channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
+    mock_ws = AsyncMock()
+    channel._attach(mock_ws, "chat-1")
+
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id="chat-1",
+        content="",
+        event=TurnEndEvent(latency_ms=12, context_window_tokens=0),
+    ))
+
+    assert "context_window_tokens" not in _sent_ws_payloads(mock_ws)[0]
+
+
+@pytest.mark.asyncio
 async def test_send_goal_status_running_emits_event_with_started_at() -> None:
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))

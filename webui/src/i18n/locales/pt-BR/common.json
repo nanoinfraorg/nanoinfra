@@ -1659,7 +1659,24 @@
       },
       "approvalsWaiting_one": "{{count}} ação espera sua resposta",
       "approvalsWaiting_other": "{{count}} ações esperam sua resposta",
-      "approvalsReview": "Revisar"
+      "approvalsReview": "Revisar",
+      "context": {
+        "detailsLabel": "Abrir o uso do contexto",
+        "panelTitle": "Uso do contexto",
+        "tooltip": "Contexto {{percent}}%",
+        "contextTitle": "Contexto",
+        "recentRounds": "Rodadas recentes",
+        "inputTrend": "Tokens de entrada",
+        "input": "Tokens de entrada",
+        "output": "Tokens de saída",
+        "cacheHitRate": "Taxa de acerto do cache",
+        "cacheWritten": "Escritas no cache",
+        "duration": "Tempo de geração",
+        "estimated": "Inclui uso estimado",
+        "legendFresh": "Enviados",
+        "legendWritten": "Escritos no cache",
+        "legendReused": "Lidos do cache"
+      }
     },
     "scrollToBottom": "Rolar para o final",
     "loadEarlier": "Carregar mensagens anteriores",

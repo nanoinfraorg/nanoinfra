@@ -78,6 +78,11 @@ import {
   type ModelPresetOption,
 } from "@/components/thread/ModelPresetBadge";
 import {
+  ComposerUsagePopover,
+  type ComposerContextUsage,
+  type ComposerRoundUsage,
+} from "@/components/thread/ComposerUsagePopover";
+import {
   ACCEPT_ATTR,
   MAX_ATTACHMENTS_PER_MESSAGE,
   useAttachedImages,
@@ -221,6 +226,14 @@ interface ThreadComposerProps {
   skills?: SkillSummary[];
   onStop?: () => void;
   onTranscribeAudio?: (dataUrl: string, options?: { durationMs?: number }) => Promise<string>;
+  /**
+   * Where the thread stands against the context window, and what the last rounds cost.
+   *
+   * Passed in rather than derived here: both are projections of the transcript, and the composer
+   * does not hold the transcript.
+   */
+  contextUsage?: ComposerContextUsage | null;
+  recentRoundUsage?: readonly ComposerRoundUsage[];
   /** Unix seconds from server; turn elapsed timer above input while set. */
   runStartedAt?: number | null;
   /** Sustained objective for this chat (WebSocket ``goal_state``). */
@@ -1040,6 +1053,8 @@ export function ThreadComposer({
   skills = [],
   onStop,
   onTranscribeAudio,
+  contextUsage = null,
+  recentRoundUsage = [],
   runStartedAt = null,
   goalState,
   pendingApprovals = 0,
@@ -2940,6 +2955,13 @@ export function ThreadComposer({
                 fallbackModelName={fallbackModelName}
                 isHero={isHero}
                 onClick={modelNeedsSetup ? onModelBadgeClick : undefined}
+              />
+            ) : null}
+            {!voiceRecorder.isRecording ? (
+              <ComposerUsagePopover
+                context={contextUsage}
+                rounds={recentRoundUsage}
+                compact={isHero}
               />
             ) : null}
             {showVoiceButton ? (

@@ -11,6 +11,11 @@ not here.
 
 ## [Unreleased]
 
+### Added
+- The composer says how much of the context window a thread is using, and what the last eight
+  provider calls cost. Each bar splits the call's input into the three buckets billed separately,
+  so a warm prompt and a cold one of the same size no longer look identical.
+
 ### Fixed
 - A streamed segment carries the cost of the provider call behind it. The value reached the
   channel's own tests but never a real turn: the loop wraps the delivery callback, and the hook

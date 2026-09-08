@@ -1659,7 +1659,24 @@
       },
       "approvalsWaiting_one": "{{count}} hành động đang chờ bạn trả lời",
       "approvalsWaiting_other": "{{count}} hành động đang chờ bạn trả lời",
-      "approvalsReview": "Xem lại"
+      "approvalsReview": "Xem lại",
+      "context": {
+        "detailsLabel": "Mở mức dùng ngữ cảnh",
+        "panelTitle": "Mức dùng ngữ cảnh",
+        "tooltip": "Ngữ cảnh {{percent}}%",
+        "contextTitle": "Ngữ cảnh",
+        "recentRounds": "Các vòng gần đây",
+        "inputTrend": "Token đầu vào",
+        "input": "Token đầu vào",
+        "output": "Token đầu ra",
+        "cacheHitRate": "Tỷ lệ trúng cache",
+        "cacheWritten": "Ghi vào cache",
+        "duration": "Thời gian tạo",
+        "estimated": "Bao gồm mức dùng ước tính",
+        "legendFresh": "Đã gửi",
+        "legendWritten": "Đã ghi vào cache",
+        "legendReused": "Đọc từ cache"
+      }
     },
     "scrollToBottom": "Cuộn xuống cuối",
     "loadEarlier": "Tải tin nhắn trước đó",

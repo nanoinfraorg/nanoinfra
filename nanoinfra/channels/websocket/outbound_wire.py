@@ -268,6 +268,7 @@ def encode_turn_end(
     usage: LLMUsage | None,
     prompt_manifest: dict[str, Any] | None,
     agent: str | None,
+    context_window_tokens: int | None = None,
 ) -> WireFrame:
     """The agent has fully finished processing the current turn.
 
@@ -295,6 +296,12 @@ def encode_turn_end(
         # the deployment never configured would be a guess, and every turn today
         # is the default one.
         body["agent"] = agent
+    if context_window_tokens is not None and context_window_tokens > 0:
+        # The denominator for `usage.context_tokens`. Sent beside the numerator and
+        # persisted with it, because the two are one ratio: a reader holding only
+        # the used figure has to guess the window, and a thread that switched
+        # presets makes that guess wrong for every turn before the switch.
+        body["context_window_tokens"] = int(context_window_tokens)
     return body
 
 

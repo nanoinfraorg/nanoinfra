@@ -424,6 +424,59 @@ def test_replay_puts_the_turn_cost_back_on_the_answer(tmp_path, monkeypatch) -> 
     assert msgs[1]["latencyMs"] == 4_100
 
 
+def test_replay_puts_the_context_window_back_beside_the_used_figure(tmp_path, monkeypatch) -> None:
+    """A reloaded thread has to read the same fraction the live one read.
+
+    The window is persisted per turn rather than looked up from the active preset, so a thread
+    that switched presets keeps each turn measured against the window it actually ran under.
+    """
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
+    key = "websocket:t-window"
+    usage = {
+        "prompt_tokens": 87_300,
+        "completion_tokens": 900,
+        "total_tokens": 88_200,
+        "request_count": 1,
+        "estimated_tokens": 0,
+        "context_tokens": 87_300,
+    }
+    for ev in (
+        {"event": "user", "chat_id": "t-window", "text": "q"},
+        {"event": "delta", "chat_id": "t-window", "text": "a"},
+        {"event": "stream_end", "chat_id": "t-window"},
+        {
+            "event": "turn_end",
+            "chat_id": "t-window",
+            "usage": usage,
+            "context_window_tokens": 200_000,
+        },
+    ):
+        append_transcript_object(key, ev)
+
+    msgs = replay_transcript_to_ui_messages(read_transcript_lines(key))
+
+    assert msgs[1]["usage"]["context_tokens"] == 87_300
+    assert msgs[1]["contextWindowTokens"] == 200_000
+
+
+def test_replay_leaves_no_context_window_when_the_turn_reported_none(tmp_path, monkeypatch) -> None:
+    """Absence is the test on the client, so a turn with no window must leave the key off rather
+    than replay a zero that would read as a full window."""
+    monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
+    key = "websocket:t-no-window"
+    for ev in (
+        {"event": "user", "chat_id": "t-no-window", "text": "q"},
+        {"event": "delta", "chat_id": "t-no-window", "text": "a"},
+        {"event": "stream_end", "chat_id": "t-no-window"},
+        {"event": "turn_end", "chat_id": "t-no-window", "context_window_tokens": 0},
+    ):
+        append_transcript_object(key, ev)
+
+    msgs = replay_transcript_to_ui_messages(read_transcript_lines(key))
+
+    assert "contextWindowTokens" not in msgs[1]
+
+
 def test_replay_leaves_no_usage_on_a_turn_that_measured_nothing(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("nanoinfra.config.paths.get_data_dir", lambda: tmp_path)
     key = "websocket:t-no-usage"

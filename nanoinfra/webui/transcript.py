@@ -1962,6 +1962,16 @@ def replay_transcript_to_ui_messages(
                 messages[i] = {**messages[i], "prompt": manifest}
                 return
 
+    def stamp_context_window(context_window_tokens: int) -> None:
+        """Put the window on the row that carries the used figure, because they are one ratio."""
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "assistant" and messages[i].get("kind") != "trace":
+                messages[i] = {
+                    **messages[i],
+                    "contextWindowTokens": context_window_tokens,
+                }
+                return
+
     def stamp_agent(agent: str) -> None:
         """Say which agent answered this turn, on the row that shows the turn (#248).
 
@@ -2549,6 +2559,9 @@ def replay_transcript_to_ui_messages(
             turn_prompt = rec.get("prompt")
             if isinstance(turn_prompt, dict):
                 stamp_prompt(cast(dict[str, Any], turn_prompt))
+            turn_window = rec.get("context_window_tokens")
+            if isinstance(turn_window, int) and turn_window > 0:
+                stamp_context_window(turn_window)
             turn_agent = rec.get("agent")
             if isinstance(turn_agent, str) and turn_agent:
                 stamp_agent(turn_agent)

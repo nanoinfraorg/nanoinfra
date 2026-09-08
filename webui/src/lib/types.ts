@@ -79,6 +79,15 @@ export interface UIMessage {
   /** What this turn cost, summed across every provider call it made (``turn_end``). */
   usage?: TurnUsage;
   /**
+   * The context window the model that answered this turn was given (``turn_end``).
+   *
+   * The denominator for `usage.context_tokens`, carried per turn rather than read from the
+   * active preset: a thread may switch presets, and the window selected now is not the window
+   * an earlier turn ran under. Absent when the gateway did not report one, and absence is the
+   * test -- a used figure with no window is a number, not a fraction.
+   */
+  contextWindowTokens?: number;
+  /**
    * What the single provider call that produced this row cost (``stream_end``, #208).
    *
    * Distinct from `usage`, and the distinction is the bug it fixes: a turn that made 23 calls has
@@ -2262,6 +2271,8 @@ export type InboundEvent =
       prompt?: PromptManifest;
       /** Which named agent answered. Absent means the deployment's default agent. */
       agent?: string;
+      /** The context window this turn ran under -- the denominator for ``usage.context_tokens``. */
+      context_window_tokens?: number;
       /** Authoritative sustained-goal snapshot for this chat (same shape as ``goal_state`` events). */
       goal_state?: GoalStateWsPayload;
     } & InboundTurnMetadata)

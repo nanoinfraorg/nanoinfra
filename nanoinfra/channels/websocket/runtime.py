@@ -1751,6 +1751,7 @@ class WebSocketChannel(BaseChannel):
                 usage=event.usage,
                 prompt_manifest=event.prompt_manifest,
                 agent=event.agent,
+                context_window_tokens=event.context_window_tokens,
                 metadata=msg.metadata,
                 turn_owner=turn_owner if isinstance(turn_owner, str) else None,
             )
@@ -1918,6 +1919,7 @@ class WebSocketChannel(BaseChannel):
         usage: LLMUsage | None = None,
         prompt_manifest: dict[str, Any] | None = None,
         agent: str | None = None,
+        context_window_tokens: int | None = None,
         metadata: dict[str, Any] | None = None,
         turn_owner: str | None = None,
     ) -> None:
@@ -1937,6 +1939,7 @@ class WebSocketChannel(BaseChannel):
             usage=usage,
             prompt_manifest=prompt_manifest,
             agent=agent,
+            context_window_tokens=context_window_tokens,
         )
         canonical_webui_turn = (metadata or {}).get("webui") is True
         prior_persistence_failure = (

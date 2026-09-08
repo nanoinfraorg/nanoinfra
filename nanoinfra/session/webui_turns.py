@@ -543,6 +543,7 @@ class WebuiTurnCoordinator:
         if not self._is_websocket_event(event.context):
             return
         msg = self._ctx_msg(event.context)
+        runtime = _validated_llm_runtime(event.runtime)
         await self.handle_turn_end(
             msg,
             session_key=event.context.session_key,
@@ -550,6 +551,7 @@ class WebuiTurnCoordinator:
             usage=event.usage,
             prompt_manifest=event.prompt_manifest,
             agent=event.agent,
+            context_window_tokens=runtime.context_window_tokens if runtime else None,
         )
         self._schedule_title_update_from_event(event)
 
@@ -600,6 +602,7 @@ class WebuiTurnCoordinator:
         usage: LLMUsage | None = None,
         prompt_manifest: dict[str, Any] | None = None,
         agent: str | None = None,
+        context_window_tokens: int | None = None,
     ) -> None:
         if msg.channel != "websocket":
             return
@@ -615,6 +618,7 @@ class WebuiTurnCoordinator:
                     usage=usage,
                     prompt_manifest=prompt_manifest,
                     agent=agent,
+                    context_window_tokens=context_window_tokens,
                 ),
                 metadata=msg.metadata,
             )

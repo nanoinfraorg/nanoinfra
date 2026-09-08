@@ -9,6 +9,10 @@ import { FilePreviewPanel } from "@/components/FilePreviewPanel";
 import { LatchBanner } from "@/components/LatchBanner";
 import { PromptNavigator } from "@/components/thread/PromptNavigator";
 import { SessionInfoPopover } from "@/components/thread/SessionInfoPopover";
+import {
+  latestComposerContextUsage,
+  recentComposerRoundUsage,
+} from "@/lib/composer-context-usage";
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
 import type { ModelPresetOption } from "@/components/thread/ModelPresetBadge";
 import { ThreadHeader } from "@/components/thread/ThreadHeader";
@@ -836,6 +840,16 @@ export function ThreadShell({
 
   const displayMessages = useMemo(() => projectWebuiThreadMessages(messages), [messages]);
 
+  // Projection, not state: both readings come off the rows the thread already shows.
+  const composerContextUsage = useMemo(
+    () => latestComposerContextUsage(displayMessages),
+    [displayMessages],
+  );
+  const composerRoundUsage = useMemo(
+    () => recentComposerRoundUsage(displayMessages),
+    [displayMessages],
+  );
+
   // A conversation keeps the agent that has been answering it (#254).
   //
   // The choice used to live only in the state above, so leaving a thread and coming back reset it
@@ -1454,6 +1468,8 @@ export function ThreadShell({
           skills={skills}
           onStop={stop}
           onTranscribeAudio={transcribeAudio}
+          contextUsage={composerContextUsage}
+          recentRoundUsage={composerRoundUsage}
           runStartedAt={currentRunStartedAt}
           goalState={currentGoalState}
           pendingApprovals={pendingApprovals}

@@ -1659,7 +1659,24 @@
       },
       "approvalsWaiting_one": "{{count}}개 작업이 응답을 기다리고 있습니다",
       "approvalsWaiting_other": "{{count}}개 작업이 응답을 기다리고 있습니다",
-      "approvalsReview": "검토"
+      "approvalsReview": "검토",
+      "context": {
+        "detailsLabel": "컨텍스트 사용량 열기",
+        "panelTitle": "컨텍스트 사용량",
+        "tooltip": "컨텍스트 {{percent}}%",
+        "contextTitle": "컨텍스트",
+        "recentRounds": "최근 라운드",
+        "inputTrend": "입력 토큰",
+        "input": "입력 토큰",
+        "output": "출력 토큰",
+        "cacheHitRate": "캐시 적중률",
+        "cacheWritten": "캐시 쓰기",
+        "duration": "생성 시간",
+        "estimated": "추정 사용량 포함",
+        "legendFresh": "전송",
+        "legendWritten": "캐시에 기록",
+        "legendReused": "캐시에서 읽음"
+      }
     },
     "scrollToBottom": "맨 아래로 스크롤",
     "loadEarlier": "이전 메시지 불러오기",

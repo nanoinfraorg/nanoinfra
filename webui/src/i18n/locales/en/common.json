@@ -1659,7 +1659,24 @@
       },
       "approvalsWaiting_one": "{{count}} action is waiting for your answer",
       "approvalsWaiting_other": "{{count}} actions are waiting for your answer",
-      "approvalsReview": "Review"
+      "approvalsReview": "Review",
+      "context": {
+        "detailsLabel": "Open context usage",
+        "panelTitle": "Context usage",
+        "tooltip": "Context {{percent}}%",
+        "contextTitle": "Context",
+        "recentRounds": "Recent rounds",
+        "inputTrend": "Input tokens",
+        "input": "Input tokens",
+        "output": "Output tokens",
+        "cacheHitRate": "Cache hit rate",
+        "cacheWritten": "Cache writes",
+        "duration": "Generation time",
+        "estimated": "Includes estimated usage",
+        "legendFresh": "Sent",
+        "legendWritten": "Written to cache",
+        "legendReused": "Read from cache"
+      }
     },
     "scrollToBottom": "Scroll to bottom",
     "loadEarlier": "Load earlier messages",
