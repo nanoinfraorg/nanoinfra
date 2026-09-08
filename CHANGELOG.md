@@ -12,6 +12,9 @@ not here.
 ## [Unreleased]
 
 ### Fixed
+- One slow WebSocket client no longer delays the frames owed to every other client on the same
+  chat, and a client that stops reading is disconnected rather than allowed to grow an
+  unbounded outbound backlog in server memory.
 - An email whose hand-off to the agent fails stays unread and is delivered again on the next poll.
   It was marked `\Seen` and deduped during the fetch, so a failed hand-off was never retried and
   the mailbox reported it as handled.
