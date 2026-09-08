@@ -184,6 +184,10 @@ class TurnContext:
 
     ephemeral: bool = False
     run_extra_hooks_for_ephemeral: bool = False
+    #: Run against a detached copy of the session, so the turn writes nothing anywhere. Separate
+    #: from `ephemeral` on purpose: that flag means "skip history, consolidation and extra hooks"
+    #: and a Dream turn sets it while still saving its session file (82d34361).
+    read_only_session: bool = False
     hooks: list[AgentHook] = field(default_factory=list)
     hook_factories: list[AgentTurnHookFactory] = field(default_factory=list)
     turn_scopes: list[AbstractContextManager[Any]] = field(default_factory=list)
@@ -1996,6 +2000,7 @@ class AgentLoop:
         pending_queue: asyncio.Queue[InboundMessage] | None = None,
         ephemeral: bool = False,
         run_extra_hooks_for_ephemeral: bool = False,
+        read_only_session: bool = False,
         hooks: list[AgentHook] | None = None,
         hook_factories: list[AgentTurnHookFactory] | None = None,
         tools: ToolRegistry | None = None,
@@ -2005,6 +2010,12 @@ class AgentLoop:
         attributes: Mapping[str, Any] | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
+        if read_only_session:
+            # A turn that writes nothing cannot do history work either: consolidation and the
+            # file-cap archiver append to memory/history.jsonl, which is outside the session
+            # file a detached copy protects. `ephemeral` is the flag that gates those, so it
+            # follows from this one instead of being a second thing every caller must remember.
+            ephemeral = True
         kind = TurnKind.SYSTEM if msg.channel == "system" else TurnKind.USER
         if kind is TurnKind.SYSTEM:
             destination = (
@@ -2053,6 +2064,7 @@ class AgentLoop:
             pending_queue=pending_queue,
             ephemeral=ephemeral,
             run_extra_hooks_for_ephemeral=run_extra_hooks_for_ephemeral,
+            read_only_session=read_only_session,
             hooks=list(hooks or []),
             hook_factories=list(hook_factories or []),
             tools=tools,
@@ -2193,7 +2205,13 @@ class AgentLoop:
 
         # Session is already fetched by the caller (_process_message) but
         # ensure it exists in case this handler is invoked independently.
-        if ctx.session is None:
+        if ctx.read_only_session:
+            # The turn runs on a detached copy, and every save site below it -- the checkpoint
+            # restore here, the early user message, the mid-turn checkpoints, the final save --
+            # becomes a no-op on its own. That is the whole mechanism, so the promise the SDK
+            # makes does not depend on each write path remembering it.
+            ctx.session = self.sessions.read_only_copy(ctx.session_key)
+        elif ctx.session is None:
             ctx.session = self.sessions.get_or_create(ctx.session_key)
         session = ctx.session
         self._remember_unified_session_route(
@@ -2212,6 +2230,13 @@ class AgentLoop:
 
     async def _compact_session(self, ctx: TurnContext) -> None:
         session = ctx.require_session()
+        if ctx.read_only_session:
+            # `prepare_session` would undo the detachment for a key that is mid-archival or
+            # idle-expired: it swaps the session for `get_or_create(key)`, which is the cached
+            # persisting one, and disk writes resume for the rest of the turn. It also pops the
+            # one-shot idle summary, which belongs to the next turn that persists. A read-only
+            # turn takes neither, at the cost of not seeing that pending summary.
+            return
         ctx.session, pending = self.auto_compact.prepare_session(
             session,
             ctx.session_key,
@@ -2893,6 +2918,7 @@ class AgentLoop:
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
         ephemeral: bool = False,
         _run_extra_hooks_for_ephemeral: bool = False,
+        read_only_session: bool = False,
         hooks: list[AgentHook] | None = None,
         hook_factories: list[AgentTurnHookFactory] | None = None,
         tools: ToolRegistry | None = None,
@@ -2908,6 +2934,11 @@ class AgentLoop:
         classifies a turn from that metadata, and a caller that could not pass any read as
         interactive: #49 shows the built-in heartbeat running model-written text at interactive
         privilege for that reason.
+
+        ``read_only_session`` runs the turn against a detached copy, so it writes nothing at
+        all. The SDK's public ``ephemeral=True`` sets it; the internal users of ``ephemeral``
+        do not, because a Dream session file is an artifact the WebUI lists and Dream's own
+        retention rotates.
         """
         if channel == "system":
             raise ValueError("channel 'system' is reserved for internal messages")
@@ -2932,6 +2963,8 @@ class AgentLoop:
                 }
                 if _run_extra_hooks_for_ephemeral:
                     kwargs["run_extra_hooks_for_ephemeral"] = True
+                if read_only_session:
+                    kwargs["read_only_session"] = True
                 if hooks is not None:
                     kwargs["hooks"] = hooks
                 if hook_factories is not None:

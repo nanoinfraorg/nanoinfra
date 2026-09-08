@@ -557,6 +557,47 @@ class TestEphemeralDirect:
         assert "entry-21" not in request_text
         assert "entry-60" not in request_text
 
+    async def test_ephemeral_dream_turn_still_writes_its_session_file(self, tmp_path):
+        """The other meaning of `ephemeral`: Dream's own transcript stays on disk.
+
+        Dream has run ephemerally since 82d34361 -- "The session IS still saved to disk" -- and
+        two consumers read that file: `list_webui_sessions` globs every sessions/*.jsonl for the
+        sidebar, and `MemoryStore.prune_dream_sessions` rotates the ten most recent Dream ones.
+        So the SDK's write-nothing guarantee is a property of the SDK's flag
+        (`read_only_session`), never of `ephemeral` itself, and this test is what says so.
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        from nanoinfra.agent.loop import AgentLoop
+        from nanoinfra.bus.queue import MessageBus
+        from nanoinfra.session.manager import SessionManager
+
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        provider.supports_tools = True
+        provider.generation = MagicMock(max_tokens=4096)
+        provider.chat_with_retry = AsyncMock(
+            return_value=LLMResponse(content="done", finish_reason="stop")
+        )
+        loop = AgentLoop(
+            bus=MessageBus(),
+            provider=provider,
+            workspace=tmp_path,
+            context_window_tokens=8000,
+        )
+
+        await loop.process_direct(
+            "consolidate this",
+            session_key="dream:persisted",
+            ephemeral=True,
+        )
+
+        files = sorted(loop.sessions.sessions_dir.glob("*.jsonl"))
+        assert [SessionManager.decode_storage_key(path.stem) for path in files] == [
+            "dream:persisted"
+        ]
+        assert "consolidate this" in files[0].read_text(encoding="utf-8")
+
 
 class TestEphemeralHooks:
     """When ephemeral=True, extra hooks must not fire."""

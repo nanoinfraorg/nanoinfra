@@ -327,7 +327,10 @@ class Nanoinfra:
             chat_id: Logical chat identifier for runtime context.
             sender_id: Logical sender identifier for runtime context.
             media: Optional local media paths attached to the message.
-            ephemeral: If true, do not persist the turn or compact session history.
+            ephemeral: If true, the run writes nothing: the stored session file, the cached
+                session object and its provider state are all left as they were, and no
+                history or consolidation work is scheduled. Prior history is still read, so
+                the run continues the conversation *session_key* already holds.
             attributes: Optional caller-owned request data exposed to context
                 providers and turn-hook factories. Attributes are kept separate
                 from nanoinfra's trusted internal message metadata.
@@ -351,6 +354,11 @@ class Nanoinfra:
             ephemeral=ephemeral,
             attributes=attributes,
         )
+        if ephemeral:
+            # What makes the promise above true. `ephemeral` alone suppresses history,
+            # consolidation and the persisted-turn event, and an internal caller (Dream) sets it
+            # while still saving its session; only this runs the turn on a detached copy.
+            kwargs["read_only_session"] = True
         if runtime is not None:
             kwargs["runtime"] = runtime
         response = await self._loop.process_direct(
@@ -430,6 +438,9 @@ class Nanoinfra:
                 on_stream=_on_stream,
                 on_stream_end=_on_stream_end,
             )
+            if ephemeral:
+                # Same guarantee as `run`; see the comment there.
+                kwargs["read_only_session"] = True
             kwargs["on_runtime_admitted"] = _emit_run_started
             if override_runtime is not None:
                 kwargs["runtime"] = override_runtime

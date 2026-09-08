@@ -365,6 +365,10 @@ class Session:
     metadata: dict[str, Any] = field(default_factory=dict)
     last_consolidated: int = 0  # Number of messages already consolidated to files
     provider_state: ProviderConversationState | None = field(default=None, repr=False)
+    #: False for a working copy storage must never see, produced by
+    #: :meth:`SessionManager.read_only_copy`. Not persisted: both the payload and the metadata
+    #: line name their fields, so a loaded session is always a persisting one.
+    persist: bool = field(default=True, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(cast(object, self.metadata), dict):
@@ -1507,6 +1511,25 @@ class SessionManager:
         self._remember(session)
         return session
 
+    def read_only_copy(self, key: str) -> Session:
+        """Return a detached copy of *key*'s session that no save path can write.
+
+        A turn holding one still reads the stored transcript, so an ephemeral SDK run continues
+        the conversation the caller pointed it at. The copy is deep, so what the turn appends
+        cannot reach the object the gateway and the WebUI are holding, and it is never cached,
+        so the next ordinary turn loads the session as it was.
+
+        A key with nothing stored yields an empty session rather than creating one:
+        ``get_or_create`` would leave a cache entry behind for a turn whose whole promise is to
+        leave nothing.
+        """
+        source = self._cached(key) or self._load(key)
+        if source is None:
+            return Session(key=key, persist=False)
+        detached = deepcopy(source)
+        detached.persist = False
+        return detached
+
     def _load(self, key: str) -> Session | None:
         return self._store.load(key)
 
@@ -1520,6 +1543,12 @@ class SessionManager:
 
     def save(self, session: Session, *, fsync: bool = False) -> None:
         """Persist a session and retain it in the cache."""
+        if not session.persist:
+            # A read-only working copy. The guard belongs here rather than at each of the eleven
+            # save sites one turn passes through -- the mid-turn checkpoint included -- so a new
+            # save site cannot forget it. The archiver below is part of the same promise: it
+            # appends the overflow to memory/history.jsonl.
+            return
         archiver = self._file_cap_archiver
         if archiver is not None:
             session.enforce_file_cap(

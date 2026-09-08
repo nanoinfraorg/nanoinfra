@@ -108,6 +108,10 @@ not here.
 - The CLI Quick Start offer from `nanoinfra webui`. Provider and model setup is finished in
   WebUI Settings → Models.
 
+- An SDK run started with `ephemeral=True` writes nothing. The turn was persisted like any
+  other — session file, mid-turn checkpoints and the cached session object — while only the
+  `session_turn_persisted` event was withheld.
+
 ## [2.2.8] — 2026-09-07
 
 ### Changed
