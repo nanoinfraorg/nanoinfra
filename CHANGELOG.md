@@ -12,6 +12,10 @@ not here.
 ## [Unreleased]
 
 ### Fixed
+
+- A long Anthropic answer is no longer cut off at the stream idle timeout. The 90 s bound measured
+  total generation instead of silence whenever no streaming callback was attached — which is every
+  retry after a stall. ([`4de728a5`](https://github.com/HKUDS/nanobot/commit/4de728a5))
 - Guidance queued in one chat is no longer sent into another. Opening a second chat that was idle
   read as the first chat finishing, so the waiting prompt went to whatever conversation was on
   screen; it now stays in its own chat until that chat's run ends.
