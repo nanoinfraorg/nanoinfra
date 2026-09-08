@@ -201,6 +201,16 @@ def _sanitize_name(name: str) -> str:
 
 _MAX_TOOL_NAME_LENGTH = 64
 _HASH_LENGTH = 8
+_NON_ASCII_RE = re.compile(r"[^\x00-\x7f]")
+
+
+def _short_digest(value: str, length: int = _HASH_LENGTH) -> str:
+    """Return a truncated hex digest of *value* for naming purposes.
+
+    Not a security property: a stable short suffix that keeps two names apart when the readable
+    part of them cannot.
+    """
+    return hashlib.sha1(value.encode("utf-8")).hexdigest()[:length]
 
 
 def _limit_tool_name(name: str, max_length: int = _MAX_TOOL_NAME_LENGTH) -> str:
@@ -208,14 +218,27 @@ def _limit_tool_name(name: str, max_length: int = _MAX_TOOL_NAME_LENGTH) -> str:
     if len(name) <= max_length:
         return name
 
-    digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:_HASH_LENGTH]
     prefix_length = max_length - _HASH_LENGTH - 1
-    return f"{name[:prefix_length]}_{digest}"
+    return f"{name[:prefix_length]}_{_short_digest(name)}"
 
 
 def _sanitize_mcp_tool_name(name: str) -> str:
-    """Sanitize and limit an MCP-derived tool name."""
-    return _limit_tool_name(_sanitize_name(name))
+    """Sanitize and limit an MCP-derived tool name.
+
+    A non-ASCII name loses every character that identifies it: ``mcp_weather_获取天气`` and
+    ``mcp_weather_日本語ツール`` both sanitize to ``mcp_weather_``, and ``registry.register`` is a
+    dict assignment, so the second tool replaced the first while the connect log still counted
+    both (HKUDS/nanobot#5360). Appending a digest of the original keeps them apart.
+
+    The digest belongs here rather than in :func:`_sanitize_name`, which :func:`_tool_prefix`
+    reuses for a ``startswith`` ownership check -- a digest in the prefix would match no tool name
+    and leave a non-ASCII server's tools registered after it is closed.
+    """
+    sanitized = _sanitize_name(name)
+    if _NON_ASCII_RE.search(name):
+        core = sanitized.rstrip("_")
+        sanitized = f"{core}_{_short_digest(name)}" if core else f"tool_{_short_digest(name)}"
+    return _limit_tool_name(sanitized)
 
 
 def _is_transient(exc: BaseException) -> bool:

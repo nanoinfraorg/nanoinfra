@@ -480,7 +480,19 @@ class ExecTool(Tool):
             sandbox_restricts_workspace=bool(self.sandbox),
         )
         workspace_root = str(access.project_path) if access.project_path is not None else self.working_dir
-        cwd = working_dir or workspace_root or os.getcwd()
+        # A relative working_dir is relative to the workspace, not to whatever
+        # directory the gateway process happens to have been started in (HKUDS/nanobot#5682).
+        # The model is told the workspace and asks for "src"; resolving that
+        # against the process cwd runs the command somewhere it never named.
+        if working_dir:
+            requested_dir = Path(working_dir).expanduser()
+            cwd = str(
+                requested_dir
+                if requested_dir.is_absolute()
+                else Path(workspace_root or os.getcwd()) / requested_dir
+            )
+        else:
+            cwd = workspace_root or os.getcwd()
 
         # Prevent an LLM-supplied working_dir from escaping the configured
         # workspace when restrict_to_workspace is enabled (#2826). Without

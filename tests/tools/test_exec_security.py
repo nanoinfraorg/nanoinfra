@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import socket
 import sys
 from unittest.mock import patch
@@ -14,6 +15,17 @@ from nanoinfra.security.workspace_access import (
     build_workspace_scope,
     reset_workspace_scope,
 )
+
+
+def _print_cwd_command() -> str:
+    """A command that prints the directory it was started in.
+
+    Bare interpreter name on purpose: an absolute path to the interpreter is
+    itself a path outside the working dir, so _guard_command would block the
+    command before the cwd it is asked about ever mattered.
+    """
+    python = "python" if os.name == "nt" else "python3"
+    return f'{python} -c "from pathlib import Path; print(Path.cwd())"'
 
 
 def _fake_resolve_private(hostname, port, family=0, type_=0):
@@ -239,6 +251,46 @@ async def test_exec_allows_working_dir_equal_to_workspace(tmp_path):
     result = await tool.execute(command="echo ok", working_dir=str(workspace))
     assert "ok" in result
     assert "outside the configured workspace" not in result
+
+
+# --- HKUDS/nanobot#5682: a relative working_dir is relative to the workspace -------------
+
+
+@pytest.mark.asyncio
+async def test_exec_resolves_relative_working_dir_against_workspace(tmp_path):
+    """A relative working_dir names a directory inside the workspace, and runs there."""
+    workspace = tmp_path / "workspace"
+    subdir = workspace / "project"
+    subdir.mkdir(parents=True)
+    tool = ExecTool(working_dir=str(workspace), restrict_to_workspace=True, timeout=5)
+    result = await tool.execute(command=_print_cwd_command(), working_dir="project")
+    assert "outside the configured workspace" not in result
+    assert str(subdir.resolve()) in result
+
+
+@pytest.mark.asyncio
+async def test_exec_blocks_relative_working_dir_outside_workspace(tmp_path):
+    """A relative working_dir that climbs out of the workspace is still rejected."""
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    workspace.mkdir()
+    outside.mkdir()
+    tool = ExecTool(working_dir=str(workspace), restrict_to_workspace=True, timeout=5)
+    result = await tool.execute(command="echo ok", working_dir="../outside")
+    assert "outside the configured workspace" in result
+
+
+@pytest.mark.asyncio
+async def test_exec_blocks_relative_working_dir_via_workspace_symlink(tmp_path):
+    """A symlink inside the workspace does not make its target part of it."""
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    workspace.mkdir()
+    outside.mkdir()
+    (workspace / "escape").symlink_to(outside, target_is_directory=True)
+    tool = ExecTool(working_dir=str(workspace), restrict_to_workspace=True, timeout=5)
+    result = await tool.execute(command="echo ok", working_dir="escape")
+    assert "outside the configured workspace" in result
 
 
 @pytest.mark.asyncio

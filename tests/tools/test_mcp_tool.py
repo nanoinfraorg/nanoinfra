@@ -626,6 +626,37 @@ async def test_connect_mcp_servers_enabled_tools_supports_limited_wrapped_names(
 
 
 @pytest.mark.asyncio
+async def test_connect_mcp_servers_keeps_distinct_non_ascii_tool_names(
+    fake_mcp_runtime: dict[str, object | None],
+) -> None:
+    """Two non-ASCII tool names from one server must both survive registration (HKUDS/nanobot#5360).
+
+    Sanitization erases every character that tells them apart, so both used to sanitize to
+    ``mcp_weather_`` and ``registry.register`` -- a dict assignment -- silently kept the second.
+    """
+    called: list[str] = []
+
+    async def call_tool(name: str, arguments: dict) -> object:
+        called.append(name)
+        return SimpleNamespace(content=[_FakeTextContent(f"ran {name}")])
+
+    session = _make_fake_session(["获取天气", "日本語ツール"])
+    session.call_tool = call_tool
+    fake_mcp_runtime["session"] = session
+    registry = ToolRegistry()
+    stacks = await connect_mcp_servers({"weather": MCPServerConfig(command="fake")}, registry)
+    for stack in stacks.values():
+        await stack.aclose()
+
+    assert len(registry.tool_names) == 2
+    for tool_name in registry.tool_names:
+        tool = registry.get(tool_name)
+        assert tool is not None
+        assert await tool.execute() == f"ran {tool._original_name}"
+    assert called == ["获取天气", "日本語ツール"]
+
+
+@pytest.mark.asyncio
 async def test_connect_mcp_servers_enabled_tools_empty_list_registers_none(
     fake_mcp_runtime: dict[str, object | None],
 ) -> None:
@@ -1459,6 +1490,50 @@ def test_mcp_tool_name_limits_long_name():
 
     assert len(name) <= 64
     assert name.startswith("mcp_")
+
+
+def test_mcp_tool_name_appends_digest_for_non_ascii_names() -> None:
+    # A non-ASCII name keeps nothing that tells it apart, so the digest of the original is what
+    # does. The readable ASCII part stays in front of it.
+    name = _sanitize_mcp_tool_name("mcp_weather_获取天气")
+    assert name == f"mcp_weather_{mcp_mod._short_digest('mcp_weather_获取天气')}"
+    assert "__" not in name
+
+
+def test_mcp_tool_name_keeps_distinct_non_ascii_names_apart() -> None:
+    assert _sanitize_mcp_tool_name("mcp_weather_获取天气") != _sanitize_mcp_tool_name(
+        "mcp_weather_日本語ツール"
+    )
+
+
+def test_mcp_tool_name_digests_names_with_no_ascii_left() -> None:
+    digest = mcp_mod._short_digest("获取天气")
+    assert _sanitize_mcp_tool_name("获取天气") == f"tool_{digest}"
+
+
+def test_mcp_tool_name_leaves_ascii_names_untouched() -> None:
+    # Only a non-ASCII name pays for a digest; spaces and punctuation still sanitize readably.
+    assert _sanitize_mcp_tool_name("mcp_srv_My Tool") == "mcp_srv_My_Tool"
+    assert _sanitize_mcp_tool_name("mcp_srv_prompt_design-schema") == "mcp_srv_prompt_design-schema"
+
+
+def test_non_ascii_server_name_tools_are_still_unregistered() -> None:
+    # _tool_prefix reuses _sanitize_name for a startswith ownership check, so the digest lives in
+    # _sanitize_mcp_tool_name only. A digest in the prefix would match no tool name and leave a
+    # non-ASCII server's tools behind on unregistration.
+    server_name = "天気"
+    tool_def = SimpleNamespace(
+        name="search",
+        description="search tool",
+        inputSchema={"type": "object", "properties": {}},
+    )
+    wrapper = MCPToolWrapper(SimpleNamespace(call_tool=None), server_name, tool_def)
+    registry = ToolRegistry()
+    registry.register(wrapper)
+
+    assert wrapper.name.startswith(mcp_mod._tool_prefix(server_name))
+    assert mcp_mod._unregister_server_tools(registry, server_name) == 1
+    assert registry.tool_names == []
 
 
 def test_long_server_name_tools_are_matched_by_server_name() -> None:

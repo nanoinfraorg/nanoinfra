@@ -501,6 +501,77 @@ class TestArchiveDelegates:
         assert entry[0] == "Hello."
 
     @pytest.mark.asyncio
+    async def test_summary_cache_is_bounded(self):
+        """Abandoned sessions accumulate: 500 archived and never reopened must not all be held."""
+        ac = _make_autocompact()
+        mock_sm = MagicMock(spec=SessionManager)
+
+        def load_session(key: str) -> Session:
+            return _make_session(
+                key=key,
+                metadata={"_last_summary": {"text": key, "last_active": "2026-05-13T10:00:00"}},
+            )
+
+        mock_sm.get_or_create.side_effect = load_session
+        ac.sessions = mock_sm
+        ac.consolidator.compact_idle_session = AsyncMock(return_value="Summary.")
+
+        for index in range(500):
+            await ac._archive(f"cli:{index}", runtime=_runtime())
+
+        assert len(ac._summaries) < 500
+
+    @pytest.mark.asyncio
+    async def test_summary_cache_evicts_oldest_session(self):
+        """A session archived and never reopened must not hold a slot forever.
+
+        HKUDS/nanobot#5664.
+        """
+        ac = _make_autocompact()
+        mock_sm = MagicMock(spec=SessionManager)
+
+        def load_session(key: str) -> Session:
+            return _make_session(
+                key=key,
+                metadata={"_last_summary": {"text": key, "last_active": "2026-05-13T10:00:00"}},
+            )
+
+        mock_sm.get_or_create.side_effect = load_session
+        ac.sessions = mock_sm
+        ac.consolidator.compact_idle_session = AsyncMock(return_value="Summary.")
+
+        for index in range(ac._SUMMARY_CACHE_MAX_SIZE + 1):
+            await ac._archive(f"cli:{index}", runtime=_runtime())
+
+        assert len(ac._summaries) == ac._SUMMARY_CACHE_MAX_SIZE
+        assert "cli:0" not in ac._summaries
+        assert f"cli:{ac._SUMMARY_CACHE_MAX_SIZE}" in ac._summaries
+
+    @pytest.mark.asyncio
+    async def test_re_archived_session_is_not_the_next_evicted(self):
+        """Re-archiving refreshes a session's place in the queue, so it is not the stalest."""
+        ac = _make_autocompact()
+        mock_sm = MagicMock(spec=SessionManager)
+
+        def load_session(key: str) -> Session:
+            return _make_session(
+                key=key,
+                metadata={"_last_summary": {"text": key, "last_active": "2026-05-13T10:00:00"}},
+            )
+
+        mock_sm.get_or_create.side_effect = load_session
+        ac.sessions = mock_sm
+        ac.consolidator.compact_idle_session = AsyncMock(return_value="Summary.")
+
+        for index in range(ac._SUMMARY_CACHE_MAX_SIZE):
+            await ac._archive(f"cli:{index}", runtime=_runtime())
+        await ac._archive("cli:0", runtime=_runtime())
+        await ac._archive("cli:new", runtime=_runtime())
+
+        assert "cli:0" in ac._summaries
+        assert "cli:1" not in ac._summaries
+
+    @pytest.mark.asyncio
     async def test_no_summary_when_compact_returns_empty(self):
         ac = _make_autocompact()
         mock_sm = MagicMock(spec=SessionManager)

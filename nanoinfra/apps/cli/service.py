@@ -1362,8 +1362,15 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
         *,
         restrict_to_workspace: bool,
     ) -> Path:
-        cwd = Path(working_dir).expanduser() if working_dir else self.workspace
-        cwd = cwd.resolve(strict=False)
+        # A relative working_dir is relative to the workspace, not to the directory the gateway
+        # process was started in (HKUDS/nanobot#5682, the same root cause as agent/tools/shell.py).
+        # Resolving "project" against the process cwd moved it out of the workspace, and the check
+        # below then refused it as "outside the configured workspace" -- true only because this
+        # line had put it there.
+        requested = Path(working_dir).expanduser() if working_dir else self.workspace
+        if not requested.is_absolute():
+            requested = self.workspace / requested
+        cwd = requested.resolve(strict=False)
         workspace = self.workspace.resolve(strict=False)
         if restrict_to_workspace and not is_path_within(cwd, workspace):
             raise CliAppError("working_dir is outside the configured workspace")

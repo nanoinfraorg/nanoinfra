@@ -108,6 +108,41 @@ class TestLoadBootstrapFiles:
         for name in ContextBuilder.BOOTSTRAP_FILES:
             assert f"## {name}" in result
 
+    def test_oversized_bootstrap_file_is_capped_and_says_so(self, tmp_path):
+        (tmp_path / "AGENTS.md").write_text("R" * 40_000, encoding="utf-8")
+        builder = _builder(tmp_path)
+        result = builder._load_bootstrap_files()
+        assert result.count("R") < 40_000
+        assert "shown in part" in result
+        assert "longer than what is shown" in result
+
+    def test_capped_bootstrap_file_reports_both_lengths(self, tmp_path):
+        cap = ContextBuilder._MAX_BOOTSTRAP_CHARS["AGENTS.md"]
+        (tmp_path / "AGENTS.md").write_text("R" * (cap + 5_000), encoding="utf-8")
+        builder = _builder(tmp_path)
+        result = builder._load_bootstrap_files()
+        assert "R" * cap in result
+        assert "R" * (cap + 1) not in result
+        assert f"the first {cap:,} of {cap + 5_000:,} characters" in result
+
+    def test_each_bootstrap_file_is_capped_on_its_own(self, tmp_path):
+        for name in ContextBuilder.BOOTSTRAP_FILES:
+            cap = ContextBuilder._MAX_BOOTSTRAP_CHARS[name]
+            (tmp_path / name).write_text("x" * (cap + 1), encoding="utf-8")
+        builder = _builder(tmp_path)
+        result = builder._load_bootstrap_files()
+        total = sum(ContextBuilder._MAX_BOOTSTRAP_CHARS[n] for n in ContextBuilder.BOOTSTRAP_FILES)
+        assert result.count("x") <= total
+        for name in ContextBuilder.BOOTSTRAP_FILES:
+            assert f"## {name} (shown in part:" in result
+
+    def test_bootstrap_file_within_cap_is_unannotated(self, tmp_path):
+        (tmp_path / "AGENTS.md").write_text("Rules.", encoding="utf-8")
+        builder = _builder(tmp_path)
+        result = builder._load_bootstrap_files()
+        assert "## AGENTS.md\n\nRules." in result
+        assert "shown in part" not in result
+
     def test_legacy_tools_md_is_not_bootstrapped(self, tmp_path):
         (tmp_path / "TOOLS.md").write_text("workspace tool notes", encoding="utf-8")
         builder = _builder(tmp_path)

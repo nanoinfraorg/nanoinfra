@@ -12,6 +12,16 @@ not here.
 ## [Unreleased]
 
 ### Fixed
+- A relative `working_dir` resolves against the workspace. `exec` ran the command in whatever
+  directory the gateway process was started in, and a CLI app refused the same path as "outside
+  the configured workspace" — one input, two wrong answers in opposite directions.
+- Two MCP tools with non-ASCII names both stay registered and callable. Sanitization erased
+  everything that told `mcp_weather_获取天气` apart from its neighbour, so the second tool replaced
+  the first while the connect log still counted both.
+- AGENTS.md, SOUL.md and USER.md are bounded in the system prompt, and say so when they are shown
+  in part. They were embedded whole on every turn, and Dream is the writer of two of the three.
+- The idle-session summary cache is bounded. Entries were dropped only when a session was reopened,
+  so a session archived and then abandoned held its slot for the life of the process.
 - A Codex chat now keeps one prompt cache key for its whole length, so the prefix it already paid
   for is billed as a cache read instead of being re-tokenised every turn.
   ([#203](https://github.com/nanoinfraorg/nanoinfra/issues/203))

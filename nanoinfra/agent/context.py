@@ -154,6 +154,7 @@ class ContextBuilder:
         self.memory = MemoryStore(workspace)
         self.skills = SkillsLoader(workspace, disabled_skills=set(disabled_skills) if disabled_skills else None)
         self._memory_overflow_logged = False  # rate-limit the oversized MEMORY.md warning
+        self._bootstrap_overflow_logged: set[str] = set()  # same, per bootstrap file
         # What the last `build_system_prompt` put in the prompt, by section (#203). Held here
         # rather than returned, because the method has a dozen call sites and every one of them
         # wants the string -- only the turn that is about to send it wants the breakdown.
@@ -500,9 +501,53 @@ class ContextBuilder:
                     content, filename
                 ):
                     continue
-                parts.append(f"## {filename}\n\n{content}")
+                parts.append(self._bounded_bootstrap_file(filename, content))
 
         return "\n\n".join(parts) if parts else ""
+
+    #: What each bootstrap file may contribute to a system prompt (HKUDS/nanobot#5630).
+    #:
+    #: These go into every system prompt whole, and Dream writes two of the three, so they grow
+    #: with no operator watching -- the same shape as MEMORY.md before `_MAX_MEMORY_CHARS`.
+    #:
+    #: SOUL.md and USER.md get 8,000, which is `MemoryStore._DREAM_FILE_EMBED_CAP` -- the window
+    #: Dream itself sees when it rewrites them. Carrying more of a file than its own writer can
+    #: read is exactly the pathology the note above describes, and matching the number keeps the
+    #: two in agreement: if this prompt shows one of them in part, Dream has already refused a
+    #: whole-file write to it. Kept as a literal rather than imported, because that constant is
+    #: private to `MemoryStore`.
+    #:
+    #: AGENTS.md is written by hand, does not self-grow, and is the one that is legitimately long
+    #: -- this repository's own is 8,750 characters -- so it gets MEMORY.md's 24,000. Worst case
+    #: for the section is 40,000 characters, about 10k tokens, and that is now a ceiling rather
+    #: than a hope.
+    _MAX_BOOTSTRAP_CHARS = {
+        "AGENTS.md": 24_000,
+        "SOUL.md": 8_000,
+        "USER.md": 8_000,
+    }
+
+    def _bounded_bootstrap_file(self, filename: str, content: str) -> str:
+        """One bootstrap file's block, bounded, and honest when it is bounded."""
+        cap = self._MAX_BOOTSTRAP_CHARS[filename]
+        if len(content) <= cap:
+            return f"## {filename}\n\n{content}"
+        if filename not in self._bootstrap_overflow_logged:
+            self._bootstrap_overflow_logged.add(filename)
+            logger.warning(
+                "{} is {} characters and only the first {} reach the prompt. It is embedded in "
+                "every system prompt, so this is a cost on every turn.",
+                filename,
+                len(content),
+                cap,
+            )
+        kept = truncate_text(content, cap)
+        return (
+            f"## {filename} (shown in part: the first {cap:,} of {len(content):,} characters)"
+            f"\n\n{kept}\n\n"
+            f"**This file is longer than what is shown. Read `{filename}` if you need the rest, "
+            "and do not replace the file from what is in this prompt.**"
+        )
 
     @staticmethod
     def _is_template_content(content: str, template_path: str) -> bool:

@@ -951,6 +951,47 @@ def test_run_blocks_working_dir_outside_workspace(tmp_path: Path) -> None:
         manager.run("gimp", working_dir="/etc", restrict_to_workspace=True)
 
 
+def test_run_resolves_relative_working_dir_against_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A relative working_dir inside the workspace runs there instead of being refused.
+
+    HKUDS/nanobot#5682, mirrored from the exec tool's half of the same bug.
+    """
+    manager = _manager(tmp_path)
+    _seed_catalog(manager)
+    (manager.workspace / "project").mkdir()
+    resolved = str(tmp_path / "bin" / "cli-anything-gimp")
+    monkeypatch.setattr(
+        "nanoinfra.apps.cli.service.shutil.which",
+        lambda entry: resolved if entry == "cli-anything-gimp" else None,
+    )
+    seen: dict[str, str] = {}
+
+    def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen["cwd"] = str(kwargs["cwd"])
+        return subprocess.CompletedProcess(argv, 0, stdout="done", stderr="")
+
+    monkeypatch.setattr("nanoinfra.apps.cli.service.subprocess.run", fake_run)
+    manager._save_installed({"gimp": {"entry_point": "cli-anything-gimp"}})
+
+    result = manager.run("gimp", working_dir="project", restrict_to_workspace=True)
+
+    assert "exited 0" in result
+    assert seen["cwd"] == str((manager.workspace / "project").resolve())
+
+
+def test_run_blocks_relative_working_dir_outside_workspace(tmp_path: Path) -> None:
+    """A relative working_dir that climbs out of the workspace is still refused."""
+    manager = _manager(tmp_path)
+    _seed_catalog(manager)
+    manager._save_installed({"gimp": {"entry_point": "cli-anything-gimp"}})
+
+    with pytest.raises(CliAppError, match="outside the configured workspace"):
+        manager.run("gimp", working_dir="../outside", restrict_to_workspace=True)
+
+
 def test_install_uses_uv_pip_when_pip_unavailable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
