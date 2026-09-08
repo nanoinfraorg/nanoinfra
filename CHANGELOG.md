@@ -12,6 +12,12 @@ not here.
 ## [Unreleased]
 
 ### Fixed
+- An email whose hand-off to the agent fails stays unread and is delivered again on the next poll.
+  It was marked `\Seen` and deduped during the fetch, so a failed hand-off was never retried and
+  the mailbox reported it as handled.
+- A filtered email — self-sent, failing SPF/DKIM, or not allow-listed — is left unread. Marking it
+  read made the mailbox's unread state stop reporting what the bot processed; `postAction` still
+  decides what happens to it.
 - A degraded consolidation no longer loses the messages past the first 16,000 characters of its raw
   dump. When the summarising model errors or runs out of room, the batch is dumped to history as
   `(part i/n)` entries instead of one truncated entry — the compaction cursor advances past that

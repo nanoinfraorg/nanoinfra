@@ -138,6 +138,9 @@ class EmailChannel(BaseChannel):
         self._last_message_id_by_chat: dict[str, str] = {}
         self._processed_uids: set[str] = set()  # Capped to prevent unbounded growth
         self._MAX_PROCESSED_UIDS = 100000
+        # Delivered UIDs whose \Seen write failed (e.g. the IMAP connection
+        # dropped). Retried on a later poll, and never re-delivered.
+        self._pending_mark_seen: set[str] = set()
 
     async def start(self) -> None:
         """Start polling IMAP for inbound emails."""
@@ -166,10 +169,14 @@ class EmailChannel(BaseChannel):
                 inbound_items, skipped_uids = await asyncio.to_thread(self._fetch_new_messages)
                 should_apply_post_action = self._should_apply_post_action()
                 post_actions_uids: set[str] = set()
+                mark_seen_uids: set[str] = set()
                 for item in inbound_items:
                     sender = item["sender"]
                     subject = item.get("subject", "")
                     message_id = item.get("message_id", "")
+                    metadata = item.get("metadata")
+                    metadata_data = cast(dict[str, Any], metadata) if isinstance(metadata, dict) else {}
+                    uid = str(metadata_data.get("uid") or "")
 
                     if subject:
                         self._last_subject_by_chat[sender] = subject
@@ -186,16 +193,43 @@ class EmailChannel(BaseChannel):
                         )
                     except Exception:
                         self.logger.exception("Error delivering email from {}", sender)
+                        # The fetch marked nothing \Seen, so this message is still
+                        # unread on the server. Drop the in-memory dedup mark too,
+                        # or it is never retried while looking untouched.
+                        if uid:
+                            self._processed_uids.discard(uid)
                         continue
 
-                    metadata = item.get("metadata")
-                    metadata_data = cast(dict[str, Any], metadata) if isinstance(metadata, dict) else {}
-                    uid = str(metadata_data.get("uid") or "")
+                    # Only a message that passed every filter and was handed off
+                    # successfully is marked \Seen, so the mailbox's unread state
+                    # reports what the bot actually processed.
+                    if self.config.mark_seen:
+                        if uid:
+                            mark_seen_uids.add(uid)
+                        else:
+                            self.logger.warning(
+                                "Delivered email from {} carries no IMAP UID and cannot be "
+                                "marked \\Seen; it may be delivered again",
+                                sender,
+                            )
                     if uid and should_apply_post_action:
                         post_actions_uids.add(uid)
 
                 if should_apply_post_action and not self.config.post_action_ignore_skipped:
                     post_actions_uids.update(skipped_uids)
+
+                mark_seen_uids.update(self._pending_mark_seen)
+                if mark_seen_uids:
+                    try:
+                        await asyncio.to_thread(self._mark_seen_batch, sorted(mark_seen_uids))
+                    except Exception:
+                        # A failed \Seen write must not suppress the post-action
+                        # below, and must not re-deliver: these messages already
+                        # reached the agent. Retry the flag alone on a later poll.
+                        self.logger.exception("Failed to mark emails \\Seen, retrying next poll")
+                        self._pending_mark_seen.update(mark_seen_uids)
+                    else:
+                        self._pending_mark_seen.clear()
 
                 if post_actions_uids:
                     await asyncio.to_thread(self._apply_post_actions_batch, sorted(post_actions_uids))
@@ -355,10 +389,13 @@ class EmailChannel(BaseChannel):
             smtp.send_message(msg)
 
     def _fetch_new_messages(self) -> tuple[list[dict[str, Any]], set[str]]:
-        """Poll IMAP and return parsed unread messages plus skipped message UIDs."""
+        """Poll IMAP and return parsed unread messages plus skipped message UIDs.
+
+        Nothing is marked \\Seen here. The caller marks a message \\Seen only
+        once it has actually been delivered to the agent (see `start`).
+        """
         return self._fetch_messages(
             search_criteria=("UNSEEN",),
-            mark_seen=self.config.mark_seen,
             dedupe=True,
             limit=0,
         )
@@ -384,7 +421,6 @@ class EmailChannel(BaseChannel):
                 "BEFORE",
                 self._format_imap_date(end_date),
             ),
-            mark_seen=False,
             dedupe=False,
             limit=max(1, int(limit)),
         )
@@ -393,7 +429,6 @@ class EmailChannel(BaseChannel):
     def _fetch_messages(
         self,
         search_criteria: tuple[str, ...],
-        mark_seen: bool,
         dedupe: bool,
         limit: int,
     ) -> tuple[list[dict[str, Any]], set[str]]:
@@ -405,7 +440,6 @@ class EmailChannel(BaseChannel):
             try:
                 self._fetch_messages_once(
                     search_criteria,
-                    mark_seen,
                     dedupe,
                     limit,
                     messages,
@@ -423,7 +457,6 @@ class EmailChannel(BaseChannel):
     def _fetch_messages_once(
         self,
         search_criteria: tuple[str, ...],
-        mark_seen: bool,
         dedupe: bool,
         limit: int,
         messages: list[dict[str, Any]],
@@ -467,8 +500,6 @@ class EmailChannel(BaseChannel):
                 if self._is_self_address(sender):
                     self.logger.info("From {} ignored: matches bot-owned address", sender)
                     self._remember_processed_uid(uid, dedupe, cycle_uids)
-                    if mark_seen:
-                        client.store(imap_id, "+FLAGS", "\\Seen")
                     if uid:
                         skipped_uids.add(uid)
                     continue
@@ -498,8 +529,6 @@ class EmailChannel(BaseChannel):
 
                 if not self.is_allowed(sender):
                     self._remember_processed_uid(uid, dedupe, cycle_uids)
-                    if mark_seen:
-                        client.store(imap_id, "+FLAGS", "\\Seen")
                     if uid:
                         skipped_uids.add(uid)
                     continue
@@ -554,9 +583,34 @@ class EmailChannel(BaseChannel):
                 )
 
                 self._remember_processed_uid(uid, dedupe, cycle_uids)
+        finally:
+            self._close_imap_client(client)
 
-                if mark_seen:
-                    client.store(imap_id, "+FLAGS", "\\Seen")
+    def _mark_seen_batch(self, uids: list[str]) -> None:
+        """Mark delivered UIDs \\Seen in one IMAP session.
+
+        Only messages handed off to the agent successfully reach here (see
+        `start`). A filtered message — self-sent, SPF/DKIM failure, not
+        allow-listed — is left unread on purpose, so an operator reading the
+        mailbox sees what the bot processed and not merely what it looked at.
+        """
+        if not uids:
+            return
+
+        mailbox = self.config.imap_mailbox or "INBOX"
+        client = self._open_imap_client(mailbox=mailbox)
+        if client is None:
+            return
+
+        try:
+            features = self._server_features(client)
+            # UID rather than sequence number: the fetch session that produced
+            # these messages is already closed, and sequence numbers do not
+            # survive it. `features` carries session-learned behavior (e.g. UID
+            # STORE support) so later UIDs skip a path that already failed.
+            for uid in uids:
+                if uid:
+                    self._uid_store_flag(client, uid, "\\Seen", features)
         finally:
             self._close_imap_client(client)
 
@@ -714,11 +768,14 @@ class EmailChannel(BaseChannel):
         return data[0].split()[0]
 
     def _uid_store_deleted(self, client: Any, uid: str, features: _ServerFeatures) -> bool:
+        return self._uid_store_flag(client, uid, "\\Deleted", features)
+
+    def _uid_store_flag(self, client: Any, uid: str, flag: str, features: _ServerFeatures) -> bool:
         # Optimistic path: try UID STORE first because UID is stable and avoids
         # sequence-number lookup. If this fails once for the session, remember it
         # and use the sequence STORE fallback directly for remaining UIDs.
         if features.uid_store is not False:
-            status, _ = client.uid("STORE", uid, "+FLAGS", "(\\Deleted)")
+            status, _ = client.uid("STORE", uid, "+FLAGS", f"({flag})")
             if status == "OK":
                 features.uid_store = True
                 return True
@@ -728,12 +785,12 @@ class EmailChannel(BaseChannel):
         # unreliable: resolve the current sequence number from UID and use STORE.
         imap_id = self._lookup_imap_id_by_uid(client, uid)
         if not imap_id:
-            self.logger.warning("Post-action skipped: UID {} not found", uid)
+            self.logger.warning("Could not locate UID {} to set flag {}", uid, flag)
             return False
 
-        status, _ = client.store(imap_id, "+FLAGS", "\\Deleted")
+        status, _ = client.store(imap_id, "+FLAGS", flag)
         if status != "OK":
-            self.logger.warning("Post-action failed: could not mark UID {} as deleted", uid)
+            self.logger.warning("Failed to set flag {} on UID {}", flag, uid)
             return False
         return True
 
