@@ -129,7 +129,7 @@ async def test_codex_stream_ignores_invalid_idle_timeout_env(monkeypatch) -> Non
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, request=request)
 
-    def fake_client(*, timeout: float, verify: bool) -> httpx.AsyncClient:
+    def fake_client(*, timeout: float, verify: object) -> httpx.AsyncClient:
         seen["timeout"] = timeout
         return original_client(transport=httpx.MockTransport(handler), timeout=timeout)
 

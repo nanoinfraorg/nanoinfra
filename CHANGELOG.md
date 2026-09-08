@@ -12,6 +12,11 @@ not here.
 ## [Unreleased]
 
 ### Fixed
+- A Codex chat now keeps one prompt cache key for its whole length, so the prefix it already paid
+  for is billed as a cache read instead of being re-tokenised every turn.
+  ([#203](https://github.com/nanoinfraorg/nanoinfra/issues/203))
+- Codex builds its TLS context once per process rather than once per request, so streaming no
+  longer stutters while the CA bundle is read again before each call.
 - A background task that raises is now logged with its traceback and the name of the coroutine
   that failed. Memory consolidation and idle auto-compaction run through that path, so either
   could have been failing on every turn with nothing but asyncio's unattributed "Task exception

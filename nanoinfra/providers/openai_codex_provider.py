@@ -5,8 +5,9 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
+import ssl
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
@@ -19,6 +20,7 @@ from nanoinfra.providers.base import (
     LLMResponse,
     ProviderCallContext,
     ProviderConversationState,
+    prefix_cache_key,
     resolve_stream_idle_timeout_s,
 )
 from nanoinfra.providers.openai_responses import (
@@ -38,6 +40,15 @@ from nanoinfra.providers.openai_responses import (
 DEFAULT_CODEX_URL = "https://chatgpt.com/backend-api/codex/responses"
 DEFAULT_ORIGINATOR = "nanoinfra"
 _COMPACTION_RETAINED_CHAR_BUDGET = 256_000
+
+#: Namespace for deriving `prompt_cache_key` from the session key. Distinct from the OpenAI-compat
+#: and xAI ones, so the same chat presents a different opaque key to each provider.
+#:
+#: This was a sha256 of `messages[:2]`, which reads as stable and is not: the agent rebuilds the
+#: first message every turn, and it carries `last_active.isoformat()` from the session summary plus
+#: a Recent History section that grows as the conversation is journalled. So the key moved on every
+#: turn, each turn landed in a cold bucket, and the whole prefix was re-tokenised and re-billed.
+_PROMPT_CACHE_NAMESPACE = uuid.UUID("9c3a7d21-4f65-5b08-a1de-6c2b83f95a47")
 
 
 class OpenAICodexProvider(LLMProvider):
@@ -96,7 +107,7 @@ class OpenAICodexProvider(LLMProvider):
             "instructions": system_prompt,
             "input": input_items,
             "text": {"verbosity": "medium"},
-            "prompt_cache_key": _prompt_cache_key(messages[:2]),
+            "prompt_cache_key": prefix_cache_key(_PROMPT_CACHE_NAMESPACE),
             "tool_choice": tool_choice or "auto",
             "parallel_tool_calls": True,
         }
@@ -386,6 +397,34 @@ def _build_headers(account_id: str, token: str) -> dict[str, str]:
     }
 
 
+#: One TLS context per ``(verify, trust_env)`` pair, built on first use and then shared by every
+#: client. Handed a bool instead, httpx builds a fresh one inside each client it makes --
+#: ``ssl.create_default_context()`` plus a parse of the certifi CA bundle off disk, measured here at
+#: 8.5 ms median of *synchronous* work on the event loop before every Codex request, including every
+#: tool-call iteration within a turn. Nothing else on the loop runs during it, so a second session
+#: streaming at the same time stuttered for a reason that had nothing to do with the model.
+_SSL_CONTEXTS: dict[tuple[bool, bool], ssl.SSLContext] = {}
+
+
+def _ssl_context(verify: bool, *, trust_env: bool) -> ssl.SSLContext:
+    """The shared TLS context for one verify mode.
+
+    httpx takes an ``ssl.SSLContext`` in place of the bool and then uses it as handed over, so the
+    bundle is read once per process rather than once per request. Keyed on ``trust_env`` as well
+    because that is what decides whether httpx reads ``SSL_CERT_FILE``, and the proxied client turns
+    it off -- one context shared across both would quietly change which CA bundle a proxied request
+    trusts. Sharing is safe otherwise: nothing here mutates a context after building it, and the
+    only writer downstream is httpcore setting the ALPN list at connect time, which is the same
+    ``["http/1.1"]`` for every client this module builds.
+    """
+    key = (verify, trust_env)
+    context = _SSL_CONTEXTS.get(key)
+    if context is None:
+        context = httpx.create_ssl_context(verify=verify, trust_env=trust_env)
+        _SSL_CONTEXTS[key] = context
+    return context
+
+
 class _CodexHTTPError(RuntimeError):
     def __init__(
         self,
@@ -418,7 +457,10 @@ async def _request_codex(
     on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> LLMResponse:
     idle_timeout_s = resolve_stream_idle_timeout_s()
-    client_kwargs: dict[str, Any] = {"timeout": idle_timeout_s, "verify": verify}
+    client_kwargs: dict[str, Any] = {
+        "timeout": idle_timeout_s,
+        "verify": _ssl_context(verify, trust_env=not proxy),
+    }
     if proxy:
         client_kwargs["proxy"] = proxy
         client_kwargs["trust_env"] = False
@@ -479,11 +521,6 @@ async def _request_codex(
                     usage=usage,
                 )
             return result
-
-
-def _prompt_cache_key(messages: list[dict[str, Any]]) -> str:
-    raw = json.dumps(messages, ensure_ascii=True, sort_keys=True)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _friendly_error(status_code: int, raw: str) -> str:

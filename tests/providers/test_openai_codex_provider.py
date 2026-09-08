@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import io
+import ssl
+import uuid
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
 from loguru import logger
 
 import nanoinfra.providers.base as provider_base
+from nanoinfra.agent.tools.context import RequestContext, request_context
 from nanoinfra.config.schema import Config
 from nanoinfra.providers.base import LLMUsage
 from nanoinfra.providers.factory import make_provider
@@ -96,11 +99,13 @@ async def test_codex_request_non_200_populates_http_metadata(monkeypatch) -> Non
     def fake_client(
         *,
         timeout: int,
-        verify: bool,
+        verify: object,
         **_kwargs: object,
     ) -> httpx.AsyncClient:
         assert timeout == 90
-        assert verify is True
+        # A cached context rather than `True`, and still a verifying one.
+        assert isinstance(verify, ssl.SSLContext)
+        assert verify.verify_mode is ssl.CERT_REQUIRED
         return original_client(transport=httpx.MockTransport(handler), timeout=timeout)
 
     monkeypatch.setattr("nanoinfra.providers.openai_codex_provider.httpx.AsyncClient", fake_client)
@@ -138,7 +143,7 @@ async def test_codex_request_marks_rejected_compaction_without_retaining_raw_bod
     def fake_client(
         *,
         timeout: int,
-        verify: bool,
+        verify: object,
         **_kwargs: object,
     ) -> httpx.AsyncClient:
         return original_client(transport=httpx.MockTransport(handler), timeout=timeout)
@@ -172,7 +177,7 @@ async def test_codex_request_honors_stream_idle_timeout_env(monkeypatch) -> None
     def fake_client(
         *,
         timeout: int,
-        verify: bool,
+        verify: object,
         **_kwargs: object,
     ) -> httpx.AsyncClient:
         seen["timeout"] = timeout
@@ -197,7 +202,7 @@ async def test_codex_request_uses_configured_proxy(monkeypatch) -> None:
     def fake_client(
         *,
         timeout: int,
-        verify: bool,
+        verify: object,
         proxy: str | None = None,
         trust_env: bool = True,
     ) -> httpx.AsyncClient:
@@ -218,55 +223,182 @@ async def test_codex_request_uses_configured_proxy(monkeypatch) -> None:
     assert seen == {"proxy": proxy, "trust_env": False}
 
 
-@pytest.mark.asyncio
-async def test_codex_prompt_cache_key_uses_stable_conversation_prefix(monkeypatch) -> None:
-    bodies: list[dict] = []
+def _capture_client_verify(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    """Record whatever ``_request_codex`` hands httpx as ``verify``, per client it builds."""
+    original_client = httpx.AsyncClient
+    seen: list[object] = []
 
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, request=request)
+
+    def fake_client(
+        *,
+        timeout: int,
+        verify: object,
+        **_kwargs: object,
+    ) -> httpx.AsyncClient:
+        seen.append(verify)
+        return original_client(transport=httpx.MockTransport(handler), timeout=timeout)
+
+    monkeypatch.setattr("nanoinfra.providers.openai_codex_provider.httpx.AsyncClient", fake_client)
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_codex_builds_its_tls_context_once(monkeypatch) -> None:
+    """Handed a bool, httpx reads the CA bundle again inside every client it builds.
+
+    Measured at 8.5 ms median of synchronous ``ssl.create_default_context()`` +
+    ``load_verify_locations(certifi.where())`` on the event loop, before every Codex request and
+    every tool-call iteration inside it. The assertion is on the identity of the context rather
+    than on a duration, because a timing threshold is what a loaded CI box fails for free.
+    """
+    seen = _capture_client_verify(monkeypatch)
+
+    await _request_codex("https://codex.example/responses", {}, {"input": []}, verify=True)
+    await _request_codex("https://codex.example/responses", {}, {"input": []}, verify=True)
+
+    assert [isinstance(item, ssl.SSLContext) for item in seen] == [True, True]
+    assert seen[0] is seen[1]
+
+
+@pytest.mark.asyncio
+async def test_codex_tls_cache_keeps_the_two_verify_modes_apart(monkeypatch) -> None:
+    """The CERTIFICATE_VERIFY_FAILED retry drops verification, and must not disarm the cached one."""
+    seen = _capture_client_verify(monkeypatch)
+
+    await _request_codex("https://codex.example/responses", {}, {"input": []}, verify=True)
+    await _request_codex("https://codex.example/responses", {}, {"input": []}, verify=False)
+
+    verified, unverified = cast(list[ssl.SSLContext], seen)
+    assert verified is not unverified
+    assert verified.verify_mode is ssl.CERT_REQUIRED
+    assert verified.check_hostname is True
+    assert unverified.verify_mode is ssl.CERT_NONE
+
+
+@pytest.mark.asyncio
+async def test_codex_proxied_requests_keep_their_own_tls_context(monkeypatch) -> None:
+    """httpx reads ``SSL_CERT_FILE`` only when ``trust_env`` is on, and the proxied client turns it
+    off. Sharing one context across both would change which CA bundle a proxied request trusts."""
+    seen = _capture_client_verify(monkeypatch)
+
+    await _request_codex("https://codex.example/responses", {}, {"input": []}, verify=True)
+    await _request_codex(
+        "https://codex.example/responses",
+        {},
+        {"input": []},
+        verify=True,
+        proxy="http://127.0.0.1:23458",
+    )
+
+    direct, proxied = cast(list[ssl.SSLContext], seen)
+    assert isinstance(proxied, ssl.SSLContext)
+    assert direct is not proxied
+
+
+def _capture_codex_bodies(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    bodies: list[dict[str, Any]] = []
     _mock_codex_token(monkeypatch)
 
-    async def fake_request(
-        url,
-        headers,
-        body,
-        verify,
-        proxy=None,
-        on_content_delta=None,
-        on_thinking_delta=None,
-        on_tool_call_delta=None,
-    ):
-        _ = proxy, on_thinking_delta, on_tool_call_delta
+    async def fake_request(_url, _headers, body, **_kwargs):
         bodies.append(body)
         return provider_base.LLMResponse(content="ok")
 
     monkeypatch.setattr("nanoinfra.providers.openai_codex_provider._request_codex", fake_request)
+    return bodies
 
-    provider = OpenAICodexProvider()
-    await provider.chat(
-        [
-            {"role": "system", "content": "You are nanoinfra."},
-            {"role": "user", "content": "first request"},
-            {"role": "assistant", "content": "first answer"},
-        ],
+
+def _turn(session_key: str) -> Any:
+    return request_context(
+        RequestContext(channel="websocket", chat_id="c", session_key=session_key)
     )
-    await provider.chat(
-        [
-            {"role": "system", "content": "You are nanoinfra."},
+
+
+def _rebuilt_system_prompt(last_active: str, history: str) -> str:
+    """The first message as the agent actually rebuilds it every turn.
+
+    ``agent/autocompact.py`` writes ``last_active.isoformat()`` into the session summary and
+    ``agent/context.py`` grows Recent History as the conversation is journalled, so a key derived
+    from this text moves on every turn even though the prefix it names has not.
+    """
+    return (
+        "You are nanoinfra.\n\n"
+        f"## Session summary\nLast active: {last_active}\n\n"
+        f"## Recent History\n{history}\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_codex_prompt_cache_key_survives_a_rebuilt_first_message(monkeypatch) -> None:
+    """Two turns of one chat whose first message differs only in the timestamp inside it."""
+    bodies = _capture_codex_bodies(monkeypatch)
+    provider = OpenAICodexProvider()
+
+    with _turn("websocket:abc"):
+        await provider.chat([
+            {
+                "role": "system",
+                "content": _rebuilt_system_prompt(
+                    "2026-09-07T10:00:00+00:00",
+                    "- user: first request",
+                ),
+            },
+            {"role": "user", "content": "first request"},
+        ])
+        await provider.chat([
+            {
+                "role": "system",
+                "content": _rebuilt_system_prompt(
+                    "2026-09-07T10:04:12+00:00",
+                    "- user: first request\n- assistant: first answer",
+                ),
+            },
             {"role": "user", "content": "first request"},
             {"role": "assistant", "content": "first answer"},
             {"role": "user", "content": "follow up"},
-        ],
-    )
-    await provider.chat(
-        [
-            {"role": "system", "content": "You are nanoinfra."},
-            {"role": "user", "content": "different request"},
-            {"role": "assistant", "content": "first answer"},
-        ],
-    )
+        ])
 
     assert bodies[0]["prompt_cache_key"] == bodies[1]["prompt_cache_key"]
-    assert bodies[0]["prompt_cache_key"] != bodies[2]["prompt_cache_key"]
+    assert uuid.UUID(bodies[0]["prompt_cache_key"])
+    assert "abc" not in bodies[0]["prompt_cache_key"]
     assert all("service_tier" not in body for body in bodies)
+
+
+@pytest.mark.asyncio
+async def test_codex_prompt_cache_key_is_one_per_chat(monkeypatch) -> None:
+    """Byte-identical prompts in two chats: same prefix, but they must not share a cache bucket."""
+    bodies = _capture_codex_bodies(monkeypatch)
+    provider = OpenAICodexProvider()
+    messages = [
+        {"role": "system", "content": _rebuilt_system_prompt("2026-09-07T10:00:00+00:00", "-")},
+        {"role": "user", "content": "same question"},
+    ]
+
+    with _turn("websocket:abc"):
+        await provider.chat(messages)
+    with _turn("websocket:def"):
+        await provider.chat(messages)
+
+    assert bodies[0]["prompt_cache_key"] != bodies[1]["prompt_cache_key"]
+
+
+@pytest.mark.asyncio
+async def test_codex_presents_a_different_key_than_the_other_providers(monkeypatch) -> None:
+    """One opaque key reused across providers would let two of them correlate a conversation."""
+    from nanoinfra.providers.openai_compat_provider import _PROMPT_CACHE_NAMESPACE
+    from nanoinfra.providers.xai_grok_provider import _CONV_NAMESPACE
+
+    bodies = _capture_codex_bodies(monkeypatch)
+
+    with _turn("websocket:abc"):
+        await OpenAICodexProvider().chat([{"role": "user", "content": "hello"}])
+        others = {
+            provider_base.prefix_cache_key(_PROMPT_CACHE_NAMESPACE),
+            provider_base.prefix_cache_key(_CONV_NAMESPACE),
+        }
+
+    assert bodies[0]["prompt_cache_key"] not in others
 
 
 @pytest.mark.asyncio
