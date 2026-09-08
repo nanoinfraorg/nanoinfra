@@ -12,6 +12,15 @@ not here.
 ## [Unreleased]
 
 ### Fixed
+- A `socks://` proxy configured for the OpenAI-compatible or xAI provider now connects. httpx
+  knows no such scheme, so on a host carrying that spelling every model call failed while its HTTP
+  client was still being built.
+- A tool-call id issued by an earlier response is no longer replayed as a Responses input item id.
+  After a restart, a model switch or any provider-state mismatch the endpoint could reject the
+  whole request as an item that does not belong to this connection.
+- A Grok hosted search the stream abandoned no longer reads as a finished answer. The request is
+  retried instead of answering a search question from nothing, and the search's activity row
+  stops saying "searching" forever.
 - A relative `working_dir` resolves against the workspace. `exec` ran the command in whatever
   directory the gateway process was started in, and a CLI app refused the same path as "outside
   the configured workspace" — one input, two wrong answers in opposite directions.

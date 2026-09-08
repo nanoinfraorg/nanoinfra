@@ -389,6 +389,35 @@ class TestConvertMessages:
         assert items[1]["type"] == "function_call"
         assert items[2]["type"] == "function_call_output"
 
+    def test_include_item_ids_false_omits_ids_but_keeps_call_id(self):
+        # A server-issued item id replayed into a request that does not continue the response
+        # that issued it is rejected: "input item ID does not belong to this connection".
+        _, items = convert_messages(
+            [
+                {"role": "assistant", "content": "an earlier answer"},
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_abc|fc_from_a_dead_connection",
+                        "function": {"name": "read_file", "arguments": '{"path":"a.py"}'},
+                    }],
+                },
+                {"role": "tool", "tool_call_id": "call_abc|fc_from_a_dead_connection",
+                 "content": "file contents"},
+            ],
+            include_item_ids=False,
+        )
+
+        assert all("id" not in item for item in items)
+        # `call_id` is how a function_call and its output correlate, so it always travels.
+        assert items[1]["call_id"] == "call_abc"
+        assert items[2] == {
+            "type": "function_call_output",
+            "call_id": "call_abc",
+            "output": "file contents",
+        }
+
 
 # ======================================================================
 # converters - convert_tools
@@ -850,6 +879,63 @@ class TestResponsesConversationState:
             "content": [{"type": "input_text", "text": "continue"}],
         }
         assert "lossy public transcript" not in str(items)
+
+    def test_neither_conversion_replays_a_transcript_item_id(self):
+        # The ids the endpoint knows are the ones in ``payload``, replayed verbatim. An id
+        # recovered from the Chat transcript belongs to whichever response produced it, and on
+        # the fallback path -- restart, model switch, state mismatch -- that is a dead connection.
+        transcript = [
+            {"role": "system", "content": "current instructions"},
+            {"role": "user", "content": "read it"},
+            {
+                "role": "assistant",
+                "content": "on it",
+                "tool_calls": [{
+                    "id": "call_1|fc_from_a_dead_connection",
+                    "function": {"name": "read_file", "arguments": '{"path":"a.py"}'},
+                }],
+            },
+        ]
+
+        _, fallback_items, replayed = prepare_responses_input(
+            transcript,
+            state=None,
+            provider="openai:test",
+            model="gpt-5.6",
+        )
+
+        assert replayed is False
+        assert all("id" not in item for item in fallback_items)
+
+        prior_items = [
+            {"role": "user", "content": "read it"},
+            {
+                "type": "function_call",
+                "id": "fc_issued_by_this_connection",
+                "call_id": "call_2",
+                "name": "read_file",
+                "arguments": '{"path":"b.py"}',
+            },
+        ]
+        state = build_responses_state(
+            provider="openai:test",
+            model="gpt-5.6",
+            input_items=prior_items[:1],
+            output_items=prior_items[1:],
+        ).with_pending_messages(transcript[2:])
+
+        _, replayed_items, replayed_flag = prepare_responses_input(
+            transcript,
+            state=state,
+            provider="openai:test",
+            model="gpt-5.6",
+        )
+
+        assert replayed_flag is True
+        # Provider-owned items keep their ids byte-exact; the delta converted from the transcript
+        # carries none.
+        assert replayed_items[:2] == prior_items
+        assert all("id" not in item for item in replayed_items[2:])
 
     def test_replayed_and_delta_reasoning_items_keep_array_content(self):
         # Regression for PR #5214: token consolidation clears

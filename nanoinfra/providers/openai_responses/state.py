@@ -50,10 +50,19 @@ def prepare_responses_input(
     The full Chat transcript remains the source for the current instructions.
     When no compatible state exists, it is converted normally as a safe
     fallback.
+
+    Neither conversion carries item ids, and for the same reason in both cases:
+    the only items whose ids the endpoint knows are the ones it issued itself,
+    and those are replayed verbatim out of ``payload`` -- never rebuilt from the
+    Chat transcript. A ``call_id|item_id`` recovered from the transcript belongs
+    to whichever response first produced it, so re-sending it as an input item's
+    ``id`` either says nothing or, on an endpoint that checks, fails the request
+    with "input item ID does not belong to this connection".
     """
     instructions, fallback_items = convert_messages(
         messages,
         preserve_reasoning=preserve_reasoning,
+        include_item_ids=False,
     )
     if state is None or not responses_state_matches(
         state,
@@ -69,6 +78,7 @@ def prepare_responses_input(
     _, delta_items = convert_messages(
         state.pending_messages,
         preserve_reasoning=preserve_reasoning,
+        include_item_ids=False,
     )
     logger.debug(
         "Replaying Responses state: prior_items={} pending_messages={}",

@@ -16,12 +16,24 @@ def convert_messages(
     messages: list[dict[str, Any]],
     *,
     preserve_reasoning: bool = False,
+    include_item_ids: bool = True,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Convert Chat Completions messages to Responses API input items.
 
     Returns ``(system_prompt, input_items)`` where *system_prompt* is extracted
     from any ``system`` role message and *input_items* is the Responses API
     ``input`` array.
+
+    ``include_item_ids=False`` omits the top-level ``id`` of every emitted item.
+    That id is not ours to invent: for a tool call it is the ``item_id`` half of
+    the ``call_id|item_id`` pair ``split_tool_call_id`` recovers, which is a
+    server-issued id belonging to the response that produced it. Replaying it
+    into a request that does not continue that same response chain -- after a
+    restart, a model switch, or any state mismatch that drops the provider's
+    conversation state -- makes the endpoint reject the whole request with
+    "input item ID does not belong to this connection". The ids buy nothing on
+    that path: correlation between a ``function_call`` and its
+    ``function_call_output`` runs through ``call_id``, which is always sent.
     """
     system_prompt = ""
     input_items: list[dict[str, Any]] = []
@@ -48,26 +60,29 @@ def convert_messages(
                         "content": [{"type": "output_text", "text": reasoning}],
                     })
             if isinstance(content, str) and content:
-                message_id = _unique_item_id(f"msg_{idx}", used_item_ids)
-                input_items.append({
+                message_item: dict[str, Any] = {
                     "type": "message", "role": "assistant",
                     "content": [{"type": "output_text", "text": content}],
-                    "status": "completed", "id": message_id,
-                })
+                    "status": "completed",
+                }
+                if include_item_ids:
+                    message_item["id"] = _unique_item_id(f"msg_{idx}", used_item_ids)
+                input_items.append(message_item)
             for raw_tool_call in cast(list[object], msg.get("tool_calls", []) or []):
                 tool_call = _as_json_object(raw_tool_call)
                 if tool_call is None:
                     continue
                 fn = _as_json_object(tool_call.get("function")) or {}
                 call_id, item_id = split_tool_call_id(tool_call.get("id"))
-                response_item_id = _unique_item_id(item_id or f"fc_{idx}", used_item_ids)
-                input_items.append({
+                call_item: dict[str, Any] = {
                     "type": "function_call",
-                    "id": response_item_id,
                     "call_id": call_id or f"call_{idx}",
                     "name": fn.get("name"),
                     "arguments": tool_arguments_json_for_replay(fn.get("arguments")),
-                })
+                }
+                if include_item_ids:
+                    call_item["id"] = _unique_item_id(item_id or f"fc_{idx}", used_item_ids)
+                input_items.append(call_item)
             continue
 
         if role == "tool":

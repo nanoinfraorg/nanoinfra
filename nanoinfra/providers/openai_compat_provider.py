@@ -47,6 +47,7 @@ from nanoinfra.providers.openai_responses import (
     resolve_compact_threshold,
     responses_state_matches,
 )
+from nanoinfra.providers.proxy_url import normalize_proxy_url
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI as AsyncOpenAIType
@@ -556,7 +557,10 @@ class OpenAICompatProvider(LLMProvider):
         self._extra_body = dict(extra_body or {})
         self._api_type = api_type if spec and spec.name == "openai" else "auto"
         self._extra_query = extra_query or {}
-        self._proxy = proxy or None
+        # Normalised here rather than at each httpx call site: this is where the configured value
+        # enters the provider, and every later use of it -- the client below, and any helper that
+        # takes `self._proxy` -- then holds a scheme httpx will accept.
+        self._proxy = normalize_proxy_url(proxy) or None
         self._native_compaction_available = True
 
         effective_base = api_base or (spec.default_api_base if spec else None) or None

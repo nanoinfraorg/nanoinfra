@@ -3,9 +3,11 @@
 from unittest.mock import MagicMock
 
 import httpx
+import pytest
 
 import nanoinfra.providers.openai_compat_provider as openai_compat_provider
 from nanoinfra.providers.openai_compat_provider import OpenAICompatProvider
+from nanoinfra.providers.xai_grok_provider import XAIGrokProvider
 
 
 def _make_spec(is_local: bool = False) -> MagicMock:
@@ -84,3 +86,58 @@ class TestCloudEndpointProxyEnabled:
             follow_redirects=True,
         )
         assert openai_client.call_args.kwargs["http_client"] is http_client
+
+
+class TestSocksProxyAliasNormalization:
+    """`socks://` is the alias desktop proxy clients export and httpx refuses."""
+
+    @staticmethod
+    def _cloud_spec() -> MagicMock:
+        spec = _make_spec(is_local=False)
+        spec.env_key = ""
+        spec.default_api_base = "https://api.openai.com/v1"
+        return spec
+
+    def test_httpx_rejects_the_raw_alias(self):
+        # The defect this normalization exists for, asserted against the real httpx: the refusal
+        # happens while the client is being built, so nothing gets as far as a request.
+        with pytest.raises(ValueError, match="Unknown scheme for proxy URL"):
+            httpx.AsyncClient(proxy="socks://127.0.0.1:1080")
+
+    def test_compat_provider_rewrites_the_alias_httpx_accepts(self):
+        provider = OpenAICompatProvider(
+            api_key="test",
+            api_base=None,
+            spec=self._cloud_spec(),
+            proxy="socks://proxy-user:p%40ss@127.0.0.1:1080",
+        )
+
+        # Credentials survive byte-for-byte: only the scheme is rewritten.
+        assert provider._proxy == "socks5h://proxy-user:p%40ss@127.0.0.1:1080"
+        httpx.AsyncClient(proxy=provider._proxy)
+
+    def test_xai_provider_rewrites_the_alias_case_insensitively(self):
+        provider = XAIGrokProvider(proxy="SOCKS://127.0.0.1:1080")
+
+        assert provider.proxy == "socks5h://127.0.0.1:1080"
+        httpx.AsyncClient(proxy=provider.proxy)
+
+    @pytest.mark.parametrize(
+        "proxy",
+        [
+            "http://127.0.0.1:8080",
+            "https://127.0.0.1:8080",
+            "socks5://127.0.0.1:1080",
+            "socks5h://127.0.0.1:1080",
+        ],
+    )
+    def test_schemes_httpx_implements_are_untouched(self, proxy: str):
+        provider = OpenAICompatProvider(
+            api_key="test",
+            api_base=None,
+            spec=self._cloud_spec(),
+            proxy=proxy,
+        )
+
+        assert provider._proxy == proxy
+        assert XAIGrokProvider(proxy=proxy).proxy == proxy

@@ -28,6 +28,7 @@ from nanoinfra.providers.openai_responses import (
     convert_messages,
     convert_tools,
 )
+from nanoinfra.providers.proxy_url import normalize_proxy_url
 from nanoinfra.providers.xai_oauth import (
     XAI_CLIENT_VERSION,
     XAIToken,
@@ -46,6 +47,22 @@ _SENSITIVE_ERROR_KEYS = {
     "idtoken",
     "refreshtoken",
 }
+#: The output item type xAI emits for the hosted search we request as `{"type": "x_search"}`.
+#: Named separately from the `custom_tool_call` shape below because the two arrive on different
+#: events: this one opens on `response.output_item.added` like OpenAI's `web_search_call`, while a
+#: custom tool call announces itself with `response.custom_tool_call_input.done`.
+_HOSTED_SEARCH_ITEM_TYPE = "x_search_call"
+#: Terminal reasons that claim the response is whole. An unclosed hosted-search item under one of
+#: these is the failure this guards: `length` is excluded because it already tells the caller the
+#: answer was cut off and re-running the request would only hit the same output limit, and
+#: `refusal` / `content_filter` / `error` are decisions rather than truncation.
+_WHOLE_RESPONSE_FINISH_REASONS = frozenset({"stop", "tool_calls"})
+#: Item statuses that mean the item was still running when the response ended.
+_UNSETTLED_ITEM_STATUSES = frozenset({"in_progress", "queued", "searching"})
+_TRUNCATED_HOSTED_SEARCH_MESSAGE = (
+    "xAI ended the response while a hosted search was still open, so the answer was written "
+    "without its result."
+)
 
 
 def _is_hosted_x_search_tool(value: object) -> bool:
@@ -65,6 +82,11 @@ class XAIGrokProvider(LLMProvider):
     """Call xAI's subscription proxy and expose supported hosted tools."""
 
     supports_progress_deltas = True
+    #: A truncated hosted search is discovered *after* the answer has streamed, so
+    #: `_run_with_retry`'s "content already reached the user" guard would otherwise skip the
+    #: retry. Declaring the callback lets this provider tell the runner the segment is being
+    #: abandoned, which is exactly what it is.
+    supports_stream_recover_callback = True
 
     def __init__(
         self,
@@ -74,7 +96,10 @@ class XAIGrokProvider(LLMProvider):
     ):
         super().__init__(api_key=None, api_base=None)
         self.default_model = default_model
-        self.proxy = proxy or None
+        # Normalised here rather than at each httpx call site: the same attribute feeds the
+        # streaming request, the model catalog lookup and the OAuth client, and all three build
+        # their own `httpx` client from it.
+        self.proxy = normalize_proxy_url(proxy) or None
         self._extra_body = dict(extra_body or {})
         self._model_capabilities: dict[str, bool] | None = None
         self._model_capabilities_fetched_at = 0.0
@@ -120,9 +145,14 @@ class XAIGrokProvider(LLMProvider):
         on_content_delta: Callable[[str], Awaitable[None]] | None = None,
         on_thinking_delta: Callable[[str], Awaitable[None]] | None = None,
         on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+        on_stream_recover: Callable[[], Awaitable[None]] | None = None,
     ) -> LLMResponse:
         wire_model = _strip_model_prefix(model or self.default_model)
-        system_prompt, input_items = convert_messages(messages)
+        # No item ids: this provider keeps no conversation state and sends `store: false`, so
+        # every request re-converts the whole transcript. A `call_id|item_id` in it was issued by
+        # an earlier response, and xAI rejects a request that replays one it does not own with
+        # "input item ID does not belong to this connection".
+        system_prompt, input_items = convert_messages(messages, include_item_ids=False)
 
         stage = "oauth_token"
         try:
@@ -185,6 +215,7 @@ class XAIGrokProvider(LLMProvider):
                     on_content_delta=on_content_delta,
                     on_thinking_delta=on_thinking_delta,
                     on_tool_call_delta=on_tool_call_delta,
+                    on_stream_recover=on_stream_recover,
                 )
             except _XAIHTTPError as exc:
                 if exc.status_code != 401:
@@ -207,6 +238,7 @@ class XAIGrokProvider(LLMProvider):
                     on_content_delta=on_content_delta,
                     on_thinking_delta=on_thinking_delta,
                     on_tool_call_delta=on_tool_call_delta,
+                    on_stream_recover=on_stream_recover,
                 )
 
             content, tool_calls, finish_reason, usage, reasoning_content = result
@@ -258,6 +290,7 @@ class XAIGrokProvider(LLMProvider):
         on_content_delta: Callable[[str], Awaitable[None]] | None = None,
         on_thinking_delta: Callable[[str], Awaitable[None]] | None = None,
         on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+        on_stream_recover: Callable[[], Awaitable[None]] | None = None,
     ) -> LLMResponse:
         return await self._call_xai(
             messages,
@@ -270,6 +303,7 @@ class XAIGrokProvider(LLMProvider):
             on_content_delta,
             on_thinking_delta,
             on_tool_call_delta,
+            on_stream_recover,
         )
 
     def get_default_model(self) -> str:
@@ -360,6 +394,19 @@ def _decode_access_token_claims(token: str) -> dict[str, Any]:
     except (ValueError, TypeError):
         return {}
     return cast(dict[str, Any], claims) if isinstance(claims, dict) else {}
+
+
+class _XAIStreamTruncatedError(RuntimeError):
+    """A hosted-tool item opened and the stream ended on a whole-looking status without it.
+
+    Raised instead of returning the answer, because the answer is the problem: the model wrote it
+    without the search result it asked for, and nothing else in the response says so -- no error
+    event, no `incomplete` status, and no citations to notice missing. `should_retry` is an
+    attribute rather than a decision `_xai_error_response` derives, since there is no status code
+    to derive it from and one more attempt is exactly the right response to a dropped item.
+    """
+
+    should_retry = True
 
 
 class _XAIHTTPError(RuntimeError):
@@ -453,11 +500,41 @@ async def _request_xai(
     on_content_delta: Callable[[str], Awaitable[None]] | None = None,
     on_thinking_delta: Callable[[str], Awaitable[None]] | None = None,
     on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    on_stream_recover: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[str, list[ToolCallRequest], str, LLMUsage | None, str | None]:
-    async def _on_response_event(event: dict[str, Any]) -> None:
+    # Hosted-tool items that opened and have not closed, keyed by call id. xAI can end a stream
+    # on a terminal status without the `response.output_item.done` that pairs with an
+    # `output_item.added`, and the answer it streamed alongside was then written without that
+    # item's result.
+    open_hosted_tools: dict[str, dict[str, Any]] = {}
+
+    async def _dispatch_hosted_event(event: dict[str, Any]) -> None:
         hosted_event = _xai_hosted_tool_event(event)
-        if hosted_event is not None and on_tool_call_delta is not None:
+        if hosted_event is None:
+            return
+        call_id = str(hosted_event["call_id"])
+        if hosted_event["phase"] == "start":
+            open_hosted_tools[call_id] = hosted_event
+        else:
+            open_hosted_tools.pop(call_id, None)
+        if on_tool_call_delta is not None:
             await on_tool_call_delta(hosted_event)
+
+    async def _on_response_event(event: dict[str, Any]) -> None:
+        await _dispatch_hosted_event(event)
+        if event.get("type") not in {"response.completed", "response.incomplete"}:
+            return
+        # The terminal payload carries the server's own record of every output item, so an item
+        # settled there closed even though its `output_item.done` never arrived. Only the event
+        # pair was lost, not the search -- close the row and do not retry a response that is
+        # whole.
+        for item in _settled_terminal_output_items(event):
+            settled_id = str(item.get("id") or item.get("call_id") or "")
+            if settled_id in open_hosted_tools:
+                await _dispatch_hosted_event({
+                    "type": "response.output_item.done",
+                    "item": item,
+                })
 
     client_kwargs: dict[str, Any] = {"timeout": resolve_stream_idle_timeout_s()}
     if proxy:
@@ -468,13 +545,76 @@ async def _request_xai(
                 content = await response.aread()
                 raw = content.decode("utf-8", "ignore")
                 raise _build_xai_http_error(response.status_code, response.headers, raw)
-            return await consume_sse_with_reasoning(
+            # Always observed, not only when someone is watching progress: a `chat()` call with no
+            # callbacks must still not report a search that never landed as a finished answer.
+            result = await consume_sse_with_reasoning(
                 response,
                 on_content_delta=on_content_delta,
                 on_tool_call_delta=on_tool_call_delta,
                 on_reasoning_delta=on_thinking_delta,
-                on_response_event=_on_response_event if on_tool_call_delta else None,
+                on_response_event=_on_response_event,
             )
+    if open_hosted_tools and result[2] in _WHOLE_RESPONSE_FINISH_REASONS:
+        await _fail_truncated_hosted_search(
+            open_hosted_tools,
+            finish_reason=result[2],
+            on_tool_call_delta=on_tool_call_delta,
+            on_stream_recover=on_stream_recover,
+        )
+    return result
+
+
+def _settled_terminal_output_items(event: dict[str, Any]) -> list[dict[str, Any]]:
+    """Output items a terminal response reports as no longer running."""
+    response_value = event.get("response")
+    if not isinstance(response_value, dict):
+        return []
+    output = cast(dict[str, Any], response_value).get("output")
+    if not isinstance(output, list):
+        return []
+    settled: list[dict[str, Any]] = []
+    for raw_item in cast(list[object], output):
+        if not isinstance(raw_item, dict):
+            continue
+        item = cast(dict[str, Any], raw_item)
+        status = item.get("status")
+        # Absent status counts as settled: the item is in the response's final record. An
+        # explicitly unfinished one is the signature this guard is looking for.
+        if isinstance(status, str) and status in _UNSETTLED_ITEM_STATUSES:
+            continue
+        settled.append(item)
+    return settled
+
+
+async def _fail_truncated_hosted_search(
+    open_hosted_tools: dict[str, dict[str, Any]],
+    *,
+    finish_reason: str,
+    on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None,
+    on_stream_recover: Callable[[], Awaitable[None]] | None,
+) -> None:
+    """Close the abandoned activity rows, drop the partial answer, and raise for a retry."""
+    logger.warning(
+        "xAI ended a response with {} unclosed hosted-tool item(s) on finish_reason={}; "
+        "discarding the answer and retrying: call_ids={}",
+        len(open_hosted_tools),
+        finish_reason,
+        ",".join(sorted(open_hosted_tools)),
+    )
+    # The runner only fails its still-open hosted calls once the provider's *final* answer is an
+    # error, so a retry that then succeeds would leave these rows spinning forever. Close them
+    # here, where we know which attempt owned them.
+    if on_tool_call_delta is not None:
+        for hosted_event in list(open_hosted_tools.values()):
+            await on_tool_call_delta({
+                **hosted_event,
+                "phase": "error",
+                "result": None,
+                "error": _TRUNCATED_HOSTED_SEARCH_MESSAGE,
+            })
+    if on_stream_recover is not None:
+        await on_stream_recover()
+    raise _XAIStreamTruncatedError(_TRUNCATED_HOSTED_SEARCH_MESSAGE)
 
 
 def _xai_hosted_tool_event(event: dict[str, Any]) -> dict[str, Any] | None:
@@ -494,13 +634,38 @@ def _xai_hosted_tool_event(event: dict[str, Any]) -> dict[str, Any] | None:
             "result": None,
         }
 
-    if event_type != "response.output_item.done":
+    if event_type not in {"response.output_item.added", "response.output_item.done"}:
         return None
     item = event.get("item")
     if not isinstance(item, dict):
         return None
     item = cast(dict[str, Any], item)
-    if item.get("type") != "custom_tool_call":
+    phase = "start" if event_type == "response.output_item.added" else "end"
+
+    if item.get("type") == _HOSTED_SEARCH_ITEM_TYPE:
+        # The hosted search we ask for at `{"type": "x_search"}` comes back as its own output
+        # item and never as a `custom_tool_call`, which is why the branch below never matched it
+        # and its activity row was opened and never closed.
+        call_id = item.get("id") or item.get("call_id") or event.get("item_id")
+        if not call_id:
+            return None
+        status = item.get("status")
+        return {
+            "kind": "hosted_tool",
+            "phase": phase,
+            "call_id": str(call_id),
+            "name": "x_search",
+            "arguments": _xai_hosted_search_arguments(item),
+            # Status only. The hosted result is large and the model answer already carries the
+            # citations, the same reason the custom-tool branch below keeps only the subtype.
+            "result": (
+                None
+                if phase == "start"
+                else {"status": status if isinstance(status, str) else "completed"}
+            ),
+        }
+
+    if phase != "end" or item.get("type") != "custom_tool_call":
         return None
     tool_name = item.get("name")
     if not isinstance(tool_name, str) or not tool_name.startswith("x_"):
@@ -520,6 +685,41 @@ def _xai_hosted_tool_event(event: dict[str, Any]) -> dict[str, Any] | None:
         # in WebUI activity messages. The model answer already carries citations.
         "result": {"name": tool_name},
     }
+
+
+def _xai_hosted_search_arguments(item: dict[str, Any]) -> dict[str, Any]:
+    """Recover the search terms from a hosted-search item, however it spells them.
+
+    The `input` / `arguments` string is the custom-tool spelling; `action.queries` is the shape
+    the official web-search item uses (`openai_responses.parsing._hosted_web_search_event`), and
+    the hosted item follows it. Read both rather than guess which one this account gets.
+    """
+    arguments = _xai_hosted_tool_arguments(item.get("input", item.get("arguments")))
+    if arguments:
+        return arguments
+    action_value = item.get("action")
+    if not isinstance(action_value, dict):
+        return {}
+    action = cast(dict[str, Any], action_value)
+    raw_queries = action.get("queries")
+    queries = (
+        [
+            query.strip()
+            for query in cast(list[object], raw_queries)
+            if isinstance(query, str) and query.strip()
+        ][:4]
+        if isinstance(raw_queries, list)
+        else []
+    )
+    query = " · ".join(queries) or next(
+        (
+            value.strip()
+            for key in ("query", "pattern", "url")
+            if isinstance((value := action.get(key)), str) and value.strip()
+        ),
+        "",
+    )
+    return {"query": query[:1000]} if query else {}
 
 
 def _xai_hosted_tool_arguments(value: Any) -> dict[str, Any]:
@@ -622,6 +822,8 @@ def _xai_error_response(exc: Exception) -> LLMResponse:
     elif isinstance(exc, (httpx.NetworkError, httpx.TransportError)):
         error_kind = "connection"
         should_retry = True if should_retry is None else should_retry
+    elif isinstance(exc, _XAIStreamTruncatedError):
+        error_kind = "truncated"
     elif isinstance(exc, _XAIHTTPError):
         error_kind = "http"
     if status_code is not None and should_retry is None:

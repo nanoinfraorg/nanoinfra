@@ -16,6 +16,7 @@ from nanoinfra.providers.registry import find_by_name
 from nanoinfra.providers.xai_grok_provider import (
     DEFAULT_XAI_GROK_MODEL,
     DEFAULT_XAI_GROK_MODELS_URL,
+    DEFAULT_XAI_GROK_URL,
     XAIGrokProvider,
     _bounded_error_body,
     _build_headers,
@@ -27,6 +28,7 @@ from nanoinfra.providers.xai_grok_provider import (
     _request_xai,
     _xai_error_response,
     _XAIHTTPError,
+    _XAIStreamTruncatedError,
 )
 
 
@@ -697,3 +699,305 @@ def test_large_json_error_body_redacts_camel_case_credentials_before_bounding() 
 
 async def _append(target: list[Any], value: Any) -> None:
     target.append(value)
+
+
+@pytest.mark.asyncio
+async def test_request_body_omits_item_ids_recovered_from_the_transcript(monkeypatch) -> None:
+    _mock_token(monkeypatch)
+    _mock_model_capabilities(monkeypatch, supports_backend_search=False)
+    captured: dict[str, Any] = {}
+
+    async def fake_request(_url, _headers, body, **_kwargs):
+        captured["body"] = body
+        return ("ok", [], "stop", None, None)
+
+    monkeypatch.setattr(
+        "nanoinfra.providers.xai_grok_provider._request_xai",
+        fake_request,
+    )
+    provider = XAIGrokProvider()
+
+    await provider.chat([
+        {"role": "user", "content": "read it"},
+        {
+            "role": "assistant",
+            "content": "on it",
+            "tool_calls": [{
+                "id": "call_1|fc_from_a_dead_connection",
+                "function": {"name": "read_file", "arguments": '{"path":"a.py"}'},
+            }],
+        },
+        {"role": "tool", "tool_call_id": "call_1|fc_from_a_dead_connection", "content": "text"},
+    ])
+
+    # This provider sends `store: false` and keeps no conversation state, so every id in the
+    # transcript came from a response xAI no longer owns.
+    input_items = captured["body"]["input"]
+    assert all("id" not in item for item in input_items)
+    assert [item.get("call_id") for item in input_items if "call_id" in item] == [
+        "call_1",
+        "call_1",
+    ]
+
+
+def _hosted_search_events(*, close: bool) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = [
+        {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+                "type": "x_search_call",
+                "id": "x_search_1",
+                "status": "in_progress",
+                "action": {"queries": ["nanoinfra release"]},
+            },
+        },
+        {"type": "response.output_text.delta", "delta": "As of today, "},
+    ]
+    if close:
+        events.append({
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+                "type": "x_search_call",
+                "id": "x_search_1",
+                "status": "completed",
+                "action": {"queries": ["nanoinfra release"]},
+                "results": [{"text": "large hosted result must not enter activity events"}],
+            },
+        })
+    events.append({"type": "response.completed", "response": {"status": "completed"}})
+    return events
+
+
+def _sse_client(monkeypatch, events: list[dict[str, Any]]) -> None:
+    original_client = httpx.AsyncClient
+    content = "".join(f"data: {json.dumps(event)}\n\n" for event in events)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=content, request=request)
+
+    def fake_client(**kwargs) -> httpx.AsyncClient:
+        return original_client(
+            transport=httpx.MockTransport(handler),
+            timeout=kwargs["timeout"],
+        )
+
+    monkeypatch.setattr("nanoinfra.providers.xai_grok_provider.httpx.AsyncClient", fake_client)
+
+
+@pytest.mark.asyncio
+async def test_hosted_search_item_reports_both_phases(monkeypatch) -> None:
+    _sse_client(monkeypatch, _hosted_search_events(close=True))
+    tool_events: list[dict[str, Any]] = []
+
+    result = await _request_xai(
+        DEFAULT_XAI_GROK_URL,
+        _build_headers("secret", "grok-4.5"),
+        {"model": "grok-4.5", "tools": [{"type": "x_search"}]},
+        on_tool_call_delta=lambda event: _append(tool_events, event),
+    )
+
+    assert result[2] == "stop"
+    assert tool_events == [
+        {
+            "kind": "hosted_tool",
+            "phase": "start",
+            "call_id": "x_search_1",
+            "name": "x_search",
+            "arguments": {"query": "nanoinfra release"},
+            "result": None,
+        },
+        {
+            "kind": "hosted_tool",
+            "phase": "end",
+            "call_id": "x_search_1",
+            "name": "x_search",
+            "arguments": {"query": "nanoinfra release"},
+            "result": {"status": "completed"},
+        },
+    ]
+    assert "large hosted result" not in json.dumps(tool_events)
+
+
+@pytest.mark.asyncio
+async def test_unclosed_hosted_search_fails_the_turn_and_closes_its_row(monkeypatch) -> None:
+    _sse_client(monkeypatch, _hosted_search_events(close=False))
+    tool_events: list[dict[str, Any]] = []
+    recovered: list[bool] = []
+
+    async def _recover() -> None:
+        recovered.append(True)
+
+    with pytest.raises(_XAIStreamTruncatedError):
+        await _request_xai(
+            DEFAULT_XAI_GROK_URL,
+            _build_headers("secret", "grok-4.5"),
+            {"model": "grok-4.5", "tools": [{"type": "x_search"}]},
+            on_tool_call_delta=lambda event: _append(tool_events, event),
+            on_stream_recover=_recover,
+        )
+
+    assert [event["phase"] for event in tool_events] == ["start", "error"]
+    assert tool_events[1]["result"] is None
+    assert "without its result" in tool_events[1]["error"]
+    assert recovered == [True]
+
+
+@pytest.mark.asyncio
+async def test_search_settled_in_the_terminal_payload_closes_without_a_retry(monkeypatch) -> None:
+    # Only the `output_item.done` event was lost. The terminal record says the search finished,
+    # so the answer is whole and the activity row still has to close.
+    events = _hosted_search_events(close=False)
+    events[-1] = {
+        "type": "response.completed",
+        "response": {
+            "status": "completed",
+            "output": [{
+                "type": "x_search_call",
+                "id": "x_search_1",
+                "status": "completed",
+                "action": {"queries": ["nanoinfra release"]},
+            }],
+        },
+    }
+    _sse_client(monkeypatch, events)
+    tool_events: list[dict[str, Any]] = []
+
+    result = await _request_xai(
+        DEFAULT_XAI_GROK_URL,
+        _build_headers("secret", "grok-4.5"),
+        {"model": "grok-4.5", "tools": [{"type": "x_search"}]},
+        on_tool_call_delta=lambda event: _append(tool_events, event),
+    )
+
+    assert result[2] == "stop"
+    assert [event["phase"] for event in tool_events] == ["start", "end"]
+    assert tool_events[1]["result"] == {"status": "completed"}
+
+
+@pytest.mark.asyncio
+async def test_search_left_in_progress_in_the_terminal_payload_still_fails(monkeypatch) -> None:
+    events = _hosted_search_events(close=False)
+    events[-1] = {
+        "type": "response.completed",
+        "response": {
+            "status": "completed",
+            "output": [{
+                "type": "x_search_call",
+                "id": "x_search_1",
+                "status": "in_progress",
+            }],
+        },
+    }
+    _sse_client(monkeypatch, events)
+
+    with pytest.raises(_XAIStreamTruncatedError):
+        await _request_xai(
+            DEFAULT_XAI_GROK_URL,
+            _build_headers("secret", "grok-4.5"),
+            {"model": "grok-4.5", "tools": [{"type": "x_search"}]},
+        )
+
+
+@pytest.mark.asyncio
+async def test_unclosed_hosted_search_is_tracked_without_progress_callbacks(monkeypatch) -> None:
+    # A `chat()` call passes no callbacks, and it must still not report the answer as finished.
+    _sse_client(monkeypatch, _hosted_search_events(close=False))
+
+    with pytest.raises(_XAIStreamTruncatedError):
+        await _request_xai(
+            DEFAULT_XAI_GROK_URL,
+            _build_headers("secret", "grok-4.5"),
+            {"model": "grok-4.5", "tools": [{"type": "x_search"}]},
+        )
+
+
+@pytest.mark.asyncio
+async def test_unclosed_hosted_search_under_output_limit_is_left_alone(monkeypatch) -> None:
+    # `length` already tells the caller the answer was cut off, and a retry would only hit the
+    # same output limit.
+    events = _hosted_search_events(close=False)
+    events[-1] = {"type": "response.incomplete", "response": {"status": "incomplete"}}
+    _sse_client(monkeypatch, events)
+
+    result = await _request_xai(
+        DEFAULT_XAI_GROK_URL,
+        _build_headers("secret", "grok-4.5"),
+        {"model": "grok-4.5", "tools": [{"type": "x_search"}]},
+    )
+
+    assert result[2] == "length"
+
+
+@pytest.mark.asyncio
+async def test_truncated_hosted_search_returns_a_retryable_error_response(monkeypatch) -> None:
+    _mock_token(monkeypatch)
+    _mock_model_capabilities(monkeypatch, supports_backend_search=True)
+    _sse_client(monkeypatch, _hosted_search_events(close=False))
+    provider = XAIGrokProvider()
+    streamed: list[str] = []
+
+    response = await provider.chat_stream(
+        [{"role": "user", "content": "what shipped today?"}],
+        on_content_delta=lambda delta: _append(streamed, delta),
+        on_tool_call_delta=lambda event: _append([], event),
+    )
+
+    # Streamed text reached the caller, which is why the provider declares the recover callback:
+    # without it `_run_with_retry` would treat the partial answer as a reason not to retry.
+    assert streamed == ["As of today, "]
+    assert provider.supports_stream_recover_callback is True
+    assert response.finish_reason == "error"
+    assert response.error_should_retry is True
+    assert response.error_kind == "truncated"
+    assert "hosted search was still open" in (response.content or "")
+
+
+@pytest.mark.asyncio
+async def test_truncated_hosted_search_is_retried_after_the_answer_streamed(monkeypatch) -> None:
+    _mock_token(monkeypatch)
+    _mock_model_capabilities(monkeypatch, supports_backend_search=True)
+    original_client = httpx.AsyncClient
+    bodies = [
+        "".join(
+            f"data: {json.dumps(event)}\n\n"
+            for event in _hosted_search_events(close=False)
+        ),
+        "".join(
+            f"data: {json.dumps(event)}\n\n"
+            for event in _hosted_search_events(close=True)
+        ),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=bodies.pop(0), request=request)
+
+    def fake_client(**kwargs) -> httpx.AsyncClient:
+        return original_client(
+            transport=httpx.MockTransport(handler),
+            timeout=kwargs["timeout"],
+        )
+
+    monkeypatch.setattr("nanoinfra.providers.xai_grok_provider.httpx.AsyncClient", fake_client)
+    provider = XAIGrokProvider()
+    provider._CHAT_RETRY_DELAYS = (0,)
+    streamed: list[str] = []
+    recovered: list[bool] = []
+
+    async def _recover() -> None:
+        recovered.append(True)
+
+    response = await provider.chat_stream_with_retry(
+        [{"role": "user", "content": "what shipped today?"}],
+        on_content_delta=lambda delta: _append(streamed, delta),
+        on_stream_recover=_recover,
+    )
+
+    # The runner is told the first segment is being abandoned, and the second attempt -- whose
+    # search closed -- is the answer that reaches the user.
+    assert recovered == [True]
+    assert bodies == []
+    assert response.finish_reason == "stop"
+    assert response.content == "As of today, "
+    assert streamed == ["As of today, ", "As of today, "]
