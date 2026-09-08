@@ -2076,19 +2076,33 @@ class AgentLoop:
         if ctx.on_stream is not None:
             stream_callback = ctx.on_stream
             stream_end_callback = ctx.on_stream_end
-            stream_end_accepts_merge_next = False
+            # Which optional facts the delivery callback below can take.
+            #
+            # This wrapper sits between the runner's hook and the channel, and it has to
+            # **declare** an argument to be offered one: `AgentProgressHook` inspects its
+            # signature and drops anything it does not name. So the wrapper declares all three and
+            # forwards each only where it lands -- a channel that never grew the parameter still
+            # gets its two-argument `stream_end`.
+            forwardable_stream_end = ("merge_next", "usage", "request_ms")
+            stream_end_accepts: set[str] = set()
             if stream_end_callback is not None:
                 try:
                     stream_end_signature = inspect.signature(stream_end_callback)
-                    stream_end_accepts_merge_next = (
-                        "merge_next" in stream_end_signature.parameters
-                        or any(
+                except (TypeError, ValueError):
+                    pass
+                else:
+                    stream_end_accepts = (
+                        set(forwardable_stream_end)
+                        if any(
                             parameter.kind is inspect.Parameter.VAR_KEYWORD
                             for parameter in stream_end_signature.parameters.values()
                         )
+                        else {
+                            name
+                            for name in forwardable_stream_end
+                            if name in stream_end_signature.parameters
+                        }
                     )
-                except (TypeError, ValueError):
-                    pass
             segment_streamed_content = False
 
             async def _tracked_stream(delta: str) -> None:
@@ -2101,15 +2115,23 @@ class AgentLoop:
                 *,
                 resuming: bool = False,
                 merge_next: bool = False,
+                usage: LLMUsage | None = None,
+                request_ms: int | None = None,
             ) -> None:
                 nonlocal segment_streamed_content
                 ctx.streamed_content = segment_streamed_content
                 segment_streamed_content = False
-                if stream_end_callback is not None:
-                    if merge_next and stream_end_accepts_merge_next:
-                        await stream_end_callback(resuming=resuming, merge_next=True)
-                    else:
-                        await stream_end_callback(resuming=resuming)
+                if stream_end_callback is None:
+                    return
+                forwarded: dict[str, Any] = {"resuming": resuming}
+                if merge_next and "merge_next" in stream_end_accepts:
+                    forwarded["merge_next"] = True
+                # What the provider call behind this segment cost, and how long it took (#208).
+                if usage is not None and "usage" in stream_end_accepts:
+                    forwarded["usage"] = usage
+                if request_ms is not None and "request_ms" in stream_end_accepts:
+                    forwarded["request_ms"] = request_ms
+                await stream_end_callback(**forwarded)
 
             ctx.on_stream = _tracked_stream
             ctx.on_stream_end = _tracked_stream_end

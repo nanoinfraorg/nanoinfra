@@ -8,17 +8,31 @@ read `7m 57s` and why the panel described the cheapest moment of the turn as the
 
 The chain each of these covers one link of: the runner measures the call, the hook offers it, the
 event carries it, the manager passes it to a channel that asks, and the frame projects it.
+
+**And one that covers the chain itself.** Every link above passed while the chain delivered
+nothing: 51 `stream_end` records across 13 real sessions carried no usage at all, because
+`AgentLoop` wraps the delivery callback in a `_tracked_stream_end` that declared only `resuming`
+and `merge_next` -- and the hook offers a fact only to a callback that names it. A wrapper is
+invisible to a per-link test by construction, so the last test here drives a real turn.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from nanoinfra.agent.hook import AgentHookContext
+from nanoinfra.agent.loop import AgentLoop
 from nanoinfra.agent.progress_hook import AgentProgressHook
+from nanoinfra.bus.events import InboundMessage
 from nanoinfra.bus.outbound_events import StreamEndEvent
+from nanoinfra.bus.queue import MessageBus
 from nanoinfra.channels.manager import ChannelManager
-from nanoinfra.providers.base import LLMUsage
+from nanoinfra.providers.base import LLMResponse, LLMUsage
+from nanoinfra.session.webui_turns import WebuiTurnCoordinator, WebuiTurnRoutePolicy
 
 
 def _usage() -> LLMUsage:
@@ -198,3 +212,65 @@ def test_the_step_projection_is_the_same_shape_the_turn_uses() -> None:
     assert projected["prompt_tokens"] == 21_000
     assert projected["completion_tokens"] == 1_500
     assert projected["request_count"] == 1
+
+
+# --- the whole chain ------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_real_turn_puts_the_call_cost_on_its_stream_end(tmp_path: Path) -> None:
+    """The end-to-end assertion the per-link tests could not make.
+
+    `AgentLoop` does not hand the runner's hook the delivery callback directly -- it wraps it, to
+    track whether the segment streamed any content. The hook offers `usage` only to a callback
+    whose signature names it, so a wrapper that omits the parameter silently drops the fact while
+    every link on either side keeps passing.
+    """
+    bus = MessageBus()
+    provider = MagicMock()
+    provider.supports_progress_deltas = True
+    provider.get_default_model.return_value = "openai-codex/gpt-5.5"
+
+    async def chat_stream_with_retry(*, on_content_delta: Any, **_kwargs: Any) -> LLMResponse:
+        await on_content_delta("Hello")
+        return LLMResponse(content="Hello", tool_calls=[], usage=_usage())
+
+    provider.chat_stream_with_retry = chat_stream_with_retry
+    provider.chat_with_retry = AsyncMock()
+
+    loop = AgentLoop(
+        bus=bus,
+        provider=provider,
+        workspace=tmp_path,
+        model="openai-codex/gpt-5.5",
+    )
+    loop.turn_delivery_factory.route_policy = WebuiTurnRoutePolicy(loop.sessions)
+    WebuiTurnCoordinator(
+        bus=bus,
+        sessions=loop.sessions,
+        schedule_background=lambda coro: loop.schedule_background(coro),
+    ).subscribe(loop.runtime_events)
+    loop.tools.get_definitions = MagicMock(return_value=[])
+    loop.consolidator.maybe_consolidate_by_tokens = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+    await loop._dispatch(  # pyright: ignore[reportPrivateUsage]
+        InboundMessage(
+            channel="websocket",
+            sender_id="u1",
+            chat_id="chat-step-chain",
+            content="say hello",
+            metadata={"_wants_stream": True},
+        )
+    )
+
+    endings: list[StreamEndEvent] = []
+    while bus.outbound_size > 0:
+        message = await bus.consume_outbound()
+        if isinstance(message.event, StreamEndEvent):
+            endings.append(message.event)
+
+    assert endings, "the turn published no stream_end at all"
+    carried = [event.usage for event in endings if event.usage is not None]
+    assert carried, "no stream_end carried the cost of the call behind it"
+    assert carried[0].input_tokens == 21_000
+    assert carried[0].cache_read_tokens == 20_160

@@ -12,6 +12,10 @@ not here.
 ## [Unreleased]
 
 ### Fixed
+- A streamed segment carries the cost of the provider call behind it. The value reached the
+  channel's own tests but never a real turn: the loop wraps the delivery callback, and the hook
+  offers a fact only to a callback that names it — so 51 `stream_end` records across 13 sessions
+  arrived with no usage at all.
 - A `socks://` proxy configured for the OpenAI-compatible or xAI provider now connects. httpx
   knows no such scheme, so on a host carrying that spelling every model call failed while its HTTP
   client was still being built.
