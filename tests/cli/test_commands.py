@@ -2215,7 +2215,12 @@ def test_webui_yes_starts_first_run_without_provider_setup(monkeypatch, tmp_path
     assert result.exit_code == 0
     assert config_file.exists()
     assert seen["unconfigured_provider_error"] == "No API key configured for provider 'custom'."
-    assert "Configure a provider and model in WebUI Settings → Models." in result.stdout
+    compact_output = re.sub(r"\s+", " ", _strip_ansi(result.stdout))
+    assert (
+        "Model setup is incomplete: No API key configured for provider 'custom'."
+        in compact_output
+    )
+    assert "fix it in WebUI Settings → Models" in compact_output
 
 
 def test_webui_missing_runtime_env_fails_before_starting_gateway(
@@ -2258,10 +2263,13 @@ def test_webui_missing_runtime_env_fails_before_starting_gateway(
     assert f"${{{missing_env}}}" in config_file.read_text(encoding="utf-8")
 
 
-def test_webui_yes_still_refuses_invalid_custom_model_setup(
+@pytest.mark.parametrize("resume_args", [[], ["--yes"]])
+def test_webui_boots_on_a_saved_config_with_incomplete_model_setup(
     monkeypatch,
     tmp_path: Path,
+    resume_args: list[str],
 ) -> None:
+    """Settings → Models is the only place to fix this, so the second run must reach it."""
     config_file = tmp_path / "config.json"
     config_file.write_text(
         json.dumps({
@@ -2279,15 +2287,82 @@ def test_webui_yes_still_refuses_invalid_custom_model_setup(
         }),
         encoding="utf-8",
     )
+    seen: dict[str, object] = {}
+    _patch_gateway_ports_free(monkeypatch)
+    monkeypatch.setattr("nanoinfra.cli.webui.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr(
+        "nanoinfra.cli.webui._run_gateway",
+        lambda config, **kwargs: seen.update(config=config, **kwargs),
+    )
+    args = ["webui", "--config", str(config_file), "--no-open"]
 
-    result = runner.invoke(app, ["webui", "--config", str(config_file), "--yes"])
+    first = runner.invoke(app, [*args, "--yes"])
+    assert first.exit_code == 0, first.stdout
+    saved_after_first_run = json.loads(config_file.read_text(encoding="utf-8"))
 
-    assert result.exit_code == 1
-    assert "provider/model setup is incomplete" in result.stdout
-    assert "Settings → Models" in _without_rendered_line_breaks(result.stdout)
-    assert "nanoinfra onboard --wizard" in result.stdout
-    assert "nanoinfra status --config" in result.stdout
-    assert config_file.name in _without_rendered_line_breaks(result.stdout)
+    seen.clear()
+    result = runner.invoke(app, [*args, *resume_args])
+
+    assert result.exit_code == 0, result.stdout
+    compact_output = re.sub(r"\s+", " ", _strip_ansi(result.stdout))
+    assert seen["unconfigured_provider_error"] == "Provider 'custom' requires api_base in config."
+    assert (
+        "Model setup is incomplete: Provider 'custom' requires api_base in config."
+        in compact_output
+    )
+    assert "fix it in WebUI Settings → Models" in compact_output
+    assert "Quick Start" not in compact_output
+    assert json.loads(config_file.read_text(encoding="utf-8")) == saved_after_first_run
+    assert saved_after_first_run["agents"]["defaults"]["model"] == "custom/test-model"
+    assert saved_after_first_run["channels"]["websocket"]["host"] == "127.0.0.1"
+
+
+def test_webui_background_starts_first_run_without_provider_setup(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """--background is how an unattended start runs, so it may not refuse either."""
+    from nanoinfra.gateway import GatewayStartOptions, GatewayStatus, RuntimeResult
+
+    config_file = tmp_path / "config.json"
+    seen: dict[str, object] = {}
+    monkeypatch.setattr("nanoinfra.cli.webui.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr(
+        "nanoinfra.cli.webui._prepare_webui_bundle_for_gateway",
+        lambda *_args, **_kwargs: None,
+    )
+
+    class _FakeRuntime:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def start_background(self, options: GatewayStartOptions) -> RuntimeResult:
+            seen["start_options"] = options
+            status = GatewayStatus(
+                running=True,
+                pid=123,
+                state_path=tmp_path / "gateway.json",
+                log_path=tmp_path / "gateway.log",
+                port=options.port,
+                reason="running",
+            )
+            return RuntimeResult(True, "gateway_started_background", status)
+
+    monkeypatch.setattr("nanoinfra.gateway.GatewayRuntime", _FakeRuntime)
+
+    result = runner.invoke(
+        app,
+        ["webui", "--config", str(config_file), "--yes", "--no-open", "--background"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    compact_output = re.sub(r"\s+", " ", _strip_ansi(result.stdout))
+    assert "Model setup is incomplete: No provider is configured" in compact_output
+    assert "fix it in WebUI Settings → Models" in compact_output
+    assert "must run in the foreground" not in compact_output
+    options = seen["start_options"]
+    assert isinstance(options, GatewayStartOptions)
+    assert options.config_path == str(config_file.resolve(strict=False))
 
 
 def test_webui_background_starts_runtime_and_opens_browser(monkeypatch, tmp_path: Path) -> None:

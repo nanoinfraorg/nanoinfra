@@ -29,7 +29,6 @@ from nanoinfra.cli.webui_support import (
     _print_foreground_port_conflict,
     _print_webui_foreground_lifecycle,
     _resolve_webui_config_path,
-    _run_quick_start_for_webui,
     _tcp_endpoint_reachable,
     _warn_webui_bind_scope,
     _webui_browser_url,
@@ -89,26 +88,16 @@ def webui(
         _print_config_error(exc)
         raise typer.Exit(1) from exc
 
+    # Incomplete model setup never refuses this command, on any run: Settings → Models is the
+    # only screen that repairs it, and refusing to boot is what used to lock a half-configured
+    # install out of its own repair screen. Say which provider is wrong, then start.
     provider_error = _provider_setup_error(resolved_setup_config)
-    settings_setup_error = provider_error if provider_error and created_config else None
-    if settings_setup_error:
+    if provider_error:
         console.print(f"[yellow]Model setup is incomplete: {provider_error}[/yellow]")
-        console.print("Configure a provider and model in WebUI Settings → Models.")
-        if background:
-            console.print(
-                "[red]First-time WebUI setup must run in the foreground. "
-                "Run `nanoinfra webui` without --background.[/red]"
-            )
-            raise typer.Exit(1)
-    elif provider_error:
-        console.print(f"[dim]Provider check: {provider_error}[/dim]")
-        setup_config = _run_quick_start_for_webui(
-            setup_config,
-            yes=yes,
-            config_path=config_path,
+        console.print(
+            "Starting anyway so you can fix it in WebUI Settings → Models "
+            f"(config file: {config_path})."
         )
-        if workspace:
-            setup_config.agents.defaults.workspace = workspace
 
     try:
         changed_webui, generated_bootstrap_secret = _ensure_local_webui_channel(
@@ -257,5 +246,5 @@ def webui(
         port=effective_gateway_port,
         open_browser_url=None if no_open else webui_url,
         webui_bundle_mode=webui_bundle_mode,
-        unconfigured_provider_error=settings_setup_error,
+        unconfigured_provider_error=provider_error,
     )

@@ -78,6 +78,17 @@ not here.
 - A primary with an open circuit and no usable fallback returns the primary's own error, `Retry-After`
   included, and asks to be retried once the cooldown is over.
 
+### Changed
+
+- `nanoinfra webui` starts even when model setup is incomplete, on every run and under
+  `--yes`, naming the provider at fault. The second run used to refuse, which shut a
+  half-configured install out of the Settings → Models screen that repairs it.
+
+### Removed
+
+- The CLI Quick Start offer from `nanoinfra webui`. Provider and model setup is finished in
+  WebUI Settings → Models.
+
 ## [2.2.8] — 2026-09-07
 
 ### Changed
