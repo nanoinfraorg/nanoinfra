@@ -11,7 +11,7 @@ import re
 import time
 from contextlib import suppress
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Iterable, TypeVar
 
 from nanoinfra.agent.tools.base import ToolResult
@@ -48,12 +48,71 @@ def _normalize_pattern(pattern: str) -> str:
     return pattern.strip().replace("\\", "/")
 
 
+def _skip_globstars(states: set[int], pattern_segments: list[str]) -> set[int]:
+    """Add every pattern position reachable without consuming a path segment.
+
+    That is a `**` matching zero directories, which is the half `PurePosixPath.match` never had.
+    """
+    reached = set(states)
+    pending = list(states)
+    while pending:
+        index = pending.pop()
+        if (
+            index < len(pattern_segments)
+            and pattern_segments[index] == "**"
+            and index + 1 not in reached
+        ):
+            reached.add(index + 1)
+            pending.append(index + 1)
+    return reached
+
+
+def _split_segments(value: str) -> list[str]:
+    return [part for part in value.split("/") if part and part != "."]
+
+
+def _match_path_glob(rel_path: str, pattern: str) -> bool:
+    """Match a slash-bearing glob against a path, with `**` spanning zero or more directories.
+
+    `PurePosixPath.match` did this job and treats `**` as a plain `*`: exactly one segment. So
+    `**/*.py` missed root-level files, `src/**` stopped one level down, and `src/**/*.py` -- three
+    segments against a two-segment path -- matched nothing at all.
+
+    A single cursor cannot express `**`, because that position has two outgoing edges: swallow
+    this segment and stay, or match nothing and move on. So the walk carries the *set* of pattern
+    positions the path could have reached, and the path matches if the end of the pattern is one
+    of them. The leading `**` is implicit, which keeps the match unanchored the way
+    `PurePosixPath.match` was -- every pattern that matched before still matches.
+    """
+    path_segments = _split_segments(rel_path)
+    wanted = _split_segments(pattern)
+    if not wanted:
+        # A pattern of nothing but separators, which `PurePosixPath.match` rejected outright.
+        return False
+    pattern_segments = ["**", *wanted]
+    states = _skip_globstars({0}, pattern_segments)
+    for segment in path_segments:
+        advanced: set[int] = set()
+        for index in states:
+            if index >= len(pattern_segments):
+                continue
+            expected = pattern_segments[index]
+            if expected == "**":
+                advanced.add(index)
+            elif fnmatch.fnmatch(segment, expected):
+                advanced.add(index + 1)
+        states = _skip_globstars(advanced, pattern_segments)
+        if not states:
+            return False
+    return len(pattern_segments) in states
+
+
 def _match_glob(rel_path: str, name: str, pattern: str) -> bool:
     normalized = _normalize_pattern(pattern)
     if not normalized:
         return False
     if "/" in normalized or normalized.startswith("**"):
-        return PurePosixPath(rel_path).match(normalized)
+        return _match_path_glob(rel_path, normalized)
     return fnmatch.fnmatch(name, normalized)
 
 

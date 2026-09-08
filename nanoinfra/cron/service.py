@@ -194,6 +194,9 @@ class CronService:
         self.on_job = on_job
         self._store: CronStore | None = None
         self._timer_task: asyncio.Task[None] | None = None
+        # True while `_timer_task` is inside `_on_timer`, which is the window in which cancelling
+        # it would cancel a running turn rather than a sleep (see `_arm_timer`).
+        self._timer_executing = False
         self._running = False
         self._active_executions = 0
         # True while the in-memory store holds a result that is not on disk yet. A save that
@@ -556,7 +559,20 @@ class CronService:
         return min(times) if times else None
 
     def _arm_timer(self) -> None:
-        """Schedule the next timer tick."""
+        """Schedule the next timer tick.
+
+        While the timer task is executing a job, leave it alone. ``tick()`` awaits through
+        ``_on_timer`` into ``on_job``, so that task *is* the task running the turn -- and every
+        mutator re-arms, so the agent's own cron tool, an operator toggling an automation in the
+        WebUI, and commissioning writing its verdict each cancelled the turn they were part of,
+        mid-side-effect, with nothing persisted and the job due again.
+
+        Skipping the cancel cannot leave the schedule without a timer: ``_on_timer``'s ``finally``
+        clears the flag before it re-arms, and it re-arms on every path including an exception, so
+        the mutation is picked up as soon as the turn ends.
+        """
+        if self._timer_executing:
+            return
         if self._timer_task:
             self._timer_task.cancel()
 
@@ -581,6 +597,9 @@ class CronService:
         """Handle timer tick - run due jobs."""
         reload_store = self._active_executions == 0
         self._active_executions += 1
+        # Marks this task as the one a turn is running inside, so a mutator reached from that turn
+        # does not cancel it (see `_arm_timer`).
+        self._timer_executing = True
         try:
             # A previous tick may have completed external side effects and failed to persist the
             # schedule that advanced past them. Persist that exact snapshot before reloading or
@@ -616,6 +635,9 @@ class CronService:
             )
         finally:
             self._active_executions -= 1
+            # Cleared before the re-arm, and only here: `_arm_timer` is a no-op while it is set,
+            # so leaving it set would end the schedule permanently.
+            self._timer_executing = False
             # Always re-arm, even on an unexpected failure, so one bad tick cannot end the
             # schedule. This was outside the finally, which is what made the stop silent.
             self._arm_timer()

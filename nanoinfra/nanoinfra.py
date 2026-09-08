@@ -459,7 +459,7 @@ class Nanoinfra:
                 ))
                 raise
             finally:
-                emitter.close()
+                await emitter.close()
 
         task = asyncio.create_task(_run())
         return RunStream(task, queue)

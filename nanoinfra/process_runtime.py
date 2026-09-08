@@ -123,6 +123,9 @@ class ManagedProcessRuntime(Generic[_StartOptionsT]):
                 stdin=subprocess.DEVNULL,
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
+                # Redirected output is block-buffered, so a child that hangs or is killed leaves
+                # its `print()` lines in the buffer and the log file empty.
+                env={**os.environ, "PYTHONUNBUFFERED": "1"},
                 **self._popen_platform_kwargs(),
             )
 

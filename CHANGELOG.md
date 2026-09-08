@@ -12,6 +12,23 @@ not here.
 ## [Unreleased]
 
 ### Fixed
+- Editing a cron job no longer cancels the job that is running. The scheduler's timer task is the
+  task running the turn, and every edit re-armed that timer — so the agent's own cron tool, an
+  operator toggling an automation in the WebUI, and a commissioning verdict each killed the turn
+  mid-run and left the job to fire again.
+  ([upstream PR 5686](https://github.com/HKUDS/nanobot/pull/5686))
+- `**` in a `find_files` or `grep` glob now spans any number of directories, including none. The
+  example both tools hand the model, `tests/**/test_*.py`, matched only paths with exactly one
+  directory in between, and `src/**/*.py` matched nothing at all.
+  ([upstream PR 5692](https://github.com/HKUDS/nanobot/pull/5692))
+- A consumer slower than the agent no longer loses an event from an SDK stream. Closing the stream
+  evicted the oldest queued event to make room for its end marker, which in practice cost the
+  final `text_completed`.
+  ([upstream PR 5635](https://github.com/HKUDS/nanobot/pull/5635))
+- A backgrounded nanoinfra process now writes its `print()` output to its log. Redirected output
+  is block-buffered, so a child that hung or was killed left an empty log file, exactly when it
+  was being read to find out why.
+  ([upstream PR 5412](https://github.com/HKUDS/nanobot/pull/5412))
 - The retry that drops an image and succeeds is counted. Only the failed attempt was recorded, so
   the tokens the answer actually cost were charged to nobody.
   ([#176](https://github.com/nanoinfraorg/nanoinfra/issues/176))

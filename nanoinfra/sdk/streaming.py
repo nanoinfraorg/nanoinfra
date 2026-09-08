@@ -158,15 +158,18 @@ class SDKStreamEmitter:
             resuming=resuming,
         ))
 
-    def close(self) -> None:
+    async def close(self) -> None:
+        """Queue the end-of-stream sentinel, waiting for room rather than making room.
+
+        A synchronous put had to evict the oldest queued event when the queue was full, so a
+        consumer slower than the agent lost one -- in practice the terminal `text_completed`.
+        Waiting cannot strand the run: every path that stops consuming (`RunStream.aclose`,
+        `wait`, an abandoned `stream_events`) either drains the queue or cancels the run task.
+        """
         if self._closed:
             return
         self._closed = True
-        if self._queue.full():
-            with suppress(asyncio.QueueEmpty):
-                self._queue.get_nowait()
-        with suppress(asyncio.QueueFull):
-            self._queue.put_nowait(_STREAM_SENTINEL)
+        await self._queue.put(_STREAM_SENTINEL)
 
 
 class SDKStreamingHook(AgentHook):
