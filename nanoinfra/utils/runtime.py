@@ -146,6 +146,25 @@ def repeated_external_lookup_error(
 
 _OUTSIDE_PATH_PATTERN = re.compile(r"(?:^|[\s|>'\"])((?:/[^\s\"'>;|<]+)|(?:~[^\s\"'>;|<]+))")
 
+#: Character devices that are the shell's own plumbing, not a place on the filesystem anyone is
+#: trying to reach. `2>/dev/null` appears in effectively every non-trivial command, and the `>` in
+#: the pattern above is what made it read as a path: three of them in one turn tripped the
+#: escalation below, which then told the model it had hit "a hard policy boundary" about
+#: `/dev/null` and to stop retrying. It did not stop; it flailed, because the message described
+#: something that was not happening.
+_SHELL_PLUMBING = frozenset({
+    "/dev/null",
+    "/dev/zero",
+    "/dev/tty",
+    "/dev/stdin",
+    "/dev/stdout",
+    "/dev/stderr",
+})
+
+
+def _is_shell_plumbing(target: str) -> bool:
+    return target in _SHELL_PLUMBING or target.startswith("/dev/fd/")
+
 
 def workspace_violation_signature(
     tool_name: str,
@@ -163,9 +182,13 @@ def workspace_violation_signature(
     if tool_name in {"exec", "shell"}:
         cmd = str(arguments.get("command") or "").strip()
         if cmd:
-            match = _OUTSIDE_PATH_PATTERN.search(cmd)
-            if match:
-                return _normalize_violation_target(match.group(1))
+            # Every match, not the first: skipping plumbing has to keep looking, or
+            # `cat 2>/dev/null /etc/shadow` would report nothing at all.
+            for match in _OUTSIDE_PATH_PATTERN.finditer(cmd):
+                target = match.group(1)
+                if _is_shell_plumbing(target):
+                    continue
+                return _normalize_violation_target(target)
         cwd = str(arguments.get("working_dir") or "").strip()
         if cwd:
             return _normalize_violation_target(cwd)

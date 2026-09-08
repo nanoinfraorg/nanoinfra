@@ -118,3 +118,51 @@ def test_repeated_workspace_violation_collapses_tool_switching():
     )
     assert third is not None
     assert "refusing repeated workspace-bypass" in third
+
+
+# --- the shell's own plumbing is not a workspace target ----------------------------------
+
+
+def test_redirecting_to_dev_null_is_not_a_violation():
+    """`2>/dev/null` is in effectively every non-trivial command.
+
+    The `>` in the path pattern made it read as an absolute path, so the third one in a turn
+    tripped the escalation and told the model it had hit "a hard policy boundary" about
+    `/dev/null` and to stop retrying. Observed in a real session: the agent flailed through
+    three near-identical probes instead, because the message described something that was not
+    happening.
+    """
+    assert workspace_violation_signature("exec", {"command": "ls skills 2>/dev/null"}) is None
+    assert workspace_violation_signature("exec", {"command": "echo hi > /dev/null"}) is None
+    assert workspace_violation_signature("exec", {"command": "x >/dev/fd/3 2>/dev/null"}) is None
+
+
+def test_plumbing_is_skipped_rather_than_ending_the_search():
+    """Returning `None` on the first match would hide a real target behind a redirect."""
+    signature = workspace_violation_signature(
+        "exec", {"command": "cat 2>/dev/null /etc/shadow"}
+    )
+
+    assert signature == "violation:/etc/shadow"
+
+
+def test_a_real_dev_path_is_still_a_target():
+    """Only the plumbing is excused. A raw device is not something a workspace command reaches.
+
+    Written as `cat /dev/sda1` and not `dd if=/dev/sda1`: the pattern requires the path to follow
+    whitespace, a pipe, a redirect or a quote, so a path after `=` has never matched it. That
+    predates the plumbing exclusion and is left as it was -- widening the pattern is a separate
+    question with its own false positives.
+    """
+    signature = workspace_violation_signature("exec", {"command": "cat /dev/sda1 > out"})
+
+    assert signature == "violation:/dev/sda1"
+
+
+def test_a_turn_full_of_redirects_never_escalates():
+    counts: dict[str, int] = {}
+
+    for _ in range(6):
+        assert repeated_workspace_violation_error(
+            "exec", {"command": "python3 -c 'import x' 2>/dev/null"}, counts
+        ) is None

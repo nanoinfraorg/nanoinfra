@@ -11,6 +11,17 @@ not here.
 
 ## [Unreleased]
 
+### Fixed
+
+- A command in the `bwrap` sandbox now runs nanoinfra's own Python. It resolved to the base
+  interpreter instead, so a dependency this project declares and installs — `openpyxl`, and
+  anything else a shell command imports — failed inside the sandbox while sitting installed.
+  ([#276](https://github.com/nanoinfraorg/nanoinfra/issues/276))
+- A redirect to `/dev/null` no longer counts as a workspace-bypass attempt. Three of them in one
+  turn — which any non-trivial shell command reaches — told the agent it had hit a hard policy
+  boundary about a path it did not want, and the turn derailed.
+  ([#282](https://github.com/nanoinfraorg/nanoinfra/issues/282))
+
 ## [2.2.7] — 2026-09-06
 
 ### Added

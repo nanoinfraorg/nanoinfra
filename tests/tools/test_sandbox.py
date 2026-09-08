@@ -4,6 +4,7 @@ import shlex
 
 import pytest
 
+from nanoinfra.agent.tools import sandbox as sandbox_module
 from nanoinfra.agent.tools.sandbox import wrap_command
 
 
@@ -133,6 +134,67 @@ class TestBwrapBackend:
         try_targets = {tokens[i + 1] for i in try_indices}
         assert "/bin" in try_targets
         assert "/etc/ssl/certs" in try_targets
+
+    def test_the_running_interpreter_is_bound(self, tmp_path, monkeypatch):
+        """Without it the sandbox reaches a different Python than the app runs (#276).
+
+        `python3` resolves to the base image's interpreter, so a dependency nanoinfra declares
+        and installs reads as missing inside the sandbox. Asserted as `--ro-bind-try` and not
+        `--ro-bind`: an install whose paths are absent must not be refused.
+        """
+        venv = tmp_path / "app" / ".venv"
+        base = tmp_path / "pythons" / "cpython-3.13"
+        venv.mkdir(parents=True)
+        base.mkdir(parents=True)
+        monkeypatch.setattr(sandbox_module.sys, "prefix", str(venv))
+        monkeypatch.setattr(sandbox_module.sys, "base_prefix", str(base))
+
+        ws = str(tmp_path / "project")
+        tokens = _parse(wrap_command("bwrap", "python3 -c pass", ws, ws))
+        try_idx = [i for i, t in enumerate(tokens) if t == "--ro-bind-try"]
+
+        def bound(path: str) -> bool:
+            return any(tokens[i + 1] == path and tokens[i + 2] == path for i in try_idx)
+
+        assert bound(str(venv)), "the venv prefix is not bound into the sandbox"
+        # The subtle half: a venv's `bin/python` is a symlink into the base prefix, so binding
+        # the venv alone leaves a dangling link, which drops out of PATH resolution silently.
+        assert bound(str(base)), "the base prefix is not bound, so the venv's python dangles"
+
+    def test_an_interpreter_under_usr_is_not_bound_twice(self, tmp_path, monkeypatch):
+        """`/usr` is a required bind; repeating it as optional is noise.
+
+        This is the published image's shape: `sys.base_prefix` is `/usr/local`, already covered,
+        which is exactly why binding the venv alone looks sufficient there and is not elsewhere.
+        """
+        venv = tmp_path / "app" / ".venv"
+        venv.mkdir(parents=True)
+        monkeypatch.setattr(sandbox_module.sys, "prefix", str(venv))
+        monkeypatch.setattr(sandbox_module.sys, "base_prefix", "/usr/local")
+
+        ws = str(tmp_path / "project")
+        tokens = _parse(wrap_command("bwrap", "ls", ws, ws))
+        try_idx = [i for i, t in enumerate(tokens) if t == "--ro-bind-try"]
+
+        assert any(tokens[i + 1] == str(venv) for i in try_idx)
+        assert not any(tokens[i + 1] == "/usr/local" for i in try_idx)
+
+    def test_an_interpreter_above_the_workspace_is_dropped(self, tmp_path, monkeypatch):
+        """It would cover the tmpfs that hides the config directory.
+
+        Same rule the operator's own binds already follow, and the reason this goes through
+        `_normalize_bind_paths` rather than appending to the list directly.
+        """
+        ws_parent = tmp_path / "data"
+        ws = ws_parent / "project"
+        monkeypatch.setattr(sandbox_module.sys, "prefix", str(ws_parent))
+        monkeypatch.setattr(sandbox_module.sys, "base_prefix", str(tmp_path))
+
+        tokens = _parse(wrap_command("bwrap", "ls", str(ws), str(ws)))
+        try_idx = [i for i, t in enumerate(tokens) if t == "--ro-bind-try"]
+
+        assert not any(tokens[i + 1] == str(ws_parent) for i in try_idx)
+        assert not any(tokens[i + 1] == str(tmp_path) for i in try_idx)
 
     def test_media_dir_ro_bind(self, tmp_path, monkeypatch):
         """Media directory should be read-only mounted inside the sandbox."""

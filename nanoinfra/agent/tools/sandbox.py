@@ -7,6 +7,7 @@ and register it in _BACKENDS below.
 
 import os
 import shlex
+import sys
 from pathlib import Path
 from typing import Iterable
 
@@ -45,6 +46,30 @@ def _normalize_bind_paths(
     return out
 
 
+def _interpreter_paths() -> list[str]:
+    """The prefixes that have to be reachable for `python3` to be *this* Python (#276).
+
+    A sandbox that binds `/usr` and not these reaches a different interpreter than the one the
+    application runs, so a dependency nanoinfra declares and installs reads as missing:
+    `import openpyxl` fails inside the sandbox while the package sits in the venv.
+
+    **Both prefixes, and that is the part that is easy to get wrong.** A virtualenv's
+    `bin/python` is a *symlink* into `sys.base_prefix`, so binding `sys.prefix` alone leaves a
+    dangling link -- not an error, just a file that is not executable, which drops it from `PATH`
+    resolution and falls through to the system interpreter with a plain
+    `ModuleNotFoundError`. Measured: with only the venv bound, `command -v python3` inside the
+    sandbox answers `/usr/bin/python3`.
+
+    In the published image `sys.base_prefix` is `/usr/local`, already covered by the `/usr` bind,
+    which is why the venv alone looks sufficient there and is not anywhere else -- a `uv`-managed
+    interpreter lives under `~/.local/share/uv/python`, pyenv under `~/.pyenv`.
+
+    Derived rather than written down, because which directory holds the interpreter is a property
+    of how the deployment was installed and never the operator's to declare.
+    """
+    return [sys.prefix, sys.base_prefix]
+
+
 def _bwrap(
     command: str,
     workspace: str,
@@ -80,8 +105,31 @@ def _bwrap(
         "/etc/resolv.conf",
         "/etc/ld.so.cache",
     ]
+    # Normalized through the same helper the operator's own binds use, so an interpreter that
+    # happens to sit above the workspace is dropped rather than covering the tmpfs that hides the
+    # config directory. `--ro-bind-try` throughout: a path that is not there is not an error.
+    for interpreter_path in _normalize_bind_paths(_interpreter_paths(), workspace=ws):
+        if interpreter_path == "/usr" or interpreter_path.startswith("/usr/"):
+            continue  # already covered by the required bind, and repeating it is noise
+        optional.append(interpreter_path)
 
     args = ["bwrap", "--new-session", "--die-with-parent", "--setenv", "HOME", str(ws)]
+    # Binding the interpreter is half a fix: `python3` is resolved through `PATH`, and a gateway
+    # started as `uv run nanoinfra ...` has no venv `bin` on it -- so the sandbox reached the
+    # bound files and ran the *system* interpreter anyway. Measured: `import openpyxl` failed
+    # inside the sandbox with openpyxl installed and bound, and a console script living in that
+    # same bin was `not found`. The launch incantation is not something the agent's shell should
+    # depend on, so the interpreter's own bin goes first (#276).
+    #
+    # `pathPrepend` still wins: `_wrap_path_export` exports it inside this shell, after this.
+    interpreter_bin = Path(sys.prefix) / "bin"
+    if interpreter_bin.is_dir():
+        inherited = os.environ.get("PATH", "")
+        args += [
+            "--setenv",
+            "PATH",
+            f"{interpreter_bin}{os.pathsep}{inherited}" if inherited else str(interpreter_bin),
+        ]
     for p in required:
         args += ["--ro-bind", p, p]
     for p in optional:
