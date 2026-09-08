@@ -6,9 +6,12 @@ from typing import Any
 
 import pytest
 
-from nanoinfra.agent.tools.image_generation import ImageGenerationTool
+from nanoinfra.agent.tools.image_generation import (
+    ImageGenerationTool,
+    ImageGenerationToolConfig,
+)
 from nanoinfra.config.loader import set_config_path
-from nanoinfra.config.schema import ImageGenerationToolConfig, ProviderConfig
+from nanoinfra.config.schema import ProviderConfig
 from nanoinfra.providers.image_generation import GeneratedImageResponse
 
 PNG_BYTES = (

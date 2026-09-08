@@ -11,6 +11,18 @@ not here.
 
 ## [Unreleased]
 
+### Fixed
+- The retry that drops an image and succeeds is counted. Only the failed attempt was recorded, so
+  the tokens the answer actually cost were charged to nobody.
+  ([#176](https://github.com/nanoinfraorg/nanoinfra/issues/176))
+- A model that raises instead of answering now fails over. An unauthenticated GitHub Copilot, or an
+  endpoint that refuses the connection, skipped every configured fallback and was not retried.
+- A dropped or reset connection is retried. `ConnectError`, `ReadError` and `RemoteProtocolError`
+  were reported as errors of no known kind, which made a transport failure look permanent.
+- An OpenAI `server_error` is retried instead of ending the turn on the first attempt.
+- A primary with an open circuit and no usable fallback returns the primary's own error, `Retry-After`
+  included, and asks to be retried once the cooldown is over.
+
 ## [2.2.8] — 2026-09-07
 
 ### Changed

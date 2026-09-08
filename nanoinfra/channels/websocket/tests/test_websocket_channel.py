@@ -104,6 +104,18 @@ def _ch(bus: Any, **kw: Any) -> WebSocketChannel:
     return WebSocketChannel(cfg, bus, gateway=gateway)
 
 
+async def _wait_for_connection_cleanup(channel: WebSocketChannel, connection: Any) -> None:
+    """Wait until *connection* has been retired from *channel*.
+
+    Delivery failures no longer surface at the fanout: the writer task owns the
+    socket, so a closed or broken connection is retired out of band. A test that
+    asserted on the tables straight after ``send`` would be reading them before
+    the retirement it is checking for has run.
+    """
+    while connection in channel._conn_chats:
+        await asyncio.sleep(0)
+
+
 def _basic_handler(bus: Any, **kw: Any) -> GatewayServices:
     cfg = WebSocketConfig.model_validate({
         "enabled": True, "allowFrom": ["*"],
@@ -706,7 +718,7 @@ async def test_a_disconnect_takes_a_half_sent_upload_with_it(bus: MagicMock, tmp
     )
     assert (tmp_path / ".notes.md.nanoinfra-upload").exists()
 
-    channel._cleanup_connection(conn)
+    await channel._cleanup_connection(conn)
 
     assert not (tmp_path / ".notes.md.nanoinfra-upload").exists()
     assert conn not in channel._upload_sessions
@@ -1493,6 +1505,7 @@ async def test_send_removes_connection_on_connection_closed() -> None:
 
     msg = OutboundMessage(channel="websocket", chat_id="chat-1", content="hello")
     await channel.send(msg)
+    await asyncio.wait_for(_wait_for_connection_cleanup(channel, mock_ws), timeout=1)
 
     assert "chat-1" not in channel._subs
     assert mock_ws not in channel._conn_chats
@@ -1634,6 +1647,7 @@ async def test_send_delta_removes_connection_on_connection_closed() -> None:
     channel._attach(mock_ws, "chat-1")
 
     await channel.send_delta("chat-1", "chunk", stream_id="s1")
+    await asyncio.wait_for(_wait_for_connection_cleanup(channel, mock_ws), timeout=1)
 
     assert "chat-1" not in channel._subs
     assert mock_ws not in channel._conn_chats
@@ -2184,11 +2198,18 @@ async def test_system_command_turn_end_only_refreshes_session_metadata() -> None
         ("owner-new", "owner-old", False),
     ],
 )
-async def test_turn_end_persists_and_conditionally_clears_when_fanout_fails(
+async def test_turn_end_persists_and_conditionally_clears_when_delivery_fails(
     active_owner: str,
     event_owner: str,
     expected_cleared: bool,
 ) -> None:
+    """The completion is recorded whether or not anybody receives it.
+
+    A failed send no longer propagates -- it retires that one connection -- so
+    what this pins down is that the transcript write and the turn-owner
+    bookkeeping happen before delivery is even attempted, and are therefore
+    unaffected by how delivery goes.
+    """
     bus = MagicMock()
     channel = WebSocketChannel(
         {"enabled": True, "allowFrom": ["*"]},
@@ -2203,14 +2224,14 @@ async def test_turn_end_persists_and_conditionally_clears_when_fanout_fails(
     wth._WEBSOCKET_TURN_OWNERS[chat_id] = active_owner
 
     try:
-        with pytest.raises(RuntimeError, match="fanout failed"):
-            await channel.send(OutboundMessage(
-                channel="websocket",
-                chat_id=chat_id,
-                content="",
-                metadata={WEBSOCKET_TURN_OWNER_METADATA_KEY: event_owner},
-                event=TurnEndEvent(),
-            ))
+        await channel.send(OutboundMessage(
+            channel="websocket",
+            chat_id=chat_id,
+            content="",
+            metadata={WEBSOCKET_TURN_OWNER_METADATA_KEY: event_owner},
+            event=TurnEndEvent(),
+        ))
+        await asyncio.wait_for(_wait_for_connection_cleanup(channel, mock_ws), timeout=1)
 
         assert read_transcript_lines(f"websocket:{chat_id}")[-1]["event"] == "turn_end"
         assert (wth.websocket_turn_wall_started_at(chat_id) is None) is expected_cleared
@@ -2576,7 +2597,7 @@ async def test_non_webui_transcript_failure_does_not_block_idle_cleanup(
 
 
 @pytest.mark.asyncio
-async def test_idle_clears_matching_owner_when_fanout_fails() -> None:
+async def test_idle_clears_matching_owner_when_delivery_fails() -> None:
     bus = MagicMock()
     channel = WebSocketChannel(
         {"enabled": True, "allowFrom": ["*"]},
@@ -2591,14 +2612,14 @@ async def test_idle_clears_matching_owner_when_fanout_fails() -> None:
     wth._WEBSOCKET_TURN_WALL_STARTED_AT[chat_id] = 1234.5
     wth._WEBSOCKET_TURN_OWNERS[chat_id] = owner
 
-    with pytest.raises(RuntimeError, match="fanout failed"):
-        await channel.send(OutboundMessage(
-            channel="websocket",
-            chat_id=chat_id,
-            content="",
-            metadata={WEBSOCKET_TURN_OWNER_METADATA_KEY: owner},
-            event=GoalStatusEvent(status="idle"),
-        ))
+    await channel.send(OutboundMessage(
+        channel="websocket",
+        chat_id=chat_id,
+        content="",
+        metadata={WEBSOCKET_TURN_OWNER_METADATA_KEY: owner},
+        event=GoalStatusEvent(status="idle"),
+    ))
+    await asyncio.wait_for(_wait_for_connection_cleanup(channel, mock_ws), timeout=1)
 
     assert wth.websocket_turn_wall_started_at(chat_id) is None
     assert chat_id not in wth._WEBSOCKET_TURN_OWNERS
@@ -2856,7 +2877,14 @@ async def test_send_session_updated_includes_scope_when_present() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_non_connection_closed_exception_is_raised() -> None:
+async def test_send_non_connection_closed_exception_is_isolated() -> None:
+    """An unexpected send failure retires that connection and nothing else.
+
+    It used to be re-raised out of the fanout, which meant one broken socket
+    aborted the loop and every subscriber after it in the set lost the frame --
+    and the exception surfaced in the agent's own outbound dispatch, which has
+    no way to act on it.
+    """
     bus = MagicMock()
     channel = WebSocketChannel({"enabled": True, "allowFrom": ["*"]}, bus, gateway=_basic_handler(bus))
     mock_ws = AsyncMock()
@@ -2864,8 +2892,11 @@ async def test_send_non_connection_closed_exception_is_raised() -> None:
     channel._attach(mock_ws, "chat-1")
 
     msg = OutboundMessage(channel="websocket", chat_id="chat-1", content="hello")
-    with pytest.raises(RuntimeError, match="unexpected"):
-        await channel.send(msg)
+    await channel.send(msg)
+    await asyncio.wait_for(_wait_for_connection_cleanup(channel, mock_ws), timeout=1)
+
+    mock_ws.close.assert_awaited_once_with(code=1011, reason="outbound send failed")
+    assert "chat-1" not in channel._subs
 
 
 @pytest.mark.asyncio

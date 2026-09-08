@@ -1899,12 +1899,11 @@ class OpenAICompatProvider(LLMProvider):
                 elif lowered == "false":
                     should_retry = False
 
-        error_kind: str | None = None
-        error_name = e.__class__.__name__.lower()
-        if "timeout" in error_name:
-            error_kind = "timeout"
-        elif "connection" in error_name:
-            error_kind = "connection"
+        # Read off the whole exception hierarchy rather than the leaf class name: httpx spells its
+        # transport faults `ConnectError`, `ReadError` and `RemoteProtocolError`, and none of the
+        # three contains the word "connection", so all three used to arrive here as no kind at all
+        # -- non-transient to the retry loop and non-fallbackable to the wrapper.
+        error_kind = LLMProvider.error_kind_from_exception(e)
 
         return {
             "error_status_code": int(status_code) if status_code is not None else None,

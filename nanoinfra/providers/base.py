@@ -736,12 +736,25 @@ class LLMProvider(ABC):
         "timed out",
         "connection",
         "server error",
+        # The underscored form is the `code` OpenAI actually sends, and a mid-stream
+        # `response.failed` carries it as text with no status code attached, so this is the only
+        # thing left to match on. `fallback_provider.py` has always listed it; without it here the
+        # fallback path called the error transient and the retry path gave up on attempt 1.
+        "server_error",
         "temporarily unavailable",
         "速率限制",
         "访问量过大",
     )
     _RETRYABLE_STATUS_CODES = frozenset({408, 409, 429})
     _TRANSIENT_ERROR_KINDS = frozenset({"timeout", "connection"})
+    #: Substrings of an exception class name -- the raised class *or any of its bases* -- that name
+    #: a transport fault rather than a request the server rejected. Substrings because every SDK
+    #: spells it differently: `APIConnectionError`, `ConnectError`, `ReadError`,
+    #: `RemoteProtocolError`, `NetworkError`. Only the first contains the word "connection", which
+    #: is why testing the leaf name against that one word left real httpx failures unclassified
+    #: and therefore non-retryable.
+    _CONNECTION_EXCEPTION_MARKERS = ("connect", "network", "protocol", "socket", "proxy")
+    _TIMEOUT_EXCEPTION_MARKERS = ("timeout", "timedout")
     _NON_RETRYABLE_429_ERROR_TOKENS = frozenset({
         "insufficient_quota",
         "quota_exceeded",
@@ -1020,6 +1033,22 @@ class LLMProvider(ABC):
             return True
 
         return cls._is_transient_error(response.content)
+
+    @classmethod
+    def error_kind_from_exception(cls, exc: BaseException) -> str | None:
+        """The coarse error kind an exception's *type hierarchy* names, or None.
+
+        The hierarchy, not the leaf: httpx's `ConnectError` is a `NetworkError` is a
+        `TransportError`, and a reader that only saw the leaf name would have to know every leaf
+        every SDK ships. Timeout is checked first because `ConnectTimeout` is both and a timeout
+        carries the more specific retry policy.
+        """
+        names = [klass.__name__.lower() for klass in type(exc).__mro__]
+        if any(marker in name for name in names for marker in cls._TIMEOUT_EXCEPTION_MARKERS):
+            return "timeout"
+        if any(marker in name for name in names for marker in cls._CONNECTION_EXCEPTION_MARKERS):
+            return "connection"
+        return None
 
     @classmethod
     def is_arrearage_response(cls, response: LLMResponse) -> bool:
@@ -1757,7 +1786,44 @@ class LLMProvider(ABC):
                         retry_kw["messages"] = stripped
                     if stripped_context is not None:
                         retry_kw["provider_context"] = stripped_context
-                    result = await call(**retry_kw)
+                    # A separate attempt, so a separate row. This recovery call is routinely the
+                    # one that produces the answer the user reads, and observing only the failure
+                    # above left its tokens charged to nobody (#176). Timing is rebased on this
+                    # call for the same reason the loop resets it per attempt: the failed
+                    # attempt's time to first token describes neither call.
+                    retry_started_at_ms = int(time.time() * 1000)
+                    retry_started_at_ns = time.monotonic_ns()
+                    retry_started_at_perf = time.perf_counter()
+                    if timing is not None:
+                        timing.reset()
+                    try:
+                        result = await call(**retry_kw)
+                    except asyncio.CancelledError:
+                        self._observe_llm_call(
+                            LLMResponse(
+                                content=None,
+                                finish_reason="cancelled",
+                                error_kind="cancelled",
+                            ),
+                            retry_kw,
+                            started_at_ms=retry_started_at_ms,
+                            started_at_ns=retry_started_at_ns,
+                            stream=stream,
+                        )
+                        raise
+                    if timing is not None:
+                        result.ttft_ms, result.generation_ms = timing.measured(
+                            retry_started_at_perf
+                        )
+                    # `retry_kw`, not `kw`: when the provider reported no usage the estimate is
+                    # taken from the messages actually sent, and the images in `kw` were not.
+                    result = self._observe_llm_call(
+                        result,
+                        retry_kw,
+                        started_at_ms=retry_started_at_ms,
+                        started_at_ns=retry_started_at_ns,
+                        stream=stream,
+                    )
                     # Permanently strip images from the original messages so
                     # subsequent iterations do not repeat the error-retry cycle.
                     if result.finish_reason != "error":

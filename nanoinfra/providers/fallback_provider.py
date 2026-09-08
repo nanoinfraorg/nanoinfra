@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from contextvars import ContextVar
 from dataclasses import replace
 from typing import Any
@@ -53,6 +54,10 @@ _AUTHENTICATION_ERROR_TOKENS = (
     "expired_token",
     "expired token",
     "unauthorized",
+    # What an unauthenticated OAuth provider says instead of returning a 401:
+    # `github_copilot_provider.py` raises "GitHub Copilot is not logged in" from its token
+    # exchange, and a credential the operator has to renew is exactly the case worth failing over.
+    "not logged in",
     "permission_denied",
     "permission denied",
     "access_denied",
@@ -209,14 +214,21 @@ class FallbackProvider(LLMProvider):
             context_window_tokens=context_window_tokens,
         )
 
+    def _primary_cooldown_remaining(self) -> float | None:
+        """Seconds until the primary is probed again, or None when it is not held back.
+
+        One definition, because two things read it now: the decision to skip the primary, and the
+        `Retry-After` on the error returned when nothing else could answer either.
+        """
+        if self._primary_tripped_at is None:
+            return None
+        remaining = _PRIMARY_COOLDOWN_S - (time.monotonic() - self._primary_tripped_at)
+        return remaining if remaining > 0 else None
+
     def _primary_available(self) -> bool:
         """Return True if the primary provider is not currently tripped."""
-        if self._primary_tripped_at is None:
-            return True
-        if time.monotonic() - self._primary_tripped_at >= _PRIMARY_COOLDOWN_S:
-            # Half-open: allow one probe attempt.
-            return True
-        return False
+        # Half-open once the cooldown has elapsed: one probe attempt is allowed.
+        return self._primary_cooldown_remaining() is None
 
     async def chat(self, **kwargs: Any) -> LLMResponse:  # pyright: ignore[reportIncompatibleMethodOverride]
         if not self._has_fallbacks:
@@ -308,6 +320,10 @@ class FallbackProvider(LLMProvider):
         primary_model = kwargs.get("model") or self._primary.get_default_model()
         primary_was_attempted = False
         primary_error = "unknown error"
+        # Kept for the end of the chain: if no fallback returns a response, the primary's error is
+        # the only real one anybody saw, and it carries the status code and the `Retry-After` that
+        # decide what happens next.
+        primary_response: LLMResponse | None = None
         # A primary error eligible for failover did not return a replacement
         # continuation, so the incoming primary state remains reusable.
         preserve_primary_state = True
@@ -320,12 +336,25 @@ class FallbackProvider(LLMProvider):
             # call sets it before delegating, and each turn is its own Task with its own
             # context, so nothing leaks between two of them.
             _SERVING_PROVIDER.set(self._primary.observed_provider_name())
-            response = await call(self._primary, kwargs)
+            try:
+                response = await call(self._primary, kwargs)
+            except Exception as exc:
+                # Classified here rather than allowed to unwind: an exception that leaves this
+                # method has left the chain, and the fallback the operator configured is never
+                # asked. `CancelledError` is a `BaseException`, so a cancelled turn still
+                # cancels.
+                logger.warning(
+                    "Primary model '{}' raised {}; treating it as a failover-eligible error",
+                    primary_model,
+                    type(exc).__name__,
+                )
+                response = self._error_response_from_exception(exc)
             if response.finish_reason != "error":
                 self._primary_failures = 0
                 self._primary_tripped_at = None
                 return response
             primary_error = (response.content or primary_error)[:120]
+            primary_response = response
 
             if has_streamed is not None and has_streamed[0]:
                 is_timeout = (response.error_kind or "").lower() == "timeout"
@@ -364,7 +393,7 @@ class FallbackProvider(LLMProvider):
         else:
             logger.debug("Primary model '{}' circuit open; skipping", primary_model)
 
-        last_response: LLMResponse | None = None
+        last_response: LLMResponse | None = primary_response
         primary_skipped = not primary_was_attempted
         for idx, fallback in enumerate(self._fallback_presets):
             fallback_model = fallback.model
@@ -440,7 +469,17 @@ class FallbackProvider(LLMProvider):
             else:
                 fallback_kwargs["reasoning_effort"] = fallback.reasoning_effort
             _SERVING_PROVIDER.set(fallback_provider.observed_provider_name())
-            fallback_response = await call(fallback_provider, fallback_kwargs)
+            try:
+                fallback_response = await call(fallback_provider, fallback_kwargs)
+            except Exception as exc:
+                # Same reason as the primary above, and one more: a fallback that raises must not
+                # take the *remaining* fallbacks down with it.
+                logger.warning(
+                    "Fallback '{}' raised {}; trying the next one",
+                    fallback_model,
+                    type(exc).__name__,
+                )
+                fallback_response = self._error_response_from_exception(exc)
 
             if fallback_response.finish_reason != "error":
                 logger.info(
@@ -466,11 +505,19 @@ class FallbackProvider(LLMProvider):
                 last_response,
                 preserve_provider_state_on_error=preserve_primary_state,
             )
-        # Primary was tripped and we have no fallbacks — synthesize an error.
+        # Nothing ever answered: the circuit was open, so the primary was not called, and no
+        # fallback could be built. Retryable with the remaining cooldown as the wait, because the
+        # thing that stopped this call is a clock -- a caller told this was terminal would fail a
+        # turn that would have succeeded a minute later. No `error_kind`: the usage store's
+        # vocabulary has no term for "we declined to send this", and a kind it would normalise to
+        # `other` labels a metrics row with a guess.
+        cooldown_remaining = self._primary_cooldown_remaining()
         return LLMResponse(
             content=f"Primary model '{primary_model}' circuit open and no fallbacks available",
             finish_reason="error",
             preserve_provider_state_on_error=preserve_primary_state,
+            error_should_retry=True,
+            error_retry_after_s=cooldown_remaining,
         )
 
     async def _notify_fallback_model(self, model: str) -> None:
@@ -480,6 +527,64 @@ class FallbackProvider(LLMProvider):
             await self._fallback_model_observer(model)
         except Exception:
             logger.exception("fallback model observer failed for '{}'", model)
+
+    @staticmethod
+    def _error_response_from_exception(exc: Exception) -> LLMResponse:
+        """Turn a raised provider exception into a classified error response.
+
+        A provider that raises rather than returns used to unwind straight past this wrapper to
+        `_safe_chat`, which produced `LLMResponse(content="Error calling LLM: ...")` with no
+        metadata at all: the fallback was never tried, and the retry loop had nothing but a
+        substring to classify on, so it was not retried either. Both live triggers raise from
+        *outside* the provider's own `try` -- the Copilot token refresh, and `_ensure_client()` in
+        the OpenAI-compatible provider -- so this is the ordinary shape of a bad credential or an
+        unreachable endpoint, not an exotic one.
+
+        Deliberately unable to raise: it is the conversion of a failure, and a failure here would
+        replace an answerable error with an unanswerable one.
+        """
+        response = getattr(exc, "response", None)
+        headers: Any = None
+        payload: Any = None
+        # Neither lookup may be trusted to merely return -- `.text` on an unread streaming
+        # response raises -- and losing a header is a smaller loss than losing the error.
+        with suppress(Exception):
+            headers = getattr(response, "headers", None)
+        with suppress(Exception):
+            payload = (
+                getattr(exc, "body", None)
+                or getattr(exc, "doc", None)
+                or getattr(response, "text", None)
+            )
+        error_type, error_code = LLMProvider._extract_error_type_code(payload)
+
+        status_value = getattr(exc, "status_code", None)
+        if status_value is None:
+            status_value = getattr(response, "status_code", None)
+        status_code: int | None = None
+        if status_value is not None:
+            try:
+                status_code = int(status_value)
+            except (TypeError, ValueError):
+                status_code = None
+
+        # `str(exc)`, and the class name when that is empty: `httpx.ReadError()` stringifies to
+        # nothing, and "Error calling LLM: " with an empty tail is an error message that names no
+        # error -- unreadable in a log and unmatchable by the text classifiers below.
+        detail = str(exc).strip()
+        message = f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
+        retry_after = LLMProvider._extract_retry_after_from_headers(headers)
+        if retry_after is None:
+            retry_after = LLMProvider._extract_retry_after(message)
+        return LLMResponse(
+            content=f"Error calling LLM: {message}",
+            finish_reason="error",
+            error_status_code=status_code,
+            error_kind=LLMProvider.error_kind_from_exception(exc),
+            error_type=error_type,
+            error_code=error_code,
+            error_retry_after_s=retry_after,
+        )
 
     @staticmethod
     def _should_fallback(response: LLMResponse) -> bool:

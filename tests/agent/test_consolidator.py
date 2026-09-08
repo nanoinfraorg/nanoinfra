@@ -7,6 +7,7 @@ import pytest
 
 from nanoinfra.agent.memory import (
     _ARCHIVE_SUMMARY_MAX_CHARS,
+    _RAW_ARCHIVE_MAX_CHARS,
     Consolidator,
     MemoryStore,
 )
@@ -913,6 +914,40 @@ class TestCompactIdleSession:
         ]
 
     @pytest.mark.asyncio
+    async def test_llm_failure_keeps_every_message_the_cursor_passes(
+        self, real_consolidator, mock_provider, store, runtime
+    ):
+        """The cursor advances on a degraded run, so the raw dump has to hold the whole batch.
+
+        Advancing is the right call -- holding the cursor back re-offers the same chunk to the same
+        degraded provider forever -- which is exactly why the dump written just before it may not
+        be a head. A tail dropped here is dropped from the only copy that was left.
+        """
+        mock_provider.chat_with_retry.side_effect = RuntimeError("LLM unavailable")
+        sessions = real_consolidator.sessions
+        session = sessions.get_or_create("cli:degraded-oversized")
+        filler = "y" * 900
+        for i in range(40):
+            session.add_message("user", f"u{i:02d}-{filler}")
+            session.add_message("assistant", f"a{i:02d}-{filler}")
+        sessions.save(session)
+
+        result = await real_consolidator.compact_idle_session(
+            "cli:degraded-oversized", runtime=runtime
+        )
+        assert result is None
+
+        reloaded = sessions.get_or_create("cli:degraded-oversized")
+        assert reloaded.last_consolidated == 80
+        durable = "".join(
+            entry["content"] for entry in store.read_unprocessed_history(since_cursor=0)
+        )
+        assert f"u00-{filler}" in durable
+        assert f"a39-{filler}" in durable, (
+            "the cursor moved past this message, so history.jsonl is the only place it exists"
+        )
+
+    @pytest.mark.asyncio
     async def test_respects_last_consolidated(
         self, real_consolidator, mock_provider, runtime
     ):
@@ -1138,17 +1173,39 @@ class TestConsolidatorSessionRefresh:
 
 
 class TestRawArchiveTruncation:
-    """raw_archive() must cap entry size to avoid bloating history.jsonl."""
+    """raw_archive() bounds each entry, and never the dump (nanoinfraorg/nanoinfra#109).
 
-    def test_raw_archive_truncates_large_content(self, store):
-        """Large messages should be truncated to _RAW_ARCHIVE_MAX_CHARS."""
-        big = "x" * 50_000
-        messages = [{"role": "user", "content": big}]
-        store.raw_archive(messages)
+    The cap has to be a per-entry bound because ``_DREAM_RAW_ENTRY_CAP`` is derived from it: an
+    entry Dream can only show in part is read in part and then deleted by the compactor. So a dump
+    larger than one entry takes more entries -- the same choice ``_dream_history_batch`` makes one
+    layer up, where a batch that does not fit takes fewer entries and never less of each one.
+    """
+
+    def test_raw_archive_splits_a_dump_no_single_entry_could_hold(self, store):
+        """The part past the cap has to stay readable: nothing else will ever represent it."""
+        body = "HEAD-MARKER" + ("x" * 40_000) + "TAIL-MARKER"
+        store.raw_archive([{"role": "user", "content": body}])
+
+        entries = store.read_unprocessed_history(since_cursor=0)
+        bodies = [entry["content"].split("\n", 1)[1] for entry in entries]
+        assert len(entries) > 1
+        assert body in "".join(bodies), (
+            "everything past the cap left the live session and is written nowhere else"
+        )
+        assert all(len(chunk) <= _RAW_ARCHIVE_MAX_CHARS for chunk in bodies)
+        assert all(
+            entry["content"].startswith(f"[RAW] 1 messages (part {part}/{len(entries)})")
+            for part, entry in enumerate(entries, start=1)
+        )
+
+    def test_raw_archive_keeps_one_entry_when_the_dump_fits(self, store):
+        """One entry needs no part marker, so the common degraded dump reads as it always did."""
+        store.raw_archive([{"role": "user", "content": "short enough"}])
+
         entries = store.read_unprocessed_history(since_cursor=0)
         assert len(entries) == 1
-        assert len(entries[0]["content"]) < 50_000
-        assert "[RAW]" in entries[0]["content"]
+        assert entries[0]["content"].startswith("[RAW] 1 messages\n")
+        assert "short enough" in entries[0]["content"]
 
     def test_raw_archive_preserves_small_content(self, store):
         """Small messages should not be truncated."""
@@ -1181,11 +1238,13 @@ class TestRawArchiveTruncation:
         assert entries[0]["session_key"] == "websocket:chat-1"
 
     def test_raw_archive_custom_max_chars(self, store):
-        """max_chars parameter should override default limit."""
+        """max_chars overrides the per-entry bound; the dump is still whole across entries."""
         messages = [{"role": "user", "content": "a" * 200}]
         store.raw_archive(messages, max_chars=100)
         entries = store.read_unprocessed_history(since_cursor=0)
-        assert len(entries[0]["content"]) < 200
+        bodies = [entry["content"].split("\n", 1)[1] for entry in entries]
+        assert all(len(chunk) <= 100 for chunk in bodies)
+        assert "a" * 200 in "".join(bodies)
 
 
 class TestArchiveTruncation:

@@ -18,12 +18,10 @@ from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 from websockets.asyncio.server import ServerConnection, serve, unix_serve
-from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request as WsRequest
 
 from nanoinfra.bus.events import (
     INBOUND_META_SESSION_READ_SCOPE,
-    OUTBOUND_META_AGENT_UI,
     OutboundMessage,
 )
 from nanoinfra.bus.outbound_events import (
@@ -40,6 +38,9 @@ from nanoinfra.bus.outbound_events import (
 )
 from nanoinfra.bus.queue import MessageBus
 from nanoinfra.channels.base import BaseChannel
+from nanoinfra.channels.websocket import outbound_wire
+from nanoinfra.channels.websocket.outbound_delivery import OutboundDelivery
+from nanoinfra.channels.websocket.outbound_wire import StreamTextBuffers
 from nanoinfra.command.builtin import builtin_command_starts_agent_turn
 from nanoinfra.config.schema import Base
 from nanoinfra.connectors.attachment import (
@@ -106,7 +107,6 @@ from nanoinfra.webui.session_access import (
     session_mentions_runtime_context,
 )
 from nanoinfra.webui.sidebar_state import write_webui_sidebar_state
-from nanoinfra.webui.transcript import WEBUI_TRANSCRIPT_INCOMPLETE_KEY
 from nanoinfra.webui.transcription_ws import webui_transcription_event
 from nanoinfra.webui.websocket_logging import websockets_server_logger
 from nanoinfra.webui.workspace_upload_ws import (
@@ -676,7 +676,17 @@ class WebSocketChannel(BaseChannel):
             else None
         )
 
-        self._stream_text_buffers: dict[tuple[str, str], list[str]] = {}
+        # What a stream_end frame will say. Projection state, so it lives with
+        # the encoders rather than beside the send queues.
+        self._stream_text_buffers = StreamTextBuffers()
+
+        # Who owns the socket. Every outbound frame goes through here, and the
+        # retire callback is this channel's own cleanup: delivery decides that a
+        # connection is finished, the channel decides what that costs.
+        self._delivery = OutboundDelivery(
+            logger=self.logger,
+            retire=self._cleanup_connection,
+        )
 
     # -- Subscription bookkeeping -------------------------------------------
 
@@ -684,7 +694,17 @@ class WebSocketChannel(BaseChannel):
         return self._http_router.workspace_controls_available(connection)
 
     def _attach(self, connection: ServerConnection, chat_id: str) -> None:
-        """Idempotently subscribe *connection* to *chat_id*."""
+        """Idempotently subscribe *connection* to *chat_id*.
+
+        A retired connection is refused outright rather than subscribed and then
+        found dead at the next fanout. Registration and subscription have to be
+        one decision: a socket that is being torn down while another task
+        subscribes it would otherwise land in the subscriber set with no queue
+        and no writer behind it, and every later frame for that chat would look
+        for delivery state that retirement had already dropped.
+        """
+        if not self._delivery.register(connection):
+            return
         self._subs.setdefault(chat_id, set()).add(connection)
         self._conn_chats.setdefault(connection, set()).add(chat_id)
 
@@ -732,8 +752,28 @@ class WebSocketChannel(BaseChannel):
         )
         await self._hydrate_after_subscribe(fork_id)
 
-    def _cleanup_connection(self, connection: ServerConnection) -> None:
-        """Remove *connection* from every subscription set; safe to call multiple times."""
+    async def _cleanup_connection(self, connection: ServerConnection) -> None:
+        """Retire *connection* everywhere; safe to call multiple times.
+
+        Async because retiring the delivery state means cancelling this
+        connection's writer task and *waiting* for it. Cancel-and-forget would
+        let the writer outlive the socket it was writing to, which is the leak
+        this ordering exists to prevent: delivery first, so no frame can be
+        written to a connection the bookkeeping below has already forgotten,
+        then the subscription sets, then the resources a half-finished exchange
+        left on disk.
+
+        Reachable from four places -- the connection loop's ``finally``, a
+        retirement started by the writer, the WebUI's own disconnect handling,
+        and ``stop()`` -- so idempotence is a requirement rather than a
+        courtesy. It holds because ``OutboundDelivery.close`` latches, and
+        because every operation below is a discard rather than a removal.
+        """
+        await self._delivery.close(connection)
+        self._discard_connection_state(connection)
+
+    def _discard_connection_state(self, connection: ServerConnection) -> None:
+        """Drop every table entry keyed by *connection*."""
         chat_ids = self._conn_chats.pop(connection, set())
         for cid in chat_ids:
             subs = self._subs.get(cid)
@@ -792,16 +832,19 @@ class WebSocketChannel(BaseChannel):
         event: str,
         **fields: Any,
     ) -> None:
-        """Send a control event (attached, error, ...) to a single connection."""
-        payload: dict[str, Any] = {"event": event}
-        payload.update(fields)
-        raw = json.dumps(payload, ensure_ascii=False)
-        try:
-            await connection.send(raw)
-        except ConnectionClosed:
-            self._cleanup_connection(connection)
-        except Exception as e:
-            self.logger.warning("failed to send {} event: {}", event, e)
+        """Send a control event (attached, error, ...) to a single connection.
+
+        Queued through the same writer as every application frame, and that is
+        the point rather than a convenience. A control event written directly to
+        the socket could overlap a queued frame that a writer task was already
+        sending: two concurrent writes on one connection, in an order neither
+        caller chose. Going through the queue means one writer, one in-flight
+        send, and an ``attached`` that cannot arrive after the hydration frames
+        it is supposed to introduce.
+        """
+        body = outbound_wire.encode_control_event(event, fields)
+        raw = json.dumps(body, ensure_ascii=False)
+        await self._safe_send_to(connection, raw, label=f" {event} ")
 
     @classmethod
     def default_config(cls) -> dict[str, Any]:
@@ -1048,6 +1091,11 @@ class WebSocketChannel(BaseChannel):
         await self._server_task
 
     async def _connection_loop(self, connection: ServerConnection) -> None:
+        # This is the one place a connection is declared live, so it is the one
+        # place retirement may be undone. Everywhere else, a retired connection
+        # stays retired -- that asymmetry is what stops a fanout still holding a
+        # stale reference from reviving a socket that is closing.
+        self._delivery.readmit(connection)
         request = connection.request
         path_part = request.path if request else "/"
         _, query = _parse_request_path(path_part)
@@ -1118,7 +1166,7 @@ class WebSocketChannel(BaseChannel):
         except Exception as e:
             self.logger.debug("connection ended: {}", e)
         finally:
-            self._cleanup_connection(connection)
+            await self._cleanup_connection(connection)
 
     # -- Inbound WebSocket envelopes ---------------------------------------
 
@@ -1128,7 +1176,16 @@ class WebSocketChannel(BaseChannel):
         client_id: str,
         envelope: dict[str, Any],
     ) -> None:
-        """Route one typed inbound envelope (``new_chat`` / ``attach`` / ``message``)."""
+        """Route one typed inbound envelope (``new_chat`` / ``attach`` / ``message``).
+
+        A retired connection is dropped here rather than routed. An envelope can
+        already have been read off the socket when the writer retires the
+        connection behind it, and answering it would mean queueing a reply on a
+        connection that is closing -- which is how ``register`` would be asked to
+        resurrect delivery state that had just been torn down.
+        """
+        if not self._delivery.register(connection):
+            return
         t = envelope.get("type")
         if t == "new_chat":
             new_id = str(uuid.uuid4())
@@ -1520,11 +1577,21 @@ class WebSocketChannel(BaseChannel):
         if self._diagram_unsubscribe is not None:
             self._diagram_unsubscribe()
             self._diagram_unsubscribe = None
-        if not self._running:
+        # `_delivery.has_work()` is part of the guard because a channel can be
+        # stopped after its listener has already flipped `_running` -- and a
+        # writer task that outlives the stop is exactly the leak this port is
+        # about. A never-started channel with no connections still returns here.
+        if not self._running and not self._delivery.has_work():
             return
         self._running = False
         if self._stop_event:
             self._stop_event.set()
+        # Before the server task, not after. The listener's shutdown can be
+        # waiting on a handler that is itself waiting on a stalled send, so a
+        # stop that awaited the listener first would hang for as long as the
+        # slowest client -- which is the very thing that has no bound.
+        for connection in self._delivery.connections():
+            await self._cleanup_connection(connection)
         if self._server_task:
             try:
                 await self._server_task
@@ -1536,6 +1603,9 @@ class WebSocketChannel(BaseChannel):
             except Exception as e:
                 self.logger.warning("server task error during shutdown: {}", e)
             self._server_task = None
+        # A retirement started while the loop was being torn down still holds a
+        # socket. Waiting for it here is what makes "stopped" mean stopped.
+        await self._delivery.drain_retirements()
         self._subs.clear()
         self._conn_chats.clear()
         self._conn_default.clear()
@@ -1552,15 +1622,16 @@ class WebSocketChannel(BaseChannel):
         *,
         label: str = "",
     ) -> None:
-        """Send a raw frame to one connection, cleaning up on ConnectionClosed."""
-        try:
-            await connection.send(raw)
-        except ConnectionClosed:
-            self._cleanup_connection(connection)
-            self.logger.warning("connection gone{}", label)
-        except Exception:
-            self.logger.exception("send failed{}", label)
-            raise
+        """Queue one frame for one connection; never block on its socket.
+
+        The name is kept because it is what the rest of this file and its tests
+        call, but the body is now a hand-off. It returns as soon as the frame is
+        accepted, so the caller's cost no longer depends on whether this
+        particular peer is reading -- and a send that fails, times out or
+        overflows retires that one connection instead of raising into a fanout
+        that has eleven other clients to serve.
+        """
+        await self._delivery.enqueue(connection, raw, label=label)
 
     def _persist_turn_transcript_event(
         self,
@@ -1610,7 +1681,11 @@ class WebSocketChannel(BaseChannel):
             )
             return
 
-        # Snapshot the subscriber set so ConnectionClosed cleanups mid-iteration are safe.
+        # Snapshot the subscriber set: a connection can retire while this frame
+        # is being projected, and iterating the live set would then be iterating
+        # a set that is being mutated. A frame handed to a connection that
+        # retired in between is dropped by delivery, which is the correct
+        # answer -- nobody is left on that socket to read it.
         conns = list(self._subs.get(msg.chat_id, ()))
         if not conns:
             if isinstance(
@@ -1695,53 +1770,27 @@ class WebSocketChannel(BaseChannel):
                 msg.metadata,
             )
             return
-        text = msg.content
-        wire_text = self._media.rewrite_local_markdown_images(text)
-        payload: dict[str, Any] = {
-            "event": "message",
-            "chat_id": msg.chat_id,
-            "text": wire_text,
-        }
-        if msg.media:
-            payload["media"] = msg.media
-            urls: list[dict[str, str]] = []
-            for entry in msg.media:
-                signed = self._media.sign_or_stage_media_path(Path(entry))
-                if signed is not None:
-                    urls.append(signed)
-            if urls:
-                payload["media_urls"] = urls
-        if msg.reply_to:
-            payload["reply_to"] = msg.reply_to
-        lat = msg.metadata.get("latency_ms")
-        if isinstance(lat, (int, float)):
-            payload["latency_ms"] = int(lat)
-        if progress_event and progress_event.tool_events:
-            payload["tool_events"] = progress_event.tool_events
-        agent_ui = msg.metadata.get(OUTBOUND_META_AGENT_UI)
-        if agent_ui is not None:
-            payload["agent_ui"] = agent_ui
-        # Mark intermediate agent breadcrumbs (tool-call hints, generic
-        # progress strings) so WS clients can render them as subordinate
-        # trace rows rather than conversational replies.
-        if progress_event and progress_event.tool_hint:
-            payload["kind"] = "tool_hint"
-        elif progress_event:
-            payload["kind"] = "progress"
-        phase = "activity" if payload.get("kind") in ("tool_hint", "progress") else "answer"
+        body, text = outbound_wire.encode_message(
+            msg,
+            media=self._media,
+            progress=progress_event,
+        )
+        # Persist, then serialise, then deliver. The transcript writer annotates
+        # `body` in place -- that is what puts `turn_id` on the frame -- so a
+        # frame serialised before the write would be missing a field the client
+        # needs and the replay has.
         self._persist_turn_transcript_event(
             msg.chat_id,
-            payload,
+            body,
             metadata=msg.metadata,
-            phase=phase,
+            phase=outbound_wire.message_phase(body),
             include_source=True,
             transcript_overrides={"text": text},
         )
-        raw = json.dumps(payload, ensure_ascii=False)
+        raw = json.dumps(body, ensure_ascii=False)
         if not conns:
             return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" ")
+        await self._delivery.fanout(conns, raw, label=" ")
 
     async def send_reasoning_delta(
         self,
@@ -1759,25 +1808,17 @@ class WebSocketChannel(BaseChannel):
         conns = list(self._subs.get(chat_id, ()))
         if not delta:
             return
-        meta = metadata or {}
-        body: dict[str, Any] = {
-            "event": "reasoning_delta",
-            "chat_id": chat_id,
-            "text": delta,
-        }
-        if stream_id is not None:
-            body["stream_id"] = stream_id
+        body = outbound_wire.encode_reasoning_delta(chat_id, delta, stream_id=stream_id)
         self._persist_turn_transcript_event(
             chat_id,
             body,
-            metadata=meta,
+            metadata=metadata or {},
             phase="reasoning",
         )
         raw = json.dumps(body, ensure_ascii=False)
         if not conns:
             return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" reasoning ")
+        await self._delivery.fanout(conns, raw, label=" reasoning ")
 
     async def send_reasoning_end(
         self,
@@ -1788,24 +1829,17 @@ class WebSocketChannel(BaseChannel):
     ) -> None:
         """Close the current reasoning stream segment for in-place renderers."""
         conns = list(self._subs.get(chat_id, ()))
-        meta = metadata or {}
-        body: dict[str, Any] = {
-            "event": "reasoning_end",
-            "chat_id": chat_id,
-        }
-        if stream_id is not None:
-            body["stream_id"] = stream_id
+        body = outbound_wire.encode_reasoning_end(chat_id, stream_id=stream_id)
         self._persist_turn_transcript_event(
             chat_id,
             body,
-            metadata=meta,
+            metadata=metadata or {},
             phase="reasoning",
         )
         raw = json.dumps(body, ensure_ascii=False)
         if not conns:
             return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" reasoning_end ")
+        await self._delivery.fanout(conns, raw, label=" reasoning_end ")
 
     async def send_file_edit_events(
         self,
@@ -1814,22 +1848,17 @@ class WebSocketChannel(BaseChannel):
         metadata: dict[str, Any] | None = None,
     ) -> None:
         conns = list(self._subs.get(chat_id, ()))
-        payload: dict[str, Any] = {
-            "event": "file_edit",
-            "chat_id": chat_id,
-            "edits": edits,
-        }
+        body = outbound_wire.encode_file_edit(chat_id, edits)
         self._persist_turn_transcript_event(
             chat_id,
-            payload,
+            body,
             metadata=metadata,
             phase="activity",
         )
-        raw = json.dumps(payload, ensure_ascii=False)
+        raw = json.dumps(body, ensure_ascii=False)
         if not conns:
             return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" file_edit ")
+        await self._delivery.fanout(conns, raw, label=" file_edit ")
 
     async def send_delta(
         self,
@@ -1849,55 +1878,36 @@ class WebSocketChannel(BaseChannel):
         `step_usage` and `step_ms` describe the single provider call this segment came from (#208).
         They are declared here and nowhere else because this is the channel with a surface that can
         show them; the manager passes them only to a channel that asks.
+
+        This is the highest-frequency frame the channel produces, which is why a
+        non-blocking fanout matters more here than anywhere else: a long answer
+        streaming to a tab somebody left in the background used to hold every
+        other client on the chat, once per delta.
         """
         conns = list(self._subs.get(chat_id, ()))
-        meta = metadata or {}
-        stream_key = (chat_id, str(stream_id or ""))
-        if stream_end:
-            body: dict[str, Any] = {"event": "stream_end", "chat_id": chat_id}
-            buffered = (
-                self._stream_text_buffers.setdefault(stream_key, [])
-                if merge_next
-                else self._stream_text_buffers.pop(stream_key, [])
-            )
-            if delta:
-                buffered.append(delta)
-            full_text = "".join(buffered)
-            rewritten = self._media.rewrite_local_markdown_images(full_text)
-            if delta or rewritten != full_text:
-                body["text"] = rewritten
-        else:
-            body = {
-                "event": "delta",
-                "chat_id": chat_id,
-                "text": delta,
-            }
-            self._stream_text_buffers.setdefault(stream_key, []).append(delta)
-        if stream_id is not None:
-            body["stream_id"] = stream_id
-        if stream_end and resuming:
-            body["resuming"] = True
-        if stream_end and merge_next:
-            body["merge_next"] = True
-        if stream_end and step_usage is not None:
-            # The same projection the turn's usage takes, so one reader parses both. A key is
-            # absent when its number means nothing -- which is what keeps a `cache_read_tokens`
-            # the provider never reported from rendering as 0% cached.
-            body["usage"] = step_usage.to_turn_dict()
-        if stream_end and step_ms is not None:
-            body["duration_ms"] = int(step_ms)
+        body = outbound_wire.encode_delta(
+            chat_id,
+            delta,
+            buffers=self._stream_text_buffers,
+            media=self._media,
+            stream_id=stream_id,
+            stream_end=stream_end,
+            resuming=resuming,
+            merge_next=merge_next,
+            step_usage=step_usage,
+            step_ms=step_ms,
+        )
         self._persist_turn_transcript_event(
             chat_id,
             body,
-            metadata=meta,
+            metadata=metadata or {},
             phase="answer",
             include_source=True,
         )
         raw = json.dumps(body, ensure_ascii=False)
         if not conns:
             return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" stream ")
+        await self._delivery.fanout(conns, raw, label=" stream ")
 
     async def send_turn_end(
         self,
@@ -1911,26 +1921,23 @@ class WebSocketChannel(BaseChannel):
         metadata: dict[str, Any] | None = None,
         turn_owner: str | None = None,
     ) -> None:
-        """Signal that the agent has fully finished processing the current turn."""
+        """Signal that the agent has fully finished processing the current turn.
+
+        Persistence is unconditional and comes first, and that ordering is what
+        makes dropping a slow connection an acceptable answer to a full queue:
+        the completion is on disk before anything is delivered, so a client
+        disconnected here reconnects into a thread that already knows the turn
+        finished.
+        """
         conns = list(self._subs.get(chat_id, ()))
-        body: dict[str, Any] = {"event": "turn_end", "chat_id": chat_id}
-        if latency_ms is not None:
-            body["latency_ms"] = int(latency_ms)
-        if goal_state is not None:
-            body["goal_state"] = goal_state
-        if usage is not None:
-            # Beside the latency, and persisted with it by the call below -- so a reloaded thread
-            # shows the same number as a live one rather than losing it on refresh (#202).
-            body["usage"] = usage.to_turn_dict()
-        if prompt_manifest:
-            # Names and sizes. A manifest that carried the prompt's text would be a second copy of
-            # the conversation persisted where nobody expects one (#203).
-            body["prompt"] = prompt_manifest
-        if agent:
-            # Persisted with the rest of this body, so a reloaded thread says which agent answered
-            # each turn (#248). Omitted for the default agent: a name the deployment never
-            # configured would be a guess, and every turn today is the default one.
-            body["agent"] = agent
+        body = outbound_wire.encode_turn_end(
+            chat_id,
+            latency_ms=latency_ms,
+            goal_state=goal_state,
+            usage=usage,
+            prompt_manifest=prompt_manifest,
+            agent=agent,
+        )
         canonical_webui_turn = (metadata or {}).get("webui") is True
         prior_persistence_failure = (
             canonical_webui_turn
@@ -1941,10 +1948,8 @@ class WebSocketChannel(BaseChannel):
             body,
             metadata=metadata,
             phase="complete",
-            transcript_overrides=(
-                {WEBUI_TRANSCRIPT_INCOMPLETE_KEY: True}
-                if prior_persistence_failure
-                else None
+            transcript_overrides=outbound_wire.turn_end_transcript_overrides(
+                prior_persistence_failure=prior_persistence_failure,
             ),
         )
         if persisted:
@@ -1955,18 +1960,18 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         if not conns:
             return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" turn_end ")
+        await self._delivery.fanout(conns, raw, label=" turn_end ")
 
     async def send_goal_state(self, chat_id: str, blob: dict[str, Any]) -> None:
         """Push persisted goal-state snapshot for *chat_id* (multi-chat isolation)."""
         conns = list(self._subs.get(chat_id, ()))
         if not conns:
             return
-        body = {"event": "goal_state", "chat_id": chat_id, "goal_state": blob}
-        raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" goal_state ")
+        raw = json.dumps(
+            outbound_wire.encode_goal_state(chat_id, blob),
+            ensure_ascii=False,
+        )
+        await self._delivery.fanout(conns, raw, label=" goal_state ")
 
     async def send_goal_status(
         self,
@@ -1980,30 +1985,27 @@ class WebSocketChannel(BaseChannel):
         conns = list(self._subs.get(chat_id, ()))
         if not conns:
             return
-        body: dict[str, Any] = {
-            "event": "goal_status",
-            "chat_id": chat_id,
-            "status": status,
-        }
-        if status == "running" and started_at is not None:
-            body["started_at"] = started_at
-        if turn_id:
-            body["turn_id"] = turn_id
-        raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" goal_status ")
+        raw = json.dumps(
+            outbound_wire.encode_goal_status(
+                chat_id,
+                status,
+                started_at=started_at,
+                turn_id=turn_id,
+            ),
+            ensure_ascii=False,
+        )
+        await self._delivery.fanout(conns, raw, label=" goal_status ")
 
     async def send_session_updated(self, chat_id: str, *, scope: str | None = None) -> None:
         """Notify WebUI clients that a session row should refresh."""
         conns = list(self._conn_chats)
         if not conns:
             return
-        body: dict[str, Any] = {"event": "session_updated", "chat_id": chat_id}
-        if scope:
-            body["scope"] = scope
-        raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" session_updated ")
+        raw = json.dumps(
+            outbound_wire.encode_session_updated(chat_id, scope=scope),
+            ensure_ascii=False,
+        )
+        await self._delivery.fanout(conns, raw, label=" session_updated ")
 
     async def send_runtime_model_updated(
         self,
@@ -2013,17 +2015,14 @@ class WebSocketChannel(BaseChannel):
     ) -> None:
         """Broadcast runtime model changes to every open websocket connection."""
         conns = list(self._conn_chats)
-        if not conns or not isinstance(model_name, str) or not model_name.strip():
+        body = outbound_wire.encode_runtime_model_updated(
+            model_name=model_name,
+            model_preset=model_preset,
+        )
+        if not conns or body is None:
             return
-        body: dict[str, Any] = {
-            "event": "runtime_model_updated",
-            "model_name": model_name.strip(),
-        }
-        if isinstance(model_preset, str) and model_preset.strip():
-            body["model_preset"] = model_preset.strip()
         raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" runtime_model_updated ")
+        await self._delivery.fanout(conns, raw, label=" runtime_model_updated ")
 
     async def send_diagram_updated(
         self,
@@ -2040,18 +2039,15 @@ class WebSocketChannel(BaseChannel):
         REST route, so no diagram body (and no config field) travels here.
         """
         conns = list(self._conn_chats)
-        if not conns or not isinstance(diagram_id, str) or not diagram_id.strip():
+        body = outbound_wire.encode_diagram_updated(
+            diagram_id=diagram_id,
+            kind=kind,
+            revision=revision,
+        )
+        if not conns or body is None:
             return
-        body: dict[str, Any] = {
-            "event": "diagram_updated",
-            "diagram_id": diagram_id.strip(),
-            "kind": kind if isinstance(kind, str) and kind.strip() else "updated",
-        }
-        if isinstance(revision, int) and not isinstance(revision, bool):
-            body["revision"] = revision
         raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" diagram_updated ")
+        await self._delivery.fanout(conns, raw, label=" diagram_updated ")
 
     async def send_turn_model_updated(
         self,
@@ -2061,17 +2057,8 @@ class WebSocketChannel(BaseChannel):
     ) -> None:
         """Notify one chat's subscribers which model is handling its current request."""
         conns = list(self._subs.get(chat_id, ()))
-        if (
-            not conns
-            or not isinstance(model_name, str)
-            or not model_name.strip()
-        ):
+        body = outbound_wire.encode_turn_model_updated(chat_id, model_name=model_name)
+        if not conns or body is None:
             return
-        body: dict[str, Any] = {
-            "event": "turn_model_updated",
-            "chat_id": chat_id,
-            "model_name": model_name.strip(),
-        }
         raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" turn_model_updated ")
+        await self._delivery.fanout(conns, raw, label=" turn_model_updated ")
