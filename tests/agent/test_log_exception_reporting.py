@@ -133,10 +133,14 @@ _LOGGER_ATTRS = frozenset(
 # Known remaining offender, outside this change's file scope. `violations` is
 # asserted to be a subset rather than equal to it, so fixing it does not fail
 # this test.
-#: Empty, and it should stay that way. It was a subset assertion while
-#: `webui/version_check.py` was still outstanding, so whoever fixed that last site would not have
-#: to edit this test to prove it. It is fixed; a new name appearing here means a regression, not
-#: a pending task.
+#: Empty, and it should stay that way. A name appearing here means a regression.
+#:
+#: `webui/version_check.py` was once listed as the last outstanding offender. It is not an
+#: offender at all -- that module uses stdlib `logging`, where `exc_info=True` is the correct
+#: spelling -- and the guard already skips stdlib modules, so it needs no entry. Verified the hard
+#: way: rewriting it to `logger.opt(exception=True)` type-checks as
+#: `Cannot access attribute "opt" for class "Logger"` and would have raised at runtime the first
+#: time a version check failed.
 _EXC_INFO_ALLOWLIST: frozenset[str] = frozenset()
 
 # stdlib `logging` is correct with printf placeholders; these modules use it.
