@@ -1,5 +1,10 @@
 import type { GenericToolStatus } from "./generic-tool-model";
-import { safeActivityDetail, summarizeShellCommand } from "./activity-text";
+import {
+  redactShellCommand,
+  safeActivityDetail,
+  shellCommandDestination,
+  summarizeShellCommand,
+} from "./activity-text";
 import { presentWebSearchAction } from "./web-search-model";
 import { displayWebHost, formatCompactWebUrl, parseSafeActivityHttpUrl } from "./web-url";
 
@@ -10,6 +15,14 @@ export interface TraceDescription {
   icon?: "clock";
   url?: string;
   host?: string;
+  /**
+   * The command verbatim, when the row summarised it to a line count. A reader who wants to
+   * know *what* ran had no way to find out: the summary said "script, 10 lines" and the body
+   * lived only in the transcript.
+   */
+  body?: string;
+  /** The file the command names as its destination, if it names one. Never guessed. */
+  wrote?: string;
 }
 
 export function describeTraceLine(
@@ -106,10 +119,21 @@ function describeShellTrace(
       icon: "clock",
     };
   }
+  const lines = command.replace(/\r\n/g, "\n").split("\n").filter((line) => line.trim());
+  const wrote = shellCommandDestination(command) ?? undefined;
   return {
     kind: "tool",
     label: statusCopy(status, "Running command", "Ran command", "Command failed"),
     detail: summarizeShellCommand(command),
+    // Only when the summary actually hid something. A one-line command is already fully shown,
+    // and a disclosure that opens to reveal the line above it is noise.
+    //
+    // **Redacted, not verbatim.** The collapsed summary already goes through
+    // `redactShellCommand`, and a disclosure that revealed what the line above it hid would make
+    // the redaction decorative -- `tests/agent-activity-cluster.test.tsx` asserts a token in a
+    // heredoc never reaches the DOM, and that has to keep holding when the row opens.
+    ...(lines.length > 1 ? { body: redactShellCommand(command) } : {}),
+    ...(wrote ? { wrote } : {}),
   };
 }
 

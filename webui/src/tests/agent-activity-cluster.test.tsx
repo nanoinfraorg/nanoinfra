@@ -1537,6 +1537,81 @@ describe("AgentActivityCluster", () => {
     expect(screen.queryByText(/example\.com/)).not.toBeInTheDocument();
   });
 
+  function renderCommand(command: string) {
+    const line = `exec(${JSON.stringify({ command })})`;
+    render(
+      <AgentActivityCluster
+        messages={[{
+          id: "t-cmd",
+          role: "tool",
+          kind: "trace",
+          content: line,
+          traces: [line],
+          createdAt: 1,
+        }]}
+        isTurnStreaming={false}
+        hasBodyBelow
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Worked" }));
+  }
+
+  it("opens a summarized command to show what actually ran", () => {
+    // The summary said "script, 10 lines" and the body lived only in the transcript, so a
+    // reader could not answer "what code did it run" from the timeline at all.
+    renderCommand([
+      "python3 - <<'EOF'",
+      "import pdfplumber",
+      "with open('cfe.txt', 'w') as f:",
+      "    f.write('x')",
+      "EOF",
+    ].join("\n"));
+
+    expect(screen.queryByTestId("activity-command-body")).toBeNull();
+    fireEvent.click(screen.getByTestId("activity-command-toggle"));
+
+    const body = screen.getByTestId("activity-command-body");
+    expect(body.textContent).toContain("import pdfplumber");
+    expect(body.textContent).toContain("with open('cfe.txt', 'w')");
+  });
+
+  it("names the file a command writes, on the collapsed line", () => {
+    renderCommand("python3 - <<'EOF'\nwith open('cfe.txt', 'w') as f:\n    f.write('x')\nEOF");
+
+    expect(screen.getByTestId("activity-command-toggle").textContent).toContain("\u2192 cfe.txt");
+  });
+
+  it("names no file when the command names none", () => {
+    // A positional output argument is not detectable, and inventing one would put a wrong
+    // filename in front of a reader -- worse than putting none.
+    renderCommand("pdftotext -layout in.pdf out.txt\necho done");
+
+    expect(screen.getByTestId("activity-command-toggle").textContent).not.toContain("\u2192");
+  });
+
+  it("redacts the opened body, not only the collapsed line", () => {
+    // Otherwise the redaction on the summary is decorative: the row hides a token and the
+    // disclosure hands it back.
+    renderCommand([
+      "cat << 'EOF' | bash",
+      "SECRET_TOKEN=sk-test",
+      "echo done",
+      "EOF",
+    ].join("\n"));
+
+    fireEvent.click(screen.getByTestId("activity-command-toggle"));
+
+    const body = screen.getByTestId("activity-command-body");
+    expect(body.textContent).toContain("echo done");
+    expect(body.textContent).not.toContain("sk-test");
+  });
+
+  it("offers no disclosure for a command that is already one line", () => {
+    renderCommand("ls -la /tmp");
+
+    expect(screen.queryByTestId("activity-command-toggle")).toBeNull();
+  });
+
   it("summarizes long shell traces instead of dumping scripts", () => {
     const command = [
       "cat << 'EOF' | bash",

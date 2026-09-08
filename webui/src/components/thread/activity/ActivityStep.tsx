@@ -10,6 +10,11 @@ export interface ActivityStepProps {
   icon?: LucideIcon;
   marker?: ReactNode;
   label: ReactNode;
+  /**
+   * Rendered under the label, outside the truncating row. The label line clips on purpose; this
+   * is where something that must not be clipped goes.
+   */
+  children?: ReactNode;
   ariaLabel?: string;
   active?: boolean;
   tone?: ActivityStepTone;
@@ -24,6 +29,7 @@ export function ActivityStep({
   icon: Icon,
   marker,
   label,
+  children,
   ariaLabel,
   active = false,
   tone = active ? "active" : "neutral",
@@ -81,6 +87,7 @@ export function ActivityStep({
             {label}
           </StreamingLabelSheen>
         </div>
+        {children}
       </div>
     </div>
   );

@@ -1368,6 +1368,9 @@
     }
   },
   "thread": {
+    "activity": {
+      "commandWrote": "escribió {{file}}"
+    },
     "loadingConversation": "Cargando conversación…",
     "empty": {
       "greetings": {

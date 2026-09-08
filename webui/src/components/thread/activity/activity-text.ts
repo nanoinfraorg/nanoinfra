@@ -48,6 +48,45 @@ export function safeActivityDetail(value: string, maxLength = 96): string {
   );
 }
 
+/**
+ * The file a command writes, when the command says so plainly.
+ *
+ * Three sources, and deliberately only three: a `>`/`>>` redirect, an explicit `-o`/`--output`
+ * flag, and an `open(..., "w")` in a heredoc body. Each of those *names* the destination.
+ *
+ * A positional output argument — `pdftotext in.pdf out.txt` — is **not** detected, because no
+ * rule distinguishes it from a second input without knowing the program. Guessing there would
+ * put a wrong filename in front of a reader, which is worse than putting none: the whole value
+ * of this line is that it can be trusted.
+ *
+ * `/dev/null` and its siblings are excluded for the same reason they are excluded from the
+ * workspace-bypass throttle — a redirect to the shell's own plumbing is not an artifact.
+ */
+export function shellCommandDestination(command: string): string | null {
+  const text = command.replace(/\r\n/g, "\n");
+  const candidates: string[] = [];
+
+  // A redirect, but not `2>`/`&>` (those are streams, not results) and not an append to a log.
+  for (const match of text.matchAll(/(^|[^0-9&>])>>?\s*("[^"]+"|'[^']+'|[^\s;|&<>]+)/g)) {
+    candidates.push(match[2]);
+  }
+  for (const match of text.matchAll(/(?:^|\s)(?:-o|--output)(?:=|\s+)("[^"]+"|'[^']+'|[^\s;|&<>]+)/g)) {
+    candidates.push(match[1]);
+  }
+  // `open(path, "w")` / `"wb"` / `"a"` inside a heredoc script.
+  for (const match of text.matchAll(/open\(\s*("[^"]+"|'[^']+')\s*,\s*["'](?:w|wb|a|ab)["']/g)) {
+    candidates.push(match[1]);
+  }
+
+  for (const raw of candidates) {
+    const value = raw.replace(/^["']|["']$/g, "").trim();
+    if (!value || value.startsWith("/dev/") || value === "-") continue;
+    if (value.includes("$")) continue; // an unexpanded variable names nothing a reader can open
+    return value;
+  }
+  return null;
+}
+
 export function summarizeShellCommand(command: string): string {
   const lines = redactShellCommand(command.replace(/\r\n/g, "\n"))
     .split("\n")

@@ -1368,6 +1368,9 @@
     }
   },
   "thread": {
+    "activity": {
+      "commandWrote": "wrote {{file}}"
+    },
     "loadingConversation": "Loading conversation…",
     "empty": {
       "greetings": {

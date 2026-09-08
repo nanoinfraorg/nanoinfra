@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Clock3,
   Layers,
   Search,
@@ -12,7 +14,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { cliAppInitials, mcpPresetInitials } from "@/components/CliAppMentionText";
-import { ActivityStep } from "@/components/thread/activity/ActivityStep";
+import { ActivityStep, type ActivityStepTone } from "@/components/thread/activity/ActivityStep";
 import { coalesceActivityMessages } from "@/components/thread/activity/activity-message-model";
 import {
   compactActivityPath,
@@ -701,13 +703,94 @@ function ActivityTraceRow({
       />
     );
   }
+  const summary = [trace.label, trace.detail].filter(Boolean).join(" ");
+  const summaryLine = trace.wrote ? `${summary} \u2192 ${trace.wrote}` : summary;
+  if (trace.body) {
+    return (
+      <ExpandableCommandStep
+        marker={<TraceIconMark trace={trace} fallbackIcon={Icon} active={rowActive} />}
+        active={rowActive && trace.kind !== "done"}
+        tone={status === "error" ? "error" : status === "done" ? "success" : "active"}
+        line={summaryLine}
+        body={trace.body}
+        wrote={trace.wrote}
+      />
+    );
+  }
   return (
     <ActivityStep
       marker={<TraceIconMark trace={trace} fallbackIcon={Icon} active={rowActive} />}
       active={rowActive && trace.kind !== "done"}
       tone={status === "error" ? "error" : status === "done" ? "success" : "active"}
-      label={[trace.label, trace.detail].filter(Boolean).join(" ")}
+      label={summaryLine}
     />
+  );
+}
+
+/**
+ * A command row that opens to show what actually ran.
+ *
+ * The collapsed line stays clipped to one row, because a wall of script in a timeline is worse
+ * than a summary. The body is `<pre>` and scrolls rather than wraps: a heredoc's indentation is
+ * part of reading it, and re-wrapping Python makes it lie about its own structure.
+ */
+function ExpandableCommandStep({
+  marker,
+  active,
+  tone,
+  line,
+  body,
+  wrote,
+}: {
+  marker: ReactNode;
+  active: boolean;
+  tone: ActivityStepTone;
+  line: string;
+  body: string;
+  wrote?: string;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <ActivityStep
+      marker={marker}
+      active={active}
+      tone={tone}
+      label={
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          aria-expanded={open}
+          className="flex min-w-0 items-center gap-1 text-left"
+          data-testid="activity-command-toggle"
+        >
+          {open
+            ? <ChevronDown className="h-3 w-3 shrink-0" aria-hidden />
+            : <ChevronRight className="h-3 w-3 shrink-0" aria-hidden />}
+          <span className="min-w-0 truncate">{line}</span>
+        </button>
+      }
+    >
+      {open
+        ? (
+          <div className="mt-1 border-l border-border/50 pl-2.5" data-testid="activity-command-body">
+            <pre className="max-h-64 overflow-auto whitespace-pre text-[12px] leading-[1.45] text-muted-foreground/80">
+              {body}
+            </pre>
+            {wrote
+              ? (
+                <p className="mt-1 text-[12px] text-muted-foreground/70">
+                  {t("thread.activity.commandWrote", {
+                    file: wrote,
+                    defaultValue: "wrote {{file}}",
+                  })}
+                </p>
+              )
+              : null}
+          </div>
+        )
+        : null}
+    </ActivityStep>
   );
 }
 

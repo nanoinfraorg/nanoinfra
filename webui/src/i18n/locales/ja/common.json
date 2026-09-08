@@ -1368,6 +1368,9 @@
     }
   },
   "thread": {
+    "activity": {
+      "commandWrote": "{{file}} を書き込み"
+    },
     "loadingConversation": "会話を読み込み中…",
     "empty": {
       "greetings": {

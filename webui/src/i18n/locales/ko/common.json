@@ -1368,6 +1368,9 @@
     }
   },
   "thread": {
+    "activity": {
+      "commandWrote": "{{file}} 작성"
+    },
     "loadingConversation": "대화 불러오는 중…",
     "empty": {
       "greetings": {

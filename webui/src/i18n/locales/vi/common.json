@@ -1368,6 +1368,9 @@
     }
   },
   "thread": {
+    "activity": {
+      "commandWrote": "đã ghi {{file}}"
+    },
     "loadingConversation": "Đang tải cuộc trò chuyện…",
     "empty": {
       "greetings": {
