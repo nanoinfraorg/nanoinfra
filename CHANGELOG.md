@@ -12,6 +12,11 @@ not here.
 ## [Unreleased]
 
 ### Fixed
+- A degraded consolidation no longer loses the messages past the first 16,000 characters of its raw
+  dump. When the summarising model errors or runs out of room, the batch is dumped to history as
+  `(part i/n)` entries instead of one truncated entry — the compaction cursor advances past that
+  batch either way, so the part that used to be cut off left the session with no copy anywhere.
+  ([#109](https://github.com/nanoinfraorg/nanoinfra/issues/109))
 - Editing a cron job no longer cancels the job that is running. The scheduler's timer task is the
   task running the turn, and every edit re-armed that timer — so the agent's own cron tool, an
   operator toggling an automation in the WebUI, and a commissioning verdict each killed the turn

@@ -442,6 +442,17 @@ class MemoryStore:
             raw = truncate_text(raw, limit)
         return strip_think(raw)
 
+    def _scrubbed_history_text(self, text: str) -> str:
+        """The two protections of ``_sanitized_history_content``, with no length bound (#109).
+
+        For a caller that has to split a payload across entries: it scrubs here first, so the cut
+        falls on text that already holds no credential and no thinking block. The cap is what stays
+        behind, because a cap is per entry and this is not.
+        """
+        return strip_think(
+            TranscriptRedactor.for_workspace(self.workspace).text(text).rstrip()
+        )
+
     @staticmethod
     def _valid_cursor(value: Any) -> int | None:
         """Non-negative int cursors only; reject bool (``isinstance(True, int)`` is True)."""
@@ -1003,19 +1014,50 @@ class MemoryStore:
         max_chars: int | None = None,
         session_key: str | None = None,
     ) -> None:
-        """Fallback: dump raw messages to history.jsonl without LLM summarization."""
+        """Fallback: dump raw messages to history.jsonl without LLM summarization.
+
+        *max_chars* bounds one entry and not the dump. A batch too large for one entry is written
+        as ``(part i/n)`` entries, and never truncated: every caller advances
+        ``session.last_consolidated`` past this batch whether or not a summary came back, so a
+        truncation here deletes the messages it dropped from the only copy that was left. The bound
+        stays per entry because ``_DREAM_RAW_ENTRY_CAP`` is derived from it -- an entry Dream can
+        show only in part is read in part and then deleted by the compactor -- and because more
+        entries is the answer the layer above already gives: a Dream batch that does not fit takes
+        fewer entries, never less of each entry (#109).
+
+        Backport of HKUDS/nanobot PR 5379, without its return value: our callers read ``None`` and
+        treat a raw dump as a breadcrumb they do not need to name.
+        """
         limit = max_chars if max_chars is not None else _RAW_ARCHIVE_MAX_CHARS
-        formatted = truncate_text(
-            self._format_messages(public_history_messages(messages)),
-            limit,
+        # Keep a part under ``append_history``'s own cap with room for the header and for scrub
+        # markers, which are longer than the values they replace. A part sized exactly at that cap
+        # would be truncated on the way in, which is the loss this method exists to prevent.
+        chunk_size = min(max(1, limit), _HISTORY_ENTRY_HARD_CAP - 1_000)
+        # Scrub the whole dump once, before it is cut into parts. Both protections read the text as
+        # a unit: a credential or a ``<think>`` block that a part boundary halves matches neither
+        # pattern afterwards, and both halves persist -- the same reason
+        # ``_sanitized_history_content`` scrubs before its own cap. ``append_history`` scrubs each
+        # part again and finds nothing left to do.
+        formatted = self._scrubbed_history_text(
+            self._format_messages(public_history_messages(messages))
         )
-        self.append_history(
-            f"[RAW] {len(messages)} messages\n"
-            f"{formatted}",
-            session_key=session_key,
-        )
+        parts = [
+            formatted[start:start + chunk_size]
+            for start in range(0, len(formatted), chunk_size)
+        ] or [""]
+        for number, part in enumerate(parts, start=1):
+            # One part is the shape every reader of these entries already knows, so it keeps the
+            # header it had. The marker appears only when there is something to order.
+            suffix = f" (part {number}/{len(parts)})" if len(parts) > 1 else ""
+            self.append_history(
+                f"[RAW] {len(messages)} messages{suffix}\n"
+                f"{part}",
+                session_key=session_key,
+            )
         logger.warning(
-            "Memory consolidation degraded: raw-archived {} messages", len(messages)
+            "Memory consolidation degraded: raw-archived {} messages in {} entries",
+            len(messages),
+            len(parts),
         )
 
     # ------------------------------------------------------------------
@@ -1487,6 +1529,9 @@ class Consolidator:
                 # summarized; on failure archive() already raw-archived it as
                 # a breadcrumb. Re-archiving the same chunk on the next call
                 # would just emit duplicate [RAW] entries.
+                # This holds only because that breadcrumb is the whole chunk. ``raw_archive``
+                # splits a dump too large for one entry instead of truncating it, so nothing the
+                # cursor passes here is unwritten (#109).
                 if summary:
                     last_summary = summary
                 session.last_consolidated = end_idx
