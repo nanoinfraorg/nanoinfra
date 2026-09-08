@@ -12,6 +12,9 @@ not here.
 ## [Unreleased]
 
 ### Fixed
+- Guidance queued in one chat is no longer sent into another. Opening a second chat that was idle
+  read as the first chat finishing, so the waiting prompt went to whatever conversation was on
+  screen; it now stays in its own chat until that chat's run ends.
 - One slow WebSocket client no longer delays the frames owed to every other client on the same
   chat, and a client that stops reading is disconnected rather than allowed to grow an
   unbounded outbound backlog in server memory.

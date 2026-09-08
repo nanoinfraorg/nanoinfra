@@ -3493,6 +3493,74 @@ const MENTION_CALENDARS = [
     });
   });
 
+  /**
+   * Queued guidance belongs to the chat it was typed in. Opening another chat that happens to be
+   * idle is not the running chat finishing, so nothing may be sent there — a prompt landing in the
+   * wrong conversation is worse than one that keeps waiting.
+   */
+  it("keeps queued guidance in its own chat when the next chat opens idle", async () => {
+    const sendA = vi.fn();
+    const sendB = vi.fn();
+    const { rerender } = render(
+      <ThreadComposer
+        onSend={sendA}
+        onStop={vi.fn()}
+        isStreaming
+        pendingQueueKey="chat-a"
+        placeholder="Type your message..."
+      />,
+    );
+
+    const input = screen.getByLabelText("Message input");
+    fireEvent.change(input, { target: { value: "follow-up for A" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByText("follow-up for A")).toBeInTheDocument();
+    expect(sendA).not.toHaveBeenCalled();
+
+    rerender(
+      <ThreadComposer
+        onSend={sendB}
+        onStop={vi.fn()}
+        isStreaming={false}
+        pendingQueueKey="chat-b"
+        placeholder="Type your message..."
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.queryByText("follow-up for A")).not.toBeInTheDocument();
+    });
+    expect(sendB).not.toHaveBeenCalled();
+    expect(sendA).not.toHaveBeenCalled();
+
+    rerender(
+      <ThreadComposer
+        onSend={sendA}
+        onStop={vi.fn()}
+        isStreaming
+        pendingQueueKey="chat-a"
+        placeholder="Type your message..."
+      />,
+    );
+    expect(await screen.findByText("follow-up for A")).toBeInTheDocument();
+    expect(sendA).not.toHaveBeenCalled();
+
+    rerender(
+      <ThreadComposer
+        onSend={sendA}
+        onStop={vi.fn()}
+        isStreaming={false}
+        pendingQueueKey="chat-a"
+        placeholder="Type your message..."
+      />,
+    );
+    await waitFor(() => {
+      expect(sendA).toHaveBeenCalledWith("follow-up for A");
+    });
+    expect(sendA).toHaveBeenCalledTimes(1);
+    expect(sendB).not.toHaveBeenCalled();
+    expect(screen.queryByText("follow-up for A")).not.toBeInTheDocument();
+  });
+
   it("persists queued guidance per chat across remounts", async () => {
     const onSend = vi.fn();
     const { rerender, unmount } = render(

@@ -1089,7 +1089,8 @@ export function ThreadComposer({
   const secondEnterPromptIdRef = useRef<string | null>(null);
   const draggedQueuedPromptIdRef = useRef<string | null>(null);
   const previousPendingQueueKeyRef = useRef(pendingQueueKey);
-  const wasStreamingRef = useRef(isStreaming);
+  // Which chat was running, not just whether something was: the queue belongs to one chat.
+  const previousQueueRunRef = useRef({ key: pendingQueueKey, isStreaming });
   const skipNextQueuedFlushRef = useRef(false);
   const skipQueuedPromptPersistRef = useRef(false);
   const voiceShortcutDownRef = useRef(false);
@@ -2321,16 +2322,22 @@ export function ThreadComposer({
   }, [onSend, queuedPrompts]);
 
   useEffect(() => {
-    const wasStreaming = wasStreamingRef.current;
-    wasStreamingRef.current = isStreaming;
+    const previous = previousQueueRunRef.current;
+    previousQueueRunRef.current = { key: pendingQueueKey, isStreaming };
     if (!isStreaming) secondEnterPromptIdRef.current = null;
-    if (!wasStreaming || isStreaming || queuedPrompts.length === 0) return;
+    // Opening a chat that happens to be idle is not the previous chat's run finishing, so its
+    // queue stays where it was typed instead of being drained into whatever is on screen.
+    if (previous.key !== pendingQueueKey) {
+      skipNextQueuedFlushRef.current = false;
+      return;
+    }
+    if (!previous.isStreaming || isStreaming || queuedPrompts.length === 0) return;
     if (skipNextQueuedFlushRef.current) {
       skipNextQueuedFlushRef.current = false;
       return;
     }
     sendNextQueuedPrompt();
-  }, [sendNextQueuedPrompt, isStreaming, queuedPrompts.length]);
+  }, [sendNextQueuedPrompt, isStreaming, pendingQueueKey, queuedPrompts.length]);
 
   const handleStop = useCallback(() => {
     secondEnterPromptIdRef.current = null;

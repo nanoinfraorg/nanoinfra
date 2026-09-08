@@ -1731,7 +1731,10 @@ describe("App layout", () => {
     expect(message!).toHaveClass("line-clamp-6");
 
     fireEvent.click(within(detailPanel).getByRole("button", { name: "Show full message" }));
-    expect(within(detailPanel).getByRole("button", { name: "Show less" })).toBeInTheDocument();
+    // `findByRole`, not `getByRole`: `fireEvent.click` does not await React's re-render, so the
+    // synchronous query raced the button into existence and failed roughly one run in thirty on a
+    // loaded machine. The heading nine lines up already awaits for the same reason.
+    expect(await within(detailPanel).findByRole("button", { name: "Show less" })).toBeInTheDocument();
     expect(message!).not.toHaveClass("line-clamp-6");
 
     // 87aaf899 removed a run-history UI with a "Recent health" summary line, a collapsible
