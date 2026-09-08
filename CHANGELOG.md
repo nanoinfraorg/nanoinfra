@@ -13,6 +13,13 @@ not here.
 
 ## [2.2.8] — 2026-09-07
 
+### Changed
+
+- `mcp` is capped below 1.30. That release changes three defaults at once — redirects are followed
+  only within the endpoint's origin, idle Streamable HTTP sessions expire, and the OAuth client
+  validates the authorization server's `issuer` — and the first two govern how this project talks
+  to an MCP server over HTTP.
+
 ### Fixed
 
 - A command in the `bwrap` sandbox now runs nanoinfra's own Python. It resolved to the base

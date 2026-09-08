@@ -44,7 +44,18 @@ dependencies = [
     "croniter>=6.0.0,<7.0.0",
     "prompt-toolkit>=3.0.50,<4.0.0",
     "questionary>=2.0.0,<3.0.0",
-    "mcp>=1.26.0,<2.0.0",
+    # Ceiling at <1.30 deliberately (2026-09-07). 1.30.0 changed three defaults at once --
+    # redirects are followed only within the endpoint's origin, idle Streamable HTTP sessions
+    # expire, and the OAuth client validates the authorization server's `issuer` -- and the
+    # first two touch how this project talks to an MCP server over HTTP.
+    #
+    # It also broke `tests/agent/test_mcp_reconnect_crash.py`: that test provokes a reconnect by
+    # letting the *server* expire an idle session, and 1.30.0's client holds the GET stream open,
+    # so the session is never idle and no reconnect is attempted. The reconnect path is not what
+    # changed; the way the test can provoke it is.
+    #
+    # Raise this only with those three behaviour changes evaluated, not as a version bump.
+    "mcp>=1.26.0,<1.30",
     "json-repair>=0.57.0,<1.0.0",
     "chardet>=3.0.2,<6.0.0",
     "openai>=2.8.0",
