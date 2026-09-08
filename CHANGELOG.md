@@ -11,6 +11,8 @@ not here.
 
 ## [Unreleased]
 
+## [2.3.0] — 2026-09-08
+
 ### Added
 - The composer says how much of the context window a thread is using, and what the last eight
   provider calls cost. Each bar splits the call's input into the three buckets billed separately,
@@ -946,7 +948,8 @@ with upstream imports. That history lives in the
 [release archive](https://docs.nanoinfra.org/release-archive) and on the
 [releases page](https://github.com/nanoinfraorg/nanoinfra/releases).
 
-[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.8...HEAD
+[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.8...v2.3.0
 [2.2.8]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.7...v2.2.8
 [2.2.7]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.6...v2.2.7
 [2.2.6]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.5...v2.2.6
