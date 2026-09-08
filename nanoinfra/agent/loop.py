@@ -1149,7 +1149,7 @@ class AgentLoop:
             payload["total_tokens"] = sum(int(section["tokens"]) for section in sections)
             return payload
         except Exception:
-            logger.debug("prompt manifest unavailable for this turn", exc_info=True)
+            logger.opt(exception=True).debug("prompt manifest unavailable for this turn")
             return None
 
     def _request_context_for_turn(self, ctx: TurnContext) -> RequestContext:
@@ -1748,10 +1748,9 @@ class AgentLoop:
                     try:
                         await delivery.abort_stream()
                     except Exception:
-                        logger.debug(
+                        logger.opt(exception=True).debug(
                             "Could not close stream for cancelled session {}",
                             session_key,
-                            exc_info=True,
                         )
                     # Preserve partial context from the interrupted turn so
                     # the user does not lose tool results and assistant
@@ -1771,10 +1770,9 @@ class AgentLoop:
                                 key,
                             )
                     except Exception:
-                        logger.debug(
+                        logger.opt(exception=True).debug(
                             "Could not restore checkpoint for cancelled session {}",
                             session_key,
-                            exc_info=True,
                         )
                     raise
                 except Exception as exc:
@@ -1962,11 +1960,26 @@ class AgentLoop:
             )
         )
 
+    def _background_task_done(self, task: asyncio.Task[Any]) -> None:
+        """Retire a background task and log whatever it raised.
+
+        Discarding alone leaves the exception unretrieved, so the only trace is
+        asyncio's unattributed "Task exception was never retrieved" at GC time.
+        Memory consolidation and idle auto-compaction run here, and either could
+        fail on every turn without a line naming it.
+        """
+        self._background_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.opt(exception=exc).error("Background task {} failed", task.get_name())
+
     def schedule_background(self, coro: Coroutine[Any, Any, Any]) -> None:
         """Schedule a coroutine as a tracked background task (drained on shutdown)."""
-        task = asyncio.create_task(coro)
+        task = asyncio.create_task(coro, name=getattr(coro, "__qualname__", None))
         self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+        task.add_done_callback(self._background_task_done)
 
     def stop(self) -> None:
         """Stop the agent loop."""

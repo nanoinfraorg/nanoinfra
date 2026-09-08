@@ -210,7 +210,9 @@ async def maybe_generate_webui_title(
             retry_mode="standard",
         )
     except Exception:
-        logger.debug("Failed to generate webui session title for {}", session_key, exc_info=True)
+        logger.opt(exception=True).debug(
+            "Failed to generate webui session title for {}", session_key
+        )
         return False
 
     title = clean_generated_title(response.content)
@@ -649,10 +651,9 @@ class WebuiTurnCoordinator:
                         metadata=event.context.metadata,
                     )
             except Exception:
-                logger.warning(
+                logger.opt(exception=True).warning(
                     "WebUI title generation task failed for {}",
                     event.context.session_key,
-                    exc_info=True,
                 )
 
         self.schedule_background(_generate_title_and_notify())

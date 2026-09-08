@@ -102,3 +102,7 @@ exp/
 .playwright-mcp/
 bridge/node_modules/
 webui/.verify-*
+
+# Agent worktrees. Each is its own checkout of this repo; committing one would embed a
+# git repository inside this one.
+.claude/worktrees/

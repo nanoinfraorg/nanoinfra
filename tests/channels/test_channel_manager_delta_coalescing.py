@@ -421,27 +421,23 @@ class TestProgressFiltering:
 
 
 class TestRetryWaitFiltering:
-    """Internal provider retry heartbeats must never reach channels."""
+    """A provider backoff rides the channel's own progress switch.
 
-    @pytest.mark.asyncio
-    async def test_retry_wait_message_dropped(self, manager, bus):
-        retry_msg = outbound_message_for_event(
-            channel="mock",
-            chat_id="chat1",
-            event=RetryWaitEvent(content="Model request failed, retry in 1s (attempt 1)."),
-        )
-        real_msg = OutboundMessage(
-            channel="mock",
-            chat_id="chat1",
-            content="final answer",
-        )
-        await bus.publish_outbound(retry_msg)
-        await bus.publish_outbound(real_msg)
+    ``turn_delivery`` publishes a ``RetryWaitEvent`` for every retry, and the
+    dispatcher used to drop all of them unconditionally. Only the CLI, which
+    reads the event off the bus itself, ever showed a backoff; on every other
+    channel a retry was invisible and the publish was dead code. The countdown
+    is in-turn progress rather than a reply, so it now shares
+    ``send_progress`` -- a channel that declines progress declines this too.
+    """
 
+    _RETRY_LINE = "Model request failed, retry in 1s (attempt 1)."
+
+    async def _dispatch_until_send(self, manager, expected: int):
         task = asyncio.create_task(manager._dispatch_outbound())
         try:
             for _ in range(30):
-                if manager.channels["mock"]._send_mock.await_count >= 1:
+                if manager.channels["mock"]._send_mock.await_count >= expected:
                     break
                 await asyncio.sleep(0.05)
         finally:
@@ -450,9 +446,59 @@ class TestRetryWaitFiltering:
                 await task
             except asyncio.CancelledError:
                 pass
+        return manager.channels["mock"]._send_mock
 
-        send_mock = manager.channels["mock"]._send_mock
+    @pytest.mark.asyncio
+    async def test_retry_wait_reaches_a_channel_that_takes_progress(self, manager, bus):
+        await bus.publish_outbound(outbound_message_for_event(
+            channel="mock",
+            chat_id="chat1",
+            event=RetryWaitEvent(content=self._RETRY_LINE),
+        ))
+        await bus.publish_outbound(OutboundMessage(
+            channel="mock",
+            chat_id="chat1",
+            content="final answer",
+        ))
+
+        send_mock = await self._dispatch_until_send(manager, 2)
+
+        assert send_mock.await_count == 2
+        assert send_mock.await_args_list[0].args[0].content == self._RETRY_LINE
+        assert send_mock.await_args_list[1].args[0].content == "final answer"
+
+    @pytest.mark.asyncio
+    async def test_retry_wait_dropped_when_channel_declines_progress(self, manager, bus):
+        manager.channels["mock"].send_progress = False
+        await bus.publish_outbound(outbound_message_for_event(
+            channel="mock",
+            chat_id="chat1",
+            event=RetryWaitEvent(content=self._RETRY_LINE),
+        ))
+        await bus.publish_outbound(OutboundMessage(
+            channel="mock",
+            chat_id="chat1",
+            content="final answer",
+        ))
+
+        send_mock = await self._dispatch_until_send(manager, 1)
+
         assert send_mock.await_count == 1
         sent = send_mock.await_args_list[0].args[0]
         assert sent.content == "final answer"
         assert sent.event is None
+
+    @pytest.mark.asyncio
+    async def test_repeated_retry_lines_are_not_deduped_as_replies(self, manager, bus):
+        """A countdown repeats by design, so it stays out of reply dedup state."""
+        for _ in range(2):
+            await bus.publish_outbound(outbound_message_for_event(
+                channel="mock",
+                chat_id="chat1",
+                event=RetryWaitEvent(content=self._RETRY_LINE),
+                metadata={"origin_message_id": "m1"},
+            ))
+
+        send_mock = await self._dispatch_until_send(manager, 2)
+
+        assert send_mock.await_count == 2

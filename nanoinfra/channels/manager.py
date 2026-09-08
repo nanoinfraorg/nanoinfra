@@ -642,7 +642,7 @@ class ChannelManager:
 
     def _should_suppress_outbound(self, msg: OutboundMessage) -> bool:
         metadata = msg.metadata or {}
-        if isinstance(outbound_event_from_message(msg), ProgressEvent):
+        if isinstance(outbound_event_from_message(msg), ProgressEvent | RetryWaitEvent):
             return False
         fingerprint = self._fingerprint_content(msg.content)
         if not fingerprint:
@@ -709,7 +709,13 @@ class ChannelManager:
                         continue
 
                 if isinstance(event, RetryWaitEvent):
-                    continue
+                    # A backoff notice is in-turn progress, not a reply, so it
+                    # rides the same per-channel switch: a channel that declines
+                    # progress declines the countdown with it. Dropping it here
+                    # unconditionally left every channel but the CLI, which reads
+                    # the event off the bus itself, with no sign of a retry.
+                    if not self._should_send_progress(msg.channel):
+                        continue
 
                 if (
                     isinstance(event, RuntimeModelUpdatedEvent | DiagramUpdatedEvent)

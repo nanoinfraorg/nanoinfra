@@ -12,6 +12,18 @@ not here.
 ## [Unreleased]
 
 ### Fixed
+- A background task that raises is now logged with its traceback and the name of the coroutine
+  that failed. Memory consolidation and idle auto-compaction run through that path, so either
+  could have been failing on every turn with nothing but asyncio's unattributed "Task exception
+  was never retrieved" to show for it.
+- Fourteen log calls that passed `exc_info=True` now record the traceback. loguru takes keywords
+  as format bindings, so the flag was accepted, unused and dropped — every one of those sites
+  believed it was keeping an exception's traceback and was keeping none.
+- Six log messages that used printf `%s` now interpolate. The message printed a literal `%s` and
+  the argument — an entry-point name, a failing tool's name — was dropped.
+- A provider backoff is visible on any channel that already takes progress updates. The event was
+  published and then discarded before dispatch, so outside the CLI a two-minute `Retry-After`
+  looked like a chat that had simply gone quiet.
 
 - A long Anthropic answer is no longer cut off at the stream idle timeout. The 90 s bound measured
   total generation instead of silence whenever no streaming callback was attached — which is every

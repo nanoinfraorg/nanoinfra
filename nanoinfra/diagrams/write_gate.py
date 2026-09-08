@@ -181,4 +181,4 @@ def record_diagram_write(*, diagram_id: str, tool: str, summary: str) -> None:
             reason="diagram write",
         )
     except Exception:
-        logger.warning("Could not record the audit entry for a diagram write", exc_info=True)
+        logger.opt(exception=True).warning("Could not record the audit entry for a diagram write")

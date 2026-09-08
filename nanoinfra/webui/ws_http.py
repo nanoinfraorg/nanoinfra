@@ -1094,8 +1094,8 @@ class GatewayHTTPHandler:
                         )
                     )
             except Exception:
-                self._log.warning(
-                    "WebUI title retry-on-open failed for {}", session_key, exc_info=True
+                self._log.opt(exception=True).warning(
+                    "WebUI title retry-on-open failed for {}", session_key
                 )
             finally:
                 self._title_retry_in_flight.discard(session_key)
@@ -2526,7 +2526,7 @@ class GatewayHTTPHandler:
             except Exception:
                 # Never fatal, and never zero: "this could not be read" and "there are none of
                 # these" are different facts about a deployment.
-                self._log.exception("metrics scale: could not count %s", name)
+                self._log.exception("metrics scale: could not count {}", name)
                 counts[name] = None
                 unavailable.append(name)
 

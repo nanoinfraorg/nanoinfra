@@ -38,7 +38,10 @@ def check_for_update() -> dict[str, Any] | None:
             resp.raise_for_status()
             latest = resp.json().get("info", {}).get("version")
         except Exception:
-            logger.debug("PyPI version check failed", exc_info=True)
+            # `opt(exception=True)` and not `logger.exception`: loguru drops `exc_info` as an
+            # unused format binding, and `exception` would promote a best-effort background check
+            # to ERROR. A missed version banner is not an error.
+            logger.opt(exception=True).debug("PyPI version check failed")
             return None
         _cache = (now, latest)
 
