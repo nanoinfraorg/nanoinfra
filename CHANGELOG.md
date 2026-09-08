@@ -11,6 +11,8 @@ not here.
 
 ## [Unreleased]
 
+## [2.2.8] — 2026-09-07
+
 ### Fixed
 
 - A command in the `bwrap` sandbox now runs nanoinfra's own Python. It resolved to the base
@@ -827,7 +829,8 @@ with upstream imports. That history lives in the
 [release archive](https://docs.nanoinfra.org/release-archive) and on the
 [releases page](https://github.com/nanoinfraorg/nanoinfra/releases).
 
-[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.7...HEAD
+[Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.8...HEAD
+[2.2.8]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.7...v2.2.8
 [2.2.7]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.6...v2.2.7
 [2.2.6]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.5...v2.2.6
 [2.2.5]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.4...v2.2.5
