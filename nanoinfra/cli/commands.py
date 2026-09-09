@@ -756,22 +756,46 @@ def status(
                 provider_ready = True
                 console.print("Agent: [green]✓ provider/model configuration is ready[/green]")
 
-        # Check API keys from registry
-        for spec in PROVIDERS:
-            p = getattr(loaded.providers, spec.name, None)
-            if p is None:
-                continue
+        def _provider_state(spec: Any, provider: Any) -> tuple[bool, str]:
+            """Whether this spec is configured, and the line status prints for it."""
             if spec.is_oauth:
-                console.print(f"{spec.label}: [green]✓ (OAuth)[/green]")
-            elif spec.is_local:
+                return True, "[green]✓ (OAuth)[/green]"
+            if spec.is_local:
                 # Local deployments show api_base instead of api_key
-                if resolve_env_refs(p.api_base or ""):
-                    console.print(f"{spec.label}: [green]✓ {p.api_base}[/green]")
-                else:
-                    console.print(f"{spec.label}: [dim]not set[/dim]")
-            else:
-                has_key = bool(resolve_env_refs(p.api_key or ""))
-                console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}")
+                if resolve_env_refs(provider.api_base or ""):
+                    return True, f"[green]✓ {provider.api_base}[/green]"
+                return False, "[dim]not set[/dim]"
+            has_key = bool(resolve_env_refs(provider.api_key or ""))
+            return has_key, "[green]✓[/green]" if has_key else "[dim]not set[/dim]"
+
+        # One row per provider *family*, which is what Settings already prints
+        # (`webui/settings_api.py:_provider_settings_rows`). A compatibility alias is not a second
+        # provider, and iterating every spec printed its label twice -- so `OpenCode Zen` appeared
+        # once for `opencode` and once for the `opencode_zen` alias, and an operator could not tell
+        # which of the two rows their key was under.
+        #
+        # The configured candidate wins the row rather than the canonical always, because a config
+        # written before the alias existed holds the key under the alias name.
+        alias_specs: dict[str, list[Any]] = {}
+        for spec in PROVIDERS:
+            if spec.settings_alias_for:
+                alias_specs.setdefault(spec.settings_alias_for, []).append(spec)
+
+        for canonical in PROVIDERS:
+            if canonical.settings_alias_for:
+                continue
+            rendered: str | None = None
+            for candidate in (canonical, *alias_specs.get(canonical.name, [])):
+                provider = getattr(loaded.providers, candidate.name, None)
+                if provider is None:
+                    continue
+                configured, line = _provider_state(candidate, provider)
+                if rendered is None or configured:
+                    rendered = line
+                if configured:
+                    break
+            if rendered is not None:
+                console.print(f"{canonical.label}: {rendered}")
 
         if provider_ready:
             console.print()
