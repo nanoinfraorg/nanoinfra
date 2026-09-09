@@ -63,6 +63,12 @@ export type ChannelProviderPreset = {
 export type ChannelConfigField = {
   key: string;
   label: string;
+  /**
+   * The contract kind, carried so a consumer can tell one control from another. `agent` is the
+   * one the setup form does not render: it has its own section, because it is a nanoinfra routing
+   * decision rather than a credential the platform issued.
+   */
+  kind?: string;
   placeholder?: string;
   secret?: boolean;
   optional?: boolean;

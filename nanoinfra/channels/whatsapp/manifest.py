@@ -1,6 +1,6 @@
 """WhatsApp management contract."""
 
-from nanoinfra.channels._manifest import DIRECT_GROUP_POLICIES, field
+from nanoinfra.channels._manifest import DIRECT_GROUP_POLICIES, agent_field, field
 from nanoinfra.channels.contracts import ChannelManagementSpec, ChannelSetupSpec
 from nanoinfra.channels.plugin import ChannelPlugin
 from nanoinfra.channels.whatsapp.state import local_state_present
@@ -8,6 +8,7 @@ from nanoinfra.channels.whatsapp.validation import validate
 
 SETUP_SPEC = ChannelSetupSpec(
     fields={
+        "agent": agent_field(),
         "allowFrom": field("list", snapshot=False),
         "groupPolicy": field(
             "enum",

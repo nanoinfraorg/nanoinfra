@@ -34,6 +34,10 @@ class _Loop:
     # covering the metadata rule while the mention rule is covered next door in
     # `test_agent_mention_routing.py`.
     _agent_from_mention = AgentLoop._agent_from_mention
+    # The channel half, likewise. No channels config here, which is the shape of every
+    # deployment that binds no agent to a channel -- covered in `test_channel_agent.py`.
+    _agent_from_channel = AgentLoop._agent_from_channel
+    channels_config = None
 
 
 def _resolve(named: dict[str, object], metadata: dict[str, Any] | None) -> str | None:

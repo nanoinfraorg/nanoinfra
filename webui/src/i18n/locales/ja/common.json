@@ -728,7 +728,15 @@
         "needs_setup": "設定が必要",
         "invalid": "無効",
         "unsupported": "手動設定"
-      }
+      },
+      "agentSection": "応答するエージェント",
+      "agentHelp": "このチャンネルのすべてのメッセージにこのエージェントが応答します。送信者は @agent:<名前> で別のエージェントを指定できます。",
+      "agentLabel": "応答者",
+      "agentDefault": "既定のエージェント",
+      "agentDefaultHelp": "このチャンネルがエージェントを指定しない場合は、デプロイの既定が応答します。",
+      "agentPerMessage": "作成欄でメッセージごとに選択するため、このチャンネルはエージェントを固定しません。",
+      "agentSaved": "保存しました。このチャンネルは指定したエージェントとして応答します。",
+      "agentCleared": "保存しました。このチャンネルはデプロイの既定として応答します。"
     },
     "nanoinfraFeatures": {
       "enabled": "有効",

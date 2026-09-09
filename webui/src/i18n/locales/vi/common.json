@@ -728,7 +728,15 @@
         "needs_setup": "Cần thiết lập",
         "invalid": "Không hợp lệ",
         "unsupported": "Thiết lập thủ công"
-      }
+      },
+      "agentSection": "Tác nhân trả lời",
+      "agentHelp": "Mọi tin nhắn từ kênh này đều do tác nhân này trả lời. Người gửi vẫn có thể chỉ định tác nhân khác bằng @agent:<tên>.",
+      "agentLabel": "Trả lời với tư cách",
+      "agentDefault": "Tác nhân mặc định",
+      "agentDefaultHelp": "Tác nhân mặc định của triển khai sẽ trả lời khi kênh này không chỉ định tác nhân nào.",
+      "agentPerMessage": "Được chọn cho từng tin nhắn trong khung soạn, nên kênh này không gán tác nhân nào.",
+      "agentSaved": "Đã lưu. Kênh này trả lời với tác nhân bạn đã chỉ định.",
+      "agentCleared": "Đã lưu. Kênh này trả lời với tác nhân mặc định của triển khai."
     },
     "nanoinfraFeatures": {
       "enabled": "Đã bật",

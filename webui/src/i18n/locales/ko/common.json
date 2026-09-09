@@ -728,7 +728,15 @@
         "needs_setup": "설정 필요",
         "invalid": "잘못됨",
         "unsupported": "수동 설정"
-      }
+      },
+      "agentSection": "응답하는 에이전트",
+      "agentHelp": "이 채널의 모든 메시지는 이 에이전트가 응답합니다. 보내는 사람은 @agent:<이름>으로 다른 에이전트를 지정할 수 있습니다.",
+      "agentLabel": "응답 주체",
+      "agentDefault": "기본 에이전트",
+      "agentDefaultHelp": "이 채널이 에이전트를 지정하지 않으면 배포 기본값이 응답합니다.",
+      "agentPerMessage": "작성창에서 메시지마다 선택하므로 이 채널은 에이전트를 고정하지 않습니다.",
+      "agentSaved": "저장했습니다. 이 채널은 지정한 에이전트로 응답합니다.",
+      "agentCleared": "저장했습니다. 이 채널은 배포 기본값으로 응답합니다."
     },
     "nanoinfraFeatures": {
       "enabled": "활성화됨",

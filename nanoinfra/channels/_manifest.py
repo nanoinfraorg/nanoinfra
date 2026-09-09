@@ -28,6 +28,19 @@ def field(
     )
 
 
+def agent_field() -> ChannelFieldSpec:
+    """The channel's agent binding (``channels.<name>.agent``).
+
+    Declared per manifest rather than added centrally, because a channel package owns its own
+    setup contract -- `tests/channels/test_channel_setup.py` asserts that
+    `channel_setup_spec(name) is plugin.setup`, and refuses a central spec registry outright. This
+    constructor is the shared part: the kind, and the reason it is not an enum.
+
+    ``snapshot`` stays on, so the browser receives the value that is set and the picker shows it.
+    """
+    return field("agent")
+
+
 def required(name: str) -> SetupRequirement:
     return SetupRequirement.field(name)
 

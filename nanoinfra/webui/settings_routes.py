@@ -118,6 +118,13 @@ _OAUTH_CALLBACK_HEADER = "X-Nanoinfra-OAuth-Callback"
 _OAUTH_RESPONSE_HEADER_MAX_BYTES = 8 * 1024
 
 _SKIP_FIELD = object()
+#: An empty value that means *remove this field*, not *leave it alone*.
+#:
+#: `_SKIP_FIELD` is the right answer for a secret: a blank password box means "keep the stored
+#: one". It is the wrong answer for a picker whose empty option is a choice. Moving the channel's
+#: agent picker back to *Default agent* posts an empty value, and skipping it would leave the
+#: previous agent bound with a form on screen saying it is not.
+_CLEAR_FIELD = object()
 _CHANNEL_CONNECT_ACTIONS = frozenset({"start", "poll", "cancel"})
 
 
@@ -1487,6 +1494,10 @@ class WebUISettingsRouter:
             value = self._coerce_channel_value(raw_key, raw_value, value_type)
             if value is _SKIP_FIELD:
                 continue
+            if value is _CLEAR_FIELD:
+                self._clear_channel_config_value(channel_config, field)
+                saved.append(raw_key)
+                continue
             self._assign_channel_config_value(channel_config, field, value)
             saved.append(raw_key)
 
@@ -1561,7 +1572,39 @@ class WebUISettingsRouter:
                 raise WebUISettingsError(f"'{raw_key}' must be one of: {options}")
             return value
 
+        if kind == "agent":
+            value = raw_value.strip() if isinstance(raw_value, str) else str(raw_value or "").strip()
+            if not value:
+                return _CLEAR_FIELD
+            # Checked against the roster as it is *now*, not against a set baked into the field
+            # spec. The browser was offered `settings.named_agents` when the form was drawn, and
+            # the roster is editable in the neighbouring panel, so a stale form has to be refused
+            # here rather than written.
+            roster = load_config().agents.named
+            if value not in roster:
+                known = ", ".join(sorted(roster)) or "none configured"
+                raise WebUISettingsError(
+                    f"'{raw_key}' names '{value}', which is not a configured agent (have: {known})"
+                )
+            return value
+
         raise WebUISettingsError(f"'{raw_key}' has an unsupported field type")
+
+    @staticmethod
+    def _clear_channel_config_value(channel_config: dict[str, Any], field: str) -> None:
+        """Remove a field, so config.json carries no key rather than a null.
+
+        Walks the same dotted path `_assign_channel_config_value` writes, and stops at the first
+        segment that is not a dict -- a path that was never written has nothing to clear.
+        """
+        target: dict[str, Any] = channel_config
+        parts = field.split(".")
+        for part in parts[:-1]:
+            current: object = target.get(part)
+            if not isinstance(current, dict):
+                return
+            target = cast(dict[str, Any], current)
+        target.pop(parts[-1], None)
 
     @staticmethod
     def _assign_channel_config_value(channel_config: dict[str, Any], field: str, value: Any) -> None:

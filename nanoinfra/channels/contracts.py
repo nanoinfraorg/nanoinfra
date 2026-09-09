@@ -11,7 +11,23 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, TypeGuard, cast
 if TYPE_CHECKING:
     from nanoinfra.channels.plugin import ChannelPlugin
 
-FieldKind = Literal["string", "secret", "list", "bool", "int", "enum"]
+#: ``agent`` is an enum whose choices are not knowable here. ``ChannelFieldSpec.choices`` is a
+#: frozenset on a frozen dataclass declared in each channel's manifest, and the roster it would
+#: have to hold is live config. So the kind travels bare: the browser offers
+#: ``settings.named_agents``, and the save route checks the value against ``agents.named`` as it
+#: is at that moment. An enum fixed at import could not hold the roster, and one rebuilt per
+#: request would refuse a save that was legal when the form was drawn.
+FieldKind = Literal["string", "secret", "list", "bool", "int", "enum", "agent"]
+
+#: The field name a channel's agent binding uses (``channels.<name>.agent``).
+CHANNEL_AGENT_FIELD = "agent"
+
+#: The one channel that does not get the binding.
+#:
+#: The WebUI composer chooses the agent per message and omits the key when it sits on *Default
+#: agent*, so a channel-wide default would answer as that agent for every turn where the operator
+#: chose nothing -- the opposite of "the WebUI takes what the user sends".
+CHANNEL_AGENT_REFUSED = "websocket"
 RouteFieldType = str | tuple[str, set[str]]
 
 

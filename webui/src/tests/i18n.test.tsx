@@ -196,6 +196,16 @@ const LOCALIZED_WORKSPACE_COPY_KEYS = [
 ];
 const LOCALIZED_CHANNEL_SHELL_KEYS = [
   "settings.channels.advanced",
+  // The channel agent binding (`channels.<name>.agent`). Listed here so its copy is held to the
+  // same standard as the rest of the panel: a locale that leaves it in English fails.
+  "settings.channels.agentCleared",
+  "settings.channels.agentDefault",
+  "settings.channels.agentDefaultHelp",
+  "settings.channels.agentHelp",
+  "settings.channels.agentLabel",
+  "settings.channels.agentPerMessage",
+  "settings.channels.agentSaved",
+  "settings.channels.agentSection",
   "settings.channels.checkAndEnable",
   "settings.channels.checkConnection",
   "settings.channels.checkedAndEnabled",

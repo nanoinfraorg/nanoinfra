@@ -83,6 +83,7 @@ export function channelSetup(
       ...copy,
       key: field.key,
       label: copy.label,
+      kind: field.kind,
       secret: field.kind === "secret",
       optional: !field.required,
       inputType: field.kind === "int" ? "number" : undefined,

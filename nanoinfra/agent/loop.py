@@ -60,7 +60,13 @@ from nanoinfra.bus.outbound_events import StreamedResponseEvent
 from nanoinfra.bus.queue import MessageBus
 from nanoinfra.bus.runtime_events import RuntimeEventBus
 from nanoinfra.command import CommandContext, CommandRouter, register_builtin_commands
-from nanoinfra.config.schema import AgentDefaults, ModelPresetConfig, NamedAgentConfig
+from nanoinfra.channels.contracts import CHANNEL_AGENT_REFUSED
+from nanoinfra.config.schema import (
+    AgentDefaults,
+    ModelPresetConfig,
+    NamedAgentConfig,
+    channel_agent_binding,
+)
 from nanoinfra.connectors import attachment as connector_attachment
 from nanoinfra.llm_usage.context import llm_usage_source, source_from_request
 from nanoinfra.providers.base import LLMProvider, LLMUsage, ProviderConversationState
@@ -1053,24 +1059,57 @@ class AgentLoop:
         )
 
     def _acting_agent_for(
-        self, metadata: dict[str, Any] | None, text: str | None = None
+        self,
+        metadata: dict[str, Any] | None,
+        text: str | None = None,
+        channel: str | None = None,
     ) -> str | None:
         """Which named agent answers this turn, from what the client asked for.
 
-        Two sources, and the explicit one wins. A client that chose an agent -- the composer's
+        Three sources, and the explicit one wins. A client that chose an agent -- the composer's
         picker, an automation's binding -- says so in ``metadata``. Otherwise the **text** is
         read for `@agent:<name>`, which is how a person addresses one mid-sentence (#269).
+        Otherwise the **channel** may bind one, which is how an operator says "everything
+        arriving on Telegram is answered by `sre`".
 
         Validated against config rather than trusted, and an unknown name falls back to the
         default agent rather than raising. A name is a *request*; the authority to act as an
         agent is the roster in config, so a client that invents a name gets the deployment
         default -- which grants nothing -- instead of an error that would tell it which names
         exist.
+
+        **An invented name is not a fallthrough.** A non-empty ``metadata["agent"]`` answers here
+        whatever it holds, so a name absent from the roster returns ``None`` and lands on
+        ``agents.defaults`` rather than trying the mention or the channel binding below it. That
+        is deliberate: a client that names authority into existence gets the agent that grants
+        least, not the next-most-specific one.
         """
         requested = (metadata or {}).get("agent")
         if isinstance(requested, str) and requested:
             return requested if requested in self.named_agents else None
-        return self._agent_from_mention(text)
+        return self._agent_from_mention(text) or self._agent_from_channel(channel)
+
+    def _agent_from_channel(self, channel: str | None) -> str | None:
+        """The agent a channel binds for every turn it delivers (``channels.<name>.agent``).
+
+        Below the mention deliberately. Before this field existed, "a person typed the name of an
+        agent and the deployment default answered, which is what made a narrowed default look
+        broken rather than narrowed" (#269). A channel default that swallowed the mention would
+        rebuild that bug one layer up.
+
+        **websocket is refused here as well as at config load.** Config is where an operator is
+        told why, and this is what keeps the invariant true for a ``ChannelsConfig`` built
+        directly -- by a test or an SDK caller -- which never passed the root validator. The WebUI
+        omits ``metadata["agent"]`` when its picker sits on *Default agent*, so a binding honoured
+        here would answer as that agent for every turn where the operator chose nothing.
+        """
+        if not channel or channel == CHANNEL_AGENT_REFUSED or self.channels_config is None:
+            return None
+        section = (self.channels_config.model_extra or {}).get(channel)
+        if section is None:
+            return None
+        agent = channel_agent_binding(section)
+        return agent if agent in self.named_agents else None
 
     def _agent_from_mention(self, text: str | None) -> str | None:
         """The agent a message addressed as `@agent:<name>`, or ``None`` (#269).
@@ -2036,7 +2075,7 @@ class AgentLoop:
         # Resolved once, here, so the request context a tool reads and the record the transcript
         # keeps can never disagree about who answered (#248) -- and so the ceilings that agent
         # declared are on the turn before any tool asks what it may reach (#266).
-        acting_agent = self._acting_agent_for(msg.metadata, msg.content)
+        acting_agent = self._acting_agent_for(msg.metadata, msg.content, msg.channel)
         self._record_acting_agent_binding(msg, acting_agent)
         ctx = TurnContext(
             msg=msg,

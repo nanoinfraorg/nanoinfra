@@ -728,7 +728,15 @@
         "needs_setup": "Needs setup",
         "invalid": "Invalid",
         "unsupported": "Manual setup"
-      }
+      },
+      "agentSection": "Answering agent",
+      "agentHelp": "Every message from this channel is answered by this agent. A sender can still name another with @agent:<name>.",
+      "agentLabel": "Answers as",
+      "agentDefault": "Default agent",
+      "agentDefaultHelp": "The deployment default answers when this channel names no agent.",
+      "agentPerMessage": "Chosen for each message in the composer, so this channel binds no agent.",
+      "agentSaved": "Saved. This channel answers as the agent you named.",
+      "agentCleared": "Saved. This channel answers as the deployment default."
     },
     "nanoinfraFeatures": {
       "enabled": "Enabled",

@@ -1,12 +1,13 @@
 """Slack management contract."""
 
-from nanoinfra.channels._manifest import GROUP_POLICIES, field, required_fields
+from nanoinfra.channels._manifest import GROUP_POLICIES, agent_field, field, required_fields
 from nanoinfra.channels.contracts import ChannelSetupSpec
 from nanoinfra.channels.plugin import ChannelPlugin
 from nanoinfra.channels.slack.validation import validate
 
 SETUP_SPEC = ChannelSetupSpec(
     fields={
+        "agent": agent_field(),
         "appToken": field("secret"),
         "botToken": field("secret"),
         "groupPolicy": field("enum", choices=GROUP_POLICIES, default="mention"),

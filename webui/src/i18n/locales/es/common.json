@@ -728,7 +728,15 @@
         "needs_setup": "Requiere configuración",
         "invalid": "No válido",
         "unsupported": "Configuración manual"
-      }
+      },
+      "agentSection": "Agente que responde",
+      "agentHelp": "Cada mensaje de este canal lo responde este agente. Quien escribe todavía puede nombrar otro con @agent:<nombre>.",
+      "agentLabel": "Responde como",
+      "agentDefault": "Agente predeterminado",
+      "agentDefaultHelp": "Responde el predeterminado del despliegue cuando este canal no nombra ningún agente.",
+      "agentPerMessage": "Se elige en cada mensaje desde el redactor, así que este canal no fija ningún agente.",
+      "agentSaved": "Guardado. Este canal responde como el agente que nombraste.",
+      "agentCleared": "Guardado. Este canal responde como el predeterminado del despliegue."
     },
     "nanoinfraFeatures": {
       "enabled": "Activado",

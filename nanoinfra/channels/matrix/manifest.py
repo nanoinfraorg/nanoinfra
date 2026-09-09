@@ -1,12 +1,13 @@
 """Matrix management contract."""
 
-from nanoinfra.channels._manifest import GROUP_POLICIES, field, one_of, required_fields
+from nanoinfra.channels._manifest import GROUP_POLICIES, agent_field, field, one_of, required_fields
 from nanoinfra.channels.contracts import ChannelSetupSpec
 from nanoinfra.channels.matrix.validation import validate
 from nanoinfra.channels.plugin import ChannelPlugin
 
 SETUP_SPEC = ChannelSetupSpec(
     fields={
+        "agent": agent_field(),
         "homeserver": field(default="https://matrix.org"),
         "userId": field(),
         "password": field("secret"),

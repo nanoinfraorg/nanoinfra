@@ -1,11 +1,12 @@
 """Mattermost management contract."""
 
-from nanoinfra.channels._manifest import GROUP_POLICIES, field, required_fields
+from nanoinfra.channels._manifest import GROUP_POLICIES, agent_field, field, required_fields
 from nanoinfra.channels.contracts import ChannelSetupSpec
 from nanoinfra.channels.plugin import ChannelPlugin
 
 SETUP_SPEC = ChannelSetupSpec(
     fields={
+        "agent": agent_field(),
         "serverUrl": field(),
         "token": field("secret"),
         "teamId": field(),

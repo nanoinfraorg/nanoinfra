@@ -33,6 +33,7 @@ def test_channel_setup_spec_derives_route_and_secret_metadata() -> None:
     assert slack is not None
     assert slack.secrets == {"appToken", "botToken"}
     assert slack.route_field_types == {
+        "agent": "agent",
         "appToken": "secret",
         "botToken": "secret",
         "groupPolicy": ("enum", {"mention", "open", "allowlist"}),
@@ -124,6 +125,13 @@ def test_channel_locales_cover_authoritative_setup_contracts() -> None:
         field_messages = setup_messages.get("fields", {})
         for field_name, field in plugin.setup.fields.items():
             if not field.writable:
+                continue
+            if field.kind == "agent":
+                # The agent binding is the same field on every channel, and it is not rendered as
+                # a row of the credentials form: it has its own section, whose copy lives in the
+                # app locale registry beside the section title. Requiring per-channel copy here
+                # would be the same nine strings in eight languages, plus a tenth every new
+                # channel has to remember, for a control no channel describes differently.
                 continue
             message_key = re.sub(r"[^A-Za-z0-9_-]+", "_", field_name)
             assert message_key in field_messages, f"{name} field {field_name} has no locale copy"

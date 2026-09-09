@@ -54,6 +54,12 @@ import type {
   NanoinfraFeaturesPayload,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import {
+  CHANNEL_AGENT_REFUSED,
+  ChannelAgentField,
+  DEPLOYMENT_DEFAULT_AGENT,
+} from "@/components/settings/channels/ChannelAgentField";
+import { useNamedAgents } from "@/components/settings/AutomationAgentField";
 
 export function ChannelCatalogRow({
   feature,
@@ -283,13 +289,20 @@ function ChannelSetupSurface({
     [feature.configured_fields],
   );
   const mode = setup.mode ?? "credentials";
-  const fields = setup.fields ?? [];
+  const allFields = setup.fields ?? [];
+  // The agent binding is a field of the contract -- so it is saved and prefilled like any other
+  // -- and it is not a row of the credentials form. It has its own section below.
+  const agentField = allFields.find((field) => field.kind === "agent") ?? null;
+  const fields = allFields.filter((field) => field.kind !== "agent");
+  const namedAgents = useNamedAgents(token);
   const requiredFields = fields.filter((field) => !field.optional);
   const primaryFields = requiredFields.length ? requiredFields : fields.slice(0, 1);
   const optionalFields = fields.filter((field) => field.optional);
   const manualFields = setup.manualFields ?? [];
   const advancedFields = mode === "connect" ? manualFields : optionalFields;
-  const editableFields = mode === "credentials" ? fields : mode === "connect" ? manualFields : [];
+  // From `allFields`, not `fields`: the agent binding has to be in `fieldValues` so that a first
+  // enable carries the operator's choice in the same request rather than needing a second save.
+  const editableFields = mode === "credentials" ? allFields : mode === "connect" ? manualFields : [];
   const hasAdvanced = advancedFields.length > 0;
   const requirements = channelRequirements(feature, t);
   const summary = setup.summary ?? tx(
@@ -369,6 +382,34 @@ function ChannelSetupSurface({
     } finally {
       setSaving(false);
       setValidating(false);
+    }
+  };
+
+  const saveAgentBinding = async (agent: string) => {
+    if (!agentField) return;
+    setFieldValue(agentField.key, agent);
+    // A channel that is off carries the choice in the request that enables it, so a first enable
+    // binds an agent in one pass. A channel that is on saves on change, because a picker that
+    // needs a second press to take effect reads as broken.
+    if (!channelToggleChecked(feature)) return;
+    setSaving(true);
+    setNotice(null);
+    try {
+      // No `enable` in the options: this writes one field and must not change whether the
+      // channel runs.
+      const payload = await configureChannel(token, feature.name, { [agentField.key]: agent });
+      if (payload.nanoinfra_features) {
+        onFeaturesUpdate(payload.nanoinfra_features);
+      }
+      setNotice(
+        agent
+          ? tx("settings.channels.agentSaved", "Saved. This channel answers as the agent you named.")
+          : tx("settings.channels.agentCleared", "Saved. This channel answers as the deployment default."),
+      );
+    } catch (err) {
+      setNotice((err as Error).message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -531,6 +572,16 @@ function ChannelSetupSurface({
         >
           {notice}
         </div>
+      ) : null}
+
+      {agentField || feature.name === CHANNEL_AGENT_REFUSED ? (
+        <ChannelAgentField
+          channel={feature.name}
+          agents={namedAgents}
+          value={agentField ? fieldValues[agentField.key] ?? DEPLOYMENT_DEFAULT_AGENT : DEPLOYMENT_DEFAULT_AGENT}
+          onChange={(agent) => void saveAgentBinding(agent)}
+          tx={tx}
+        />
       ) : null}
 
       {setup.steps.length ? (

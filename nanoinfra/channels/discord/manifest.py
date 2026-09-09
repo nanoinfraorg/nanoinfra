@@ -1,12 +1,13 @@
 """Discord management contract."""
 
-from nanoinfra.channels._manifest import DIRECT_GROUP_POLICIES, field, required
+from nanoinfra.channels._manifest import DIRECT_GROUP_POLICIES, agent_field, field, required
 from nanoinfra.channels.contracts import ChannelSetupSpec
 from nanoinfra.channels.discord.validation import validate
 from nanoinfra.channels.plugin import ChannelPlugin
 
 SETUP_SPEC = ChannelSetupSpec(
     fields={
+        "agent": agent_field(),
         "token": field("secret"),
         "allowFrom": field("list", snapshot=False),
         "allowChannels": field("list"),

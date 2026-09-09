@@ -1,11 +1,12 @@
 """Microsoft Teams management contract."""
 
-from nanoinfra.channels._manifest import field, required_fields
+from nanoinfra.channels._manifest import agent_field, field, required_fields
 from nanoinfra.channels.contracts import ChannelSetupSpec
 from nanoinfra.channels.plugin import ChannelPlugin
 
 SETUP_SPEC = ChannelSetupSpec(
     fields={
+        "agent": agent_field(),
         "appId": field(),
         "appPassword": field("secret"),
         "tenantId": field(),

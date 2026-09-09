@@ -9,6 +9,7 @@ from loguru import logger
 from pydantic import AliasChoices, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from nanoinfra.channels.contracts import CHANNEL_AGENT_FIELD, CHANNEL_AGENT_REFUSED
 from nanoinfra.config.connectors import ConnectorRuntimeConfig
 from nanoinfra.config.gates import GatesConfig
 from nanoinfra.config_base import Base
@@ -40,6 +41,21 @@ class ChannelsConfig(Base):
     send_max_retries: int = Field(default=3, ge=0, le=10)  # Max delivery attempts (initial send included)
     transcription_provider: str = "groq"  # Deprecated: use top-level transcription.provider
     transcription_language: str | None = Field(default=None, pattern=r"^[a-z]{2,3}$")  # Deprecated: use top-level transcription.language
+
+
+def channel_agent_binding(section: Any) -> str | None:
+    """The agent named by one channel's config section, or ``None``.
+
+    An empty or blank value is ``None`` rather than an error: it is how the WebUI clears the
+    binding, and a config that wrote ``"agent": ""`` by hand means the same thing.
+    """
+    if isinstance(section, dict):
+        raw = cast(dict[str, Any], section).get(CHANNEL_AGENT_FIELD)
+    else:
+        raw = getattr(section, CHANNEL_AGENT_FIELD, None)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return None
 
 
 class TranscriptionConfig(Base):
@@ -961,6 +977,34 @@ class Config(BaseSettings):
         for fallback in self.agents.defaults.fallback_models:
             if isinstance(fallback, str) and fallback not in self.model_presets:
                 raise ValueError(f"fallback_models entry {fallback!r} not found in model_presets")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_channel_agents(self) -> "Config":
+        """``channels.<name>.agent`` has to name a configured agent, and not exist on websocket.
+
+        Here rather than on ``ChannelsConfig``, for the same reason ``model_preset`` is checked
+        here: the roster is a sibling of ``channels``, and a validator on the channel model cannot
+        see it. This is the shape ``_validate_model_preset`` above already uses.
+
+        Refused at load rather than at answer time, mirroring
+        ``AgentsConfig._delegates_must_exist``. An operator who mistypes should be told by the
+        config that refuses, not by a channel that answers as the deployment default for a week.
+        """
+        for name, section in (self.channels.model_extra or {}).items():
+            agent = channel_agent_binding(section)
+            if agent is None:
+                continue
+            if name == CHANNEL_AGENT_REFUSED:
+                raise ValueError(
+                    f"channels.{name}.agent is not configurable: the WebUI composer chooses the "
+                    "agent for each message, so a channel-wide default would answer as that "
+                    "agent for every turn where the operator chose nothing"
+                )
+            if agent not in self.agents.named:
+                raise ValueError(
+                    f"channels.{name}.agent names {agent!r}, which is not a configured agent"
+                )
         return self
 
     def resolve_default_preset(self) -> ModelPresetConfig:

@@ -728,7 +728,15 @@
         "needs_setup": "Configuration requise",
         "invalid": "Non valide",
         "unsupported": "Configuration manuelle"
-      }
+      },
+      "agentSection": "Agent qui répond",
+      "agentHelp": "Chaque message de ce canal est traité par cet agent. L'expéditeur peut toujours en nommer un autre avec @agent:<nom>.",
+      "agentLabel": "Répond en tant que",
+      "agentDefault": "Agent par défaut",
+      "agentDefaultHelp": "L'agent par défaut du déploiement répond lorsque ce canal n'en nomme aucun.",
+      "agentPerMessage": "Choisi pour chaque message dans le compositeur, donc ce canal ne fixe aucun agent.",
+      "agentSaved": "Enregistré. Ce canal répond avec l'agent que vous avez nommé.",
+      "agentCleared": "Enregistré. Ce canal répond avec l'agent par défaut du déploiement."
     },
     "nanoinfraFeatures": {
       "enabled": "Activé",

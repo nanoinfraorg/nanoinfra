@@ -728,7 +728,15 @@
         "needs_setup": "Perlu penyiapan",
         "invalid": "Tidak valid",
         "unsupported": "Penyiapan manual"
-      }
+      },
+      "agentSection": "Agen yang menjawab",
+      "agentHelp": "Setiap pesan dari saluran ini dijawab oleh agen ini. Pengirim tetap dapat menyebut agen lain dengan @agent:<nama>.",
+      "agentLabel": "Menjawab sebagai",
+      "agentDefault": "Agen bawaan",
+      "agentDefaultHelp": "Agen bawaan deployment menjawab ketika saluran ini tidak menyebut agen mana pun.",
+      "agentPerMessage": "Dipilih pada setiap pesan di kolom tulis, jadi saluran ini tidak mengikat agen apa pun.",
+      "agentSaved": "Tersimpan. Saluran ini menjawab sebagai agen yang Anda sebut.",
+      "agentCleared": "Tersimpan. Saluran ini menjawab sebagai bawaan deployment."
     },
     "nanoinfraFeatures": {
       "enabled": "Aktif",

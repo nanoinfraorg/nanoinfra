@@ -728,7 +728,15 @@
         "needs_setup": "Requer configuração",
         "invalid": "Inválido",
         "unsupported": "Configuração manual"
-      }
+      },
+      "agentSection": "Agente que responde",
+      "agentHelp": "Cada mensagem deste canal é respondida por este agente. Quem envia ainda pode nomear outro com @agent:<nome>.",
+      "agentLabel": "Responde como",
+      "agentDefault": "Agente padrão",
+      "agentDefaultHelp": "O padrão da implantação responde quando este canal não nomeia nenhum agente.",
+      "agentPerMessage": "Escolhido em cada mensagem no compositor, então este canal não fixa nenhum agente.",
+      "agentSaved": "Salvo. Este canal responde como o agente que você nomeou.",
+      "agentCleared": "Salvo. Este canal responde como o padrão da implantação."
     },
     "nanoinfraFeatures": {
       "enabled": "Habilitado",

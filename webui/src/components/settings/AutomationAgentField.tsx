@@ -50,6 +50,58 @@ export function useNamedAgents(token: string, base: string = ""): NamedAgentSumm
   return agents;
 }
 
+/**
+ * The roster as a select, with no opinion about what binding it is editing.
+ *
+ * Two callers: the automation field below, and the channel binding in
+ * `channels/ChannelAgentField.tsx`. One control, because an operator who has bound an agent to a
+ * job should recognise the one that binds an agent to a channel -- and because the empty-roster
+ * rule, the *Default agent* option and the `name — description` option label are the same
+ * decisions in both places.
+ */
+export function AgentSelectField({
+  agents,
+  value,
+  onChange,
+  label,
+  defaultOptionLabel,
+  help,
+}: {
+  agents: NamedAgentSummary[];
+  value: string;
+  onChange: (agent: string) => void;
+  label: string;
+  defaultOptionLabel: string;
+  /** Shown when the selected agent has no description of its own. */
+  help: string;
+}) {
+  if (agents.length === 0) return null;
+
+  const selected = agents.find((agent) => agent.name === value);
+
+  return (
+    <label className="block space-y-1.5">
+      <span className="text-[12px] font-medium text-muted-foreground">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        aria-label={label}
+        className="h-10 w-full rounded-[12px] border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <option value={DEPLOYMENT_DEFAULT_AGENT}>{defaultOptionLabel}</option>
+        {agents.map((agent) => (
+          <option key={agent.name} value={agent.name}>
+            {agent.description ? `${agent.name} — ${agent.description}` : agent.name}
+          </option>
+        ))}
+      </select>
+      <p className="text-[11.5px] leading-4 text-muted-foreground/80">
+        {selected?.description ? selected.description : help}
+      </p>
+    </label>
+  );
+}
+
 export function AutomationAgentField({
   agents,
   value,
@@ -61,38 +113,17 @@ export function AutomationAgentField({
   onChange: (agent: string) => void;
   tx: (key: string, fallback: string) => string;
 }) {
-  if (agents.length === 0) return null;
-
-  const selected = agents.find((agent) => agent.name === value);
-
   return (
-    <label className="block space-y-1.5">
-      <span className="text-[12px] font-medium text-muted-foreground">
-        {tx("settings.automations.fields.agent", "Runs as")}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        aria-label={tx("settings.automations.fields.agent", "Runs as")}
-        className="h-10 w-full rounded-[12px] border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <option value={DEPLOYMENT_DEFAULT_AGENT}>
-          {tx("settings.automations.agentDefault", "Default agent")}
-        </option>
-        {agents.map((agent) => (
-          <option key={agent.name} value={agent.name}>
-            {agent.description ? `${agent.name} — ${agent.description}` : agent.name}
-          </option>
-        ))}
-      </select>
-      <p className="text-[11.5px] leading-4 text-muted-foreground/80">
-        {selected?.description
-          ? selected.description
-          : tx(
-              "settings.automations.agentHelp",
-              "The agent sets the ceiling for this run: its tool groups, and its own instructions. The job may narrow that, never widen it.",
-            )}
-      </p>
-    </label>
+    <AgentSelectField
+      agents={agents}
+      value={value}
+      onChange={onChange}
+      label={tx("settings.automations.fields.agent", "Runs as")}
+      defaultOptionLabel={tx("settings.automations.agentDefault", "Default agent")}
+      help={tx(
+        "settings.automations.agentHelp",
+        "The agent sets the ceiling for this run: its tool groups, and its own instructions. The job may narrow that, never widen it.",
+      )}
+    />
   );
 }

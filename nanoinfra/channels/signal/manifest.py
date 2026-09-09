@@ -1,11 +1,12 @@
 """Signal management contract."""
 
-from nanoinfra.channels._manifest import field, required
+from nanoinfra.channels._manifest import agent_field, field, required
 from nanoinfra.channels.contracts import ChannelSetupSpec
 from nanoinfra.channels.plugin import ChannelPlugin
 
 SETUP_SPEC = ChannelSetupSpec(
     fields={
+        "agent": agent_field(),
         "phoneNumber": field(),
         "daemonHost": field(default="localhost"),
         "daemonPort": field("int", default=8080),

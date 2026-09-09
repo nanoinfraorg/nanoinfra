@@ -34,6 +34,11 @@ class _Roster:
 
     _acting_agent_for = AgentLoop._acting_agent_for
     _agent_from_mention = AgentLoop._agent_from_mention
+    # The channel binding sits below the mention. Borrowed with no channels config, so these
+    # tests read the text rule alone; the ordering between the two is covered in
+    # `test_channel_agent.py`.
+    _agent_from_channel = AgentLoop._agent_from_channel
+    channels_config = None
 
 
 def _who(text: str | None, *names: str, metadata: dict[str, Any] | None = None) -> str | None:

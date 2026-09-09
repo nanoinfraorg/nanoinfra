@@ -1,12 +1,13 @@
 """Telegram management contract."""
 
-from nanoinfra.channels._manifest import GROUP_POLICIES, field, required
+from nanoinfra.channels._manifest import GROUP_POLICIES, agent_field, field, required
 from nanoinfra.channels.contracts import ChannelSetupSpec
 from nanoinfra.channels.plugin import ChannelPlugin
 from nanoinfra.channels.telegram.validation import validate
 
 SETUP_SPEC = ChannelSetupSpec(
     fields={
+        "agent": agent_field(),
         "token": field("secret"),
         "proxy": field("secret"),
         "allowFrom": field("list"),
