@@ -11,6 +11,8 @@ not here.
 
 ## [Unreleased]
 
+## [2.3.2] — 2026-09-09
+
 ### Fixed
 - A server's device memory can now get its first note. The only text asking the agent to append one
   shipped inside the block that carries existing notes, and that block is skipped when the file is
@@ -974,6 +976,7 @@ with upstream imports. That history lives in the
 [releases page](https://github.com/nanoinfraorg/nanoinfra/releases).
 
 [Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.3.0...HEAD
+[2.3.2]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.8...v2.3.0
 [2.2.8]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.7...v2.2.8
