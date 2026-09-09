@@ -11,6 +11,24 @@ not here.
 
 ## [Unreleased]
 
+## [2.3.1] — 2026-09-08
+
+### Added
+- A channel names the agent that answers it. `channels.<name>.agent` binds one agent to every
+  message arriving on that channel, and **Settings → Channels** sets it in an *Answering agent*
+  section on the channel's panel. Named agents shipped with three ways to choose one — the
+  composer, an automation, and `@agent:<name>` in the text — and on nine of the ten channels every
+  turn was answered by the deployment default unless the sender happened to type a mention.
+  A sender can still address another configured agent, which wins over the binding. Two refusals
+  happen when config loads rather than when a message arrives: a name absent from `agents.named`,
+  and the field on `websocket`, where the WebUI composer chooses per message.
+
+### Fixed
+- `nanoinfra status` lists each provider once. A compatibility alias shares its canonical
+  provider's display name, so `OpenCode Zen` appeared twice and an operator could not tell which
+  of the two rows held their key. Settings already collapsed provider families and the CLI did
+  not.
+
 ## [2.3.0] — 2026-09-08
 
 ### Added
@@ -949,6 +967,7 @@ with upstream imports. That history lives in the
 [releases page](https://github.com/nanoinfraorg/nanoinfra/releases).
 
 [Unreleased]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.3.0...HEAD
+[2.3.1]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.8...v2.3.0
 [2.2.8]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.7...v2.2.8
 [2.2.7]: https://github.com/nanoinfraorg/nanoinfra/compare/v2.2.6...v2.2.7
