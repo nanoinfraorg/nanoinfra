@@ -11,6 +11,13 @@ not here.
 
 ## [Unreleased]
 
+### Fixed
+- A server's device memory can now get its first note. The only text asking the agent to append one
+  shipped inside the block that carries existing notes, and that block is skipped when the file is
+  empty, so a deployment with no notes was never told to write one. A remote run also points at
+  `device_notes` in the turn that produced the knowledge, because working a box through
+  `execute_on_server` is not a mention and never reached the mention-gated read (#223).
+
 ## [2.3.1] — 2026-09-08
 
 ### Added

@@ -74,6 +74,20 @@ _PRECEDENCE_HINT = (
     "Never edit somebody else's entry."
 )
 
+#: The bootstrap case: a server is in play and its memory is empty.
+#:
+#: Without this the instruction to append shipped only inside the block that carries notes, and
+#: that block is skipped when the file is empty -- so the only thing asking for a first note
+#: appeared once a note already existed. A deployment ran one box 37 times and wrote nothing.
+_EMPTY_LABEL = "The servers this turn named have no device memory yet: {names}."
+
+_FIRST_NOTE_HINT = (
+    "If this turn learns something a future visitor would need -- a quirk, a deliberate "
+    "configuration, a trap -- record it with device_notes (action='append'). Do not log routine "
+    "checks: 'checked disk, fine' costs every later reader tokens. This is how that memory starts "
+    "existing."
+)
+
 _PARAMETERS = tool_parameters_schema(
     action=StringSchema("Action to perform", enum=_ACTIONS),
     server=StringSchema(
@@ -174,6 +188,9 @@ class DeviceNotesTool(Tool):
             return None
 
         sections: list[str] = []
+        # Named, in the inventory, and carrying nothing yet. Kept so the empty case can ask for a
+        # first note rather than falling through to "no block at all".
+        empty: list[str] = []
         remaining = _INJECT_CHARS_TOTAL
         for server_id in server_ids:
             server = self._servers.get(server_id)
@@ -181,6 +198,7 @@ class DeviceNotesTool(Tool):
                 continue
             text = self._notes.read(server_id).strip()
             if not text:
+                empty.append(server.name)
                 continue
             budget = min(_INJECT_CHARS_PER_SERVER, remaining)
             if budget <= 0:
@@ -200,7 +218,16 @@ class DeviceNotesTool(Tool):
             sections.append(f"### {server.name}\n{text}")
 
         if not sections:
-            return None
+            if not empty:
+                # Nothing named resolved to a server. A mention of something else is not an
+                # invitation to write about it.
+                return None
+            return RuntimeContextBlock(
+                source=DEVICE_NOTES_CONTEXT_SOURCE,
+                content=wrap_runtime_context_lines(
+                    [_EMPTY_LABEL.format(names=", ".join(empty)), _FIRST_NOTE_HINT]
+                ),
+            )
         # A note is written by an operator or by an earlier turn, so it could carry the closing
         # marker and end the block early -- putting the rest of the file, and the precedence rule
         # below it, outside the frame that says "data, not instructions". Neutralised the same way

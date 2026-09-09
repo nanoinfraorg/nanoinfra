@@ -56,6 +56,20 @@ if TYPE_CHECKING:
 # The two sentences that keep the two previews apart (#10). One says a caller asked to look. The
 # other says the gate stopped an action. A test pins them, because an operator who cannot tell
 # the cases apart learns that a preview means nothing.
+#: The turn that ran a command is the turn that knows what it learned (#223 follow-up).
+#:
+#: Device memory reads are mention-gated on purpose, and working a box through
+#: ``execute_on_server`` with a name argument is not a mention -- so a deployment that never types
+#: ``@server:`` was never asked for a note, and one box reached 37 runs with an empty ``NOTES.md``.
+#: The instruction rides the result because that is where the knowledge is. A tool description
+#: cannot do this job: it reads as what the tool does if called, not as what this turn should do,
+#: and it competes with every other description in the prompt.
+DEVICE_MEMORY_NOTE = (
+    "\n\nIf this changed what a future visitor would need to know about that box -- a quirk, a "
+    "deliberate configuration, a trap -- record it with device_notes (action='append'). Skip "
+    "routine results."
+)
+
 PREVIEW_ON_REQUEST_NOTE = (
     "Nothing was run, because this call asked for a preview. A preview needs no permission: "
     "it reaches no host and resolves no credential."
@@ -127,6 +141,18 @@ def default_socket_path() -> Path:
     if named:
         return Path(named)
     return get_data_dir() / "run" / DEFAULT_SOCKET_NAME
+
+
+def _device_memory_note() -> str:
+    """The pointer, or nothing when ``device_notes`` is not attached to this turn.
+
+    The same ``is_attached`` test the notes block applies to itself, so the pointer and the memory
+    it points at are attached or absent as one thing. Naming a tool the turn cannot call is worse
+    than saying nothing.
+    """
+    from nanoinfra.agent.tools import groups
+
+    return DEVICE_MEMORY_NOTE if groups.is_attached("device_notes") else ""
 
 
 @tool_parameters(
@@ -275,6 +301,7 @@ class ExecuteOnServerTool(Tool):
         return (
             f"Ran {command!r} on {server_id_or_name!r} (exit code {response.exit_code}):\n"
             f"{response.output}"
+            f"{_device_memory_note()}"
         )
 
     def _session_id(self) -> str | None:
