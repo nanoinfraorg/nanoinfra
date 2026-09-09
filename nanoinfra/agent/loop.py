@@ -59,8 +59,8 @@ from nanoinfra.bus.events import InboundMessage, OutboundMessage
 from nanoinfra.bus.outbound_events import StreamedResponseEvent
 from nanoinfra.bus.queue import MessageBus
 from nanoinfra.bus.runtime_events import RuntimeEventBus
-from nanoinfra.command import CommandContext, CommandRouter, register_builtin_commands
 from nanoinfra.channels.contracts import CHANNEL_AGENT_REFUSED
+from nanoinfra.command import CommandContext, CommandRouter, register_builtin_commands
 from nanoinfra.config.schema import (
     AgentDefaults,
     ModelPresetConfig,
